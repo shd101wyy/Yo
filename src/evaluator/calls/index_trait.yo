@@ -15,7 +15,8 @@ pragma(Pragma.AllowUnsafe);
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
-{ Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
+{ Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
@@ -995,6 +996,80 @@ _try_comptime_string_index :: (
     comptime_ref : Option(ComptimeRef).None
   )
 });
+/// A named local that `e` moved, and the token it moved at.
+_MovedLocal :: struct(variable : Variable, at : Token);
+/// Every identifier token in `e`.
+_atom_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
+  match(
+    e,
+    .Atom(_, t) => out.push(t),
+    .FnCall(_, callee, args, _, _) => {
+      recur(&callee, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(&a, out), .None => ());
+      });
+    }
+  )
+);
+/// The locals of `env` that `e` names and has already moved: each one's move
+/// site lies inside `e`'s own source.
+_locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_MovedLocal))({
+  toks := ArrayList(Token).new();
+  _atom_tokens_of(e, &mut toks);
+  out := ArrayList(_MovedLocal).new();
+  module := ast_expr_token(e).module_path;
+  (lo : u32) = ast_expr_token(e).character;
+  (hi : u32) = lo;
+  (i : usize) = usize(0);
+  while(i < toks.len(), i = (i + usize(1)), {
+    match(
+      toks.get(i),
+      .Some(t) => if(t.module_path == module, {
+        if(t.character < lo, {
+          lo = t.character;
+        });
+        if(t.character > hi, {
+          hi = t.character;
+        });
+      }),
+      .None => ()
+    );
+  });
+  i = usize(0);
+  while(i < toks.len(), i = (i + usize(1)), {
+    match(
+      toks.get(i),
+      .Some(t) => match(
+        find_variable_in_env(env, &t.value),
+        .Some(v) => match(
+          v.consumed_at_token,
+          .Some(c) => {
+            inside := ((c.module_path == module) && (c.character >= lo) && (c.character <= hi));
+            (seen : bool) = false;
+            (j : usize) = usize(0);
+            while(j < out.len(), j = (j + usize(1)), {
+              match(
+                out.get(j),
+                .Some(o) => if(o.variable.id == v.id, {
+                  seen = true;
+                }),
+                .None => ()
+              );
+            });
+            if(inside && !seen, {
+              out.push(_MovedLocal(variable : v, at : c));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  out
+});
 // ---------------------------------------------------------------------------
 // _specialize_index_method
 // ---------------------------------------------------------------------------
@@ -1035,7 +1110,37 @@ _specialize_index_method :: (
   saved_enclosing := ctx.enclosing_function_return_type;
   saved_spec := ctx.currently_specializing_function;
   saved_spec_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
+  // The trial re-evaluates the receiver and the index argument inside a
+  // whole call, whose argument rules move a move-only named local again.
+  // The dispatch already moved it (`b(k)`, `b(Wrap(k : k))`, `b(take(k))`,
+  // and again for the write's `index_mut` and the unchecked twin), so the
+  // second move threw a swallowed E0901 and codegen called the unspecialized
+  // method, which is never emitted (an undeclared C function). The trial sees
+  // each such local as it was before the call moved it, and the moves are
+  // put back after it
+  // (issues/fixed/2026-10-17-an-index-call-that-moves-a-named-local-calls-an-unemitted-method.md).
+  moved := _locals_moved_inside(expr, caller_env);
+  (mi : usize) = usize(0);
+  while(mi < moved.len(), mi = (mi + usize(1)), {
+    match(
+      moved.get(mi),
+      .Some(m) => {
+        m.variable.consumed_at_token = Option(Token).None;
+      },
+      .None => ()
+    );
+  });
   _specialize_index_method_trial(mv, mty, expr, caller_env, ctx, idx_expr, out);
+  mi = usize(0);
+  while(mi < moved.len(), mi = (mi + usize(1)), {
+    match(
+      moved.get(mi),
+      .Some(m) => {
+        m.variable.consumed_at_token = Option(Token).Some(m.at);
+      },
+      .None => ()
+    );
+  });
   ctx.is_evaluating_function_body_or_async_block = saved_fb;
   ctx.captured_variables = saved_caps;
   ctx.is_evaluating_loop_body = saved_loop;

@@ -453,6 +453,45 @@ _ptr_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
 ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
   match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => rc(TypeValueNode.Unit))
 );
+/// Whether the call's argument `i` is `unit`-typed (false when it has no
+/// ExprInfo). Reads through a call-site `&x` marker, as the evaluator
+/// annotates the place under it.
+_arg_is_unit :: (fn(expr : &AstExpr, i : usize, context : &FunctionGenerationContext) -> bool)(
+  match(
+    ast_call_args_unmarked(expr).get(i),
+    .Some(a) => match(context.base.get_expr_info(&a), .Some(aei) => is_unit_type(&aei.ty), .None => false),
+    .None => false
+  )
+);
+/// The operands of a builtin whose `unit` result touches no memory, kept
+/// for their effects: `((void)(a), (void)(b))`. An operand that emits no C
+/// (a unit value) is skipped; with none left, the call emits no C either,
+/// like every other unit expression.
+_void_effects :: (fn(args : &ArrayList(String)) -> String)({
+  parts := ArrayList(String).new();
+  i := usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    a := _a(args, i);
+    if(a.len() > usize(0), {
+      parts.push(`(void)(${a})`);
+    });
+  });
+  cond(
+    (parts.len() == usize(0)) => String.from(""),
+    true => {
+      out := String.from("(");
+      j := usize(0);
+      while(j < parts.len(), j = (j + usize(1)), {
+        if(j > usize(0), {
+          out.push_str(", ");
+        });
+        out.push_string(_a(&parts, j));
+      });
+      out.push_str(")");
+      out
+    }
+  )
+});
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty) && !can_optimize_as_simple_enum(&aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
@@ -591,22 +630,32 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     (function_name == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
     // A bitwise move out of the pointee (Rust's `ptr::read`): no dup, so the
     // pointee no longer owns the value — its storage must not drop it again.
-    (function_name == BF_YO_PTR_READ) => {
-      out := String.from("(*(");
-      out.push_string(_a(args, usize(0)));
-      out.push_str("))");
-      out
-    },
+    // A `unit` pointee has no storage (`*unit` is a `void*`, and a unit
+    // value emits no C), so the move reads nothing: only the pointer operand
+    // is evaluated.
+    (function_name == BF_YO_PTR_READ) => cond(
+      match(context.base.get_expr_info(expr), .Some(rei) => is_unit_type(&rei.ty), .None => false) => _void_effects(args),
+      true => {
+        out := String.from("(*(");
+        out.push_string(_a(args, usize(0)));
+        out.push_str("))");
+        out
+      }
+    ),
     // A bitwise move into the pointee (Rust's `ptr::write`): the old value is
-    // not dropped, so it must have been moved out (or never initialized).
-    (function_name == BF_YO_PTR_WRITE) => {
-      out := String.from("(*(");
-      out.push_string(_a(args, usize(0)));
-      out.push_str(") = (");
-      out.push_string(_a(args, usize(1)));
-      out.push_str("))");
-      out
-    },
+    // not dropped, so it must have been moved out (or never initialized). A
+    // `unit` value writes nothing; both operands are still evaluated.
+    (function_name == BF_YO_PTR_WRITE) => cond(
+      _arg_is_unit(expr, usize(1), context) => _void_effects(args),
+      true => {
+        out := String.from("(*(");
+        out.push_string(_a(args, usize(0)));
+        out.push_str(") = (");
+        out.push_string(_a(args, usize(1)));
+        out.push_str("))");
+        out
+      }
+    ),
     (function_name == BF_YO_STR_LEN) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));

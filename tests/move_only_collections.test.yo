@@ -1,0 +1,329 @@
+// std's collections hold move-only keys, values and elements
+// (issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md).
+//
+// Each collection moves an element in and out bitwise (`__yo_ptr_read` /
+// `__yo_ptr_write`, `ArrayList.swap`/`remove`/`pop`) and compares keys in
+// place, so no operation below copies a move-only value: before, every
+// probe, rehash, sift and grow read a slot with `slot.*`, which is E0901 for
+// a move-only type. `g_mc_dropped` counts the `drop` runs of `_McFd`, and
+// `g_mc_sum` adds up the dropped `_McFd`s' `n`, so each test checks that
+// every value is dropped exactly once.
+{ assert } :: import("std/assert");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ BTreeMap } :: import("std/collections/btree_map");
+{ OrderedMap } :: import("std/collections/ordered_map");
+{ Deque } :: import("std/collections/deque");
+{ PriorityQueue } :: import("std/collections/priority_queue");
+{ MapEntry } :: import("std/collections/entry");
+(mut(g_mc_dropped) : i32) = i32(0);
+(mut(g_mc_sum) : i32) = i32(0);
+_McFd :: struct(n : i32);
+impl(
+  _McFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_mc_dropped = (g_mc_dropped + i32(1));
+      g_mc_sum = (g_mc_sum + self.n);
+    })
+  )
+);
+// A move-only key that counts its drops in `g_mc_kdropped`.
+(mut(g_mc_kdropped) : i32) = i32(0);
+_McKd :: struct(id : i32);
+derive(_McKd, Eq(_McKd), Hash, Ord(_McKd));
+impl(
+  _McKd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_mc_kdropped = (g_mc_kdropped + i32(1));
+    })
+  )
+);
+// Neither `Copy` nor `Clone`: a move-only key with no `Drop`.
+_McTok :: struct(id : i32);
+derive(_McTok, Eq(_McTok), Hash, Ord(_McTok));
+_mc_take :: (fn(sink(f) : _McFd) -> i32)(f.n);
+test("move-only collections: the element types are move-only", {
+  comptime_assert(!Type.impls(_McFd, Copy) && !Type.impls(_McFd, Clone), "a Drop value type is move-only");
+  comptime_assert(!Type.impls(_McTok, Copy) && !Type.impls(_McTok, Clone), "a plain type with neither is move-only");
+});
+// The issue's reproducer.
+test("HashMap(i32, V) of a Drop value inserts", {
+  before := g_mc_dropped;
+  {
+    m := HashMap(i32, _McFd).new();
+    m.insert(i32(1), _McFd(n : i32(2)));
+    assert(m.len() == usize(1), "one entry");
+  };
+  assert(g_mc_dropped == (before + i32(1)), "the map's death drops its value");
+});
+test("HashMap of a move-only value: insert, overwrite, read in place, remove, rehash", {
+  before := g_mc_dropped;
+  sum_before := g_mc_sum;
+  {
+    m := HashMap(i32, _McFd).new();
+    // 40 entries cross the 16-bucket table's load factor twice: each rehash
+    // moves every entry bitwise and drops none.
+    i := i32(0);
+    while(i < i32(40), i = (i + i32(1)), {
+      m.insert(i, _McFd(n : i));
+    });
+    assert(m.len() == usize(40), "every key inserted");
+    assert(g_mc_dropped == before, "the rehashes dropped nothing");
+    assert(m(i32(3)).n == i32(3), "read in place through the Index impl");
+    match(
+      m.insert(i32(3), _McFd(n : i32(300))),
+      .Some(old) => assert(_mc_take(old) == i32(3), "the overwritten value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    assert(m(i32(3)).n == i32(300), "the new value is stored");
+    match(
+      m.remove(&i32(5)),
+      .Some(v) => assert(_mc_take(v) == i32(5), "the removed value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    assert(!m.contains_key(&i32(5)), "the key is gone");
+    assert(m.remove(&i32(5)).is_none(), "a second remove finds nothing");
+    assert(m.len() == usize(39), "one entry fewer");
+    assert(g_mc_dropped == (before + i32(2)), "the two moved-out values, each once");
+  };
+  assert(g_mc_dropped == (before + i32(41)), "every value dropped exactly once");
+  // 0..39 minus the replaced 3, plus its replacement 300.
+  assert(g_mc_sum == (sum_before + i32(780) + i32(300)), "and each one by its own value");
+});
+test("HashMap of a move-only key and value: remove_entry, retain, clear", {
+  before := g_mc_dropped;
+  {
+    m := HashMap(_McTok, _McFd).new();
+    i := i32(0);
+    while(i < i32(40), i = (i + i32(1)), {
+      m.insert(_McTok(id : i), _McFd(n : i));
+    });
+    assert(m(_McTok(id : i32(4))).n == i32(4), "looked up by a move-only key");
+    assert(m.contains_key(&_McTok(id : i32(4))), "contains_key borrows the key");
+    match(
+      m.remove_entry(&_McTok(id : i32(3))),
+      .Some(e) => match(e, { key : k, value : v } => assert((k.id == i32(3)) && (_mc_take(v) == i32(3)), "the whole entry moves out")),
+      .None => assert(false, "the key was present")
+    );
+    m.retain(&((k : &_McTok, v : &_McFd) => (v.n < i32(20))));
+    assert(m.len() == usize(19), "retain dropped the 20 values from 20 up");
+    assert(g_mc_dropped == (before + i32(21)), "retain drops in place, once each");
+    m.clear();
+    assert(m.is_empty(), "clear empties the map");
+    assert(g_mc_dropped == (before + i32(40)), "clear drops every value once");
+    m.insert(_McTok(id : i32(1)), _McFd(n : i32(1)));
+    assert(m.len() == usize(1), "the cleared map takes new entries");
+  };
+  assert(g_mc_dropped == (before + i32(41)), "every value dropped exactly once");
+});
+test("HashMap of a move-only key with a copyable value: get copies the value only", {
+  m := HashMap(_McTok, i32).new();
+  m.insert(_McTok(id : i32(1)), i32(10));
+  m.insert(_McTok(id : i32(2)), i32(20));
+  assert(m.get(&_McTok(id : i32(2))).unwrap_or(i32(0)) == i32(20), "get reads the value without copying the key");
+  match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old) => assert(old == i32(20), "the old value"), .None => assert(false, "present"));
+  assert(m.remove(&_McTok(id : i32(1))).unwrap_or(i32(0)) == i32(10), "remove drops the stored key");
+  assert(m.len() == usize(1), "one key left");
+});
+test("HashMap entry: and_modify replaces a move-only value without copying it", {
+  before := g_mc_dropped;
+  {
+    m := HashMap(i32, _McFd).new();
+    m.insert(i32(4), _McFd(n : i32(40)));
+    m.entry(&i32(4)).and_modify(&((v : &_McFd) => _McFd(n : (v.n + i32(1)))));
+    assert(m(i32(4)).n == i32(41), "the value was replaced in place");
+    assert(g_mc_dropped == (before + i32(1)), "the old value dropped once");
+  };
+  assert(g_mc_dropped == (before + i32(2)), "and the new one when the map dies");
+});
+test("HashSet of a move-only element", {
+  s := HashSet(_McTok).new();
+  i := i32(0);
+  while(i < i32(40), i = (i + i32(1)), {
+    assert(s.insert(_McTok(id : i)), "a new element");
+  });
+  assert(!s.insert(_McTok(id : i32(7))), "a present element is not new");
+  assert(s.len() == usize(40), "forty elements");
+  assert(s.contains(&_McTok(id : i32(7))), "contains borrows the element");
+  assert(s.remove(&_McTok(id : i32(7))), "remove finds it");
+  assert(!s.contains(&_McTok(id : i32(7))), "and it is gone");
+  assert(s.len() == usize(39), "one fewer");
+});
+test("BTreeMap of a move-only value: insert, overwrite, remove, pop_first, pop_last", {
+  before := g_mc_dropped;
+  {
+    m := BTreeMap(i32, _McFd).new();
+    // Inserted in descending order, so every insert shifts the entries
+    // after it (bitwise swaps).
+    i := i32(20);
+    while(i > i32(0), i = (i - i32(1)), {
+      m.insert(i, _McFd(n : i));
+    });
+    assert(m.len() == usize(20), "twenty entries");
+    assert(m.contains_key(&i32(5)), "contains_key does not copy the value");
+    match(
+      m.insert(i32(5), _McFd(n : i32(500))),
+      .Some(old) => assert(_mc_take(old) == i32(5), "the overwritten value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    match(
+      m.remove(&i32(6)),
+      .Some(v) => assert(_mc_take(v) == i32(6), "the removed value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    match(
+      m.pop_first(),
+      .Some(e) => assert(e.key == i32(1), "the smallest key"),
+      .None => assert(false, "non-empty")
+    );
+    match(
+      m.pop_last(),
+      .Some(e) => assert(e.key == i32(20), "the largest key"),
+      .None => assert(false, "non-empty")
+    );
+    assert(m.len() == usize(17), "four entries fewer");
+    assert(g_mc_dropped == (before + i32(4)), "the four moved-out values, each once");
+  };
+  assert(g_mc_dropped == (before + i32(21)), "every value dropped exactly once");
+});
+test("BTreeMap of a move-only key", {
+  m := BTreeMap(_McTok, i32).new();
+  m.insert(_McTok(id : i32(2)), i32(20));
+  m.insert(_McTok(id : i32(1)), i32(10));
+  m.insert(_McTok(id : i32(3)), i32(30));
+  assert(m.get(&_McTok(id : i32(2))).unwrap_or(i32(0)) == i32(20), "found by binary search, compared in place");
+  match(m.insert(_McTok(id : i32(2)), i32(21)), .Some(old) => assert(old == i32(20), "the old value"), .None => assert(false, "present"));
+  assert(m.remove(&_McTok(id : i32(1))).unwrap_or(i32(0)) == i32(10), "removed");
+  match(m.pop_first(), .Some(e) => assert(e.key.id == i32(2), "the order holds"), .None => assert(false, "non-empty"));
+  assert(m.len() == usize(1), "one entry left");
+});
+test("OrderedMap of a move-only value: insert, overwrite, remove, swap_remove", {
+  before := g_mc_dropped;
+  {
+    m := OrderedMap(i32, _McFd).new();
+    i := i32(0);
+    while(i < i32(10), i = (i + i32(1)), {
+      m.insert(i, _McFd(n : i));
+    });
+    match(
+      m.insert(i32(3), _McFd(n : i32(300))),
+      .Some(old) => assert(_mc_take(old) == i32(3), "the overwritten value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    match(
+      m.remove(&i32(5)),
+      .Some(v) => assert(_mc_take(v) == i32(5), "the removed value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    match(
+      m.swap_remove(&i32(7)),
+      .Some(v) => assert(_mc_take(v) == i32(7), "the swap-removed value moves out"),
+      .None => assert(false, "the key was present")
+    );
+    assert(m.len() == usize(8), "two entries fewer");
+    assert(g_mc_dropped == (before + i32(3)), "the three moved-out values, each once");
+  };
+  assert(g_mc_dropped == (before + i32(11)), "every value dropped exactly once");
+});
+test("Deque of a move-only element: push at both ends past a grow, pop at both ends", {
+  before := g_mc_dropped;
+  sum_before := g_mc_sum;
+  {
+    d := Deque(_McFd).new();
+    i := i32(0);
+    while(i < i32(20), i = (i + i32(1)), {
+      d.push_back(_McFd(n : i));
+      d.push_front(_McFd(n : (i + i32(100))));
+    });
+    assert(d.len() == usize(40), "forty elements");
+    assert(g_mc_dropped == before, "growing moved every element and dropped none");
+    match(d.pop_front(), .Some(v) => assert(_mc_take(v) == i32(119), "the front"), .None => assert(false, "non-empty"));
+    match(d.pop_back(), .Some(v) => assert(_mc_take(v) == i32(19), "the back"), .None => assert(false, "non-empty"));
+    assert(d.len() == usize(38), "two fewer");
+    assert(g_mc_dropped == (before + i32(2)), "the two moved-out elements, each once");
+  };
+  assert(g_mc_dropped == (before + i32(40)), "every element dropped exactly once");
+  // 0..19 plus 100..119.
+  assert(g_mc_sum == (sum_before + i32(2380)), "and each one by its own value");
+});
+test("PriorityQueue of a move-only element", {
+  q := PriorityQueue(_McTok).new();
+  i := i32(0);
+  while(i < i32(20), i = (i + i32(1)), {
+    q.push(_McTok(id : ((i * i32(7)) % i32(20))));
+  });
+  assert(q.len() == usize(20), "twenty elements");
+  expected := i32(19);
+  while(expected >= i32(0), expected = (expected - i32(1)), {
+    match(q.pop(), .Some(t) => assert(t.id == expected, "popped largest first"), .None => assert(false, "non-empty"));
+  });
+  assert(q.is_empty(), "drained");
+  assert(q.pop().is_none(), "an empty queue pops nothing");
+});
+// Every key is dropped exactly once: the overwritten or removed stored key,
+// each probe, and the keys left when the collection dies. The probes are
+// named, so they drop at the end of the block, after the counts inside it.
+test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop each key once", {
+  comptime_assert(!Type.impls(_McKd, Copy) && !Type.impls(_McKd, Clone), "a Drop key is move-only");
+  before := g_mc_kdropped;
+  {
+    p5 := _McKd(id : i32(5));
+    p6 := _McKd(id : i32(6));
+    m := HashMap(_McKd, i32).new();
+    i := i32(0);
+    while(i < i32(40), i = (i + i32(1)), {
+      m.insert(_McKd(id : i), i);
+    });
+    assert(g_mc_kdropped == before, "inserts and rehashes drop no key");
+    match(m.insert(_McKd(id : i32(3)), i32(300)), .Some(old) => assert(old == i32(3), "the old value"), .None => assert(false, "present"));
+    assert(g_mc_kdropped == (before + i32(1)), "an overwrite drops one of the two equal keys");
+    assert(m.remove(&p5).unwrap_or(i32(0)) == i32(5), "removed");
+    assert(g_mc_kdropped == (before + i32(2)), "remove drops the stored key");
+    match(
+      m.remove_entry(&p6),
+      .Some(e) => match(e, { key : k, value : v } => assert((k.id == i32(6)) && (v == i32(6)), "the entry moves out")),
+      .None => assert(false, "present")
+    );
+    assert(g_mc_kdropped == (before + i32(3)), "the moved-out key, once");
+    m.retain(&((k : &_McKd, v : &i32) => (k.id < i32(20))));
+    assert(m.len() == usize(18), "0..19 without 5 and 6");
+    assert(g_mc_kdropped == (before + i32(23)), "retain drops the twenty keys it removes");
+  };
+  // 40 inserted, the overwriting key and the two probes.
+  assert(g_mc_kdropped == (before + i32(43)), "43 keys made, 43 dropped");
+});
+test("HashSet and BTreeMap of a Drop key drop each key once", {
+  before := g_mc_kdropped;
+  {
+    p3 := _McKd(id : i32(3));
+    s := HashSet(_McKd).new();
+    i := i32(0);
+    while(i < i32(10), i = (i + i32(1)), {
+      s.insert(_McKd(id : i));
+    });
+    assert(!s.insert(_McKd(id : i32(7))), "present");
+    assert(g_mc_kdropped == (before + i32(1)), "a repeated insert drops one key");
+    assert(s.remove(&p3), "removed");
+    assert(g_mc_kdropped == (before + i32(2)), "remove drops the stored element");
+  };
+  assert(g_mc_kdropped == (before + i32(12)), "12 elements made, 12 dropped");
+  before2 := g_mc_kdropped;
+  {
+    p6 := _McKd(id : i32(6));
+    m := BTreeMap(_McKd, i32).new();
+    i := i32(10);
+    while(i > i32(0), i = (i - i32(1)), {
+      m.insert(_McKd(id : i), i);
+    });
+    assert(g_mc_kdropped == before2, "inserts drop no key");
+    match(m.insert(_McKd(id : i32(5)), i32(50)), .Some(old) => assert(old == i32(5), "the old value"), .None => assert(false, "present"));
+    assert(g_mc_kdropped == (before2 + i32(1)), "an overwrite drops the new key");
+    assert(m.remove(&p6).unwrap_or(i32(0)) == i32(6), "removed");
+    assert(g_mc_kdropped == (before2 + i32(2)), "remove drops the stored key");
+    match(m.pop_first(), .Some(e) => assert(e.key.id == i32(1), "the smallest key"), .None => assert(false, "non-empty"));
+    assert(g_mc_kdropped == (before2 + i32(3)), "the popped entry's key");
+  };
+  assert(g_mc_kdropped == (before2 + i32(12)), "12 keys made, 12 dropped");
+});

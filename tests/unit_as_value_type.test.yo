@@ -306,6 +306,26 @@ test("an ArrayList of a zero-sized element type grows to any length", {
   assert(all.len() == usize(300), "ArrayList of an all-unit struct holds 300 elements");
   assert(all.get(usize(299)).is_some(), "an all-unit struct element is readable");
 });
+// A bitwise move of a `unit` element touches no memory: `*unit` is a C
+// `void*`, and `__yo_ptr_read`/`__yo_ptr_write` of one emitted
+// `*(void*)p = ()`, which is not C
+// (issues/fixed/2026-10-16-a-pointer-move-of-a-unit-place-emits-invalid-c.md).
+test("an ArrayList of unit swaps, reverses and removes; a HashMap(K, unit) overwrites", {
+  xs := ArrayList(unit).new();
+  xs.push(());
+  xs.push(());
+  xs.push(());
+  xs.swap(usize(0), usize(2));
+  xs.reverse();
+  assert(xs.len() == usize(3), "swap and reverse keep every element");
+  _r := xs.remove(usize(1));
+  assert(xs.len() == usize(2), "remove takes one out");
+  m := HashMap(i32, unit).new();
+  m.insert(i32(1), ());
+  assert(m.insert(i32(1), ()).is_some(), "the overwrite moves the old unit out");
+  assert(m.remove(&i32(1)).is_some(), "remove moves the unit out");
+  assert(m.is_empty(), "the key is gone");
+});
 test("a unit field is erased from the C layout but still reads, writes and compares", {
   s := _UnitLast(a : i32(5), u : ());
   k := s.u;

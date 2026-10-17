@@ -129,26 +129,15 @@ impl(
       .Some(p) => (*T)(p),
       .None => __yo_panic("Deque: allocation failed")
     );
-    // Linearise existing elements into the new buffer
+    // Linearise existing elements into the new buffer. Each element moves
+    // bitwise, so the old buffer is freed below without dropping anything:
+    // no count changes, and a move-only `T` moves too.
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
       idx := ((self._head + i) % self._cap());
       buf := self._buf.unwrap();
-      consume((new_buf.add(i)).* = (buf.add(idx)).*);
+      __yo_ptr_write(new_buf.add(i), __yo_ptr_read(buf.add(idx)));
     });
-    // Drop old elements for RC types before freeing old buffer
-    // (the copy above duped each element, so old slots still hold references)
-    cond(
-      Type.contains_rc_type(T) => {
-        j := usize(0);
-        while(j < self._len, j = (j + usize(1)), {
-          old_idx := ((self._head + j) % self._cap());
-          old_buf := self._buf.unwrap();
-          unsafe.drop((old_buf.add(old_idx)).*);
-        });
-      },
-      true => ()
-    );
     match(
       self._buf,
       .Some(p) => self._free_buf(p),
@@ -199,9 +188,9 @@ impl(
       (self._len == usize(0)) => .None,
       true => {
         buf := self._buf.unwrap();
-        element_ptr := buf.add(self._head);
-        val := element_ptr.*;
-        unsafe.drop(element_ptr.*);
+        // The element moves out bitwise: the slot leaves the ring, so the
+        // deque no longer drops it (a move-only `T` works).
+        val := __yo_ptr_read(buf.add(self._head));
         self._head = ((self._head + usize(1)) % self._cap());
         self._len = (self._len - usize(1));
         .Some(val)
@@ -218,9 +207,7 @@ impl(
           true => (self._tail - usize(1))
         );
         buf := self._buf.unwrap();
-        element_ptr := buf.add(self._tail);
-        val := element_ptr.*;
-        unsafe.drop(element_ptr.*);
+        val := __yo_ptr_read(buf.add(self._tail));
         self._len = (self._len - usize(1));
         .Some(val)
       }

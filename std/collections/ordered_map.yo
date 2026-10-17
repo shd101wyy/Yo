@@ -111,7 +111,7 @@ impl(
     result := self._map.try_insert(key, value);
     cond(
       is_new => match(
-        result,
+        &result,
         .Ok(_) => {
           self._index.insert(key, self._order.len());
           self._order.push(key);
@@ -143,7 +143,7 @@ impl(
   remove : (fn(self : &mut Self, key : &K) -> Option(V))({
     removed := self._map.remove(key);
     match(
-      removed,
+      &removed,
       .Some(_) => {
         idx := match(
           self._index.remove(key),
@@ -173,7 +173,7 @@ impl(
   swap_remove : (fn(self : &mut Self, key : &K) -> Option(V))({
     removed := self._map.remove(key);
     match(
-      removed,
+      &removed,
       .Some(_) => {
         idx := match(
           self._index.remove(key),
