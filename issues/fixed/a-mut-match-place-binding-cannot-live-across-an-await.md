@@ -81,13 +81,18 @@ statement, which ends after the arm. So the work was:
 
 ## Verification
 
-- `tests/match_async_arms.test.yo`: five tests. A place written after one and
+- `tests/match_async_arms.test.yo`: seven tests. A place written after one and
   two resumes; a counted payload replaced and an `ArrayList` payload pushed
   after an await; two places of one arm and a local-borrow scrutinee; two
   spawned tasks interleaving five yields each, so each resume reads its own
-  task's slot; and a place and a local borrow assigned an awaited `String`
-  (the leak above). Before the fix the file failed to compile with this
-  doc's error; after it all pass under the test runner's ASan build.
+  task's slot; the same with the root never mentioned after the `match`
+  (`&mut o` alone keeps `o` in its slot); a field place of a task's local
+  struct; and a place and a local borrow assigned an awaited `String` (the
+  leak above). Before the fix the file failed to compile with this doc's
+  error; after it all pass under the test runner's ASan build. Running them
+  as one batch exposed
+  `issues/fixed/2026-10-17-a-nullable-pointer-match-binding-stores-into-a-same-named-bindings-slot.md`
+  (S2, fixed here too).
 - `tests/cli-cases/mut-match-place-across-an-await-through-a-cell-is-e0911`:
   the cursor-through-a-cell form, awaiting as `e.await(…)`, is E0911. The
   develop binary (`ed733408c`) checks it clean.
