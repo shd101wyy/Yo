@@ -7584,9 +7584,14 @@ not an estimate.
          in-process run there was the scan for that directory. It found one
          more site (`suspension_analysis.test.yo`).
      - The census with the tree-built compiler: `handle=rc` sites went from
-       379 to 0 (src 12 → 0, std 27 → 0, tests 340 → 0). A write through an
-       `Rc` no longer compiles, so "after" also means every census file
-       compiles. The alloc-count ratchet measured 1,836,697,738 calls,
+       379 to 0 (src 12 → 0, std 27 → 0, tests 340 → 0). The audit still
+       prints 29 test lines, none of them a site:
+       - 22 are inside `comptime_expect_error` expectations, which it walks
+         but which are never emitted;
+       - 7 are on a user `ref(struct((*) : i32))` type whose shape it
+         matches as an `Rc`.
+       A write through an `Rc` no longer compiles, so "after" also means
+       every census file compiles. The alloc-count ratchet measured 1,836,697,738 calls,
        +2.1% on the 1,799,052,684 baseline.
      - Two pre-existing generic codegen bugs surfaced once `Channel(T)`'s
        state moved into a `RefCell`. Both are filed S2, and the channel
