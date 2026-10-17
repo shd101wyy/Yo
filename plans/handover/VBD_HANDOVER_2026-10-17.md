@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 02:45 CST):** develop is at `e226f325c` (#1409). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 03:00 CST):** develop is at `b95a982f4` (#1432). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -47,6 +47,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1425 | `yo check` reports errors in any closure with an `io : Io` parameter (S3; it was not specific to D3) |
 | #1426 | A recursive enum's self-shell lowers like its nullable-pointer final (derive Clone S2) |
 | #1423 | Handover status notes |
+| #1432 | V3 A4 compiler half: a generic combinator's by-value future operand accepts a borrowing future (re-rooted at the parameter, so the combinator's future is second-class); decision 38 B overlap is E0910. Only a generic function is a combinator slot (a non-generic one would let two `&mut` operands of one place pass). The std half (`timeout`/`select` over futures) stays parked on `wip/vbd-a4-std-half` behind an S2 |
 | #1409 | A `downcast`/`upcast` result (and `Iso(T)(v)`) declares its owning temp, so a receiver or discarded result is released (S2); the rule is in `c-codegen.instructions.md` |
 | #1438 | S1: an `unwind` through a frame whose destructor makes a call is no longer lost (v0.2.65 gate item 3) |
 | #1412 | V3 A5: `Waker` implements `Clone` over `__yo_waker_clone` (Generation B on the v0.2.64 seed); `cross_thread_wake` uses `w.clone()` again |
@@ -79,7 +80,6 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 | `fix/not-runtime-bool-comptime-fn` (no PR) head `64127047a` | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
 | `fix/async-mutex-strict-fifo` (no PR) head `0cf600d93` | The async `Mutex` is FIFO across event loops (S3) | async/mutex 11/11; the 3 new tests fail before the fix. `sm_protocol`, both checks and cli-diff are left. |
 | `fix/trial-specialization-drops-store` (no PR) head `7352518df` | S1 fix (§5.2); lands after the E1101 PR | Root-cause hypothesis written; its build is pending. |
-| #1432 `feat/vbd-v3-a4-future-operands` head `d0b79f224` | V3 A4 compiler half: `timeout`/`select` accept a borrowing future | Full Tier 1 green on the `583115085`-rebased head (check src 278/278, std 172/172, 11 feature and 7 internal files). The final rebase onto `72f87565b` overlaps #1428 in `function.yo`, so a targeted re-gate (build, check, combinators, `async_await`, `closure_capture_list`, fusion, mutex) is queued. The std half is parked on `wip/vbd-a4-std-half` (head `a83d6ac8b`) behind an S2. A `void*` issue was re-graded to S1 on that branch. |
 | #1437 `fix/generic-derive-where-container-field` head `9f7a958b4` | Derive Clone PR B: a derive's generated body in a generic definition-time trial | Gate B on the pre-rebase head: 0 non-leak failures over all 108 internal files, no file's leak count above the in-process baseline, cli-diff 398/0, check src/std, derive 66/66, fmt and refs clean. The rebase overlapped develop in `calls/function.yo` and `values/anonymous_function.yo`, so a post-rebase build, check and feature-test gate is queued. |
 | #1419 (`7e5b3d66b`), #1420 (`a6ff95233`), #1422 (`843e88fd8`); `fix/field-write-through-shared-borrow` (`2f5301589`); `fix/yo-fix-multi-file-generic-impls` (`ce043660e`) | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
 | #1162 `tss/phase6-step4` (draft) head `7e6024532` | Type-soundness phase 6 step 4 | Unchanged; blocked as described in the 2026-10-15 handover. |
@@ -130,6 +130,8 @@ The doc and its repro (`issues/repros/`) arrive with the E1101 PR. The suspected
 
 On develop:
 
+- `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (**S1**, landed with #1432; pre-existing, seed v0.2.63 does the same): a generic function awaiting an `Impl(Future(T, E))` parameter emits a `void*` result or `T v = ;`, and the tail form `io.async({ op }(io : Io) => io.await(op, io))` silently returns a wrong value. Not a v0.2.65 gate item (it is not a regression), but list it under the release's known issues.
+- `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
 - `issues/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
 - "`!` on a runtime bool in a comptime-type-parameterized fn is E1101" (2026-10-16; the E1101 branch moves it)
@@ -143,7 +145,6 @@ Filed on in-flight branches; they arrive with those PRs:
 - two S2s in the async `Channel` once it sits behind `RefCell` (#1421);
 - a generic `Copy` impl over an `Option(A)` field is rejected even when hand-written (S2, derive Clone PR B);
 - `std/time` getters and `Array.len` now take `&Self` (S2, decision 47 locals);
-- A4's `void*` issue (S1) and the S2 that parks the std half.
 
 The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 
@@ -171,6 +172,7 @@ Paste this over the generated `## Changes` section after the release publishes. 
   - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
   - Fixed (S2): a `downcast`/`upcast` result used as a method receiver or discarded is released, and so is an `Iso(T)(v)` constructor result (#1409).
 - **Type checking:**
+  - V3 A4: a generic future combinator accepts a borrowing future as its by-value operand, and two operands lending overlapping places are E0910 (#1432).
   - Fixed (S2): a generic function's by-value closure parameter owns a deferred closure literal (#1428).
   - `yo check` reports errors inside any closure with an `io : Io` parameter (#1425).
 - **Async runtime:**
