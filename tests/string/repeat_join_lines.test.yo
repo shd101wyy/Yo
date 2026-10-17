@@ -53,8 +53,8 @@ test("String lines iterates over lines", {
     `line1
 line2
 line3`;
-  iter := input.lines();
-  count := usize(0);
+  mut(iter) := input.lines();
+  mut(count) := usize(0);
   joined := ArrayList(String).new();
   while(runtime(true), {
     match(
@@ -72,7 +72,7 @@ line3`;
   assert(joined(usize(2)) == `line3`, "line3");
 });
 test("String lines on empty string", {
-  iter := ``.lines();
+  mut(iter) := ``.lines();
   match(
     iter.next(),
     .Some(_) => assert(false, "empty string should yield no lines"),
@@ -80,11 +80,11 @@ test("String lines on empty string", {
   );
 });
 test("String lines handles trailing newline", {
-  iter :=
+  mut(iter) :=
     `a
 b
 `.lines();
-  count := usize(0);
+  mut(count) := usize(0);
   while(runtime(true), {
     match(
       iter.next(),

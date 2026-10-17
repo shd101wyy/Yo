@@ -26,8 +26,8 @@ eval :: (fn(e : *MyExpr) -> i32)({
         lv * rv
       },
       .List(items) => {
-        sum := i32(0);
-        i := usize(0);
+        mut(sum) := i32(0);
+        mut(i) := usize(0);
         while(i < items.len(), i = (i + usize(1)), {
           match(
             items.get(i),
@@ -114,8 +114,8 @@ _holder_weight :: (fn(h : Holder, stop : bool) -> i32)({
   match(h, .HPair(_, _) => i32(2), .HNest(_) => i32(3), _ => i32(4))
 });
 _holder_sum_ids :: (fn(hs : &ArrayList(Holder)) -> i32)({
-  (total : i32) = i32(0);
-  (i : usize) = usize(0);
+  (mut(total) : i32) = i32(0);
+  (mut(i) : usize) = usize(0);
   while(i < hs.len(), i = (i + usize(1)), {
     match(
       hs.get(i),

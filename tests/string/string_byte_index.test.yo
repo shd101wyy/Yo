@@ -70,8 +70,8 @@ test("String at takes a byte offset and refuses continuation bytes", {
 });
 test("String at agrees with char_indices at every rune start", {
   s := _subject();
-  it := s.char_indices();
-  (n : usize) = usize(0);
+  mut(it) := s.char_indices();
+  (mut(n) : usize) = usize(0);
   while(true, {
     match(
       it.next(),
@@ -114,7 +114,7 @@ test("String substring round-trips through char_indices", {
   s := _subject();
   offsets := ArrayList(usize).new();
   {
-    it := s.char_indices();
+    mut(it) := s.char_indices();
     while(true, {
       match(
         it.next(),
@@ -126,9 +126,9 @@ test("String substring round-trips through char_indices", {
     });
   };
   offsets.push(s.len());
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < offsets.len(), {
-    (j : usize) = i;
+    (mut(j) : usize) = i;
     while(j < offsets.len(), {
       a := offsets(i);
       b := offsets(j);
@@ -145,13 +145,13 @@ test("String is_char_boundary agrees with char_indices, byte for byte", {
   // char_indices yields, plus len().
   s := _subject();
   starts := ArrayList(bool).new();
-  (k : usize) = usize(0);
+  (mut(k) : usize) = usize(0);
   while(k <= s.len(), {
     starts.push(false);
     k = (k + usize(1));
   });
   {
-    it := s.char_indices();
+    mut(it) := s.char_indices();
     while(true, {
       match(
         it.next(),
@@ -165,7 +165,7 @@ test("String is_char_boundary agrees with char_indices, byte for byte", {
     });
   };
   starts(s.len()) = true;
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i <= s.len(), {
     assert(s.is_char_boundary(i) == starts(i), `boundary disagreement at ${i}`);
     i = (i + usize(1));

@@ -159,9 +159,9 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
   ioexn := IoExn(io : io, exn : exn);
   dir := String.from("tests/internal/formatter_fixtures");
   entries := io.await(fs_dir.read_dir(Path.new(dir.clone()), io), ioexn);
-  (checked : usize) = usize(0);
-  (failed : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(checked) : usize) = usize(0);
+  (mut(failed) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < entries.len(), {
     match(
       entries.get(i),
@@ -565,8 +565,8 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
   );
   files := ArrayList(String).new();
   collect_yo_files(Path.new(String.from("tests/internal/formatter_fixtures")), &mut files, io, exn);
-  (saw_dot_file : bool) = false;
-  (i : usize) = usize(0);
+  (mut(saw_dot_file) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < files.len(), {
     if(files.get(i).unwrap().contains(String.from(".fmt_walk_ignored")), {
       saw_dot_file = true;

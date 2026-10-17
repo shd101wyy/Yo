@@ -14,7 +14,7 @@ fcntl :: import("std/sys/fcntl");
 { platform, Platform } :: import("std/process");
 { yield } :: import("std/async");
 test("socketpair create and close", {
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   sp := socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv);
   unsafe(printf("  socketpair = %d\n", sp));
@@ -30,7 +30,7 @@ test("socketpair create and close", {
   assert(c1 == i32(0), "closing socketpair fd1 should succeed");
 });
 test("socketpair bidirectional send and recv", {
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   sp := socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv);
   assert(sp == i32(0), "socketpair should succeed for data exchange");
@@ -39,7 +39,7 @@ test("socketpair bidirectional send and recv", {
   msg1 := (*u8)("hello");
   sent1 := io.await(tcp.send(fd0, msg1, usize(5), i32(0)), io);
   assert(sent1 == i32(5), "sending first message should write 5 bytes");
-  buf1_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(buf1_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf1 := (*u8)(buf1_uninit.as_ptr());
   recv1 := io.await(tcp.recv(fd1, buf1, usize(16), i32(0)), io);
   assert(recv1 == i32(5), "receiving first message should read 5 bytes");
@@ -48,7 +48,7 @@ test("socketpair bidirectional send and recv", {
   msg2 := (*u8)("world!");
   sent2 := io.await(tcp.send(fd1, msg2, usize(6), i32(0)), io);
   assert(sent2 == i32(6), "sending second message should write 6 bytes");
-  buf2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(buf2_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf2 := (*u8)(buf2_uninit.as_ptr());
   recv2 := io.await(tcp.recv(fd0, buf2, usize(16), i32(0)), io);
   assert(recv2 == i32(6), "receiving second message should read 6 bytes");
@@ -70,7 +70,7 @@ test("socketpair bidirectional send and recv", {
 test("epoll fallback: a parked reader and writer on one fd both complete", {
   if(platform == Platform.Linux, {
     env.set("YO_IO_BACKEND", "epoll");
-    sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
     sv := (*i32)(sv_uninit.as_ptr());
     assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
     fd0 := (sv.add(usize(0))).*;
@@ -78,14 +78,14 @@ test("epoll fallback: a parked reader and writer on one fd both complete", {
     assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
     assert(fcntl.setfl(fd1, fcntl.getfl(fd1) | O_NONBLOCK) == i32(0), "fd1 nonblocking");
     // Park a reader on fd0 (nothing to read yet).
-    rbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    mut(rbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
     rbuf := (*u8)(rbuf_uninit.as_ptr());
     r_fut := tcp.recv(fd0, rbuf, usize(16), i32(0));
     // Fill fd0's send buffer, then park a writer on the same fd.
-    chunk_uninit := MaybeUninit(Array(u8, usize(4096))).new();
+    mut(chunk_uninit) := MaybeUninit(Array(u8, usize(4096))).new();
     chunk := (*u8)(chunk_uninit.as_ptr());
-    (filled : i64) = i64(0);
-    (full : bool) = false;
+    (mut(filled) : i64) = i64(0);
+    (mut(full) : bool) = false;
     while(!full, {
       n := i64(unsafe(write(int(fd0), (*void)(chunk), usize(4096))));
       if(n > i64(0), {
@@ -97,9 +97,9 @@ test("epoll fallback: a parked reader and writer on one fd both complete", {
     w_fut := tcp.send(fd0, (*u8)("W"), usize(1), i32(0));
     // Drain from the peer until the writer's byte has arrived: the writer
     // completes only if fd0's EPOLLOUT interest is live.
-    big_uninit := MaybeUninit(Array(u8, usize(65536))).new();
+    mut(big_uninit) := MaybeUninit(Array(u8, usize(65536))).new();
     big := (*u8)(big_uninit.as_ptr());
-    (got : i64) = i64(0);
+    (mut(got) : i64) = i64(0);
     while(got < (filled + i64(1)), {
       n := io.await(tcp.recv(fd1, big, usize(65536), i32(0)), io);
       assert(n > i32(0), "peer drain");
@@ -121,13 +121,13 @@ test("epoll fallback: a parked reader and writer on one fd both complete", {
 // test hung at the last await
 // (issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md).
 _pending_recv_fails_after_close :: (fn(io : Io) -> unit)({
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
   fd0 := (sv.add(usize(0))).*;
   fd1 := (sv.add(usize(1))).*;
   assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
-  rbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(rbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   rbuf := (*u8)(rbuf_uninit.as_ptr());
   r_fut := tcp.recv(fd0, rbuf, usize(16), i32(0));
   io.await(yield(io), io);
@@ -152,14 +152,14 @@ test("closing an fd fails the recv still pending on it (epoll fallback)", {
 // waited forever for data the aborted task had taken
 // (issues/fixed/io-uring-close-leaves-pending-ops-on-the-fd-running.md).
 _aborted_recv_leaves_the_data :: (fn(io : Io) -> unit)({
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
   fd0 := (sv.add(usize(0))).*;
   fd1 := (sv.add(usize(1))).*;
   assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
   fut := io.async((io : Io) => {
-    b_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    mut(b_uninit) := MaybeUninit(Array(u8, usize(16))).new();
     b := (*u8)(b_uninit.as_ptr());
     return(io.await(tcp.recv(fd0, b, usize(16), i32(0)), io));
   });
@@ -168,7 +168,7 @@ _aborted_recv_leaves_the_data :: (fn(io : Io) -> unit)({
   h.abort();
   assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
   assert(io.await(tcp.send(fd1, (*u8)("X"), usize(1), i32(0)), io) == i32(1), "peer send");
-  rbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(rbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   rbuf := (*u8)(rbuf_uninit.as_ptr());
   assert(io.await(tcp.recv(fd0, rbuf, usize(16), i32(0)), io) == i32(1), "the live recv gets the byte");
   assert(rbuf.* == u8(88), "and it is the byte that was sent");
@@ -194,14 +194,14 @@ test("an aborted task's pending recv does not swallow later data (epoll fallback
 // and the live recv waited forever
 // (issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md).
 _aborted_recv_behind_a_live_one :: (fn(io : Io) -> unit)({
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
   fd0 := (sv.add(usize(0))).*;
   fd1 := (sv.add(usize(1))).*;
   assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
   fut := io.async((io : Io) => {
-    b_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    mut(b_uninit) := MaybeUninit(Array(u8, usize(16))).new();
     b := (*u8)(b_uninit.as_ptr());
     got := io.await(tcp.recv(fd0, b, usize(16), i32(0)), io);
     got
@@ -210,7 +210,7 @@ _aborted_recv_behind_a_live_one :: (fn(io : Io) -> unit)({
   io.await(yield(io), io);
   h.abort();
   assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
-  rbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(rbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   rbuf := (*u8)(rbuf_uninit.as_ptr());
   live := tcp.recv(fd0, rbuf, usize(16), i32(0));
   io.await(yield(io), io);
@@ -241,15 +241,15 @@ test("an aborted task's parked recv does not take the bytes of a recv parked aft
 //     attempt at submission can run before an earlier one's deferred wakeup),
 //     so there the contract is only that each byte reaches exactly one recv.
 _recvs_in_order :: (fn(io : Io, fifo : bool) -> unit)({
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
   fd0 := (sv.add(usize(0))).*;
   fd1 := (sv.add(usize(1))).*;
   assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
-  b1_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(b1_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   b1 := (*u8)(b1_uninit.as_ptr());
-  b2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(b2_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   b2 := (*u8)(b2_uninit.as_ptr());
   r1 := tcp.recv(fd0, b1, usize(1), i32(0));
   io.await(yield(io), io);
@@ -291,15 +291,15 @@ test("a recv started behind a parked recv does not overtake it (epoll fallback)"
 // the second recv took the first byte and the parked one got the second
 // (issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md).
 _inline_recv_behind_a_parked_one :: (fn(io : Io) -> unit)({
-  sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   sv := (*i32)(sv_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
   fd0 := (sv.add(usize(0))).*;
   fd1 := (sv.add(usize(1))).*;
   assert(fcntl.setfl(fd0, fcntl.getfl(fd0) | O_NONBLOCK) == i32(0), "fd0 nonblocking");
-  b1_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(b1_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   b1 := (*u8)(b1_uninit.as_ptr());
-  b2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(b2_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   b2 := (*u8)(b2_uninit.as_ptr());
   r1 := tcp.recv(fd0, b1, usize(1), i32(0));
   io.await(yield(io), io);
@@ -333,9 +333,9 @@ test("an inline recv does not overtake a parked recv whose bytes already arrived
 // (issues/fixed/dup2-over-a-descriptor-with-a-parked-op-hangs-the-op.md).
 // It now fails with -EBADF, and fd works again as the duplicate.
 _dup2_over_parked_recv :: (fn(io : Io) -> unit)({
-  a_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(a_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   a := (*i32)(a_uninit.as_ptr());
-  b_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(b_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   b := (*i32)(b_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), a) == i32(0), "socketpair a");
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), b) == i32(0), "socketpair b");
@@ -345,7 +345,7 @@ _dup2_over_parked_recv :: (fn(io : Io) -> unit)({
   b1 := (b.add(usize(1))).*;
   assert(fcntl.setfl(a0, fcntl.getfl(a0) | O_NONBLOCK) == i32(0), "a0 nonblocking");
   assert(fcntl.setfl(b0, fcntl.getfl(b0) | O_NONBLOCK) == i32(0), "b0 nonblocking");
-  buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
   parked := tcp.recv(a0, buf, usize(16), i32(0));
   io.await(yield(io), io);
@@ -380,9 +380,9 @@ test("dup2 over a descriptor with a parked recv fails the recv with EBADF (epoll
 // nobody will ever feed — so the await never returned
 // (issues/fixed/a-top-level-await-completed-by-the-io-poll-blocks-on-unrelated-io.md).
 _await_completed_by_poll :: (fn(io : Io) -> unit)({
-  u_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(u_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   u := (*i32)(u_uninit.as_ptr());
-  p_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(p_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   p := (*i32)(p_uninit.as_ptr());
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), u) == i32(0), "socketpair u");
   assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), p) == i32(0), "socketpair p");
@@ -392,9 +392,9 @@ _await_completed_by_poll :: (fn(io : Io) -> unit)({
   p1 := (p.add(usize(1))).*;
   assert(fcntl.setfl(u0, fcntl.getfl(u0) | O_NONBLOCK) == i32(0), "u0 nonblocking");
   assert(fcntl.setfl(p0, fcntl.getfl(p0) | O_NONBLOCK) == i32(0), "p0 nonblocking");
-  ubuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(ubuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   ubuf := (*u8)(ubuf_uninit.as_ptr());
-  pbuf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(pbuf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   pbuf := (*u8)(pbuf_uninit.as_ptr());
   unrelated := tcp.recv(u0, ubuf, usize(16), i32(0));
   r := tcp.recv(p0, pbuf, usize(16), i32(0));

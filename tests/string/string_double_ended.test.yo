@@ -9,7 +9,7 @@
 { ArrayList } :: import("std/collections/array_list");
 _runes :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := rune))) -> ArrayList(rune))({
   out := ArrayList(rune).new();
-  iter := it;
+  mut(iter) := it;
   while(runtime(true), {
     match(
       iter.next(),
@@ -25,7 +25,7 @@ _runes :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := rune))) ->
 });
 _lines :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := String))) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iter := it;
+  mut(iter) := it;
   while(runtime(true), {
     match(
       iter.next(),
@@ -54,7 +54,7 @@ test("chars().rev() over multi-byte runes", {
   assert(got(usize(2)) == rune(97), "a");
 });
 test("chars next and next_back meet in the middle", {
-  it := `abcd`.chars();
+  mut(it) := `abcd`.chars();
   assert(match(it.next(), .Some(r) => (r == rune(97)), .None => false), "front: a");
   assert(match(it.next_back(), .Some(r) => (r == rune(100)), .None => false), "back: d");
   assert(match(it.next(), .Some(r) => (r == rune(98)), .None => false), "front: b");
@@ -63,18 +63,18 @@ test("chars next and next_back meet in the middle", {
   assert(match(it.next_back(), .Some(_) => false, .None => true), "and so is next_back");
 });
 test("chars next_back on an empty string", {
-  it := ``.chars();
+  mut(it) := ``.chars();
   assert(match(it.next_back(), .Some(_) => false, .None => true), "nothing to take");
 });
 test("bytes next_back walks raw bytes", {
-  it := `aé`.bytes();
+  mut(it) := `aé`.bytes();
   assert(it.next_back().is_some(), "the last continuation byte");
   assert(match(it.next(), .Some(b) => (b == u8(97)), .None => false), "front is still 'a'");
   assert(it.next_back().is_some(), "the lead byte of é");
   assert(match(it.next(), .Some(_) => false, .None => true), "then the ends meet");
 });
 test("char_indices next_back reports the rune's OWN start offset", {
-  it := `aéb`.char_indices();
+  mut(it) := `aéb`.char_indices();
   match(
     it.next_back(),
     .Some(p) => {
@@ -125,7 +125,7 @@ test("lines().rev() with a trailing newline and CRLF", {
   assert(got(usize(1)) == `a`, "then a");
 });
 test("lines next and next_back meet in the middle", {
-  it := `a\nb\nc\nd`.lines();
+  mut(it) := `a\nb\nc\nd`.lines();
   assert(match(it.next(), .Some(s) => (s == `a`), .None => false), "front: a");
   assert(match(it.next_back(), .Some(s) => (s == `d`), .None => false), "back: d");
   assert(match(it.next(), .Some(s) => (s == `b`), .None => false), "front: b");
@@ -134,6 +134,6 @@ test("lines next and next_back meet in the middle", {
   assert(match(it.next_back(), .Some(_) => false, .None => true), "from both directions");
 });
 test("lines next_back on an empty string", {
-  it := ``.lines();
+  mut(it) := ``.lines();
   assert(match(it.next_back(), .Some(_) => false, .None => true), "nothing to take");
 });

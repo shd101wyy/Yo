@@ -68,7 +68,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
   cur = .Some(rc(Node(value : v, next : .None)));
 });
 sum_list :: (fn(list : &List) -> i32)({
-  (total : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
   cur := &list.head;
   while(cur.is_some(), {
     match(
@@ -90,13 +90,13 @@ test("a `&T` parameter borrows: the argument stays usable", {
   assert(s.len() == usize(3), "s was lent, not moved");
 });
 test("a `&mut T` parameter writes the caller's place", {
-  (k : i32) = i32(1);
+  (mut(k) : i32) = i32(1);
   bump(&mut k);
   bump(&mut k);
   assert(k == i32(3), "both writes landed");
 });
 test("receivers `self : &Self` and `self : &mut Self`", {
-  c := Counter(n : i32(1));
+  mut(c) := Counter(n : i32(1));
   c.bump(i32(4));
   assert(c.get() == i32(5), "the &mut receiver wrote, the & receiver read");
 });
@@ -109,7 +109,7 @@ test("each spelling fills a slot typed in the other: one function type", {
   (g1 : (fn(n : &mut i32) -> unit)) = bump;
   (g2 : (fn(n : &mut i32) -> unit)) = old_bump;
   s := String.from("ab");
-  (k : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
   g1(&mut k);
   g2(&mut k);
   assert(((f1(&s) + f2(&s)) == usize(4)) && (k == i32(2)), "all four calls borrowed");
@@ -117,7 +117,7 @@ test("each spelling fills a slot typed in the other: one function type", {
 test("a borrowed move-only value is neither moved nor dropped by the call", {
   before := g_bs_disposed;
   {
-    t := Tracked(n : i32(7));
+    mut(t) := Tracked(n : i32(7));
     assert(tracked_n(&t) == i32(7), "read through &Tracked");
     tracked_set(&mut t, i32(9));
     assert(tracked_n(&t) == i32(9), "written through &mut Tracked");
@@ -130,7 +130,7 @@ test("a borrowed move-only value is neither moved nor dropped by the call", {
 test("`Fn(v : &T)` slots and `(v : &T) => …` closure parameters", {
   s := String.from("hello");
   assert(apply((v : &String) => v.len(), &s) == usize(5), "a closure parameter borrows");
-  (k : i32) = i32(1);
+  (mut(k) : i32) = i32(1);
   apply_mut((v : &mut i32) => {
     v = (v * i32(10));
   }, &mut k);
@@ -143,11 +143,11 @@ test("`y := &place` reads through and `y := &mut place` writes through", {
   s := String.from("abc");
   y := &s;
   assert(y.len() == usize(3), "read through the borrow");
-  x := i32(1);
+  mut(x) := i32(1);
   z := &mut x;
   z = i32(5);
   assert(x == i32(5), "the write through z landed in x");
-  p := Point(x : i32(1), y : i32(2));
+  mut(p) := Point(x : i32(1), y : i32(2));
   px := &mut p.x;
   px = i32(8);
   assert(p.x == i32(8), "a field borrow wrote the field");
@@ -156,7 +156,7 @@ test("the annotated local borrow `(y : &T) = &place`", {
   s := String.from("xy");
   (y : &String) = &s;
   assert(y.len() == usize(2), "read through the annotated borrow");
-  (n : i32) = i32(3);
+  (mut(n) : i32) = i32(3);
   (m : &mut i32) = &mut n;
   m = i32(4);
   assert(n == i32(4), "written through the annotated &mut borrow");
@@ -164,7 +164,7 @@ test("the annotated local borrow `(y : &T) = &place`", {
 test("a local borrow of a move-only value drops nothing", {
   before := g_bs_disposed;
   {
-    t := Tracked(n : i32(2));
+    mut(t) := Tracked(n : i32(2));
     {
       r := &t;
       assert(r.n == i32(2), "read through r");
@@ -177,7 +177,7 @@ test("a local borrow of a move-only value drops nothing", {
   assert(g_bs_disposed == (before + i32(1)), "t was dropped once");
 });
 test("the cursor walk re-points with `cur = &mut n.next` (decision 25)", {
-  l := List(head : .None);
+  mut(l) := List(head : .None);
   append(&mut l, i32(1));
   append(&mut l, i32(2));
   append(&mut l, i32(3));
@@ -187,7 +187,7 @@ test("the cursor walk re-points with `cur = &mut n.next` (decision 25)", {
 // --- Capture lists ------------------------------------------------------------
 test("capture list `{ y : &y, z : &mut z }` and the puns `{ &y, &mut z }`", {
   y := i32(10);
-  z := i32(1);
+  mut(z) := i32(1);
   {
     (h : Impl(Fn(m : i32) -> i32)) = ({ y : &y, z : &mut z }(m : i32) => {
       z = (z + (y + m));
@@ -212,7 +212,7 @@ test("`for(&xs, x => …)` reads and `for(&mut xs, x => …)` writes in place", 
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
-  (sum : i32) = i32(0);
+  (mut(sum) : i32) = i32(0);
   for(&xs, x => {
     sum = (sum + x);
   });

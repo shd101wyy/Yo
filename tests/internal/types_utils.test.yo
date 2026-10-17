@@ -611,8 +611,8 @@ test("raw-ptr predicate: nested struct wrapping a newtype with an inner Ptr is t
 // used to stop at depth 40 in place of a visited set, so a Ptr 45 levels down
 // was reported as absent. A cycle is now the same type object on the path.
 test("raw-ptr predicate: a Ptr 45 levels down is found", {
-  (deep : TypeValue) = t_ptr(t_u8());
-  (i : usize) = usize(0);
+  (mut(deep) : TypeValue) = t_ptr(t_u8());
+  (mut(i) : usize) = usize(0);
   while(i < usize(45), {
     deep = _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(deep.clone()), false, false, false);
     i = (i + usize(1));

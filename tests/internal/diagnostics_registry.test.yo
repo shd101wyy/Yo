@@ -101,7 +101,7 @@ test("every code the classifier emits has a registry entry", {
   codes.push(String.from(E_LOCK_MISMATCH));
   codes.push(String.from(E_STORE_INTEGRITY_MISMATCH));
   codes.push(String.from(E_NO_MATCHING_VERSION));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < codes.len(), {
     c := match(
       codes.get(i),
@@ -122,7 +122,7 @@ test("registry entries are unique and code-shaped", {
   entries := registry_entries();
   assert(entries.len() >= usize(25), `at least 25 entries, got ${entries.len()}`);
   seen := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < entries.len(), {
     e := match(
       entries.get(i),
@@ -131,8 +131,8 @@ test("registry entries are unique and code-shaped", {
     );
     assert(e.code.len() == usize(5), `code shape EXXXX: ${e.code}`);
     assert(e.code.starts_with(String.from("E")), `codes start with E: ${e.code}`);
-    (dup : bool) = false;
-    (j : usize) = usize(0);
+    (mut(dup) : bool) = false;
+    (mut(j) : usize) = usize(0);
     while(j < seen.len(), {
       match(
         seen.get(j),
@@ -240,7 +240,7 @@ test("the reserved E13xx and E15xx bands are allocated with full entries", {
   band.push(String.from(E_LOCK_MISMATCH));
   band.push(String.from(E_STORE_INTEGRITY_MISMATCH));
   band.push(String.from(E_NO_MATCHING_VERSION));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < band.len(), {
     c := match(
       band.get(i),

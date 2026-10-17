@@ -87,12 +87,12 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
   counter := Mutex(i64).new(i64(0));
   wg := WaitGroup.new();
   handles := ArrayList(Thread(unit)).new();
-  (t : i64) = i64(0);
+  (mut(t) : i64) = i64(0);
   while(runtime(t < _THREADS), {
     wg.add(i32(1));
     handles.push(
       Thread(unit).spawn(io => {
-        (i : i64) = i64(0);
+        (mut(i) : i64) = i64(0);
         while(runtime(i < _INCREMENTS_PER_THREAD), {
           counter.with_lock(v => {
             v = (v + i64(1));
@@ -105,7 +105,7 @@ test("Mutex serializes concurrent read-modify-write, losing no update", {
     t = (t + i64(1));
   });
   wg.wait();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(runtime(j < handles.len()), {
     handles(j).join();
     j = (j + usize(1));
@@ -133,12 +133,12 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
   m := Mutex(i64).new(i64(0));
   wg := WaitGroup.new();
   handles := ArrayList(Thread(unit)).new();
-  (t : i64) = i64(0);
+  (mut(t) : i64) = i64(0);
   while(runtime(t < _THREADS), {
     wg.add(i32(1));
     handles.push(
       Thread(unit).spawn(io => {
-        (i : i64) = i64(0);
+        (mut(i) : i64) = i64(0);
         while(runtime(i < i64(500)), {
           // Two separate critical sections per iteration: acquire, release,
           // acquire again.
@@ -156,7 +156,7 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
     t = (t + i64(1));
   });
   wg.wait();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(runtime(j < handles.len()), {
     handles(j).join();
     j = (j + usize(1));

@@ -35,7 +35,7 @@ impl(
 );
 test("iter.filter(closure).next() dispatches through blanket impl", {
   iter := CountIter(i32(0), i32(5));
-  filtered := iter.filter(x => (x > i32(2)));
+  mut(filtered) := iter.filter(x => (x > i32(2)));
   result := filtered.next();
   match(
     result,
@@ -45,7 +45,7 @@ test("iter.filter(closure).next() dispatches through blanket impl", {
 });
 test("iter.filter(closure) keeps all when predicate is always true", {
   iter := CountIter(i32(7), i32(8));
-  filtered := iter.filter(x => true);
+  mut(filtered) := iter.filter(x => true);
   result := filtered.next();
   match(
     result,
@@ -55,7 +55,7 @@ test("iter.filter(closure) keeps all when predicate is always true", {
 });
 test("iter.filter(closure) skips all when predicate is always false", {
   iter := CountIter(i32(0), i32(3));
-  filtered := iter.filter(x => false);
+  mut(filtered) := iter.filter(x => false);
   result := filtered.next();
   match(
     result,

@@ -24,7 +24,7 @@ test("umask affects file creation mode and can be restored", {
   open_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, open_flags, i32(0o666)), io);
   close_result := io.await(file.close(fd), io);
-  statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
+  mut(statx_uninit) := MaybeUninit(Array(u8, usize(256))).new();
   stat_buf := (*u8)(statx_uninit.as_ptr());
   sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf), io);
   st := Statx(stat_buf, usize(256));

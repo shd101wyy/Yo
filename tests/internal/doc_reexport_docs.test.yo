@@ -130,7 +130,7 @@ test("a DIFFERENT type of the same name is not a donor", {
 });
 test("a module that documents its own re-export keeps what it wrote", {
   sig := `Point :: struct(x : i32, y : i32)`;
-  own := _point(false, sig.clone());
+  mut(own) := _point(false, sig.clone());
   own.doc = Option(String).Some(`Re-exported here with a note of its own.`);
   modules := ArrayList(DocModule).new();
   modules.push(_module_with(`index`, &own));

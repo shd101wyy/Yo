@@ -320,16 +320,16 @@ _dag_level :: (fn(i : usize, child : &TypeValue) -> TypeValue)({
   rc(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, labels, types, false, false, false, ``, ArrayList(TypeValue).new(), false))
 });
 test("substitute: a shared struct DAG is substituted once per node", {
-  (ty : TypeValue) = t_some_t(`T`, usize(0));
-  (i : usize) = usize(0);
+  (mut(ty) : TypeValue) = t_some_t(`T`, usize(0));
+  (mut(i) : usize) = usize(0);
   while(i < usize(40), {
     ty = _dag_level(i, &ty);
     i = (i + usize(1));
   });
   s := subst_new();
   subst_add(&s, `T`, usize(0), t_i32());
-  (cur : TypeValue) = substitute(&s, &ty);
-  (depth : usize) = usize(0);
+  (mut(cur) : TypeValue) = substitute(&s, &ty);
+  (mut(depth) : usize) = usize(0);
   while(match(cur, Rc(.Struct({ id : _ })) => true, _ => false), {
     cur = match(cur, Rc(.Struct({ field_types : fts })) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
     depth = (depth + usize(1));

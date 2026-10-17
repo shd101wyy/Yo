@@ -48,8 +48,8 @@ test("awaiting a field-held future through a borrow is E0901", {
 // issues/fixed/named-future-awaited-in-a-while-emits-missing-await-future-field.md
 _named_future_in_loop :: (fn(n : i64, io : Io) -> Impl(Future(i64, Io)))(
   io.async((io : Io) => {
-    (acc : i64) = i64(0);
-    (i : i64) = i64(0);
+    (mut(acc) : i64) = i64(0);
+    (mut(i) : i64) = i64(0);
     while(runtime(i < n), {
       f := _leaf(i32(2), io);
       v := io.await(f, io);
@@ -99,7 +99,7 @@ test("an aborted task drops its Option and value-struct locals", {
   };
   // The aborted task's queued resume runs its aborted-entry guard, which
   // releases it: give the loop the turns that takes.
-  (spins : i32) = i32(0);
+  (mut(spins) : i32) = i32(0);
   while(runtime((g_disposed < (before + i32(2))) && (spins < i32(100))), {
     io.await(yield(io), io);
     spins = (spins + i32(1));
@@ -139,7 +139,7 @@ test("reassigning a heap local from an await releases the old value", {
   before := g_disposed;
   {
     task := io.async((io : Io) => {
-      t := Thing(n : i32(1));
+      mut(t) := Thing(n : i32(1));
       t = io.await(_mk_thing(i32(2), io), io);
       t = io.await(_mk_thing(i32(3), io), io);
       t.n
@@ -171,8 +171,8 @@ test("a primitive match with three arms as the body's tail", {
 // issues/fixed/async-cond-value-with-await-arm-inside-while-yields-zero.md
 _classify_cond :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (total : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(total) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(runtime(i < n), {
       v := cond(
         (i == i32(0)) => i32(1),
@@ -187,8 +187,8 @@ _classify_cond :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _classify_match :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (total : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(total) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(runtime(i < n), {
       v := match(
         i,
@@ -246,7 +246,7 @@ test("an aborted task drops a pattern binding's scrutinee once", {
     r := h.await(io);
     assert(r.is_none(), "the task was aborted");
   };
-  (spins : i32) = i32(0);
+  (mut(spins) : i32) = i32(0);
   while(runtime((g_disposed < (before + i32(1))) && (spins < i32(100))), {
     io.await(yield(io), io);
     spins = (spins + i32(1));
@@ -258,8 +258,8 @@ test("an aborted task drops a pattern binding's scrutinee once", {
 // issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md
 _reassign_in_arm_after_loop_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (i : i32) = i32(0);
-    (last : Thing) = Thing(n : i32(0));
+    (mut(i) : i32) = i32(0);
+    (mut(last) : Thing) = Thing(n : i32(0));
     while(i < i32(10), {
       e.await(_leaf(i, e), e);
       if(i == n, {
@@ -305,7 +305,7 @@ test("an aborted task does not release a local it moved before its await", {
 // issues/fixed/a-bare-block-in-an-io-async-body-keeps-its-locals-until-the-task-ends.md
 _bare_block_then_await :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (seen : i32) = i32(-1);
+    (mut(seen) : i32) = i32(-1);
     {
       a := Thing(n : i32(1));
       e.await(yield(e), e);
@@ -327,7 +327,7 @@ test("a bare block's heap local is released at the block's end, not the task's",
 // slot zeroes it, and the abort dispose drops the slot once.
 _sibling_scope_things :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (sum : i32) = i32(0);
+    (mut(sum) : i32) = i32(0);
     {
       a := Thing(n : i32(1));
       e.await(yield(e), e);
@@ -370,7 +370,7 @@ test("aborting a task in the second of two sibling scopes that share a slot", {
 // rule 4), but its pin holds the first object to the end of the scope.
 _pin_across_await :: (fn(nap : u64, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    o := Thing(n : i32(1));
+    mut(o) := Thing(n : i32(1));
     r := &mut o.n;
     r = (r + i32(1));
     o = Thing(n : i32(5));
@@ -487,7 +487,7 @@ test("an arm that moves its payload into a thrown dyn: the aborted task releases
 // issues/fixed/a-break-or-continue-in-an-io-async-loop-never-releases-its-slot-locals.md
 _break_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (k : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
     while(runtime(true), {
       t := Thing(n : k);
       e.await(yield(e), e);
@@ -510,8 +510,8 @@ test("a break out of an awaiting while releases the iteration's slot local", {
 });
 _continue_slot_local :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (k : i32) = i32(0);
-    (sum : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
+    (mut(sum) : i32) = i32(0);
     while(runtime(k < i32(6)), {
       k = (k + i32(1));
       t := Thing(n : k);
@@ -651,8 +651,8 @@ _MvReport :: struct(items : ArrayList(Thing), n : usize, extra : i32);
 // the frame layout (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
 _scrub_stack :: (fn(k : u64) -> u64)({
   (buf : Array(u64, 512)) = Array(u64, 512).fill(&k);
-  (i : usize) = usize(0);
-  (s : u64) = u64(0);
+  (mut(i) : usize) = usize(0);
+  (mut(s) : u64) = u64(0);
   while(i < usize(512), {
     s = (s + buf(i));
     i = (i + usize(1));
@@ -695,7 +695,7 @@ _rebind_then_read :: (fn(bump : bool, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     t := Thing(n : i32(1));
     e.await(yield(e), e);
-    (cur : Thing) = t;
+    (mut(cur) : Thing) = t;
     if(bump, {
       b := e.await(_bumped(&t, e), e);
       cur = b;
@@ -740,8 +740,8 @@ test("an aborted task releases a value moved to another name once", {
 });
 _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (i : i32) = i32(0);
-    (s : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    (mut(s) : i32) = i32(0);
     while(i < i32(2), {
       t := Thing(n : i);
       if(i == i32(0), {
@@ -882,7 +882,7 @@ test("a state machine returning an implicit capture retains it for the result", 
   };
   assert(g_disposed == (before + i32(1)), "disposed once, by the awaiter's scope");
   out := ArrayList(String).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(3)), {
     out.push(io.await(_give_back_string(`s${i}`, io), io));
     i = (i + i32(1));
@@ -895,7 +895,7 @@ test("a state machine returning an implicit capture retains it for the result", 
     r := io.await(_give_back(Thing(n : i32(6)), io), io);
     alive := (g_disposed == before2);
     strs := ArrayList(String).new();
-    (j : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(runtime(j < i32(3)), {
       strs.push(io.await(_give_back_string(`t${j}`, io), io));
       _churn := ArrayList(String).with_capacity(usize(4));
@@ -948,9 +948,9 @@ _n_later :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
 test("a fused await keeps a named local passed by value alive", {
   before := g_disposed;
   f := io.async((io : Io) => {
-    (total : i32) = i32(0);
-    (i : i32) = i32(0);
-    (early : i32) = i32(0);
+    (mut(total) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    (mut(early) : i32) = i32(0);
     while(runtime(i < i32(3)), {
       th := Thing(n : i);
       at := g_disposed;

@@ -149,7 +149,7 @@ test("an ArrayList of a unit-bearing aggregate round-trips every element", {
   last := ArrayList(_UnitLast).new();
   nested := ArrayList(_NestedUnit).new();
   wrapped := ArrayList(_AllUnitsWrapped).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     v := i32(i);
     first.push(_UnitFirst(u : (), a : v));
@@ -172,7 +172,7 @@ test("an ArrayList of a unit-bearing aggregate round-trips every element", {
   assert(last.len() == n, "ArrayList(_UnitLast) length");
   assert(nested.len() == n, "ArrayList(_NestedUnit) length");
   assert(wrapped.len() == n, "ArrayList(_AllUnitsWrapped) length");
-  (bad : usize) = usize(0);
+  (mut(bad) : usize) = usize(0);
   i = usize(0);
   while(i < n, {
     v := i32(i);
@@ -212,7 +212,7 @@ test("an ArrayList of an ALL-unit aggregate stores every element", {
   // stores a 3-byte struct into it — the store is NOT suppressed the way a bare
   // `unit` store is, because the whole aggregate is written.
   xs := ArrayList(_AllUnits).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(64), {
     xs.push(_AllUnits(x : (), y : (), z : ()));
     i = (i + usize(1));
@@ -226,14 +226,14 @@ test("HashMap(K, unit) does not overflow its bucket array", {
   // field, so a zero-counted `unit` made an EMPTY 16-bucket map already 64
   // bytes short.
   m := HashMap(i32, unit).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(64), {
     m.insert(i, ());
     i = (i + i32(1));
   });
   assert(m.len() == usize(64), "every key is stored");
-  (missing : i32) = i32(0);
-  (j : i32) = i32(0);
+  (mut(missing) : i32) = i32(0);
+  (mut(j) : i32) = i32(0);
   while(j < i32(64), {
     if(!m.contains_key(&j), {
       missing = (missing + i32(1));
@@ -258,13 +258,13 @@ test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every 
   n := usize(64);
   es := ArrayList(_UnitOnlyPayloadEnum).new();
   os := ArrayList(Option(unit)).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     es.push(cond(((i % usize(2)) == usize(0)) => _UnitOnlyPayloadEnum.A(u : ()), true => _UnitOnlyPayloadEnum.B));
     os.push(cond(((i % usize(3)) == usize(0)) => Option(unit).None, true => Option(unit).Some(())));
     i = (i + usize(1));
   });
-  (bad : usize) = usize(0);
+  (mut(bad) : usize) = usize(0);
   i = usize(0);
   while(i < n, {
     want_a := ((i % usize(2)) == usize(0));
@@ -283,7 +283,7 @@ test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every 
 });
 test("an ArrayList of a zero-sized element type grows to any length", {
   xs := ArrayList(unit).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(1000), {
     xs.push(());
     i = (i + usize(1));
@@ -307,7 +307,7 @@ test("an ArrayList of a zero-sized element type grows to any length", {
   assert(all.get(usize(299)).is_some(), "an all-unit struct element is readable");
 });
 test("a unit field is erased from the C layout but still reads, writes and compares", {
-  s := _UnitLast(a : i32(5), u : ());
+  mut(s) := _UnitLast(a : i32(5), u : ());
   k := s.u;
   s.u = ();
   assert(s.a == i32(5), "the non-unit field survives a unit read and write");

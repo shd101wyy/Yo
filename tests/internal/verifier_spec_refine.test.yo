@@ -88,7 +88,7 @@ _load_reports :: (
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -100,7 +100,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     i = (i + usize(1));
   });
   sb := StringBuilder.new();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < ids.len(), {
     if(j > usize(0), {
       sb.write_string(String.from(", "));
@@ -111,8 +111,8 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   sb.to_string()
 });
 _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> usize)({
-  (n : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(n) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),

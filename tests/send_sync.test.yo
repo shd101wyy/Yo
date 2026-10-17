@@ -206,15 +206,15 @@ test("a move-only capture crosses spawn(pool, …) and disposes once", {
 _move_points :: (fn() -> i32)({
   ch := Channel(SsPoint).new(usize(4));
   producer := Thread(unit).spawn(io => {
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(4), {
       _ := ch.send(SsPoint(x : i, y : (i * i32(2))));
       i = (i + i32(1));
     });
     ()
   });
-  (sum : i32) = i32(0);
-  (k : i32) = i32(0);
+  (mut(sum) : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
   while(k < i32(4), {
     match(
       ch.recv(),
@@ -247,8 +247,8 @@ _isolate_a_value_bag :: (fn() -> i32)({
     .Some(iso) => {
       t := Thread(unit).spawn((io : Io) => {
         got := iso.extract();
-        (s : i32) = got.n;
-        (i : usize) = usize(0);
+        (mut(s) : i32) = got.n;
+        (mut(i) : usize) = usize(0);
         while(i < got.items.len(), {
           s = (s + match(got.items.get(i), .Some(v) => v, .None => i32(0)));
           i = (i + usize(1));

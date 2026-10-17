@@ -39,7 +39,7 @@ test("join no separator", {
 });
 // ===== String.lines =====
 test("lines basic", {
-  iter := `foo\nbar\nbaz`.lines();
+  mut(iter) := `foo\nbar\nbaz`.lines();
   l1 := iter.next();
   l2 := iter.next();
   l3 := iter.next();
@@ -50,14 +50,14 @@ test("lines basic", {
   match(l4, .Some(_) => assert(false, "l4 should be none"), .None => ());
 });
 test("lines single line no newline", {
-  iter := `hello`.lines();
+  mut(iter) := `hello`.lines();
   l1 := iter.next();
   l2 := iter.next();
   match(l1, .Some(v) => assert(v == `hello`, "single"), .None => assert(false, "none"));
   match(l2, .Some(_) => assert(false, "should be none"), .None => ());
 });
 test("lines trailing newline", {
-  iter := `a\nb\n`.lines();
+  mut(iter) := `a\nb\n`.lines();
   l1 := iter.next();
   l2 := iter.next();
   l3 := iter.next();
@@ -66,7 +66,7 @@ test("lines trailing newline", {
   match(l3, .Some(_) => assert(false, "l3 should be none"), .None => ());
 });
 test("lines empty string", {
-  iter := ``.lines();
+  mut(iter) := ``.lines();
   match(iter.next(), .Some(_) => assert(false, "should be none"), .None => ());
 });
 // ===== StringBuilder =====

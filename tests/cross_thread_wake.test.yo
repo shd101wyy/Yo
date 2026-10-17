@@ -170,7 +170,7 @@ test("a wake posted before the owner drops its waker handle still resumes the pa
   // after pthread_create (a loaded CI runner, about one time in four; the
   // macOS test leg's four-hour hang). The join makes the ordering
   // deterministic, so this fails every time on the unfixed runtime.
-  (round : i32) = i32(0);
+  (mut(round) : i32) = i32(0);
   while(runtime(round < i32(5)), {
     pw := _RawWaker.park();
     match(
@@ -197,7 +197,7 @@ test("the common ordering — owner drops its waker handle first, worker wakes l
   // path (the frame's handle is gone before the wake arrives), which must stay
   // as fast as before — a fix that made every local release defer would pass
   // the previous test while pessimising this one.
-  (round : i32) = i32(0);
+  (mut(round) : i32) = i32(0);
   while(runtime(round < i32(5)), {
     pw := _RawWaker.park();
     match(
@@ -233,7 +233,7 @@ test("the common ordering — owner drops its waker handle first, worker wakes l
 // (issues/fixed/a-foreign-waker-release-racing-the-owners-drain-leaks-the-park-future.md).
 test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outlives the release posted into it", {
   total := AtomicI32(i32(0));
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(2000)), {
     t := Thread(unit).spawn((io : Io) => {
       v := io.await(spawn_blocking(() => i32(1), io), io);
@@ -250,7 +250,7 @@ test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outl
 // released, on whichever thread: a clone released early must not release the
 // park out from under the handle that will wake it.
 test("a waker clone released on a worker thread leaves the owner's handle able to wake the park", {
-  (round : i32) = i32(0);
+  (mut(round) : i32) = i32(0);
   while(runtime(round < i32(50)), {
     pw := _RawWaker.park();
     match(
@@ -281,7 +281,7 @@ test("a waker clone released on a worker thread leaves the owner's handle able t
   assert(round == i32(50), "every round's park was woken by the surviving handle");
 });
 test("the last of two waker handles, released on a worker after its wake, resumes the park", {
-  (round : i32) = i32(0);
+  (mut(round) : i32) = i32(0);
   while(runtime(round < i32(50)), {
     pw := _RawWaker.park();
     match(

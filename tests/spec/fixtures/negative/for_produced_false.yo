@@ -17,7 +17,7 @@ copy_twice :: (fn(xs : &ArrayList(i32), ensures(true)) -> (r : ArrayList(i32)))(
 // REFUTED at the continue: a skipped element is still produced, so a
 // count of the kept ones falls behind it.
 count_all :: (fn(xs : &ArrayList(i32), ensures(true)) -> (r : usize))({
-  (n : usize) = usize(0);
+  (mut(n) : usize) = usize(0);
   for(xs, x => {
     invariant(n == produced(xs).len());
     if(x <= i32(0), {

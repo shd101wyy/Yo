@@ -127,7 +127,7 @@ test("analysis state survives evaluation and parse errors", {
   // Make sure no earlier state for this path leaks between runs.
   mm_forget_open_document(doc_path.clone());
   _pre := mm_invalidate_document(doc_path.clone());
-  (good_len : usize) = usize(0);
+  (mut(good_len) : usize) = usize(0);
   match(
     _analyze(doc_path.clone(), String.from(_GOOD), std_path.clone(), io),
     .Some(good) => {
@@ -175,7 +175,7 @@ _CONTRACT_DOC :: "pragma(Pragma.Verify);\n\nnon_zero :: ghost_fn((fn(x : i32) ->
 /// ({contents: {kind, value}, range}). Matched one enum level at a time —
 /// nested patterns like `.Some(.Object(...))` do not parse.
 _hover_text :: (fn(h : &Option(JsonValue)) -> String)({
-  (out : String) = String.new();
+  (mut(out) : String) = String.new();
   root := match(
     h,
     .Some(x) => x,
@@ -186,8 +186,8 @@ _hover_text :: (fn(h : &Option(JsonValue)) -> String)({
   contents := match(
     root,
     .Object(ks, vs) => {
-      (found : Option(JsonValue)) = Option(JsonValue).None;
-      (i : usize) = usize(0);
+      (mut(found) : Option(JsonValue)) = Option(JsonValue).None;
+      (mut(i) : usize) = usize(0);
       while(i < ks.len(), {
         match(
           ks.get(i),
@@ -221,7 +221,7 @@ _hover_text :: (fn(h : &Option(JsonValue)) -> String)({
   match(
     contents,
     .Object(ks2, vs2) => {
-      (j : usize) = usize(0);
+      (mut(j) : usize) = usize(0);
       while(j < ks2.len(), {
         match(
           ks2.get(j),

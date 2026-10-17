@@ -77,7 +77,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
       zero_ret := fallocate_io.fallocate(fd, fallocate_io.FALLOC_FL_ZERO_RANGE, i64(1024), i64(1024));
       cond(
         (zero_ret == i32(0)) => {
-          byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
+          mut(byte_uninit) := MaybeUninit(Array(u8, usize(1))).new();
           byte_buf := (*u8)(byte_uninit.as_ptr());
           rd := io.await(file.read(fd, byte_buf, u32(1), u64(1024)), io);
           assert(rd == i32(1), "reading byte from ZERO_RANGE segment should succeed");
@@ -92,7 +92,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
       punch_ret := fallocate_io.fallocate(fd, punch_mode, i64(2048), i64(1024));
       cond(
         (punch_ret == i32(0)) => {
-          byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
+          mut(byte_uninit2) := MaybeUninit(Array(u8, usize(1))).new();
           byte_buf2 := (*u8)(byte_uninit2.as_ptr());
           rd2 := io.await(file.read(fd, byte_buf2, u32(1), u64(2048)), io);
           assert(rd2 == i32(1), "reading byte from PUNCH_HOLE segment should succeed");

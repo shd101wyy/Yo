@@ -119,7 +119,7 @@ test("move-only: `=` moves the right side, and the old value is disposed once", 
   before := g_mo_disposed;
   before_sum := g_mo_sum;
   {
-    (x : _MoFd) = _MoFd(n : i32(3));
+    (mut(x) : _MoFd) = _MoFd(n : i32(3));
     y := _MoFd(n : i32(4));
     x = y;
     assert(x.n == i32(4), "x holds the new value");
@@ -133,7 +133,7 @@ test("move-only: a field store and a constructor argument move", {
   before_sum := g_mo_sum;
   {
     a := _MoFd(n : i32(5));
-    h := _MoHolder(fd : a, tag : i32(1));
+    mut(h) := _MoHolder(fd : a, tag : i32(1));
     comptime_expect_error(a.n, "use of moved value");
     b := _MoFd(n : i32(6));
     h.fd = b;
@@ -252,10 +252,10 @@ test("move-only: a returning arm beside arms that move a value drops it at the r
 _MoPair :: struct(fd : _MoFd, tag : i32);
 test("move-only: an assignment statement drops the old value at the assignment", {
   before := g_mo_disposed;
-  (x : _MoFd) = _MoFd(n : i32(1));
+  (mut(x) : _MoFd) = _MoFd(n : i32(1));
   x = _MoFd(n : i32(2));
   assert(g_mo_disposed == (before + i32(1)), "the variable's old value is gone at once");
-  h := _MoPair(fd : _MoFd(n : i32(3)), tag : i32(0));
+  mut(h) := _MoPair(fd : _MoFd(n : i32(3)), tag : i32(0));
   h.fd = _MoFd(n : i32(4));
   assert(g_mo_disposed == (before + i32(2)), "a field store's too");
   xs := ArrayList(_MoFd).new();
@@ -357,7 +357,7 @@ test("move-only: a loop moves on every way out or none", {
   a := _MoFd(n : i32(1));
   b := _MoFd(n : i32(2));
   comptime_expect_error({
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(2), {
       _mo_take(b);
       i = (i + i32(1));
@@ -431,8 +431,8 @@ _mo_match_early :: (fn(c : bool) -> i32)({
 // A consuming match in a loop body: an arm moves its binding and continues,
 // returns it to the keeper, or breaks while still owning it.
 _mo_match_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
-  (i : i32) = i32(0);
-  (total : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
   while(i < i32(5), {
     o := _mo_some(i);
     match(
@@ -457,8 +457,8 @@ _mo_match_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
 // The same loop over a plain local: the value moved before `continue` is the
 // keeper's (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
 _mo_local_in_loop :: (fn(keep : &mut ArrayList(_MoFd)) -> i32)({
-  (i : i32) = i32(0);
-  (total : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
   while(i < i32(5), {
     f := _MoFd(n : i);
     if(f.n == i32(1), {
@@ -608,7 +608,7 @@ test("consuming match: a guard sees the bindings as borrows; the move happens on
 test("consuming match: `match(&x, …)` borrows and keeps `x`", {
   before := g_mo_disposed;
   {
-    o := _mo_some(i32(6));
+    mut(o) := _mo_some(i32(6));
     r := match(
       &o,
       .Some(f) => f.n,
@@ -686,7 +686,7 @@ test("consuming match: what a match cannot move is E0901 naming the borrow", {
 test("consuming match: a match on an outer local inside a loop is a move per iteration", {
   o := _mo_some(i32(1));
   comptime_expect_error({
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(2), {
       match(
         o,
@@ -698,7 +698,7 @@ test("consuming match: a match on an outer local inside a loop is a move per ite
   }, "match(&o, …)");
   o2 := _mo_some(i32(2));
   {
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(2), {
       match(
         &o2,
@@ -1154,7 +1154,7 @@ test("ArrayList pop/swap/remove/reverse move a move-only element", {
 // decision 19's `take`/`replace`, built on the bitwise moves.
 test("Option take/replace move a move-only payload", {
   before := g_mo_disposed;
-  o := Option(_MoFd).Some(_MoFd(n : i32(7)));
+  mut(o) := Option(_MoFd).Some(_MoFd(n : i32(7)));
   t := o.take();
   assert(o.is_none(), "take leaves .None");
   assert(g_mo_disposed == before, "take moved the payload; nothing was disposed");
@@ -1182,7 +1182,7 @@ test("Option take/replace move a move-only payload", {
 // `?*T` field and rejected every such signature in safe code.
 _vlist_total :: (fn(xs : &VList(i32)) -> usize)(xs.len());
 test("move-only: a buffer-owning value is not a raw view in safe code", {
-  xs := VList(i32).new();
+  mut(xs) := VList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   assert(_vlist_total(&xs) == usize(2), "a safe signature names the owner");

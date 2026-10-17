@@ -13,7 +13,7 @@ seek_io :: import("std/sys/seek");
 iov_io :: import("std/sys/iov");
 helper :: import("../helper");
 test("iov writev and readv on pipe", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation should succeed");

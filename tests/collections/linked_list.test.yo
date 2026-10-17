@@ -578,7 +578,7 @@ test("LinkedList complex operations sequence", {
 test("LinkedList large number of elements", {
   list := LinkedList(i32).new();
   // Add 100 elements
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
     list.push_back(i32(i));
   });
@@ -602,7 +602,7 @@ test("LinkedList alternating push and pop", {
 // ---- Iterator Tests ----
 test("LinkedList into_iter - empty list", {
   list := LinkedList(i32).new();
-  count := i32(0);
+  mut(count) := i32(0);
   for(list.into_iter(), x => {
     count = (count + i32(1));
   });
@@ -611,7 +611,7 @@ test("LinkedList into_iter - empty list", {
 test("LinkedList into_iter - single element", {
   list := LinkedList(i32).new();
   list.push_back(i32(42));
-  result := i32(0);
+  mut(result) := i32(0);
   for(list.into_iter(), x => {
     result = x;
   });
@@ -622,9 +622,9 @@ test("LinkedList into_iter - multiple elements in order", {
   list.push_back(i32(10));
   list.push_back(i32(20));
   list.push_back(i32(30));
-  sum := i32(0);
-  count := i32(0);
-  prev := i32(0);
+  mut(sum) := i32(0);
+  mut(count) := i32(0);
+  mut(prev) := i32(0);
   for(list.into_iter(), x => {
     sum = (sum + x);
     count = (count + i32(1));
@@ -636,7 +636,7 @@ test("LinkedList into_iter - multiple elements in order", {
 });
 test("LinkedList iter - empty list", {
   list := LinkedList(i32).new();
-  count := i32(0);
+  mut(count) := i32(0);
   for(list.iter(), ptr => {
     count = (count + i32(1));
   });
@@ -646,7 +646,7 @@ test("LinkedList iter - yields pointers to elements", {
   list := LinkedList(i32).new();
   list.push_back(i32(10));
   list.push_back(i32(20));
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(list.iter(), ptr => {
     sum = (sum + ptr.*);
   });

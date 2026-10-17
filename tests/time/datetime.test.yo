@@ -153,7 +153,7 @@ test("DateTime.day_of_week is in range for every year, including negative", {
   // Sakamoto path returned 254 and 250 here, which are wraps of -2 and -6.
   // Sweeping across the era boundary exercises the floored-division path that
   // a truncating divide gets wrong.
-  y := i32(-500);
+  mut(y) := i32(-500);
   while(runtime(y <= i32(500)), {
     dt := _jan1(y);
     dow := dt.day_of_week();
@@ -176,7 +176,7 @@ test("DateTime.day_of_week advances one day at a time across boundaries", {
     utc_offset_secs : i32(0)
   );
   base := dt.to_unix();
-  i := i64(0);
+  mut(i) := i64(0);
   while(runtime(i < i64(5)), {
     a := DateTime.from_unix(base + (i * i64(86400)), i64(0));
     b := DateTime.from_unix(base + (i * i64(86400)) + i64(86400), i64(0));

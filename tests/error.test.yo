@@ -148,7 +148,7 @@ test("Test ResumableException throwing and catching with String", {
       }
     )
   );
-  result := safe_divide(6, 3, exn);
+  mut(result) := safe_divide(6, 3, exn);
   assert(result == 2, "Expected 6 divided by 3 to equal 2");
   result = safe_divide(10, 0, exn);
   assert(result == 666, "Expected division by zero to resume with value 666");
@@ -196,7 +196,7 @@ test("Test ResumableException with custom MathError enum", {
       }
     )
   );
-  result := safe_divide(6, 3, exn);
+  mut(result) := safe_divide(6, 3, exn);
   assert(result == 2, "Expected 6 divided by 3 to equal 2");
   result = safe_divide(10, 0, exn);
   assert(result == 888, "Expected division by zero to resume with value 888");
@@ -291,7 +291,7 @@ _catch_payload :: (fn() -> i32)({
 });
 test("every AnyError payload thrown in a loop is released", {
   before := g_thrown_payload_disposed;
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(20), {
     r := _catch_payload();
     assert(r == (i32(0) - i32(1)), "the handler unwound with its sentinel");
@@ -339,7 +339,7 @@ _catch_moved_out :: (fn() -> unit)({
 });
 test("a local moved out through the return value is released when a throw unwinds through its frame", {
   before := g_moved_out_local_disposed;
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(20), {
     _catch_moved_out();
     i = (i + i32(1));
@@ -377,8 +377,8 @@ test("a bare-arrow ResumableException handler resumes like the braced form", {
   assert(_bare_arrow_divide(10, 0, bare) == 777, "the bare-arrow handler resumes with 777");
   assert(_bare_arrow_divide(10, 0, braced) == 777, "the braced handler resumes with 777");
   // Resuming MORE THAN ONCE through the same bare-arrow handler must work.
-  (i : i32) = i32(0);
-  (sum : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  (mut(sum) : i32) = i32(0);
   while(i < i32(5), {
     sum = (sum + _bare_arrow_divide(1, 0, bare));
     i = (i + i32(1));

@@ -246,7 +246,7 @@ test("Test Index on ArrayList(String) - RC dup in loop", {
   list.push(`alpha`);
   list.push(`beta`);
   list.push(`gamma`);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < list.len(), {
     (elem : String) = list(i);
     assert(elem.len() > usize(0), "element should not be empty");
@@ -306,8 +306,8 @@ test("Test NOT operator on Index trait field access", {
   assert(!markers(usize(0)).is_image, "markers[0] should not be image");
   assert(markers(usize(1)).is_image, "markers[1] should be image");
   // ! inside a loop (the original bug scenario)
-  (count : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(count) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(2), {
     if(!markers(usize(i)).is_image, {
       count = (count + i32(1));
@@ -323,7 +323,7 @@ test("Comptime array element indexing", {
   comptime_assert(arr(usize(2)) == i32(3), "last element");
 });
 test("Comptime array mutation via index", {
-  arr :: [i32(0), i32(1), i32(2)];
+  mut(arr) :: [i32(0), i32(1), i32(2)];
   arr(usize(0)) = i32(42);
   comptime_assert(arr(usize(0)) == i32(42), "arr(0) should be mutated");
   comptime_assert(arr(usize(1)) == i32(1), "arr(1) unchanged");
@@ -702,7 +702,7 @@ impl(
   Index(String)(
     Output : String,
     index : (fn(self : &Self, key : String) -> &Self.Output)({
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < self.entries.len(), i = (i + usize(1)), {
         if(self.entries(i) == key, {
           return(&self.entries(i));
@@ -841,7 +841,7 @@ _trio_sum :: (fn(t : &Trio) -> i32)(
   t(usize(0)) + t(usize(1)) + t(usize(2))
 );
 test("V2b: a &mut parameter writes its elements, a & parameter reads them", {
-  t := Trio(a : i32(1), b : i32(2), c : i32(3));
+  mut(t) := Trio(a : i32(1), b : i32(2), c : i32(3));
   _trio_bump(&mut t, usize(0));
   _trio_bump(&mut t, usize(0));
   assert(t.a == i32(3), "two bumps through a &mut parameter");
@@ -963,18 +963,18 @@ impl(
 );
 _v2b_len :: (fn(s : &String) -> usize)(s.len());
 test("V2b: a projection call is an operand", {
-  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
   assert(_v2b_first(&t) == i32(5), "a free projection, read through");
   assert((t.index(usize(1)) + i32(1)) == i32(7), "a method projection in an operator");
   assert(Trio.index(&t, usize(2)) == i32(7), "the static form");
   assert((t.index_mut(usize(0)) + i32(1)) == i32(6), "a &mut projection read through");
 });
 test("V2b: a projection call is a receiver", {
-  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  mut(n) := Names(first : String.from("ab"), second : String.from("xyz"));
   assert(n.name(usize(1)).len() == usize(3), "a &self method on a read projection's place");
   n.name_mut(usize(0)).push_str("c");
   assert(n.first == "abc", "a &mut self method wrote the caller's field");
-  g := Rows(rows : ArrayList(Trio).new());
+  mut(g) := Rows(rows : ArrayList(Trio).new());
   g.rows.push(Trio(a : i32(1), b : i32(2), c : i32(3)));
   g.index_mut(usize(0)).bump_all();
   assert(g.rows(usize(0)).c == i32(4), "a &mut receiver through a &mut projection");
@@ -983,7 +983,7 @@ test("V2b: a projection call is a receiver", {
   assert(g.rows(usize(0)).c == i32(40), "an element write through a &mut projection's place");
 });
 test("V2b: a projection call is a borrow argument", {
-  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
   assert(_v2b_read(t.index(usize(1))) == i32(6), "lent to a & parameter");
   _v2b_bump(t.index_mut(usize(2)));
   _v2b_bump(_v2b_first_mut(&mut t));
@@ -992,7 +992,7 @@ test("V2b: a projection call is a borrow argument", {
   assert(_v2b_len(n.name(usize(0))) == usize(2), "an RC element lent to a & parameter");
 });
 test("V2b: a projection call binds a local borrow", {
-  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
   r := t.index(usize(1));
   assert(r == i32(6), "read through the & borrow");
   assert(t.b == i32(6), "its root stays readable while a & borrow is live");
@@ -1001,7 +1001,7 @@ test("V2b: a projection call binds a local borrow", {
   assert(t.c == i32(37), "written through the &mut borrow, read after its last use");
   t.c = i32(1);
   assert(t.c == i32(1), "the root is writable after the borrow's last use");
-  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  mut(n) := Names(first : String.from("ab"), second : String.from("xyz"));
   s := n.name_mut(usize(1));
   s.push_str("!");
   kept := n.name(usize(1));
@@ -1045,7 +1045,7 @@ impl(
   )
 );
 test("V2b: a generic impl's projection method call is a place", {
-  p := V2bPair(i32)(v : i32(7), w : i32(8));
+  mut(p) := V2bPair(i32)(v : i32(7), w : i32(8));
   r := p.at(usize(1));
   assert((r + i32(0)) == i32(8), "bound as a & borrow");
   assert((p.at(usize(0)) + i32(1)) == i32(8), "an operand");
@@ -1069,11 +1069,11 @@ comptime_expect_error(
   "is a read projection"
 );
 test("V2b: a &mut projection call is the left of `=`", {
-  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
   t.index_mut(usize(1)) = i32(60);
   _v2b_first_mut(&mut t) = i32(6);
   assert((t.b == i32(60)) && (t.a == i32(6)), "both writes reached the caller's fields");
-  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  mut(n) := Names(first : String.from("ab"), second : String.from("xyz"));
   n.name_mut(usize(0)) = String.from("replaced");
   assert((n.first == "replaced") && (n.second == "xyz"), "an RC element replaced in place");
 });
@@ -1082,7 +1082,7 @@ test("V2b: a &mut projection call is the left of `=`", {
 _v2b_row_a :: (fn(g : &Rows, i : usize) -> &i32)(&g.index(i).a);
 _v2b_row_b_mut :: (fn(g : &mut Rows, i : usize) -> &mut i32)(&mut g.index_mut(i).b);
 test("V2b: a projection yields another projection's result", {
-  g := Rows(rows : ArrayList(Trio).new());
+  mut(g) := Rows(rows : ArrayList(Trio).new());
   g.rows.push(Trio(a : i32(1), b : i32(2), c : i32(3)));
   assert(_v2b_row_a(&g, usize(0)) == i32(1), "a & projection through a & projection");
   _v2b_row_b_mut(&mut g, usize(0)) = i32(20);
@@ -1155,7 +1155,7 @@ comptime_expect_error(
 // The root is frozen while a binding of the result is live (E0911).
 comptime_expect_error(
   _v2b_write_root_under_read :: (fn() -> unit)({
-    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
     r := t.index(usize(0));
     t.a = i32(9);
     _v := r;
@@ -1164,7 +1164,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   _v2b_overwrite_root_under_read :: (fn() -> unit)({
-    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
     r := t.index(usize(0));
     t = Trio(a : i32(1), b : i32(2), c : i32(3));
     _v := r;
@@ -1185,7 +1185,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   _v2b_read_root_under_mut :: (fn() -> unit)({
-    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    mut(t) := Trio(a : i32(5), b : i32(6), c : i32(7));
     w := t.index_mut(usize(0));
     x := t.b;
     w = x;
@@ -1338,7 +1338,7 @@ impl(
     Output : i32,
     index : (fn(self : &Self, idx : usize) -> &Self.Output)({
       label := String.from("Chain");
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < self.items.len(), {
         if(i == idx, {
           return(&self.items(i));

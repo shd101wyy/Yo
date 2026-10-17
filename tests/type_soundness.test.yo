@@ -295,7 +295,7 @@ derive(generic(T : Type), where(T <: Clone), _Wrap(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _Wrap(T), Copy);
 test("soundness: an inout call through a fn value mutates the argument", {
   (f : (fn(x : &mut i32) -> unit)) = _bump;
-  (v : i32) = i32(5);
+  (mut(v) : i32) = i32(5);
   f(&mut v);
   _bump(&mut v);
   assert(v == i32(7), "fn-typed local and direct call both mutate");
@@ -329,7 +329,7 @@ test("soundness: parameter modes are part of a fn type", {
 test("soundness: the memo keeps a by-value and an inout instantiation apart", {
   (w0 : _Wrap((fn(x : i32) -> unit))) = _Wrap((fn(x : i32) -> unit))(inner : _p35_by_val);
   (w1 : _Wrap((fn(x : &mut i32) -> unit))) = _Wrap((fn(x : &mut i32) -> unit))(inner : _bump);
-  (v : i32) = i32(5);
+  (mut(v) : i32) = i32(5);
   w0.inner(v);
   w1.inner(&mut v);
   assert(v == i32(6), "the inout instance mutates");
@@ -338,7 +338,7 @@ test("soundness canary: a fn value flows into a slot of the same modes", {
   (g : (fn(x : &mut i32) -> unit)) = _bump;
   (h : (fn(sink(s) : String) -> usize)) = _p35_eat;
   (k : (fn(s : &String) -> usize)) = _p35_len;
-  (v : i32) = i32(1);
+  (mut(v) : i32) = i32(1);
   g(&mut v);
   assert(v == i32(2), "inout slot");
   assert(h(String.from("abc")) == usize(3), "own slot");
@@ -500,7 +500,7 @@ impl(
   })
 );
 _io_run :: (fn(generic(T : Type), io : Io, seed : &T, cb : &Impl(Fn(io : Io) -> T), where(T <: Send)) -> T)({
-  b := _IoCell(T)(v : seed);
+  mut(b) := _IoCell(T)(v : seed);
   b.put(cb(io));
   b.v
 });
@@ -875,7 +875,7 @@ test("soundness: an extern opaque value is not a scalar argument", {
 });
 test("soundness: a Dyn is neither downcast nor upcast", {
   (one : Dyn(_P38DA)) = dyn(_P38OnlyA(n : i32(5)));
-  (both : Dyn(_P38DA, _P38DB)) = dyn(_P38Both(n : i32(1)));
+  (mut(both) : Dyn(_P38DA, _P38DB)) = dyn(_P38Both(n : i32(1)));
   // `_P38OnlyA` has no `db`: a downcast would dispatch through a missing slot.
   comptime_expect_error(_p38_takes_both(&one));
   comptime_expect_error({
@@ -1080,8 +1080,8 @@ test("Phase 5: an owning parameter returned from an untaken conditional is dropp
 });
 _p5_move_on_break :: (fn(n : i32) -> i32)({
   b := _P5Box(tag : n);
-  (i : i32) = i32(0);
-  (r : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  (mut(r) : i32) = i32(0);
   while(true, {
     i = (i + i32(1));
     if(i == i32(3), {
@@ -1098,7 +1098,7 @@ test("soundness: a loop may move an outer value on its only way out", {
 });
 _P5Holder :: struct(s : String);
 _p5_clobber :: (fn(a : &mut _P5Holder, b : &_P5Holder) -> usize)({
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(3)), {
     a = _P5Holder(s : `fresh-value-${i}-xxxxxxxxxxxxxxxxxxxxxxxx`);
     i = (i + i32(1));
@@ -1106,7 +1106,7 @@ _p5_clobber :: (fn(a : &mut _P5Holder, b : &_P5Holder) -> usize)({
   b.s.len()
 });
 test("soundness: a by-value argument outlives the inout argument it overlaps", {
-  x := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  mut(x) := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
   n := _p5_clobber(&mut x, &x);
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
   assert(x.s.starts_with(`fresh-value-2`), "the inout write reached the caller");

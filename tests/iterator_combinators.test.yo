@@ -27,7 +27,7 @@ impl(
 my_range :: (fn(start : i32, end_ : i32) -> MyRange)(MyRange(start, end_));
 // --- map -------------------------------------------------------------------
 test("iter.map doubles every element", {
-  it := my_range(i32(1), i32(4)).map(x => (x * i32(2)));
+  mut(it) := my_range(i32(1), i32(4)).map(x => (x * i32(2)));
   out := ArrayList(i32).new();
   while(runtime(true), {
     match(
@@ -47,7 +47,7 @@ test("iter.map doubles every element", {
 });
 // --- filter ----------------------------------------------------------------
 test("iter.filter keeps only even values", {
-  it := my_range(i32(0), i32(6)).filter(x => ((x % i32(2)) == i32(0)));
+  mut(it) := my_range(i32(0), i32(6)).filter(x => ((x % i32(2)) == i32(0)));
   out := ArrayList(i32).new();
   while(runtime(true), {
     match(
@@ -67,7 +67,7 @@ test("iter.filter keeps only even values", {
 });
 // --- take / skip -----------------------------------------------------------
 test("iter.take limits the iterator", {
-  it := my_range(i32(0), i32(100)).take(usize(3));
+  mut(it) := my_range(i32(0), i32(100)).take(usize(3));
   out := ArrayList(i32).new();
   while(runtime(true), {
     match(
@@ -84,7 +84,7 @@ test("iter.take limits the iterator", {
   assert(out(usize(2)) == i32(2), "third = 2");
 });
 test("iter.skip drops leading elements", {
-  it := my_range(i32(0), i32(5)).skip(usize(3));
+  mut(it) := my_range(i32(0), i32(5)).skip(usize(3));
   out := ArrayList(i32).new();
   while(runtime(true), {
     match(
@@ -103,7 +103,7 @@ test("iter.skip drops leading elements", {
 });
 // --- enumerate -------------------------------------------------------------
 test("iter.enumerate pairs index with value", {
-  it := my_range(i32(10), i32(13)).enumerate();
+  mut(it) := my_range(i32(10), i32(13)).enumerate();
   // (0, 10), (1, 11), (2, 12)
   match(
     it.next(),
@@ -124,7 +124,7 @@ test("iter.enumerate pairs index with value", {
 });
 // --- zip -------------------------------------------------------------------
 test("iter.zip pairs two iterators", {
-  it := my_range(i32(0), i32(3)).zip(my_range(i32(100), i32(103)));
+  mut(it) := my_range(i32(0), i32(3)).zip(my_range(i32(100), i32(103)));
   match(
     it.next(),
     .Some(p) => {
@@ -143,8 +143,8 @@ test("iter.zip pairs two iterators", {
   );
 });
 test("iter.zip stops at shorter iterator", {
-  it := my_range(i32(0), i32(5)).zip(my_range(i32(10), i32(12)));
-  count := i32(0);
+  mut(it) := my_range(i32(0), i32(5)).zip(my_range(i32(10), i32(12)));
+  mut(count) := i32(0);
   while(runtime(true), {
     match(
       it.next(),
@@ -306,7 +306,7 @@ test("iter.filter_map maps and filters in one pass", {
   assert((out(usize(2)) == i32(2)) && (out(usize(3)) == i32(3)), "halved values");
 });
 test("iter.peekable peeks without consuming", {
-  it := my_range(i32(1), i32(4)).peekable();
+  mut(it) := my_range(i32(1), i32(4)).peekable();
   assert(it.peek().unwrap() == i32(1), "peek sees 1");
   assert(it.peek().unwrap() == i32(1), "peek again still 1");
   assert(it.next().unwrap() == i32(1), "next consumes the peeked 1");
@@ -463,7 +463,7 @@ test("a self-nested chain still composes with collect and map", {
   assert(doubled.to_string() == `[0, 2, 4]`, "map after a self-nested chain");
 });
 test("next and next_back meet in the middle", {
-  it := (i32(0) .. i32(4)).into_iter();
+  mut(it) := (i32(0) .. i32(4)).into_iter();
   a := it.next();
   b := it.next_back();
   c := it.next();
@@ -528,13 +528,13 @@ impl(
   Iterator(
     Item : B,
     next : (fn(self : &mut Self) -> Option(B))({
-      (res : Option(B)) = .None;
-      (going : bool) = true;
+      (mut(res) : Option(B)) = .None;
+      (mut(going) : bool) = true;
       while(going, {
         got := match(
           self._cur,
           .Some(inner) => {
-            it := inner;
+            mut(it) := inner;
             r := it.next();
             self._cur = .Some(it);
             r

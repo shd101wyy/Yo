@@ -89,8 +89,8 @@ _stmt_or :: (fn(c : &Counter) -> bool)({
 });
 // `||` in a while body: the loop-scope flush owns these; parity pin.
 _in_while :: (fn(c : &Counter) -> i32)({
-  (h : i32) = i32(0);
-  (i : usize) = usize(0);
+  (mut(h) : i32) = i32(0);
+  (mut(i) : usize) = usize(0);
   while(runtime(i < usize(3)), {
     if((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)), {
       h = (h + i32(1));
@@ -102,7 +102,7 @@ _in_while :: (fn(c : &Counter) -> i32)({
 // Run `f` 100 times and return how many disposes it produced.
 _disposes :: (fn(f : &Impl(Fn(c : &Counter) -> bool)) -> i32)({
   c := Counter(n : i32(0));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(runtime(i < usize(100)), {
     _r := f(&c);
     i = (i + usize(1));
@@ -143,7 +143,7 @@ test("statement-position || keeps parity with the whole-body shape", {
 });
 test("|| in a while body drops its operand temps every iteration", {
   c := Counter(n : i32(0));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(runtime(i < usize(100)), {
     _r := _in_while(&c);
     i = (i + usize(1));

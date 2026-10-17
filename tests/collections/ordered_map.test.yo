@@ -117,7 +117,7 @@ test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
   keys := ArrayList(String).new();
-  total := i32(0);
+  mut(total) := i32(0);
   for(m.into_iter(), e => {
     keys.push(e.key);
     total = (total + e.value);
@@ -176,14 +176,14 @@ test("OrderedMap re-insert after remove appends to end", {
 });
 test("OrderedMap many entries preserves order", {
   m := OrderedMap(String, i32).new();
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     key := i.to_string();
     m.insert(key, i);
   });
   assert(m.len() == usize(50), "50 entries");
   it := m.keys();
-  expected := i32(0);
+  mut(expected) := i32(0);
   while(true, {
     n := it.next();
     cond(
@@ -265,7 +265,7 @@ test("OrderedMap swap_remove of a missing key is None and changes nothing", {
 // slot. Interleave the operations and re-read the order after each one.
 test("OrderedMap swap_remove keeps its position index in step", {
   m := OrderedMap(String, i32).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(6), i = (i + i32(1)), {
     m.insert(`k${i.to_string()}`, i);
   });
@@ -278,7 +278,7 @@ test("OrderedMap swap_remove keeps its position index in step", {
   assert(ks.len() == usize(3), "the order list agrees with len");
   // Whatever the order is, every remaining key must still map to its own
   // value — a stale index would have removed the wrong slot above.
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < ks.len(), j = (j + usize(1)), {
     k := ks(j);
     v := m.get(&k);

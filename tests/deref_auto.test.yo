@@ -216,7 +216,7 @@ _box_write :: (fn(b : &mut Box(_P)) -> unit)({
   b.n = i32(11);
 });
 test("auto-deref: field, method and place write through Box", {
-  b := box(_mk(i32(1)));
+  mut(b) := box(_mk(i32(1)));
   assert(b.n == i32(1), "b.n reads b.*.n");
   assert(b.get() == i32(1), "b.get() calls b.*.get()");
   b.bump();
@@ -254,7 +254,7 @@ test("auto-deref: nested Box and Rc reach the innermost payload", {
 test("auto-deref: Box's own clone against its payload's is E0616", {
   b := box(_mk(i32(5)));
   comptime_expect_error(b.clone(), "is a method of Box(_P) and of its payload _P");
-  (c : Box(_P)) = Box.clone(b);
+  (mut(c) : Box(_P)) = Box.clone(b);
   c.n = i32(6);
   assert(b.n == i32(5), "Box.clone is a new cell");
   (d : _P) = b.*.clone();

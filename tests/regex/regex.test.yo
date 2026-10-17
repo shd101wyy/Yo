@@ -1202,7 +1202,7 @@ test("RegexError renders through ToString", {
 test("more than 99 capture groups neither error nor truncate", {
   pat := ArrayList(u8).new();
   inp := ArrayList(u8).new();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(120), i = (i + usize(1)), {
     pat.push(u8(40));
     pat.push(u8(97));
@@ -1281,14 +1281,14 @@ test("find_iter yields match_all's matches lazily", {
   input := `a1 bb22 ccc333`;
   lazy_matches := ArrayList(RegexMatch).new();
   it := re.find_iter(&input);
-  nxt := it.next();
+  mut(nxt) := it.next();
   while(nxt.is_some(), {
     lazy_matches.push(nxt.unwrap());
     nxt = it.next();
   });
   eager := re.find_all(&input);
   assert(lazy_matches.len() == eager.len(), "find_iter should yield exactly match_all's match count");
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < eager.len(), i = (i + usize(1)), {
     l := lazy_matches(i);
     e := eager(i);
@@ -1310,8 +1310,8 @@ test("find_iter stops after exhaustion", {
 test("find_iter walks empty matches without looping", {
   re := Regex.new(`a*`).unwrap();
   it := re.find_iter(`ab`);
-  n := usize(0);
-  nxt := it.next();
+  mut(n) := usize(0);
+  mut(nxt) := it.next();
   while(nxt.is_some(), {
     n = (n + usize(1));
     nxt = it.next();

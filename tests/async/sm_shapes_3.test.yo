@@ -35,7 +35,7 @@ _vbs :: (fn(x : bool, io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) =>
 _vss :: (fn(x : i32, io : Io) -> Impl(Future(String, Io)))(io.async((io2 : Io) => x.to_string()));
 // cases3/e08_nested_if3_mid_await.yo
 _r_cases3_e08_nested_if3_mid_await :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(0), {
     a := _sv(n);
     if(a > i32(1), {
@@ -50,7 +50,7 @@ _r_cases3_e08_nested_if3_mid_await :: (fn(n : i32) -> i32)({
 });
 _y_cases3_e08_nested_if3_mid_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := e.await(_v(n, e), e);
       if(a > i32(1), {
@@ -66,7 +66,7 @@ _y_cases3_e08_nested_if3_mid_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, 
 );
 _s_cases3_e08_nested_if3_mid_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := e.await(_vsync(n, e), e);
       if(a > i32(1), {
@@ -91,12 +91,12 @@ test("shape e08_nested_if3_mid_await", {
 
 // cases3/e09_while3.yo
 _r_cases3_e09_while3 :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
-    (j : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < n, {
         t := _sv(i32(1));
         acc = (acc + t);
@@ -110,12 +110,12 @@ _r_cases3_e09_while3 :: (fn(n : i32) -> i32)({
 });
 _y_cases3_e09_while3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           t := e.await(_v(i32(1), e), e);
           acc = (acc + t);
@@ -130,12 +130,12 @@ _y_cases3_e09_while3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _s_cases3_e09_while3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           t := e.await(_vsync(i32(1), e), e);
           acc = (acc + t);
@@ -159,12 +159,12 @@ test("shape e09_while3", {
 
 // cases3/e10_while3_counts.yo
 _r_cases3_e10_while3_counts :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
-    (j : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < n, {
         t := _sv(i32(1));
         acc = (acc + t);
@@ -180,12 +180,12 @@ _r_cases3_e10_while3_counts :: (fn(n : i32) -> i32)({
 });
 _y_cases3_e10_while3_counts :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           t := e.await(_v(i32(1), e), e);
           acc = (acc + t);
@@ -202,12 +202,12 @@ _y_cases3_e10_while3_counts :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _s_cases3_e10_while3_counts :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           t := e.await(_vsync(i32(1), e), e);
           acc = (acc + t);
@@ -233,10 +233,10 @@ test("shape e10_while3_counts", {
 
 // cases3/e11_while2_inner_depends.yo
 _r_cases3_e11_while2_inner_depends :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (j : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(j) : i32) = i32(0);
   while(j < n, {
-    (k : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
     while(k < j, {
       t := _sv(i32(1));
       acc = (acc + t);
@@ -248,10 +248,10 @@ _r_cases3_e11_while2_inner_depends :: (fn(n : i32) -> i32)({
 });
 _y_cases3_e11_while2_inner_depends :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (j : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < j, {
         t := e.await(_v(i32(1), e), e);
         acc = (acc + t);
@@ -264,10 +264,10 @@ _y_cases3_e11_while2_inner_depends :: (fn(n : i32, io : Io) -> Impl(Future(i32, 
 );
 _s_cases3_e11_while2_inner_depends :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (j : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < j, {
         t := e.await(_vsync(i32(1), e), e);
         acc = (acc + t);
@@ -289,9 +289,9 @@ test("shape e11_while2_inner_depends", {
 
 // cases3/e12_if_in_while_in_if.yo
 _r_cases3_e12_if_in_while_in_if :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
   if(n > i32(0), {
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       t := _sv(i);
       acc = (acc + t);
@@ -303,9 +303,9 @@ _r_cases3_e12_if_in_while_in_if :: (fn(n : i32) -> i32)({
 });
 _y_cases3_e12_if_in_while_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     if(n > i32(0), {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < n, {
         t := e.await(_v(i, e), e);
         acc = (acc + t);
@@ -318,9 +318,9 @@ _y_cases3_e12_if_in_while_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)
 );
 _s_cases3_e12_if_in_while_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     if(n > i32(0), {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < n, {
         t := e.await(_vsync(i, e), e);
         acc = (acc + t);
@@ -342,13 +342,13 @@ test("shape e12_if_in_while_in_if", {
 
 // cases3/e13_while_in_cond_arm_mid.yo
 _r_cases3_e13_while_in_cond_arm_mid :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
   cond(
     (n == i32(0)) => {
       acc = i32(5);
     },
     (n == i32(1)) => {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < i32(3), {
         t := _sv(i);
         acc = (acc + t);
@@ -364,13 +364,13 @@ _r_cases3_e13_while_in_cond_arm_mid :: (fn(n : i32) -> i32)({
 });
 _y_cases3_e13_while_in_cond_arm_mid :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     cond(
       (n == i32(0)) => {
         acc = i32(5);
       },
       (n == i32(1)) => {
-        (i : i32) = i32(0);
+        (mut(i) : i32) = i32(0);
         while(i < i32(3), {
           t := e.await(_v(i, e), e);
           acc = (acc + t);
@@ -387,13 +387,13 @@ _y_cases3_e13_while_in_cond_arm_mid :: (fn(n : i32, io : Io) -> Impl(Future(i32,
 );
 _s_cases3_e13_while_in_cond_arm_mid :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     cond(
       (n == i32(0)) => {
         acc = i32(5);
       },
       (n == i32(1)) => {
-        (i : i32) = i32(0);
+        (mut(i) : i32) = i32(0);
         while(i < i32(3), {
           t := e.await(_vsync(i, e), e);
           acc = (acc + t);
@@ -419,7 +419,7 @@ test("shape e13_while_in_cond_arm_mid", {
 
 // cases4/f01_if3_no_l1.yo
 _r_cases4_f01_if3_no_l1 :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(0), {
     a := n;
     if(a > i32(1), {
@@ -434,7 +434,7 @@ _r_cases4_f01_if3_no_l1 :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f01_if3_no_l1 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := n;
       if(a > i32(1), {
@@ -450,7 +450,7 @@ _y_cases4_f01_if3_no_l1 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _s_cases4_f01_if3_no_l1 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := n;
       if(a > i32(1), {
@@ -475,7 +475,7 @@ test("shape f01_if3_no_l1", {
 
 // cases4/f02_if3_no_l3.yo
 _r_cases4_f02_if3_no_l3 :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(0), {
     a := _sv(n);
     if(a > i32(1), {
@@ -490,7 +490,7 @@ _r_cases4_f02_if3_no_l3 :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f02_if3_no_l3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := e.await(_v(n, e), e);
       if(a > i32(1), {
@@ -506,7 +506,7 @@ _y_cases4_f02_if3_no_l3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _s_cases4_f02_if3_no_l3 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := e.await(_vsync(n, e), e);
       if(a > i32(1), {
@@ -531,7 +531,7 @@ test("shape f02_if3_no_l3", {
 
 // cases4/f03_if3_no_l2.yo
 _r_cases4_f03_if3_no_l2 :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(0), {
     a := _sv(n);
     if(a > i32(1), {
@@ -546,7 +546,7 @@ _r_cases4_f03_if3_no_l2 :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f03_if3_no_l2 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := e.await(_v(n, e), e);
       if(a > i32(1), {
@@ -562,7 +562,7 @@ _y_cases4_f03_if3_no_l2 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _s_cases4_f03_if3_no_l2 :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       a := e.await(_vsync(n, e), e);
       if(a > i32(1), {
@@ -587,7 +587,7 @@ test("shape f03_if3_no_l2", {
 
 // cases4/f04_if2_l2_two_awaits.yo
 _r_cases4_f04_if2_l2_two_awaits :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(0), {
     if(n > i32(1), {
       b := _sv(n + i32(1));
@@ -599,7 +599,7 @@ _r_cases4_f04_if2_l2_two_awaits :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f04_if2_l2_two_awaits :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       if(n > i32(1), {
         b := e.await(_v(n + i32(1), e), e);
@@ -612,7 +612,7 @@ _y_cases4_f04_if2_l2_two_awaits :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)
 );
 _s_cases4_f04_if2_l2_two_awaits :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       if(n > i32(1), {
         b := e.await(_vsync(n + i32(1), e), e);
@@ -634,7 +634,7 @@ test("shape f04_if2_l2_two_awaits", {
 
 // cases4/f05_if2_l2_cond_after_await.yo
 _r_cases4_f05_if2_l2_cond_after_await :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(0), {
     if(n > i32(1), {
       b := _sv(n + i32(1));
@@ -648,7 +648,7 @@ _r_cases4_f05_if2_l2_cond_after_await :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f05_if2_l2_cond_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       if(n > i32(1), {
         b := e.await(_v(n + i32(1), e), e);
@@ -663,7 +663,7 @@ _y_cases4_f05_if2_l2_cond_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i3
 );
 _s_cases4_f05_if2_l2_cond_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(0), {
       if(n > i32(1), {
         b := e.await(_vsync(n + i32(1), e), e);
@@ -687,14 +687,14 @@ test("shape f05_if2_l2_cond_after_await", {
 
 // cases4/f06_while3_noremaining.yo
 _r_cases4_f06_while3_noremaining :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
     i = (i + i32(1));
-    (j : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
       j = (j + i32(1));
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < n, {
         k = (k + i32(1));
         t := _sv(i32(1));
@@ -706,14 +706,14 @@ _r_cases4_f06_while3_noremaining :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f06_while3_noremaining :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       i = (i + i32(1));
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
         j = (j + i32(1));
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           k = (k + i32(1));
           t := e.await(_v(i32(1), e), e);
@@ -726,14 +726,14 @@ _y_cases4_f06_while3_noremaining :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io
 );
 _s_cases4_f06_while3_noremaining :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       i = (i + i32(1));
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
         j = (j + i32(1));
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           k = (k + i32(1));
           t := e.await(_vsync(i32(1), e), e);
@@ -755,11 +755,11 @@ test("shape f06_while3_noremaining", {
 
 // cases4/f07_while_in_while_in_if.yo
 _r_cases4_f07_while_in_while_in_if :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
   if(n > i32(0), {
-    (j : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < n, {
         t := _sv(i32(1));
         acc = (acc + t);
@@ -773,11 +773,11 @@ _r_cases4_f07_while_in_while_in_if :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f07_while_in_while_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     if(n > i32(0), {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           t := e.await(_v(i32(1), e), e);
           acc = (acc + t);
@@ -792,11 +792,11 @@ _y_cases4_f07_while_in_while_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, 
 );
 _s_cases4_f07_while_in_while_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     if(n > i32(0), {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < n, {
-        (k : i32) = i32(0);
+        (mut(k) : i32) = i32(0);
         while(k < n, {
           t := e.await(_vsync(i32(1), e), e);
           acc = (acc + t);
@@ -820,10 +820,10 @@ test("shape f07_while_in_while_in_if", {
 
 // cases4/f08_while2_after_inner.yo
 _r_cases4_f08_while2_after_inner :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (j : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(j) : i32) = i32(0);
   while(j < n, {
-    (k : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
     while(k < n, {
       t := _sv(i32(1));
       acc = (acc + t);
@@ -836,10 +836,10 @@ _r_cases4_f08_while2_after_inner :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f08_while2_after_inner :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (j : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < n, {
         t := e.await(_v(i32(1), e), e);
         acc = (acc + t);
@@ -853,10 +853,10 @@ _y_cases4_f08_while2_after_inner :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io
 );
 _s_cases4_f08_while2_after_inner :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (j : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < n, {
-      (k : i32) = i32(0);
+      (mut(k) : i32) = i32(0);
       while(k < n, {
         t := e.await(_vsync(i32(1), e), e);
         acc = (acc + t);
@@ -879,8 +879,8 @@ test("shape f08_while2_after_inner", {
 
 // cases4/f09_step_body_nostep_await.yo
 _r_cases4_f09_step_body_nostep_await :: (fn(n : i32) -> i32)({
-  (i : i32) = i32(0);
-  (acc : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
   while(i < n, i = (i + i32(1)), {
     _sv(i);
     acc = (acc + i32(1));
@@ -889,8 +889,8 @@ _r_cases4_f09_step_body_nostep_await :: (fn(n : i32) -> i32)({
 });
 _y_cases4_f09_step_body_nostep_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (i : i32) = i32(0);
-    (acc : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     while(i < n, i = (i + i32(1)), {
       e.await(_v(i, e), e);
       acc = (acc + i32(1));
@@ -900,8 +900,8 @@ _y_cases4_f09_step_body_nostep_await :: (fn(n : i32, io : Io) -> Impl(Future(i32
 );
 _s_cases4_f09_step_body_nostep_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (i : i32) = i32(0);
-    (acc : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     while(i < n, i = (i + i32(1)), {
       e.await(_vsync(i, e), e);
       acc = (acc + i32(1));
@@ -946,7 +946,7 @@ test("shape g01_matchval_arm_await", {
 
 // cases5/g02_ifcond_await_arm_await.yo
 _r_cases5_g02_ifcond_await_arm_await :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(_svb(n > i32(1)), {
     x = _sv(n);
   }, {
@@ -956,7 +956,7 @@ _r_cases5_g02_ifcond_await_arm_await :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g02_ifcond_await_arm_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(e.await(_vb(n > i32(1), e), e), {
       x = e.await(_v(n, e), e);
     }, {
@@ -967,7 +967,7 @@ _y_cases5_g02_ifcond_await_arm_await :: (fn(n : i32, io : Io) -> Impl(Future(i32
 );
 _s_cases5_g02_ifcond_await_arm_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(e.await(_vbs(n > i32(1), e), e), {
       x = e.await(_vsync(n, e), e);
     }, {
@@ -1013,9 +1013,9 @@ test("shape g03_condval_firstcond_await_arm_await", {
 
 // cases5/g06_return_2deep_loop.yo
 _r_cases5_g06_return_2deep_loop :: (fn(n : i32) -> i32)({
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(5), {
-    (j : i32) = i32(0);
+    (mut(j) : i32) = i32(0);
     while(j < i32(5), {
       a := _sv((i * i32(10)) + j);
       if(a == (n * i32(11)), {
@@ -1029,9 +1029,9 @@ _r_cases5_g06_return_2deep_loop :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g06_return_2deep_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(5), {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < i32(5), {
         a := e.await(_v((i * i32(10)) + j, e), e);
         if(a == (n * i32(11)), {
@@ -1046,9 +1046,9 @@ _y_cases5_g06_return_2deep_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)
 );
 _s_cases5_g06_return_2deep_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(5), {
-      (j : i32) = i32(0);
+      (mut(j) : i32) = i32(0);
       while(j < i32(5), {
         a := e.await(_vsync((i * i32(10)) + j, e), e);
         if(a == (n * i32(11)), {
@@ -1072,8 +1072,8 @@ test("shape g06_return_2deep_loop", {
 
 // cases5/g07_await_after_loop_in_if.yo
 _r_cases5_g07_await_after_loop_in_if :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
     t := _sv(i);
     acc = (acc + t);
@@ -1087,8 +1087,8 @@ _r_cases5_g07_await_after_loop_in_if :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g07_await_after_loop_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       t := e.await(_v(i, e), e);
       acc = (acc + t);
@@ -1103,8 +1103,8 @@ _y_cases5_g07_await_after_loop_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32
 );
 _s_cases5_g07_await_after_loop_in_if :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       t := e.await(_vsync(i, e), e);
       acc = (acc + t);
@@ -1128,11 +1128,11 @@ test("shape g07_await_after_loop_in_if", {
 
 // cases5/g08_loop_in_else_arm.yo
 _r_cases5_g08_loop_in_else_arm :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
   if(n == i32(0), {
     acc = i32(-5);
   }, {
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       t := _sv(i);
       acc = (acc + t);
@@ -1144,11 +1144,11 @@ _r_cases5_g08_loop_in_else_arm :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g08_loop_in_else_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     if(n == i32(0), {
       acc = i32(-5);
     }, {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < n, {
         t := e.await(_v(i, e), e);
         acc = (acc + t);
@@ -1161,11 +1161,11 @@ _y_cases5_g08_loop_in_else_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io))
 );
 _s_cases5_g08_loop_in_else_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
     if(n == i32(0), {
       acc = i32(-5);
     }, {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < n, {
         t := e.await(_vsync(i, e), e);
         acc = (acc + t);
@@ -1190,8 +1190,8 @@ E_cases5_g09_match_payload_in_loop :: enum(A(v : i32), B(w : i32), C);
 derive(E_cases5_g09_match_payload_in_loop, Copy, Clone);
 
 _r_cases5_g09_match_payload_in_loop :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
     ev := cond(((i % i32(3)) == i32(0)) => E_cases5_g09_match_payload_in_loop.A(i), ((i % i32(3)) == i32(1)) => E_cases5_g09_match_payload_in_loop.B(i * i32(10)), true => E_cases5_g09_match_payload_in_loop.C);
     match(
@@ -1214,8 +1214,8 @@ _r_cases5_g09_match_payload_in_loop :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g09_match_payload_in_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       ev := cond(((i % i32(3)) == i32(0)) => E_cases5_g09_match_payload_in_loop.A(i), ((i % i32(3)) == i32(1)) => E_cases5_g09_match_payload_in_loop.B(i * i32(10)), true => E_cases5_g09_match_payload_in_loop.C);
       match(
@@ -1239,8 +1239,8 @@ _y_cases5_g09_match_payload_in_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32,
 );
 _s_cases5_g09_match_payload_in_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       ev := cond(((i % i32(3)) == i32(0)) => E_cases5_g09_match_payload_in_loop.A(i), ((i % i32(3)) == i32(1)) => E_cases5_g09_match_payload_in_loop.B(i * i32(10)), true => E_cases5_g09_match_payload_in_loop.C);
       match(
@@ -1273,8 +1273,8 @@ test("shape g09_match_payload_in_loop", {
 
 // cases5/g10_if_elif_chain_loop.yo
 _r_cases5_g10_if_elif_chain_loop :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < (n * i32(2)), {
     cond(
       ((i % i32(3)) == i32(0)) => {
@@ -1295,8 +1295,8 @@ _r_cases5_g10_if_elif_chain_loop :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g10_if_elif_chain_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < (n * i32(2)), {
       cond(
         ((i % i32(3)) == i32(0)) => {
@@ -1318,8 +1318,8 @@ _y_cases5_g10_if_elif_chain_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io
 );
 _s_cases5_g10_if_elif_chain_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < (n * i32(2)), {
       cond(
         ((i % i32(3)) == i32(0)) => {
@@ -1350,8 +1350,8 @@ test("shape g10_if_elif_chain_loop", {
 
 // cases5/g11_two_awaits_one_arm_in_loop.yo
 _r_cases5_g11_two_awaits_one_arm_in_loop :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
     if(i > i32(0), {
       a := _sv(i);
@@ -1365,8 +1365,8 @@ _r_cases5_g11_two_awaits_one_arm_in_loop :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g11_two_awaits_one_arm_in_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       if(i > i32(0), {
         a := e.await(_v(i, e), e);
@@ -1381,8 +1381,8 @@ _y_cases5_g11_two_awaits_one_arm_in_loop :: (fn(n : i32, io : Io) -> Impl(Future
 );
 _s_cases5_g11_two_awaits_one_arm_in_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       if(i > i32(0), {
         a := e.await(_vsync(i, e), e);
@@ -1406,8 +1406,8 @@ test("shape g11_two_awaits_one_arm_in_loop", {
 
 // cases5/g12_seq_awaits_loop_with_continue_in_arm.yo
 _r_cases5_g12_seq_awaits_loop_with_continue_in_arm :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < (n * i32(2)), {
     i = (i + i32(1));
     if((i % i32(2)) == i32(0), {
@@ -1421,8 +1421,8 @@ _r_cases5_g12_seq_awaits_loop_with_continue_in_arm :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g12_seq_awaits_loop_with_continue_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < (n * i32(2)), {
       i = (i + i32(1));
       if((i % i32(2)) == i32(0), {
@@ -1437,8 +1437,8 @@ _y_cases5_g12_seq_awaits_loop_with_continue_in_arm :: (fn(n : i32, io : Io) -> I
 );
 _s_cases5_g12_seq_awaits_loop_with_continue_in_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < (n * i32(2)), {
       i = (i + i32(1));
       if((i % i32(2)) == i32(0), {
@@ -1462,8 +1462,8 @@ test("shape g12_seq_awaits_loop_with_continue_in_arm", {
 
 // cases5/g13_break_in_arm_after_await.yo
 _r_cases5_g13_break_in_arm_after_await :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(10), {
     i = (i + i32(1));
     if(i > n, {
@@ -1477,8 +1477,8 @@ _r_cases5_g13_break_in_arm_after_await :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g13_break_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(10), {
       i = (i + i32(1));
       if(i > n, {
@@ -1493,8 +1493,8 @@ _y_cases5_g13_break_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i
 );
 _s_cases5_g13_break_in_arm_after_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(10), {
       i = (i + i32(1));
       if(i > n, {
@@ -1518,7 +1518,7 @@ test("shape g13_break_in_arm_after_await", {
 
 // cases5/g15_return_unit_like.yo
 _r_cases5_g15_return_unit_like :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(1), {
     x = _sv(n);
     return(x * i32(2));
@@ -1528,7 +1528,7 @@ _r_cases5_g15_return_unit_like :: (fn(n : i32) -> i32)({
 });
 _y_cases5_g15_return_unit_like :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(1), {
       x = e.await(_v(n, e), e);
       return(x * i32(2));
@@ -1539,7 +1539,7 @@ _y_cases5_g15_return_unit_like :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io))
 );
 _s_cases5_g15_return_unit_like :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(1), {
       x = e.await(_vsync(n, e), e);
       return(x * i32(2));
@@ -1559,8 +1559,8 @@ test("shape g15_return_unit_like", {
 
 // cases6/h01_break_sep_if_after_arm_await.yo
 _r_cases6_h01_break_sep_if_after_arm_await :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(10), {
     i = (i + i32(1));
     if((i % i32(2)) == i32(0), {
@@ -1576,8 +1576,8 @@ _r_cases6_h01_break_sep_if_after_arm_await :: (fn(n : i32) -> i32)({
 });
 _y_cases6_h01_break_sep_if_after_arm_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(10), {
       i = (i + i32(1));
       if((i % i32(2)) == i32(0), {
@@ -1594,8 +1594,8 @@ _y_cases6_h01_break_sep_if_after_arm_await :: (fn(n : i32, io : Io) -> Impl(Futu
 );
 _s_cases6_h01_break_sep_if_after_arm_await :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(10), {
       i = (i + i32(1));
       if((i % i32(2)) == i32(0), {
@@ -1621,7 +1621,7 @@ test("shape h01_break_sep_if_after_arm_await", {
 
 // cases6/h02_top_if_two_awaits.yo
 _r_cases6_h02_top_if_two_awaits :: (fn(n : i32) -> i32)({
-  (x : i32) = i32(0);
+  (mut(x) : i32) = i32(0);
   if(n > i32(1), {
     a := _sv(n);
     b := _sv(a + i32(1));
@@ -1632,7 +1632,7 @@ _r_cases6_h02_top_if_two_awaits :: (fn(n : i32) -> i32)({
 });
 _y_cases6_h02_top_if_two_awaits :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(1), {
       a := e.await(_v(n, e), e);
       b := e.await(_v(a + i32(1), e), e);
@@ -1644,7 +1644,7 @@ _y_cases6_h02_top_if_two_awaits :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)
 );
 _s_cases6_h02_top_if_two_awaits :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (x : i32) = i32(0);
+    (mut(x) : i32) = i32(0);
     if(n > i32(1), {
       a := e.await(_vsync(n, e), e);
       b := e.await(_vsync(a + i32(1), e), e);
@@ -1665,8 +1665,8 @@ test("shape h02_top_if_two_awaits", {
 
 // cases6/h03_loop_if_two_awaits_always.yo
 _r_cases6_h03_loop_if_two_awaits_always :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
     if(i >= i32(0), {
       a := _sv(i);
@@ -1680,8 +1680,8 @@ _r_cases6_h03_loop_if_two_awaits_always :: (fn(n : i32) -> i32)({
 });
 _y_cases6_h03_loop_if_two_awaits_always :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       if(i >= i32(0), {
         a := e.await(_v(i, e), e);
@@ -1696,8 +1696,8 @@ _y_cases6_h03_loop_if_two_awaits_always :: (fn(n : i32, io : Io) -> Impl(Future(
 );
 _s_cases6_h03_loop_if_two_awaits_always :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       if(i >= i32(0), {
         a := e.await(_vsync(i, e), e);
@@ -1751,7 +1751,7 @@ test("shape h04_callarg_top", {
 _id_cases6_h05_callarg_arm :: (fn(x : i32) -> i32)(x);
 
 _r_cases6_h05_callarg_arm :: (fn(n : i32) -> i32)({
-  (y : i32) = i32(0);
+  (mut(y) : i32) = i32(0);
   if(n > i32(0), {
     y = _id_cases6_h05_callarg_arm(_sv(n));
   });
@@ -1759,7 +1759,7 @@ _r_cases6_h05_callarg_arm :: (fn(n : i32) -> i32)({
 });
 _y_cases6_h05_callarg_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (y : i32) = i32(0);
+    (mut(y) : i32) = i32(0);
     if(n > i32(0), {
       y = _id_cases6_h05_callarg_arm(e.await(_v(n, e), e));
     });
@@ -1768,7 +1768,7 @@ _y_cases6_h05_callarg_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 _s_cases6_h05_callarg_arm :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (y : i32) = i32(0);
+    (mut(y) : i32) = i32(0);
     if(n > i32(0), {
       y = _id_cases6_h05_callarg_arm(e.await(_vsync(n, e), e));
     });
@@ -1786,8 +1786,8 @@ test("shape h05_callarg_arm", {
 
 // cases6/h06_cond3_mid_two_awaits_loop.yo
 _r_cases6_h06_cond3_mid_two_awaits_loop :: (fn(n : i32) -> i32)({
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < n, {
     cond(
       (i == i32(0)) => {
@@ -1809,8 +1809,8 @@ _r_cases6_h06_cond3_mid_two_awaits_loop :: (fn(n : i32) -> i32)({
 });
 _y_cases6_h06_cond3_mid_two_awaits_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       cond(
         (i == i32(0)) => {
@@ -1833,8 +1833,8 @@ _y_cases6_h06_cond3_mid_two_awaits_loop :: (fn(n : i32, io : Io) -> Impl(Future(
 );
 _s_cases6_h06_cond3_mid_two_awaits_loop :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    (acc : i32) = i32(0);
-    (i : i32) = i32(0);
+    (mut(acc) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < n, {
       cond(
         (i == i32(0)) => {

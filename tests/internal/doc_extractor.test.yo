@@ -345,7 +345,7 @@ test("find_matching_parens handles nested parens", {
       // The close should be the last ) before ;
       after_idx := (p.close + usize(1));
       // Skip whitespace to get to semicolon
-      i := after_idx;
+      mut(i) := after_idx;
       n := tokens.len();
       while(i < n, {
         tok := match(
@@ -392,8 +392,8 @@ test("find_matching_parens starts searching from given index", {
   );
   tokens := lex_(`a(1); b(2);`, exn);
   // Find semicolon index
-  semi_idx := usize(0);
-  i := usize(0);
+  mut(semi_idx) := usize(0);
+  mut(i) := usize(0);
   n := tokens.len();
   while(i < n, {
     tok := match(

@@ -159,7 +159,7 @@ test("Test timeout consumes its handle", {
 //     behavioural half: correctness under repetition.
 // ---------------------------------------------------------------------------
 test("Test timeout in a loop against a long deadline", {
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(200), i = (i + usize(1)), {
     h := io.spawn(sleepy(i32(3), u64(0), io), io);
     r := io.await(timeout(h, Duration.from_millis(i64(60000)), io), io);
@@ -270,11 +270,11 @@ join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
   count := Rc(i32)(n);
   io.async((io : Io) => {
     handles := ArrayList(JoinHandle(i32)).new();
-    (k : i32) = i32(0);
+    (mut(k) : i32) = i32(0);
     while(k < count.*, k = (k + i32(1)), {
       handles.push(io.spawn(sleepy(k, u64(5), io), io));
     });
-    (sum : i32) = i32(0);
+    (mut(sum) : i32) = i32(0);
     // Each join consumes its handle: pop them off the list.
     while(handles.len() > usize(0), {
       match(
@@ -318,8 +318,8 @@ join_all_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     handles.push(io.spawn(sleepy(i32(1), u64(10), io), io));
     handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
     outs := io.await(join_all(handles, io), io);
-    (sum : i32) = i32(0);
-    (i : usize) = usize(0);
+    (mut(sum) : i32) = i32(0);
+    (mut(i) : usize) = usize(0);
     while(i < outs.len(), i = (i + usize(1)), {
       match(
         outs(i),
@@ -356,7 +356,7 @@ timeouts_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     fast := io.spawn(sleepy(i32(2), u64(1), io), io);
     a := io.await(timeout(slow, Duration.from_millis(i64(10)), io), io);
     b := io.await(timeout(fast, Duration.from_millis(i64(500)), io), io);
-    (score : i32) = i32(0);
+    (mut(score) : i32) = i32(0);
     match(
       a,
       .Ok(_) => (),
@@ -474,8 +474,8 @@ _count_items :: (
   fn(generic(S : Type), s : S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
 )(
   io.async({ s }(io : Io) => {
-    (n : usize) = usize(0);
-    (draining : bool) = true;
+    (mut(n) : usize) = usize(0);
+    (mut(draining) : bool) = true;
     while(draining, {
       nx := io.await(s.next(io), io);
       match(
@@ -502,8 +502,8 @@ _sum_i32 :: (
   fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> Impl(Future(i32, Io))
 )(
   io.async({ s }(io : Io) => {
-    (total : i32) = i32(0);
-    (draining : bool) = true;
+    (mut(total) : i32) = i32(0);
+    (mut(draining) : bool) = true;
     while(draining, {
       nx := io.await(s.next(io), io);
       match(
@@ -542,7 +542,7 @@ test("Test Stream with several items keeps their order", {
 // S2. `.None` is terminal AND stays terminal
 // ---------------------------------------------------------------------------
 test("Test Stream .None is terminal and stays terminal", {
-  c := Countdown(_n : i32(1));
+  mut(c) := Countdown(_n : i32(1));
   first := io.await(c.next(io), io);
   assert(first.is_some(), "the one item arrives");
   second := io.await(c.next(io), io);
@@ -681,7 +681,7 @@ test("Test a hand-written consumer loop inside a spawned task", {
   seen := ArrayList(i32).new();
   c := Countdown(_n : i32(3));
   task := io.async({ c, seen }(io : Io) => {
-    (done : bool) = false;
+    (mut(done) : bool) = false;
     while(done == false, {
       nx := io.await(c.next(io), io);
       match(
@@ -703,8 +703,8 @@ test("Test a hand-written consumer loop inside a spawned task", {
 });
 test("Test a hand-written consumer loop over an empty stream", {
   seen := ArrayList(i32).new();
-  c := Countdown(_n : i32(0));
-  (done : bool) = false;
+  mut(c) := Countdown(_n : i32(0));
+  (mut(done) : bool) = false;
   while(done == false, {
     nx := io.await(c.next(io), io);
     match(
@@ -797,7 +797,7 @@ test("Test for_await suspends its task between items", {
     });
   });
   h := io.spawn(task, io);
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(20), {
     ticks.* = (ticks.* + i32(1));
     io.await(yield(io), io);

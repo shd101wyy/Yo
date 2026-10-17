@@ -43,8 +43,8 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
     .Some(_) => {
       // Child mode — the fake C compiler. One log line per invocation.
       cc_argv := args();
-      (saw_asan_flag : bool) = false;
-      (ai : usize) = usize(0);
+      (mut(saw_asan_flag) : bool) = false;
+      (mut(ai) : usize) = usize(0);
       while(ai < cc_argv.len(), {
         match(
           cc_argv.get(ai),
@@ -148,8 +148,8 @@ test("the ASan DLL directory goes on PATH once, however many batches apply it", 
   base := String.from("C:\\Windows\\system32;C:\\Windows");
   once := windows_path_with_dir_first(base.clone(), dll.clone());
   assert(once == `${dll};${base}`, `the first application prepends; got "${once}"`);
-  (p : String) = once.clone();
-  (i : i32) = i32(0);
+  (mut(p) : String) = once.clone();
+  (mut(i) : i32) = i32(0);
   while(i < i32(200), {
     p = windows_path_with_dir_first(p.clone(), dll.clone());
     i = (i + i32(1));
@@ -198,10 +198,10 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   run_compile(&compile_argv, io, exn);
   c_text := String.from_bytes(read_file_sync(`${scratch}/fx.c`, exn));
   lines := c_text.split("\n");
-  (hold_cases : usize) = usize(0);
-  (drop_defs : usize) = usize(0);
+  (mut(hold_cases) : usize) = usize(0);
+  (mut(drop_defs) : usize) = usize(0);
   (drop_names : HashSet(String)) = HashSet(String).new();
-  (li : usize) = usize(0);
+  (mut(li) : usize) = usize(0);
   while(li < lines.len(), li = (li + usize(1)), {
     match(
       lines.get(li),
@@ -257,10 +257,10 @@ test("a specialization reached through a call gets the hashed C name, not its ra
   c_text := String.from_bytes(read_file_sync(`${scratch}/fx.c`, exn));
   // The longest run of identifier characters that starts a `yo_id_` name.
   n := c_text.len();
-  (longest : usize) = usize(0);
-  (run_len : usize) = usize(0);
-  (in_yo_id : bool) = false;
-  (i : usize) = usize(0);
+  (mut(longest) : usize) = usize(0);
+  (mut(run_len) : usize) = usize(0);
+  (mut(in_yo_id) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     b := c_text.byte_at(i);
     is_ident := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)));

@@ -52,7 +52,7 @@ _write_fixture :: (fn(base : &String, io : Io, exn : Exception) -> String)({
 _find_entry :: (
   fn(entries : &ArrayList(ContextIndexEntry), module : &String, name : &String) -> Option(ContextIndexEntry)
 )({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < entries.len(), {
     e := entries(i);
     if((e.module == module) && (e.name == name), {
@@ -126,8 +126,8 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   assert(barrel.origin == "t/alpha_api", `barrel origin= t/alpha_api, got '${barrel.origin}'`);
   mods := context_index_load_modules(cache.clone(), key.clone(), io, exn);
   assert(mods.len() == usize(3), `three modules, got ${mods.len().to_string()}`);
-  (saw_alpha : bool) = false;
-  (i : usize) = usize(0);
+  (mut(saw_alpha) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < mods.len(), {
     m := mods(i);
     if(m.module == "t/alpha_api", {
@@ -148,7 +148,7 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   files.push(String.from("manifest.txt"));
   files.push(String.from("modules/t/alpha_api.md"));
   snapshot := ArrayList(String).new();
-  (fi : usize) = usize(0);
+  (mut(fi) : usize) = usize(0);
   while(fi < files.len(), {
     text := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fi))).to_string(), io, exn);
     assert(!text.contains(base.clone()), `${files(fi)} records no absolute path`);
@@ -167,7 +167,7 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   assert(key3 == key, "refresh keeps the key");
   rebuilt := context_index_load(&cache, &key, io, exn);
   assert(_find_entry(&rebuilt, `t/x`, `sentinel`).is_none(), "refresh rebuilds the index");
-  (fj : usize) = usize(0);
+  (mut(fj) : usize) = usize(0);
   while(fj < files.len(), {
     again := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fj))).to_string(), io, exn);
     assert(again == snapshot(fj), `${files(fj)} is byte-identical across builds`);
@@ -192,8 +192,8 @@ test("a module the evaluator cannot load is marked degraded", {
   cache := `${base}/cache`;
   key := context_index_ensure(&root, cache.clone(), false, String.new(), io, exn);
   mods := context_index_load_modules(&cache, &key, io, exn);
-  (i : usize) = usize(0);
-  (saw : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  (mut(saw) : usize) = usize(0);
   while(i < mods.len(), {
     m := mods(i);
     if(m.module == "d/broken", {
@@ -305,9 +305,9 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   // (the deduped trio + is_closed + the distinct-signature close) where the
   // unfixed stream printed 5.
   assert(hits.len() == usize(3), `the trio collapsed and is_closed still hits: 3 rows, got ${hits.len().to_string()}`);
-  (closes : usize) = usize(0);
-  (saw_bool : bool) = false;
-  (i : usize) = usize(0);
+  (mut(closes) : usize) = usize(0);
+  (mut(saw_bool) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < hits.len(), {
     h := hits(i);
     i = (i + usize(1));

@@ -67,7 +67,7 @@ test("Empty table", {
   assert(t.is_table(), "is_table");
 });
 test("Table insert returns the replaced value", {
-  t := TomlValue.new_table();
+  mut(t) := TomlValue.new_table();
   first := t.insert(`name`, TomlValue.Str(`hello`));
   assert(first.is_none(), "a new key replaces nothing");
   assert(t.table_len() == usize(1), "should have 1 entry");
@@ -118,11 +118,11 @@ test("A hash inside a string is not a comment", {
 });
 test("A control character in a comment is rejected", {
   // Built byte by byte: a raw BEL cannot be written in a Yo source literal.
-  bad := `x = 1 # bad`;
+  mut(bad) := `x = 1 # bad`;
   bad.push_byte(u8(7));
   bad.push_str("here");
   assert(_rejected(&bad), "BEL in a comment");
-  ok := `x = 1 #`;
+  mut(ok) := `x = 1 #`;
   ok.push_byte(u8(9));
   ok.push_str("a tab is allowed");
   assert(!_rejected(&ok), "a tab in a comment is fine");
@@ -517,7 +517,7 @@ a.b = 1`
   );
 });
 test("A raw CR inside a multi-line string is not a newline", {
-  bad := `s = """a`;
+  mut(bad) := `s = """a`;
   bad.push_byte(u8(13));
   bad.push_str("b\"\"\"");
   assert(_rejected(&bad), "a lone CR is a forbidden control character");
@@ -612,7 +612,7 @@ y = 2`
     ),
     "but CRLF is"
   );
-  lone_cr :=
+  mut(lone_cr) :=
     `x = 1
 `;
   lone_cr.push_byte(u8(13));
@@ -642,13 +642,13 @@ deep = true`
   assert(port_at < inner_at, "scalars come before nested headers");
 });
 test("Serializer: keys, floats, arrays of tables, empty tables", {
-  t := TomlValue.new_table();
+  mut(t) := TomlValue.new_table();
   _a := t.insert(`bare_key-1`, TomlValue.Int(i64(1)));
   _b := t.insert(`needs quoting`, TomlValue.Int(i64(2)));
   s := toml.stringify(&t);
   assert(s.contains(`bare_key-1 = 1`), "a bare key is written bare");
   assert(s.contains(`"needs quoting" = 2`), "a key that cannot be bare is quoted");
-  f := TomlValue.new_table();
+  mut(f) := TomlValue.new_table();
   _c := f.insert(`whole`, TomlValue.Float(f64(3.0)));
   _d := f.insert(`pi`, TomlValue.Float(f64(3.141592653589793)));
   _e := f.insert(`inf`, TomlValue.Float(f64.INFINITY));
