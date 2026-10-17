@@ -1,0 +1,152 @@
+// A user collection implements `BorrowedWalk` with a raw pointer into its
+// list's buffer, so this file needs the pragma: a projection body cannot yet
+// return another projection rooted at `self`
+// (issues/questions/borrowed-for-over-user-defined-collections.md).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+/// The borrowed `for` over a USER collection (plans/VALUES_BY_DEFAULT.md
+/// decision 39): any type implementing `BorrowedWalk` is a source. Its
+/// mutating methods take `&mut self`; their compiler-emitted invalidation
+/// assert must read the OBJECT's borrow flag (`*self`, the receiver is passed
+/// as a pointer to the caller's handle slot), not the slot's address —
+/// issues/fixed/inout-self-method-borrow-assert-reads-handle-slot.md. The
+/// body cannot name the iterated collection (E0911), so the methods below are
+/// reached through a second handle of the same object, which the static rule
+/// cannot see and the run-time flag guards. The panic side (a mutating method
+/// through such a handle) is pinned by
+/// tests/cli-cases/inout-self-method-under-borrow-panics.
+{ ArrayList } :: import("std/collections/array_list");
+Bag :: ref(struct(items : ArrayList(i32), version : i32));
+impl(
+  Bag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)({
+      assert(cur < self.items.len(), "Bag: walk cursor out of bounds");
+      self.items.ptr().unwrap().add(cur)
+    }),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
+  bump_version : (fn(self : &mut Self) -> unit)({
+    self.version = (self.version + i32(1));
+  }),
+  reset : (fn(self : &mut Self) -> unit)({
+    self = Bag(items : ArrayList(i32).new(), version : i32(0));
+  })
+);
+test("borrowed for over a user collection; &mut self methods assert on the object, not the handle slot", {
+  bag := Bag(items : ArrayList(i32).new(), version : i32(0));
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  bag.bump_version();
+  assert(bag.version == i32(1), "field store through &mut self outside any borrow");
+  total := i32(0);
+  for(&mut bag, x => {
+    total = (total + x);
+    x = (x * i32(10));
+  });
+  assert(total == i32(3), "the user collection's BorrowedWalk drives the borrowed loop");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "elements mutated in place");
+  bag.bump_version();
+  assert(bag.version == i32(2), "the flag is released after the loop: no false panic");
+  bag.reset();
+  assert((bag.version == i32(0)) && (bag.items.len() == usize(0)), "reassigning through &mut self replaces the caller's handle");
+  assert(ref_count(bag) == 1, "the old object was released, the new one is owned once");
+});
+// The body naming the iterated user collection is E0911, as for std's.
+comptime_expect_error(
+  method_on_the_borrowed_user_collection :: (fn() -> unit)({
+    bag := Bag(items : ArrayList(i32).new(), version : i32(0));
+    bag.items.push(i32(1));
+    for(&mut bag, x => {
+      bag.bump_version();
+    });
+  })
+);
+// Two read-only shapes the compiler-emitted invalidation assert must not fire
+// for: a body that DECLARES a typed local `(r : T) = init` (the declaration's
+// lhs is a colon pair, not a place —
+// issues/fixed/borrow-assert-typed-local-declaration-false-positive.md), and a
+// body that READS elements by index `self.items(i)` (an index-trait call whose
+// callee is recorded on the call, not on its func expr —
+// issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
+impl(
+  Bag,
+  first_over : (fn(self : &Self, limit : i32) -> Option(i32))({
+    (found : Option(i32)) = .None;
+    i := usize(0);
+    while((i < self.items.len()) && found.is_none(), {
+      v := self.items(i);
+      if(v > limit, {
+        found = .Some(v);
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
+test("borrowed for: a read-only user method with a typed local, through an alias, does not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(6));
+  xs.push(i32(8));
+  bag := Bag(items : xs, version : i32(0));
+  other := bag; // a second handle of the same bag
+  seen := i32(0);
+  for(&mut bag, x => {
+    match(
+      other.first_over(i32(6)),
+      .Some(v) => {
+        seen = v;
+      },
+      .None => ()
+    );
+  });
+  assert(seen == i32(8), "a user method with a typed local inside the borrowed body");
+});
+// The invalidation assert is decided PER PARAMETER from where each mutated
+// value's storage lives (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
+// a method that mutates only storage it allocated itself (`clone` pushing into
+// its result), or an iterator's own cursor while walking the collection, does
+// not mutate the collection and carries no assert. A method that makes fresh
+// storage reachable from `self` and then mutates it does — pinned by
+// tests/cli-cases/inout-for-store-fresh-into-self-panics.
+impl(
+  Bag,
+  sum_by_value_for : (fn(self : &Self) -> i32)({
+    total := i32(0);
+    for(self.items, x => {
+      total = (total + x);
+    });
+    total
+  }),
+  doubled_copy : (fn(self : &Self) -> ArrayList(i32))({
+    copy := self.items.clone();
+    i := usize(0);
+    while(i < copy.len(), {
+      copy(i) = (copy(i) * i32(2));
+      i = (i + usize(1));
+    });
+    copy.push(i32(0));
+    copy
+  })
+);
+test("borrowed for: user methods iterating the collection or mutating a fresh copy, through an alias, do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(2));
+  xs.push(i32(3));
+  bag := Bag(items : xs, version : i32(0));
+  other := bag;
+  seen := i32(0);
+  for(&mut bag, x => {
+    seen = (seen + other.sum_by_value_for());
+    d := other.doubled_copy();
+    seen = (seen + i32(d.len()));
+  });
+  assert(seen == i32(16), "a method iterating self and one mutating a fresh copy: no assert");
+});

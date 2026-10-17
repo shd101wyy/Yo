@@ -1,0 +1,9 @@
+# plans/VALUES_BY_DEFAULT.md decision 39: the borrowed `for` holds a local
+# borrow `c := &mut list` for the whole loop, so growing the collection
+# through the SAME variable is decision 18's E0911 at compile time. The borrow
+# is taken in the `for` macro's own code; the error needs the macro-boundary
+# liveness rule
+# (issues/fixed/2026-10-17-a-local-borrow-a-macro-expansion-declares-is-never-live-in-the-callers-code.md).
+# Growth through ANOTHER handle still panics: tests/cli-cases/inout-for-alias-push-panics.
+stdout_keep_match=error(\[E[0-9]+\])?: .*|--> main\.yo:[0-9]+:[0-9]+|help: .*
+timeout=120

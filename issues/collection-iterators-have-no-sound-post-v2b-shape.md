@@ -64,3 +64,41 @@ mutation *through* the iterator, not the iterator's own validity.
    pragma).
 3. A test that growing a list mid-walk through the new `iter()` raises
    the out-of-bounds error instead of reading a stale buffer.
+
+## Status 2026-10-17: the shape is settled; Generation A landed, Generation B closes this
+
+The design is written out in `plans/VALUES_BY_DEFAULT.md`, decision 39,
+"the shape, settled 2026-10-17". Where each step of "What must land" stands:
+
+1. **The V3b sweep exemption: done.** §7's migration table carries the row
+   ("an iterator-returning method's `self` … NOT converted by the sweep").
+2. **The signatures: half done.**
+   - Landed in Generation A:
+     - the borrowed `for(&mut xs, …)` no longer goes through `iter()`. It
+       walks a cursor (`BorrowedWalk`) over a local borrow `c := &mut xs`,
+       so it stores no copy of the collection;
+     - `indices()` on `ArrayList` and `Deque` is decision 39's index cursor;
+     - a body that names the collection is E0911, which needed the
+       macro-boundary fix
+       `issues/fixed/2026-10-17-a-local-borrow-a-macro-expansion-declares-is-never-live-in-the-callers-code.md`.
+   - Still open, and the reason this doc stays open: `iter()` and
+     `into_iter(self : &Self)` still store the receiver
+     (`ArrayListIter._list`, `ArrayListIterPtr._list` and the other
+     collections' equivalents), and `for(&xs, …)` still lowers to the value
+     form through `into_iter`. Generation B (V2b B7, after B6):
+     - the read walk for `for(&xs, …)`;
+     - a consuming `into_iter(self : Self)`;
+     - `iter()` and the `*Ptr` iterators under
+       `pragma(Pragma.AllowUnsafe)`.
+3. **The growth test: done for the two forms that exist.**
+   - `tests/for_macro_borrow.test.yo`, "indices(): a walk that grows its
+     list reads the re-derived buffer", grows an `ArrayList` and a `Deque`
+     past their first buffer during an `indices()` walk and reads every
+     element from the new one.
+   - Growth during a borrowed `for` is now rejected statically through the
+     same variable (`push_on_the_borrowed_collection`), and panics through
+     another handle (`tests/cli-cases/inout-for-alias-push-panics`).
+   - A step past a shrink is the bounds panic: `walk_elem` and `xs(i)`
+     check the live length.
+   - What is left is the same test against the new `iter()`, which
+     Generation B replaces with the walks above.
