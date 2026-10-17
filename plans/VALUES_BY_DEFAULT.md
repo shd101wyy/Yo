@@ -7283,13 +7283,15 @@ once `SEED_VERSION` parses it.
      `thread_local(mut(...))` roots.
    - **As built (Generation B, `feat/d47-globals-genb`, #1414; it needs a
      seed that parses `mut(`, v0.2.64):**
-     - The census on develop `ed733408c` (2026-10-17, `YO_AUDIT_GLOBAL_LEND`
-       over `check ./src` and `check ./std`): 264 written globals (src 249,
-       std 12, `markdown_yo` 3 plus `wasm_api.yo`'s one, which src does not
-       import); 62 of the src ones are `ref` handles that are only ever
-       reassigned; lending the marked globals gives 261 E0916 sites before
-       the resets and 88 after (src 82, std 6), plus 4 rule A conflicts at
-       3 sites that the exemption had hidden.
+     - The census (`YO_AUDIT_GLOBAL_LEND` over `check ./src` and
+       `check ./std`), before the migration on develop `36c41e62b`
+       (2026-10-16): 264 written globals (src 249, std 12, `markdown_yo` 3
+       plus `wasm_api.yo`'s one, which src does not import); 62 of the src
+       ones are `ref` handles that are only ever reassigned; lending the
+       written globals gives 261 lends before the resets. After the resets
+       and the migration, re-measured on develop `ed733408c` (2026-10-17):
+       88 E0916 sites (src 82, std 6) plus 4 rule A conflicts at 3 sites
+       that the exemption had hidden.
      - The 62 handle globals are reset in place: `G = T.new()` becomes
        `G.clear()`, the take-and-reset helpers (`out := G; G = T.new(); out`)
        become `G.split_off(usize(0))`, and an assignment from a fresh local
