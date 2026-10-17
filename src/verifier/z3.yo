@@ -374,10 +374,9 @@ run_z3_script :: (fn(binary : &String, script : &String) -> Result(String, Strin
 // ============================================================================
 // S-expression scanning (verdict parsing — pure, unit-testable)
 // ============================================================================
-/// A parsed S-expression: atom or list.
-Z3Sexpr :: ref(
-  enum(Atom(text : String), List(items : ArrayList(Self)))
-);
+/// A parsed S-expression: atom or list. A value tree: a `List` owns its
+/// items (plans/VALUES_BY_DEFAULT.md §6 V4).
+Z3Sexpr :: enum(Atom(text : String), List(items : ArrayList(Self)));
 /// Parse ALL top-level S-expressions in `text` (whitespace and `;` line
 /// comments tolerated). Unclosed lists are dropped rather than thrown —
 /// the caller decides what missing evidence means.
