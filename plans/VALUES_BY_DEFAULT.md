@@ -6242,6 +6242,576 @@ compiler; the std shapes are plain structs the seed lowers):
   - `tests/collections*`, `tests/cycle_collector` and `tests/iso`.
 - **Measured:** `check ./src` time and stage-2 RSS.
 
+**V2b unique buffers — Generation B: PR sequence (planned 2026-10-16).**
+The as-built plan above stays the design. This section turns its one
+Generation B paragraph into PRs that later agents can take one at a time. It
+was written from counts (grep, reading std and the #1385 branch); no
+migration, `check`, `build` or `test` was run for it. Where a number needs a
+heavy run, the command is given in item 2.
+
+1. **When it starts, and what must already be true.**
+   - v0.2.64 is the seed (`SEED_VERSION`). It carries A1 (#1384, already in
+     v0.2.63), decision 47's `mut(` parser and A5's `__yo_waker_clone`.
+   - Decision 47 globals Generation B has landed (handover §2.3, "Generation
+     B"): `is_global_mut_rule_exempt` is gone, so std and src are judged by
+     E0916/E0917 like user code. Every count below assumes it.
+   - #1385 (A2, `yo fix --migrate explicit-copy`) has landed (handover §4
+     step 8). The tree-built compiler runs the migration; the seed does not
+     need it, because `.clone()` is valid in every seed.
+   - **The rule that orders everything.** CI's stage 1 is the seed compiling
+     the tree's `src/` against the tree's `std/`. A source edit that is valid
+     both before and after the flip (an inserted `.clone()`, `get_cloned`, a
+     `RefCell` global) can land early, on its own Tier 1. Only what needs the
+     flipped representation lands with a flip. So each flip PR is small, and
+     the bulk of the work lands before it while the collections are still
+     `ref`.
+   - **A compiler feature that std or src uses must be in the seed first.**
+     Every PR below is either std/src-only (no seed gate) or a compiler
+     Generation A whose use waits for the next release. B0 and B12 are the
+     only seed-gated ones.
+
+2. **Measured and counted inputs.**
+
+   | Input | `src/` | `std/` | `tests/` | Source |
+   | --- | ---: | ---: | ---: | --- |
+   | A2 insertions (dry run, 2026-10-15) | 3,761 | 205 | not run | #1385's plan commit `d583b595c` |
+   | of which `return` / `field-store` / `param` / `binding` / `assign` | 1,931 / 1,120 / 330 / 282 / 98 | 94 / 47 / 18 / 37 / 9 | | same |
+   | A2 left as written (written after) | 644 (629) | 97 (88) | not run | same |
+   | §6 audit, `String` / `ArrayList` / other collections / `Dyn` copies | 1,614 / 1,303 / 76 / 9 | 210 / 80 / 21 / 6 | 101 / 105 / 6 / 8 | §6 item 1 (2026-10-05) |
+   | `match` bindings of an owned temporary (7 of 11 sampled unwrap a copying accessor) | 3,314 | 183 | 52 | §6 item 1 |
+   | `.get(` calls, all element types | 6,974 | 217 | 939 | grep |
+   | `get`/`first`/`last`/`front`/`back`/`peek`/`get_key_value` calls | | 246 | | grep; `string.yo` 44, `json.yo` 38, `array_list.yo` 18, `ordered_map.yo` 12 |
+   | `for(` all / `for(&mut` / `for(&` | 27 / 13 / 3 | 31 / 10 / 1 | 177 / 57 / 6 | grep, approximate |
+   | `.into_iter()` / `.iter()` / `.entry(` | 27 / 5 / 0 | 10 / 15 / 5 | 63 / 28 / 17 | grep |
+   | module-level `ArrayList`/`HashMap`/`HashSet` globals (handle globals today) | 353 (126 / 191 / 36), ~1,570 uses in 66 files | 0 | 24 | grep at column 0; `src/expr_info.yo` alone has 64 |
+   | `Option(String)`/`Option(ArrayList(...))` field lines | 359 | 14 | 167 | grep (`^\s+name : Option(String\|ArrayList(`) |
+   | plain `String` / `ArrayList` / `HashMap`+`HashSet` field lines | 377 / 604 / 125 | | | grep, upper bound (multi-line parameter lists match too) |
+   | mentions of `HashMap` / `HashSet` / `BTreeMap` / `Deque` / `LinkedList` / `OrderedMap` / `PriorityQueue` / `HeaderMap` / `StringBuilder` | 978 / 444 / 3 / 4 / 3 / 2 / 2 / 1 / 73 | 111 / 39 / 28 / 28 / 21 / 23 / 14 / 19 / 32 | 298 / 167 / 86 / 113 / 153 / 47 / 48 / 12 / 89 | grep `-w` |
+   | `markdown_yo` (v0.0.16 checkout): `ArrayList` / `String` mentions, `.get(` | | | | 255 / 142 / 9; no module-level collection global |
+
+   Facts read from the tree that shape the PRs:
+   - `String :: newtype(_bytes : Option(ArrayList(u8)))`
+     (`std/string/string.yo:99`); `string.yo` names `_bytes` 223 times. The
+     codegen and the C runtime know neither layout (no `_length`/`_ptr`
+     access in `src/codegen`), so the flip is a std change the v0.2.64 seed
+     can compile.
+   - `ArrayList`, `Deque`, `HashMap`, `HashSet`, `BTreeMap`, `OrderedMap`,
+     `PriorityQueue`, `LinkedList` (and its `Node`), `StringBuilder` and
+     `HeaderMap` are `ref(struct(...))`. `BTreeMap`, `PriorityQueue`,
+     `StringBuilder` and `HeaderMap` wrap one `ArrayList`; `HashSet` wraps
+     one `HashMap`; `OrderedMap` wraps a `HashMap` and an `ArrayList`.
+     `JsonValue` is a value enum whose `Array` and `Object` payloads are
+     `ArrayList`s (`std/encoding/json.yo:126`), so it flips with `ArrayList`
+     (596 `src/` mentions, mostly the LSP).
+   - Flipping `ArrayList` alone flips `String`: a `newtype` holding a `Drop`
+     value is move-only (`type_requires_explicit_copy`,
+     `src/types/utils.yo:965`). So the two cannot be split, as the as-built
+     plan says.
+   - `ArrayList.get` copies the element out of `&Self`
+     (`std/collections/array_list.yo:440`), and `ArrayList.clone` calls it.
+     That is already E0901 for a move-only element
+     (`issues/arraylist-clone-copies-elements-out-through-get.md`, S2), and
+     after the flip it is E0901 for `ArrayList(String).clone()`. It must be
+     fixed before the flip.
+   - The value iterators hold a copy of their container
+     (`ArrayListIter._list`, `HashMapIter._map`, `HashMapEntry._map`), and
+     `into_iter(self : &Self)` stores `self`. The prelude's borrowed `for`
+     binds `for_coll := coll` and `__borrow_guard(&for_coll)` stores another
+     copy (`std/prelude.yo`, `for`). Each is a copy of the container after
+     the flip.
+   - `tests/global_lend.test.yo` shows that on a `mut(G)` global even
+     `.len()` is E0916 (lines 122–125, the `thread_local(mut(...))` form
+     too). So a collection global that is written cannot become `mut(G)`
+     (open question 1).
+   - Reference types cannot implement `Copy`
+     (`src/evaluator/trait_checking.yo:779`), so decision 20's "`get` only
+     for implicitly copyable `T`" cannot be a `where(T <: Copy)` bound while
+     `ref` objects exist (open question 4).
+   - The migration formats each rewritten file with the running binary's
+     own formatter (`run_fmt`, in process), so it must be the tree-built
+     binary: the seed lacks A2, and its formatter differs (GATE 6).
+
+   Numbers that need a heavy run (each under `scripts/heavy-lock.sh`, with
+   `B=yo-out/<target>/bin/yo` built from the tip, and output kept outside
+   `/tmp` or removed after):
+   - **N1, the A2 worklist by directory** (3 min 25 s for `src/`):
+
+     ```bash
+     $B fix ./src --migrate explicit-copy --dry-run --std-path ./std > xc-src.txt 2>&1
+     $B fix ./std --migrate explicit-copy --dry-run --std-path ./std > xc-std.txt 2>&1
+     grep -E 'written afterwards|left as written' xc-src.txt | sed -E 's#^fix: ([^:]+):.*#\1#' | xargs -n1 dirname | sort | uniq -c
+     grep -E ': return: ' xc-src.txt | wc -l   # the return sites open question 2 re-routes
+     ```
+
+   - **N2, `tests/`**, one file per run (a multi-file run mixes same-named
+     generic impls, `issues/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`):
+
+     ```bash
+     for f in $(git ls-files 'tests/*.yo' | grep -v '^tests/cli-cases/'); do
+       $B fix "$f" --migrate explicit-copy --dry-run --std-path ./std >> xc-tests.txt 2>&1
+     done
+     grep -c 'would become' xc-tests.txt; grep -cE 'written afterwards|left as written' xc-tests.txt
+     ```
+
+   - **N3, `markdown_yo`:** clone `https://github.com/shd101wyy/markdown_yo`
+     at the `yo.lock` pin, then
+     `$B fix <scratch>/markdown_yo/src --migrate explicit-copy --dry-run --std-path ./std`.
+   - **N4, the flip probe** (item 3, B8): the residual E0901 list.
+   - **N5, the ratchets** (CI's method, the 2026-10-16 entry of
+     `scripts/bootstrap/memory-ratchet.tsv`), taken `exclusive`:
+
+     ```bash
+     YO_MAIN_STACK_MB=4096 $B compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --std-path ./std -o $T/stage2
+     clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 $T/stage2.c $(pkg-config --cflags --libs openssl) -o $T/yo-stage2-libc
+     cc -O2 -shared -fPIC -o $T/alloc_count.so scripts/bootstrap/alloc_count.c
+     REPEAT=2 bash scripts/bootstrap/eval_work_ratchet.sh $T/yo-stage2-libc $T/alloc_count.so
+     ```
+
+     RSS: `bash scripts/bootstrap/memory_ratchet.sh <stage-2 binary>` on a
+     mimalloc-linked stage 2.
+   - **N6, the collection-global census:**
+     `YO_AUDIT_GLOBAL_LEND=1 $B check ./src --std-path ./std 2> gl-src.err`,
+     then count the `[global-lend]` and `[global-write]` lines per global
+     for the 353 names of item 2's table.
+   - **N7, the copying-accessor census:** the knob B6 adds.
+
+3. **The PRs, in order.** Each names its scope, what it needs, what it
+   flips, the E0901 surface it clears, its Tier 1 and what it moves. Tier 1
+   follows `testing.instructions.md`, "Choosing a Tier 1 gate"; "in-process
+   internal" means one
+   `YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal --parallel 1`
+   under an `exclusive` slot. Every PR also runs `check ./src`, `check ./std`
+   (both `--std-path ./std`), the tree-built `fmt --check` on its changed
+   files and `scripts/check-issue-refs.sh`, which are not repeated below.
+   - **B0. `RefCell(T)`, Generation A** (§3.10, decision 41, decision 46
+     step 1's `RefCell` bullet, pulled forward; open question 1).
+     - **Status 2026-10-17: the cell landed as #1415** (decision 46
+       Generation A, in v0.2.64): `std/sync/refcell` with `with` and
+       `with_mut`. The expression-scoped `get()`/`get_mut()` projections
+       and the binding ban are still pending. B5 does not wait for them
+       (open question 1's verdict); they are a later ergonomic pass.
+     - Scope: `std/sync` gains `RefCell(T)` with `with`, `with_mut` and the
+       expression-scoped `get()`/`get_mut()` projections; the compiler
+       learns the expression-scoped mark and the binding ban.
+     - Needs: nothing. It can start now, in parallel with B1–B4.
+     - Flips nothing. Seed-gated: src may use the projections only once a
+       release carries B0 (v0.2.65 if B0 lands before that cut).
+     - Tier 1: build; the new `tests/ref_cell.test.yo` (or the name §3.10
+       gives); internal files importing the changed evaluator modules;
+       cli-diff (a new diagnostic).
+   - **B1 (a). The A2 sweep over `std/` and `src/`.**
+     - Scope: `yo fix ./std --migrate explicit-copy` and
+       `yo fix ./src --migrate explicit-copy` on the tip, with the
+       tree-built binary (it formats each rewritten file itself).
+     - First commit: open question 2's `return` split in
+       `_ic_migrate_site` (`src/evaluator/utils.yo`), with a fixture line
+       in `tests/cli-cases/fix-migrate-explicit-copy`.
+     - Needs: #1385. Not seed-gated.
+     - Flips nothing. Semantics are unchanged by construction (the
+       written-after guard), but each insertion turns a count bump into an
+       O(n) deep copy while the collections are still `ref`.
+     - E0901 surface cleared in advance: about 3,761 `src/` and 205 `std/`
+       future errors, fewer the `return` sites question 2 re-routes (N1).
+     - Not one PR with B3/B4: B1 is regenerable and B3/B4 are judgment
+       edits. Held together, a ~4,000-site diff would stay open for the
+       days the hand edits take, and #1397, #1380, #1399 and decision 47's
+       Generation B all touch `src/`. Land B1 in a short window instead:
+       re-run the migration on the tip, gate, merge. On a conflict, take the
+       tip's file and re-run the migration on it; never hand-merge an
+       insertion.
+     - Tier 1: build; `tests/collections/*.test.yo` and
+       `tests/string/*.test.yo` one per call; `std/collections/hash_map.test.yo`,
+       `std/collections/hash_set.test.yo`; in-process internal; cli-diff
+       (line-pinned LSP goldens move when `fmt` rewraps a std line). Also
+       run `scripts/bootstrap/fixpoint_only.sh`: it is not Tier 1, but a
+       ~4,000-site src change is cheaper to verify than to fix forward.
+     - Ratchet: measure N5. The allocation count is expected to RISE here
+       (deep copies). Move `check_src_main_alloc_calls` if it leaves ±5%,
+       with a dated comment naming this PR.
+   - **B2 (a). The A2 sweep over `tests/`, the build scripts and
+     `markdown_yo`.**
+     - Scope: `tests/**/*.yo` one file per run (N2), including
+       `tests/internal/` and the non-copy-semantics `tests/cli-cases/*/fixture`
+       files; `build.yo` and `scripts/*.yo`; `markdown_yo` as a companion
+       release (pre-authorized, handover §1.1), then `yo.toml`'s range.
+     - Needs: B1 (the same migration build). It can overlap B3/B4.
+     - Tier 1: no `src/` change, so reuse a develop-built `B`; every changed
+       test file one per call, in one slot; in-process internal if any
+       `tests/internal` file changed; cli-diff, re-recording only fixtures
+       whose diff is the inserted `.clone()`.
+   - **B3 (b). Hand edits in `std/`.**
+     - Scope: N1's `std/` list after B1 (97 left as written today, 88 of
+       them written after), the `return` sites question 2 re-routes, and
+       the generic std bodies the migration skips (a position copied at two
+       types).
+     - Each site gets one of: a borrow (`y := &mut x.items`), a projection
+       (`-> &T` / `-> &mut T`, decision 24), a `.clone()` where the two were
+       meant to be independent, or `take`/`replace` (decision 19).
+     - Needs: B1. Flips nothing. Not seed-gated.
+     - Tier 1: the test files of each touched std module, one per call;
+       cli-diff; `compile.test.yo`.
+   - **B4 (b). Hand edits in `src/`, by directory.** Split by N1's counts
+     into PRs of at most ~250 sites (likely `src/evaluator/`, then
+     `src/codegen/`, then the rest).
+     - Scope: the 644 `src/` sites, the re-routed `return` sites, and the
+       V2a blockers (the bullet above): `EvalContext`'s eight collection
+       fields that `copy_eval_context` shares (`src/evaluator/context.yo:1796`),
+       the `__yo_ptr_eq(&hit.cap_vals, cap_vals)` identity test
+       (`src/env.yo:2941`), the tree payload lists written in place
+       (`TypeValue.SomeT`/`TraitT` constraint lists, `AstExpr` call
+       arguments, the comptime-place model, `module_loader`'s cached
+       arrays), and `Environment`'s shared frame list
+       (`tests/internal/env.test.yo:214` asserts `ref_count(env.frames) == 2`).
+       A list two owners write on purpose becomes `Rc(RefCell(...))`
+       (decision 46) once B0 is in a seed; until then `Rc(...)`, which
+       decision 46's census (`YO_AUDIT_RC_WRITE`, not built yet) will
+       list.
+     - Needs: B1; B0 in the seed for the `RefCell` sites.
+     - Tier 1: build; the internal files importing each changed module
+       (more than ~8 → in-process); fixpoint recommended for the evaluator
+       PR.
+   - **B5. The collection globals become `RefCell` globals** (open
+     question 1).
+     - Scope: the 353 `src/` globals (~1,570 uses, 66 files; N6 gives the
+       written ones) and the 24 in `tests/`. A global nothing writes after
+       its initializer stays as it is.
+
+       ```yo ignore
+       // today: a ref handle, mutated through its methods without `mut`
+       g_seen := HashSet(String).new();
+       g_seen.insert(name.clone());
+       // after B5 (constructor spelled as B0 lands it):
+       g_seen := RefCell(HashSet(String)).new(HashSet(String).new());
+       g_seen.get_mut().insert(name.clone());
+       ```
+
+     - Needs: B0 in `SEED_VERSION` (the projections), decision 47 globals
+       Generation B. Valid before the flip.
+     - Tier 1: build; `tests/global_lend.test.yo`; in-process internal; N5
+       (a `RefCell` mark is a flag check, not an allocation).
+   - **B6 (c). Decision 20's accessors.**
+     - Scope, std: `get_cloned` beside every copying accessor (`get`,
+       `first`, `last`, `front`, `back`, `peek`, `get_key_value`,
+       `get_index`, `first_entry`, `last_entry`); std's own 246 calls read
+       in place (`xs(i)`) or clone; `ArrayList.clone`/`Array.clone` clone
+       through the slot, closing `issues/arraylist-clone-copies-elements-out-through-get.md`
+       and `issues/array-clone-copies-self-out-of-the-borrow.md`.
+     - Scope, compiler: E0901 raised inside a specialized std accessor body
+       is reported at the caller outside std, with decision 20's text
+       (`xs(i)`, `get_cloned(i)`, `with`); the census knob N7; and
+       `yo fix --migrate cloned-accessors`, which rewrites `.get(` to
+       `.get_cloned(` where the instantiated element is a unique-buffer
+       category (`_ic_category_is_unique_buffer`) and lists the call when
+       the bound result is written afterwards (`match(m.get(k), .Some(l) =>
+       l.push(x))` writes the shared list today). Run it over std, src and
+       tests in the same PR.
+     - E0901 surface: roughly 2,100 accessor unwraps in `src/` of all
+       element kinds (§6: 3,314 owned-temporary bindings, 7 of 11 from an
+       accessor); the buffer-owning share is N7's number.
+     - Needs: B1. The std half is not seed-gated; the migration and the
+       diagnostic are tree-compiler only.
+     - Tier 1: build; `tests/collections/*`, `tests/string/*`,
+       `tests/copy_trait.test.yo`, `tests/move_only.test.yo`,
+       `tests/index.test.yo`, `tests/derive_clone_complex.test.yo`; a new
+       cli-case `fix-migrate-cloned-accessors`; in-process internal.
+   - **B7 (c). Decision 39's iteration and decision 20's entries.**
+     - Scope:
+       - The borrowed `for` becomes a walk over a local borrow of the
+         container, so a write to it inside the body is E0911, not a
+         runtime flag. No copy of the container is made; the guard keeps
+         only an `Rc` root's flag.
+
+         ```yo ignore
+         // for(&mut xs, x => body) on an index-addressed container
+         c := &mut xs;
+         (i : usize) = usize(0);
+         while(i < c.len(), i = (i + usize(1)), {
+           x := &mut c(i);
+           body
+         });
+         ```
+
+       - Maps and `LinkedList` walk a cursor (open question 5).
+       - `into_iter(self : Self)` consumes, and its iterator moves elements
+         out (`__yo_ptr_read`) and drops the rest; `indices()` returns
+         `Range(usize)`; `iter()` and the `*Ptr` iterators move under
+         `pragma(Pragma.AllowUnsafe)` beside `ptr()`.
+       - `HashMapEntry` stops holding the map: `.entry(` (5 std, 17 tests)
+         becomes decision 20's `with` shape.
+       - The call sites: about 27/10/63 `.into_iter()`, 5/15/28 `.iter()`
+         and the value-form `for` loops (about 11/20/114) in
+         src/std/tests. A chain over a live container writes
+         `xs.clone().into_iter()`.
+     - Needs: B6 (the iterators read through the accessors). Valid before
+       the flip: a `ref` container moved into `into_iter` still copies.
+       Closes `issues/collection-iterators-have-no-sound-post-v2b-shape.md`.
+     - Tier 1: build if src changed; `tests/for_macro_borrow.test.yo`,
+       `tests/for_macro_borrow_strict.test.yo`,
+       `tests/iterator_combinators.test.yo`,
+       `tests/iter_filter_closure.test.yo`, `tests/collections/*`,
+       `tests/async_await.test.yo`; `compile.test.yo` (a prelude change);
+       cli-diff (the seven runtime-panic cases, `inout-for-*-panics`,
+       `inout-interior-borrow-growth-panics` and
+       `inout-self-method-under-borrow-panics`, keep their panic until B8,
+       since their containers are still `ref`); docs (en and
+       zh-CN) for `for`.
+   - **B8 (d). The flip: `ArrayList` and `String`.**
+     - Before opening it, run the probe (N4) until it is clean: a
+       never-merged branch `wip/v2b-flip-probe` that holds only the std
+       change below, rebased on each tip, checked with the SEED binary
+       (CI's stage 1): `yo check ./std --std-path ./std` and
+       `yo check ./src --std-path ./std`, then the language tests that
+       name `String` or a collection. Each remaining E0901 goes back into
+       B3–B7-style fixes on develop. Treat each count as a lower bound: an
+       error can hide the rest of its function.
+     - Scope: `ArrayList(T)` drops `ref(...)` and implements `Drop`,
+       `Trace` (A1) and `Clone` (through the owner, §3.11);
+       `String :: newtype(_bytes : ArrayList(u8))` with `string.yo`'s 223
+       `_bytes` sites rewritten; whatever the probe left; the tests that
+       assert sharing (`ref_count` of a list or string, e.g.
+       `tests/collections/array_list_convenience.test.yo`); the S1's test
+       (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`
+       moves to `fixed/`); docs in both languages, the instructions and
+       the skills cheatsheets; `plans/STRING_VALUE_SEMANTICS.md`'s status.
+     - Flips: every implicit copy of a `String`, an `ArrayList` or a value
+       aggregate holding one, whose source lives on, is E0901.
+     - Needs: B1–B7 landed. The std change itself needs no newer seed than
+       B5 did.
+     - Tier 1: `yo build --std-path ./std` with the seed (the stage-1
+       check); `tests/collections/*`, `tests/string/*`,
+       `tests/move_only.test.yo`, `tests/copy_trait.test.yo`,
+       `tests/cycle_collector.test.yo`, `tests/iso.test.yo`,
+       `tests/for_macro_borrow*.test.yo`, `tests/index.test.yo`,
+       `tests/rc.test.yo`, `tests/async_await.test.yo`,
+       `tests/comptime.test.yo` (CTFE now runs a value list),
+       `tests/encoding/*` (`JsonValue`); in-process internal (the LSP files
+       read `JsonValue`); cli-diff; fixpoint.
+     - Goldens: `audit-implicit-copy-lists-copies-of-live-values`,
+       `fix-migrate-explicit-copy` (its left-as-written sites are E0901
+       now), the seven runtime-panic `inout-*-panics` cases (on a value
+       root a static error replaces the panic; read each diff), and the
+       seven cheatsheet-hash cases (`init*`, `skills-install*`,
+       `build-stamp-dotted-dir`).
+     - Ratchets: `check_src_main_alloc_calls` DROPS (one allocation per
+       non-empty list instead of two, no count traffic). Lower it in this
+       PR with a dated comment in `scripts/bootstrap/memory-ratchet.tsv`
+       naming B8 and the before/after counts. Re-measure
+       `check_src_main_max_rss_kb` and `compile_src_main_peak_kb` (±10%):
+       the 359 `Option(...)` fields grow (open question 3) while every
+       40-byte cell goes.
+   - **B9 (e). `HashMap` and `HashSet`.** The second-largest surface (978
+     and 444 `src/` mentions). `HashSet` becomes a value wrapper of
+     `HashMap(T, unit)`. Closes
+     `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`.
+     Probe first, as for B8; same Tier 1 shape with
+     `tests/collections/hash_*` and `std/collections/hash_*.test.yo`;
+     ratchet: lower the
+     allocation baseline again if it leaves ±5%.
+   - **B10 (e). `Deque`, `BTreeMap`, `OrderedMap`, `PriorityQueue`.** Few
+     `src/` uses (4, 3, 2, 2); the surface is std and tests (113, 86, 47,
+     48 mentions). One PR, or two if the probe is large.
+   - **B11 (e). `LinkedList`, `StringBuilder`, `HeaderMap`.** `LinkedList`'s
+     nodes are a shared `ref` graph (`prev`/`next`), so the list needs its
+     own representation decision (open question 5). `StringBuilder`'s docs
+     promise sharing (`std/string/string_builder.yo`); it becomes a value
+     like Rust's `String`, and a shared builder is `Rc(RefCell(StringBuilder))`.
+   - **B12 (f). `Dyn`, Generation A** (decision 7, §3.7). Codegen owns the
+     layout (`src/codegen/functions/dyn.yo`), so this is compiler work: a
+     `clone` vtable slot replaces the retain/release slots, and a `Dyn` copy
+     whose source lives on is E0901 outside std/src. Small surface: §6
+     counted 9/6/8 copies. Tier 1: build; `tests/dyn.test.yo` and the
+     test files that name `Dyn(`; internal files importing `dyn.yo`; cli-diff;
+     `docs/*/DYN_DESIGN.md`.
+   - **B13 (f). `Dyn`, Generation B,** on the seed after B12: the std/src
+     copies take `.clone()` or move, then the error applies everywhere.
+   - **B14. Follow-ups the flips make possible.**
+     - The verifier drops its list-alias model (`list_alias_locals` and the
+       `distinct(...)` hints, `src/verifier/vc.yo` around L773, L5320 and
+       L6987), and `Rc(ArrayList)` parameters become outside-subset. Tier 1:
+       `yo verify ./tests/spec --format json`, `tests/spec/*`.
+     - Decision 27's elision and lint (open question 6).
+     - Re-time `check ./src` and record the RC share, as the as-built
+       "Expected RC and allocation effect" bullet asks.
+
+4. **Open questions, with recommendations.**
+   1. **Value globals after the flip.** A collection global written through
+      `push`/`insert`/`clear` becomes a value global: E0917 when unmarked,
+      and E0916 on every lend when marked, including `.len()`
+      (`tests/global_lend.test.yo:122-125`). `thread_local(mut(...))` is the
+      same rule.
+      - **Recommendation: an unmarked `RefCell(T)` global**, Rust's
+        `thread_local! { static G: RefCell<T> }`. The binding is immutable,
+        so it is lent freely; the cell checks re-entry at run time (an
+        `insert` whose `Hash` impl reaches `G` panics instead of corrupting
+        the table); one-line uses keep one line (`G.get_mut().push(x)`). This
+        pulls `RefCell` (decision 46 step 1) ahead of V2b's flip as B0, and
+        B4 needs it too for the payload lists written in place.
+      - Rejected: `mut(G)` (about 1,570 uses become copy-out/write-back);
+        `thread_local(mut(...))` (the same E0916); a `ref` box
+        (`Shared(T) :: ref(struct(v : T))`), which keeps today's semantics
+        but re-creates the hidden sharing V2b removes and is deleted again
+        at V5. Keep the box only as a fallback if B0 misses the release
+        before B8.
+      - **Decided 2026-10-17: an unmarked module-level `RefCell(T)` global,
+        `G := RefCell(T).new(...)`, used through `with`/`with_mut`.**
+        - B5's spelling is `G.with_mut(g => g.push(x))` and
+          `G.with(g => g.len())`; `RefCell` has no `get_mut()` yet (see B0's
+          status). B5 does not wait for the projections.
+        - Probe on develop `5425cd7bf` (`yo check`, then an ASan run):
+          - an unmarked `G := RefCell(ArrayList(i32)).new(...)` global
+            written through `with_mut` and read through `with` checks and
+            runs clean;
+          - the same global reached from a `Thread.spawn` closure is a
+            compile error ("references the module-level global 'G' …
+            which is not Sync"), so a module-level cell cannot be shared
+            across threads by accident;
+          - `thread_local(G) := RefCell(...)` is rejected ("A thread-local
+            cannot hold a reference-counted type"), so the
+            `thread_local!` form is not available today.
+        - A global that several threads write is a `Mutex(T)` global, as
+          that diagnostic says. Whether any of the 353 counted in B5 is
+          reached from a spawned thread is not measured. N6's census
+          answers it, and the compiler rejects such a use regardless.
+        - The reordering this needed already happened: `RefCell` landed
+          with decision 46 Generation A (#1415) ahead of step 8.
+        - A reassigned explicit-copy global is a different shape: a
+          `mut(G) : String` set once per command and read by copy (nine
+          in src after decision 47 globals Generation B, #1414). Its read
+          `v := G.clone()` stays legal: a structural `clone()` receiver is
+          exempt from E0916. The exemption is recursive: every `Clone`
+          impl the clone reaches must be derived or std-structural, so no
+          user code can reach `G` during the borrow, and a user
+          `impl(T, Clone)` anywhere inside stays E0916. The rule is
+          decided with #1414's question doc. It is a compiler change that
+          is not seed-gated, and it lands before or with B1, whose sweep
+          writes those clones.
+   2. **Escaping copies**
+      (`issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`).
+      - **Recommendation: the doc's own** (option 1, with option 3's split
+        for `return`). Build the split as B1's first commit: a `return`
+        whose source is rooted at a `&`/`&mut` parameter is listed, not
+        rewritten. B3/B4 turn those into projections where the caller reads
+        or writes through, and into `.clone()` where it stores. Field stores
+        and arguments keep the automatic `.clone()`; the V2a list of lists
+        shared on purpose (the blockers above) is reviewed by hand in B4.
+      - The safety net is behavioral, not E0901: the language suite, the
+        fixpoint and the self-hosted tests on the B1, B4 and B8 heads.
+      - **Decided 2026-10-17: as recommended.** B1 is not ready without the
+        `return` split as its first commit.
+   3. **`Option(String)`/`Option(ArrayList)` fields grow from one word to
+      four** (359 field lines in `src/`, 14 in `std/`, 167 in `tests/`;
+      every plain `String`/`ArrayList` field grows from one word to three).
+      - **Recommendation: accept it in B8 and measure** (N5). Each
+        non-empty list loses a 40-byte cell, so the net RSS change is not
+        known in advance.
+      - If `check_src_main_max_rss_kb` or `compile_src_main_peak_kb` leaves
+        its ±10% band upward, restore a niche the way Rust does (`Vec`'s
+        `NonNull::dangling()`): `_ptr` non-null, pointing at a static
+        sentinel when empty, so `Option(ArrayList(T))` is three words again.
+        That needs a codegen niche for a struct whose field is a non-null
+        pointer (a compiler Generation A, then std on the next seed), so it
+        is a follow-up pair, not part of B8.
+      - **Decided 2026-10-17: as recommended.**
+   4. **`get`'s gate (decision 20).** `where(T <: Copy)` would reject
+      `ArrayList(AstExpr).get` and every other `ref` element, which no
+      `ref` type can satisfy; those are most of `src/`'s 6,974 `.get(`
+      calls.
+      - **Recommendation: no bound.** The copy in the specialized body is
+        the check (the same predicate as E0901), and B6 reports it at the
+        caller with decision 20's text. Decision 43 later reshapes `get` to
+        `-> Option(&T)`, as Rust's, and `get_cloned` becomes a convenience.
+      - **Decided 2026-10-17: as recommended.**
+   5. **Cursors for maps and `LinkedList` in the borrowed `for`.** An index
+      walk needs an index.
+      - **Recommendation:** a std-internal cursor (`usize` bucket or slot
+        index, with `&`/`&mut` projections to the key and value) that the
+        prelude's `for` calls, as decision 39's `indices()` does for lists;
+        `LinkedList` moves its nodes to raw pointers under
+        `pragma(Pragma.AllowUnsafe)` (Rust's `LinkedList` uses `NonNull`),
+        which gives it a cursor and removes its `ref` nodes before V5.
+        Record each as an "as built" note in B7/B11.
+      - **Decided 2026-10-17: as recommended.**
+   6. **Decision 27's lint timing.** Decision 27 puts the lint in "the
+      first `yo fix` sweep". A2 inserts `.clone()` only where the source is
+      used again, so the lint has nothing to find in B1's output; the clones
+      it should catch come from hand edits.
+      - **Recommendation:** land it in B14 with the elision, and amend
+        decision 27's phase line to say so when B14 lands.
+      - **Decided 2026-10-17: as recommended.**
+
+5. **Agent briefs, one per PR.** Read AGENTS.md, the current handover and
+   this section first. Work in a worktree under `~/Workspace/Yo-wt/`, take
+   every heavy step through `scripts/heavy-lock.sh`, never edit a worktree
+   while a build or migration reads it, and run `yo test` with one path per
+   call.
+   - **B0 — `RefCell(T)` Generation A.** Purpose: the cell B4 and B5 need.
+     The type, `with` and `with_mut` landed as #1415; what remains is the
+     projections, which B5 does not wait for. Spec: §3.10's `RefCell`
+     bullet, decision 41, decision 46 step 1. Steps: `get`, `get_mut`; the compiler's expression-scoped mark and
+     the binding ban; `Send` iff `T <: Send`, never `Sync`; tests for
+     re-entry panics and the binding error. Tier 1: B0's. Pitfall: the
+     projections are seed-gated for src; land before the next release cut.
+   - **B1 — the A2 sweep (std, src).** Purpose: spell every copy the flip
+     will reject while it is still legal. Spec: "A2, the migration";
+     open question 2. Steps: the `return` split commit; N1 on the tip;
+     `yo fix ./std` and `./src --migrate explicit-copy` with the
+     tree-built binary; `fmt --check` with the same binary; gate; N5;
+     merge in one window. Pitfalls: re-run, do not hand-merge, on a
+     conflict; a generic std body is skipped by design; the allocation
+     count rises.
+   - **B2 — the A2 sweep (tests, scripts, `markdown_yo`).** Purpose: the
+     same for everything else the tree compiles. Steps: N2/N3 per file;
+     apply; release `markdown_yo` and raise `yo.toml`'s range. Pitfalls:
+     one file per `yo fix` run; check that `test(...)` bodies were reached
+     (a test file whose dry run lists nothing but copies strings is
+     suspect); re-record only goldens whose diff is the insertion.
+   - **B3 — std hand edits.** Purpose: the 97 left sites plus the re-routed
+     returns and generic bodies. Steps: N1's std list; decide borrow,
+     projection, clone or `take` per site, writing the reason in the
+     commit; tests per module. Pitfall: an accessor that returns a field
+     usually wants a projection, not a clone.
+   - **B4 — src hand edits (one PR per directory).** Purpose: the 644 left
+     sites, the re-routed returns and the V2a blockers. Steps: N1's list
+     for the directory; the blockers' `Rc(RefCell(...))` decisions recorded
+     as "as built" notes; internal tests for touched modules. Pitfalls: a
+     snapshot that must stay a snapshot (`copy_eval_context`) takes
+     `.clone()`, a list two owners write takes a cell; never leave a site
+     silently writing a copy.
+   - **B5 — collection globals to `RefCell`.** Purpose: keep the 353 handle
+     globals legal after the flip. Steps: N6; rewrite each written global
+     and its uses; leave read-only ones. Pitfall: a global a spawned thread
+     touches needs `thread_local` or a `Mutex`, not a `RefCell`.
+   - **B6 — decision 20's accessors.** Purpose: no accessor copies a buffer
+     owner out of `&Self`. Steps: `get_cloned` and siblings; std's 246
+     internal calls; the clone S2s; the caller-attributed E0901; N7;
+     `yo fix --migrate cloned-accessors` over std, src and tests. Pitfall:
+     a bound result written afterwards relied on sharing; list it, do not
+     rewrite it.
+   - **B7 — iteration and entries.** Purpose: decision 39 at V2b. Steps:
+     the `for` macro's borrowed form, cursors, consuming `into_iter`,
+     `indices()`, `iter()` under `AllowUnsafe`, the entry `with` shape,
+     call sites, docs. Pitfall: the prelude is in every test; select by
+     the names it changes and add `compile.test.yo`.
+   - **B8 — the flip of `ArrayList` and `String`.** Purpose: unique buffers
+     and the explicit-copy kind. Steps: N4 until clean; the std change;
+     tests, docs, goldens; N5; lower the ratchet. Pitfalls: check with the
+     seed, since it is CI's stage 1; CTFE now runs value lists; move the
+     S1 doc to `fixed/` with its test.
+   - **B9–B11 — the other collections.** Purpose: the same flip per
+     collection. Steps: a probe per PR; representation notes for
+     `LinkedList` and `StringBuilder`; ratchet each. Pitfall: `HashSet` and
+     `OrderedMap` hold a `HashMap`, so they flip with or after it.
+   - **B12–B13 — `Dyn`.** Purpose: decision 7's unique `Dyn`. Steps:
+     Generation A in codegen and the evaluator; Generation B after the next
+     seed. Pitfall: the vtable layout is a contract between the seed's
+     codegen and the tree; nothing in std/src may rely on the new slot
+     before Generation B.
+   - **B14 — the follow-ups.** Purpose: delete what the flips made
+     unnecessary and add decision 27. Steps: the verifier's alias model;
+     the elision and lint with a `yo fix` repair; the re-timing. Pitfall:
+     the lint flags only clones of dead sources; a clone the program needs
+     is never its target.
+
 **V2c: decision 17.**
 - **The rule.** Implicit `Rc`/`Arc` handle copies become E0901, with
   `.clone()` inserted by `yo fix`.
