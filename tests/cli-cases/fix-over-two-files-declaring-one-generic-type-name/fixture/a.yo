@@ -32,6 +32,17 @@ impl(
   )
 );
 comptime_expect_error(impl(generic(T : Type), Tag(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
+// Each file's own `Meters`, with an impl of the prelude's `From` for the
+// prelude's `Option(T)`: `From(Meters)` is a different trait instance in each
+// file, although both print alike.
+Meters :: struct(v : i32);
+impl(
+  generic(T : Type),
+  Option(T),
+  From(Meters)(
+    from : (fn(value : Meters) -> Self)(Option(T).None)
+  )
+);
 total := i32(0);
 main :: (fn() -> unit)({
   w := Wrap(i32)(v : i32(60));
