@@ -368,9 +368,9 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### `fix/d3-trust-by-mutation-mask` — the D3 S1 fix (B1 of #1380), #1397
 
-> **LANDED 2026-10-17 as #1397** (squash-merged from `fix/d3-trust-by-mutation-mask`, rebased onto develop `56b5e11a6`; the rebase onto #1385 kept #1385's copy-write block in `d3_check_pending` and still deletes the early return). The "Next" steps below are done; they are the history.
+> **LANDED 2026-10-17 as #1397** (squash-merged from `fix/d3-trust-by-mutation-mask`, rebased onto develop `ed733408c`; the rebase onto #1385 kept #1385's copy-write block in `d3_check_pending` and still deletes the early return). The "Next" steps below are done; they are the history.
 >
-> - **Gated on `56b5e11a6`:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 281, `closure_capture_list` 41, `move_only` 55, `send_sync` 15, `thread` 23, `rc` 99; the 18 cli cases that exercise D1, D3 and the mask-driven migrations (all PASS); fmt; issue refs.
+> - **Gated on `ed733408c`:** build; check src 278/278, std 172/172; `parallelism_soundness` 17, `arc` 18, `atomic_object` 21, `thread_safety` 4, `async_await` 281, `closure_capture_list` 41, `move_only` 55, `send_sync` 15, `thread` 23, `rc` 107, `sync/refcell` 7; the 18 cli cases that exercise D1, D3 and the mask-driven migrations (all PASS); fmt; issue refs.
 > - **`tests/internal`, on earlier bases, never one whole run on the final head:** the in-process run (base `0684c9c40`, leak verdicts on) was cut off after 57 of 108 files, and every failure in it was a leak verdict; the other 51 files passed one per call (base `6fc6e3a0a`, `YO_TEST_LEAK_VERDICT=0`).
 > - **Decision 47 (#1401):** a written global is now `mut(g)`. The D1 regression case declares `mut(g_d3_slot)`, and D1 fires before E0916 for its `g_d3_slot.take()`; without this fix that call reaches E0916 instead.
 > - **`plans/reference/PARALLELISM_RULES.md` D3** now says the mask decides for every callee.
