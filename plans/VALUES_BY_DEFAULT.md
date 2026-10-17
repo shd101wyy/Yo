@@ -136,8 +136,8 @@ Progress:
     note). The value-enum conversion was built and measured first, and
     lost.
   - V4's `Z3Sexpr` as a value enum (#1435) and `Pattern` with `Box`
-    children (feat/vbd-v4-pattern-box), after the unwind S1 it exposed
-    (#1438); V4's "as built". `VcSort` and `VcTerm` wait on a decision (`Box`
+    children (feat/vbd-v4-pattern-box, Generation B after the v0.2.65 seed
+    bump), after the unwind S1 it exposed (#1438); V4's "as built". `VcSort` and `VcTerm` wait on a decision (`Box`
     or `Rc` children, `issues/questions/`).
   - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
     the cycle, reach and `Acyclic` walks through its buffer, not a raw view
@@ -7225,8 +7225,14 @@ stage-2 RSS):
     allocation calls against 1,823,309,567 (−0.045%; the ratchet baseline
     is 1,799,052,684). The timing A/B (`check ./src` time and stage-2 RSS,
     exclusive) is measured after merge, because the heavy queue was 35 deep.
-  - **`Pattern`** (2026-10-18): a value enum with `Box(Self)` children
-    (`At`'s and `ThroughBox`'s `sub`) and `ArrayList(Self)` lists.
+  - **`Pattern`** (2026-10-18; Generation B, merging after the v0.2.65
+    seed bump): a value enum with `Box(Self)` children (`At`'s and
+    `ThroughBox`'s `sub`) and `ArrayList(Self)` lists.
+    - **Why it waits for the seed.** A stage 1 that a seed without #1438
+      compiles loses the E0901 thrown inside a `Box(sub)` arm (the arm's
+      `new_sub` drop clears the escape) and crashes on
+      `tests/move_only.test.yo`. CI builds its stage 1 with the seed, so the
+      conversion merges once `SEED_VERSION` carries #1438.
     - **Clone.** `derive(Clone)` refuses an enum that mixes `Box(Self)` with
       `ArrayList(Self)`, so `Pattern` has a manual `Clone`: `Box.clone` for
       the boxes, an index loop for the lists, and shared handles for the
