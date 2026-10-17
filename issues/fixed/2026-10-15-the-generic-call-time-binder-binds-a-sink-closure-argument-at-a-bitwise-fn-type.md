@@ -104,4 +104,24 @@ The declared flag is `own=true`, but the binding comes out non-owning.
 
 ## Verification
 
-VERIFICATION_PLACEHOLDER
+- `tests/closure_param_forwarding.test.yo`: the two new tests are a `sink`
+  relay, a plain by-value relay and a direct call, each over a closure literal
+  holding a `Drop` value, with a drop counter that must read exactly one per
+  closure; plus both relays over a counted `String` capture. They are E0901
+  on develop `5425cd7bf` and pass after the fix (6/6 under ASan, with the leak
+  verdict on).
+- The emitted C for the generic literal call has the same parameter and temp
+  types as before. Only the release moved: the caller no longer drops the
+  closure temp after the call, and the callee drops `cb` at scope end. That is
+  the shape the named-closure and non-generic calls already had.
+- Tier 1 on the Linux box: `check ./src`, `check ./std`;
+  `tests/send_sync.test.yo`, `closure`, `forwarded_closure_param_spec`,
+  `move_only`, `closure_capture_rc_leak` and `closure_capture_list` pass under
+  ASan. `tests/spawn_blocking.test.yo` passes under TSan, and under ASan except
+  for one LeakSanitizer report that develop's binary also produces
+  (`issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`).
+  `tests/copy_trait.test.yo` has one leak that develop's binary also produces
+  (`issues/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`).
+  The `tests/internal` files that import a changed module (`ast_reflection`,
+  `macro_helpers`, `binding`, `evaluator_utils_is_valid_variable_name`,
+  `macro_expansion`) all pass.
