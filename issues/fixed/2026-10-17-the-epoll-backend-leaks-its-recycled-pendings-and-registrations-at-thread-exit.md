@@ -80,4 +80,4 @@ S2, not S1. The leak is bounded per thread, by the peak number of operations tha
 
 ## Test
 
-The 8 epoll-fallback tests in `tests/sys/socketpair.test.yo` are the regression test. With the leak verdict on, they fail before the fix and pass after it (VERIFICATION_PLACEHOLDER). `tests/sys/socketpair.test.yo` is now on the verdict-on allowlist in `.github/workflows/leak-verdict.yml`, so CI runs it with the verdict on.
+The 8 epoll-fallback tests in `tests/sys/socketpair.test.yo` are the regression test. With the leak verdict on, they fail before the fix and pass after it (before: `yo-dev-ed733408c`, 9 passed and 8 failed, every failure `Memory leak detected`; after: the branch's stage-1, 17 of 17 under the default backend and 17 of 17 with `YO_IO_BACKEND=epoll`; CI's `leak-verdict.yml` on the branch, run 39009278270, 17 of 17). `tests/sys/socketpair.test.yo` is now on the verdict-on allowlist in `.github/workflows/leak-verdict.yml`, so CI runs it with the verdict on.
