@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 01:00 CST):** develop is at `fc7b02a02` (#1412). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 02:10 CST):** develop is at `fbd79fc90` (#1438). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -47,6 +47,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1425 | `yo check` reports errors in any closure with an `io : Io` parameter (S3; it was not specific to D3) |
 | #1426 | A recursive enum's self-shell lowers like its nullable-pointer final (derive Clone S2) |
 | #1423 | Handover status notes |
+| #1438 | S1: an `unwind` through a frame whose destructor makes a call is no longer lost (v0.2.65 gate item 3) |
 | #1412 | V3 A5: `Waker` implements `Clone` over `__yo_waker_clone` (Generation B on the v0.2.64 seed); `cross_thread_wake` uses `w.clone()` again |
 | #1435 | V4: the verifier's `Z3Sexpr` is a value enum (no `Box` needed: its children live in an `ArrayList`). `VcSort`/`VcTerm` wait on `issues/questions/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md` (recommends `Rc` for `VcTerm`, `Box` for `VcSort`, once maps hold move-only values). Its exclusive timing A/B runs once the heavy queue drains. |
 
@@ -56,7 +57,7 @@ Cut v0.2.65 (2026-10-15 handover §8.4, then curate the notes as for v0.2.64) on
 
 1. **Decision 47 locals, Generation A** has merged. Branch `feat/vbd-d47-locals-gena`, no PR yet.
 2. **Decision 39 iterators, Generation A** has merged: #1429, branch `feat/vbd-decision39-gen-a`.
-3. **The unwind S1 fix** has merged. Branch `fix/unwind-destructor-clears-escape-flag`, no PR yet (§5.1).
+3. ~~**The unwind S1 fix** has merged.~~ **Done:** #1438, `fbd79fc90` (§5.1).
 4. **Develop's battery is green on the exact tip**, and `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` is empty.
 
 Items 1 and 2 add syntax and semantics that their Generation B sweeps need a seed to parse; that is why they gate the release. The other open PRs (§2.4) land whenever they are ready and do not gate it. Never cancel a `Release` run.
@@ -69,8 +70,7 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 | --- | --- | --- |
 | #1429 `feat/vbd-decision39-gen-a` head `0c2f78962` | Decision 39 iterators, Generation A: the borrowed `for` walks a cursor over a local borrow, and a push to the list being walked is E0911 | Pre-rebase Tier 1 green except 4 ASan leak reports in `tests/internal/compile.test.yo`. **Before merging, run that file with develop's binary at the same base and compare the reports.** Gates v0.2.65. |
 | `feat/vbd-d47-locals-gena` (no PR) head `f328f8b9e` | Decision 47 step 2 Generation A: every `mut(...)` binding form, `yo fix --migrate mut-bindings` | `check ./src` 278/278 and build green pre-rebase. The tests sweep is regenerated (2117 + 243 + 10 bindings, 9 parameter writes rebound). Remaining jobs: the rebased build, `check ./std`, the full suite with cli-diff, in-process internal, and the src/std census. Open it as a ready PR. It also accepts module-level `mut(x) ::`, which the PR must flag for the maintainer. Gates v0.2.65. |
-| `fix/unwind-destructor-clears-escape-flag` (no PR) head `63a43b8f8` | S1 fix (§5.1): `return.yo` re-raises `__yo_effect_escaped` after the escape-path drops | A regression test that fails on the v0.2.64 seed is on the branch, with an issue doc. Build and gate are pending. Gates v0.2.65. |
-| `feat/vbd-v4-pattern-box` (no PR) head `a103189f6` | V4: the `Pattern` tree with `Box` children | Stacked on the unwind fix; it crashed (SIGSEGV in `_bridge_expr_info`) only because of that S1. Allocations +0.27%; 23/29 Tier 1 files green, 4 internal files fail on leak verdicts only (develop comparison queued). The `check ./src` A/B timing is deferred until the heavy queue holds 3 or fewer tickets. |
+| `feat/vbd-v4-pattern-box` (no PR) head `a103189f6` | V4: the `Pattern` tree with `Box` children | Stacked on the unwind fix's pre-merge commit `63a43b8f8` (that fix landed as #1438): restack with `git rebase --onto origin/develop 63a43b8f8`. Its gate (job `esc`) is queued; it crashed (SIGSEGV in `_bridge_expr_info`) only because of that S1. Allocations +0.27%; 23/29 Tier 1 files green, 4 internal files fail on leak verdicts only (develop comparison queued). The `check ./src` A/B timing is deferred until the heavy queue holds 3 or fewer tickets. |
 | #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Built on the official v0.2.64 seed. The full Tier 1 (internal in-process, cli-diff, `yo test ./std`, site build) passed with a develop-built compiler and is re-running on the seed build. Mark ready, then merge. |
 | `feat/v2b-genb-b1-migration` (no PR) head `73da377dc` | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Restacked on its head `8db9c7b6a`; the sweeps run after the build. Opens as a draft until #1414 merges. |
 | #1421 `feat/vbd-d46-genb` (draft) head `af4506896` | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | In-process `tests/internal` run found one E0919 site the census missed (it excludes `tests/internal`): `suspension_analysis`, fixed in `af4506896`. Every census-excluded directory was then checked: no other E0919. Remaining: the `suspension_analysis` rerun, the leak comparison against develop's binary on the top-5 leak files, the ratchet and the census. |
@@ -118,9 +118,9 @@ See §2.3. The maintainer chose to keep the release open for them rather than sh
 
 ## 5. Open bugs to know about
 
-### 5.1 S1: an `unwind` is lost when a destructor runs on the escape path
+### 5.1 S1 (fixed in #1438): an `unwind` is lost when a destructor runs on the escape path
 
-It is in v0.2.64 and reproduces with user code. When an `unwind` passes through a frame that drops a `Box`, or any value whose `Drop` makes a call, the destructor clears `__yo_effect_escaped`. The unwind is lost, and the frame returns its dummy result. The fix and a test are on `fix/unwind-destructor-clears-escape-flag`; it gates v0.2.65.
+It is in v0.2.64 and reproduces with user code. When an `unwind` passes through a frame that drops a `Box`, or any value whose `Drop` makes a call, the destructor clears `__yo_effect_escaped`. The unwind is lost, and the frame returns its dummy result. Fixed by #1438 (`fbd79fc90`): `return.yo` re-raises `__yo_effect_escaped` after the escape-path drops, with a regression test in `algebraic_effects` that fails on the v0.2.64 seed. `dyn.test` (3 tests) and `internal/error` (1 test) show LSan-only leaks there, identical on the seed with the base tree.
 
 ### 5.2 S1: a store in a comptime-parameterized fn is dropped when its first call is the operand of `!`
 
@@ -166,14 +166,17 @@ Paste this over the generated `## Changes` section after the release publishes. 
   - Decision 47 locals Generation A: every `mut(...)` binding form, and `yo fix --migrate mut-bindings`.
   - Decision 39 iterators Generation A: the borrowed `for` walks a cursor, and a push to the list being walked is E0911 (#1429).
 - **Compile and codegen:**
-  - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost.
+  - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost (#1438).
   - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
   - Fixed (S2): a downcast/upcast result used as a receiver is released (#1409, if landed).
 - **Type checking:**
   - Fixed (S2): a generic function's by-value closure parameter owns a deferred closure literal (#1428).
   - `yo check` reports errors inside any closure with an `io : Io` parameter (#1425).
-- **Async runtime:** Fixed (S2): the epoll teardown frees its free lists at thread exit (#1417).
+- **Async runtime:**
+  - `Waker` implements `Clone` (#1412).
+  - Fixed (S2): the epoll teardown frees its free lists at thread exit (#1417).
 - **Leaks:** Fixed (S2): `consume(x)` of an owned value releases it (#1416).
+- **Verifier internals:** `Z3Sexpr` is a value enum (V4, #1435); omit from the notes unless something user-visible changed.
 - **Toolchain:** `YO_TEST_FORK=N` runs `yo test` over many files in forked workers (#1427).
 - **Known open issues filed this cycle:** the §5.3 paths that are still open at the tag.
 
