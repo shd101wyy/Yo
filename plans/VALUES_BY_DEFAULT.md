@@ -6674,8 +6674,9 @@ heavy run, the command is given in item 2.
        40-byte cell goes.
    - **B9 (e). `HashMap` and `HashSet`.** The second-largest surface (978
      and 444 `src/` mentions). `HashSet` becomes a value wrapper of
-     `HashMap(T, unit)`. Closes
-     `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`.
+     `HashMap(T, unit)`. Its move-only key and value prerequisite landed
+     in #1420
+     (`issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`).
      Probe first, as for B8; same Tier 1 shape with
      `tests/collections/hash_*` and `std/collections/hash_*.test.yo`;
      ratchet: lower the
