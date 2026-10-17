@@ -399,8 +399,11 @@ E0908.
 The compiler enforces the rule for local `&` borrows and for every write
 into a `&T` parameter's value: a field (plain data included), a nested
 field, a fixed-array element or a `Box`'s payload, assigned, borrowed with
-`&mut`, or passed to a `&mut` parameter the callee writes. Until
-2026-10-16 a plain-data field write compiled and changed only the callee's
+`&mut`, or passed to a `&mut` parameter the callee writes. A handle
+reached or lent through a `&T` parameter (a `ref` object, an `Rc`, a std
+collection: `h.xs.push(v)`) still writes the storage it shares with the
+caller, until the V2b flip makes the collections values. Until
+2026-10-17 a plain-data field write compiled and changed only the callee's
 copy
 (`issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
 

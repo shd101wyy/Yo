@@ -2,7 +2,7 @@
 
 **Severity:** S2 — an invalid program is accepted: `p.n = v` on a `p : &T` parameter compiles, writes a callee-local copy, and the caller never sees it.
 
-**Status:** fixed 2026-10-16. Found 2026-10-12 while testing the unique `Box` (V1 step 2):
+**Status:** fixed 2026-10-17. Found 2026-10-12 while testing the unique `Box` (V1 step 2):
 `b.n = v` on `b : &Box(P)` compiled, and the same holds for a plain `&P`.
 
 ## Reproducer
