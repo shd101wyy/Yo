@@ -21,41 +21,16 @@
 //! carry. That is the risk this document's §"Risks" names first.
 //!
 //! `Waker` is a move-only value that is `Send`, which is what lets it be moved
-//! into a `Thread(unit).spawn` closure at all. `Park` is not, and should not
+//! into a `Thread(unit).spawn` closure at all; `w.clone()` is another handle
+//! on the same token, for an owner that keeps one while a worker fires the
+//! other. `Park` is not, and should not
 //! be: it belongs to the loop that created it.
-pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Park, yield_now } :: import("std/async/waker");
-{ IoFuture } :: import("std/sys/future");
-{ __yo_async_park_start, __yo_waker_new, __yo_waker_wake, __yo_waker_release, __yo_waker_clone } :: import("std/sys/externs");
 { Thread, get_thread_id, spawn_blocking } :: import("std/thread");
 { AtomicI32, AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { Duration } :: import("std/time/duration");
 { sleep_blocking } :: import("std/time/sleep");
-/// A waker handle over the runtime's waker calls, for the tests that need the
-/// owner and a worker to each hold a handle on ONE token. It is std's `Waker`
-/// plus `clone_handle`: Generation A of `Waker.clone`
-/// (plans/VALUES_BY_DEFAULT.md §3.13 A5). The runtime has `__yo_waker_clone`;
-/// std's `impl(Waker, Clone)` lands once `SEED_VERSION` carries it, and these
-/// tests then go back to `Park` and `w.clone()`.
-_RawWaker :: struct(_p : *u8);
-// SAFETY: as std's `Waker`: every runtime call on the token is thread-safe
-// (rule D7).
-impl(_RawWaker, Send());
-impl(_RawWaker, Sync());
-impl(
-  _RawWaker,
-  /// A pending park future and the first handle on its token.
-  park : (fn() -> Tuple(IoFuture, _RawWaker))({
-    f := unsafe(__yo_async_park_start());
-    w := _RawWaker(_p : unsafe(__yo_waker_new(&f)));
-    (f, w)
-  }),
-  wake : (fn(self : &Self) -> unit)(unsafe(__yo_waker_wake(self._p))),
-  /// Another handle on the same token.
-  clone_handle : (fn(self : &Self) -> Self)(Self(_p : unsafe(__yo_waker_clone(self._p))))
-);
-impl(_RawWaker, Drop(drop : (fn(self : &mut Self) -> unit)(unsafe(__yo_waker_release(self._p)))));
 test("a waker fired from another OS thread resumes its task on the owning loop", {
   p := Park.new();
   w := p.waker();
@@ -172,22 +147,18 @@ test("a wake posted before the owner drops its waker handle still resumes the pa
   // deterministic, so this fails every time on the unfixed runtime.
   (round : i32) = i32(0);
   while(runtime(round < i32(5)), {
-    pw := _RawWaker.park();
-    match(
-      pw,
-      (f, w) => {
-        {
-          wc := w.clone_handle();
-          worker := Thread(unit).spawn({ wc }(tio : Io) => {
-            wc.wake();
-            ()
-          });
-          worker.join();
-          _owner := w;
-        };
-        io.await(f, io);
-      }
-    );
+    p := Park.new();
+    w := p.waker();
+    {
+      wc := w.clone();
+      worker := Thread(unit).spawn({ wc }(tio : Io) => {
+        wc.wake();
+        ()
+      });
+      worker.join();
+      _owner := w;
+    };
+    io.await(p.wait(io), io);
     round = (round + i32(1));
   });
   assert(round == i32(5), "every park whose wake preceded the owner's release resumed");
@@ -199,22 +170,18 @@ test("the common ordering — owner drops its waker handle first, worker wakes l
   // the previous test while pessimising this one.
   (round : i32) = i32(0);
   while(runtime(round < i32(5)), {
-    pw := _RawWaker.park();
-    match(
-      pw,
-      (f, w) => {
-        {
-          wc := w.clone_handle();
-          _owner := w;
-          _worker := Thread(unit).spawn({ wc }(tio : Io) => {
-            sleep_blocking(Duration.from_millis(i64(5)));
-            wc.wake();
-            ()
-          });
-        };
-        io.await(f, io);
-      }
-    );
+    p := Park.new();
+    w := p.waker();
+    {
+      wc := w.clone();
+      _owner := w;
+      _worker := Thread(unit).spawn({ wc }(tio : Io) => {
+        sleep_blocking(Duration.from_millis(i64(5)));
+        wc.wake();
+        ()
+      });
+    };
+    io.await(p.wait(io), io);
     round = (round + i32(1));
   });
   assert(round == i32(5), "every park woken after the owner's release resumed");
@@ -252,30 +219,26 @@ test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outl
 test("a waker clone released on a worker thread leaves the owner's handle able to wake the park", {
   (round : i32) = i32(0);
   while(runtime(round < i32(50)), {
-    pw := _RawWaker.park();
-    match(
-      pw,
-      (f, w) => {
-        wc := w.clone_handle();
-        worker := Thread(unit).spawn({ wc }(tio : Io) => {
-          // Released here, on the worker, without waking: a non-last handle.
-          _keep := wc;
-          ()
-        });
-        worker.join();
-        h := io.spawn(
-          io.async({ f }(io : Io) => {
-            _r := io.await(f, io);
-            i32(1)
-          }),
-          io
-        );
-        io.await(yield_now(io), io);
-        w.wake();
-        r := h.await(io);
-        assert(match(r, .Some(v) => (v == i32(1)), .None => false), "the owner's handle woke the park");
-      }
+    p := Park.new();
+    w := p.waker();
+    wc := w.clone();
+    worker := Thread(unit).spawn({ wc }(tio : Io) => {
+      // Released here, on the worker, without waking: a non-last handle.
+      _keep := wc;
+      ()
+    });
+    worker.join();
+    h := io.spawn(
+      io.async({ p }(io : Io) => {
+        _r := io.await(p.wait(io), io);
+        i32(1)
+      }),
+      io
     );
+    io.await(yield_now(io), io);
+    w.wake();
+    r := h.await(io);
+    assert(match(r, .Some(v) => (v == i32(1)), .None => false), "the owner's handle woke the park");
     round = (round + i32(1));
   });
   assert(round == i32(50), "every round's park was woken by the surviving handle");
@@ -283,25 +246,21 @@ test("a waker clone released on a worker thread leaves the owner's handle able t
 test("the last of two waker handles, released on a worker after its wake, resumes the park", {
   (round : i32) = i32(0);
   while(runtime(round < i32(50)), {
-    pw := _RawWaker.park();
-    match(
-      pw,
-      (f, w) => {
-        wc := w.clone_handle();
-        // The owner's handle goes first, so the worker's clone is the last
-        // one: its release is the foreign path, posted to this loop's inbox.
-        {
-          _gone := w;
-        };
-        worker := Thread(unit).spawn({ wc }(tio : Io) => {
-          sleep_blocking(Duration.from_millis(i64(1)));
-          wc.wake();
-          ()
-        });
-        _r := io.await(f, io);
-        worker.join();
-      }
-    );
+    p := Park.new();
+    w := p.waker();
+    wc := w.clone();
+    // The owner's handle goes first, so the worker's clone is the last
+    // one: its release is the foreign path, posted to this loop's inbox.
+    {
+      _gone := w;
+    };
+    worker := Thread(unit).spawn({ wc }(tio : Io) => {
+      sleep_blocking(Duration.from_millis(i64(1)));
+      wc.wake();
+      ()
+    });
+    _r := io.await(p.wait(io), io);
+    worker.join();
     round = (round + i32(1));
   });
   assert(round == i32(50), "every park woken by its last handle resumed");
