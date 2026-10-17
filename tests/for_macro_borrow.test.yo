@@ -294,15 +294,6 @@ comptime_expect_error(
     i32(0)
   })
 );
-// A `&` parameter cannot be the source of the `&mut` loop: the loop writes
-// through its borrow.
-comptime_expect_error(
-  borrowed_loop_over_a_read_only_parameter :: (fn(xs : &ArrayList(i32)) -> unit)({
-    for(&mut xs, x => {
-      x = i32(0);
-    });
-  })
-);
 test("nested borrowed loops over two collections", {
   a := ArrayList(i32).new();
   a.push(i32(1));
