@@ -331,7 +331,7 @@ impl(
   _push : (fn(self : &Self, value : T) -> unit)({
     slot := Option(T).Some(value);
     self._st.with_mut({ &mut slot }(s) => {
-      s._buf.push(slot.take().unwrap());
+      match(slot.take(), .Some(v) => s._buf.push(v), .None => ());
     });
   }),
   /// Count one more `Sender`. Internal: `Sender._attach` and `Sender.clone`.

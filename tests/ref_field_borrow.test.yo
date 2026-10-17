@@ -330,15 +330,19 @@ comptime_expect_error(
   })
 );
 
-// Positive: element-only Rc deref — the box is NOT passed, so no callee
-// can reassign it. (`owner_box.*.id.clone()`-style access.)
+// Positive: element-only deref of a unique `Box` — the box is NOT passed, so
+// no callee can reassign it. (`owner_box.*.id.clone()`-style access.) The
+// same lend through an `Rc` is E0919: its payload is read-only through the
+// handle (decision 46).
 test("box deref is allowed when the box is unreachable", {
   read_n :: (fn(v : &mut i32) -> unit)({
     v = (v + i32(1));
   });
-  b := rc(Holder(s : String.from("x"), n : i32(5)));
+  b := box(Holder(s : String.from("x"), n : i32(5)));
   read_n(&mut b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
+  r := rc(Holder(s : String.from("x"), n : i32(5)));
+  comptime_expect_error(read_n(&mut r.*.n), "read-only through the handle");
 });
 
 // A field of a `mut(...)` module-level struct is lent to no call (decision

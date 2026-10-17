@@ -675,22 +675,24 @@ analyze_effect_call_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn((expr, parent_expr) => {
-        found := ArrayList(SuspensionPoint).new();
-        effect_extras.with_mut({ &mut found }(extras) =>
-          detect_effect_expr_(
-            expr,
-            parent_expr,
-            &mut found,
-            extras,
-            effect_parameter_name.clone(),
-            effect_field_path.clone(),
-            include_transitive_calls,
-            effect_param_fn_type.clone(),
-            get_info
-          ));
-        found
-      }),
+      detect : dyn(
+        (expr, parent_expr) =>
+          effect_extras.with_mut(extras => {
+            found := ArrayList(SuspensionPoint).new();
+            detect_effect_expr_(
+              expr,
+              parent_expr,
+              &mut found,
+              extras,
+              effect_parameter_name.clone(),
+              effect_field_path.clone(),
+              include_transitive_calls,
+              effect_param_fn_type.clone(),
+              get_info
+            );
+            found
+          })
+      ),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : false
     )

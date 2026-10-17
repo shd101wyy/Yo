@@ -1421,7 +1421,8 @@ place_rc_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
 /// Decision 46's E0919: the evaluated `place` is written, and it lies in an
 /// `Rc`'s payload, which is read-only through the handle, as Rust's. `kind`
 /// names the write: `assign` (the target of `=`), `mut-arg` (a `&mut`
-/// argument) or `mut-recv` (a `self : &mut Self` receiver). `param_ty` is
+/// argument), `mut-recv` (a `self : &mut Self` receiver) or `mut-borrow` (a
+/// local `&mut` borrow binding or re-point). `param_ty` is
 /// the `&mut` parameter's type: a receiver the AST still spells as the
 /// handle (`h.push(x)` on an `Rc(ArrayList(T))`) is auto-dereferenced when
 /// the parameter is not itself an `Rc`, so the payload is what is lent. The
@@ -1454,6 +1455,7 @@ reject_write_through_rc :: (fn(place : &AstExpr, kind : str, param_ty : Option(T
       what := cond(
         (kind == "mut-arg") => `lend \`${p_text}\` as \`&mut\``,
         (kind == "mut-recv") => `call a \`self : &mut Self\` method on \`${p_text}\``,
+        (kind == "mut-borrow") => `borrow \`${p_text}\` with \`&mut\``,
         true => `assign to \`${p_text}\``
       );
       raise_flow_violation(

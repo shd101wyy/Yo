@@ -162,7 +162,7 @@ test("Test park moves its waker into register, which keeps it", {
     io.async({ slot }(io : Io) => {
       io.await(yield(io), io);
       fired := match(
-        slot.with(cur => cur).take(),
+        slot.with_mut(cur => cur.take()),
         .Some(w) => {
           w.wake();
           true
@@ -175,8 +175,9 @@ test("Test park moves its waker into register, which keeps it", {
   );
   io.await(
     park((w : Waker) => {
-      slot.with_mut(cur => {
-        cur = Option(Waker).Some(w);
+      held := Option(Waker).Some(w);
+      slot.with_mut({ &mut held }(cur) => {
+        cur = held.take();
       });
     }, io),
     io

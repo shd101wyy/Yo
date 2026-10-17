@@ -5109,15 +5109,17 @@ test("cond single branch binds from a named future", {
 // the separate, pre-existing capture divergence documented at the top of this
 // file (issues/fixed/await-in-branch-positions-matrix.md) — unrelated to the shared
 // await point.
-shape_started :: (fn(marker : &Rc(i32), io : Io) -> Impl(Future(unit, Io)))(
+shape_started :: (fn(marker : &Rc(RefCell(i32)), io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
-    marker.* = (marker.* + 1);
+    marker.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
     return(())
   })
 );
 test("not-taken branch's lazy named future is neither started nor awaited", {
-  drive := (fn(flag : bool, m : &Rc(i32), rio : Io) -> Impl(Future(i32, Io)))(
+  drive := (fn(flag : bool, m : &Rc(RefCell(i32)), rio : Io) -> Impl(Future(i32, Io)))(
     rio.async((aio : Io) => {
       f1 := shape_started(m, aio);
       r := cond(
@@ -5130,12 +5132,12 @@ test("not-taken branch's lazy named future is neither started nor awaited", {
       return(r)
     })
   );
-  m1 := Rc(i32)(0);
+  m1 := rc(RefCell(i32).new(0));
   assert(io.await(drive(true, &m1, io), io) == i32(1), "awaiting branch value");
-  assert(m1.* == i32(1), "future ran when its branch was taken");
-  m2 := Rc(i32)(0);
+  assert(m1.with(cur => cur) == i32(1), "future ran when its branch was taken");
+  m2 := rc(RefCell(i32).new(0));
   assert(io.await(drive(false, &m2, io), io) == i32(2), "plain branch value");
-  assert(m2.* == i32(0), "lazy future must NOT be started when its branch was not taken");
+  assert(m2.with(cur => cur) == i32(0), "lazy future must NOT be started when its branch was not taken");
 });
 test("tail cond (async body result) with await-as-branch-value", {
   drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(

@@ -406,11 +406,14 @@ analyze_await_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn((expr, parent_expr) => {
-        found := ArrayList(SuspensionPoint).new();
-        await_extras.with_mut({ &mut found }(extras) => detect_await_expr_(expr, parent_expr, &mut found, extras, get_info));
-        found
-      }),
+      detect : dyn(
+        (expr, parent_expr) =>
+          await_extras.with_mut(extras => {
+            found := ArrayList(SuspensionPoint).new();
+            detect_await_expr_(expr, parent_expr, &mut found, extras, get_info);
+            found
+          })
+      ),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : true
     )
