@@ -72,7 +72,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
-          match(fls.get(i), .Some(l) => out.push(l), .None => ());
+          match(fls.get(i), .Some(l) => out.push(l.clone()), .None => ());
         });
         i = (i + usize(1));
       });
@@ -91,11 +91,11 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
     names := _dyn_trait_slot_names(&tt);
     (ni : usize) = usize(0);
     while(ni < names.len(), {
-      nm := match(names.get(ni), .Some(x) => x, .None => String.new());
+      nm := match(names.get(ni), .Some(x) => x.clone(), .None => String.new());
       (si : usize) = usize(0);
       while(si < seen_names.len(), {
         if(match(seen_names.get(si), .Some(x) => (x == nm), .None => false), {
-          other := match(seen_owner.get(si), .Some(x) => x, .None => String.new());
+          other := match(seen_owner.get(si), .Some(x) => x.clone(), .None => String.new());
           exn.throw(
             dyn(
               with_code(
@@ -220,7 +220,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < negative_ids.len(), {
-        existing := match(negative_ids.get(j), .Some(s) => s, .None => String.from(""));
+        existing := match(negative_ids.get(j), .Some(s) => s.clone(), .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -253,7 +253,7 @@ evaluate_dyn_type :: (
       already := false;
       j := usize(0);
       while(j < required_ids.len(), {
-        existing := match(required_ids.get(j), .Some(s) => s, .None => String.from(""));
+        existing := match(required_ids.get(j), .Some(s) => s.clone(), .None => String.from(""));
         if(existing == tid, {
           already = true;
         });
@@ -304,7 +304,7 @@ evaluate_dyn_type :: (
       already := false;
       m := usize(0);
       while(m < required_ids.len(), {
-        eid := match(required_ids.get(m), .Some(s) => s, .None => String.from(""));
+        eid := match(required_ids.get(m), .Some(s) => s.clone(), .None => String.from(""));
         if(eid == cid, {
           already = true;
         });

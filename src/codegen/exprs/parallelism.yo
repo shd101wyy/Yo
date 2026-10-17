@@ -81,7 +81,7 @@ _closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : 
   );
   match(
     fv_opt,
-    .Some(fv) => match(fv, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   )
 });
@@ -92,7 +92,7 @@ _closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Optio
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
-  match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()), .None => String.new())
+  match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id.clone(), _ => String.new()), .None => String.new())
 });
 /// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
 /// `io : Io` of a `Thread.spawn` callback), as the spawn wrapper builds them.
@@ -258,9 +258,9 @@ _emit_capture_dispose_lines :: (
           em.emit_string_line(`switch ((${ref_code.clone()}).tag) {`);
           (dv_i : usize) = usize(0);
           while(dv_i < ds_vns.len(), {
-            dv_name := match(ds_vns.get(dv_i), .Some(v) => v, .None => String.new());
-            dv_fields := match(ds_vfs.get(dv_i), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            dv_labels := match(ds_vls.get(dv_i), .Some(l) => l, .None => ArrayList(String).new());
+            dv_name := match(ds_vns.get(dv_i), .Some(v) => v.clone(), .None => String.new());
+            dv_fields := match(ds_vfs.get(dv_i), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+            dv_labels := match(ds_vls.get(dv_i), .Some(l) => l.clone(), .None => ArrayList(String).new());
             (dv_has : bool) = false;
             (dv_j : usize) = usize(0);
             while(dv_j < dv_fields.len(), {
@@ -281,7 +281,7 @@ _emit_capture_dispose_lines :: (
                 match(
                   dv_fields.get(dv_k),
                   .Some(dv_ft) => if(type_is_move_only(&dv_ft) && !type_contains_rc_cell_or_move_only(&dv_ft), {
-                    dv_label := match(dv_labels.get(dv_k), .Some(l) => l, .None => String.new());
+                    dv_label := match(dv_labels.get(dv_k), .Some(l) => l.clone(), .None => String.new());
                     dv_fname := sanitize_for_c_identifier(dv_label.clone(), false);
                     dv_access := String.from("(");
                     dv_access.push_string(ref_code.clone());
@@ -505,22 +505,22 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &Functi
   // STRUCTURAL (sid + field keys), so keying the get by type_key missed.
   cb_map_key := match(
     capture_type,
-    Rc(.Struct({ id : cb_sid })) => cb_sid,
-    Rc(.SomeT({ id : cb_sid })) => cb_sid,
+    Rc(.Struct({ id : cb_sid })) => cb_sid.clone(),
+    Rc(.SomeT({ id : cb_sid })) => cb_sid.clone(),
     _ => type_key(capture_type.clone())
   );
   mapped_opt := context.base.impl_closure_call_map.get(&cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
     _closure_fn_c_name(&cei.value, expr_info_closure_function_value(&cei), context),
-    .Some(n) => n,
-    .None => match(mapped_opt, .Some(m) => m.function_c_name, .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
+    .Some(n) => n.clone(),
+    .None => match(mapped_opt, .Some(m) => m.function_c_name.clone(), .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
   closure_fid_direct := _closure_fid(&cei.value, expr_info_closure_function_value(&cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,
-    match(mapped_opt, .Some(m) => m.closure_fid, .None => String.from(""))
+    match(mapped_opt, .Some(m) => m.closure_fid.clone(), .None => String.from(""))
   );
   runtime_args := _closure_runtime_arg_zeroinits(&closure_fid, context);
   wrapper := _generate_spawn_wrapper(&closure_fn, capture_c_name.clone(), &capture_type, &runtime_args, is_fnonce_closure_fn(&closure_fid), context);

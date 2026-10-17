@@ -122,7 +122,7 @@ register_macro_return_is_unquote :: (fn(func_id : &String) -> unit)({
 get_macro_quoted_param_indices :: (fn(func_id : &String) -> ArrayList(usize))(
   match(
     g_macro_quoted_param_indices.get(func_id.clone()),
-    .Some(idxs) => idxs,
+    .Some(idxs) => idxs.clone(),
     .None => ArrayList(usize).new()
   )
 );
@@ -181,7 +181,7 @@ copy_macro_registration :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_macro_quoted_param_indices.get(from_id.clone()),
     .Some(idxs) => {
-      g_macro_quoted_param_indices.insert(to_id.clone(), idxs);
+      g_macro_quoted_param_indices.insert(to_id.clone(), idxs.clone());
     },
     .None => ()
   );
@@ -362,7 +362,7 @@ copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_func_param_comptime.get(from_id.clone()),
     .Some(flags) => {
-      g_func_param_comptime.insert(to_id.clone(), flags);
+      g_func_param_comptime.insert(to_id.clone(), flags.clone());
     },
     .None => ()
   );
@@ -393,7 +393,7 @@ get_func_return_type_expr :: (fn(func_id : &String) -> Option(AstExpr))(
   g_func_return_type_expr.get(func_id.clone())
 );
 get_func_param_comptime :: (fn(func_id : &String) -> ArrayList(bool))(
-  match(g_func_param_comptime.get(func_id.clone()), .Some(f) => f, .None => ArrayList(bool).new())
+  match(g_func_param_comptime.get(func_id.clone()), .Some(f) => f.clone(), .None => ArrayList(bool).new())
 );
 // Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
 // AST). The value table above suffices for the call-site count check and the
@@ -441,7 +441,7 @@ copy_func_param_default_exprs :: (fn(from_id : &String, to_id : &String) -> unit
 get_func_param_default_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstExpr)))(
   match(
     g_func_param_default_exprs.get(func_id.clone()),
-    .Some(entry) => entry.exprs,
+    .Some(entry) => entry.exprs.clone(),
     .None => ArrayList(Option(AstExpr)).new()
   )
 );
@@ -470,9 +470,9 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
       );
       Environment(
         frames : frames,
-        module_path : d.module_path,
+        module_path : d.module_path.clone(),
         function_declaration_frame_level : d.function_declaration_frame_level,
-        input_string : d.input_string,
+        input_string : d.input_string.clone(),
         frozen : false
       )
     },
@@ -514,7 +514,7 @@ copy_func_param_type_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_func_param_type_exprs.get(from_id.clone()),
     .Some(exprs) => {
-      g_func_param_type_exprs.insert(to_id.clone(), exprs);
+      g_func_param_type_exprs.insert(to_id.clone(), exprs.clone());
     },
     .None => ()
   );
@@ -522,7 +522,7 @@ copy_func_param_type_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
 get_func_param_type_exprs :: (fn(func_id : &String) -> ArrayList(Option(AstExpr)))(
   match(
     g_func_param_type_exprs.get(func_id.clone()),
-    .Some(exprs) => exprs,
+    .Some(exprs) => exprs.clone(),
     .None => ArrayList(Option(AstExpr)).new()
   )
 );
@@ -571,7 +571,7 @@ register_func_where_clause_exprs :: (fn(func_id : &String, exprs : &ArrayList(As
 get_func_where_clause_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
     g_func_where_clause_exprs.get(func_id.clone()),
-    .Some(exprs) => exprs,
+    .Some(exprs) => exprs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
@@ -589,7 +589,7 @@ copy_func_where_constraints :: (fn(from_id : &String, to_id : &String) -> unit)(
   match(
     g_func_where_clause_exprs.get(from_id.clone()),
     .Some(exprs) => {
-      g_func_where_clause_exprs.insert(to_id.clone(), exprs);
+      g_func_where_clause_exprs.insert(to_id.clone(), exprs.clone());
     },
     .None => ()
   );
@@ -667,7 +667,7 @@ get_func_refined_params :: (
 )(
   match(
     g_func_refined_params.get(func_id.clone()),
-    .Some(preds) => preds,
+    .Some(preds) => preds.clone(),
     .None => ArrayList(String).new()
   )
 );
@@ -687,7 +687,7 @@ register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> unit)(
 refine_annotation_pred :: (fn(expr_id : usize) -> String)(
   match(
     g_refine_annotation_preds.get(&expr_id),
-    .Some(fid) => fid,
+    .Some(fid) => fid.clone(),
     .None => String.from("")
   )
 );
@@ -748,14 +748,14 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_func_requires_exprs.get(from_id.clone()),
     .Some(preds) => {
-      g_func_requires_exprs.insert(to_id, preds);
+      g_func_requires_exprs.insert(to_id, preds.clone());
     },
     .None => ()
   );
   match(
     g_func_ensures_exprs.get(from_id.clone()),
     .Some(preds) => {
-      g_func_ensures_exprs.insert(to_id, preds);
+      g_func_ensures_exprs.insert(to_id, preds.clone());
     },
     .None => ()
   );
@@ -776,14 +776,14 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_func_refined_params.get(from_id.clone()),
     .Some(preds) => {
-      g_func_refined_params.insert(to_id, preds);
+      g_func_refined_params.insert(to_id, preds.clone());
     },
     .None => ()
   );
   match(
     g_func_return_label.get(from_id.clone()),
     .Some(label) => {
-      g_func_return_label.insert(to_id, label);
+      g_func_return_label.insert(to_id, label.clone());
     },
     .None => ()
   );
@@ -792,7 +792,7 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
 get_func_requires_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
     g_func_requires_exprs.get(func_id.clone()),
-    .Some(preds) => preds,
+    .Some(preds) => preds.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
@@ -800,7 +800,7 @@ get_func_requires_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
 get_func_ensures_exprs :: (fn(func_id : &String) -> ArrayList(AstExpr))(
   match(
     g_func_ensures_exprs.get(func_id.clone()),
-    .Some(preds) => preds,
+    .Some(preds) => preds.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
@@ -1045,9 +1045,9 @@ _eval_and_update_env :: (
     info_opt,
     .Some(info) => {
       env_mut.frames = info.env.frames;
-      env_mut.module_path = info.env.module_path;
+      env_mut.module_path = info.env.module_path.clone();
       env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-      env_mut.input_string = info.env.input_string;
+      env_mut.input_string = info.env.input_string.clone();
       if(
         is_type_value(&info.value),
         .Some(
@@ -1307,7 +1307,7 @@ extract_comptime_parameter_info :: (
   });
   .Some(
     ExtractComptimeResult(
-      ast_expr_token(&name_expr).value,
+      ast_expr_token(&name_expr).value.clone(),
       type_e,
       ast_expr_token(&name_expr)
     )
@@ -1646,7 +1646,7 @@ evaluate_function_parameter :: (
       if(ast_expr_token(&lhs_mut).value == "mut", {
         exn.throw(dyn(format_error_message(ast_expr_token(&lhs_mut), reserved_builtin_binding_message(String.from("mut")))));
       });
-      label = .Some(ast_expr_token(&lhs_mut).value);
+      label = .Some(ast_expr_token(&lhs_mut).value.clone());
       label_expr = .Some(lhs_mut);
     },
     .None => ()
@@ -1697,7 +1697,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(&ave),
-              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "generic(...)".`
+              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))})" or put this in "generic(...)".`
             )
           )
         );
@@ -1752,9 +1752,9 @@ evaluate_function_parameter :: (
         info_opt,
         .Some(info) => {
           env_mut.frames = info.env.frames;
-          env_mut.module_path = info.env.module_path;
+          env_mut.module_path = info.env.module_path.clone();
           env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-          env_mut.input_string = info.env.input_string;
+          env_mut.input_string = info.env.input_string.clone();
           dv_val_opt := info.value;
           captured_default_value = dv_val_opt;
           // Coerce comptime types (e.g. comptime_str) to their runtime
@@ -1889,7 +1889,7 @@ evaluate_function_parameter :: (
         dyn(
           format_error_message(
             match(label_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(label, .Some(l) => l, .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
+            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(&final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(label, .Some(l) => l.clone(), .None => String.from("?"))}) : ${type_to_string(&final_param_type)}`
           )
         )
       );
@@ -1909,7 +1909,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message_with_help(
               match(type_expr, .Some(e) => ast_expr_token(&e), .None => ast_expr_token(expr)),
-              fn_type_unrepresentable_impl_message(`parameter "${match(label, .Some(l) => l, .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
+              fn_type_unrepresentable_impl_message(`parameter "${match(label, .Some(l) => l.clone(), .None => String.from("?"))}"`, &final_param_type, &fpi_impl),
               Option(String).Some(fn_type_unrepresentable_impl_help())
             )
           )
@@ -2234,7 +2234,7 @@ _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Envir
   wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    label := match(labels.get(i), .Some(l) => l, .None => String.new());
+    label := match(labels.get(i), .Some(l) => l.clone(), .None => String.new());
     want := match(wants.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     i = (i + usize(1));
     if(!is_some_type(&want) && (get_all_some_types(&want).len() == usize(0)), {
@@ -2330,9 +2330,9 @@ validate_concrete_type_constraints :: (
       }
     );
     env_mut.frames = info.env.frames;
-    env_mut.module_path = info.env.module_path;
+    env_mut.module_path = info.env.module_path.clone();
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-    env_mut.input_string = info.env.input_string;
+    env_mut.input_string = info.env.input_string.clone();
     if(is_type_value(&info.value), {
       tv := match(
         info.value,
@@ -2413,7 +2413,7 @@ validate_concrete_type_constraints :: (
             tc_res = type_implements_trait(concrete_type, &tv, env_mut);
           },
           .Error({ msg : wc_force_msg }) => {
-            exn.throw(dyn(wc_force_msg));
+            exn.throw(dyn(wc_force_msg.clone()));
           },
           .NoneForced => ()
         );
@@ -2479,7 +2479,7 @@ apply_single_trait_constraint :: (
   // Resolve LHS to a SomeType
   (some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
   if(ast_expr_is_atom(lhs_expr), {
-    var_name := ast_expr_token(lhs_expr).value;
+    var_name := ast_expr_token(lhs_expr).value.clone();
     existing_vars := get_variables_from_env(env_mut, &var_name);
     if(existing_vars.len() == usize(0), {
       return(false);
@@ -2526,9 +2526,9 @@ apply_single_trait_constraint :: (
       return(false);
     });
     env_mut.frames = info.env.frames;
-    env_mut.module_path = info.env.module_path;
+    env_mut.module_path = info.env.module_path.clone();
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-    env_mut.input_string = info.env.input_string;
+    env_mut.input_string = info.env.input_string.clone();
     lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
@@ -2560,9 +2560,9 @@ apply_single_trait_constraint :: (
     return(false);
   });
   env_mut.frames = info_rhs.env.frames;
-  env_mut.module_path = info_rhs.env.module_path;
+  env_mut.module_path = info_rhs.env.module_path.clone();
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
-  env_mut.input_string = info_rhs.env.input_string;
+  env_mut.input_string = info_rhs.env.input_string.clone();
   trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
@@ -2676,7 +2676,7 @@ parse_where_clause_constraints :: (
     (is_concrete_type : bool) = false;
     (skip_constraint : bool) = false;
     if(ast_expr_is_atom(&lhs_expr), {
-      var_name := ast_expr_token(&lhs_expr).value;
+      var_name := ast_expr_token(&lhs_expr).value.clone();
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() > usize(0), {
         last_v := match(existing_vars.last(), .Some(v) => v, .None => return(pending_traits));
@@ -2780,9 +2780,9 @@ parse_where_clause_constraints :: (
         );
       });
       env_mut.frames = lhs_info.env.frames;
-      env_mut.module_path = lhs_info.env.module_path;
+      env_mut.module_path = lhs_info.env.module_path.clone();
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
-      env_mut.input_string = lhs_info.env.input_string;
+      env_mut.input_string = lhs_info.env.input_string.clone();
       lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
@@ -2893,9 +2893,9 @@ parse_where_clause_constraints :: (
         continue;
       });
       env_mut.frames = trait_info.env.frames;
-      env_mut.module_path = trait_info.env.module_path;
+      env_mut.module_path = trait_info.env.module_path.clone();
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
-      env_mut.input_string = trait_info.env.input_string;
+      env_mut.input_string = trait_info.env.input_string.clone();
       trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
@@ -3017,7 +3017,7 @@ prepare_where_clause_variables :: (
     lhs_expr := match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     // Ensure LHS variable exists — create SomeType if needed
     if(ast_expr_is_atom(&lhs_expr), {
-      var_name := ast_expr_token(&lhs_expr).value;
+      var_name := ast_expr_token(&lhs_expr).value.clone();
       existing_vars := get_variables_from_env(env_mut, &var_name);
       if(existing_vars.len() == usize(0), {
         // Create new SomeType for this variable
@@ -3309,7 +3309,7 @@ evaluate_function_parameters :: (
         );
       });
       impl_param := FuncParam(
-        param.label,
+        param.label.clone(),
         param.ty,
         true,
         param.is_quote,
@@ -3708,7 +3708,7 @@ evaluate_function_parameters :: (
           if(ast_expr_is_fn_call_of(&vlhs_arg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            vparam_name = ast_expr_token(&vlabel_expr).value;
+            vparam_name = ast_expr_token(&vlabel_expr).value.clone();
           }, {
             // Inner LHS may be `quote(name)` (literal "quote") or
             // `:(name)` (unary `:`) — both are the unary quote macro,
@@ -3721,11 +3721,11 @@ evaluate_function_parameters :: (
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(&vlhs_arg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_token(&vlabel_expr).value;
+              vparam_name = ast_expr_token(&vlabel_expr).value.clone();
             }, {
               if(ast_expr_is_atom(&vlhs_arg) && is_valid_variable_name(&vlhs_arg), {
                 vlabel_expr = vlhs_arg;
-                vparam_name = ast_expr_token(&vlhs_arg).value;
+                vparam_name = ast_expr_token(&vlhs_arg).value.clone();
               }, {
                 exn.throw(
                   dyn(
@@ -3760,7 +3760,7 @@ evaluate_function_parameters :: (
           if(ast_expr_is_fn_call_of(&varg, BK_COMPTIME, Option(usize).None), {
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-            vparam_name = ast_expr_token(&vlabel_expr).value;
+            vparam_name = ast_expr_token(&vlabel_expr).value.clone();
             vparam_type = rc(TypeValueNode.ComptimeListT(t_type()));
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
@@ -3773,12 +3773,12 @@ evaluate_function_parameters :: (
               is_vcomptime = true;
               is_vquote = true;
               vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              vparam_name = ast_expr_token(&vlabel_expr).value;
+              vparam_name = ast_expr_token(&vlabel_expr).value.clone();
               vparam_type = t_comptime_list(t_expr_t());
             }, {
               if(ast_expr_is_atom(&varg) && is_valid_variable_name(&varg), {
                 vlabel_expr = varg;
-                vparam_name = ast_expr_token(&varg).value;
+                vparam_name = ast_expr_token(&varg).value.clone();
                 exn.throw(
                   dyn(
                     format_error_message(
@@ -3802,7 +3802,7 @@ evaluate_function_parameters :: (
         });
       });
       variadic_param = FuncParam(
-        vparam_name,
+        vparam_name.clone(),
         vparam_type,
         is_vcomptime,
         is_vquote,
@@ -4139,7 +4139,7 @@ evaluate_function_type :: (
         )
       );
     });
-    return_label = .Some(ast_expr_token(&rl_expr).value);
+    return_label = .Some(ast_expr_token(&rl_expr).value.clone());
   }, {
     // -> i32 or -> comptime(i32) or -> unquote(Expr) or a projection's
     // -> &T / -> &mut T (decision 24).
@@ -4403,7 +4403,7 @@ evaluate_function_type :: (
         break;
       }
     );
-    forall_labels.push(fp.label);
+    forall_labels.push(fp.label.clone());
     forall_types.push(fp.ty);
     fpi = (fpi + usize(1));
   });
@@ -4439,7 +4439,7 @@ evaluate_function_type :: (
         )
       );
     });
-    param_labels.push(pp.label);
+    param_labels.push(pp.label.clone());
     param_types.push(pp.ty);
     param_is_ref.push(pp.is_ref);
     param_is_owning.push(pp.is_owning_rc_value);
@@ -4511,7 +4511,7 @@ evaluate_function_type :: (
       .Some(fp) => match(
         fp.ty,
         Rc(.RefineT(_, pred_fid)) => {
-          pred_here = pred_fid;
+          pred_here = pred_fid.clone();
         },
         _ => ()
       ),
@@ -4602,7 +4602,7 @@ evaluate_function_type :: (
         break;
       }
     );
-    implicit_labels.push(ip.label);
+    implicit_labels.push(ip.label.clone());
     implicit_types.push(ip.ty);
     ipi = (ipi + usize(1));
   });
@@ -4873,7 +4873,7 @@ _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) ->
         match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, &t)), .None => ());
         j = (j + usize(1));
       });
-      rc(TypeValueNode.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_kft, sw_rc))
+      rc(TypeValueNode.SomeT(sw_id.clone(), sw_nm.clone(), sw_fl, sw_pt, new_rtt, sw_rtl.clone(), new_ntt, sw_ntl.clone(), sw_kft, sw_rc))
     },
     _ => substitute(ns, wrapper)
   )
@@ -5159,7 +5159,7 @@ _collect_type_arg_somes :: (
       });
       (cta_v : usize) = usize(0);
       while(cta_v < cta_vfs.len(), {
-        cta_vf := match(cta_vfs.get(cta_v), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+        cta_vf := match(cta_vfs.get(cta_v), .Some(vf) => vf.clone(), .None => ArrayList(TypeValue).new());
         (cta_j : usize) = usize(0);
         while(cta_j < cta_vf.len(), {
           match(cta_vf.get(cta_j), .Some(cta_vt) => recur(&cta_vt, acc, visited_ids), .None => ());

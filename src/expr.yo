@@ -429,7 +429,7 @@ impl(
       match(
         self,
         .Atom(aid, atok) => AstExpr.Atom(aid, atok.clone()),
-        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs, finfix, ftok.clone())
+        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs.clone(), finfix, ftok.clone())
       )
     )
   )
@@ -659,7 +659,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
           func_str0 := recur(&func_box);
           func_str := cond(
             (ast_expr_is_infix_op_fn_call(&func_box) || ast_expr_is_atom_and_operator(&func_box)) => `(${func_str0})`,
-            true => func_str0
+            true => func_str0.clone()
           );
           // A `match(&x, …)` the desugar peeled prints with its marker.
           scr_marker := cond(
@@ -913,7 +913,7 @@ ast_place_text :: (fn(e : &AstExpr) -> String)(
         base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
         field := match(
           pargs.get(usize(1)),
-          .Some(.Atom(_, ft)) => ft.value,
+          .Some(.Atom(_, ft)) => ft.value.clone(),
           .Some(f) => recur(&f),
           .None => String.new()
         );
@@ -1515,7 +1515,7 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
           _bs_params(&cl_params),
           .Some(np) => {
             changed = true;
-            np
+            np.clone()
           },
           .None => cl_params
         );
@@ -2084,8 +2084,8 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
     column : tok.column,
     character : tok.character,
     byte_offset : tok.byte_offset,
-    module_path : tok.module_path,
-    input : tok.input
+    module_path : tok.module_path.clone(),
+    input : tok.input.clone()
   );
   args := ArrayList(AstExpr).new();
   args.push(body);
@@ -2152,7 +2152,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = mark.value;
+      mark.module_path = mark.value.clone();
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);
@@ -2233,7 +2233,7 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
           _projection_returns(&pr_f, is_mut, mismatches),
           .Some(nf) => match(
             e,
-            .FnCall(pf_id, _, pf_args, pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, pf_args, pf_infix, pf_tok)),
+            .FnCall(pf_id, _, pf_args, pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, pf_args.clone(), pf_infix, pf_tok)),
             .Atom(_, _) => Option(AstExpr).None
           ),
           .None => Option(AstExpr).None

@@ -295,9 +295,9 @@ g_token_intern := HashMap(String, String).new();
 intern_token_str :: (fn(s : &String) -> String)(
   match(
     g_token_intern.get(s),
-    .Some(canonical) => canonical,
+    .Some(canonical) => canonical.clone(),
     .None => {
-      g_token_intern.insert(s, s);
+      g_token_intern.insert(s.clone(), s.clone());
       s
     }
   )

@@ -113,7 +113,7 @@ is_effect_call_ :: (
     .None => {
       func_name := match(
         func_expr.clone(),
-        .Atom(_, tok) => tok.value,
+        .Atom(_, tok) => tok.value.clone(),
         .FnCall(_, _, _, _, _) => {
           return(false);
         }
@@ -155,7 +155,7 @@ is_effect_call_ :: (
         // Case 1b: Empty field path → same logic as Case 1
         func_name := match(
           func_expr.clone(),
-          .Atom(_, tok) => tok.value,
+          .Atom(_, tok) => tok.value.clone(),
           .FnCall(_, _, _, _, _) => {
             return(false);
           }
@@ -222,7 +222,7 @@ is_effect_call_ :: (
             match(
               field_arg,
               .Atom(_, tok) => {
-                access_path_rev.push(tok.value);
+                access_path_rev.push(tok.value.clone());
                 receiver_arg := match(
                   curr_args.get(usize(0)),
                   .None => {
@@ -242,7 +242,7 @@ is_effect_call_ :: (
       // The root should be an atom matching the effect parameter name
       root_name := match(
         current,
-        .Atom(_, tok) => tok.value,
+        .Atom(_, tok) => tok.value.clone(),
         .FnCall(_, _, _, _, _) => {
           return(false);
         }
@@ -261,12 +261,12 @@ is_effect_call_ :: (
       while(i < n, {
         rev_s := match(
           access_path_rev.get(i),
-          .Some(s) => s,
+          .Some(s) => s.clone(),
           .None => String.from("")
         );
         fp_s := match(
           fp.get(n - usize(1) - i),
-          .Some(s) => s,
+          .Some(s) => s.clone(),
           .None => String.from("")
         );
         if(rev_s != fp_s, {
@@ -350,12 +350,12 @@ is_transitive_effect_call_ :: (
     result := match(
       func_type,
       Rc(.Func({ implicit_types, meta : __fm1 })) => {
-        implicit_labels := __fm1.*.implicit_labels;
+        implicit_labels := __fm1.*.implicit_labels.clone();
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
         while(i < n, {
-          label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
+          label := match(implicit_labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
           ty := match(implicit_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           // Direct match: label matches and type is Func or effect record
           if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
@@ -385,7 +385,7 @@ is_transitive_effect_call_ :: (
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
           while(i2 < n2, {
-            label := match(implicit_labels.get(i2), .Some(l) => l, .None => String.from(""));
+            label := match(implicit_labels.get(i2), .Some(l) => l.clone(), .None => String.from(""));
             ty := match(implicit_types.get(i2), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
               return(Option(bool).Some(true));
@@ -710,7 +710,7 @@ analyze_effect_call_points :: (
       .Some(extra) => {
         ecp := EffectCallPoint(
           base : sp,
-          operation_arg_types : extra.operation_arg_types,
+          operation_arg_types : extra.operation_arg_types.clone(),
           operation_result_type : extra.operation_result_type,
           is_transitive_effect_call : cond(
             extra.is_transitive_effect_call => Option(bool).Some(true),
@@ -750,10 +750,10 @@ analyze_effect_call_points :: (
     effect_call_points : effect_call_points,
     captured_variables : captured_variables,
     has_effects : result.has_suspensions,
-    variable_id_remapping : result.variable_id_remapping,
-    effect_parameter_name : effect_parameter_name,
+    variable_id_remapping : result.variable_id_remapping.clone(),
+    effect_parameter_name : effect_parameter_name.clone(),
     effect_parameter_type : effect_parameter_type,
-    effect_field_path : effect_field_path,
+    effect_field_path : effect_field_path.clone(),
     handler_value : Option(EvalValue).None,
     effect_handler_infos : Option(ArrayList(EffectHandlerInfo)).None
   )

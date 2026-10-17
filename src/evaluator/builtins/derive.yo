@@ -67,7 +67,7 @@ _flag_derive_impl_err :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_derive_impl_err.clear();
   g_derive_impl_err.push(msg);
   g_derive_impl_code.clear();
-  match(code, .Some(c) => g_derive_impl_code.push(c), .None => ());
+  match(code, .Some(c) => g_derive_impl_code.push(c.clone()), .None => ());
 });
 _clear_derive_impl_err :: (fn() -> unit)({
   g_derive_impl_err.clear();
@@ -295,9 +295,9 @@ call_registered_derive_rule :: (
     (ji : usize) = usize(0);
     while(ji < param_names.len(), {
       if(ji > usize(0), {
-        joined = (joined + String.from(", "));
+        joined = (joined.clone() + String.from(", "));
       });
-      joined = (joined + match(param_names.get(ji), .Some(n) => n, .None => String.from("")));
+      joined = (joined.clone() + match(param_names.get(ji), .Some(n) => n.clone(), .None => String.from("")));
       ji = (ji + usize(1));
     });
     list_code := `comptime_list(${joined})`;
@@ -611,13 +611,13 @@ _evaluate_derive_executing :: (
       // Handle both `T` (Atom) and `T : Type` (FnCall(":", [T, Type])) forms.
       fp_name := match(
         fp,
-        .Atom(_, ftok) => ftok.value,
+        .Atom(_, ftok) => ftok.value.clone(),
         .FnCall(_, func_b, fa2, _, _) => match(
           func_b,
           .Atom(_, op_tok) => cond(
             (op_tok.value == ":") => match(
               fa2.get(usize(0)),
-              .Some(na) => match(na, .Atom(_, ntok) => ntok.value, .FnCall(_, _, _, _, _) => String.from("")),
+              .Some(na) => match(na, .Atom(_, ntok) => ntok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")),
               .None => String.from("")
             ),
             true => String.from("")

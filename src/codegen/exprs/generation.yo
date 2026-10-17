@@ -355,7 +355,7 @@ _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   inline_name := match(
     unary_name,
     .Some(un) => un,
-    .None => match(_operator_inline_name(_func_name(expr)), .Some(opn) => opn, .None => _func_name(expr))
+    .None => match(_operator_inline_name(_func_name(expr)), .Some(opn) => opn.clone(), .None => _func_name(expr))
   );
   generate_yo_inline_function_call(&inline_name, &args, expr, context, indent)
 });
@@ -853,7 +853,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   if(ast_expr_is_fn_call_of(expr, BF_ARRAY_FILL, Option(usize).Some(usize(2))), return(generate_yo_array_fill(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, "::", Option(usize).Some(usize(2))), return(_generate_comptime_binding(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), return(generate_binding(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), match(generate_initialization_assignment(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));
+  if(ast_expr_is_fn_call_of(expr, ":=", Option(usize).Some(usize(2))), match(generate_initialization_assignment(expr, indent.clone(), context), .Some(r) => return(r.clone()), .None => ()));
   if(ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2))), {
     // `cur = &place` / `cur = &mut place`: a local borrow re-point.
     if(ast_expr_is_local_borrow_mode_call(match(expr, .FnCall(_, _, ra, _, _) => match(ra.get(usize(0)), .Some(l) => l, .None => expr), .Atom(_, _) => expr), Option(usize).Some(usize(1))), {
@@ -911,7 +911,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   if(ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), return(_store_result_temp_in_task(expr, generate_match_expression(expr, indent.clone(), context), indent.clone(), context)));
   if(ast_expr_is_address_of_call(expr, Option(usize).Some(usize(1))), return(generate_address_of(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BK_TUPLE, Option(usize).None), return(generate_anonymous_tuple(expr, indent.clone(), context)));
-  if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ()));
+  if(ast_expr_is_fn_call_of(expr, BK_ARRAY_VAL, Option(usize).None), match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r.clone()), .None => ()));
   // `Array(T, N)(a, b)` with RUNTIME elements. The array-literal form reaches
   // the emitter above through its `array` head; the type-constructor form has
   // no such head, so route it by SHAPE: an array-typed call carrying runtime
@@ -933,7 +933,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
     .Atom(_, _) => false
   );
   if(arr_ctor_callee && is_array_type(&ei.ty) && ei.runtime_arg_exprs_in_order.is_some() && ei.value.is_none(), {
-    match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r), .None => ());
+    match(generate_anonymous_array(expr, indent.clone(), context), .Some(r) => return(r.clone()), .None => ());
   });
   if(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), return(generate_recur(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_RUNTIME, Option(usize).Some(usize(1))), return(match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(inner) => _call_generate_expr(&inner, indent.clone(), context), .None => String.from("")), .Atom(_, _) => String.from(""))));
@@ -983,7 +983,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   // Fallback: ordinary function call (the call/method/trait dispatcher).
   match(
     generate_other_function_call(expr, indent.clone(), context),
-    .Some(r) => r,
+    .Some(r) => r.clone(),
     .None => {
       // Emit the marker, same as the ExprInfo lookup above and for the same
       // reason — the degrade guards and the superseded-original stub rewrite
@@ -1054,7 +1054,7 @@ _sm_arg_temp_read :: (fn(expr : &AstExpr, code : &String, context : &FunctionGen
   tn := match(ei.variable_name, .Some(n) => n, .None => return(code));
   if(!is_arg_temp_across_suspension(tn.clone()) || !(code == tn), return(code));
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(code));
-  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot, .None => code)
+  match(sm_temp_slot_of(&tn, &smv), .Some(slot) => slot.clone(), .None => code)
 });
 /// Register `_generate_expr` as the `_call_generate_expr` indirection target.
 /// The driver calls this once before walking function bodies.

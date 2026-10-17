@@ -33,11 +33,11 @@ impl(
   JsonObjBuilder,
   put : (fn(self : &Self, key : str, v : &JsonValue) -> Self)({
     self.keys.push(String.from(key));
-    self.values.push(v);
+    self.values.push(v.clone());
     return(self);
   }),
   obj : (fn(self : &Self) -> JsonValue)(
-    JsonValue.Object(keys : self.keys, values : self.values)
+    JsonValue.Object(keys : self.keys.clone(), values : self.values.clone())
   )
 );
 /// Fresh builder.
@@ -48,7 +48,7 @@ jb :: (fn() -> JsonObjBuilder)(
   )
 );
 /// JSON string value.
-jstr :: (fn(s : &String) -> JsonValue)(JsonValue.Str(value : s));
+jstr :: (fn(s : &String) -> JsonValue)(JsonValue.Str(value : s.clone()));
 /// JSON number value from a usize.
 jnum :: (fn(n : usize) -> JsonValue)(JsonValue.Number(value : f64(n)));
 /// LSP Position (0-based line/character). `character` is already in the
@@ -198,7 +198,7 @@ rune_col_to_client :: (fn(line : &String, col : usize) -> usize)(
 /// trailing `\r` (CRLF documents) stays on the line — it sits after every
 /// column, so conversions are unaffected.
 line_at :: (fn(lines : &ArrayList(String), row : usize) -> String)(
-  match(lines.get(row), .Some(l) => l, .None => String.new())
+  match(lines.get(row), .Some(l) => l.clone(), .None => String.new())
 );
 /// LSP Range from RUNE columns, converted to the wire encoding against the
 /// document's lines (`text.split("\n")`).
@@ -327,7 +327,7 @@ _is_ascii_alpha :: (fn(b : u8) -> bool)(
 /// `/X:` or `/X|` at the start of `p` — the path part of a Windows
 /// `file:///C:/…` URI (`|` is the legacy drive spelling).
 _has_leading_drive :: (fn(p : &String) -> bool)({
-  bytes := p;
+  bytes := p.clone();
   if(bytes.len() < usize(3), {
     return(false);
   });
@@ -354,7 +354,7 @@ uri_to_fs_path :: (fn(uri : &String) -> String)({
   });
   decoded := match(
     percent.decode_bytes(s.clone()),
-    .Ok(bytes) => String.from_bytes(bytes),
+    .Ok(bytes) => String.from_bytes(bytes.clone()),
     .Err(_) => s
   );
   if(_has_leading_drive(decoded.clone()), {

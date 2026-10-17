@@ -154,7 +154,7 @@ _z3_read_file_sync :: (fn(path : &String) -> Option(String))({
   unsafe(unistd.close(fd));
   match(
     String.from_utf8(result),
-    .Ok(s) => Option(String).Some(s),
+    .Ok(s) => Option(String).Some(s.clone()),
     .Err(_) => Option(String).None
   )
 });
@@ -167,7 +167,7 @@ _z3_write_file_sync :: (fn(path : &String, contents : &String) -> bool)({
   match(
     f,
     .Some(fh) => {
-      b := contents;
+      b := contents.clone();
       bptr := match(
         b.ptr(),
         .Some(p) => p,
@@ -321,7 +321,7 @@ ensure_z3 :: (
   io.async(
     (e : IoExn) => match(
       discover_z3(),
-      .Some(p) => p,
+      .Some(p) => p.clone(),
       .None => e.io.await(_install_z3(e.io, e.exn), e)
     )
   )
@@ -385,7 +385,7 @@ Z3Sexpr :: enum(Atom(text : String), List(items : ArrayList(Self)));
 parse_z3_sexprs :: (fn(text : &String) -> ArrayList(Z3Sexpr))({
   out := ArrayList(Z3Sexpr).new();
   stack := ArrayList(ArrayList(Z3Sexpr)).new();
-  b := text;
+  b := text.clone();
   (i : usize) = usize(0);
   while(i < b.len(), {
     c := match(b.get_byte(i), .Some(x) => x, .None => u8(0));

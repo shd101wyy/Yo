@@ -246,7 +246,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
       sb.write_str(" (");
       (i : usize) = usize(0);
       while(i < names.len(), {
-        n := match(names.get(i), .Some(x) => x, .None => String.from("_"));
+        n := match(names.get(i), .Some(x) => x.clone(), .None => String.from("_"));
         s := match(
           sorts.get(i),
           .Some(x) => encode_sort(&x),
@@ -327,7 +327,7 @@ _sorted_lines :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
       key := (unsafe((buf.add(j)).*)).clone();
       (k : usize) = j;
       while(k > usize(0), {
-        prev := unsafe((buf.add(k - usize(1))).*);
+        prev := unsafe((buf.add(k - usize(1))).*).clone();
         if(prev <= key, {
           break;
         });

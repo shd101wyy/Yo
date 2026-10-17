@@ -237,7 +237,7 @@ emit_dispose_dispatch :: (fn(context : &CodeGenContext) -> unit)({
     match(
       kit.next(),
       .Some(k) => {
-        names.push(k);
+        names.push(k.clone());
       },
       .None => {
         gk = false;
@@ -666,13 +666,13 @@ static Slice_uint8_t_u42_ __yo_args;
       base.chunk_by_module,
       .Some(chunk_name_base.clone())
     );
-    chunk_parts_out.push(asm2.header_text);
+    chunk_parts_out.push(asm2.header_text.clone());
     (ci2 : usize) = usize(0);
     while(ci2 < asm2.chunks.len(), {
       match(
         asm2.chunks.get(ci2),
         .Some(cb) => {
-          chunk_parts_out.push(cb);
+          chunk_parts_out.push(cb.clone());
         },
         .None => ()
       );
@@ -710,7 +710,7 @@ static Slice_uint8_t_u42_ __yo_args;
   (prof_fn_std : usize) = usize(0);
   (prof_i : usize) = usize(0);
   while(prof_i < base.function_order.len(), {
-    fid := match(base.function_order.get(prof_i), .Some(f) => f, .None => String.new());
+    fid := match(base.function_order.get(prof_i), .Some(f) => f.clone(), .None => String.new());
     match(
       base.get_function_entry(&fid),
       .Some(fe) => {

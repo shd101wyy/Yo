@@ -110,7 +110,7 @@ _get_or_create_some_ty_for_trait :: (
 )({
   // "Self" case
   if(ast_expr_is_atom(lhs_expr), {
-    var_name := ast_expr_token(lhs_expr).value;
+    var_name := ast_expr_token(lhs_expr).value.clone();
     if(var_name == "Self", {
       return(_SomeTyResolvedResult(self_type, true));
     });
@@ -218,9 +218,9 @@ _get_or_create_some_ty_for_trait :: (
     );
   });
   env_mut.frames = lhs_info.env.frames;
-  env_mut.module_path = lhs_info.env.module_path;
+  env_mut.module_path = lhs_info.env.module_path.clone();
   env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
-  env_mut.input_string = lhs_info.env.input_string;
+  env_mut.input_string = lhs_info.env.input_string.clone();
   lhs_tv := match(
     lhs_info.value,
     .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
@@ -312,9 +312,9 @@ _apply_single_constraint_for_trait :: (
     return(false);
   });
   env_mut.frames = te_info.env.frames;
-  env_mut.module_path = te_info.env.module_path;
+  env_mut.module_path = te_info.env.module_path.clone();
   env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
-  env_mut.input_string = te_info.env.input_string;
+  env_mut.input_string = te_info.env.input_string.clone();
   trait_ty2 = match(
     te_info.value,
     .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
@@ -477,9 +477,9 @@ _parse_trait_where_clauses :: (
         });
       });
       env_mut.frames = te_info.env.frames;
-      env_mut.module_path = te_info.env.module_path;
+      env_mut.module_path = te_info.env.module_path.clone();
       env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
-      env_mut.input_string = te_info.env.input_string;
+      env_mut.input_string = te_info.env.input_string.clone();
       trait_ty2 = match(
         te_info.value,
         .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
@@ -645,7 +645,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_token(&lhs_label_expr).value;
+    label_str = ast_expr_token(&lhs_label_expr).value.clone();
     label_expr_opt = .Some(lhs_label_expr);
     type_expr_opt = .Some(rhs_type_expr);
   }, {
@@ -682,7 +682,7 @@ _evaluate_trait_field :: (
         )
       );
     });
-    label_str = ast_expr_token(&expr_inner).value;
+    label_str = ast_expr_token(&expr_inner).value.clone();
     label_expr_opt = .Some(expr_inner);
   });
   // Determine expected field type from context
@@ -738,9 +738,9 @@ _evaluate_trait_field :: (
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
       te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, rc(TypeValueNode.Unit)));
       env_mut.frames = te_info.env.frames;
-      env_mut.module_path = te_info.env.module_path;
+      env_mut.module_path = te_info.env.module_path.clone();
       env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
-      env_mut.input_string = te_info.env.input_string;
+      env_mut.input_string = te_info.env.input_string.clone();
       if(!is_type_value(&te_info.value), {
         exn.throw(
           dyn(
@@ -829,9 +829,9 @@ _evaluate_trait_field :: (
         }
       );
       env_mut.frames = av_info.env.frames;
-      env_mut.module_path = av_info.env.module_path;
+      env_mut.module_path = av_info.env.module_path.clone();
       env_mut.function_declaration_frame_level = av_info.env.function_declaration_frame_level;
-      env_mut.input_string = av_info.env.input_string;
+      env_mut.input_string = av_info.env.input_string.clone();
       av := match(
         av_info.value,
         .Some(v) => v,
@@ -920,9 +920,9 @@ _evaluate_trait_field :: (
         }
       );
       env_mut.frames = dv_info.env.frames;
-      env_mut.module_path = dv_info.env.module_path;
+      env_mut.module_path = dv_info.env.module_path.clone();
       env_mut.function_declaration_frame_level = dv_info.env.function_declaration_frame_level;
-      env_mut.input_string = dv_info.env.input_string;
+      env_mut.input_string = dv_info.env.input_string.clone();
       dv := match(
         dv_info.value,
         .Some(v) => v,
@@ -1086,7 +1086,7 @@ evaluate_trait_type :: (
       assoc_type_names,
       field_labels,
       field_types,
-      trait_id,
+      trait_id.clone(),
       Option(TypeValue).None,
       self_constraints,
       neg_self_constraints,
@@ -1200,7 +1200,7 @@ evaluate_trait_type :: (
     (is_duplicate : bool) = false;
     (li : usize) = usize(0);
     while(li < field_labels.len(), {
-      existing_label := match(field_labels.get(li), .Some(s) => s, .None => String.from(""));
+      existing_label := match(field_labels.get(li), .Some(s) => s.clone(), .None => String.from(""));
       li = (li + usize(1));
       if(existing_label == field_result.label, {
         is_duplicate = true;
@@ -1217,13 +1217,13 @@ evaluate_trait_type :: (
         )
       );
     });
-    field_labels.push(field_result.label);
+    field_labels.push(field_result.label.clone());
     field_types.push(field_result.ty);
     // If it's an associated type, add it to assoc_type_names and bind in env
     match(
       field_result.assoc_some_ty,
       .Some(some_ty) => {
-        assoc_type_names.push(field_result.label);
+        assoc_type_names.push(field_result.label.clone());
         // Only bind if not already bound (check existing vars)
         existing_vars := get_variables_from_env(&env_mut, &field_result.label);
         (already_bound : bool) = false;
@@ -1336,10 +1336,10 @@ evaluate_trait_type :: (
             match(
               find_some_type_missing_comptime_constraint(&vf_ret, &env_mut),
               .Some(vf_missing) => {
-                vf_label := match(field_labels.get(vf_i), .Some(l) => l, .None => String.from("?"));
+                vf_label := match(field_labels.get(vf_i), .Some(l) => l.clone(), .None => String.from("?"));
                 vf_missing_name := match(
                   vf_missing,
-                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn,
+                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn.clone(),
                   _ => type_to_string(&vf_missing)
                 );
                 exn.throw(

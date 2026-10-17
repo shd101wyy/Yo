@@ -130,9 +130,9 @@ evaluate_binding :: (
   rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
   // Update env from rhs evaluation.
   env.frames = rhs_info.env.frames;
-  env.module_path = rhs_info.env.module_path;
+  env.module_path = rhs_info.env.module_path.clone();
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
+  env.input_string = rhs_info.env.input_string.clone();
   // Rhs must evaluate to a TypeValue.
   if(!is_type_value(&rhs_info.value), {
     exn.throw(
@@ -246,7 +246,7 @@ evaluate_binding :: (
   // `force_compile_time_bindings` is consulted, which turns every binding of a
   // body evaluated at compile time into a compile-time one.
   if(!is_compile_time_only && in_compile_time_fn_body(ctx), {
-    b_name := ast_expr_token(&lhs).value;
+    b_name := ast_expr_token(&lhs).value.clone();
     b_ty := ast_expr_to_string(&rhs);
     exn.throw(
       dyn(
@@ -271,7 +271,7 @@ evaluate_binding :: (
   });
   // Validate lhs is a valid variable name (identifier or operator).
   if(!is_valid_variable_name(&lhs), {
-    lhs_tok_val := ast_expr_token(&lhs).value;
+    lhs_tok_val := ast_expr_token(&lhs).value.clone();
     exn.throw(
       dyn(
         format_error_message(
@@ -346,7 +346,7 @@ evaluate_binding :: (
       )
     );
   });
-  variable_name := ast_expr_token(&lhs).value;
+  variable_name := ast_expr_token(&lhs).value.clone();
   // Reject runtime vars with generic function types — DEFERRABLE: exprs/
   // assignment.yo sets the flag around its typed-binding eval and re-runs
   // the check itself after the RHS is evaluated, relaxing it for ctl
@@ -453,7 +453,7 @@ evaluate_binding :: (
   // pathCollection = [[variableName]] (one-element path collection).
   lhs_info := new_expr_info(&env, &user_defined_type);
   lhs_info.path_collection = path_collection_of_name(&variable_name);
-  lhs_info.variable_name = .Some(variable_name);
+  lhs_info.variable_name = .Some(variable_name.clone());
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
   // Write ExprInfo for the whole ":" expression.
   expr_info := new_expr_info(&env, t_unit());

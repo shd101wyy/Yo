@@ -67,7 +67,7 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
     g_import_closure_installed = true;
   });
   g_loading_key_by_canonical.insert(_canonical(path.clone()), path.clone());
-  g_loading_keys.push(path);
+  g_loading_keys.push(path.clone());
   g_loading_envs.push(env);
   _sync_registration_owner();
 });
@@ -137,10 +137,10 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 _canonical :: (fn(p : &String) -> String)(
   match(
     _canonical_memo.get(p.clone()),
-    .Some(c) => c,
+    .Some(c) => c.clone(),
     .None => {
       c := canonical_module_path(p.clone());
-      _canonical_memo.insert(p, c.clone());
+      _canonical_memo.insert(p.clone(), c.clone());
       c
     }
   )
@@ -179,7 +179,7 @@ import_closure_of :: (fn(module : &String) -> HashSet(String))({
     match(
       g_always_visible_owners.get(ai),
       .Some(o) => {
-        _ := seen.insert(o);
+        _ := seen.insert(o.clone());
       },
       .None => ()
     );
@@ -188,7 +188,7 @@ import_closure_of :: (fn(module : &String) -> HashSet(String))({
   work := ArrayList(String).new();
   work.push(start.clone());
   while(work.len() > usize(0), {
-    p := match(work.pop(), .Some(x) => x, .None => String.new());
+    p := match(work.pop(), .Some(x) => x.clone(), .None => String.new());
     n := g_import_edge_importers.len();
     (i : usize) = usize(0);
     while(i < n, {
@@ -226,8 +226,8 @@ record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
     });
     i = (i + usize(1));
   });
-  g_import_edge_importers.push(importer);
-  g_import_edge_imports.push(imported);
+  g_import_edge_importers.push(importer.clone());
+  g_import_edge_imports.push(imported.clone());
   _clear_import_closure_memo();
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
@@ -289,7 +289,7 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
     eprintln(`[warmcache] register ${path.clone()}`);
   });
   if(!module_cache_has(path.clone()), {
-    g_module_cache_keys.push(path);
+    g_module_cache_keys.push(path.clone());
     g_module_cache_vals.push(module_value);
     g_module_cache_types.push(module_type);
   });
@@ -343,15 +343,15 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
         found => Option(TypeValue).Some(
           rc(
             TypeValueNode.Struct(
-              id : sid,
-              name : sname,
-              field_labels : tlabels,
+              id : sid.clone(),
+              name : sname.clone(),
+              field_labels : tlabels.clone(),
               field_types : new_types,
               is_reference_semantics : sref,
               is_atomic_rc : satomic,
               is_newtype : snt,
-              constructor_func_id : scfid,
-              type_arguments : stas,
+              constructor_func_id : scfid.clone(),
+              type_arguments : stas.clone(),
               is_source_namespace : ssns
             )
           )
@@ -456,11 +456,11 @@ remove_module :: (fn(path : &String) -> unit)({
 invalidate_module :: (fn(path : &String) -> ArrayList(String))({
   removed := ArrayList(String).new();
   worklist := ArrayList(String).new();
-  worklist.push(path);
+  worklist.push(path.clone());
   while(worklist.len() > usize(0), {
     p := match(
       worklist.pop(),
-      .Some(x) => x,
+      .Some(x) => x.clone(),
       .None => {
         return(removed);
       }
@@ -489,7 +489,7 @@ invalidate_module :: (fn(path : &String) -> ArrayList(String))({
           match(
             g_import_edge_importers.get(ei),
             .Some(dep) => {
-              worklist.push(dep);
+              worklist.push(dep.clone());
             },
             .None => ()
           );

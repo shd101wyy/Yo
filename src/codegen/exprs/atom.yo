@@ -525,7 +525,7 @@ _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)
 /// keyword).
 generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, indent : &String) -> String)({
   tok := ast_expr_token(expr);
-  tv := tok.value;
+  tv := tok.value.clone();
   // --- control flow keywords ---
   if(tv == "continue", {
     match(
@@ -810,7 +810,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
     return(sm_code);
   });
   eid := ast_expr_id(expr);
-  match(low.moved_reads.get(&eid), .Some(t) => return(t), .None => ());
+  match(low.moved_reads.get(&eid), .Some(t) => return(t.clone()), .None => ());
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code));
   vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));

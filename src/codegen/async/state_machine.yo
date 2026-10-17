@@ -148,13 +148,13 @@ _lv_resolve_keyed :: (fn(key : ExprId, e : &AstExpr, name : &String, w : &_LiveW
 );
 _lv_id :: (fn(v : &Variable, w : &_LiveWalk) -> String)({
   id := v.id.to_string();
-  match(w.remap.get(id.clone()), .Some(orig) => orig, .None => id)
+  match(w.remap.get(id.clone()), .Some(orig) => orig.clone(), .None => id)
 });
 /// Declare the local `name` at `def_end` (its scope ends at `scope_end`).
 _lv_declare :: (fn(id : &String, name : &String, def_end : u64, scope_end : u64, w : &_LiveWalk) -> unit)({
   if(!w.vars.contains_key(id.clone()), {
     w.vars.insert(id.clone(), _LiveVar(def_end : def_end, last : def_end, scope_end : scope_end, to_scope_end : false));
-    ids := match(w.names.get(name.clone()), .Some(l) => l, .None => ArrayList(String).new());
+    ids := match(w.names.get(name.clone()), .Some(l) => l.clone(), .None => ArrayList(String).new());
     ids.push(id);
     w.names.insert(name, ids);
   });
@@ -279,7 +279,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
       .Some(ci) => match(
         ci.ty,
         Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty),
-        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf, _ => ArrayList(bool).new())
+        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf.clone(), _ => ArrayList(bool).new())
       ),
       .None => ArrayList(bool).new()
     )
@@ -384,7 +384,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
           recur(rhs.clone(), stmt_end, block_end, w, context);
           lhs := match(args.get(usize(0)), .Some(l) => l, .None => return(()));
           name_atom := match(lhs.clone(), .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs.clone()), .Atom(_, _) => lhs.clone());
-          name := ast_expr_token(&name_atom).value;
+          name := ast_expr_token(&name_atom).value.clone();
           match(
             _lv_resolve_keyed(ast_expr_id(name_atom.clone()), e.clone(), &name, w, context),
             .Some(v) => _lv_declare(_lv_id(&v, w), name.clone(), _lv_span_end(rhs.clone(), w), block_end, w),
@@ -585,7 +585,7 @@ compute_cross_boundary_variables :: (
               fi.variable_name,
               .Some(vn) => {
                 note_await_consumed_temp(vn.clone());
-                consumed.insert(vn);
+                consumed.insert(vn.clone());
               },
               .None => ()
             ),
@@ -634,7 +634,7 @@ compute_cross_boundary_variables :: (
         match(
           w.await_sites.get(wi),
           .Some(site) => {
-            g_local_await_results.insert(site);
+            g_local_await_results.insert(site.clone());
           },
           .None => ()
         );
@@ -873,7 +873,7 @@ compute_overlapping_slots :: (
           if(!by_type.contains_key(ctype.clone()), {
             ordered_c_types.push(ctype.clone());
           });
-          group := match(by_type.get(ctype.clone()), .Some(grp) => grp, .None => ArrayList(String).new());
+          group := match(by_type.get(ctype.clone()), .Some(grp) => grp.clone(), .None => ArrayList(String).new());
           group.push(vid.clone());
           by_type.insert(ctype.clone(), group);
         });
@@ -887,17 +887,17 @@ compute_overlapping_slots :: (
   (next_slot_index : usize) = usize(0);
   (ot : usize) = usize(0);
   while(ot < ordered_c_types.len(), {
-    ctype := match(ordered_c_types.get(ot), .Some(c) => c, .None => String.new());
-    var_ids := match(by_type.get(ctype.clone()), .Some(g) => g, .None => ArrayList(String).new());
+    ctype := match(ordered_c_types.get(ot), .Some(c) => c.clone(), .None => String.new());
+    var_ids := match(by_type.get(ctype.clone()), .Some(g) => g.clone(), .None => ArrayList(String).new());
     if(var_ids.len() >= usize(2), {
       // Interference graph: two vars conflict if their ranges overlap.
       conflicts := HashMap(String, HashSet(String)).new();
       (ii : usize) = usize(0);
       while(ii < var_ids.len(), {
-        id_i := match(var_ids.get(ii), .Some(x) => x, .None => String.new());
+        id_i := match(var_ids.get(ii), .Some(x) => x.clone(), .None => String.new());
         (jj : usize) = (ii + usize(1));
         while(jj < var_ids.len(), {
-          id_j := match(var_ids.get(jj), .Some(x) => x, .None => String.new());
+          id_j := match(var_ids.get(jj), .Some(x) => x.clone(), .None => String.new());
           ra := match(ranges.get(id_i.clone()), .Some(r) => r, .None => _SlotRange(min : usize(0), max : usize(0)));
           rb := match(ranges.get(id_j.clone()), .Some(r) => r, .None => _SlotRange(min : usize(0), max : usize(0)));
           if((ra.min <= rb.max) && (rb.min <= ra.max), {
@@ -916,7 +916,7 @@ compute_overlapping_slots :: (
       colors := HashMap(String, usize).new();
       (ki : usize) = usize(0);
       while(ki < var_ids.len(), {
-        var_id := match(var_ids.get(ki), .Some(x) => x, .None => String.new());
+        var_id := match(var_ids.get(ki), .Some(x) => x.clone(), .None => String.new());
         used_colors := HashSet(usize).new();
         cset := match(conflicts.get(var_id.clone()), .Some(s) => s, .None => HashSet(String).new());
         c_it := cset.into_iter();
@@ -948,12 +948,12 @@ compute_overlapping_slots :: (
       ordered_colors := ArrayList(usize).new();
       (cti : usize) = usize(0);
       while(cti < var_ids.len(), {
-        var_id := match(var_ids.get(cti), .Some(x) => x, .None => String.new());
+        var_id := match(var_ids.get(cti), .Some(x) => x.clone(), .None => String.new());
         col := match(colors.get(var_id.clone()), .Some(c) => c, .None => usize(0));
         if(!color_to_vars.contains_key(&col), {
           ordered_colors.push(col);
         });
-        cgroup := match(color_to_vars.get(&col), .Some(g) => g, .None => ArrayList(String).new());
+        cgroup := match(color_to_vars.get(&col), .Some(g) => g.clone(), .None => ArrayList(String).new());
         cgroup.push(var_id.clone());
         color_to_vars.insert(col, cgroup);
         cti = (cti + usize(1));
@@ -962,7 +962,7 @@ compute_overlapping_slots :: (
       (oci : usize) = usize(0);
       while(oci < ordered_colors.len(), {
         col := match(ordered_colors.get(oci), .Some(c) => c, .None => usize(0));
-        group_var_ids := match(color_to_vars.get(&col), .Some(g) => g, .None => ArrayList(String).new());
+        group_var_ids := match(color_to_vars.get(&col), .Some(g) => g.clone(), .None => ArrayList(String).new());
         if(group_var_ids.len() >= usize(2), {
           field_name := String.from("slot_");
           field_name.push_string(next_slot_index.to_string());
@@ -970,7 +970,7 @@ compute_overlapping_slots :: (
           (slot_ty : TypeValue) = rc(TypeValueNode.Unit);
           (vni : usize) = usize(0);
           while(vni < group_var_ids.len(), {
-            gid := match(group_var_ids.get(vni), .Some(x) => x, .None => String.new());
+            gid := match(group_var_ids.get(vni), .Some(x) => x.clone(), .None => String.new());
             nm := match(
               _find_captured_by_id(&eligible, gid.clone()),
               .Some(fv) => {
@@ -1007,13 +1007,13 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
     some_resolution(future_type),
     .Some(resolved) => {
       if(is_some_type(&resolved), {
-        rcid := match(resolved, Rc(.SomeT({ id })) => id, _ => String.from(""));
+        rcid := match(resolved, Rc(.SomeT({ id })) => id.clone(), _ => String.from(""));
         if(context.base.types.contains_key(&rcid), {
           return(false);
         });
       });
       if(is_struct_type(&resolved), {
-        capture_id := match(resolved, Rc(.Struct({ id })) => id, _ => String.from(""));
+        capture_id := match(resolved, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
         it := context.base.types.into_iter();
         (go : bool) = true;
         while(go, {
@@ -1025,7 +1025,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
                 match(
                   some_resolution(&ety),
                   .Some(erc) => if(is_struct_type(&erc), {
-                    ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
+                    ercid := match(erc, Rc(.Struct({ id })) => id.clone(), _ => String.from(""));
                     if(ercid == capture_id, {
                       return(false);
                     });
@@ -1082,7 +1082,7 @@ resolve_effect_field_from_sm_scope :: (
         match(
           it.next(),
           .Some(b) => if(b.value.field_label == field_label, {
-            return(Option(String).Some(b.value.c_param_name));
+            return(Option(String).Some(b.value.c_param_name.clone()));
           }),
           .None => {
             go = false;
@@ -1149,7 +1149,7 @@ _build_combined_sm_variables :: (
       ftypes := match(ct, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
-        lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
+        lbl := match(flabels.get(j), .Some(l) => l.clone(), .None => String.from(""));
         ty := match(ftypes.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cv := CapturedVariable(
           base : SuspensionCapturedVariable(
@@ -1189,7 +1189,7 @@ find_bundle_field_name :: (
     match(
       eff_types.get(ei),
       .Some(et) => if(is_struct_type(&et), {
-        eff_id = Option(String).Some(match(et, Rc(.Struct({ id })) => id, _ => String.from("")));
+        eff_id = Option(String).Some(match(et, Rc(.Struct({ id })) => id.clone(), _ => String.from("")));
       }),
       .None => ()
     );
@@ -1254,7 +1254,7 @@ emit_effect_record_injection_for_sm :: (
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
-    flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+    flabel := match(field_labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
     ftype := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       (member_code : Option(String)) = Option(String).None;
@@ -1303,7 +1303,7 @@ emit_effect_record_injection_for_sm :: (
                         .FuncVal(__fvd1, _) => match(
                           context.base.functions.get(&__fvd1.*.func_id),
                           .Some(fe) => {
-                            member_code = Option(String).Some(fe.c_name);
+                            member_code = Option(String).Some(fe.c_name.clone());
                           },
                           .None => ()
                         ),
@@ -1333,7 +1333,7 @@ emit_effect_record_injection_for_sm :: (
               match(
                 it.next(),
                 .Some(b) => if(b.value.field_label == flabel, {
-                  member_code = Option(String).Some(b.value.c_param_name);
+                  member_code = Option(String).Some(b.value.c_param_name.clone());
                 }),
                 .None => {
                   go = false;
@@ -1373,7 +1373,7 @@ emit_effect_record_injection_for_sm :: (
                                 .FuncVal(__fvd2, _) => match(
                                   context.base.functions.get(&__fvd2.*.func_id),
                                   .Some(fe) => {
-                                    member_code = Option(String).Some(fe.c_name);
+                                    member_code = Option(String).Some(fe.c_name.clone());
                                   },
                                   .None => ()
                                 ),
@@ -1421,11 +1421,11 @@ emit_effect_injection_for_sm :: (
         match(
           extract_future_trait_from_type(&fut_ty),
           .Some(ftrait) => {
-            eff_labels := match(ftrait, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => ArrayList(String).new());
-            eff_types := match(ftrait, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+            eff_labels := match(ftrait, Rc(.FutureTraitT({ effect_labels : el })) => el.clone(), _ => ArrayList(String).new());
+            eff_types := match(ftrait, Rc(.FutureTraitT({ effect_types : et })) => et.clone(), _ => ArrayList(TypeValue).new());
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
-              elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));
+              elabel := match(eff_labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
               etype := match(eff_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(is_function_type(&etype), {
                 has_forall := match(etype, Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
@@ -1741,7 +1741,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
     _call_emit_fused_await(expr, indent.clone(), context),
     .Some(fused_code) => {
       _store_await_result_into_temp_slot(expr, &fused_code, indent, context);
-      return(fused_code);
+      return(fused_code.clone());
     },
     .None => ()
   );
@@ -1775,7 +1775,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   match(
     awaited_future_c_type_override(&future_arg, &context.base),
     .Some(o) => {
-      future_c_type = o;
+      future_c_type = o.clone();
     },
     .None => ()
   );
@@ -1948,7 +1948,7 @@ generate_async_block_resume_function_inline :: (
         // an implicit capture the dispose still drops, is retained for the
         // result), as a sync body's begin epilogue does
         // (issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md).
-        bcode := if(is_tail, match(arm_value_with_dups(&bexpr, `  `, context), .Some(c) => c, .None => _call_generate_expr(&bexpr, `  `, context)), _call_generate_expr(&bexpr, `  `, context));
+        bcode := if(is_tail, match(arm_value_with_dups(&bexpr, `  `, context), .Some(c) => c.clone(), .None => _call_generate_expr(&bexpr, `  `, context)), _call_generate_expr(&bexpr, `  `, context));
         if(is_tail, {
           if(bcode.len() > usize(0), {
             em.emit_string_line(`  sm->result = ${bcode};`);
@@ -1972,7 +1972,7 @@ generate_async_block_resume_function_inline :: (
   tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(&le, "return", Option(usize).None), .None => false);
   if(!tail_returns, {
     match(
-      match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+      match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None),
       .Some(drops) => {
         (di : usize) = usize(0);
         while(di < drops.len(), di = (di + usize(1)), {

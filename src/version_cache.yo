@@ -61,7 +61,7 @@ MIN_BUNDLE_VERSION :: "0.2.1";
 _github_repo :: (fn() -> String)(
   match(
     env.get(`YO_REPO`),
-    .Some(r) => r,
+    .Some(r) => r.clone(),
     .None => `shd101wyy/Yo`
   )
 );
@@ -140,8 +140,8 @@ _sort_by_semver :: (fn(versions : &ArrayList(String)) -> ArrayList(String))({
           min_idx = j;
           found = true;
         }, {
-          j_ver := match(versions.get(j), .None => String.new(), .Some(v) => v);
-          min_ver := match(versions.get(min_idx), .None => String.new(), .Some(v) => v);
+          j_ver := match(versions.get(j), .None => String.new(), .Some(v) => v.clone());
+          min_ver := match(versions.get(min_idx), .None => String.new(), .Some(v) => v.clone());
           if(compare_semver(&j_ver, &min_ver) < i64(0), {
             min_idx = j;
           });
@@ -153,7 +153,7 @@ _sort_by_semver :: (fn(versions : &ArrayList(String)) -> ArrayList(String))({
       versions.get(min_idx),
       .None => (),
       .Some(v) => {
-        result.push(v);
+        result.push(v.clone());
       }
     );
     match(
@@ -328,7 +328,7 @@ resolve_version_dir :: (
     // no `io.await` in a cond condition or a later branch.
     inst_dir := match(
       get_install_version_dir(version.clone()),
-      .Some(d) => d,
+      .Some(d) => d.clone(),
       .None => _never_path()
     );
     inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), e.io);
@@ -392,7 +392,7 @@ _scan_versions_root :: (
             bin_exists := e.io.await(exists(Path.new(cached_binary_path(&entry_path)), e.io), e.io);
             // A version present in BOTH roots must appear once.
             if(bin_exists && !_contains_version(known, entry.name.clone()) && !_contains_version(&found, entry.name.clone()), {
-              found.push(entry.name);
+              found.push(entry.name.clone());
             });
           });
         }
@@ -422,7 +422,7 @@ list_cached_versions :: (
     // only fix available here is to not generate that shape.
     inst_root := match(
       get_install_versions_dir(),
-      .Some(d) => d,
+      .Some(d) => d.clone(),
       .None => _never_path()
     );
     installed := e.io.await(_scan_versions_root(&inst_root, &versions, e.io, e.exn), e);
@@ -487,7 +487,7 @@ _http_get :: (
     if(resp.status.is_error(), {
       e.exn.throw(dyn(`HTTP ${resp.status} fetching ${url}`));
     });
-    resp.body
+    resp.body.clone()
   })
 );
 /// Download a URL to `dest_path` via std/http (D6 PR-3). Follows redirects.
@@ -577,7 +577,7 @@ _scan_release_page :: (fn(json : &String) -> _ReleasePage)({
               .Some(tag) => {
                 cleaned := cond(
                   tag.starts_with(String.from("v")) => tag.substring(usize(1), tag.len()),
-                  true => tag
+                  true => tag.clone()
                 );
                 tags.push(cleaned);
               }
@@ -814,7 +814,7 @@ fetch_remote_versions :: (
           scanned.tags.get(i),
           .None => (),
           .Some(t) => {
-            versions.push(t);
+            versions.push(t.clone());
           }
         );
         i = (i + usize(1));

@@ -222,7 +222,7 @@ _should_skip_file :: (fn(file : &String) -> bool)({
   segs := file.split(`/`);
   (i : usize) = usize(0);
   while(runtime(i < segs.len()), {
-    seg := segs(i);
+    seg := segs(i).clone();
     if((seg == "libc") || (seg == "linux") || (seg == "darwin") || (seg == "cuda") || (seg == "sys") || (seg == "sync"), {
       return(true);
     });
@@ -647,7 +647,7 @@ _psr_method_name :: (fn(body : &String) -> Option(String))(
     body.index_of(" : (fn("),
     .Some(k) => {
       name := body.substring(usize(0), k);
-      bytes := name;
+      bytes := name.clone();
       (ok : bool) = (k > usize(0));
       (bi : usize) = usize(0);
       while(runtime(ok && (bi < bytes.len())), {
@@ -677,7 +677,7 @@ scan_class1_extractions :: (fn(file : &String, src_str : &String, out : &mut Arr
   (recorded : bool) = false;
   (li : usize) = usize(0);
   while(runtime(li < lines.len()), {
-    raw := lines(li);
+    raw := lines(li).clone();
     line := if(raw.ends_with("\r"), raw.substring(usize(0), raw.len() - usize(1)), raw);
     cond(
       line.starts_with("impl(") => {
@@ -707,7 +707,7 @@ scan_class1_extractions :: (fn(file : &String, src_str : &String, out : &mut Arr
             true => match(
               _psr_method_name(body.clone()),
               .Some(name) => {
-                method = name;
+                method = name.clone();
                 method_line = (li + usize(1));
                 method_comptime = body.contains("comptime(self)");
                 recorded = false;
@@ -764,7 +764,7 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Futu
         (ok : bool) = true;
         (si : usize) = usize(0);
         while(runtime((si + usize(1)) < segs.len()), {
-          seg := segs(si);
+          seg := segs(si).clone();
           skip := ((seg == "node_modules") || (seg == ".git") || (seg == "dist") || (seg == "yo-out") || (seg == "build") || seg.starts_with(`.`));
           if(skip, {
             ok = false;
@@ -791,7 +791,7 @@ generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception
     (files_scanned : usize) = usize(0);
     (fi : usize) = usize(0);
     while(runtime(fi < files.len()), {
-      file := files(fi);
+      file := files(fi).clone();
       if(!_should_skip_file(file.clone()), {
         files_scanned = (files_scanned + usize(1));
         src := e.io.await(fs_file.read_to_string(Path.new(file.clone()), e.io), e);
@@ -883,7 +883,7 @@ format_public_safe_report :: (fn(report : &PublicSafeReport) -> String)({
 /// JSON string escaping (same shape as unsafe_report.yo's).
 _psr_json_str :: (fn(text : &String) -> String)({
   out := String.from("\"");
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {

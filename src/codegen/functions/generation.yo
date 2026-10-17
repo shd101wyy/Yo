@@ -618,7 +618,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => t_unit());
         is_object := (is_reference_struct_type(&pt) || is_atomic_reference_struct_type(&pt));
-        label := match(__fm.*.param_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(__fm.*.param_labels.get(i), .Some(l) => l.clone(), .None => String.new());
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
           // the caller's handle slot); the object the flag lives on is `*name`.
@@ -666,7 +666,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
     function_value,
     .FuncVal(__fvm6, _) => {
       body_box := __fvm6.*.body;
-      func_id := __fvm6.*.func_id;
+      func_id := __fvm6.*.func_id.clone();
       em := context.base.emitter;
       function_type := get_func_type(func_id.clone());
       // YO_AUDIT_RC_WRITE: decision 46's census of writes through a cell.
@@ -827,7 +827,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       match(
         function_type,
         Rc(.Func({ param_types : _pt, meta : _pm })) => {
-          _pls := _pm.*.param_labels;
+          _pls := _pm.*.param_labels.clone();
           _pn := _pt.len();
           (_pi : usize) = usize(0);
           while(_pi < _pn, {
@@ -1204,7 +1204,7 @@ generate_all_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
 /// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`).
 /// (Evidence-param mains are unimplemented.)
 _main_call_args :: (fn(main_func_id : &String, context : &FunctionGenerationContext) -> String)({
-  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt.clone(), _ => ArrayList(TypeValue).new());
   out := String.from("(");
   n := pts.len();
   (i : usize) = usize(0);
@@ -1299,7 +1299,7 @@ emit_module_level_variable_declarations :: (
             // handles module-level vars, so qualify directly from the
             // registry using the declaration's own token
             // (issues/fixed/module-global-c-names-are-not-namespaced.md).
-            mg_decl_path := ast_expr_token(&var_atom).module_path;
+            mg_decl_path := ast_expr_token(&var_atom).module_path.clone();
             // A thread-local's READS are rewritten to `(*name__tl_get())` by
             // get_variable_name_for_codegen — correct everywhere except HERE,
             // where the name is being DECLARED. Build the declaration name
@@ -1523,7 +1523,7 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
           match(
             entry.value,
             .FuncVal(__fvd1, _) => {
-              main_func_id = __fvd1.*.func_id;
+              main_func_id = __fvd1.*.func_id.clone();
               found = true;
               go = false;
             },

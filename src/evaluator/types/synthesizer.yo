@@ -310,7 +310,7 @@ _bind_some_type :: (
       // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
       found_slot_someid := match(
         old_var.value.get(usize(0)),
-        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid, _ => variable_bound_some_id(&old_var)), _ => String.from("")),
+        .Some(ov) => match(ov, .TypeVal(ovt) => match(ovt, Rc(.SomeT({ id : ovid })) => ovid.clone(), _ => variable_bound_some_id(&old_var)), _ => String.from("")),
         .None => String.from("")
       );
       identity_mismatch := ((source_some_id.len() > usize(0)) && (found_slot_someid.len() > usize(0)) && (found_slot_someid != source_some_id));
@@ -331,7 +331,7 @@ _bind_some_type :: (
       if(identity_mismatch && val_is_self_marker, {
         return(());
       });
-      bind_probe_name := match(debug_knob(`YO_DEBUG_BIND`), .Some(bpn) => bpn, .None => String.from(""));
+      bind_probe_name := match(debug_knob(`YO_DEBUG_BIND`), .Some(bpn) => bpn.clone(), .None => String.from(""));
       if((bind_probe_name.len() > usize(0)) && (name == bind_probe_name) && !val_is_self_marker, {
         wrote_lvl := if(identity_mismatch || ((env.frames.len() > usize(0)) && (old_var.frame_level != (env.frames.len() - usize(1)))), env.frames.len() - usize(1), old_var.frame_level);
         wrote_fid := match(env.frames.get(wrote_lvl), .Some(wf) => wf.id, .None => usize(0));
@@ -364,7 +364,7 @@ _bind_some_type :: (
       // the value is replaced.
       new_var := Variable(
         id : old_var.id,
-        name : old_var.name,
+        name : old_var.name.clone(),
         ty : old_var.ty,
         is_compile_time_only : old_var.is_compile_time_only,
         frame_level : old_var.frame_level,
@@ -419,7 +419,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     while((vi < n) && !found_visited, {
       v := match(
         visited.get(vi),
-        .Some(s) => s,
+        .Some(s) => s.clone(),
         .None => {
           vi = n;
           break;
@@ -463,7 +463,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       while((vi < variant_fields.len()) && !res, {
         vf := match(
           variant_fields.get(vi),
-          .Some(f) => f,
+          .Some(f) => f.clone(),
           .None => {
             vi = variant_fields.len();
             break;
@@ -513,7 +513,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     Rc(.Pointer(_)) => false,
     Rc(.IsoT(child)) => recur(some_type_id, some_type_name, &child, visited, exn),
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
-      forall_labels := __fm1.*.forall_labels;
+      forall_labels := __fm1.*.forall_labels.clone();
       // A generic declared by this Func's OWN signature SHADOWS the
       // searched variable: occurrences inside its params/return are
       // bound (alpha-renameable), not free occurrences. Value-typed
@@ -542,7 +542,7 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
         while(sfi < forall_labels.len(), {
           fl := match(
             forall_labels.get(sfi),
-            .Some(l) => l,
+            .Some(l) => l.clone(),
             .None => {
               sfi = forall_labels.len();
               break;
@@ -773,13 +773,13 @@ _synthesize_implicit_params :: (
         if(exp_id == synthesis_type_id(&giv_ty), {
           res := _synthesize_types_impl(&exp_ty, expected_env, &giv_ty, given_env, checked, opts, exn);
           expected_env.frames = res.expected_env.frames;
-          expected_env.module_path = res.expected_env.module_path;
+          expected_env.module_path = res.expected_env.module_path.clone();
           expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
-          expected_env.input_string = res.expected_env.input_string;
+          expected_env.input_string = res.expected_env.input_string.clone();
           given_env.frames = res.given_env.frames;
-          given_env.module_path = res.given_env.module_path;
+          given_env.module_path = res.given_env.module_path.clone();
           given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
-          given_env.input_string = res.given_env.input_string;
+          given_env.input_string = res.given_env.input_string.clone();
           matched_given(gj) = true;
           gj = n_giv; // break
         });
@@ -1221,7 +1221,7 @@ _synthesize_types_impl :: (
       match(
         lookup_struct_ctor_fid(&exp_id3),
         .Some(rec_cfid) => {
-          exp_eff_cfid = rec_cfid;
+          exp_eff_cfid = rec_cfid.clone();
         },
         .None => ()
       );
@@ -1230,7 +1230,7 @@ _synthesize_types_impl :: (
       match(
         lookup_struct_ctor_fid(&giv_id3),
         .Some(rec_cfid2) => {
-          giv_eff_cfid = rec_cfid2;
+          giv_eff_cfid = rec_cfid2.clone();
         },
         .None => ()
       );
@@ -1270,8 +1270,8 @@ _synthesize_types_impl :: (
         (sl_i : usize) = usize(0);
         (sl_eq : bool) = true;
         while((sl_i < exp_lbls.len()) && sl_eq, {
-          sl_e := match(exp_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
-          sl_g := match(giv_lbls.get(sl_i), .Some(x) => x, .None => String.from(""));
+          sl_e := match(exp_lbls.get(sl_i), .Some(x) => x.clone(), .None => String.from(""));
+          sl_g := match(giv_lbls.get(sl_i), .Some(x) => x.clone(), .None => String.from(""));
           if(sl_e != sl_g, {
             sl_eq = false;
           });
@@ -1334,8 +1334,8 @@ _synthesize_types_impl :: (
     // see resolve_enum_shell) before any guard looks at variants.
     exp_en_ty := resolve_enum_shell(expected_ty);
     giv_en_ty := resolve_enum_shell(given_ty);
-    exp_enum_id := match(exp_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
-    giv_enum_id := match(giv_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
+    exp_enum_id := match(exp_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
+    giv_enum_id := match(giv_en_ty, Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id.clone(), _ => ``);
     // Two instantiations of the same generic enum share a constructor_func_id
     // (value.yo enum-cfid side-table). Treat matching cfids as the same enum
     // constructor → unify variant fields, like the struct same_constructor check.
@@ -1364,14 +1364,14 @@ _synthesize_types_impl :: (
     // mismatches), so a same-shaped-but-different enum pair cannot silently
     // unify beyond what field recursion admits.
     if((exp_enum_id != giv_enum_id) && !same_enum_ctor, {
-      exp_vn := match(exp_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => ArrayList(String).new());
-      giv_vn := match(giv_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => ArrayList(String).new());
+      exp_vn := match(exp_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn.clone(), _ => ArrayList(String).new());
+      giv_vn := match(giv_en_ty, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn.clone(), _ => ArrayList(String).new());
       if(exp_vn.len() == giv_vn.len(), {
         (vni : usize) = usize(0);
         (vn_ok : bool) = (exp_vn.len() > usize(0));
         while((vni < exp_vn.len()) && vn_ok, {
-          evn := match(exp_vn.get(vni), .Some(x) => x, .None => String.from(""));
-          gvn := match(giv_vn.get(vni), .Some(x) => x, .None => String.from("?"));
+          evn := match(exp_vn.get(vni), .Some(x) => x.clone(), .None => String.from(""));
+          gvn := match(giv_vn.get(vni), .Some(x) => x.clone(), .None => String.from("?"));
           if(!(evn == gvn), {
             vn_ok = false;
           });
@@ -1394,14 +1394,14 @@ _synthesize_types_impl :: (
         )
       );
     }, {
-      exp_vf := match(exp_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      giv_vf := match(giv_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      exp_vf := match(exp_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf.clone(), _ => ArrayList(ArrayList(TypeValue)).new());
+      giv_vf := match(giv_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf.clone(), _ => ArrayList(ArrayList(TypeValue)).new());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
       while(vi < n_v, {
         exp_variant := match(
           exp_vf.get(vi),
-          .Some(f) => f,
+          .Some(f) => f.clone(),
           .None => {
             vi = n_v;
             break;
@@ -1409,7 +1409,7 @@ _synthesize_types_impl :: (
         );
         giv_variant := match(
           giv_vf.get(vi),
-          .Some(f) => f,
+          .Some(f) => f.clone(),
           .None => {
             vi = n_v;
             break;
@@ -1450,12 +1450,12 @@ _synthesize_types_impl :: (
       // the call-site instance).
       exp_tca_sy := match(
         get_gadt_type_constructor_args(&exp_enum_id),
-        .Some(t) => t,
+        .Some(t) => t.clone(),
         .None => ArrayList(TypeValue).new()
       );
       giv_tca_sy := match(
         get_gadt_type_constructor_args(&giv_enum_id),
-        .Some(t) => t,
+        .Some(t) => t.clone(),
         .None => ArrayList(TypeValue).new()
       );
       tca_n_sy := cond(

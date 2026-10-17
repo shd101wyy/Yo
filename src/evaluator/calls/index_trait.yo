@@ -1213,7 +1213,7 @@ _find_comptime_index_method :: (
         match(
           m.method_type,
           Rc(.Func({ param_types, result : ci_result, meta : __cifm1 })) => {
-            ci_param_is_ref := __cifm1.*.param_is_ref;
+            ci_param_is_ref := __cifm1.*.param_is_ref.clone();
             if(param_types.len() == usize(2), {
               match(
                 param_types.get(usize(0)),
@@ -1387,19 +1387,19 @@ _try_comptime_custom_type_index :: (
   );
   ct_p0_label := match(
     ct_fn_type,
-    Rc(.Func({ meta : __cifm2 })) => match(__cifm2.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")),
+    Rc(.Func({ meta : __cifm2 })) => match(__cifm2.*.param_labels.get(usize(0)), .Some(l) => l.clone(), .None => String.from("self")),
     _ => String.from("self")
   );
   ct_p1_label := match(
     ct_fn_type,
-    Rc(.Func({ meta : __cifm3 })) => match(__cifm3.*.param_labels.get(usize(1)), .Some(l) => l, .None => String.from("idx")),
+    Rc(.Func({ meta : __cifm3 })) => match(__cifm3.*.param_labels.get(usize(1)), .Some(l) => l.clone(), .None => String.from("idx")),
     _ => String.from("idx")
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
   // push a frame with `self` / `idx` bound.
   ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => ArrayList(EvalValue).new());
-  ct_module_path := ct_caller_env.module_path;
+  ct_module_path := ct_caller_env.module_path.clone();
   ct_callee_env := Environment.new(&ct_module_path);
   (ct_ci : usize) = usize(0);
   while(ct_ci < ct_cap_vals.len(), {
@@ -1610,7 +1610,7 @@ try_to_call_with_index_trait :: (
   );
   string_raw_opt := match(
     self_value,
-    .Some(.StrLit(r)) => Option(String).Some(r),
+    .Some(.StrLit(r)) => Option(String).Some(r.clone()),
     .Some(_) => Option(String).None,
     .None => Option(String).None
   );
@@ -1854,7 +1854,7 @@ _record_index_unchecked_twin :: (
   });
   trait_id := match(
     get_trait_type_from_env(caller_env, String.from(trait_name)),
-    .Some(Rc(.TraitT(id : tid))) => tid,
+    .Some(Rc(.TraitT(id : tid))) => tid.clone(),
     _ => String.new()
   );
   if(trait_id == "", {

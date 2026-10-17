@@ -91,7 +91,7 @@ subst_add_len_var :: (fn(s : &Substitution, name : &String, value : usize) -> un
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
-    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.len_var_names.get(i), .Some(v) => v.clone(), .None => ``);
     if(ni == name, {
       s.len_var_values(i) = value;
       return(());
@@ -157,7 +157,7 @@ _subst_lookup_by_name :: (fn(s : &Substitution, name : &String) -> Option(TypeVa
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get(i), .Some(v) => v.clone(), .None => ``);
     if(ni == name, {
       return(
         match(s.types.get(i), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None)
@@ -197,7 +197,7 @@ subst_lookup_len_var :: (fn(s : &Substitution, name : &String) -> Option(usize))
   i := usize(0);
   n := s.len_var_names.len();
   while(i < n, {
-    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.len_var_names.get(i), .Some(v) => v.clone(), .None => ``);
     if(ni == name, {
       return(
         match(
@@ -229,7 +229,7 @@ _subst_trait_visited :: (fn(s : &Substitution, id : &String) -> bool)({
   i := usize(0);
   n := s.visited_trait_ids.len();
   while(i < n, {
-    vi := match(s.visited_trait_ids.get(i), .Some(v) => v, .None => ``);
+    vi := match(s.visited_trait_ids.get(i), .Some(v) => v.clone(), .None => ``);
     if(vi == id, {
       return(true);
     });
@@ -242,7 +242,7 @@ subst_add :: (fn(s : &Substitution, name : &String, level : usize, ty : &TypeVal
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get(i), .Some(v) => v.clone(), .None => ``);
     li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       s.types(i) = ty;
@@ -277,7 +277,7 @@ subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(
   i := usize(0);
   n := s.names.len();
   while(i < n, {
-    ni := match(s.names.get(i), .Some(v) => v, .None => ``);
+    ni := match(s.names.get(i), .Some(v) => v.clone(), .None => ``);
     li := match(s.levels.get(i), .Some(v) => v, .None => usize(0));
     if((ni == name) && (li == level), {
       return(
@@ -312,7 +312,7 @@ _is_self_pattern :: (fn(s : &Substitution, ty : &TypeValue) -> bool)({
   if(ty_id.is_empty(), {
     return(false);
   });
-  from_id := match(from, Rc(.Struct({ id : fid })) => fid, Rc(.EnumT(fe, _, _, _, _, _, _, _, _, _)) => fe, _ => String.new());
+  from_id := match(from, Rc(.Struct({ id : fid })) => fid.clone(), Rc(.EnumT(fe, _, _, _, _, _, _, _, _, _)) => fe.clone(), _ => String.new());
   if(from_id.is_empty() || !(ty_id == from_id), {
     return(false);
   });
@@ -357,7 +357,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   {
     (si : usize) = usize(0);
     while((si < s.names.len()) && !any_masked, {
-      nm := match(s.names.get(si), .Some(v) => v, .None => ``);
+      nm := match(s.names.get(si), .Some(v) => v.clone(), .None => ``);
       if(_mfb_is_binder(forall_labels, &nm), {
         any_masked = true;
       });
@@ -370,7 +370,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   {
     (li : usize) = usize(0);
     while((li < s.len_var_names.len()) && !any_masked, {
-      lnm := match(s.len_var_names.get(li), .Some(v) => v, .None => ``);
+      lnm := match(s.len_var_names.get(li), .Some(v) => v.clone(), .None => ``);
       if(_mfb_is_binder(forall_labels, &lnm), {
         any_masked = true;
       });
@@ -399,7 +399,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   );
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
-    nm := match(s.names.get(ci), .Some(v) => v, .None => ``);
+    nm := match(s.names.get(ci), .Some(v) => v.clone(), .None => ``);
     if(!_mfb_is_binder(forall_labels, &nm), {
       masked.names.push(nm);
       masked.levels.push(match(s.levels.get(ci), .Some(v) => v, .None => usize(0)));
@@ -409,7 +409,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   });
   (mli : usize) = usize(0);
   while(mli < s.len_var_names.len(), {
-    lnm := match(s.len_var_names.get(mli), .Some(v) => v, .None => ``);
+    lnm := match(s.len_var_names.get(mli), .Some(v) => v.clone(), .None => ``);
     if(!_mfb_is_binder(forall_labels, &lnm), {
       masked.len_var_names.push(lnm);
       masked.len_var_values.push(match(s.len_var_values.get(mli), .Some(v) => v, .None => usize(0)));
@@ -474,7 +474,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(.Array(inner, len, lvar)) => {
           new_inner := _substitute_at(s, &inner, false);
           cond(
-            (lvar.len() == usize(0)) => rc(TypeValueNode.Array(new_inner, len, lvar)),
+            (lvar.len() == usize(0)) => rc(TypeValueNode.Array(new_inner, len, lvar.clone())),
             true => match(
               subst_lookup_len_var(s, lvar.clone()),
               .Some(bound_len) => rc(TypeValueNode.Array(new_inner, bound_len, String.from(""))),
@@ -486,7 +486,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
               .None => match(
                 _subst_resolve_len_projection(s, lvar.clone()),
                 .Some(proj_len) => rc(TypeValueNode.Array(new_inner, proj_len, String.from(""))),
-                .None => rc(TypeValueNode.Array(new_inner, len, lvar))
+                .None => rc(TypeValueNode.Array(new_inner, len, lvar.clone()))
               )
             )
           )
@@ -500,7 +500,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             new_types.push(_substitute_at(s, &elem, false));
             i = (i + usize(1));
           });
-          rc(TypeValueNode.Tuple(labels, new_types))
+          rc(TypeValueNode.Tuple(labels.clone(), new_types))
         },
         // Recurse into Func (all type-bearing fields). A NESTED Func's OWN
         // forall binders shadow same-named substitution entries — see
@@ -570,7 +570,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             ((tid.len() > usize(0)) && _subst_trait_visited(s, &tid)) => ty,
             true => {
               if(tid.len() > usize(0), {
-                s.visited_trait_ids.push(tid);
+                s.visited_trait_ids.push(tid.clone());
               });
               // Nominal boundary — see _without_len_vars.
               s_nom_t := _without_len_vars(s);
@@ -581,7 +581,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
                 new_fts.push(_substitute_at(&s_nom_t, &elem, false));
                 i = (i + usize(1));
               });
-              rc(TypeValueNode.TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons, atcl, atct))
+              rc(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), new_fts, tid.clone(), ic, scons.clone(), ncons.clone(), atcl.clone(), atct.clone()))
             }
           ),
         // SomeT — check substitution first; if not found, recurse into constraints.
@@ -633,7 +633,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
                 new_nts.push(_substitute_at(s, &elem, false));
                 i = (i + usize(1));
               });
-              rc(TypeValueNode.SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, Option(TypeValue).None, rcp))
+              rc(TypeValueNode.SomeT(orig_id.clone(), n.clone(), lvl, pt, new_rts, rlvls.clone(), new_nts, nlvls.clone(), Option(TypeValue).None, rcp))
             }
           )
         },
@@ -660,7 +660,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           });
           // Preserve constructor_func_id across substitution so the
           // type-constructor identity travels with specialized instantiations.
-          rc(TypeValueNode.Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns))
+          rc(TypeValueNode.Struct(id.clone(), name.clone(), labels.clone(), new_types, is_ref, is_atomic, is_nt, cfid.clone(), new_tyargs, is_sns))
         },
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
         Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
@@ -671,7 +671,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           while(i < variant_fields.len(), {
             vf := match(
               variant_fields.get(i),
-              .Some(vf_inner) => vf_inner,
+              .Some(vf_inner) => vf_inner.clone(),
               .None => ArrayList(TypeValue).new()
             );
             new_vf := ArrayList(TypeValue).new();
@@ -705,7 +705,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             new_etas.push(if(_is_some_t(&etarg) || et_phantom, _substitute_at(&s_nom_e, &etarg, false), etarg));
             ti = (ti + usize(1));
           });
-          rc(TypeValueNode.EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar, new_etas))
+          rc(TypeValueNode.EnumT(id.clone(), name.clone(), variant_names.clone(), new_variant_fields, svn.clone(), vfl.clone(), discs.clone(), eirs, eiar, new_etas))
         },
         Rc(.Union(name, labels, types)) => {
           new_types := ArrayList(TypeValue).new();
@@ -715,7 +715,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             new_types.push(_substitute_at(s, &elem, false));
             i = (i + usize(1));
           });
-          rc(TypeValueNode.Union(name, labels, new_types))
+          rc(TypeValueNode.Union(name.clone(), labels.clone(), new_types))
         },
         // Phase 2f variants — recurse into child types
         Rc(.ComptimeListT(child)) => rc(TypeValueNode.ComptimeListT(_substitute_at(s, &child, false))),
@@ -770,7 +770,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             new_its.push(_substitute_at(s, &elem, false));
             iti = (iti + usize(1));
           });
-          rc(TypeValueNode.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf, call_param_is_owning : cpof))
+          rc(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : cpls.clone(), call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils.clone(), implicit_types : new_its, call_param_is_ref : cprf.clone(), call_param_is_owning : cpof.clone()))
         },
         Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets)) => {
           new_ets := ArrayList(TypeValue).new();
@@ -780,7 +780,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             new_ets.push(_substitute_at(s, &elem, false));
             i = (i + usize(1));
           });
-          rc(TypeValueNode.FutureTraitT(base_name : bn, output : _substitute_at(s, &out, false), effect_labels : els, effect_types : new_ets))
+          rc(TypeValueNode.FutureTraitT(base_name : bn.clone(), output : _substitute_at(s, &out, false), effect_labels : els.clone(), effect_types : new_ets))
         },
         // Primitives and leaves — return unchanged.
         _ => ty

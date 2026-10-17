@@ -483,7 +483,7 @@ analyze_await_points :: (
           base : sp,
           result_type : extra.result_type,
           future_type : extra.future_type,
-          future_variable_id : extra.future_variable_id,
+          future_variable_id : extra.future_variable_id.clone(),
           target_is_reassign : extra.target_is_reassign
         );
         await_points.push(ap);
@@ -521,7 +521,7 @@ analyze_await_points :: (
     await_points : await_points,
     captured_variables : captured_variables,
     has_awaits : result.has_suspensions,
-    variable_id_remapping : result.variable_id_remapping
+    variable_id_remapping : result.variable_id_remapping.clone()
   )
 });
 // ---------------------------------------------------------------------------
@@ -693,7 +693,7 @@ register_closure_await_analysis :: (fn(func_id : &String, result : &AwaitAnalysi
   if(!codegen_tables_enabled(), {
     return(());
   });
-  g_closure_await_analysis.insert(func_id, result);
+  g_closure_await_analysis.insert(func_id.clone(), result);
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : &String) -> Option(AwaitAnalysisResult))(

@@ -1104,7 +1104,7 @@ forward_ref_diagnostic :: (fn(msg : &String) -> Option(String))({
 _hard_swallow_classes :: (fn(msg : &String, include_generated : bool) -> Option(String))(
   match(
     forward_ref_diagnostic(msg),
-    .Some(fwd) => Option(String).Some(fwd),
+    .Some(fwd) => Option(String).Some(fwd.clone()),
     .None =>
       cond(
         // Fourth class: ANY failure inside auto-generated code (a derive's
@@ -2395,7 +2395,7 @@ begin_module_walk :: (
     .None => new_frame(false)
   );
   walk := ModuleWalk(
-    module_path : module_path,
+    module_path : module_path.clone(),
     begin_exprs : begin_exprs,
     env : env,
     module_frame_id : module_frame_id,
@@ -2424,7 +2424,7 @@ begin_module_walk :: (
       );
       si = (si + usize(1));
     });
-    _ := g_module_stmt_hash.insert(module_path, fnv1a64(&stmt_hash_state));
+    _ := g_module_stmt_hash.insert(module_path.clone(), fnv1a64(&stmt_hash_state));
   });
   (hi : usize) = usize(0);
   while(hi < defs.len(), {
@@ -2772,7 +2772,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
     },
     .Some(msg) => {
       def.state = PendingDefState.Failed;
-      def.failure = Option(String).Some(msg);
+      def.failure = Option(String).Some(msg.clone());
     }
   );
   result
@@ -2793,7 +2793,7 @@ revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -
       .Some(def) => if(match(def.state, .Unforced => true, _ => false), {
         match(
           force_pending_def(walk, &def),
-          .Some(msg) => failures.push(msg),
+          .Some(msg) => failures.push(msg.clone()),
           .None => ()
         );
       }),
@@ -2914,7 +2914,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
         ),
         .Unforced => match(
           force_pending_def(&walk, &def),
-          .Some(msg) => PendingResolution.Error(msg),
+          .Some(msg) => PendingResolution.Error(msg.clone()),
           .None => match(
             _def_variable_for(&walk, &def, name.clone()),
             .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
@@ -3050,7 +3050,7 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   match(
     missed,
     .Some(m) => {
-      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m));
+      declaring := _force_pending_impls_pass(type_name.clone(), Option(String).Some(m.clone()));
       cond(
         in_own_impl => declaring,
         true => match(declaring, .NoneForced => _force_pending_impls_pass(type_name, Option(String).None), _ => declaring)
@@ -3091,7 +3091,7 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
                 match(
                   force_pending_def(&walk, &def),
                   .Some(msg) => {
-                    err = Option(String).Some(msg);
+                    err = Option(String).Some(msg.clone());
                   },
                   .None => {
                     forced = true;
@@ -3125,11 +3125,11 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
     ty,
     Rc(.Struct({ id : sid, name : sn })) => cond(
       (sn.len() > usize(0)) => sn.clone(),
-      true => match(type_binding_name(&sid), .Some(b) => b, .None => String.new())
+      true => match(type_binding_name(&sid), .Some(b) => b.clone(), .None => String.new())
     ),
     Rc(.EnumT(eid, en, _, _, _, _, _, _, _, _)) => cond(
       (en.len() > usize(0)) => en.clone(),
-      true => match(type_binding_name(&eid), .Some(b) => b, .None => String.new())
+      true => match(type_binding_name(&eid), .Some(b) => b.clone(), .None => String.new())
     ),
     Rc(.Union(un, _, _)) => un.clone(),
     Rc(.TraitT(tn, _, _, _, _, _, _, _, _, _)) => tn.clone(),
@@ -3262,7 +3262,7 @@ make_impl_pending_field :: (fn(label : &String, colon_expr : &AstExpr, top_index
     state : ImplFieldState.Unforced,
     failure : Option(String).None,
     def : PendingDef(
-      name : label,
+      name : label.clone(),
       members : ArrayList(String).new(),
       expr : colon_expr,
       index : top_index,
@@ -3336,11 +3336,11 @@ impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplP
 /// which otherwise would report a misleading "No matching call found".
 (mut(g_pending_impl_force_error) : Option(String)) = Option(String).None;
 flag_pending_impl_force_error :: (fn(msg : &String) -> unit)({
-  g_pending_impl_force_error = Option(String).Some(msg);
+  g_pending_impl_force_error = Option(String).Some(msg.clone());
   ()
 });
 take_pending_impl_force_error :: (fn() -> Option(String))({
-  r := g_pending_impl_force_error;
+  r := g_pending_impl_force_error.clone();
   g_pending_impl_force_error = Option(String).None;
   r
 });
@@ -3434,8 +3434,8 @@ create_function_body_evaluation_context :: (
     self_module_type : ctx.self_module_type,
     receiver_type : ctx.receiver_type,
     load_module : ctx.load_module,
-    std_path : ctx.std_path,
-    current_module_path : ctx.current_module_path,
+    std_path : ctx.std_path.clone(),
+    current_module_path : ctx.current_module_path.clone(),
     is_unsafe_function_type : ctx.is_unsafe_function_type,
     unsafe_context : ctx.unsafe_context,
     is_control_function_type : ctx.is_control_function_type,
@@ -3458,12 +3458,12 @@ create_function_body_evaluation_context :: (
     is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
     currently_specializing_function : ctx.currently_specializing_function,
     currently_specializing_function_stack : ctx.currently_specializing_function_stack,
-    doc_comment_lookup : ctx.doc_comment_lookup,
+    doc_comment_lookup : ctx.doc_comment_lookup.clone(),
     // Shared mutable tables — same instance as parent so results are visible
     expr_info_table : ctx.expr_info_table,
     comptime_fn_caches : ctx.comptime_fn_caches,
-    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
-    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels.clone(),
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types.clone(),
     pending_method_self_type : Option(TypeValue).None
   )
 });

@@ -128,7 +128,7 @@ _await_future_expr_is_borrowed_place :: (fn(e : &AstExpr) -> bool)({
   });
   (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
+    r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     r_field := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
     if(!ast_expr_is_atom(&r_field), {
       return(false);

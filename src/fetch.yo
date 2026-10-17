@@ -82,8 +82,8 @@ sort_dir_entries :: (fn(entries : &ArrayList(DirEntry)) -> ArrayList(DirEntry))(
           min_idx = j;
           found = true;
         }, {
-          j_name := match(entries.get(j), .None => String.new(), .Some(e) => e.name);
-          min_name := match(entries.get(min_idx), .None => String.new(), .Some(e) => e.name);
+          j_name := match(entries.get(j), .None => String.new(), .Some(e) => e.name.clone());
+          min_name := match(entries.get(min_idx), .None => String.new(), .Some(e) => e.name.clone());
           if(j_name < min_name, {
             min_idx = j;
           });
@@ -213,7 +213,7 @@ compute_content_hash :: (
             stack.push(
               _HashWorkItem(
                 abs_path : dir_path,
-                rel_path : de.name,
+                rel_path : de.name.clone(),
                 is_dir : is_dir
               )
             );
@@ -234,7 +234,7 @@ compute_content_hash :: (
         slash_idx := item.rel_path.last_index_of(String.from("/"));
         match(
           slash_idx,
-          .None => item.rel_path,
+          .None => item.rel_path.clone(),
           .Some(idx) => item.rel_path.substring(idx + usize(1), item.rel_path.len())
         )
       };
@@ -273,7 +273,7 @@ compute_content_hash :: (
                 {
                   stack.push(
                     _HashWorkItem(
-                      abs_path : abs_sub,
+                      abs_path : abs_sub.clone(),
                       rel_path : sub_rel,
                       is_dir : is_subdir
                     )
@@ -361,11 +361,11 @@ commit_from_ls_remote :: (fn(text : &String) -> Option(String))({
           );
           if(is_peeled, {
             if(peeled.is_none(), {
-              peeled = Option(String).Some(sha);
+              peeled = Option(String).Some(sha.clone());
             });
           }, {
             if(first.is_none(), {
-              first = Option(String).Some(sha);
+              first = Option(String).Some(sha.clone());
             });
           });
         }
@@ -394,7 +394,7 @@ resolve_git_ref :: (
     // `<ref>^{}` line and an annotated tag answers with its tag OBJECT alone.
     cmd.arg(`${ref}^{}`);
     out := e.io.await(cmd.output(e.io), e);
-    text := String.from_bytes(out.stdout).trim();
+    text := String.from_bytes(out.stdout.clone()).trim();
     if(text.len() == usize(0), {
       // Assume ref is already a commit SHA
       return(ref);
@@ -405,7 +405,7 @@ resolve_git_ref :: (
         e.exn.throw(dyn(`Could not parse git ls-remote output`));
         String.new()
       },
-      .Some(s) => s
+      .Some(s) => s.clone()
     );
     sha
   })
@@ -517,7 +517,7 @@ mirror_rev_parse :: (
     cmd.arg(String.from("--quiet"));
     cmd.arg(`${ref}^{commit}`);
     out := e.io.await(cmd.output(e.io), e);
-    text := String.from_bytes(out.stdout).trim();
+    text := String.from_bytes(out.stdout.clone()).trim();
     if(!out.status.success() || (text.len() == usize(0)), Option(String).None, Option(String).Some(text))
   })
 );
@@ -849,7 +849,7 @@ fetch_package :: (
     if(expected.len() > usize(0), {
       known_dir = match(
         store_tree_dir(cache_root.clone(), expected.clone()),
-        .Ok(d) => d,
+        .Ok(d) => d.clone(),
         .Err(msg) => {
           e.exn.throw(dyn(format_coded_error(E_LOCK_MISMATCH, `yo.lock entry for "${name}": ${msg}`)));
           String.new()
@@ -911,7 +911,7 @@ fetch_package :: (
     });
     final_dir := match(
       store_tree_dir(cache_root.clone(), integrity.clone()),
-      .Ok(d) => d,
+      .Ok(d) => d.clone(),
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${msg}`));
         String.new()

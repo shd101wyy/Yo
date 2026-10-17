@@ -76,14 +76,14 @@ _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
 /// root file (absolute path). A name mapped twice resolves to the FIRST
 /// mapping — the resolver rejects duplicate import names before this point.
 set_import_root :: (fn(name : &String, root_file : &String) -> unit)({
-  g_import_root_names.push(name);
-  g_import_root_paths.push(root_file);
+  g_import_root_names.push(name.clone());
+  g_import_root_paths.push(root_file.clone());
 });
 /// Record that `name` is declared by the manifest but cannot be imported,
 /// with the reason the diagnostic will carry.
 set_import_unavailable :: (fn(name : &String, reason : &String) -> unit)({
-  g_import_unavailable_names.push(name);
-  g_import_unavailable_reasons.push(reason);
+  g_import_unavailable_names.push(name.clone());
+  g_import_unavailable_reasons.push(reason.clone());
 });
 clear_import_roots :: (fn() -> unit)({
   g_import_root_names.clear();
@@ -99,7 +99,7 @@ lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
       match(
         g_import_unavailable_reasons.get(i),
         .Some(r) => {
-          return(Option(String).Some(r));
+          return(Option(String).Some(r.clone()));
         },
         .None => ()
       );
@@ -118,7 +118,7 @@ lookup_import_root :: (fn(name : &String) -> Option(String))({
       match(
         g_import_root_paths.get(i),
         .Some(p) => {
-          return(Option(String).Some(p));
+          return(Option(String).Some(p.clone()));
         },
         .None => ()
       );
@@ -206,7 +206,7 @@ resolve_module_path_ex :: (
     match(
       lookup_import_unavailable(head.clone()),
       .Some(reason) => {
-        return(ModuleResolveResult.Unavailable(head.clone(), reason));
+        return(ModuleResolveResult.Unavailable(head.clone(), reason.clone()));
       },
       .None => ()
     );
@@ -394,9 +394,9 @@ evaluate_import :: (
     }
   );
   env.frames = arg_info.env.frames;
-  env.module_path = arg_info.env.module_path;
+  env.module_path = arg_info.env.module_path.clone();
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
-  env.input_string = arg_info.env.input_string;
+  env.input_string = arg_info.env.input_string.clone();
   // Extract the comptime string value.
   // StrLit.raw includes the surrounding quotes (e.g., `"std/string"`).
   // Strip the leading and trailing quote character to get the raw path.
@@ -458,7 +458,7 @@ evaluate_import :: (
   // `preload_module_tree` (main.yo) registers under.
   (module_abs_path : String) = match(
     resolve_module_path(module_path_to_import.clone(), current_dir.clone(), ctx.std_path.clone()),
-    .Found(p) => p,
+    .Found(p) => p.clone(),
     .Ambiguous(base) => {
       exn.throw(
         dyn(
@@ -530,7 +530,7 @@ evaluate_import :: (
             match(
               ds.get(ci),
               .Some(d) => {
-                entries.push(d);
+                entries.push(d.clone());
               },
               .None => ()
             );

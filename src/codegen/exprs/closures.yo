@@ -94,7 +94,7 @@ resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
   // fn-pointer-cast miss).
   (rsc_seen : ArrayList(String)) = ArrayList(String).new();
   while(go && is_some_type(&cur), {
-    sid := match(cur, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
+    sid := match(cur, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
     (rsc_revisit : bool) = false;
     (rsc_i : usize) = usize(0);
     while(rsc_i < rsc_seen.len(), {
@@ -176,7 +176,7 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
   idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   label := match(
     cap,
-    Rc(.Struct({ field_labels : cf_labels })) => match(cf_labels.get(idx), .Some(l) => l, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: index out of range")))),
+    Rc(.Struct({ field_labels : cf_labels })) => match(cf_labels.get(idx), .Some(l) => l.clone(), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: index out of range")))),
     _ => return(codegen_fatal_expr(`__yo_capture_field: ${type_to_string(&cap)} is not a capture record`))
   );
   recv_code := _call_generate_expr(&recv, indent.clone(), context);
@@ -209,24 +209,24 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   // as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(&ei.ty);
-  fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id, _ => String.from(""));
-  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name, .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
+  fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id.clone(), _ => String.from(""));
+  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name.clone(), .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
   if(is_dyn_type(&ei.ty), {
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
   capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => rc(TypeValueNode.Unit));
-  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
-    struct_id := match(capture_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+    struct_id := match(capture_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
     // Look up by the FULL type_key, not the bare struct id: the registry is
     // keyed by type_key(t), and for a cfid-empty struct with field types the
     // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
     // while type_key collapsed such structs to their sid (the MapEntry visit-fn
     // collision). type_key is the registry's identity here.
-    capture_c_name := match(context.base.get_type_c_name(type_key(&capture_ty)), .Some(n) => n, .None => return(codegen_fatal_expr(`Capture type not found for closure ${fid}: ${type_to_string(capture_ty.clone())} (type_key ${type_key(&capture_ty)})`)));
+    capture_c_name := match(context.base.get_type_c_name(type_key(&capture_ty)), .Some(n) => n.clone(), .None => return(codegen_fatal_expr(`Capture type not found for closure ${fid}: ${type_to_string(capture_ty.clone())} (type_key ${type_key(&capture_ty)})`)));
     // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
     // field uses the evaluator's deferred `___dup(name)` expr as its
     // initializer (matched by dup TARGET name), so the capture struct holds
@@ -238,7 +238,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     data.push_str("){ ");
     (fi : usize) = usize(0);
     while(fi < field_labels.len(), {
-      label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+      label := match(field_labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
       if(fi > usize(0), {
         data.push_str(", ");
       });
@@ -321,10 +321,10 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
           // (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md).
           .None => match(
             _resolve_sm_atom(expr, label.clone(), context),
-            .Some(sm_name) => sm_name,
+            .Some(sm_name) => sm_name.clone(),
             .None => match(
               _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), &ei.env, context),
-              .Some(cap_read) => cap_read,
+              .Some(cap_read) => cap_read.clone(),
               .None => {
                 // A C local of an enclosing state-machine body (phase 6) is
                 // read by its own name while its block is open.
@@ -387,7 +387,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     if(is_rebuild, {
       return(temp);
     });
-    key := match(resolve_some_type_to_concrete(&capture_ty), Rc(.Struct({ id : kid })) => kid, _ => struct_id.clone());
+    key := match(resolve_some_type_to_concrete(&capture_ty), Rc(.Struct({ id : kid })) => kid.clone(), _ => struct_id.clone());
     cg_base := context.base;
     cg_base.impl_closure_call_map.insert(
       key,
@@ -404,7 +404,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // Impl closure WITHOUT captures — empty capture struct value; still static
     // dispatch (register by the resolved concrete capture/SomeT id).
     concrete := resolve_some_type_to_concrete(&ei.ty);
-    concrete_id := match(concrete, Rc(.Struct({ id : kid })) => kid, Rc(.SomeT({ id : sid })) => sid, _ => type_key(&ei.ty));
+    concrete_id := match(concrete, Rc(.Struct({ id : kid })) => kid.clone(), Rc(.SomeT({ id : sid })) => sid.clone(), _ => type_key(&ei.ty));
     // The compound literal's type must be the CAPTURE STRUCT — take it from
     // the closure's registered capture info (keyed by fid; always present,
     // an empty struct for capture-free closures). The ExprInfo ty here can be
@@ -415,7 +415,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
       .Some(nc_cci) => get_type_string(&nc_cci.capture_type, &context.base),
       .None => match(
         context.base.get_type_c_name(concrete_id.clone()),
-        .Some(n) => n,
+        .Some(n) => n.clone(),
         .None => get_type_string(&concrete, &context.base)
       )
     );
@@ -483,8 +483,8 @@ register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext)
             .Some(cci) => {
               key := match(
                 resolve_some_type_to_concrete(&cci.capture_type),
-                Rc(.Struct({ id : sid })) => sid,
-                Rc(.SomeT({ id : sid })) => sid,
+                Rc(.Struct({ id : sid })) => sid.clone(),
+                Rc(.SomeT({ id : sid })) => sid.clone(),
                 _ => String.from("")
               );
               if(key.len() > usize(0), {
@@ -495,7 +495,7 @@ register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext)
                     cg_base.impl_closure_call_map.insert(
                       key,
                       ImplClosureCallInfo(
-                        function_c_name : entry.c_name,
+                        function_c_name : entry.c_name.clone(),
                         call_type_id : String.from(""),
                         call_type : Option(TypeValue).None,
                         consumed_captures : Option(ArrayList(String)).None,

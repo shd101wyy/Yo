@@ -97,8 +97,8 @@ path_contains_path :: (fn(path1 : &ArrayList(String), path2 : &ArrayList(String)
   });
   i := usize(0);
   while(i < n2, {
-    s1 := match(path1.get(i), .Some(s) => s, .None => String.from(""));
-    s2 := match(path2.get(i), .Some(s) => s, .None => String.from("~"));
+    s1 := match(path1.get(i), .Some(s) => s.clone(), .None => String.from(""));
+    s2 := match(path2.get(i), .Some(s) => s.clone(), .None => String.from("~"));
     if(s1 != s2, {
       return(false);
     });
@@ -125,10 +125,10 @@ path_collection_conflicts_with_path_collection :: (
   n2 := c2.len();
   i := usize(0);
   while(i < n1, {
-    p1 := match(c1.get(i), .Some(p) => p, .None => ArrayList(String).new());
+    p1 := match(c1.get(i), .Some(p) => p.clone(), .None => ArrayList(String).new());
     j := usize(0);
     while(j < n2, {
-      p2 := match(c2.get(j), .Some(p) => p, .None => ArrayList(String).new());
+      p2 := match(c2.get(j), .Some(p) => p.clone(), .None => ArrayList(String).new());
       if(path_conflicts_with_path(&p1, &p2), {
         return(true);
       });
@@ -456,7 +456,7 @@ new_expr_info :: (fn(env : &Environment, ty : &TypeValue) -> ExprInfo)(
     // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
     env : expr_info_env_snapshot(env),
     ty : ty,
-    path_collection : g_empty_path_collection,
+    path_collection : g_empty_path_collection.clone(),
     value : Option(EvalValue).None,
     variable_name : Option(String).None,
     is_accessing_property : Option(bool).None,
@@ -489,7 +489,7 @@ clone_expr_info_for_shared_begin_result :: (fn(src : &ExprInfo, env : &Environme
   ExprInfo(
     env : expr_info_env_snapshot(env),
     ty : ty,
-    path_collection : g_empty_path_collection,
+    path_collection : g_empty_path_collection.clone(),
     value : src.value,
     variable_name : src.variable_name,
     is_accessing_property : src.is_accessing_property,
@@ -512,19 +512,19 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
     .Some(x) => Option(ExprInfoRare).Some(
       ExprInfoRare(
         converted_runtime_type : x.converted_runtime_type,
-        runtime_destructurings : x.runtime_destructurings,
+        runtime_destructurings : x.runtime_destructurings.clone(),
         dyn_call_trait_values : x.dyn_call_trait_values,
         case_executed : x.case_executed,
         is_primitive_match : x.is_primitive_match,
         primitive_pattern_values : x.primitive_pattern_values,
-        consumed_variable_drop_expressions : x.consumed_variable_drop_expressions,
+        consumed_variable_drop_expressions : x.consumed_variable_drop_expressions.clone(),
         async_stack_size : x.async_stack_size,
-        async_state_machine_struct_name : x.async_state_machine_struct_name,
+        async_state_machine_struct_name : x.async_state_machine_struct_name.clone(),
         await_analysis : x.await_analysis,
         effect_analysis : x.effect_analysis,
         closure_function_value : x.closure_function_value,
-        doc_comment : x.doc_comment,
-        deferred_dup_expressions : x.deferred_dup_expressions,
+        doc_comment : x.doc_comment.clone(),
+        deferred_dup_expressions : x.deferred_dup_expressions.clone(),
         capture_type : x.capture_type,
         macro_expansion : x.macro_expansion,
         original_expr : x.original_expr,
@@ -535,8 +535,8 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
         is_index_trait_address_of : x.is_index_trait_address_of,
         is_compile_time_only_assignment : x.is_compile_time_only_assignment,
         is_anonymous_function_definition : x.is_anonymous_function_definition,
-        comptime_unrolled_bodies : x.comptime_unrolled_bodies,
-        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions,
+        comptime_unrolled_bodies : x.comptime_unrolled_bodies.clone(),
+        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions.clone(),
         capture_field_inits : x.capture_field_inits
       )
     )
@@ -1263,7 +1263,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       _scope_target_names(&info.deferred_drop_expressions, &mut names);
       _scope_target_names(expr_info_deferred_dup_expressions(&info), &mut names);
       _scope_target_names(expr_info_consumed_variable_drop_expressions(&info), &mut names);
-      match(g_scope_queried.remove(&id), .Some(qn) => names.push(qn), .None => ());
+      match(g_scope_queried.remove(&id), .Some(qn) => names.push(qn.clone()), .None => ());
       // A closure literal: codegen resolves each capture label through it
       // (the capture struct's initializer, `_enclosing_closure_capture_read`).
       match(
@@ -1282,7 +1282,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         .None => ()
       );
       bound := g_scope_bound.remove(&id);
-      bound_name := match(bound, .Some(br) => br.name, .None => String.new());
+      bound_name := match(bound, .Some(br) => br.name.clone(), .None => String.new());
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
       // record only the latter (and the shared length when it falls short).
@@ -1757,7 +1757,7 @@ lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
 _push_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)({
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(g_extern_c_globals.remove(name.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  list := match(g_extern_c_globals.remove(name.clone()), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
   list.push(ty);
   g_extern_c_globals.insert(name, list);
 });
@@ -1802,7 +1802,7 @@ extern_c_global_c_name :: (fn(yo_name : &String) -> String)(
 /// the name was never declared). Consumers match a resolved binding against
 /// this list by `type_key`.
 get_extern_c_global_types :: (fn(name : &String) -> ArrayList(TypeValue))(
-  match(g_extern_c_globals.get(name), .Some(l) => l, .None => ArrayList(TypeValue).new())
+  match(g_extern_c_globals.get(name), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new())
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : &String) -> bool)(
@@ -2088,7 +2088,7 @@ record_flow_event :: (
       after_consumed : after_consumed
     )
   );
-  lst := match(g_branch_init_by_var.remove(&var_id), .Some(l) => l, .None => ArrayList(usize).new());
+  lst := match(g_branch_init_by_var.remove(&var_id), .Some(l) => l.clone(), .None => ArrayList(usize).new());
   lst.push(idx);
   g_branch_init_by_var.insert(var_id, lst);
 });
@@ -2192,7 +2192,7 @@ truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
 /// longer applies). Stack of id lists; the TOP is the active spec's set, empty = none.
 (g_active_where_trait_ids : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
 push_active_where_trait_ids :: (fn(ids : &ArrayList(String)) -> unit)({
-  g_active_where_trait_ids.push(ids);
+  g_active_where_trait_ids.push(ids.clone());
 });
 pop_active_where_trait_ids :: (fn() -> unit)({
   g_active_where_trait_ids.pop();
@@ -2201,7 +2201,7 @@ pop_active_where_trait_ids :: (fn() -> unit)({
 active_where_trait_ids :: (fn() -> ArrayList(String))(
   match(
     g_active_where_trait_ids.last(),
-    .Some(top) => top,
+    .Some(top) => top.clone(),
     .None => ArrayList(String).new()
   )
 );
@@ -2336,7 +2336,7 @@ first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Optio
   found
 });
 register_struct_ctor_fid :: (fn(struct_id : &String, ctor_fid : &String) -> unit)({
-  g_struct_ctor_fids.insert(struct_id, ctor_fid);
+  g_struct_ctor_fids.insert(struct_id.clone(), ctor_fid.clone());
   ()
 });
 /// The constructor funcId stamped for `struct_id`, if any.
@@ -2356,7 +2356,7 @@ register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)(
     g_trait_ctor_fids.get(trait_id.clone()),
     .Some(_) => (),
     .None => {
-      g_trait_ctor_fids.insert(trait_id, ctor_fid);
+      g_trait_ctor_fids.insert(trait_id.clone(), ctor_fid.clone());
     }
   );
 });
@@ -2373,7 +2373,7 @@ struct_effective_ctor_fid :: (fn(ty : &TypeValue) -> String)(
     ty,
     Rc(.Struct({ id : ec_sid, constructor_func_id : ec_cfid })) => cond(
       (ec_cfid.len() > usize(0)) => ec_cfid,
-      true => match(lookup_struct_ctor_fid(&ec_sid), .Some(rec) => rec, .None => String.new())
+      true => match(lookup_struct_ctor_fid(&ec_sid), .Some(rec) => rec.clone(), .None => String.new())
     ),
     _ => String.new()
   )
@@ -2474,13 +2474,13 @@ adopt_receiver_struct_instance :: (
 /// Count a runtime call dispatch for `fid`.
 record_fid_rtcall :: (fn(fid : &String) -> unit)({
   n := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_rtcalls.insert(fid, n + usize(1));
+  g_fid_rtcalls.insert(fid.clone(), n + usize(1));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
 record_fid_spec :: (fn(fid : &String) -> unit)({
   n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_specs.insert(fid, n + usize(1));
+  g_fid_specs.insert(fid.clone(), n + usize(1));
   ()
 });
 /// True when every counted runtime call of `fid` was specialized (and at
@@ -2511,7 +2511,7 @@ fid_fully_specialized :: (fn(fid : &String) -> bool)({
 HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic));
 (g_hollow_body_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
 record_hollow_body_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
-  g_hollow_body_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  g_hollow_body_errors.insert(site.clone(), HollowBodyError(message : message.clone(), diagnostics : diagnostics.clone()));
   ()
 });
 /// A body's definition succeeded after all (a later trial of the same body):
@@ -2537,7 +2537,7 @@ trial_body_site :: (fn(body : &AstExpr) -> String)({
 });
 (g_generic_trial_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
 record_generic_trial_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
-  g_generic_trial_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  g_generic_trial_errors.insert(site.clone(), HollowBodyError(message : message.clone(), diagnostics : diagnostics.clone()));
   ()
 });
 /// A later trial of the same generic body succeeded: forget the record.
@@ -2555,7 +2555,7 @@ SpecInstantiation :: struct(call_token : Token, description : String);
 (g_spec_instantiations : HashMap(String, SpecInstantiation)) = HashMap(String, SpecInstantiation).new();
 record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, description : &String) -> unit)({
   if(g_spec_instantiations.get(spec_fid.clone()).is_none(), {
-    g_spec_instantiations.insert(spec_fid, SpecInstantiation(call_token : call_token, description : description));
+    g_spec_instantiations.insert(spec_fid.clone(), SpecInstantiation(call_token : call_token, description : description.clone()));
   });
   ()
 });
@@ -2861,7 +2861,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
     if(bc == usize(0), {
       shown = usize(40);
     }, {
-      eprintln(`[spec-report]   ${bc.to_string()}	${match(rows.get(best), .Some(r) => r, .None => String.from("?"))}`);
+      eprintln(`[spec-report]   ${bc.to_string()}	${match(rows.get(best), .Some(r) => r.clone(), .None => String.from("?"))}`);
       counts(best) = usize(0);
       shown = (shown + usize(1));
     });
@@ -2902,7 +2902,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
       eshown = usize(30);
     }, {
       eid := match(ids.get(ebest), .Some(i) => i, .None => usize(0));
-      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.get(&eid), .Some(l) => l, .None => String.from("?"))}`);
+      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.get(&eid), .Some(l) => l.clone(), .None => String.from("?"))}`);
       ecounts(ebest) = usize(0);
       eshown = (eshown + usize(1));
     });
@@ -3016,7 +3016,7 @@ record_migrate_edit :: (fn(tok : &Token, len : usize, replacement : &String, exp
     return(());
   });
   g_migrate_edit_keys.insert(key);
-  g_migrate_edits.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect));
+  g_migrate_edits.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement.clone(), expect : expect.clone()));
 });
 /// Whether `yo fix --migrate params` is recording.
 migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
@@ -3066,7 +3066,7 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
     return(());
   });
   g_addr_of_site_keys.insert(key);
-  g_addr_of_sites.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent));
+  g_addr_of_sites.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect.clone(), lent : lent));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
   out := g_addr_of_sites.split_off(usize(0));

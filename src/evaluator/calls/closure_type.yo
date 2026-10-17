@@ -146,7 +146,7 @@ try_to_implement_closure_by_fn_module_type :: (
   n_params := param_labels.len();
   (pi : usize) = usize(0);
   while(pi < n_params, {
-    p_label := match(param_labels.get(pi), .Some(l) => l, .None => String.from("_p"));
+    p_label := match(param_labels.get(pi), .Some(l) => l.clone(), .None => String.from("_p"));
     p_type := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
     p_tok := synthetic_token(p_label.clone(), &env.module_path);
     p_var_opt := add_variable_to_env(
@@ -274,9 +274,9 @@ try_to_implement_closure_by_fn_module_type :: (
     body_info_opt,
     .Some(bi) => {
       env.frames = bi.env.frames;
-      env.module_path = bi.env.module_path;
+      env.module_path = bi.env.module_path.clone();
       env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
-      env.input_string = bi.env.input_string;
+      env.input_string = bi.env.input_string.clone();
     },
     .None => ()
   );

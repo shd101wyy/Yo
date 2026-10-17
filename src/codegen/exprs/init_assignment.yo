@@ -144,7 +144,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
       destructurings.get(i),
       .Some(rd) => if(!(rd.variable_name == "_"), {
         sanitized := sanitize_for_c_identifier(rd.variable_name.clone(), false);
-        var_type_and_name := match(_sm_binding_slot(_binding_atom_key(pattern, &rd.variable_name), bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(&rd.ty, &sanitized, &context.base));
+        var_type_and_name := match(_sm_binding_slot(_binding_atom_key(pattern, &rd.variable_name), bind_env, rd.variable_name.clone(), context), .Some(slot) => slot.clone(), .None => get_variable_type_string(&rd.ty, &sanitized, &context.base));
         // Newtype: destructuring the single field is just the value.
         handled_newtype := match(
           _newtype_single_label(rhs_type),
@@ -226,7 +226,7 @@ _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Op
     context.state_machine_variables,
     .Some(smv) => {
       id := v.id.to_string();
-      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id);
+      canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m.clone(), .None => id), .None => id);
       match(
         smv.get(&canon),
         .Some(cv) => match(
@@ -255,7 +255,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     .Some(e) => e,
     .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value}`))
   );
-  var_name := ast_expr_token(&name_expr).value;
+  var_name := ast_expr_token(&name_expr).value.clone();
   place_type := resolve_some_type_to_concrete(&name_ei.ty);
   // In an `io.async` state machine the reference and its pin live in their
   // task slots when they are live across a suspension (`_sm_local_slot`);
@@ -268,7 +268,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
     lookup_local_borrow_step_pin(ast_expr_id(lhs)),
     .Some(sp) => if(!is_unit_type(&sp.ty), {
       sp_decl := indent.clone();
-      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&sp.ty, sp.name.clone(), &context.base)));
+      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot.clone(), .None => get_variable_type_string(&sp.ty, sp.name.clone(), &context.base)));
       sp_decl.push_str(" = NULL;");
       em.emit_string_line(&sp_decl);
     }),
@@ -284,7 +284,7 @@ _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : 
         .Some(pin_expr) => {
           pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
           pin_decl := indent.clone();
-          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&pin_var.ty, pin_var.name.clone(), &context.base)));
+          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot.clone(), .None => get_variable_type_string(&pin_var.ty, pin_var.name.clone(), &context.base)));
           pin_decl.push_str(" = ");
           pin_decl.push_string(generate_dup_code_for_value(&pin_code, &pin_var.ty, context));
           pin_decl.push_str(";");
@@ -385,7 +385,7 @@ generate_local_borrow_repoint :: (fn(expr : &AstExpr, indent : &String, context 
       .Some(sp) => match(
         expr_info_macro_expansion(&lhs_ei),
         .Some(cell_expr) => {
-          sp_slot := match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.name.clone(), false));
+          sp_slot := match(_sm_local_slot(&sp, context), .Some(slot) => slot.clone(), .None => sanitize_for_c_identifier(sp.name.clone(), false));
           cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);
           tmp := `${sanitize_for_c_identifier(sp.name.clone(), false)}_step`;
           em.emit_string_line(`${indent}{`);

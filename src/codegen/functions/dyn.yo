@@ -50,7 +50,7 @@ _dyn_impl_keys :: (fn(context : &FunctionGenerationContext) -> ArrayList(String)
     match(
       it.next(),
       .Some(k) => {
-        out.push(k);
+        out.push(k.clone());
       },
       .None => {
         done = true;
@@ -72,12 +72,12 @@ generate_dyn_dup_drop :: (fn(context : &FunctionGenerationContext) -> unit)({
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k.clone(), .None => String.from(""));
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
         dyn_key := type_key(impl_entry.dyn_type.clone());
-        dyn_c := match(context.base.get_type_c_name(dyn_key.clone()), .Some(cn) => cn, .None => `__yo_dyn_${dyn_key}`);
+        dyn_c := match(context.base.get_type_c_name(dyn_key.clone()), .Some(cn) => cn.clone(), .None => `__yo_dyn_${dyn_key}`);
         if(!generated.contains(dyn_c.clone()), {
           generated.insert(dyn_c.clone());
           em.emit_string_line(`${dyn_c} __yo_dup_${dyn_c}(${dyn_c} dyn) {`);
@@ -113,7 +113,7 @@ generate_dyn_box_functions :: (fn(context : &FunctionGenerationContext) -> unit)
   n := keys.len();
   (i : usize) = usize(0);
   while(i < n, {
-    key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
+    key := match(keys.get(i), .Some(k) => k.clone(), .None => String.from(""));
     match(
       context.base.dyn_impls.get(key.clone()),
       .Some(impl_entry) => {
@@ -122,7 +122,7 @@ generate_dyn_box_functions :: (fn(context : &FunctionGenerationContext) -> unit)
         // `__yo_dyn_box_unknown_<id>` ctor).
         dyn_concrete_res := resolve_some_type_to_concrete(impl_entry.concrete_type.clone());
         concrete_key := type_key(dyn_concrete_res.clone());
-        concrete_c := match(dyn_concrete_c_name(&dyn_concrete_res, &context.base), .Some(cn) => cn, .None => `unknown_${concrete_key}`);
+        concrete_c := match(dyn_concrete_c_name(&dyn_concrete_res, &context.base), .Some(cn) => cn.clone(), .None => `unknown_${concrete_key}`);
         box_name := `__yo_dyn_box_${concrete_c}`;
         if(!generated.contains(box_name.clone()), {
           generated.insert(box_name.clone());
@@ -302,7 +302,7 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
       });
-      rc(TypeValueNode.Struct(rbp_id, rbp_nm, rbp_fl, rbp_new_ft, rbp_irs, rbp_iar, rbp_inw, rbp_cfid, rbp_new_ta, rbp_isn))
+      rc(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), rbp_fl.clone(), rbp_new_ft, rbp_irs, rbp_iar, rbp_inw, rbp_cfid.clone(), rbp_new_ta, rbp_isn))
     },
     _ => t
   )
@@ -313,10 +313,10 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
 _boxed_c_name :: (fn(data_type : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     context.base.get_type_c_name(type_key(data_type.clone())),
-    .Some(cn) => cn,
+    .Some(cn) => cn.clone(),
     .None => match(
       context.base.get_type_c_name(type_key(_resolve_box_payload(data_type.clone()))),
-      .Some(cn2) => cn2,
+      .Some(cn2) => cn2.clone(),
       .None => `unknown_${type_key(data_type.clone())}`
     )
   )
@@ -366,13 +366,13 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
   self_copies := HashSet(String).new();
   (ki : usize) = usize(0);
   while(ki < nk, {
-    impl_key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
+    impl_key := match(keys.get(ki), .Some(k) => k.clone(), .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
         data_type := impl_entry.data_type.clone();
         is_boxed := is_boxed_type(data_type.clone());
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types.clone(), _ => ArrayList(TypeValue).new());
         nt := req_traits.len();
         // Pass 1: Fn synthetic `call` slot.
         (ti : usize) = usize(0);
@@ -402,12 +402,12 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   // `(void*)&box-><payload>` as the closure_context.
                   cc_struct_id := match(
                     impl_entry.concrete_type.clone(),
-                    Rc(.Struct({ id : csid })) => csid,
+                    Rc(.Struct({ id : csid })) => csid.clone(),
                     // Impl(Fn) SOMET concrete (dyn'd closure): the capture
                     // struct rides on resolved_concrete — key the map with it.
                     Rc(.SomeT({ resolution : ccrc })) => match(
                       ccrc,
-                      .Some(ccrct) => match(ccrct, Rc(.Struct({ id : csid2 })) => csid2, _ => String.from("")),
+                      .Some(ccrct) => match(ccrct, Rc(.Struct({ id : csid2 })) => csid2.clone(), _ => String.from("")),
                       .None => String.from("")
                     ),
                     _ => String.from("")
@@ -573,7 +573,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   nf := field_names.len();
                   (fi : usize) = usize(0);
                   while(fi < nf, {
-                    label := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
+                    label := match(field_names.get(fi), .Some(l) => l.clone(), .None => String.from(""));
                     // Pre-bind the owned-clone subexpression so it is declared
                     // unconditionally (a `label.clone()` inside a short-circuit
                     // `||` mis-scopes its drop).
@@ -619,8 +619,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                               .Some(entry) => match(
                                 get_func_type(func_id.clone()),
                                 Rc(.Func({ param_types, result, meta : __fm1 })) => {
-                                  param_is_ref := __fm1.*.param_is_ref;
-                                  impl_cname := entry.c_name;
+                                  param_is_ref := __fm1.*.param_is_ref.clone();
+                                  impl_cname := entry.c_name.clone();
                                   // The label is sanitized like the slot's field
                                   // name: an operator member (`LogicalNot`'s `!`)
                                   // spelled raw is not a C identifier
@@ -633,8 +633,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // Future-returning method is the case that
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
-                                  slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
-                                  slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref, _ => param_is_ref.clone());
+                                  slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt.clone(), _ => param_types.clone());
+                                  slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref.clone(), _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
                                   params := _wrapper_params(slot_params_tys.clone(), slot_param_is_ref.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
@@ -757,11 +757,11 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
   generated := HashSet(String).new();
   (ti : usize) = usize(0);
   while(ti < nk, {
-    impl_key := match(keys.get(ti), .Some(k) => k, .None => String.from(""));
+    impl_key := match(keys.get(ti), .Some(k) => k.clone(), .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
-        concrete_cname := match(dyn_concrete_c_name(impl_entry.concrete_type.clone(), &context.base), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
+        concrete_cname := match(dyn_concrete_c_name(impl_entry.concrete_type.clone(), &context.base), .Some(cn) => cn.clone(), .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         typeid_name := `__yo_typeid_${concrete_cname}`;
         if(!generated.contains(typeid_name.clone()) && !context.base.type_id_static_names.contains(typeid_name.clone()), {
           generated.insert(typeid_name.clone());
@@ -790,11 +790,11 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
   if(!context.base.dyn_upcasts.is_empty(), {
     (fi : usize) = usize(0);
     while(fi < nk, {
-      fkey := match(keys.get(fi), .Some(k) => k, .None => String.from(""));
+      fkey := match(keys.get(fi), .Some(k) => k.clone(), .None => String.from(""));
       match(
         context.base.dyn_impls.get(fkey.clone()),
         .Some(fentry) => {
-          f_dyn_c := match(context.base.get_type_c_name(type_key(fentry.dyn_type.clone())), .Some(cn) => cn, .None => `__yo_dyn_${type_key(fentry.dyn_type.clone())}`);
+          f_dyn_c := match(context.base.get_type_c_name(type_key(fentry.dyn_type.clone())), .Some(cn) => cn.clone(), .None => `__yo_dyn_${type_key(fentry.dyn_type.clone())}`);
           em.emit_declaration_string_line(`static const ${f_dyn_c}_vtable __yo_vtable_${fkey};`);
         },
         .None => ()
@@ -806,12 +806,12 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
   // Pass 2: emit the vtable instances.
   (vi : usize) = usize(0);
   while(vi < nk, {
-    impl_key := match(keys.get(vi), .Some(k) => k, .None => String.from(""));
+    impl_key := match(keys.get(vi), .Some(k) => k.clone(), .None => String.from(""));
     match(
       context.base.dyn_impls.get(impl_key.clone()),
       .Some(impl_entry) => {
-        dyn_cname := match(context.base.get_type_c_name(type_key(impl_entry.dyn_type.clone())), .Some(cn) => cn, .None => `__yo_dyn_${type_key(impl_entry.dyn_type.clone())}`);
-        concrete_cname := match(dyn_concrete_c_name(impl_entry.concrete_type.clone(), &context.base), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
+        dyn_cname := match(context.base.get_type_c_name(type_key(impl_entry.dyn_type.clone())), .Some(cn) => cn.clone(), .None => `__yo_dyn_${type_key(impl_entry.dyn_type.clone())}`);
+        concrete_cname := match(dyn_concrete_c_name(impl_entry.concrete_type.clone(), &context.base), .Some(cn) => cn.clone(), .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         vtable_name := `__yo_vtable_${impl_key}`;
         vtable_type := `${dyn_cname}_vtable`;
         typeid_name := `__yo_typeid_${concrete_cname}`;
@@ -821,7 +821,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         data_atomic := _dyn_data_is_atomic(impl_entry.data_type.clone());
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_retain = __yo_incr_rc_atomic,`, `  .__yo_retain = __yo_incr_rc,`));
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_release = __yo_decr_rc_atomic,`, `  .__yo_release = __yo_decr_rc,`));
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types.clone(), _ => ArrayList(TypeValue).new());
         nt := req_traits.len();
         processed := HashSet(String).new();
         (mi : usize) = usize(0);
@@ -841,7 +841,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
                   nfl := field_labels.len();
                   (fi : usize) = usize(0);
                   while(fi < nfl, {
-                    label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+                    label := match(field_labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
                     // Pre-bind owned-clone subexpressions (short-circuit `||`
                     // mis-scopes their drops).
                     label_reserved := _is_reserved_dyn_label(label.clone(), Option(TypeValue).Some(rt.clone()));
@@ -881,12 +881,12 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         while(ui < up_targets.len(), {
           ut := match(up_targets.get(ui), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           ut_key := type_key(ut.clone());
-          ut_c := match(context.base.get_type_c_name(ut_key.clone()), .Some(cn) => cn, .None => get_type_string(ut.clone(), &context.base));
+          ut_c := match(context.base.get_type_c_name(ut_key.clone()), .Some(cn) => cn.clone(), .None => get_type_string(ut.clone(), &context.base));
           concrete_key := type_key(impl_entry.concrete_type.clone());
           (uk : usize) = usize(0);
           (u_found : bool) = false;
           while((uk < nk) && !u_found, {
-            cand := match(keys.get(uk), .Some(k) => k, .None => String.from(""));
+            cand := match(keys.get(uk), .Some(k) => k.clone(), .None => String.from(""));
             match(
               context.base.dyn_impls.get(cand.clone()),
               .Some(ce) => if((type_key(ce.dyn_type.clone()) == ut_key) && (type_key(ce.concrete_type.clone()) == concrete_key), {

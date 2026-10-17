@@ -418,7 +418,7 @@ evaluate_comptime_expect_error :: (
           mi = (mi + usize(1));
         });
         if(!matched, {
-          got := match(observed_msgs.get(usize(0)), .Some(m) => m, .None => String.from("(an error whose text was not recorded)"));
+          got := match(observed_msgs.get(usize(0)), .Some(m) => m.clone(), .None => String.from("(an error whose text was not recorded)"));
           exn.throw(
             dyn(
               format_error_message(

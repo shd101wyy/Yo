@@ -91,9 +91,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     lang_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lang));
     lang_info := match(lang_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
     env.frames = lang_info.env.frames;
-    env.module_path = lang_info.env.module_path;
+    env.module_path = lang_info.env.module_path.clone();
     env.function_declaration_frame_level = lang_info.env.function_declaration_frame_level;
-    env.input_string = lang_info.env.input_string;
+    env.input_string = lang_info.env.input_string.clone();
     raw_lang := match(
       lang_info.value,
       .Some(v) => match(
@@ -171,7 +171,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get(dup_idx), .Some(l) => l.clone(), .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
       });
@@ -181,7 +181,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(
-          match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(&fe),
           .None => ast_expr_token(&arg)
         ),
@@ -214,10 +214,10 @@ User code should normally call stdlib wrappers (e.g. functions in
         })
       ) => rc(
         TypeValueNode.Func(
-          fts,
-          pts,
-          its,
-          wts,
+          fts.clone(),
+          pts.clone(),
+          its.clone(),
+          wts.clone(),
           ret,
           rc(
             FuncMeta(
@@ -245,9 +245,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
     env.frames = result.env.frames;
-    env.module_path = result.env.module_path;
+    env.module_path = result.env.module_path.clone();
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env.input_string = result.env.input_string;
+    env.input_string = result.env.input_string.clone();
     // An `extern("Yo", X : Type)` member declares an opaque FFI type: its
     // value IS that type, a nominal `ExternOpaqueT` (types/definitions.yo),
     // not a placeholder the uses turn into a SomeT.

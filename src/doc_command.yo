@@ -103,7 +103,7 @@ _run_git :: (
   if(!out.status.success(), {
     return(Option(String).None);
   });
-  v := String.from_bytes(out.stdout).trim();
+  v := String.from_bytes(out.stdout.clone()).trim();
   if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
 });
 /// Detect version from git: prefer an exact tag on HEAD, fall back to the
@@ -305,7 +305,7 @@ _infer_project_name :: (
         return(m.name.clone());
       },
       .Err(msg) => {
-        exn.throw(dyn(msg));
+        exn.throw(dyn(msg.clone()));
       }
     );
   });
@@ -317,7 +317,7 @@ _infer_project_name :: (
     match(
       _scan_quoted_value_after(&content, `"name"`, `:`),
       .Some(n) => {
-        return(n);
+        return(n.clone());
       },
       .None => ()
     );
@@ -330,14 +330,14 @@ _infer_project_name :: (
     match(
       _scan_quoted_value_after(&content, `.name`, `=`),
       .Some(n) => {
-        return(n);
+        return(n.clone());
       },
       .None => ()
     );
   });
   match(
     Path.new(base_path.clone()).file_name(),
-    .Some(n) => n,
+    .Some(n) => n.clone(),
     .None => base_path.clone()
   )
 });
@@ -393,8 +393,8 @@ document_one_file :: (
     match(
       outcome.module_type,
       Rc(.Struct({ field_labels, field_types })) => {
-        labels = field_labels;
-        types = field_types;
+        labels = field_labels.clone();
+        types = field_types.clone();
       },
       _ => ()
     );

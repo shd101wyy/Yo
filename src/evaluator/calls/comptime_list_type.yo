@@ -77,9 +77,9 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     );
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
     env.frames = info.env.frames;
-    env.module_path = info.env.module_path;
+    env.module_path = info.env.module_path.clone();
     env.function_declaration_frame_level = info.env.function_declaration_frame_level;
-    env.input_string = info.env.input_string;
+    env.input_string = info.env.input_string.clone();
     if(!are_types_compatible(&info.ty, &expected_element_type), {
       exn.throw(
         dyn(

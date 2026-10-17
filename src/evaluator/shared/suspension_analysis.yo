@@ -139,7 +139,7 @@ extract_target_variable_id :: (
   if(tok.kind != TokenKind.Identifier, {
     return(Option(String).None);
   });
-  var_name := tok.value;
+  var_name := tok.value.clone();
   // Resolve through the `:=` node's OWN recorded env FIRST: it is stamped
   // post-binding, so it always contains the freshly-bound target (and under
   // shadowing resolves to the NEW binding). The LHS atom's env PREDATES the
@@ -274,7 +274,7 @@ _capture_env_variable :: (
           orig_id := match(
             name_frame_to_original_id.get(name_frame_key.clone()),
             .None => String.from(""),
-            .Some(id) => id
+            .Some(id) => id.clone()
           );
           variable_id_remapping.insert(variable.id.to_string(), orig_id);
         },
@@ -479,7 +479,7 @@ walk_expr_ :: (
     // -----------------------------------------------------------------------
     .Atom(_, tok) => {
       if(tok.kind == TokenKind.Identifier, {
-        var_name := tok.value;
+        var_name := tok.value.clone();
         match(
           get_info(expr_cloned.clone()),
           .None => (),
@@ -727,7 +727,7 @@ walk_expr_ :: (
                 si = n_saved;
                 return(());
               },
-              .Some(k) => k
+              .Some(k) => k.clone()
             );
             v2 := match(
               saved_vals.get(si),
@@ -735,7 +735,7 @@ walk_expr_ :: (
                 si = n_saved;
                 return(());
               },
-              .Some(v) => v
+              .Some(v) => v.clone()
             );
             name_frame_to_original_id.insert(k2, v2);
             si = (si + usize(1));
@@ -1059,7 +1059,7 @@ analyze_suspension_points :: (
       .None => {
         break;
       },
-      .Some(i) => i
+      .Some(i) => i.clone()
     );
     cv := match(
       captured_variables.get(id.clone()),

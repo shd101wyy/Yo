@@ -87,7 +87,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
             // contract. Checked before the gates so their state (the
             // short-circuit set) is untouched for an already-emitted drop.
             if(g_debug_scope_drops, {
-              eprintln(`[sd-emq] target=${match(get_deferred_drop_target_atom_name(&drop_expr), .Some(n) => n, .None => String.from("-"))} already=${context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)).to_string()}`);
+              eprintln(`[sd-emq] target=${match(get_deferred_drop_target_atom_name(&drop_expr), .Some(n) => n.clone(), .None => String.from("-"))} already=${context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)).to_string()}`);
             });
             if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
               skip_capture := is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context));
@@ -196,7 +196,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
               // block's consumer owns those dups.
               result := if(
                 is_last && is_returning && (ast_expr_id(&arg) != ast_expr_id(expr)),
-                match(arm_value_with_dups(&arg, indent2.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(&arg, indent2.clone(), context)),
+                match(arm_value_with_dups(&arg, indent2.clone(), context), .Some(fc) => fc.clone(), .None => _call_generate_expr(&arg, indent2.clone(), context)),
                 _call_generate_expr(&arg, indent2.clone(), context)
               );
               if(

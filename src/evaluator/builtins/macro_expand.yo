@@ -254,14 +254,14 @@ evaluate_macro_expand :: (
         final_expr := process_unquotes_in_expr(&current_expr, &current_env, ctx, exn);
         out := new_expr_info(&current_env, t_expr_t());
         out.value = Option(EvalValue).Some(EvalValue.ExprVal(final_expr));
-        out.path_collection = arg_info.path_collection;
+        out.path_collection = arg_info.path_collection.clone();
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
       },
       _ => {
         // Unknown value: pass through with original type/value.
         out := new_expr_info(&cur_env, &arg_info.ty);
         out.value = arg_info.value;
-        out.path_collection = arg_info.path_collection;
+        out.path_collection = arg_info.path_collection.clone();
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
       }
     ),
@@ -269,7 +269,7 @@ evaluate_macro_expand :: (
       // No compile-time value: pass through.
       out := new_expr_info(&cur_env, &arg_info.ty);
       out.value = arg_info.value;
-      out.path_collection = arg_info.path_collection;
+      out.path_collection = arg_info.path_collection.clone();
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     }
   );

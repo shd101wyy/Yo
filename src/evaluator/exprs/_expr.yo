@@ -301,7 +301,7 @@ _punned_field_name :: (fn(expr : &AstExpr) -> String)(
   )
 );
 { is_unknown_val, is_type_value } :: import("../../value.yo");
-_deleted_word :: (fn(e : &AstExpr) -> String)(match(ast_expr_is_old_mode_spelling(e), .Some(w) => w, .None => String.new()));
+_deleted_word :: (fn(e : &AstExpr) -> String)(match(ast_expr_is_old_mode_spelling(e), .Some(w) => w.clone(), .None => String.new()));
 /// `e` is a one-argument `mut(…)` / `inout(…)` (and, with `with_imm`,
 /// `imm(…)`): a deleted borrow mode word (decision 42 Generation B).
 _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
@@ -492,7 +492,7 @@ is_comptime_numeric_fn_call :: (fn(e : &AstExpr) -> bool)(
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
       .Atom(_, ftok) => {
-        v := ftok.value;
+        v := ftok.value.clone();
         v.starts_with(`__yo_comptime_u8_`) ||
           v.starts_with(`__yo_comptime_i8_`) ||
             v.starts_with(`__yo_comptime_u16_`) ||

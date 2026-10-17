@@ -63,7 +63,7 @@ _introspected_variable :: (
   var_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_var_arg));
   (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => env);
   variables := match(
-    match(var_info_opt, .Some(i) => i.variable_name, .None => Option(String).None),
+    match(var_info_opt, .Some(i) => i.variable_name.clone(), .None => Option(String).None),
     .Some(vname) => get_variables_from_env(&cur_env, &vname),
     .None => ArrayList(Variable).new()
   );

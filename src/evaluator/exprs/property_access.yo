@@ -138,7 +138,7 @@ _reject_gadt_unreachable_variant :: (
   if(!gadt_branch_reachable(enum_id.clone(), variant_idx), {
     idx := match(
       get_gadt_variant_args(enum_id),
-      .Some(all) => match(all.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new()),
+      .Some(all) => match(all.get(variant_idx), .Some(g) => g.clone(), .None => ArrayList(TypeValue).new()),
       .None => ArrayList(TypeValue).new()
     );
     idx_s := String.from("");
@@ -278,7 +278,7 @@ build_field_path_collection :: (
             match(
               old_path.get(bpc_j),
               .Some(seg) => {
-                new_path.push(seg);
+                new_path.push(seg.clone());
               },
               .None => ()
             );
@@ -538,7 +538,7 @@ evaluate_property_access :: (
           );
           return(expr);
         });
-        variant_name_1 := ast_expr_token(&prop_expr_1).value;
+        variant_name_1 := ast_expr_token(&prop_expr_1).value.clone();
         match(
           // Resolve an in-definition Self shell (enum.yo) so the variant
           // lookup sees the finalized enum (`.Table(...)` shorthand where
@@ -570,16 +570,16 @@ evaluate_property_access :: (
                 _reject_gadt_unreachable_variant(&exp_ctx_1.ty, en_id_1.clone(), vi_1, variant_name_1.clone(), &prop_expr_1, exn);
                 new_en_ty_1 := rc(
                   TypeValueNode.EnumT(
-                    en_id_1,
-                    en_name_1,
-                    en_vnames_1,
-                    en_vfields_1,
-                    Option(String).Some(variant_name_1),
-                    en_vflabels_1,
-                    en_discs_1,
+                    en_id_1.clone(),
+                    en_name_1.clone(),
+                    en_vnames_1.clone(),
+                    en_vfields_1.clone(),
+                    Option(String).Some(variant_name_1.clone()),
+                    en_vflabels_1.clone(),
+                    en_discs_1.clone(),
                     en_irs_1,
                     en_iar_1,
-                    en_tas_1
+                    en_tas_1.clone()
                   )
                 );
                 has_fields_1 := match(
@@ -678,9 +678,9 @@ evaluate_property_access :: (
     obj_info_opt,
     .Some(oi) => {
       env.frames = oi.env.frames;
-      env.module_path = oi.env.module_path;
+      env.module_path = oi.env.module_path.clone();
       env.function_declaration_frame_level = oi.env.function_declaration_frame_level;
-      env.input_string = oi.env.input_string;
+      env.input_string = oi.env.input_string.clone();
     },
     .None => ()
   );
@@ -870,7 +870,7 @@ Raw pointer operations may dereference invalid memory.`
               !is_some_type(&type_val_inner), {
       prim_type_id := type_id_or_empty(&type_val_inner);
       if(prim_type_id != "", {
-        prim_prop_name := ast_expr_token(&property_expr).value;
+        prim_prop_name := ast_expr_token(&property_expr).value.clone();
         _reject_private_static_member(prim_type_id.clone(), prim_prop_name.clone(), &type_val_inner, &property_expr, exn);
         prim_methods := get_type_trait_methods_by_name(&prim_type_id, &prim_prop_name);
         if(prim_methods.len() > usize(0), {
@@ -908,7 +908,7 @@ Raw pointer operations may dereference invalid memory.`
       // `findMethodsFromGenericImpls` lookup as the struct branch
       //; single candidate only — multiple
       // candidates defer to function.yo's arg-type disambiguation.
-      pr_prop_name := ast_expr_token(&property_expr).value;
+      pr_prop_name := ast_expr_token(&property_expr).value.clone();
       // Safe mode (D7): the generic-impl fallback below RESOLVES and RETURNS
       // for `Option(i32).unwrap`-shaped extractions (Option/Result methods
       // live in the generic-impl registry), never reaching the EnumT arm's
@@ -956,11 +956,11 @@ Raw pointer operations may dereference invalid memory.`
     // unrelated TypeVal property accesses are untouched.
     if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom(&object_expr) &&
       (ast_expr_token(&object_expr).value == "Self"), {
-      wt_prop := ast_expr_token(&property_expr).value;
+      wt_prop := ast_expr_token(&property_expr).value.clone();
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
       while(wt_i < n_wt, {
-        wt_lbl := match(ctx.current_impl_trait_field_labels.get(wt_i), .Some(l) => l, .None => String.from(""));
+        wt_lbl := match(ctx.current_impl_trait_field_labels.get(wt_i), .Some(l) => l.clone(), .None => String.from(""));
         if(wt_lbl == wt_prop, {
           match(
             ctx.current_impl_trait_field_types.get(wt_i),
@@ -1012,7 +1012,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      variant_name_tv := ast_expr_token(&property_expr).value;
+      variant_name_tv := ast_expr_token(&property_expr).value.clone();
       match(
         // Same Self-shell resolution as the shorthand path above.
         resolve_enum_shell(&type_val_inner),
@@ -1077,16 +1077,16 @@ Raw pointer operations may dereference invalid memory.`
               _reject_gadt_unreachable_variant(&type_val_inner, tv_en_id.clone(), tv_vi, variant_name_tv.clone(), &property_expr, exn);
               new_en_tv := rc(
                 TypeValueNode.EnumT(
-                  tv_en_id,
-                  tv_en_name,
-                  tv_en_vnames,
-                  tv_en_vfields,
-                  Option(String).Some(variant_name_tv),
-                  tv_en_vflabels,
-                  tv_en_discs,
+                  tv_en_id.clone(),
+                  tv_en_name.clone(),
+                  tv_en_vnames.clone(),
+                  tv_en_vfields.clone(),
+                  Option(String).Some(variant_name_tv.clone()),
+                  tv_en_vflabels.clone(),
+                  tv_en_discs.clone(),
                   tv_en_irs,
                   tv_en_iar,
-                  tv_en_tas
+                  tv_en_tas.clone()
                 )
               );
               has_fields_tv := match(
@@ -1133,17 +1133,17 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_su := ast_expr_token(&property_expr).value;
+      prop_name_su := ast_expr_token(&property_expr).value.clone();
       su_labels := match(
         type_val_inner,
-        Rc(.Struct({ field_labels : labels })) => labels,
-        Rc(.Union(_, labels, _)) => labels,
+        Rc(.Struct({ field_labels : labels })) => labels.clone(),
+        Rc(.Union(_, labels, _)) => labels.clone(),
         _ => ArrayList(String).new()
       );
       su_types := match(
         type_val_inner,
-        Rc(.Struct({ field_types : types })) => types,
-        Rc(.Union(_, _, types)) => types,
+        Rc(.Struct({ field_types : types })) => types.clone(),
+        Rc(.Union(_, _, types)) => types.clone(),
         _ => ArrayList(TypeValue).new()
       );
       // Search field_labels.
@@ -1297,15 +1297,15 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_mt := ast_expr_token(&property_expr).value;
+      prop_name_mt := ast_expr_token(&property_expr).value.clone();
       mt_labels := match(
         type_val_inner,
-        Rc(.Struct({ field_labels : labels })) => labels,
+        Rc(.Struct({ field_labels : labels })) => labels.clone(),
         _ => ArrayList(String).new()
       );
       mt_types := match(
         type_val_inner,
-        Rc(.Struct({ field_types : types })) => types,
+        Rc(.Struct({ field_types : types })) => types.clone(),
         _ => ArrayList(TypeValue).new()
       );
       fidx_mt := find_first_field_index(&mt_labels, prop_name_mt.clone());
@@ -1340,7 +1340,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_tt := ast_expr_token(&property_expr).value;
+      prop_name_tt := ast_expr_token(&property_expr).value.clone();
       // `<:` WITNESS member access:
       // a TraitT whose `is_concrete` carries the receiver type — e.g.
       // `(Rc(i32) <: Isolation).can_isolate` — resolves the method against
@@ -1371,7 +1371,7 @@ Raw pointer operations may dereference invalid memory.`
           // (impl.test.yo DisambigPoint RED).
           tt_trait_id := match(
             type_val_inner,
-            Rc(.TraitT(_, _, _, _, tt_own_id, _, _, _, _, _)) => tt_own_id,
+            Rc(.TraitT(_, _, _, _, tt_own_id, _, _, _, _, _)) => tt_own_id.clone(),
             _ => String.from("")
           );
           tt_recv_id := type_id_or_empty(&tt_recv_ty);
@@ -1423,12 +1423,12 @@ Raw pointer operations may dereference invalid memory.`
       );
       tt_labels := match(
         type_val_inner,
-        Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
+        Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
         _ => ArrayList(String).new()
       );
       tt_types := match(
         type_val_inner,
-        Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
+        Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.clone(),
         _ => ArrayList(TypeValue).new()
       );
       fidx_tt := find_first_field_index(&tt_labels, prop_name_tt.clone());
@@ -1465,7 +1465,7 @@ Raw pointer operations may dereference invalid memory.`
     // slot.
     if(is_some_type(&type_val_inner), {
       if(is_valid_variable_name(&property_expr), {
-        st_prop_name := ast_expr_token(&property_expr).value;
+        st_prop_name := ast_expr_token(&property_expr).value.clone();
         st_rtt := match(
           type_val_inner,
           Rc(.SomeT(_, _, _, _, rtt, _, _, _, _, _)) => rtt,
@@ -1501,7 +1501,7 @@ Raw pointer operations may dereference invalid memory.`
           if(is_trait_type(&st_trait), {
             st_labels := match(
               st_trait,
-              Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
+              Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels.clone(),
               _ => ArrayList(String).new()
             );
             st_types := match(
@@ -1623,14 +1623,14 @@ Raw pointer operations may dereference invalid memory.`
   // capability to project). Identity is keyed on the io-builtin side table,
   // so a user struct that merely has an `io` field is untouched.
   if(is_struct_type(&base_ty) && ast_expr_is_atom(&property_expr) && (ast_expr_token(&property_expr).value == "io"), {
-    io_proj_sid := match(base_ty, Rc(.Struct({ id : ips })) => ips, _ => String.from(""));
+    io_proj_sid := match(base_ty, Rc(.Struct({ id : ips })) => ips.clone(), _ => String.from(""));
     if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
       out_io := new_expr_info(&env, &base_ty);
       out_io.value = obj_val_main;
-      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name, .None => Option(String).None);
+      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name.clone(), .None => Option(String).None);
       out_io.path_collection = match(
         obj_info_opt,
-        .Some(oi_pc) => oi_pc.path_collection,
+        .Some(oi_pc) => oi_pc.path_collection.clone(),
         .None => ArrayList(ArrayList(String)).new()
       );
       out_io.is_accessing_property = Option(bool).Some(true);
@@ -1645,16 +1645,16 @@ Raw pointer operations may dereference invalid memory.`
   if(is_tuple_type(&base_ty) || is_struct_type(&base_ty) || is_union_type(&base_ty), {
     fields_labels := match(
       base_ty,
-      Rc(.Tuple(labels, _)) => labels,
-      Rc(.Struct({ field_labels : labels })) => labels,
-      Rc(.Union(_, labels, _)) => labels,
+      Rc(.Tuple(labels, _)) => labels.clone(),
+      Rc(.Struct({ field_labels : labels })) => labels.clone(),
+      Rc(.Union(_, labels, _)) => labels.clone(),
       _ => ArrayList(String).new()
     );
     fields_types := match(
       base_ty,
-      Rc(.Tuple(_, types)) => types,
-      Rc(.Struct({ field_types : types })) => types,
-      Rc(.Union(_, _, types)) => types,
+      Rc(.Tuple(_, types)) => types.clone(),
+      Rc(.Struct({ field_types : types })) => types.clone(),
+      Rc(.Union(_, _, types)) => types.clone(),
       _ => ArrayList(TypeValue).new()
     );
     // MEMBER VISIBILITY: the declared type behind this access, for the
@@ -1669,7 +1669,7 @@ Raw pointer operations may dereference invalid memory.`
     if(ast_expr_is_atom(&property_expr), {
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
-      pa_union_member := ast_expr_token(&property_expr).value;
+      pa_union_member := ast_expr_token(&property_expr).value.clone();
       if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.clone()), ctx.unsafe_context)), {
         exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty)))));
         return(expr);
@@ -1687,7 +1687,7 @@ Raw pointer operations may dereference invalid memory.`
           );
           return(expr);
         });
-        idx_str := ast_expr_token(&property_expr).value;
+        idx_str := ast_expr_token(&property_expr).value.clone();
         match(
           idx_str.parse_i64(),
           .None => {
@@ -1722,8 +1722,8 @@ Raw pointer operations may dereference invalid memory.`
               .None => original_obj_ty
             );
             idx_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &idx_str
             );
             out_idx := new_expr_info(&env, &ft_idx);
@@ -1768,7 +1768,7 @@ Raw pointer operations may dereference invalid memory.`
       });
       // --- Label name access ----------------------------------------------
       if(is_valid_variable_name(&property_expr), {
-        label_str := ast_expr_token(&property_expr).value;
+        label_str := ast_expr_token(&property_expr).value.clone();
         field_idx_lbl := find_first_field_index(&fields_labels, label_str.clone());
         match(
           field_idx_lbl,
@@ -1923,8 +1923,8 @@ Raw pointer operations may dereference invalid memory.`
               .None => original_obj_ty
             );
             lbl_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &label_str
             );
             out_lbl := new_expr_info(&env, &ft_lbl);
@@ -2056,7 +2056,7 @@ Raw pointer operations may dereference invalid memory.`
         return(expr);
       });
       if(is_valid_variable_name(&property_expr), {
-        mod_label := ast_expr_token(&property_expr).value;
+        mod_label := ast_expr_token(&property_expr).value.clone();
         // Phase 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6):
         // attribute this module-member read — the enclosing def (forcing
         // top) gains a def-level edge; an ordered statement (empty stack)
@@ -2074,12 +2074,12 @@ Raw pointer operations may dereference invalid memory.`
         );
         mod_labels_rt := match(
           base_ty,
-          Rc(.Struct({ field_labels : labels })) => labels,
+          Rc(.Struct({ field_labels : labels })) => labels.clone(),
           _ => ArrayList(String).new()
         );
         mod_types_rt := match(
           base_ty,
-          Rc(.Struct({ field_types : types })) => types,
+          Rc(.Struct({ field_types : types })) => types.clone(),
           _ => ArrayList(TypeValue).new()
         );
         mod_fidx := find_first_field_index(&mod_labels_rt, mod_label.clone());
@@ -2104,8 +2104,8 @@ Raw pointer operations may dereference invalid memory.`
           .Some(fi_mod) => {
             ft_mod := match(mod_types_rt.get(fi_mod), .Some(t) => t, .None => t_unit());
             mod_pc := build_field_path_collection(
-              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
-              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              match(obj_info_opt, .Some(oi) => oi.path_collection.clone(), .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name.clone(), .None => Option(String).None),
               &mod_label
             );
             out_mod := new_expr_info(&env, &ft_mod);
@@ -2195,7 +2195,7 @@ Raw pointer operations may dereference invalid memory.`
         );
         return(expr);
       });
-      prop_name_ev := ast_expr_token(&property_expr).value;
+      prop_name_ev := ast_expr_token(&property_expr).value.clone();
       match(
         base_ty,
         Rc(.EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _, _, _, _)) => {
@@ -2208,12 +2208,12 @@ Raw pointer operations may dereference invalid memory.`
                 .Some(sel_vi) => {
                   vfl := match(
                     ev_vflabels.get(sel_vi),
-                    .Some(fl) => fl,
+                    .Some(fl) => fl.clone(),
                     .None => ArrayList(String).new()
                   );
                   vft := match(
                     ev_vfields.get(sel_vi),
-                    .Some(ft) => ft,
+                    .Some(ft) => ft.clone(),
                     .None => ArrayList(TypeValue).new()
                   );
                   prop_fidx_ev := find_first_field_index(&vfl, prop_name_ev.clone());
@@ -2284,7 +2284,7 @@ Raw pointer operations may dereference invalid memory.`
               (dv_idx : usize) = usize(0);
               (dv_i : usize) = usize(0);
               while(dv_i < ev_vflabels.len(), {
-                dv_fl := match(ev_vflabels.get(dv_i), .Some(fl) => fl, .None => ArrayList(String).new());
+                dv_fl := match(ev_vflabels.get(dv_i), .Some(fl) => fl.clone(), .None => ArrayList(String).new());
                 match(
                   find_first_field_index(&dv_fl, prop_name_ev.clone()),
                   .Some(_) => {
@@ -2296,8 +2296,8 @@ Raw pointer operations may dereference invalid memory.`
                 dv_i = (dv_i + usize(1));
               });
               if(n_dv == usize(1), {
-                dv_vfl := match(ev_vflabels.get(dv_idx), .Some(fl) => fl, .None => ArrayList(String).new());
-                dv_vft := match(ev_vfields.get(dv_idx), .Some(ft) => ft, .None => ArrayList(TypeValue).new());
+                dv_vfl := match(ev_vflabels.get(dv_idx), .Some(fl) => fl.clone(), .None => ArrayList(String).new());
+                dv_vft := match(ev_vfields.get(dv_idx), .Some(ft) => ft.clone(), .None => ArrayList(TypeValue).new());
                 dv_pfi := match(find_first_field_index(&dv_vfl, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
                 dv_ft := match(dv_vft.get(dv_pfi), .Some(t) => t, .None => t_unit());
                 dv_pc := ArrayList(ArrayList(String)).new();
@@ -2320,7 +2320,7 @@ Raw pointer operations may dereference invalid memory.`
                   .Some(eov) => match(
                     eov,
                     .EnumVal(ev_vn, ev_flds) => {
-                      dv_name := match(ev_vnames.get(dv_idx), .Some(nm) => nm, .None => String.from(""));
+                      dv_name := match(ev_vnames.get(dv_idx), .Some(nm) => nm.clone(), .None => String.from(""));
                       dv_dot_sel := `.${ dv_name }`;
                       if(ev_vn == dv_dot_sel, {
                         match(

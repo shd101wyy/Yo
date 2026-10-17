@@ -323,11 +323,11 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
 /// Set the traversal visit-callback expression (see g_traverse_visit_expr).
 /// Callers set this immediately before `_traverse_value`.
 set_traverse_visit_expr :: (fn(expr : &String) -> unit)({
-  g_traverse_visit_expr = expr;
+  g_traverse_visit_expr = expr.clone();
 });
 _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  visit := g_traverse_visit_expr;
+  visit := g_traverse_visit_expr.clone();
   // Nothing reference-counted anywhere in this value → nothing to trace.
   if(!type_contains_rc_cell_or_move_only(ty), {
     return();
@@ -391,9 +391,9 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
               nv := variant_names.len();
               (vi : usize) = usize(0);
               while(vi < nv, {
-                vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
-                vfields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-                vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+                vname := match(variant_names.get(vi), .Some(v) => v.clone(), .None => String.from(""));
+                vfields := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+                vlabels := match(variant_field_labels.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
                 nvf := vfields.len();
                 (has_rc : bool) = false;
                 (ci : usize) = usize(0);
@@ -415,7 +415,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
                     match(
                       vfields.get(vfi),
                       .Some(vt) => if(type_contains_rc_cell_or_move_only(&vt), {
-                        vflabel := match(vlabels.get(vfi), .Some(l) => l, .None => String.from(""));
+                        vflabel := match(vlabels.get(vfi), .Some(l) => l.clone(), .None => String.from(""));
                         vfname := sanitize_for_c_identifier(&vflabel, false);
                         recur(`${access}.data.${c_variant_member_name(vname.clone())}.${vfname}`, &vt, context);
                       }),
@@ -624,9 +624,9 @@ _generate_one_ref_enum_traversal :: (fn(type : &TypeValue, c_name : &String, con
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        vname := match(variant_names.get(vi), .Some(v) => v.clone(), .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
         // Does this variant carry any reference-counted field (directly or nested)?
         nf := fields.len();
         (has_rc : bool) = false;
@@ -649,7 +649,7 @@ _generate_one_ref_enum_traversal :: (fn(type : &TypeValue, c_name : &String, con
             match(
               fields.get(fi),
               .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-                flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+                flabel := match(labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
                 fname := sanitize_for_c_identifier(&flabel, false);
                 g_traverse_visit_expr = String.from("visit");
                 _traverse_value(`obj->data.${c_variant_member_name(vname.clone())}.${fname}`, &ft, context);
@@ -721,9 +721,9 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        vname := match(variant_names.get(vi), .Some(v) => v.clone(), .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
         nf := fields.len();
         // Per-VARIANT registration gate: even in a cycle-capable ref-enum, a
         // variant whose fields cannot reach back to the enum has no outgoing
@@ -756,7 +756,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
-              flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
+              flabel := match(labels.get(pi), .Some(l) => l.clone(), .None => String.from(""));
               params.push_string(get_type_string(&ft, &context.base));
               params.push_str(" ");
               params.push_string(sanitize_for_c_identifier(&flabel, false));
@@ -810,7 +810,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
           match(
             fields.get(fi),
             .Some(ft) => if(!is_unit_type(&ft), {
-              flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+              flabel := match(labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
               fname := sanitize_for_c_identifier(&flabel, false);
               em.emit_string_line(`  obj->data.${c_variant_member_name(vname.clone())}.${fname} = ${fname};`);
             }),
@@ -955,7 +955,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
               // count.
               em.emit_string_line(`static void __yo_iso_roots_${iso_name}(void* __yo_p) {`);
               em.emit_string_line(`  ${child_c} value = *(${child_c}*)__yo_p;`);
-              saved_visit := g_traverse_visit_expr;
+              saved_visit := g_traverse_visit_expr.clone();
               g_traverse_visit_expr = String.from("__yo_iso_uq_visit");
               _traverse_value(String.from("value"), &child, context);
               g_traverse_visit_expr = saved_visit;

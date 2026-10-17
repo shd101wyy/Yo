@@ -17,7 +17,7 @@ generate_typeid :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     .None => return(codegen_fatal_expr(String.from("typeid argument has no evaluation info")))
   );
   tid := type_key(&ty);
-  type_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => get_type_string(&ty, &context.base));
+  type_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn.clone(), .None => get_type_string(&ty, &context.base));
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(c_symbol_name(&type_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {

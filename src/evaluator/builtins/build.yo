@@ -808,7 +808,7 @@ _under_build :: (fn() -> bool)(match(g_build_registry, .Some(_r) => true, .None 
 _build_string_result :: (
   fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, value : &String) -> AstExpr
 )({
-  raw := (String.from("\"") + value + String.from("\""));
+  raw := (String.from("\"") + value.clone() + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
   info.value = Option(EvalValue).Some(EvalValue.StrLit(raw));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
@@ -911,7 +911,7 @@ _build_extract_variant :: (
 _build_split_ws :: (fn(s : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   cur := String.new();
-  bytes := s;
+  bytes := s.clone();
   (i : usize) = usize(0);
   n := bytes.len();
   while(i < n, {
@@ -990,14 +990,14 @@ _build_new_artifact :: (
 )(
   BuildArtifact(
     kind : ArtifactKind.Executable,
-    name : name,
-    root : root,
-    target : target,
-    optimize : optimize,
-    allocator : allocator,
+    name : name.clone(),
+    root : root.clone(),
+    target : target.clone(),
+    optimize : optimize.clone(),
+    allocator : allocator.clone(),
     heap_size : heap_size,
-    sanitize : sanitize,
-    emit_c_to : emit_c_to,
+    sanitize : sanitize.clone(),
+    emit_c_to : emit_c_to.clone(),
     emit_chunks : emit_chunks,
     link_libraries : ArrayList(String).new(),
     include_paths : ArrayList(String).new(),
@@ -1029,7 +1029,7 @@ _build_attach_system_library :: (
         });
         i = (i + usize(1));
       });
-      art.linked_system_libs.push(library_name);
+      art.linked_system_libs.push(library_name.clone());
     },
     .None => ()
   );
@@ -1093,7 +1093,7 @@ evaluate_yo_build_functions :: (
     triple := _build_extract_string(&args, usize(0), "triple", expr, ctx, exn);
     parsed := match(
       parse_target(&triple),
-      .Ok(t) => t.triple,
+      .Ok(t) => t.triple.clone(),
       .Err(_) => triple
     );
     return(_build_string_result(expr, env, ctx, &parsed));
@@ -1110,7 +1110,7 @@ evaluate_yo_build_functions :: (
         expr,
         env,
         ctx,
-        match(reg_manifest.manifest_fields.get(&field), .Some(v) => v, .None => String.new())
+        match(reg_manifest.manifest_fields.get(&field), .Some(v) => v.clone(), .None => String.new())
       )
     );
   });
@@ -1130,7 +1130,7 @@ evaluate_yo_build_functions :: (
         expr,
         env,
         ctx,
-        match(reg_opt.cli_options.get(&opt_name), .Some(v) => v, .None => default_value)
+        match(reg_opt.cli_options.get(&opt_name), .Some(v) => v.clone(), .None => default_value)
       )
     );
   });
@@ -1207,7 +1207,7 @@ evaluate_yo_build_functions :: (
   });
   // ── Registry-mutating builtins (all return unit) ────────────────────
   reg := get_build_registry();
-  host_triple := host_target().triple;
+  host_triple := host_target().triple.clone();
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, Option(usize).None), {
     _build_require_args(&args, usize(2), String.from("__yo_build_executable expects at least 2 arguments (name, root)"), expr, exn);
     reg.register_executable(
@@ -1442,7 +1442,7 @@ evaluate_yo_build_functions :: (
           match(
             cf_flags.get(fi),
             .Some(f) => {
-              art.c_flags.push(f);
+              art.c_flags.push(f.clone());
             },
             .None => ()
           );

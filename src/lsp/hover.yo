@@ -75,7 +75,7 @@ _contract_block :: (
       return(Option(String).None);
     }
   );
-  fid := data.*.func_id;
+  fid := data.*.func_id.clone();
   reqs := hook_func_requires(fid.clone());
   enss := hook_func_ensures(fid.clone());
   label := hook_func_return_label(fid.clone());
@@ -596,7 +596,7 @@ handle_hover :: (
               match(
                 variable_doc_comment(&sv),
                 .Some(dc) => {
-                  doc_opt = Option(String).Some(dc);
+                  doc_opt = Option(String).Some(dc.clone());
                 },
                 .None => ()
               );

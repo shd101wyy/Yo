@@ -127,7 +127,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     },
     .Variant(_, vidx, field_idx, subs, enum_ty, through_ptr, _) => {
       cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
-      ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -319,7 +319,7 @@ _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
 );
 /// A C literal for a compile-time value (number / bool).
 _c_literal_from_value :: (fn(value : &EvalValue) -> Option(String))(
-  match(value, .IntLit(r) => Option(String).Some(r), .FloatLit(r) => Option(String).Some(r), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
+  match(value, .IntLit(r) => Option(String).Some(r.clone()), .FloatLit(r) => Option(String).Some(r.clone()), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -370,7 +370,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     em := context.base.emitter;
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
@@ -425,7 +425,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
         .None => ()
       );
     });
-    final_code0 := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(&final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(&final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
+    final_code0 := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(&final_expr, indent.clone(), context), .Some(fc) => fc.clone(), .None => _call_generate_expr(&final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
     // The block's drops run after its value is taken: a value read from a
     // local the block drops (`{ …; a.n }` with `a` dropped at the end, a
     // consuming `match` arm's binding) is materialized first, as the bare
@@ -460,7 +460,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     // closed: an undeclared C identifier
     // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
@@ -472,7 +472,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     note_line_position(&context.base.emitter, body_expr);
     code := match(
       arm_value_with_dups(body_expr, indent.clone(), context),
-      .Some(fc) => fc,
+      .Some(fc) => fc.clone(),
       .None => {
         generate_deferred_dup_expressions(body_expr, indent.clone(), context);
         _call_generate_expr(body_expr, indent.clone(), context)
@@ -654,7 +654,7 @@ _generate_float_primitive_match :: (fn(expr : &AstExpr, indent : &String, contex
                           cond_code.push_str(" == ");
                           lit_txt := match(
                             _c_literal_from_value(&v),
-                            .Some(t) => t,
+                            .Some(t) => t.clone(),
                             .None => String.from("0")
                           );
                           cond_code.push_string(&lit_txt);
@@ -871,7 +871,7 @@ _inline_binding_sm_field :: (fn(tok : &Token, context : &FunctionGenerationConte
                 Option(String).Some(
                   match(
                     context.state_machine_field_aliases,
-                    .Some(al) => match(al.get(k.clone()), .Some(af) => af, .None => sm_local_field_name(k.clone())),
+                    .Some(al) => match(al.get(k.clone()), .Some(af) => af.clone(), .None => sm_local_field_name(k.clone())),
                     .None => sm_local_field_name(k.clone())
                   )
                 )
@@ -918,7 +918,7 @@ _bind_pattern_name :: (fn(context : &FunctionGenerationContext, indent : &String
 _shadow_slot_set :: (fn(context : &FunctionGenerationContext, name : &String, field : &String) -> unit)({
   // Taken out and stored back: a `match` binding is a copy of the map once
   // collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  slots := match(context.shadow_slots.take(), .Some(m) => m, .None => HashMap(String, String).new());
+  slots := match(context.shadow_slots.take(), .Some(m) => m.clone(), .None => HashMap(String, String).new());
   slots.insert(name, field);
   context.shadow_slots = Option(HashMap(String, String)).Some(slots);
 });
@@ -1105,7 +1105,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                         .Some(rm) => match(
                           rm.get(smb_id.clone()),
                           .Some(mapped) => {
-                            smb_id = mapped;
+                            smb_id = mapped.clone();
                           },
                           .None => ()
                         ),
@@ -1158,7 +1158,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                 context.state_machine_field_aliases,
                 .Some(al) => match(
                   al.get(smb_id.clone()),
-                  .Some(af) => af,
+                  .Some(af) => af.clone(),
                   .None => sm_local_field_name(smb_id.clone())
                 ),
                 .None => sm_local_field_name(smb_id.clone())
@@ -1393,8 +1393,8 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
         vk = (vk + usize(1));
       });
       if(vi < nv, {
-        labels := match(vfls.get(vi), .Some(l) => l, .None => ArrayList(String).new());
-        types := match(vfs.get(vi), .Some(t) => t, .None => ArrayList(TypeValue).new());
+        labels := match(vfls.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
+        types := match(vfs.get(vi), .Some(t) => t.clone(), .None => ArrayList(TypeValue).new());
         // Curly destructuring `.Variant({a, b : alias})`: the single param is a
         // `_`(...) call (the evaluator's curly representation). Lift its inner
         // args so the labeled/positional logic below binds the fields. (`{a}`
@@ -1477,7 +1477,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
             match(
               dparams.get(fi),
               .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value == "_") && !pattern_param_is_literal(&var_expr), {
-                field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
+                field_label := match(labels.get(fi), .Some(fl) => fl.clone(), .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(!is_unit_type(&ftype), {
                   init := matched_value_code.clone();
@@ -1830,7 +1830,7 @@ _variant_test_code :: (fn(enum_ty : &TypeValue, vidx : usize, vname : &String, p
     can_optimize_as_nullable_pointer(enum_ty),
     .Some(_) => {
       // The enum IS the pointer: the fieldless variant is NULL.
-      fields := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      fields := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       v := _enum_value_code(path, is_raw_ptr);
       t := String.from("(");
       t.push_string(&v);
@@ -1910,7 +1910,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .Const(_, _, _, _, _) => (),
     .Range(_, _, _, _, _, _, _) => (),
     .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
-      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -2051,14 +2051,14 @@ _emit_pattern_chain :: (
         line.push_str(";");
         em.emit_string_line(&line);
       });
-      labels_v := match(enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()), _ => ArrayList(String).new());
-      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      labels_v := match(enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l.clone(), .None => ArrayList(String).new()), _ => ArrayList(String).new());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       v_cell := (in_cell || pattern_position_is_cell(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        flabel := match(labels_v.get(fi), .Some(l) => l, .None => String.from(""));
+        flabel := match(labels_v.get(fi), .Some(l) => l.clone(), .None => String.from(""));
         fcode := _variant_field_code(&enum_ty, vname.clone(), &flabel, path.clone(), ptrish, is_raw_ptr);
         recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
         i = (i + usize(1));
@@ -2079,7 +2079,7 @@ _emit_pattern_chain :: (
         });
         (ni : usize) = usize(0);
         while(ni < names.len(), {
-          nm := match(names.get(ni), .Some(n) => n, .None => String.from(""));
+          nm := match(names.get(ni), .Some(n) => n.clone(), .None => String.from(""));
           nt := match(types.get(ni), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(!is_unit_type(&nt), {
             decl := indent.clone();
@@ -2221,7 +2221,7 @@ _emit_pattern_chain :: (
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        flabel := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
+        flabel := match(flabels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         fcode := path.clone();
         fcode.push_str(cond(ptrish => "->", true => "."));
@@ -2465,7 +2465,7 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &F
 });
 _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
-  temp_var_opt := ei.variable_name;
+  temp_var_opt := ei.variable_name.clone();
   value_type := ei.ty;
   is_unit := is_unit_type(&value_type);
   em := context.base.emitter;

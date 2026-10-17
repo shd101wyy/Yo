@@ -22,7 +22,7 @@ _md_doc :: (fn(d : &String) -> String)({
   lines := d.split(`\n`);
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    line := match(lines.get(i), .Some(l) => l.clone(), .None => String.new());
     trimmed := line.trim();
     if(trimmed == `\`\`\`yo`, {
       // Preserve the original indentation; only the tag changes.
@@ -86,7 +86,7 @@ is_in_list_ :: (fn(list : &ArrayList(String), name : &String) -> bool)({
   while(i < n, {
     item := match(
       list.get(i),
-      .Some(x) => x,
+      .Some(x) => x.clone(),
       .None => {
         break;
       }
@@ -119,7 +119,7 @@ format_type_params_ :: (fn(params : &Option(ArrayList(DocParam))) -> String)(
                 break;
               }
             );
-            names.push(param.name);
+            names.push(param.name.clone());
             i = (i + usize(1));
           });
           sep := `, `;
@@ -240,7 +240,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     }
   );
   lines.push(`\`\`\`rust`);
-  lines.push(fn_.signature);
+  lines.push(fn_.signature.clone());
   lines.push(`\`\`\``);
   lines.push(``);
   match(
@@ -287,7 +287,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     fn_.returns,
     .None => (),
     .Some(r) => {
-      lines.push(r);
+      lines.push(r.clone());
       lines.push(``);
     }
   );
@@ -297,7 +297,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     .Some(e) => {
       lines.push(`**Errors:**`);
       lines.push(``);
-      lines.push(e);
+      lines.push(e.clone());
       lines.push(``);
     }
   );
@@ -307,7 +307,7 @@ render_function_md :: (fn(fn_ : &DocFunction) -> String)({
     .Some(ex) => {
       lines.push(`**Examples:**`);
       lines.push(``);
-      lines.push(ex);
+      lines.push(ex.clone());
       lines.push(``);
     }
   );
@@ -330,7 +330,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
   lines.push(`*${doc_item_kind_to_string(t.kind)}*`);
   lines.push(``);
   lines.push(`\`\`\`rust`);
-  lines.push(t.signature);
+  lines.push(t.signature.clone());
   lines.push(`\`\`\``);
   lines.push(``);
   match(
@@ -366,7 +366,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     while(ti < tn, {
       name := match(
         t.trait_impls.get(ti),
-        .Some(x) => x,
+        .Some(x) => x.clone(),
         .None => {
           break;
         }
@@ -425,7 +425,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
           while(mi < nm, {
             method_name := match(
               impl.method_names.get(mi),
-              .Some(x) => x,
+              .Some(x) => x.clone(),
               .None => {
                 break;
               }
@@ -439,7 +439,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
           while(mi2 < nm2, {
             method_name := match(
               impl.method_names.get(mi2),
-              .Some(x) => x,
+              .Some(x) => x.clone(),
               .None => {
                 break;
               }
@@ -462,7 +462,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
             while(ui < nu, {
               uname := match(
                 unresolved.get(ui),
-                .Some(x) => x,
+                .Some(x) => x.clone(),
                 .None => {
                   break;
                 }
@@ -518,7 +518,7 @@ render_type_md :: (fn(t : &DocType) -> String)({
     .Some(ex) => {
       lines.push(`**Examples:**`);
       lines.push(``);
-      lines.push(ex);
+      lines.push(ex.clone());
       lines.push(``);
     }
   );
@@ -541,7 +541,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
   lines.push(`*${doc_trait_kind_to_string(t.kind)}*`);
   lines.push(``);
   lines.push(`\`\`\`rust`);
-  lines.push(t.signature);
+  lines.push(t.signature.clone());
   lines.push(`\`\`\``);
   lines.push(``);
   match(
@@ -585,7 +585,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     while(i < n, {
       name := match(
         t.implementors.get(i),
-        .Some(x) => x,
+        .Some(x) => x.clone(),
         .None => {
           break;
         }
@@ -603,7 +603,7 @@ render_trait_md :: (fn(t : &DocTrait) -> String)({
     .Some(ex) => {
       lines.push(`**Examples:**`);
       lines.push(``);
-      lines.push(ex);
+      lines.push(ex.clone());
       lines.push(``);
     }
   );
@@ -841,7 +841,7 @@ render_index_md :: (fn(model : &DocModel) -> String)({
       mod.doc,
       .None => ``,
       .Some(d) => {
-        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l, .None => d);
+        first_line := match(d.split(`\n`).get(usize(0)), .Some(l) => l.clone(), .None => d);
         ` — ${first_line}`
       }
     );

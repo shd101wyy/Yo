@@ -230,7 +230,7 @@ try_to_specialize_trait_type :: (
   specialized_trait_type := match(
     trait_type,
     Rc(.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _)) =>
-      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, atc_labels, atc_types)),
+      rc(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), fts.clone(), tid.clone(), ic, sc.clone(), nsc.clone(), atc_labels, atc_types)),
     _ => trait_type
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
@@ -321,7 +321,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   if(pv_type_id != "", {
     (pvi : usize) = usize(0);
     while(pvi < n_fields, {
-      pv_lbl := match(field_labels.get(pvi), .Some(l) => l, .None => String.from(""));
+      pv_lbl := match(field_labels.get(pvi), .Some(l) => l.clone(), .None => String.from(""));
       pv_ty := match(field_types.get(pvi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       if((pv_lbl != "") && is_function_type(&pv_ty), {
         register_provisional_trait_method(

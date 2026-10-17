@@ -141,7 +141,7 @@ _type_value_cycle_step :: (
         (hit : bool) = false;
         (i : usize) = usize(0);
         while((i < e_vfs.len()) && !hit, {
-          vfs := match(e_vfs.get(i), .Some(l) => l, .None => ArrayList(TypeValue).new());
+          vfs := match(e_vfs.get(i), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
             ft := match(vfs.get(j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
@@ -432,7 +432,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_name := ast_expr_token(&variant_name_expr).value;
+        variant_name := ast_expr_token(&variant_name_expr).value.clone();
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
@@ -473,7 +473,7 @@ evaluate_enum_type :: (
       // Plain atom variant (auto-assigned discriminant).
       // ---------------------------------------------------------------
       ast_expr_is_atom(&enum_arg) => {
-        variant_name := ast_expr_token(&enum_arg).value;
+        variant_name := ast_expr_token(&enum_arg).value.clone();
         if(!is_valid_variable_name(&enum_arg), {
           exn.throw(
             dyn(
@@ -534,7 +534,7 @@ evaluate_enum_type :: (
             )
           );
         });
-        variant_name := ast_expr_token(_fn_call_func(&variant_expr)).value;
+        variant_name := ast_expr_token(_fn_call_func(&variant_expr)).value.clone();
         if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
@@ -557,7 +557,7 @@ evaluate_enum_type :: (
           (dup_idx : usize) = usize(0);
           (has_dup : bool) = false;
           while((dup_idx < v_field_labels.len()) && !has_dup, {
-            existing := match(v_field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+            existing := match(v_field_labels.get(dup_idx), .Some(l) => l.clone(), .None => String.from(""));
             if(existing == field.label, {
               has_dup = true;
             });
@@ -597,9 +597,9 @@ evaluate_enum_type :: (
           v_field_types.push(field.ty);
           v_field_labels.push(field.label.clone());
           env.frames = result.env.frames;
-          env.module_path = result.env.module_path;
+          env.module_path = result.env.module_path.clone();
           env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-          env.input_string = result.env.input_string;
+          env.input_string = result.env.input_string.clone();
           j = (j + usize(1));
         });
         disc := match(custom_disc, .Some(d) => d, .None => next_discriminant);
@@ -681,12 +681,12 @@ evaluate_enum_type :: (
           .Some(ft) => match(
             ft,
             Rc(.Func({ param_types : fc_ptypes, meta : __fm1 })) => {
-              fc_plabels := __fm1.*.param_labels;
+              fc_plabels := __fm1.*.param_labels.clone();
               tca := ArrayList(TypeValue).new();
               (tci : usize) = usize(0);
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
-                p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
+                p_lbl := match(fc_plabels.get(tci), .Some(l) => l.clone(), .None => String.from(""));
                 p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
@@ -745,8 +745,8 @@ evaluate_enum_type :: (
   if(!force_reference_semantics, {
     (vi2 : usize) = usize(0);
     while(vi2 < variant_fields.len(), {
-      vname := match(variant_names.get(vi2), .Some(n) => n, .None => String.new());
-      vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => ArrayList(TypeValue).new());
+      vname := match(variant_names.get(vi2), .Some(n) => n.clone(), .None => String.new());
+      vfs := match(variant_fields.get(vi2), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {
         ft := match(vfs.get(fi2), .Some(x) => x, .None => rc(TypeValueNode.Unit));
@@ -774,11 +774,11 @@ evaluate_enum_type :: (
     TypeValueNode.EnumT(
       enum_id.clone(),
       String.from(""),
-      variant_names,
-      variant_fields,
+      variant_names.clone(),
+      variant_fields.clone(),
       Option(String).None,
-      variant_field_labels,
-      variant_discriminants,
+      variant_field_labels.clone(),
+      variant_discriminants.clone(),
       force_reference_semantics,
       is_atomic_rc,
       ArrayList(TypeValue).new()
@@ -794,7 +794,7 @@ evaluate_enum_type :: (
   patched_fields := ArrayList(ArrayList(TypeValue)).new();
   (pf_i : usize) = usize(0);
   while(pf_i < variant_fields.len(), {
-    vf_list := match(variant_fields.get(pf_i), .Some(l) => l, .None => ArrayList(TypeValue).new());
+    vf_list := match(variant_fields.get(pf_i), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
     new_list := ArrayList(TypeValue).new();
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {

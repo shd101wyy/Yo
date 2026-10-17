@@ -398,7 +398,7 @@ record_closure_capture_verdicts :: (
       markers.push(String.from("Acyclic"));
       (mi : usize) = usize(0);
       while(mi < markers.len(), {
-        mn := match(markers.get(mi), .Some(m) => m, .None => String.new());
+        mn := match(markers.get(mi), .Some(m) => m.clone(), .None => String.new());
         match(
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
@@ -476,7 +476,7 @@ _function_value_offense :: (
   });
   reach := match(
     d1_reach_memo(fid.clone()),
-    .Some(r) => r,
+    .Some(r) => r.clone(),
     .None => match(
       body,
       .Some(b) => function_reaches_non_send_global(fid.clone(), &b, &ctx.expr_info_table, env),
@@ -509,7 +509,7 @@ _closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Envir
         ft := match(co_fields.get(i), .Some(f) => f, .None => t_unit());
         (part_ok : bool) = match(trait_tt, .Some(tt) => type_implements_trait_bool(&ft, &tt, env), .None => true);
         if(!part_ok, {
-          label := match(co_labels.get(i), .Some(l) => l, .None => String.new());
+          label := match(co_labels.get(i), .Some(l) => l.clone(), .None => String.new());
           return(`its capture \`${label}\` has type \`${type_to_string(&ft)}\`, which is not ${trait_name}; a closure is ${trait_name} exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36)`);
         });
         i = (i + usize(1));
@@ -594,7 +594,7 @@ function_value_marker :: (
                         match(
                           _function_value_offense(fvd.*.func_id.clone(), Option(AstExpr).Some(fvd.*.body), marker, env, ctx),
                           .Some(o) => {
-                            return(Option(Option(String)).Some(Option(String).Some(o)));
+                            return(Option(Option(String)).Some(Option(String).Some(o.clone())));
                           },
                           .None => ()
                         );
@@ -632,7 +632,7 @@ function_value_marker :: (
               match(
                 _function_value_offense(&ccfid, Option(AstExpr).None, marker, env, ctx),
                 .Some(co) => {
-                  return(Option(Option(String)).Some(Option(String).Some(co)));
+                  return(Option(Option(String)).Some(Option(String).Some(co.clone())));
                 },
                 .None => ()
               );
@@ -658,7 +658,7 @@ function_value_marker :: (
               match(
                 _function_value_offense(&cfid, Option(AstExpr).None, marker, env, ctx),
                 .Some(o) => {
-                  return(Option(Option(String)).Some(Option(String).Some(o)));
+                  return(Option(Option(String)).Some(Option(String).Some(o.clone())));
                 },
                 .None => ()
               );
@@ -763,7 +763,7 @@ validate_send_closure_global_reach :: (
       match(
         d1_note_thread_reach(closure_fid.clone()),
         .Some(w) => if(reach.is_none(), {
-          reach = Option(String).Some(w);
+          reach = Option(String).Some(w.clone());
         }),
         .None => ()
       );
@@ -877,7 +877,7 @@ validate_capture_trait_requirements :: (
                       if(details.len() > usize(0), {
                         details.push_str("\n  ");
                       });
-                      fl := match(fls.get(fi), .Some(l) => l, .None => String.from(""));
+                      fl := match(fls.get(fi), .Some(l) => l.clone(), .None => String.from(""));
                       details.push_string(`'${fl}' has type ${type_to_string(&fty)} which does not implement ${trait_name}`);
                     }),
                     .None => ()
@@ -1094,7 +1094,7 @@ create_capture_type_and_value :: (
       cap_key.push_str("|");
       (csi : usize) = usize(0);
       while(csi < field_labels.len(), {
-        cap_key.push_string(match(field_labels.get(csi), .Some(l) => l, .None => String.from("")));
+        cap_key.push_string(match(field_labels.get(csi), .Some(l) => l.clone(), .None => String.from("")));
         cap_key.push_str(":");
         cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
@@ -1127,7 +1127,7 @@ create_capture_type_and_value :: (
       });
       struct_id := match(
         g_capture_struct_ids.get(cap_key.clone()),
-        .Some(existing) => existing,
+        .Some(existing) => existing.clone(),
         .None => {
           // Phase 2: content-addressed (hash of the cap_key, which is itself
           // position/type-stable) instead of the global counter, with the
@@ -1180,8 +1180,8 @@ create_capture_type_and_value :: (
         TypeValueNode.Struct(
           struct_id.clone(),
           String.from(""),
-          field_labels,
-          field_types,
+          field_labels.clone(),
+          field_types.clone(),
           false,
           false,
           false,
@@ -1468,7 +1468,7 @@ _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContex
       out := new_expr_info(&gen_info.env, &gen_info.ty);
       out.value = gen_info.value;
       out.control_flow = gen_info.control_flow;
-      out.variable_name = gen_info.variable_name;
+      out.variable_name = gen_info.variable_name.clone();
       record_macro_expansion(ast_expr_id(expr), generated.clone());
       expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -1511,7 +1511,7 @@ structural_clone_expansion :: (
   closure_ty := closure_identity_of(recv_ty);
   (fields_labels, fields_types) := match(
     target,
-    Rc(.Struct({ field_labels : sc_labels, field_types : sc_types })) => (sc_labels, sc_types),
+    Rc(.Struct({ field_labels : sc_labels, field_types : sc_types })) => (sc_labels.clone(), sc_types.clone()),
     _ => {
       return(Option(AstExpr).None);
     }
@@ -1529,7 +1529,7 @@ structural_clone_expansion :: (
     code := String.from("_(");
     (ri : usize) = usize(0);
     while(ri < fields_labels.len(), {
-      label := match(fields_labels.get(ri), .Some(l) => l, .None => String.new());
+      label := match(fields_labels.get(ri), .Some(l) => l.clone(), .None => String.new());
       ft := match(fields_types.get(ri), .Some(t) => t, .None => t_unit());
       if(ri > usize(0), {
         code.push_str(", ");
@@ -1574,7 +1574,7 @@ structural_clone_expansion :: (
   inits := ArrayList(CaptureFieldInit).new();
   (ci : usize) = usize(0);
   while(ci < fields_labels.len(), {
-    label := match(fields_labels.get(ci), .Some(l) => l, .None => String.new());
+    label := match(fields_labels.get(ci), .Some(l) => l.clone(), .None => String.new());
     ft := match(fields_types.get(ci), .Some(t) => t, .None => t_unit());
     read := `${BF_YO_CAPTURE_FIELD}(${_CLONE_RECV_HOLE}, ${ci.to_string()})`;
     init_code := if(type_implements_trait_bool(&ft, &copy_tt, env), read, `${read}.clone()`);

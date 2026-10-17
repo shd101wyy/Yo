@@ -62,14 +62,14 @@ evaluate_tuple_elements_type :: (
       (dup_idx : usize) = usize(0);
       (has_dup : bool) = false;
       while((dup_idx < field_labels.len()) && !has_dup, {
-        existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+        existing := match(field_labels.get(dup_idx), .Some(l) => l.clone(), .None => String.from(""));
         if(existing == field.label, {
           has_dup = true;
         });
         dup_idx = (dup_idx + usize(1));
       });
       if(has_dup, {
-        arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
+        arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         err_tok := if(
           ast_expr_is_fn_call(&arg),
           match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -89,9 +89,9 @@ evaluate_tuple_elements_type :: (
     field_types.push(field.ty);
     fields.push(field);
     env.frames = result.env.frames;
-    env.module_path = result.env.module_path;
+    env.module_path = result.env.module_path.clone();
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env.input_string = result.env.input_string;
+    env.input_string = result.env.input_string.clone();
     i = (i + usize(1));
   });
   EvalTupleElementsResult(
@@ -125,9 +125,9 @@ evaluate_tuple_type :: (
   // Evaluate each tuple element.
   result := evaluate_tuple_elements_type(&args, &env, ctx, "tuple", exn);
   env.frames = result.env.frames;
-  env.module_path = result.env.module_path;
+  env.module_path = result.env.module_path.clone();
   env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-  env.input_string = result.env.input_string;
+  env.input_string = result.env.input_string.clone();
   // Reject default values: tuples may not have `field : T = default`.
   (j : usize) = usize(0);
   while(j < result.fields.len(), {
@@ -158,7 +158,7 @@ evaluate_tuple_type :: (
     j = (j + usize(1));
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForTupleType stub — no-op for now.
-  tuple_ty := rc(TypeValueNode.Tuple(result.field_labels, result.field_types));
+  tuple_ty := rc(TypeValueNode.Tuple(result.field_labels.clone(), result.field_types.clone()));
   tuple_val := create_type_value(&tuple_ty);
   meta_ty := type_of_type(&tuple_ty);
   out_info := new_expr_info(&env, &meta_ty);

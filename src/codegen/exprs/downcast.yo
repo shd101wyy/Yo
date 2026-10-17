@@ -51,7 +51,7 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
   target_type_c_name := get_type_string(&target_type, &context.base);
   // Register the typeid static for the target type (address = canonical id).
   tid := type_key(&target_type);
-  type_id_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
+  type_id_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn.clone(), .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(c_symbol_name(&type_id_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
@@ -270,7 +270,7 @@ _is_plain_c_identifier :: (fn(s : &String) -> bool)({
   if(s.len() == usize(0), {
     return(false);
   });
-  bytes := s;
+  bytes := s.clone();
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));

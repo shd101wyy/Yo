@@ -65,7 +65,7 @@ _first_future_effect :: (fn(ft : &TypeValue) -> Option(_FutureEffect))(
   match(
     ft,
     Rc(.FutureTraitT({ effect_labels : els, effect_types : ets })) => if(els.len() > usize(0), {
-      l := match(els.get(usize(0)), .Some(x) => x, .None => return(Option(_FutureEffect).None));
+      l := match(els.get(usize(0)), .Some(x) => x.clone(), .None => return(Option(_FutureEffect).None));
       t := match(ets.get(usize(0)), .Some(x) => x, .None => return(Option(_FutureEffect).None));
       Option(_FutureEffect).Some(_FutureEffect(label : l, ty : t))
     }, Option(_FutureEffect).None),
@@ -84,7 +84,7 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
         match(
           it.next(),
           .Some(e) => if(e.value.field_label == field_label, {
-            return(Option(String).Some(e.value.c_param_name));
+            return(Option(String).Some(e.value.c_param_name.clone()));
           }),
           .None => {
             go = false;
@@ -145,11 +145,11 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
       .Some(v) => match(
         v.value.get(usize(0)),
         .Some(val) => if(is_struct_val(&val), {
-          field_names := match(val, .StructVal(_, fns, _) => fns, _ => ArrayList(String).new());
+          field_names := match(val, .StructVal(_, fns, _) => fns.clone(), _ => ArrayList(String).new());
           field_values := match(val, .StructVal(_, _, fvs) => fvs, _ => ArrayList(EvalValue).new());
           (fi : usize) = usize(0);
           while(fi < field_names.len(), {
-            flbl := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
+            flbl := match(field_names.get(fi), .Some(l) => l.clone(), .None => String.from(""));
             if(flbl == field_label, {
               match(
                 field_values.get(fi),
@@ -158,7 +158,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
                     fv,
                     .FuncVal(__fvd1, _) => match(
                       context.base.get_function_entry(&__fvd1.*.func_id),
-                      .Some(e) => return(Option(String).Some(e.c_name)),
+                      .Some(e) => return(Option(String).Some(e.c_name.clone())),
                       .None => ()
                     ),
                     _ => ()
@@ -185,7 +185,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
   field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
-    flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+    flbl := match(field_labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
     fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&fty), {
       (member_code : Option(String)) = Option(String).None;
@@ -227,7 +227,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
               match(
                 it.next(),
                 .Some(e) => if(e.value.field_label == flbl, {
-                  member_code = Option(String).Some(e.value.c_param_name);
+                  member_code = Option(String).Some(e.value.c_param_name.clone());
                   go = false;
                 }),
                 .None => {
@@ -451,7 +451,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     match(
       saved_drops,
       .Some(drops) => {
-        result_var_to_skip := expr_ei.variable_name;
+        result_var_to_skip := expr_ei.variable_name.clone();
         filtered := ArrayList(AstExpr).new();
         (di : usize) = usize(0);
         while(di < drops.len(), {

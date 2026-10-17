@@ -202,7 +202,7 @@ _flatten_variant_fields :: (fn(variant_fields : &ArrayList(ArrayList(TypeValue))
   n := variant_fields.len();
   (i : usize) = usize(0);
   while(i < n, {
-    vf := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
+    vf := match(variant_fields.get(i), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
     m := vf.len();
     (j : usize) = usize(0);
     while(j < m, {
@@ -321,7 +321,7 @@ enforce_atomic_object_send :: (
     n := field_labels.len();
     (i : usize) = usize(0);
     while(i < n, {
-      fl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+      fl := match(field_labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
       ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       // Only a fully CONCRETE (SomeT-free) field counts as a violation. A
       // generic type-constructor body (`Atomic(T)`'s `_v : T` with

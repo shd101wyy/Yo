@@ -466,7 +466,7 @@ impl(
     key := `${c_type.clone()}=${init.clone()}`;
     match(
       self.comptime_pointer_statics.get(key.clone()),
-      .Some(name) => name,
+      .Some(name) => name.clone(),
       .None => {
         name := `__yo_cptr_${self.comptime_pointer_statics.len()}`;
         self.comptime_pointer_statics.insert(key, name.clone());
@@ -568,7 +568,7 @@ impl(
         // Same func_id re-registered: keep the FIRST name it was given (the
         // plain-label path re-registers exports; renaming here would strand
         // already-emitted call sites).
-        final_name = existing.c_name;
+        final_name = existing.c_name.clone();
       },
       .None => {
         if(self.registered_c_names.contains(final_name.clone()), {
@@ -605,7 +605,7 @@ impl(
     // get_type_c_name above (the enum sibling-cname pollution).
     match(
       self.functions.get(func_id),
-      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module)),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
       .None => Option(CodegenFunctionEntry).None
     )
   ),
@@ -639,7 +639,7 @@ impl(
   register_dyn_upcast : (fn(self : &Self, src : &TypeValue, tgt : &TypeValue) -> unit)({
     src_key := type_key(src);
     tgt_key := type_key(tgt.clone());
-    targets := match(self.dyn_upcasts.get(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
+    targets := match(self.dyn_upcasts.get(src_key.clone()), .Some(t) => t.clone(), .None => ArrayList(TypeValue).new());
     (i : usize) = usize(0);
     while(i < targets.len(), {
       if(match(targets.get(i), .Some(t) => (type_key(&t) == tgt_key), .None => false), {
@@ -653,7 +653,7 @@ impl(
   }),
   /// The `upcast` targets of the source Dyn `src` (empty for most Dyns).
   dyn_upcast_targets : (fn(self : &Self, src : &TypeValue) -> ArrayList(TypeValue))(
-    match(self.dyn_upcasts.get(type_key(src)), .Some(t) => t, .None => ArrayList(TypeValue).new())
+    match(self.dyn_upcasts.get(type_key(src)), .Some(t) => t.clone(), .None => ArrayList(TypeValue).new())
   ),
   /// Register an extern function.
   register_extern_function : (
@@ -729,7 +729,7 @@ get_runtime_struct_fields :: (fn(struct_type : &TypeValue) -> ArrayList(RuntimeS
           .None => false
         );
         if(!is_comptime, {
-          label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
+          label := match(field_labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
           ty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           result.push(RuntimeStructField(label : label, ty : ty));
         });
@@ -941,14 +941,14 @@ pattern_literal_arm_guards :: (
         vk = (vk + usize(1));
       });
       if(vi < vns.len(), {
-        labels := match(vfls.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        labels := match(vfls.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
         (pi2 : usize) = usize(0);
         while(pi2 < params.len(), {
           match(
             params.get(pi2),
             .Some(pp) => {
               if(pattern_param_is_literal(&pp), {
-                field_label := match(labels.get(pi2), .Some(fl) => fl, .None => String.from(""));
+                field_label := match(labels.get(pi2), .Some(fl) => fl.clone(), .None => String.from(""));
                 if(out.len() > usize(0), {
                   out.push_str(" && ");
                 });
@@ -1111,7 +1111,7 @@ _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
     .Atom(_, _) => .None,
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, tok) => .Some(tok.value),
+      .Atom(_, tok) => .Some(tok.value.clone()),
       .FnCall(_, _, _, _, _) => .None
     )
   )
@@ -1199,7 +1199,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     arg := _inline_unwrap_transparent(match(args.get(i), .Some(a) => a, .None => return(false)));
     name := match(
       arg,
-      .Atom(_, tok) => tok.value,
+      .Atom(_, tok) => tok.value.clone(),
       .FnCall(_, _, _, _, _) => return(false)
     );
     // Is this identifier one of the parameters at all?
@@ -1217,7 +1217,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     });
     if(is_param, {
       // It must be the NEXT parameter still unconsumed.
-      expected := match(params.get(pi), .Some(p) => p, .None => String.from(""));
+      expected := match(params.get(pi), .Some(p) => p.clone(), .None => String.from(""));
       if(expected != name, {
         return(false);
       });
@@ -1256,7 +1256,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   );
   operator_name := match(
     _fn_call_callee_name(&call_node),
-    .Some(callee) => if(is_builtin_yo_inline_function(&callee), Option(String).Some(callee), Option(String).None),
+    .Some(callee) => if(is_builtin_yo_inline_function(&callee), Option(String).Some(callee.clone()), Option(String).None),
     .None => Option(String).None
   );
   op := match(operator_name, .Some(o) => o, .None => return(.None));
@@ -1273,7 +1273,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(case_value : &AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value.clone()), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value.clone()), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1313,7 +1313,7 @@ nullable_variant_names :: (fn(t : &TypeValue) -> Option(ArrayList(String)))(
       (payload_name : String) = String.new();
       (i : usize) = usize(0);
       while(i < vns.len(), {
-        vn := match(vns.get(i), .Some(n) => n, .None => String.new());
+        vn := match(vns.get(i), .Some(n) => n.clone(), .None => String.new());
         nf := match(vfs.get(i), .Some(f) => f.len(), .None => usize(0));
         if(nf == usize(0), {
           empty_name = vn;
@@ -1338,12 +1338,12 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
   match(
     arm_variant_name(case_value),
     .Some(raw) => {
-      vname := if(raw.starts_with("."), raw.substring(usize(1), raw.len()), raw);
+      vname := if(raw.starts_with("."), raw.substring(usize(1), raw.len()), raw.clone());
       match(
         nullable_variant_names(enum_type),
         .Some(names) => cond(
-          (vname == match(names.get(usize(1)), .Some(n) => n, .None => String.new())) => Option(bool).Some(true),
-          (vname == match(names.get(usize(0)), .Some(n) => n, .None => String.new())) => Option(bool).Some(false),
+          (vname == match(names.get(usize(1)), .Some(n) => n.clone(), .None => String.new())) => Option(bool).Some(true),
+          (vname == match(names.get(usize(0)), .Some(n) => n.clone(), .None => String.new())) => Option(bool).Some(false),
           true => Option(bool).None
         ),
         .None => Option(bool).None
@@ -1359,7 +1359,7 @@ nullable_arm_selects_payload :: (fn(enum_type : &TypeValue, case_value : &AstExp
 nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
   params := arm_params(case_value);
   is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
-  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, ca, _, _) => ca, .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
+  dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, ca, _, _) => ca.clone(), .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
   match(
     dparams.get(usize(0)),
     .Some(p) => {
@@ -1427,7 +1427,7 @@ set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
 _lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
   match(
     context.get_type_c_name(type_key(t)),
-    .Some(c_name) => c_name,
+    .Some(c_name) => c_name.clone(),
     .None => {
       // ON-DEMAND recovery: alias/collect the late type, then retry.
       match(
@@ -1437,7 +1437,7 @@ _lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String
       );
       match(
         context.get_type_c_name(type_key(t)),
-        .Some(c_name2) => c_name2,
+        .Some(c_name2) => c_name2.clone(),
         .None => {
           // panic requires a `str`; the dynamic type name goes to stderr.
           eprintln(`get_type_string: no C type name found for ${type_to_string(t)} (type not collected before lowering; current_function=${context.current_function_name}, key=${type_key(t)})`);
@@ -1695,7 +1695,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       .None => (
         match(
           context.get_type_c_name(type_key(t)),
-          .Some(cn) => cn,
+          .Some(cn) => cn.clone(),
           // A FUTURE-implementing SomeType with no registration lowers to the
           // generic Future TRAIT-OBJECT interface struct pointer
           // (`__yo_future_trait_*`). This is the C type of a
@@ -1762,7 +1762,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // type_key).
     Rc(.DynT({})) => match(
       context.get_type_c_name(type_key(t)),
-      .Some(cn) => cn,
+      .Some(cn) => cn.clone(),
       .None => __yo_panic("No C type name found for dynamic dispatch type")
     ),
     Rc(.FnTraitT({})) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
@@ -1998,7 +1998,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -2017,7 +2017,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2099,7 +2099,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
               );
               first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2112,7 +2112,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -2315,7 +2315,7 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
 dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(String))(
   match(
     context.get_type_c_name(type_key(t)),
-    .Some(cn) => Option(String).Some(cn),
+    .Some(cn) => Option(String).Some(cn.clone()),
     .None => match(
       dyn_concrete_func_type(t),
       .Some(ft) => Option(String).Some(`__yo_fn_${fnv1a64(type_key(&ft)).to_string()}`),

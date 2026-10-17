@@ -152,8 +152,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
   });
   // Struct era instances: same ctor fid + era-equal type arguments.
   if((a_sid.len() > usize(0)) && (b_sid.len() > usize(0)), {
-    a_cf := match(lookup_struct_ctor_fid(&a_sid), .Some(f) => f, .None => String.from(""));
-    b_cf := match(lookup_struct_ctor_fid(&b_sid), .Some(f) => f, .None => String.from(""));
+    a_cf := match(lookup_struct_ctor_fid(&a_sid), .Some(f) => f.clone(), .None => String.from(""));
+    b_cf := match(lookup_struct_ctor_fid(&b_sid), .Some(f) => f.clone(), .None => String.from(""));
     if((a_cf.len() > usize(0)) && (a_cf == b_cf), {
       a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
       b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
@@ -186,8 +186,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
         (vfi : usize) = usize(0);
         (vf_ok : bool) = true;
         while((vfi < a_vf.len()) && vf_ok, {
-          a_fl := match(a_vf.get(vfi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-          b_fl := match(b_vf.get(vfi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          a_fl := match(a_vf.get(vfi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+          b_fl := match(b_vf.get(vfi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
           if(a_fl.len() != b_fl.len(), {
             vf_ok = false;
           }, {
@@ -250,8 +250,8 @@ _ctfe_args_equal :: (
         // and the post-definition `Option(RBNode(K, V))` (arg = stamped final)
         // land in SEPARATE memo entries, splitting one type into two
         // enum instances.
-        a_struct_id := match(aty, Rc(.Struct({ id : as_id })) => as_id, _ => String.from(""));
-        b_struct_id := match(bty, Rc(.Struct({ id : bs_id })) => bs_id, _ => String.from(""));
+        a_struct_id := match(aty, Rc(.Struct({ id : as_id })) => as_id.clone(), _ => String.from(""));
+        b_struct_id := match(bty, Rc(.Struct({ id : bs_id })) => bs_id.clone(), _ => String.from(""));
         // ENUM self-shells carry a `__self_shell` id SUFFIX (unlike struct
         // shells, which share the final's id exactly — see the comment
         // above). Strip it so `ArrayList(Self)` inside a recursive enum's
@@ -473,7 +473,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   };
   cfid := match(
     lookup_struct_ctor_fid(&sid),
-    .Some(f) => f,
+    .Some(f) => f.clone(),
     .None => match(ty, Rc(.Struct({ constructor_func_id : c })) => c, _ => String.from(""))
   );
   if(cfid.len() == usize(0), {
@@ -632,7 +632,7 @@ _recursive_placeholder :: (
   cond(
     is_type_0(return_type) => {
       placeholder := t_some_t(`recur_${func_id}`, usize(0));
-      sid := match(placeholder, Rc(.SomeT(id : x)) => x, _ => String.from(""));
+      sid := match(placeholder, Rc(.SomeT(id : x)) => x.clone(), _ => String.from(""));
       g_recursive_type_refs.push(
         RecursiveTypeRef(some_id : sid, func_id : func_id, arg_values : arg_vals)
       );
@@ -1045,7 +1045,7 @@ evaluate_comptime_fn_call :: (
     entry_idx_opt,
     .None => {
       new_entry := ComptimeFnCacheEntry(
-        func_id : func_id_str,
+        func_id : func_id_str.clone(),
         caches : ArrayList(CalledComptimeFnCache).new()
       );
       g_comptime_fn_caches.push(new_entry);
@@ -1122,7 +1122,7 @@ evaluate_comptime_fn_call :: (
   // No cache hit.  Push a temporary "in-progress" cache entry to detect
   // recursive calls (they will hit this entry and return the UnknownVal).
   temp_cache := CalledComptimeFnCache(
-    func_id : func_id_str,
+    func_id : func_id_str.clone(),
     arg_values : all_arg_vals,
     value : _recursive_placeholder(&return_type, &func_id_str, &all_arg_vals)
   );
@@ -1351,7 +1351,7 @@ evaluate_comptime_fn_call :: (
       .FnCall(_, ce_fn, ce_args, ce_infix, _) => cond(
         (ce_infix && (ce_args.len() == usize(2)) && ast_expr_is_atom_of(&ce_fn, ".")) => match(
           ce_args.get(usize(1)),
-          .Some(member) => match(member, .Atom(_, m_tok) => m_tok.value, .FnCall(_, _, _, _, _) => String.from("")),
+          .Some(member) => match(member, .Atom(_, m_tok) => m_tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")),
           .None => String.from("")
         ),
         true => String.from("")
@@ -1370,8 +1370,8 @@ evaluate_comptime_fn_call :: (
       .TypeVal(rv_disp) => {
         disp_id := match(
           rv_disp,
-          Rc(.Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns })) => if((d_snm.len() == usize(0)) && !d_ns, d_sid, String.from("")),
-          Rc(.EnumT(d_eid, d_enm, _, _, _, _, _, _, _, _)) => if(d_enm.len() == usize(0), d_eid, String.from("")),
+          Rc(.Struct({ id : d_sid, name : d_snm, is_source_namespace : d_ns })) => if((d_snm.len() == usize(0)) && !d_ns, d_sid.clone(), String.from("")),
+          Rc(.EnumT(d_eid, d_enm, _, _, _, _, _, _, _, _)) => if(d_enm.len() == usize(0), d_eid.clone(), String.from("")),
           _ => String.from("")
         );
         if(disp_id.len() > usize(0), {
@@ -1403,7 +1403,7 @@ evaluate_comptime_fn_call :: (
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
-          rc(TypeValueNode.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false))
+          rc(TypeValueNode.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str.clone(), inst_type_args, false))
         )
       }, return_value),
       // An enum instantiation's type arguments, the twin of the Struct stamp
@@ -1436,7 +1436,7 @@ evaluate_comptime_fn_call :: (
   // Update or remove the temp cache entry based on whether caching is enabled.
   if(should_cache, {
     updated_cache := CalledComptimeFnCache(
-      func_id : func_id_str,
+      func_id : func_id_str.clone(),
       arg_values : all_arg_vals,
       value : final_return_value
     );

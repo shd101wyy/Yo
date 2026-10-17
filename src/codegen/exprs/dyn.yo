@@ -52,7 +52,7 @@ _unwrap_box_concrete :: (fn(t : &TypeValue) -> TypeValue)({
 _dyn_c_name :: (fn(dyn_type : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     context.base.get_type_c_name(type_key(dyn_type)),
-    .Some(cn) => cn,
+    .Some(cn) => cn.clone(),
     .None => {
       out := String.from("__yo_dyn_");
       out.push_string(type_id_or_empty(dyn_type));
@@ -65,12 +65,12 @@ _dyn_c_name :: (fn(dyn_type : &TypeValue, context : &FunctionGenerationContext) 
 _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     dyn_concrete_c_name(concrete_type, &context.base),
-    .Some(cn) => cn,
+    .Some(cn) => cn.clone(),
     .None => match(
       extract_fn_trait_from_type(concrete_type),
       .Some(ft) => match(
         context.base.get_type_c_name(type_key(&ft)),
-        .Some(fcn) => fcn,
+        .Some(fcn) => fcn.clone(),
         .None => {
           out := String.from("unknown_");
           out.push_string(type_id_or_empty(concrete_type));

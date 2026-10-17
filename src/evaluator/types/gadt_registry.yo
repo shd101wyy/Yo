@@ -37,7 +37,7 @@ GadtEntry :: ref(
 register_gadt_enum :: (
   fn(enum_id : &String, variant_args : &ArrayList(ArrayList(TypeValue))) -> unit
 )({
-  g_gadt_entries.push(GadtEntry(enum_id : enum_id.clone(), variant_args : variant_args));
+  g_gadt_entries.push(GadtEntry(enum_id : enum_id.clone(), variant_args : variant_args.clone()));
 });
 /// Look up a GADT enum's per-variant args by id, if registered.
 get_gadt_variant_args :: (
@@ -50,7 +50,7 @@ get_gadt_variant_args :: (
     match(
       g_gadt_entries.get(i),
       .Some(e) => if(e.enum_id == enum_id, {
-        found = Option(ArrayList(ArrayList(TypeValue))).Some(e.variant_args);
+        found = Option(ArrayList(ArrayList(TypeValue))).Some(e.variant_args.clone());
       }),
       .None => ()
     );
@@ -76,7 +76,7 @@ GadtTcaEntry :: ref(
 register_gadt_type_constructor_args :: (
   fn(enum_id : &String, tca : &ArrayList(TypeValue)) -> unit
 )({
-  g_gadt_tca_entries.push(GadtTcaEntry(enum_id : enum_id.clone(), type_constructor_args : tca));
+  g_gadt_tca_entries.push(GadtTcaEntry(enum_id : enum_id.clone(), type_constructor_args : tca.clone()));
 });
 /// Look up the type-constructor args for an instantiated GADT enum, if any.
 get_gadt_type_constructor_args :: (
@@ -89,7 +89,7 @@ get_gadt_type_constructor_args :: (
     match(
       g_gadt_tca_entries.get(i),
       .Some(e) => if(e.enum_id == enum_id, {
-        found = Option(ArrayList(TypeValue)).Some(e.type_constructor_args);
+        found = Option(ArrayList(TypeValue)).Some(e.type_constructor_args.clone());
       }),
       .None => ()
     );

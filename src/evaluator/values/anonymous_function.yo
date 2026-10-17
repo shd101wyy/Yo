@@ -230,7 +230,7 @@ _synthesize_default_func_type :: (
   (i : usize) = usize(0);
   n := names.len();
   while(i < n, {
-    name := match(names.get(i), .Some(s) => s, .None => String.from("_p"));
+    name := match(names.get(i), .Some(s) => s.clone(), .None => String.from("_p"));
     param_types.push(t_some_t(&name, frame_level));
     i = (i + usize(1));
   });
@@ -317,7 +317,7 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
       .Atom(_, fbtok) => cond(
         (fbtok.value == ":") => match(
           args.get(usize(0)),
-          .Some(.Atom(_, ntok)) => ntok.value,
+          .Some(.Atom(_, ntok)) => ntok.value.clone(),
           .Some(.FnCall(_, _, _, _, _)) => fallback.clone(),
           .None => fallback.clone()
         ),
@@ -337,7 +337,7 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
       TypeValueNode.Func(
         ArrayList(TypeValue).new(),
         // no generic types
-        cpt,
+        cpt.clone(),
         ArrayList(TypeValue).new(),
         // no implicit types
         ArrayList(TypeValue).new(),
@@ -346,14 +346,14 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
         rc(
           FuncMeta(
             forall_labels : ArrayList(String).new(),
-            param_labels : cpl,
+            param_labels : cpl.clone(),
             implicit_labels : ArrayList(String).new(),
             result_is_comptime_only : false,
             // Fn-trait-derived closure type (runtime); `inout` call params
             // carry through (the with_lock write-through closure).
-            param_is_ref : cprf,
+            param_is_ref : cprf.clone(),
             // A plain `Fn(x : T)` parameter is by value (V3b's flip).
-            param_is_owning : cpof,
+            param_is_owning : cpof.clone(),
             result_is_ref : false,
             has_variadic : false,
             is_extern : Option(String).None,
@@ -425,7 +425,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => ty)
     },
     Rc(.Pointer(ss_in)) => rc(TypeValueNode.Pointer(recur(&ss_in, env2, allow.clone()))),
-    Rc(.Array(ss_ain, ss_alen, ss_alv)) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv)),
+    Rc(.Array(ss_ain, ss_alen, ss_alv)) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv.clone())),
     Rc(.Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm })) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
@@ -452,7 +452,7 @@ _flag_anon_swallow :: (fn(msg : &String, code : &Option(String)) -> unit)({
   g_anon_swallow_msg.clear();
   g_anon_swallow_msg.push(msg);
   g_anon_swallow_code.clear();
-  match(code, .Some(c) => g_anon_swallow_code.push(c), .None => ());
+  match(code, .Some(c) => g_anon_swallow_code.push(c.clone()), .None => ());
 });
 /// The swallowed error's STRUCTURED diagnostics, written and cleared in
 /// lockstep with the text, as calls/function_type.yo's
@@ -466,7 +466,7 @@ _flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.push(d), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.push(d.clone()), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -842,7 +842,7 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   (ri : usize) = rev.len();
   while(ri > usize(0), {
     ri = (ri - usize(1));
-    fields.push(match(rev.get(ri), .Some(f) => f, .None => String.new()));
+    fields.push(match(rev.get(ri), .Some(f) => f.clone(), .None => String.new()));
   });
   Option(AstExpr).Some(cur)
 });
@@ -1108,8 +1108,8 @@ evaluate_anonymous_function_implementation :: (
     match(
       param_decl,
       .FnCall(_, cl_callee, cl_params, _, _) => {
-        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, .FnCall(_, _, cl_entries, _, _) => cl_entries, .Atom(_, _) => ArrayList(AstExpr).new()));
-        cap_list_params = cl_params;
+        cap_list_raw = Option(ArrayList(AstExpr)).Some(match(cl_callee, .FnCall(_, _, cl_entries, _, _) => cl_entries.clone(), .Atom(_, _) => ArrayList(AstExpr).new()));
+        cap_list_params = cl_params.clone();
       },
       .Atom(_, _) => ()
     );
@@ -1264,17 +1264,17 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     function_type,
-    Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels,
+    Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels.clone(),
     _ => ArrayList(String).new()
   );
   param_labels := match(
     function_type,
-    Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels,
+    Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels.clone(),
     _ => ArrayList(String).new()
   );
   (param_types : ArrayList(TypeValue)) = match(
     function_type,
-    Rc(.Func({ param_types : pt })) => pt,
+    Rc(.Func({ param_types : pt })) => pt.clone(),
     _ => ArrayList(TypeValue).new()
   );
   // The expected type's per-param ref-ness. A `self : &mut Self` trait-method
@@ -1286,7 +1286,7 @@ evaluate_anonymous_function_implementation :: (
   // (create_specialized_function_inline) body-eval paths.
   param_is_ref := match(
     function_type,
-    Rc(.Func({ meta : __fm3 })) => __fm3.*.param_is_ref,
+    Rc(.Func({ meta : __fm3 })) => __fm3.*.param_is_ref.clone(),
     _ => ArrayList(bool).new()
   );
   // The expected type's by-value flags (V3b's flip, decision 30): a closure
@@ -1294,17 +1294,17 @@ evaluate_anonymous_function_implementation :: (
   // parameter does (`bind_parameter`), so the closure drops it.
   param_is_owning := match(
     function_type,
-    Rc(.Func({ meta : __fm3o })) => __fm3o.*.param_is_owning,
+    Rc(.Func({ meta : __fm3o })) => __fm3o.*.param_is_owning.clone(),
     _ => ArrayList(bool).new()
   );
   implicit_labels := match(
     function_type,
-    Rc(.Func({ meta : __fm4 })) => __fm4.*.implicit_labels,
+    Rc(.Func({ meta : __fm4 })) => __fm4.*.implicit_labels.clone(),
     _ => ArrayList(String).new()
   );
   implicit_types := match(
     function_type,
-    Rc(.Func({ implicit_types : it })) => it,
+    Rc(.Func({ implicit_types : it })) => it.clone(),
     _ => ArrayList(TypeValue).new()
   );
   result_box := match(
@@ -1432,7 +1432,7 @@ evaluate_anonymous_function_implementation :: (
       match(
         ann_some_name,
         .Some(ann_nm) => {
-          ann_targs := match(ann_pe, .FnCall(_, _, ata, _, _) => ata, .Atom(_, _) => ArrayList(AstExpr).new());
+          ann_targs := match(ann_pe, .FnCall(_, _, ata, _, _) => ata.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
           ann_tex := match(ann_targs.get(usize(1)), .Some(a) => a, .None => make_err_expr());
           ann_out := ArrayList(TypeValue).new();
           ann_prev_flag := ctx.is_evaluating_function_type;
@@ -1495,7 +1495,7 @@ evaluate_anonymous_function_implementation :: (
       function_type = _subst_some_types_from_env(&function_type, env, &ann_bound_names);
       param_types = match(
         function_type,
-        Rc(.Func({ param_types : ann_pt })) => ann_pt,
+        Rc(.Func({ param_types : ann_pt })) => ann_pt.clone(),
         _ => param_types.clone()
       );
     });
@@ -1653,7 +1653,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (fa_env_i : usize) = usize(0);
   while(fa_env_i < forall_labels.len(), {
-    fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
+    fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n.clone(), .None => String.from(""));
     fl_ty := rc(
       TypeValueNode.SomeT(
         fl_name.clone(),
@@ -1687,7 +1687,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (il_env_i : usize) = usize(0);
   while(il_env_i < implicit_labels.len(), {
-    il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
+    il_name := match(implicit_labels.get(il_env_i), .Some(n) => n.clone(), .None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     il_tok := synthetic_token(il_name.clone(), &env.module_path);
     il_val := create_unknown_val(il_ty.clone());
@@ -1714,7 +1714,7 @@ evaluate_anonymous_function_implementation :: (
   (rp_i : usize) = usize(0);
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
-    exp_label := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
+    exp_label := match(param_labels.get(rp_i), .Some(n) => n.clone(), .None => String.from(""));
     rp_ty_raw := match(param_types.get(rp_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     // Substitute generic SomeTypes (e.g. `E`) in the param type with their
     // concrete bindings from the callee env.
@@ -1886,8 +1886,8 @@ evaluate_anonymous_function_implementation :: (
   func_val := EvalValue.FuncVal(
     rc(
       FuncValData(
-        forall_names : forall_labels,
-        params : actual_param_labels,
+        forall_names : forall_labels.clone(),
+        params : actual_param_labels.clone(),
         param_type_names : param_type_names,
         evidence_params : implicit_labels,
         body : body_expr,
@@ -1935,7 +1935,7 @@ evaluate_anonymous_function_implementation :: (
   // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
   // thing and travels with the meta through the `.clone()` just above.
   match(
-    match(corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.origin_id, _ => Option(String).None),
+    match(corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.origin_id.clone(), _ => Option(String).None),
     .Some(_oid) => {
       copy_func_param_defaults(_oid.clone(), func_id.clone());
       copy_func_param_default_exprs(_oid.clone(), func_id.clone());
@@ -2284,7 +2284,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // runtime values keeps its trial's error (a forced body with SomeT
     // parameters, or a `comptime(x)` value parameter).
     if(_g_anon_dbg_swallow && _anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
-      eprintln(`[kept] site=${if(body_has_ct_param, String.from("anon-ct"), String.from("anon-abstract"))} code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${hb_site}`);
+      eprintln(`[kept] site=${if(body_has_ct_param, String.from("anon-ct"), String.from("anon-abstract"))} code=${match(_anon_swallow_code(), .Some(c) => c.clone(), .None => String.from("-"))} owner=${hb_site}`);
     });
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
@@ -2501,7 +2501,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt)) => {
                   nrs_nm := nrs_m.*.clone();
                   nrs_nm.param_labels = actual_param_labels.clone();
-                  rc(TypeValueNode.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt))
+                  rc(TypeValueNode.Func(nrs_fl.clone(), nrs_pt.clone(), nrs_it.clone(), nrs_wt.clone(), nrs_body_ty, rc(nrs_nm), nrs_vt.clone()))
                 },
                 _ => function_type
               );
@@ -2780,7 +2780,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       if(_anon_swallow_pending() && (dgc_out.len() == usize(0)), {
         record_generic_trial_error(&dgc_site, _anon_swallow_message(), g_anon_swallow_diags.clone());
         if(_g_anon_dbg_swallow, {
-          eprintln(`[kept] site=dgc code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${dgc_site}`);
+          eprintln(`[kept] site=dgc code=${match(_anon_swallow_code(), .Some(c) => c.clone(), .None => String.from("-"))} owner=${dgc_site}`);
         });
       }, {
         clear_generic_trial_error(&dgc_site);
@@ -2909,7 +2909,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     if(cap_list_raw.is_none(), {
       dup_res := generate_captured_variable_dup_expressions(&cvwv, env, ctx, exn, &tok, closure_literal_is_borrowed(expr));
       closure_borrows_captures = dup_res.borrowed;
-      closure_capture_dups = dup_res.dup_exprs;
+      closure_capture_dups = dup_res.dup_exprs.clone();
     });
     cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok);
     closure_capture_type = cap_res.capture_type;

@@ -294,7 +294,7 @@ evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, e
         if(ast_expr_is_fn_call_of(&first, ":=", Option(usize).Some(usize(2))), {
           ba := match(
             first,
-            .FnCall(_, _, a2, _, _) => a2,
+            .FnCall(_, _, a2, _, _) => a2.clone(),
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           nm := match(
@@ -435,7 +435,7 @@ register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
     g_refine_pred_chains.get(outer_fid.clone()),
-    .Some(chain) => chain,
+    .Some(chain) => chain.clone(),
     .None => ArrayList(String).new()
   )
 );
@@ -701,7 +701,7 @@ _evaluate_spec_collection :: (
   // append / singles / add / str_bytes) take the FIRST argument's type
   // (Seq(T)/Set(T)/Multiset(T) are erased aliases); counts are i64;
   // contains is bool; nth is u8 (str-content iteration).
-  head := ast_expr_token(expr).value;
+  head := ast_expr_token(expr).value.clone();
   arg1_ty := t_bool();
   match(
     args.get(usize(0)),
@@ -857,7 +857,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
     // a binding FORM — never evaluated as an expression.
     ba := match(
       barg,
-      .FnCall(_, _, a2, _, _) => a2,
+      .FnCall(_, _, a2, _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     ty_expr := match(
@@ -929,7 +929,7 @@ _evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalCont
   while(vi < binder_names.len(), {
     // The loop condition proves the index in [0, len); the panic arms carry
     // that invariant instead of trusting unwrap (safe-mode D7).
-    vname := match(binder_names.get(vi), .Some(vn) => vn, .None => __yo_panic("contracts: binder_names.get(vi) — vi < len by loop condition"));
+    vname := match(binder_names.get(vi), .Some(vn) => vn.clone(), .None => __yo_panic("contracts: binder_names.get(vi) — vi < len by loop condition"));
     vty := match(binder_types.get(vi), .Some(vt) => vt, .None => __yo_panic("contracts: binder_types.get(vi) — vi < len by loop condition"));
     _ := add_variable_to_env(
       &cur_env,
@@ -1692,7 +1692,7 @@ register_impl_inheritance_task :: (
       pred_env.push_frame(false);
       (bih : usize) = usize(0);
       while(bih < p_names.len(), {
-        __pn := match(p_names.get(bih), .Some(x) => x, .None => String.new());
+        __pn := match(p_names.get(bih), .Some(x) => x.clone(), .None => String.new());
         __pt := match(p_types.get(bih), .Some(x) => x, .None => t_unit());
         if(__pn.len() > usize(0), {
           add_variable_to_env(
@@ -2052,7 +2052,7 @@ _stash_callsite_contracts :: (
     callee_val,
     .Some(v2) => match(
       v2,
-      .FuncVal(fvd2, _) => fvd2.*.params,
+      .FuncVal(fvd2, _) => fvd2.*.params.clone(),
       _ => ArrayList(String).new()
     ),
     .None => ArrayList(String).new()
@@ -2067,7 +2067,7 @@ _stash_callsite_contracts :: (
   site_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < fvd_params.len(), {
-    __pn := match(fvd_params.get(bi), .Some(x) => x, .None => String.new());
+    __pn := match(fvd_params.get(bi), .Some(x) => x.clone(), .None => String.new());
     if(__pn.len() > usize(0), {
       __pt := match(
         _callsite_param_type(ctx, e, &recv_expr, bi),
@@ -2350,7 +2350,7 @@ register_impl_variance_task :: (
   // evaluated in THIS module (their names must match the impl's).
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
-    __pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
+    __pn := match(p_names.get(bi), .Some(x) => x.clone(), .None => String.new());
     __pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
     if(__pn.len() > usize(0), {
       add_variable_to_env(
@@ -2764,7 +2764,7 @@ _contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old 
     ),
     .FnCall(_, head, args, _, _) => {
       if(ast_expr_is_atom(&head), {
-        hn := ast_expr_token(&head).value;
+        hn := ast_expr_token(&head).value.clone();
         if(((hn == BF_OLD) && !allow_old) || (hn == BF_FORALL) || (hn == BF_EXISTS) || (hn == BF_GHOST) || (hn == BF_DISTINCT), {
           return(false);
         });
@@ -2844,7 +2844,7 @@ wrap_function_body_with_contracts :: (
     });
     sei = (sei + usize(1));
   });
-  (splice_requires : ArrayList(AstExpr)) = requires_exprs;
+  (splice_requires : ArrayList(AstExpr)) = requires_exprs.clone();
   // Whether the requires-only splice may flatten a block body into its own
   // begin. Not in `verify` mode: the verifier walks the task's UNWRAPPED body
   // node and needs its ExprInfo, which a flattened body never gets (its
@@ -3231,7 +3231,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   pred_env.push_frame(false);
   (bi : usize) = usize(0);
   while(bi < p_names.len(), {
-    pn := match(p_names.get(bi), .Some(x) => x, .None => String.new());
+    pn := match(p_names.get(bi), .Some(x) => x.clone(), .None => String.new());
     pt := match(p_types.get(bi), .Some(x) => x, .None => t_unit());
     if(pn.len() > usize(0), {
       add_variable_to_env(

@@ -99,7 +99,7 @@ DocState :: ref(
 _jfield_str :: (fn(v : &JsonValue, key : str) -> String)(
   match(
     v.get(String.from(key)),
-    .Some(f) => match(f, .Str(x) => x, _ => String.new()),
+    .Some(f) => match(f, .Str(x) => x.clone(), _ => String.new()),
     .None => String.new()
   )
 );
@@ -220,7 +220,7 @@ _analyze_and_publish :: (
       );
       docs.insert(
         uri.clone(),
-        DocState(text : text.clone(), lines : lines, entry_abs : fs_path.clone(), outcome : retained, diags : diags.clone())
+        DocState(text : text.clone(), lines : lines.clone(), entry_abs : fs_path.clone(), outcome : retained, diags : diags.clone())
       );
     },
     .None => ()
@@ -720,7 +720,7 @@ _handle_message :: (
             match(
               handle_hover(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(h) => {
-                hover_result = h;
+                hover_result = h.clone();
               },
               .None => ()
             );
@@ -742,7 +742,7 @@ _handle_message :: (
             match(
               handle_definition(&st.text, &st.entry_abs, &st.lines, std_path.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(loc) => {
-                def_result = loc;
+                def_result = loc.clone();
               },
               .None => ()
             );
@@ -768,7 +768,7 @@ _handle_message :: (
             match(
               handle_definition(&st.text, &st.entry_abs, &st.lines, std_path.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(loc) => {
-                decl_result = loc;
+                decl_result = loc.clone();
               },
               .None => ()
             );
@@ -790,7 +790,7 @@ _handle_message :: (
             match(
               handle_type_definition(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(loc) => {
-                td_result = loc;
+                td_result = loc.clone();
               },
               .None => ()
             );
@@ -877,8 +877,8 @@ _handle_message :: (
             ws_docs.push(
               WorkspaceDoc(
                 uri : entry.key.clone(),
-                exprs : entry.value.outcome.exprs,
-                lines : entry.value.lines
+                exprs : entry.value.outcome.exprs.clone(),
+                lines : entry.value.lines.clone()
               )
             );
           });
@@ -956,7 +956,7 @@ _handle_message :: (
             match(
               handle_prepare_rename(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(pr) => {
-                pr_result = pr;
+                pr_result = pr.clone();
               },
               .None => ()
             );
@@ -1001,7 +1001,7 @@ _handle_message :: (
                   match(
                     handle_rename(&st.text, &st.entry_abs, &st.lines, uri.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character, &new_name),
                     .Some(we) => {
-                      rn_result = we;
+                      rn_result = we.clone();
                     },
                     .None => ()
                   );
@@ -1102,7 +1102,7 @@ _handle_message :: (
             match(
               handle_signature_help(&st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(sh) => {
-                sh_result = sh;
+                sh_result = sh.clone();
               },
               .None => ()
             );

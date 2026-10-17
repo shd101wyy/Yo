@@ -86,7 +86,7 @@ get_store_dir :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/store/sha256"))
 );
 _is_lower_hex :: (fn(s : &String) -> bool)({
-  bytes := s;
+  bytes := s.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -216,8 +216,8 @@ get_install_versions_dir :: (fn() -> Option(String))({
   tag_dir := match(bin_dir.parent(), .Some(p) => p, .None => return(Option(String).None));
   yo_dir := match(tag_dir.parent(), .Some(p) => p, .None => return(Option(String).None));
   lib_dir := match(yo_dir.parent(), .Some(p) => p, .None => return(Option(String).None));
-  yo_name := match(yo_dir.file_name(), .Some(n) => n, .None => return(Option(String).None));
-  lib_name := match(lib_dir.file_name(), .Some(n) => n, .None => return(Option(String).None));
+  yo_name := match(yo_dir.file_name(), .Some(n) => n.clone(), .None => return(Option(String).None));
+  lib_name := match(lib_dir.file_name(), .Some(n) => n.clone(), .None => return(Option(String).None));
   if((yo_name != "yo") || (lib_name != "lib"), {
     return(Option(String).None);
   });

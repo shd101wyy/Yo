@@ -63,7 +63,7 @@ _render_markdown :: (fn(text : &String) -> String)({
 // ── HTML escaping ────────────────────────────────────────────────────
 _escape_html :: (fn(text : &String) -> String)({
   out := String.new();
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -83,7 +83,7 @@ _escape_html :: (fn(text : &String) -> String)({
 // ── JSON string escaping (JSON.stringify semantics, for the search index) ──
 _json_str :: (fn(text : &String) -> String)({
   out := String.from("\"");
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -115,7 +115,7 @@ _json_str :: (fn(text : &String) -> String)({
 /// "collections/array_list" -> "collections__array_list"
 _module_to_filename :: (fn(name : &String) -> String)({
   out := String.new();
-  bytes := name;
+  bytes := name.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -132,11 +132,11 @@ _module_to_filename :: (fn(name : &String) -> String)({
 /// Last path segment.
 _module_display_name :: (fn(name : &String) -> String)({
   parts := name.split(String.from("/"));
-  match(parts.last(), .Some(p) => p, .None => name.clone())
+  match(parts.last(), .Some(p) => p.clone(), .None => name.clone())
 });
 /// Directory/group part, or "" for top-level.
 _module_group :: (fn(name : &String) -> String)({
-  bytes := name;
+  bytes := name.clone();
   n := bytes.len();
   (idx : usize) = usize(0);
   (found : bool) = false;
@@ -267,7 +267,7 @@ _linkify_type :: (
           );
           if(use_anchor, {
             // just the anchor
-            hb := href;
+            hb := href.clone();
             (hpos : usize) = usize(0);
             (hn : usize) = hb.len();
             (hfound : usize) = usize(0);
@@ -331,10 +331,10 @@ _search_entry_json :: (
 /// closers `` ` " ' ’ ” ) ] } > ``) by whitespace or end; capped at 120.
 _first_sentence :: (fn(text : &String) -> String)({
   trimmed := text.trim();
-  first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l, .None => String.new());
+  first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l.clone(), .None => String.new());
   line := first_line.trim();
   // Strip a trailing \r (CRLF line endings).
-  lb := line;
+  lb := line.clone();
   (ln : usize) = lb.len();
   if((ln > usize(0)) && (match(lb.get_byte(ln - usize(1)), .Some(x) => x, .None => u8(0)) == u8(13)), {
     nb := ArrayList(u8).new();
@@ -345,7 +345,7 @@ _first_sentence :: (fn(text : &String) -> String)({
     });
     line = String.from_bytes(nb).trim();
   });
-  bytes := line;
+  bytes := line.clone();
   n := bytes.len();
   (result : String) = line.clone();
   (i : usize) = usize(0);
@@ -648,7 +648,7 @@ _render_sidebar :: (fn(model : &DocModel, active_module : &Option(String)) -> St
   while(gi < sorted_groups.len(), {
     g := match(
       sorted_groups.get(gi),
-      .Some(x) => x,
+      .Some(x) => x.clone(),
       .None => {
         break;
       }
@@ -1037,7 +1037,7 @@ _render_trait_impls :: (
   while(i < impls.len(), {
     name := match(
       impls.get(i),
-      .Some(x) => x,
+      .Some(x) => x.clone(),
       .None => {
         break;
       }
@@ -1145,7 +1145,7 @@ _render_impl_blocks :: (
         while(ni < impl_.method_names.len(), {
           nm := match(
             impl_.method_names.get(ni),
-            .Some(x) => x,
+            .Some(x) => x.clone(),
             .None => {
               break;
             }
@@ -1168,7 +1168,7 @@ _render_impl_blocks :: (
         while(ni < impl_.method_names.len(), {
           nm := match(
             impl_.method_names.get(ni),
-            .Some(x) => x,
+            .Some(x) => x.clone(),
             .None => {
               break;
             }
@@ -1323,7 +1323,7 @@ _render_trait :: (
     while(i < tr.implementors.len(), {
       name := match(
         tr.implementors.get(i),
-        .Some(x) => x,
+        .Some(x) => x.clone(),
         .None => {
           break;
         }
@@ -1488,7 +1488,7 @@ _render_index_content :: (fn(model : &DocModel) -> String)({
   while(gi < sorted_groups.len(), {
     g := match(
       sorted_groups.get(gi),
-      .Some(x) => x,
+      .Some(x) => x.clone(),
       .None => {
         break;
       }
@@ -1653,7 +1653,7 @@ _replace_occurrences :: (fn(text : &String, from : &String, to : &String, first_
           out.push(match(hay.get(k), .Some(x) => x, .None => u8(0)));
           k = (k + usize(1));
         });
-        tb := to;
+        tb := to.clone();
         (tk : usize) = usize(0);
         while(tk < tb.len(), {
           out.push(match(tb.get_byte(tk), .Some(x) => x, .None => u8(0)));

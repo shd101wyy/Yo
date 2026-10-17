@@ -31,7 +31,7 @@ _name_in_visited :: (fn(visited : &ArrayList(String), name : &String) -> bool)({
   result := false;
   i := usize(0);
   while(i < visited.len(), {
-    elem := match(visited.get(i), .Some(s) => s, .None => String.from(""));
+    elem := match(visited.get(i), .Some(s) => s.clone(), .None => String.from(""));
     cond(
       (elem == name) => {
         result = true;
@@ -120,12 +120,12 @@ _universe_memo_compute :: (
   outer_fired := g_universe_guard_fired;
   g_universe_guard_fired = false;
   new_visited := visited.clone();
-  new_visited.push(name);
+  new_visited.push(name.clone());
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
     bucket := match(g_universe_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
     bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
-    _ := g_universe_memo.insert(key, bucket);
+    _ := g_universe_memo.insert(key.clone(), bucket);
   });
   g_universe_guard_fired = (g_universe_guard_fired || outer_fired);
   r
@@ -211,7 +211,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
               all_fields := ArrayList(TypeValue).new();
               vi := usize(0);
               while(vi < variant_fields.len(), {
-                vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+                vfields := match(variant_fields.get(vi), .Some(vf) => vf.clone(), .None => ArrayList(TypeValue).new());
                 fi := usize(0);
                 while(fi < vfields.len(), {
                   ft := match(vfields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));

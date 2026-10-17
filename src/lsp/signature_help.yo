@@ -160,7 +160,7 @@ handle_signature_help :: (
       return(Option(JsonValue).None);
     }
   );
-  callee_name := ast_expr_token(&callee).value;
+  callee_name := ast_expr_token(&callee).value.clone();
   match(
     info.ty,
     Rc(.Func(_, param_types, _, _, _, meta, _)) => {
@@ -168,7 +168,7 @@ handle_signature_help :: (
       (pi : usize) = usize(0);
       while(pi < param_types.len(), {
         pt := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
+        plabel := match(meta.*.param_labels.get(pi), .Some(l) => l.clone(), .None => `arg${pi}`);
         // Spelled as the signature label spells it (decision 42), so the
         // client finds the parameter inside the signature.
         p_ref := match(meta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);

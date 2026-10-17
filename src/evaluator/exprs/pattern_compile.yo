@@ -220,7 +220,7 @@ _enum_variant_names :: (fn(t : &TypeValue) -> ArrayList(String))(
 _enum_variant_labels :: (fn(t : &TypeValue, idx : usize) -> ArrayList(String))(
   match(
     t,
-    Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(idx), .Some(l) => l, .None => ArrayList(String).new()),
+    Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(idx), .Some(l) => l.clone(), .None => ArrayList(String).new()),
     _ => ArrayList(String).new()
   )
 );
@@ -251,7 +251,7 @@ _variant_name_eq :: (fn(stored : &String, arm_name : &String) -> bool)(
 _select_variant :: (fn(enum_ty : &TypeValue, name : &String) -> TypeValue)(
   match(
     enum_ty,
-    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar, etas)),
+    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), vn.clone(), vf.clone(), Option(String).Some(name), vfl.clone(), discs.clone(), eirs, eiar, etas.clone())),
     _ => enum_ty
   )
 );
@@ -371,7 +371,7 @@ _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> O
         vns := _enum_variant_names(position_ty);
         (vi : usize) = usize(0);
         while(vi < vns.len(), {
-          cand := match(vns.get(vi), .Some(n) => n, .None => String.new());
+          cand := match(vns.get(vi), .Some(n) => n.clone(), .None => String.new());
           if(_variant_name_eq(vname.clone(), cand.clone()), {
             return(
               Option(Pattern).Some(
@@ -614,14 +614,14 @@ _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
     (ci : usize) = usize(0);
     while(ci < names.len(), {
       if(!taken.contains(&ci), {
-        cand := match(names.get(ci), .Some(n) => n, .None => String.new());
+        cand := match(names.get(ci), .Some(n) => n.clone(), .None => String.new());
         match(
           best,
           .None => {
             best = Option(usize).Some(ci);
           },
           .Some(bi) => {
-            cur_best := match(names.get(bi), .Some(n) => n, .None => String.new());
+            cur_best := match(names.get(bi), .Some(n) => n.clone(), .None => String.new());
             if(cand < cur_best, {
               best = Option(usize).Some(ci);
             });
@@ -634,7 +634,7 @@ _bind_names_sorted :: (fn(binds : &ArrayList(BindInfo)) -> ArrayList(String))({
       best,
       .Some(bi) => {
         taken.push(bi);
-        sorted.push(match(names.get(bi), .Some(n) => n, .None => String.new()));
+        sorted.push(match(names.get(bi), .Some(n) => n.clone(), .None => String.new()));
       },
       .None => ()
     );
@@ -649,8 +649,8 @@ _same_names :: (fn(a : &ArrayList(String), b : &ArrayList(String)) -> bool)({
   (i : usize) = usize(0);
   (same : bool) = true;
   while((i < a.len()) && same, {
-    x := match(a.get(i), .Some(s) => s, .None => String.new());
-    y := match(b.get(i), .Some(s) => s, .None => String.new());
+    x := match(a.get(i), .Some(s) => s.clone(), .None => String.new());
+    y := match(b.get(i), .Some(s) => s.clone(), .None => String.new());
     if(!(x == y), {
       same = false;
     });

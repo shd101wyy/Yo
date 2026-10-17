@@ -29,7 +29,7 @@
 /// Mark a function as a control function (uses `unwind`).
 /// Idempotent: calling multiple times with the same id is safe.
 mark_as_control_fn :: (fn(func_id : &String) -> unit)({
-  g_control_fn_registry.insert(func_id, true);
+  g_control_fn_registry.insert(func_id.clone(), true);
 });
 /// Returns true if the function identified by `func_id` is a control function.
 is_control_fn :: (fn(func_id : &String) -> bool)(
@@ -51,7 +51,7 @@ is_control_fn :: (fn(func_id : &String) -> bool)(
 (g_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by `func_id`) as a closure. Idempotent.
 mark_as_closure_fn :: (fn(func_id : &String) -> unit)({
-  g_closure_fn_registry.insert(func_id, true);
+  g_closure_fn_registry.insert(func_id.clone(), true);
 });
 /// True if the function identified by `func_id` is a closure (takes a capture
 /// context as its first C parameter).
@@ -71,14 +71,14 @@ is_closure_fn :: (fn(func_id : &String) -> bool)(
 (g_fnonce_closure_fn_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a closure (by `func_id`) as owning its captures. Idempotent.
 mark_as_fnonce_closure_fn :: (fn(func_id : &String) -> unit)({
-  g_fnonce_closure_fn_registry.insert(func_id, true);
+  g_fnonce_closure_fn_registry.insert(func_id.clone(), true);
 });
 /// The capture-struct type ids of the closures that own their captures: a
 /// value whose type is (or resolves to) one of these is such a closure, even
 /// where its function value is not at hand (a local typed `Impl(FnOnce(...))`).
 (g_fnonce_capture_struct_ids : HashMap(String, bool)) = HashMap(String, bool).new();
 mark_fnonce_capture_struct :: (fn(struct_id : &String) -> unit)({
-  g_fnonce_capture_struct_ids.insert(struct_id, true);
+  g_fnonce_capture_struct_ids.insert(struct_id.clone(), true);
 });
 is_fnonce_capture_struct :: (fn(struct_id : &String) -> bool)(g_fnonce_capture_struct_ids.get(struct_id).is_some());
 /// True if the closure identified by `func_id` owns its captures (its body
@@ -119,7 +119,7 @@ register_closure_fid_source :: (fn(func_id : &String, src_key : &String) -> unit
   if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
     eprintln(`[fid-src] fid=${func_id} src=${src_key}`);
   });
-  g_closure_fid_source.insert(func_id, src_key);
+  g_closure_fid_source.insert(func_id.clone(), src_key.clone());
   ()
 });
 _capture_struct_field_count :: (fn(t : &TypeValue) -> usize)(
@@ -145,7 +145,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
       },
       _ => ()
     );
-    reg_src := match(g_closure_fid_source.get(func_id.clone()), .Some(sv) => sv, .None => `NO-SRC`.to_string());
+    reg_src := match(g_closure_fid_source.get(func_id.clone()), .Some(sv) => sv.clone(), .None => `NO-SRC`.to_string());
     eprintln(`[cap-reg] fid=${func_id} src=${reg_src} fields=${reg_flds}`);
   });
   // KEEP-LARGER: a closure definition can be re-evaluated (def-time trial,
@@ -181,7 +181,7 @@ register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureIn
     },
     .None => ()
   );
-  g_closure_capture_info.insert(func_id, info);
+  g_closure_capture_info.insert(func_id.clone(), info);
 });
 /// The recorded capture info for `func_id`, if any.
 /// Reverse lookup: capture-struct id → the closure func_id that registered it.
@@ -245,7 +245,7 @@ get_closure_capture_info :: (fn(func_id : &String) -> Option(ClosureCaptureInfo)
 (g_effect_record_member_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a function (by func_id) as an effect-record member. Idempotent.
 mark_as_effect_record_member :: (fn(func_id : &String) -> unit)({
-  g_effect_record_member_registry.insert(func_id, true);
+  g_effect_record_member_registry.insert(func_id.clone(), true);
 });
 // ---------------------------------------------------------------------------
 // Index-entry side-table (codegen)
@@ -261,7 +261,7 @@ mark_as_effect_record_member :: (fn(func_id : &String) -> unit)({
 /// callee that asserts on its own entry, or the realloc/free auto-assert.
 (g_index_entry_method_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 mark_as_index_entry_method :: (fn(func_id : &String) -> unit)({
-  g_index_entry_method_registry.insert(func_id, true);
+  g_index_entry_method_registry.insert(func_id.clone(), true);
 });
 is_index_entry_method :: (fn(func_id : &String) -> bool)(
   g_index_entry_method_registry.get(func_id).is_some()
@@ -279,7 +279,7 @@ is_index_entry_method :: (fn(func_id : &String) -> bool)(
 (g_io_async_sm_closure_registry : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Mark a closure (by func_id) as an io.async state-machine closure. Idempotent.
 mark_io_async_sm_closure :: (fn(func_id : &String) -> unit)({
-  g_io_async_sm_closure_registry.insert(func_id, true);
+  g_io_async_sm_closure_registry.insert(func_id.clone(), true);
 });
 /// Returns true if `func_id` is an io.async state-machine closure.
 is_io_async_sm_closure :: (fn(func_id : &String) -> bool)(
@@ -336,7 +336,7 @@ is_effect_record_member :: (fn(func_id : &String) -> bool)(
 /// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
 /// if the function is defined inside another function body.
 register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue) -> unit)({
-  g_definition_site_return_registry.insert(func_id, return_ty);
+  g_definition_site_return_registry.insert(func_id.clone(), return_ty);
 });
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `t_unit()` if the function was not defined inside another function
@@ -364,7 +364,7 @@ get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
 (g_closure_body_type_registry : HashMap(String, TypeValue)) =
   HashMap(String, TypeValue).new();
 register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> unit)({
-  g_closure_body_type_registry.insert(func_id, body_ty);
+  g_closure_body_type_registry.insert(func_id.clone(), body_ty);
 });
 get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
   g_closure_body_type_registry.get(func_id.clone())
@@ -377,7 +377,7 @@ get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
 /// Function ids are never mutated in place once minted.
 register_func_type :: (fn(func_id : &String, func_ty : &TypeValue) -> unit)({
   record_owned_func_id(func_id);
-  g_func_type_registry.insert(func_id, func_ty);
+  g_func_type_registry.insert(func_id.clone(), func_ty);
 });
 // ---------------------------------------------------------------------------
 // Unemittable-fn side-table
@@ -461,7 +461,7 @@ get_func_type :: (fn(func_id : &String) -> TypeValue)(
 /// type-expression id. (Capture timing is critical — see DEFTIME_BODY_EVAL.md.)
 register_func_parameters_frame :: (fn(func_id : &String, frame : &Frame) -> unit)({
   record_owned_func_id(func_id.clone());
-  g_func_parameters_frame.insert(func_id, frame);
+  g_func_parameters_frame.insert(func_id.clone(), frame);
 });
 /// Retrieve a function's parameter-bound frame, if captured.
 get_func_parameters_frame :: (fn(func_id : &String) -> Option(Frame))(
