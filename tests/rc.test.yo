@@ -2597,3 +2597,28 @@ test("consume of a borrow releases nothing", {
   };
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
 });
+// An exit after the consume must not release the value again, and an exit
+// before it must still release it: exactly one release on every path.
+_consume_then_exit :: (fn(flag : bool) -> i32)({
+  s := _ConsumeBox(tag : i32(6));
+  consume(s);
+  cond(flag => return(i32(1)), true => ());
+  i32(2)
+});
+_exit_then_consume :: (fn(flag : bool) -> i32)({
+  s := _ConsumeBox(tag : i32(7));
+  cond(flag => return(i32(1)), true => ());
+  consume(s);
+  i32(2)
+});
+test("an early return after or before a consume releases the local once", {
+  before := g_consume_disposed;
+  assert(_consume_then_exit(true) == i32(1), "returned early");
+  assert(g_consume_disposed == (before + i32(1)), "consume then return: once");
+  assert(_consume_then_exit(false) == i32(2), "fell through");
+  assert(g_consume_disposed == (before + i32(2)), "consume then fall through: once");
+  assert(_exit_then_consume(true) == i32(1), "returned early");
+  assert(g_consume_disposed == (before + i32(3)), "return before the consume: once");
+  assert(_exit_then_consume(false) == i32(2), "fell through");
+  assert(g_consume_disposed == (before + i32(4)), "consume at the end: once");
+});

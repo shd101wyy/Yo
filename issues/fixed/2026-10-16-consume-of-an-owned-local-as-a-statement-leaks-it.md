@@ -1,6 +1,6 @@
 # `consume(x)` of an owned local, as a statement, leaks `x`
 
-**Status:** Fixed 2026-10-16 (`fix/consume-statement-leak`).
+**Status:** Fixed 2026-10-16 (#1416, `fix/consume-statement-leak`).
 
 **Severity:** S2 — `consume(s)` on a heap-owning local marks it moved, and the discarded result is never dropped, so the object leaks (LeakSanitizer); the workaround is to not use the builtin on an owned value
 
@@ -78,11 +78,12 @@ that is moved (`e5`), a base whose derived copy is moved (`consumed_dups`) and
 a derived copy whose base is moved (`base_consumed`), so an alias `b := a`
 keeps its own count and `consume(b)` releases only that count.
 
-Test: `tests/rc.test.yo`, six Drop-counter tests (an owned local released at
+Test: `tests/rc.test.yo`, seven Drop-counter tests (an owned local released at
 the consume, a call result, an alias, a consume in one `cond` arm on both
-paths, an owned parameter, a `&T` borrow). The first five fail on
-develop's binary, each counting 0 releases where 1 is due; the borrow test is
-the over-release canary. The parameter case leaked too:
+paths, an owned parameter, a `&T` borrow, an early return after and before
+the consume). The first five fail on develop's binary, each counting 0
+releases where 1 is due; the borrow and early-return tests are
+over-release canaries. The parameter case leaked too:
 a by-value parameter owns its own count, and the consume dropped it on the
 floor, so the caller's object never reached zero. The counter
 works with leak verdicts off, which is how every `test.yml` job runs.
