@@ -60,14 +60,16 @@ inlined in `main`, or next to another `io.async` function, compiles.
 ## Root cause
 
 A nullable-pointer arm (`if (x != NULL) { T* xs = x; … }`,
-`src/codegen/exprs/match.yo`) chose its binding's task slot by an env lookup:
-`scope_variables` on the pattern atom, then a name scan of the task's
-variables. With the scope release on (the default for `compile`), the
-recorded answer for the second `xs` atom is the first arm's `xs`, so the
-store went to that variable's slot. Every other pattern binding finds its
-slot by its declaration site (`_bind_pattern_name` through
-`_inline_binding_sm_field`), which the slot naming also keys on, so only this
-path went wrong.
+`src/codegen/exprs/match.yo`) chose its binding's task slot in two steps:
+`scope_variables` on the pattern atom (the slot of the variable it returns),
+and, when that resolved nothing, a scan of the task's variables for the first
+local with the same name (a `HashMap`, so in no fixed order). Either step can
+pick the first arm's `xs`; which one did here was not instrumented. What is
+established: the store went to the first binding's slot, and only with the
+scope release on (the default for `compile`), so the env answer differs from
+the one a kept env gives. Every other pattern binding finds its slot by its
+declaration site (`_bind_pattern_name` through `_inline_binding_sm_field`),
+which the slot naming also keys on, and never showed this.
 
 ## Fix
 
@@ -81,6 +83,8 @@ stays for a body outside that lowering.
 `tests/match_async_arms.test.yo`, "same-named nullable-pointer bindings of one
 task each use their own slot", is the symptom above. The develop binary
 (`ed733408c`) fails to compile its body as a standalone program, with the
-error above. With the fix the test passes, and so does the file's `mut` place
-test that first showed the bug ("a mut place of a counted payload is
-replaced after an await").
+error above. Inside the test batch the bug may not show, since whether it
+shows depends on what else was evaluated; the batch-level evidence is the
+`mut` place test that first showed it ("a mut place of a counted payload is
+replaced after an await"), whose batch failed with this C error before the
+fix and passes after.
