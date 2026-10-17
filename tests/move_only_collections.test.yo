@@ -263,11 +263,14 @@ test("PriorityQueue of a move-only element", {
   assert(q.pop().is_none(), "an empty queue pops nothing");
 });
 // Every key is dropped exactly once: the overwritten or removed stored key,
-// each borrowed probe key, and the keys left when the collection dies.
+// each probe, and the keys left when the collection dies. The probes are
+// named, so they drop at the end of the block, after the counts inside it.
 test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop each key once", {
   comptime_assert(!Type.impls(_McKd, Copy) && !Type.impls(_McKd, Clone), "a Drop key is move-only");
   before := g_mc_kdropped;
   {
+    p5 := _McKd(id : i32(5));
+    p6 := _McKd(id : i32(6));
     m := HashMap(_McKd, i32).new();
     i := i32(0);
     while(i < i32(40), i = (i + i32(1)), {
@@ -276,23 +279,25 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
     assert(g_mc_kdropped == before, "inserts and rehashes drop no key");
     match(m.insert(_McKd(id : i32(3)), i32(300)), .Some(old) => assert(old == i32(3), "the old value"), .None => assert(false, "present"));
     assert(g_mc_kdropped == (before + i32(1)), "an overwrite drops one of the two equal keys");
-    assert(m.remove(&_McKd(id : i32(5))).unwrap_or(i32(0)) == i32(5), "removed");
-    assert(g_mc_kdropped == (before + i32(3)), "remove drops the stored key and the probe");
+    assert(m.remove(&p5).unwrap_or(i32(0)) == i32(5), "removed");
+    assert(g_mc_kdropped == (before + i32(2)), "remove drops the stored key");
     match(
-      m.remove_entry(&_McKd(id : i32(6))),
+      m.remove_entry(&p6),
       .Some(e) => match(e, { key : k, value : v } => assert((k.id == i32(6)) && (v == i32(6)), "the entry moves out")),
       .None => assert(false, "present")
     );
-    assert(g_mc_kdropped == (before + i32(5)), "the moved-out key and the probe");
-    m.retain(&((k : &_McKd, v : &i32) => (v.* < i32(20))));
+    assert(g_mc_kdropped == (before + i32(3)), "the moved-out key, once");
+    m.retain(&((k : &_McKd, v : &i32) => (k.id < i32(20))));
     assert(m.len() == usize(18), "0..19 without 5 and 6");
-    assert(g_mc_kdropped == (before + i32(25)), "retain drops the twenty keys it removes");
+    assert(g_mc_kdropped == (before + i32(23)), "retain drops the twenty keys it removes");
   };
+  // 40 inserted, the overwriting key and the two probes.
   assert(g_mc_kdropped == (before + i32(43)), "43 keys made, 43 dropped");
 });
 test("HashSet and BTreeMap of a Drop key drop each key once", {
   before := g_mc_kdropped;
   {
+    p3 := _McKd(id : i32(3));
     s := HashSet(_McKd).new();
     i := i32(0);
     while(i < i32(10), i = (i + i32(1)), {
@@ -300,12 +305,13 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
     });
     assert(!s.insert(_McKd(id : i32(7))), "present");
     assert(g_mc_kdropped == (before + i32(1)), "a repeated insert drops one key");
-    assert(s.remove(&_McKd(id : i32(3))), "removed");
-    assert(g_mc_kdropped == (before + i32(3)), "remove drops the stored element and the probe");
+    assert(s.remove(&p3), "removed");
+    assert(g_mc_kdropped == (before + i32(2)), "remove drops the stored element");
   };
   assert(g_mc_kdropped == (before + i32(12)), "12 elements made, 12 dropped");
   before2 := g_mc_kdropped;
   {
+    p6 := _McKd(id : i32(6));
     m := BTreeMap(_McKd, i32).new();
     i := i32(10);
     while(i > i32(0), i = (i - i32(1)), {
@@ -314,10 +320,10 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
     assert(g_mc_kdropped == before2, "inserts drop no key");
     match(m.insert(_McKd(id : i32(5)), i32(50)), .Some(old) => assert(old == i32(5), "the old value"), .None => assert(false, "present"));
     assert(g_mc_kdropped == (before2 + i32(1)), "an overwrite drops the new key");
-    assert(m.remove(&_McKd(id : i32(6))).unwrap_or(i32(0)) == i32(6), "removed");
-    assert(g_mc_kdropped == (before2 + i32(3)), "remove drops the stored key and the probe");
+    assert(m.remove(&p6).unwrap_or(i32(0)) == i32(6), "removed");
+    assert(g_mc_kdropped == (before2 + i32(2)), "remove drops the stored key");
     match(m.pop_first(), .Some(e) => assert(e.key.id == i32(1), "the smallest key"), .None => assert(false, "non-empty"));
-    assert(g_mc_kdropped == (before2 + i32(4)), "the popped entry's key");
+    assert(g_mc_kdropped == (before2 + i32(3)), "the popped entry's key");
   };
   assert(g_mc_kdropped == (before2 + i32(12)), "12 keys made, 12 dropped");
 });
