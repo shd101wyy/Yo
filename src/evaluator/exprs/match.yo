@@ -1176,9 +1176,11 @@ evaluate_match :: (
       counter : usize(0),
       is_mut : mut_places
     );
-    (arm_pat : Pattern) = pat;
+    // The codegen arms (`cg_arms`) are registered only when the match is
+    // forced onto the general lowering, which needs a consuming or `mut` match.
+    (arm_pat : Option(Pattern)) = Option(Pattern).None;
     if(consuming || mut_places, {
-      arm_pat = _augment_arm_pattern(&pat, &position_type, false, &own, &env, exn);
+      arm_pat = Option(Pattern).Some(_augment_arm_pattern(&pat, &position_type, false, &own, &env, exn));
     });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
@@ -1262,17 +1264,21 @@ evaluate_match :: (
     });
     arm := Arm(pattern : pat, guard : guard_ast, body : body_ast, arm_expr : arm_expr, pattern_expr : pattern_ast, classic : classic);
     arms.push(arm);
-    cg_arms.push(Arm(pattern : arm_pat, guard : guard_ast, body : body_ast, arm_expr : arm_expr, pattern_expr : pattern_ast, classic : false));
+    match(
+      arm_pat,
+      .Some(ap) => cg_arms.push(Arm(pattern : ap, guard : guard_ast, body : body_ast, arm_expr : arm_expr, pattern_expr : pattern_ast, classic : false)),
+      .None => ()
+    );
     // The top-level variant this arm names, when it names one (GADT
     // reachability and refinement key off it).
-    top_variant_idx := match(pat, .Variant(_, vidx, _, _, _, _, _) => Option(usize).Some(vidx), _ => Option(usize).None);
+    top_variant_idx := match(&arm.pattern, .Variant(_, vidx, _, _, _, _, _) => Option(usize).Some(vidx), _ => Option(usize).None);
     gadt_reachable := match(
       top_variant_idx,
       .Some(vidx) => gadt_branch_reachable(en_id.clone(), vidx),
       .None => true
     );
     // Compile-time arm selection.
-    mv := cond(ct_known => match_value(&pat, &scrutinee_val_opt, ctx), true => Option(bool).None);
+    mv := cond(ct_known => match_value(&arm.pattern, &scrutinee_val_opt, ctx), true => Option(bool).None);
     // The guard, with the pattern's bindings in scope.
     (guard_val : Option(bool)) = Option(bool).None;
     match(
@@ -1344,7 +1350,7 @@ evaluate_match :: (
       // variant (or the scrutinee type), and — for a primitive-shaped arm —
       // its compared values for the `switch` emitter.
       variable_type := match(
-        pat,
+        &arm.pattern,
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
@@ -1378,9 +1384,9 @@ evaluate_match :: (
       // general lowering (the `case TAG:` block cannot fall through to the
       // later arms on a literal miss), and the expansion must already hang
       // off the `=>` node here, with the arm's own frame env in the info.
-      if((!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(&pat)) || consume_drops || mut_places, {
+      if((!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(&arm.pattern)) || consume_drops || mut_places, {
         tests := ArrayList(AstExpr).new();
-        pattern_test_exprs(&pat, &mut tests);
+        pattern_test_exprs(&arm.pattern, &mut tests);
         if(tests.len() > usize(0), {
           ptok := ast_expr_token(&arm_expr);
           begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path, input : ptok.input));
@@ -1390,7 +1396,7 @@ evaluate_match :: (
         });
       });
       if(scrutinee_is_primitive && classic, {
-        pvals := pattern_const_values(&pat);
+        pvals := pattern_const_values(&arm.pattern);
         if(pvals.len() > usize(0), {
           expr_info_set_primitive_pattern_values(&mae_info, Option(ArrayList(Option(EvalValue))).Some(pvals));
         });
@@ -1626,7 +1632,7 @@ evaluate_match :: (
                       mark_generic_independent(
                         format_error_message(
                           ast_expr_token(&evaluated_body),
-                          `GADT type mismatch in branch "${pattern_to_string(&pat)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty)}`
+                          `GADT type mismatch in branch "${pattern_to_string(&arm.pattern)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty)}`
                         ),
                         &refined,
                         &body_info.ty
@@ -1708,7 +1714,7 @@ evaluate_match :: (
       match(
         arms.get(gci),
         .Some(ga) => match(
-          ga.pattern,
+          &ga.pattern,
           .Variant(_, gvidx, _, _, _, _, _) => {
             (known : bool) = false;
             (si : usize) = usize(0);
@@ -1746,13 +1752,13 @@ evaluate_match :: (
         match(
           arms.get(ai3),
           .Some(aa) => match(
-            aa.pattern,
+            &aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx == target_idx, {
               vname = an;
               varity = aar;
               vptr = aptr;
               vety = aety;
-              grows.push(aa.pattern);
+              grows.push(aa.pattern.clone());
               if(!(_variant_pattern_has_literal_sub(&aa.pattern)), {
                 has_unguarded_group_arm = true;
               });
@@ -1773,7 +1779,7 @@ evaluate_match :: (
             match(
               arms.get(fi3),
               .Some(fa) => match(
-                fa.pattern,
+                &fa.pattern,
                 .Variant(_, fidx, _, _, _, _, _) => if(fidx == target_idx, {
                   fa.classic = false;
                 }),
