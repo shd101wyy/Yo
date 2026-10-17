@@ -364,10 +364,10 @@ class out (`hard_swallow_diagnostic_in_generic_trial`), and
 `tests/derive.test.yo` uses the shape. `std/` does not.
 
 **Generation B, once `SEED_VERSION` carries the fix:**
-- `IterPeekable(I, A)` (`std/prelude.yo`) takes its conditional pair, like
-  the other iterator adapters:
-  `derive(generic(I : Type, A : Type), where(I <: Clone, A <: Clone), IterPeekable(I, A), Clone)`
-  and the matching `where(I <: Copy, A <: Copy)` `Copy` derive.
+- `IterPeekable(I, A)` (`std/prelude.yo`) takes its conditional `Clone`:
+  `derive(generic(I : Type, A : Type), where(I <: Clone, A <: Clone), IterPeekable(I, A), Clone)`.
+  Its matching `where(I <: Copy, A <: Copy)` `Copy` derive also needs
+  `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`.
 - Verify the gate the usual way before merging: `yo build --std-path ./std`
   with the actual seed bundle.
 

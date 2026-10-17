@@ -55,14 +55,15 @@ Two experiments separate this from the derive machinery. A user `derive_rule` wh
 - **The deferred trials leave the fourth class out.** `hard_swallow_diagnostic_in_generic_trial` (`src/evaluator/context.yo`) keeps the forward-reference, arity and unbound-name classes. The deferred generic trials use it: the closure trial in `src/evaluator/values/anonymous_function.yo` and the named-fn trial in `src/evaluator/calls/function_type.yo`. A non-generic derive's body is evaluated by the concrete-parameter path, which keeps the full class, so the 2026-09-20 hole stays closed.
 - **A concrete miss is still raised at the `derive`.** The no-method error raised inside auto-generated code, on a receiver whose type has no type variable, is marked generic-independent (`_generated_no_method_independence`, `src/evaluator/calls/function.yo`). The deferred trial's Phase 6 re-raise reports it at the `derive`. `derive(generic(A : Type), W(A), Clone)` over a field of a non-`Clone` struct still fails there, and hand-written bodies are unchanged.
 
-**Tests:** `tests/derive.test.yo`, after `CloneBox`, covers three passing cases:
+**Tests:** `tests/derive.test.yo`, after `CloneBox`, covers two passing cases:
 
 - `derive(Clone)` on a generic struct whose fields are `Option(A)`, `ArrayList(A)` and `Box(A)`.
-- The conditional `Clone`/`Copy` pair on a generic struct with an `Option(A)` field. The test checks that `CopyPeek(i32)` is `Copy` and `CopyPeek(String)` is not.
 - `derive(Clone, Eq(...))` on a generic enum over `Option(A)`.
 
 It also adds two canaries that must keep failing: a generic derive over a concrete non-`Clone` field, which fails at the `derive`, and `Option(NC).clone()` reached through a generic derive with no `where`, which fails at the clone. The 2026-09-20 canaries in the same file still pass: a field whose `Clone` impl is registered below the derive, and `tests/cli-cases/check-derive-clone-non-clone-field`. Before the fix, the passing cases failed with the E0610 above.
 
 **Limitation recorded here:** a deferred trial still cannot resolve a conditional impl on an abstract instantiation, so `check` judges such calls only at a specialization, as it already did for hand-written impls.
 
-**Deferred to Generation B:** `IterPeekable`'s conditional `Copy`/`Clone` pair in `std/prelude.yo`. A seed without this fix fails to evaluate the prelude with that derive, and the compiler builds with `--std-path ./std`. It waits until `SEED_VERSION` carries the fix: `plans/backlog/SEED_VERSION_AUTOMATION.md`, "a generic derive over a container of its parameter".
+**`Copy` is a separate bug.** A generic `Copy` impl over the same shape is rejected by the impl's field check, hand-written or derived. That is `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`, which has the same abstract-instantiation limitation but a different site.
+
+**Deferred to Generation B:** `IterPeekable`'s conditional `Clone` derive in `std/prelude.yo`. A seed without this fix fails to evaluate the prelude with that derive, and the compiler builds with `--std-path ./std`. It waits until `SEED_VERSION` carries the fix (`plans/backlog/SEED_VERSION_AUTOMATION.md`, "a generic derive over a container of its parameter"). Its `Copy` also waits on the issue above.
