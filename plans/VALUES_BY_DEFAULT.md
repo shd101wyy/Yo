@@ -7331,6 +7331,54 @@ not an estimate.
      while the borrow lives is E0911; through a second handle `get_mut`
      returns `.None`; `RefCell.get()` stays unbindable, so it cannot cross
      an `await`.
+   - **As built (2026-10-17, #1421).**
+     - E0919 `E_RC_PAYLOAD_WRITE` (`reject_write_through_rc`,
+       `src/evaluator/utils.yo`) rejects four writes when the place reaches
+       an `Rc(T)` handle's payload (`place_rc_handle`: `.` steps, labels and
+       index steps, down to the first `Rc`-typed base):
+       - an assignment (`assignment.yo`);
+       - a `&mut` argument or a `&mut self` receiver, an auto-deref receiver
+         included (both argument binders: `calls/helper.yo` and
+         `calls/function.yo`);
+       - a local `&mut` borrow;
+       - a `&mut` re-point (`initialization_assignment.yo`).
+       It is whatever the summaries prove, in every tree, std included. The
+       help names the doors: `RefCell` `with_mut`, `Rc.make_mut`,
+       `Rc.try_unwrap`, unique ownership, and `Arc(Mutex(T))`/atomics. It is
+       registered in `yo explain` and documented in both
+       `ERROR_DIAGNOSTICS.md`.
+     - E0909: `handle_payload_is_read_only` (#1380) is true for `Rc`, so a
+       `&` lend through `Rc` and `Arc` hops (`rc(arc(m))` included) crosses
+       a suspension, and `tests/async/mutex.test.yo` shares a mutex as
+       `Rc(Mutex(T))`. A `&mut` lend through an `Rc` is E0919, and a `ref`
+       object reached from the payload is still a shared mutable cell.
+     - The sweep:
+       - src: `CodeGenContext`'s declared-name set and scope stack, and
+         `ExprInfoTable`'s map, are `Rc(RefCell(...))`; so are
+         `await_analysis`'s and `effect_analysis`'s side channels.
+         `strip_proved_ensures_asserts` rewrites the body list in place.
+       - std: `Channel(T)`'s state is `Rc(RefCell(_ChannelState(T)))`, and
+         `std/http`'s carry buffer is `Rc(RefCell(ArrayList(u8)))`.
+       - tests and cli-case fixtures: written state moved into `RefCell` or
+         `make_mut`.
+       - The census excludes `tests/internal`, so the tree-binary
+         in-process run there was the scan for that directory. It found one
+         more site (`suspension_analysis.test.yo`).
+     - The census with the tree-built compiler: `handle=rc` sites went from
+       379 to 0 (src 12 → 0, std 27 → 0, tests 340 → 0). A write through an
+       `Rc` no longer compiles, so "after" also means every census file
+       compiles. The alloc-count ratchet measured 1,836,697,738 calls,
+       +2.1% on the 1,799,052,684 baseline.
+     - Two pre-existing generic codegen bugs surfaced once `Channel(T)`'s
+       state moved into a `RefCell`. Both are filed S2, and the channel
+       works around both:
+       - `issues/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md`:
+         the binder is spelled `Msg`;
+       - `issues/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md`:
+         the sender count sits in its own `Rc(RefCell(usize))`, so its
+         closures do not mention the binder.
+     - Not built: `Rc.get_mut` and `RefCell.get()` (decision 43 step 2, as
+       step 1 recorded), so their two tests wait with them.
 3. **Follow-up: the cycle collector's predicate** narrows to
    `RefCell`/`Mutex`/`RwLock`-reaching cells (§3.12), measured on the
    collector's own benchmarks.
