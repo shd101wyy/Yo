@@ -308,7 +308,26 @@ of their imports.
      (summed RSS 15.4 GB) across the runner and its workers. The four
      default-mode shards took 81.7, 119.8, 130.4 and 89.9 min (one process
      each, 2.1–2.9 GB each).
-   - **Subset A/B ({{AB_SUBSET}}).** {{AB_RESULT}}
+   - **Subset A/B (2026-10-17, tree binary on develop `ed733408c` + this
+     change, one heavy slot on a shared box, so read the ratio, not the
+     seconds).** Six files (`assignment`, `binding`, `env_lookup`,
+     `expr_info`, `typeof`, `value`), the same per-file verdicts in both
+     modes (79/79):
+
+     | Mode | Wall | Peak summed PSS | Summed RSS |
+     | --- | ---: | ---: | ---: |
+     | `YO_TEST_IN_PROCESS=1` | 492.5 s | 1.66 GB | 1.76 GB |
+     | `YO_TEST_FORK=4` | 356.8 s | 4.14 GB | 7.56 GB |
+
+     The subset shows the floor: the first file runs alone as the warm-up,
+     and five files leave four workers little to overlap. On the whole
+     directory the in-process mode reached about 10–12 GB in one process
+     and kept growing, while the fork mode's footprint is bounded by N
+     workers over a shared image.
+   - **Next.** Two measurements would size N: the per-worker private memory
+     on the whole directory at N = 2, 4 and 8 on an idle box, and how much a
+     wider warm-up (the union of the files' imports instead of the first
+     file's closure) saves per worker.
 2. **`check <dir>`.** The same shape: evaluate the modules most files import,
    then fork K workers over disjoint file sets. Each worker buffers its
    diagnostics, and the parent prints them in file order.
