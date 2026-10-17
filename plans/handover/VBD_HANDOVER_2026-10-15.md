@@ -187,15 +187,15 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 | Order | Branch | State |
 | --- | --- | --- |
-| 0 | (a new fix branch) | §4 step 0a: the `Rc(.A(xs))` second-payload-hop regression, with a test |
+| 0 | (a new fix branch) | §4 step 0a: the `Rc(.A(xs))` second-payload-hop regression; **landed** 2026-10-16 as #1396 |
 | 1 | #1378 from `vbd-d45-genb-rebased` | **landed** 2026-10-15 |
 | 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | **landed** 2026-10-15 (`std/hash.yo` reverted) |
-| 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
+| 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | **landed** 2026-10-16 |
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
 | 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-17 as #1397; #1380 **landed** 2026-10-17, restacked on it |
 | 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
-| 7a | release v0.2.64 | §4 step 7a |
+| 7a | release v0.2.64 | **published** 2026-10-17. The tag is on `398a18e93` and the `SEED_VERSION` bump is `583115085`. Develop's battery 38999661126 was green on `4d7c15caa` after one infrastructure rerun, and the notes are curated. The Generation B drafts now rebuild on the official seed and merge: decision 47 globals (#1414), A5 (#1412), decision 46 and V2b B1 |
 | 8 | #1385 | **landed** 2026-10-16 (restacked, Tier 1 incl. the full in-process `tests/internal` and full cli-diff) |
 
 **When a branch moves an issue doc to `issues/fixed/`,** this handover (and possibly the plan) still cites the open path. After the move, run `bash scripts/check-issue-refs.sh` and repoint every citation it lists to the `fixed/` path. That applies to #1368, the global-lend, E0918 and D3 branches. Each entry below names its docs.
@@ -552,7 +552,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 
 `feat/vbd-readonly-receivers` (#1334), `feat/vbd-v3b-addr-of-delete-inout` (#1302), `feat/vbd-v3b-markers-a` (#1296), `feat/vbd-v2b-index-mut-genb`, `feat/vbd-v3-async-a1`, `feat/vbd-v3-genb`, `feat/vbd-v3b-flip-2`, `feat/vbd-v3b-marker-sweep-trial`, `feat/vbd-v3b-storing-by-value`, `feat/vbd-v4-typevalue`, `feat/vbd-v4-typevalue-2`, `integ/v0262b` (the v0.2.62 integration branch), `plans/vbd-alloc-and-constructors` (#1160), `docs/tier1-admin-merge` (#1356), `docs/three-tier-gating` (#1355).
 
-- **Exception:** `feat/vbd-marker-sweep-part2` landed as #1318 except its last commit `6fb2249cf`, a loud `gates_fast.sh` fallback to the checkout's own yo-out binary that develop does not have. Decide whether to port it before deleting the branch.
+- **Exception:** `feat/vbd-marker-sweep-part2` landed as #1318 except its last commit `6fb2249cf`, a loud `gates_fast.sh` fallback to the checkout's own yo-out binary that develop does not have. **Not ported (2026-10-16):** the gate's abort names the mis-staged S1 in one line, while the fallback would run the battery on a binary nobody staged; CI stages S1 from the tree by construction, so only a local battery ever hits it, and there the abort is the more useful signal. The branch can be deleted.
 - After #1378, #1379 and #1368 land, also delete `vbd-d45-genb-rebased`, `feat/vbd-v3-async-a5-rebased` and `feat/vbd-v2b-projection-calls-rebased`.
 - Other `fix/*`, `docs/*` and `perf/*` branches on origin belong to other tracks or sessions; leave them unless a doc names them.
 
@@ -580,7 +580,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3). **Landed as #1402 (2026-10-16).**
 6. **DONE (#1397)** `fix/d3-trust-by-mutation-mask` (§2.3); then **#1380** (§2.3).
 7. **DONE (#1398).** **`perf/type-key-memo-identity`** (§2.3): the ratchet baseline is now a measured count, 1,799,052,684.
-7a. **Cut v0.2.64** (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
+7a. **Cut v0.2.64** (**done 2026-10-17**, §2 row 7a) (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
 8. **#1385 — LANDED 2026-10-16**, then **V2b unique buffers Generation B** (§2.3; the PR sequence B0–B14 is proposed in #1408). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
 9. **Decision 47, step 2: locals, patterns and comptime** (§5.11; the plan's §6 phase), after V2b Generation B and before decision 43:
     - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
@@ -594,6 +594,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
    - Tests: `tests/sys/seek.test.yo` and `tests/io/stdio_redirect.test.yo`, which `dup2`s a temp file onto the test process's own 0/1/2 (two `stdout()` handles, stdout + stderr on one file, a handle after flushed `print`, two `stdin()` handles).
    - Found on the way: the S1 `issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` (§6.1, since fixed).
 11. **The `std` `dyn(f)` spelling, if any is left:** #1339 found no bare site in the tree, so there may be nothing to do. Grep before opening a PR.
+    - **Done, nothing to change (2026-10-16):** E0618 rejects every bare erasure and `check ./std` and `check ./src` pass on develop, so no bare site is left; the remaining `dyn(f)` hits are comments and the E0618 registry text.
 12. **`Waker.clone` Generation B**, once a seed carries A5's `__yo_waker_clone` (the release after #1379).
 13. **Decision 46, `Rc` is read-only** (§6 "Decision 46"): Generation A (the `YO_AUDIT_RC_WRITE` census, `RefCell(T)` if not landed, `Rc.make_mut` and `try_unwrap`) **landed 2026-10-16 (feat/vbd-d46-gena; the census counts are in step 1's "as built")**, then Generation B (the sweep, then the error) on a seed carrying it. This also makes E0909's read-only-handle predicate true for `Rc`, so `Rc(Mutex(T))` works.
 14. **The rest of the plan, in the 2026-10-13 handover's §3 order:**
