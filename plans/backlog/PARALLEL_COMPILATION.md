@@ -1,6 +1,6 @@
 # Parallel compilation: using more than one core
 
-**Status: DESIGN, not started.** Written 2026-10-16 at the maintainer's request:
+**Status: DESIGN; P1.1 and P4 step 1 (`YO_TEST_FORK`, #1427) landed.** Written 2026-10-16 at the maintainer's request:
 "If we make evaluator and codegen multi threads, then can we speed up?" The
 measurements below were taken that day on develop `6986090a1`. P0 below re-takes
 them on an idle machine before any code changes.
@@ -267,6 +267,67 @@ of their imports.
    - This is the test runner's existing `YO_TEST_IN_PROCESS` mode made
      parallel, without its shared-heap growth: each child exits and returns
      its pages.
+
+   **Landed as `YO_TEST_FORK=N`** (#1427; opt-in, Linux and macOS; `src/main.yo`,
+   `_TestForkPool`):
+   - **Warm-up.** The runner runs the first file in process, exactly as
+     `YO_TEST_IN_PROCESS` does. That leaves the prelude, std and the first
+     file's import closure resident. No separate warm-up list: the first
+     file's closure is what the in-process mode already proved safe to
+     share.
+   - **Workers.** Every later file runs in a `fork()` of that image, at most
+     N at a time, through the same in-process compile, C compile and test
+     runs. A worker writes its stdout, stderr and verdict
+     (`passed failed bailed`) to three files under the temp directory, then
+     `_exit`s.
+   - **Replay.** The runner reaps with `waitpid(-1)` and replays each
+     worker's output strictly in file order. The stream, the totals and the
+     exit code are the sequential runner's. Under `--bail`, the first bailing
+     file stops new launches, and the workers already running are reaped
+     with their output dropped. A worker that ends without a verdict counts
+     as one failed test and is named.
+   - **Fork safety.** Before each fork the runner flushes stdio and tears
+     down its own event loop (`__yo_io_cleanup`): an io_uring ring is a
+     shared mapping, so a child that kept it would submit into the parent's
+     ring. Both sides create a fresh ring at their next submission. The
+     runner has no other user thread at that point: the main thread waits in
+     `pthread_join` for the big-stack thread that runs `main`, and the only
+     other task is the kernel's `iou-wrk` thread, measured.
+   - **Off by design:** the RSS valve (`YO_TEST_MAX_RSS_MB`), `--list`, and
+     Windows and wasm hosts (the knob is ignored with a note).
+   - **Equivalence (2026-10-16, tree binary on develop `bc5bcf508` + this
+     change, `--compile-timeout-ms 2400000`, `YO_TEST_LEAK_VERDICT=0`).**
+     `YO_TEST_FORK=4` over `tests/internal` passed 1419 of 1419 in 108 files.
+     The default runner over the same tree, run as four `--shard i/4` runs,
+     passed 413 + 326 + 367 + 313 = 1419 of 1419. The per-file verdict lines
+     match file for file. The only difference is the order of output lines
+     that `concurrent_test_runs.test.yo`'s two concurrent nested runs print,
+     which is nondeterministic in either mode.
+   - **Full run, measured with five or six other heavy jobs on the box.**
+     `YO_TEST_FORK=4` took 109.5 min, with a peak summed PSS of 14.2 GB
+     (summed RSS 15.4 GB) across the runner and its workers. The four
+     default-mode shards took 81.7, 119.8, 130.4 and 89.9 min (one process
+     each, 2.1–2.9 GB each).
+   - **Subset A/B (2026-10-17, tree binary on develop `ed733408c` + this
+     change, one heavy slot on a shared box, so read the ratio, not the
+     seconds).** Six files (`assignment`, `binding`, `env_lookup`,
+     `expr_info`, `typeof`, `value`), the same per-file verdicts in both
+     modes (79/79):
+
+     | Mode | Wall | Peak summed PSS | Summed RSS |
+     | --- | ---: | ---: | ---: |
+     | `YO_TEST_IN_PROCESS=1` | 492.5 s | 1.66 GB | 1.76 GB |
+     | `YO_TEST_FORK=4` | 356.8 s | 4.14 GB | 7.56 GB |
+
+     The subset shows the floor: the first file runs alone as the warm-up,
+     and five files leave four workers little to overlap. On the whole
+     directory the in-process mode reaches about 10–12 GB in one process
+     and keeps growing (earlier measurements, not re-taken here), while the fork mode's footprint is bounded by N
+     workers over a shared image.
+   - **Next.** Two measurements would size N: the per-worker private memory
+     on the whole directory at N = 2, 4 and 8 on an idle box, and how much a
+     wider warm-up (the union of the files' imports instead of the first
+     file's closure) saves per worker.
 2. **`check <dir>`.** The same shape: evaluate the modules most files import,
    then fork K workers over disjoint file sets. Each worker buffers its
    diagnostics, and the parent prints them in file order.

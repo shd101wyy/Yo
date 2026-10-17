@@ -14,8 +14,8 @@
 pragma(Pragma.AllowUnsafe);
 { rune, String } :: import("std/string");
 { Error, Exception, IoExn } :: import("std/error");
-{ Format, StringBuilder, println, print, eprintln } :: import("std/fmt");
-{ args, cwd, current_exe } :: import("std/env");
+{ Format, StringBuilder, println, print, eprint, eprintln } :: import("std/fmt");
+{ args, cwd, current_exe, temp_dir } :: import("std/env");
 { stdout, stderr, fflush } :: import("std/libc/stdio");
 { env : proc_env } :: import("std/env");
 { CURRENT_YO_VERSION, read_yo_version } :: import("./version.yo");
@@ -8035,6 +8035,248 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
     }
   );
 });
+// `YO_TEST_FORK=N`: `yo test` over many files in forked workers
+// (plans/backlog/PARALLEL_COMPILATION.md P4 step 1). The runner runs the
+// first file in process, which leaves the prelude, std and that file's import
+// closure resident; every later file runs in a fork of that warm image, through
+// the same in-process compile, and the worker exits when its file is done, so
+// its pages go back to the system. Each worker's stdout and stderr go to files
+// the runner replays in file order, so the stream, the totals and the exit
+// code are the sequential runner's. POSIX only (Linux, macOS).
+//
+// Two runtime symbols (src/codegen/async/runtime_io_*.yo):
+// - `__yo_io_cleanup`: the async runtime's per-thread backend teardown, the
+//   call its thread-exit hook and async-main driver make. It is idempotent,
+//   and the next submission creates the backend again.
+// - `__yo_errno`: errno as a call (the C macro is an lvalue).
+extern(
+  "Yo",
+  __yo_io_cleanup : (fn() -> unit),
+  __yo_errno : (fn() -> i32)
+);
+/// A `YO_TEST_FORK` worker that exited: its pid (-1 when no child is left)
+/// and its raw wait status.
+_TestForkExit :: struct(pid : i32, status : i32);
+/// The verdict a worker hands back in `<base>.res`.
+_TestForkVerdict :: struct(passed : usize, failed : usize, bailed : bool);
+/// The runner's forked workers, one entry per file in file order.
+_TestForkPool :: struct(
+  pids : ArrayList(i32),
+  bases : ArrayList(String),
+  files : ArrayList(String),
+  statuses : ArrayList(i32),
+  done : ArrayList(bool),
+  /// The next worker to replay: output is replayed strictly in file order.
+  next : usize,
+  running : usize,
+  /// The replayed workers' totals; the runner adds them to its own at the end.
+  passed : usize,
+  failed : usize,
+  /// A replayed file bailed (`--bail`). The workers after it are still
+  /// reaped, but their output and counts are dropped: the sequential runner
+  /// would never have run their files.
+  bailed : bool
+);
+/// Whether this host runs `YO_TEST_FORK` workers.
+_test_fork_supported :: (fn() -> bool)(
+  cond(
+    (platform == Platform.Linux) => true,
+    (platform == Platform.Macos) => true,
+    true => false
+  )
+);
+/// fork(2) for one worker, or -1 on a host without fork (the runner then keeps
+/// its in-process path).
+_test_fork :: (fn() -> i32)(
+  cond(
+    (platform == Platform.Linux) => _test_fork_posix(),
+    (platform == Platform.Macos) => _test_fork_posix(),
+    true => i32(-1)
+  )
+);
+/// Two things happen before the fork:
+/// - stdio is flushed, or a buffered line would print twice, once from each
+///   process;
+/// - this thread's event loop is torn down. An io_uring ring is a shared
+///   mapping plus a descriptor, so a child that kept it would submit into, and
+///   reap from, the parent's ring (a kqueue is not inherited at all). Each
+///   process creates a fresh backend at its next submission.
+///
+/// The runner forks only between files, where no operation is in flight, and
+/// from the only thread that runs: the compiler starts no thread, and the
+/// process's first thread only waits in pthread_join for the big-stack thread
+/// `main` runs on, which is this one. The child has this thread alone, so it
+/// inherits no lock another thread held.
+_test_fork_posix :: (fn() -> i32)({
+  { fork } :: import("std/libc/unistd");
+  unsafe(fflush(.Some(stdout)));
+  unsafe(fflush(.Some(stderr)));
+  __yo_io_cleanup();
+  i32(unsafe(fork()))
+});
+/// In a worker: send stdout and stderr to `<base>.out` and `<base>.err`, the
+/// files the runner replays. A worker that cannot open them exits at once, and
+/// the runner reports the file as ending without a verdict.
+_test_fork_redirect :: (fn(base : &String) -> unit)({
+  { dup2, _exit } :: import("std/libc/unistd");
+  { open_sync, close_sync } :: import("std/sys/file");
+  { O_WRONLY, O_CREAT, O_TRUNC, DEFAULT_FILE_MODE } :: import("std/sys/constants");
+  out_c := `${base}.out`.to_cstr();
+  err_c := `${base}.err`.to_cstr();
+  ofd := open_sync(out_c.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC, i32(DEFAULT_FILE_MODE));
+  efd := open_sync(err_c.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC, i32(DEFAULT_FILE_MODE));
+  if((ofd < i32(0)) || (efd < i32(0)), {
+    unsafe(_exit(int(3)));
+  });
+  _o := unsafe(dup2(int(ofd), int(1)));
+  _e := unsafe(dup2(int(efd), int(2)));
+  close_sync(ofd);
+  close_sync(efd);
+});
+/// In a worker, at the end of its file: write the verdict to `<base>.res` and
+/// exit. `_exit`, not `exit`: the runner's exit-time work belongs to the
+/// runner.
+_test_fork_finish :: (fn(base : &String, v : _TestForkVerdict) -> unit)({
+  { _exit } :: import("std/libc/unistd");
+  { open_sync, close_sync, write_sync } :: import("std/sys/file");
+  { O_WRONLY, O_CREAT, O_TRUNC, DEFAULT_FILE_MODE } :: import("std/sys/constants");
+  text := `${v.passed.to_string()} ${v.failed.to_string()} ${if(v.bailed, String.from("1"), String.from("0"))}\n`;
+  res_c := `${base}.res`.to_cstr();
+  fd := open_sync(res_c.ptr().unwrap(), O_WRONLY | O_CREAT | O_TRUNC, i32(DEFAULT_FILE_MODE));
+  if(fd >= i32(0), {
+    _w := write_sync(fd, text.ptr().unwrap(), u32(text.len()), u64(0));
+    close_sync(fd);
+  });
+  unsafe(fflush(.Some(stdout)));
+  unsafe(fflush(.Some(stderr)));
+  unsafe(_exit(int(0)));
+});
+/// Block until one worker exits.
+_test_fork_wait_any :: (fn() -> _TestForkExit)(
+  cond(
+    (platform == Platform.Linux) => _test_fork_wait_any_posix(),
+    (platform == Platform.Macos) => _test_fork_wait_any_posix(),
+    true => _TestForkExit(pid : i32(-1), status : i32(0))
+  )
+);
+/// `waitpid(-1)`: while the pool runs, the workers are the runner's only
+/// children (every batch compile and test binary is a worker's own child).
+_test_fork_wait_any_posix :: (fn() -> _TestForkExit)({
+  { waitpid } :: c_include("<sys/wait.h>", waitpid : (fn(pid : int, status : *int, options : int) -> int));
+  { EINTR } :: import("std/libc/errno");
+  (st : int) = int(0);
+  (r : int) = unsafe(waitpid(int(-1), addr_of(st), int(0)));
+  while((r < int(0)) && (__yo_errno() == i32(EINTR)), {
+    r = unsafe(waitpid(int(-1), addr_of(st), int(0)));
+  });
+  _TestForkExit(pid : i32(r), status : i32(st))
+});
+/// A whole file's bytes as text, or "" when it cannot be read.
+_test_fork_slurp :: (fn(path : &String) -> String)({
+  swallow := Exception(throw : (_err -> unwind(String.new())));
+  String.from_bytes(read_file_sync(path, swallow))
+});
+_test_fork_unlink :: (fn(path : &String) -> unit)({
+  { unlink } :: import("std/libc/unistd");
+  c := path.to_cstr();
+  _r := unsafe(unlink((*char)(c.ptr().unwrap())));
+});
+/// Read back one finished worker: replay its captured stdout and stderr (when
+/// `replay`), read its verdict and remove its three files. A worker that ended
+/// without a verdict counts as one failed test, and the runner says so: it
+/// crashed, or an error ended it (an error that ends the whole sequential
+/// run).
+_test_fork_collect :: (
+  fn(base : &String, file : &String, status : i32, replay : bool, bail : bool) -> _TestForkVerdict
+)({
+  { exit_status, term_signal } :: import("std/sys/process");
+  out_p := `${base}.out`;
+  err_p := `${base}.err`;
+  res_p := `${base}.res`;
+  if(replay, {
+    out := _test_fork_slurp(&out_p);
+    if(out.len() > usize(0), {
+      print(&out);
+      unsafe(fflush(.Some(stdout)));
+    });
+    err := _test_fork_slurp(&err_p);
+    if(err.len() > usize(0), {
+      eprint(&err);
+    });
+  });
+  res := _test_fork_slurp(&res_p);
+  _test_fork_unlink(&out_p);
+  _test_fork_unlink(&err_p);
+  _test_fork_unlink(&res_p);
+  fields := res.trim().split(" ");
+  passed_v := match(fields.get(usize(0)), .Some(s) => s.parse_u64(), .None => Option(u64).None);
+  failed_v := match(fields.get(usize(1)), .Some(s) => s.parse_u64(), .None => Option(u64).None);
+  bailed_s := match(fields.get(usize(2)), .Some(s) => s, .None => String.new());
+  match(
+    passed_v,
+    .Some(pv) => match(
+      failed_v,
+      .Some(fv) => {
+        return(_TestForkVerdict(passed : usize(pv), failed : usize(fv), bailed : (bailed_s == "1")));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  if(replay, {
+    why := cond(
+      (term_signal(status) > i32(0)) => `killed by signal ${term_signal(status).to_string()}`,
+      true => `exit ${exit_status(status).to_string()}`
+    );
+    eprintln(`yo: error: test: ${file} — the forked worker ended without a verdict (${why}); counted as one failed test`);
+  });
+  _TestForkVerdict(passed : usize(0), failed : usize(1), bailed : bail)
+});
+/// Replay every finished worker whose predecessors are replayed, in file order.
+_test_fork_replay_ready :: (fn(pool : &mut _TestForkPool, bail : bool) -> unit)({
+  (going : bool) = true;
+  while(going, {
+    i := pool.next;
+    ready := match(pool.done.get(i), .Some(d) => d, .None => false);
+    if(ready, {
+      base := match(pool.bases.get(i), .Some(b) => b, .None => String.new());
+      wfile := match(pool.files.get(i), .Some(f) => f, .None => String.new());
+      st := match(pool.statuses.get(i), .Some(s) => s, .None => i32(0));
+      v := _test_fork_collect(&base, &wfile, st, !pool.bailed, bail);
+      if(!pool.bailed, {
+        pool.passed = (pool.passed + v.passed);
+        pool.failed = (pool.failed + v.failed);
+        pool.bailed = v.bailed;
+      });
+      pool.next = (i + usize(1));
+    }, {
+      going = false;
+    });
+  });
+});
+/// Reap workers until at most `max_running` still run, replaying each file as
+/// soon as every file before it is replayed.
+_test_fork_settle :: (fn(pool : &mut _TestForkPool, max_running : usize, bail : bool) -> unit)({
+  _test_fork_replay_ready(pool, bail);
+  while(pool.running > max_running, {
+    ex := _test_fork_wait_any();
+    (wi : usize) = usize(0);
+    while(wi < pool.pids.len(), {
+      wpid := match(pool.pids.get(wi), .Some(p) => p, .None => i32(0));
+      wdone := match(pool.done.get(wi), .Some(d) => d, .None => true);
+      // pid -1: no child is left although the pool counts some as running.
+      // Nothing more can be reaped, so every open entry is closed; without
+      // a verdict file each reads as a worker that ended without one.
+      if(!wdone && ((wpid == ex.pid) || (ex.pid < i32(0))), {
+        pool.done(wi) = true;
+        pool.statuses(wi) = ex.status;
+        pool.running = (pool.running - usize(1));
+      });
+      wi = (wi + usize(1));
+    });
+    _test_fork_replay_ready(pool, bail);
+  });
+});
 run_test :: (
   fn(
     argv : &ArrayList(String),
@@ -8306,6 +8548,35 @@ run_test :: (
   });
   if(test_debug_heap && (test_allocator != "fixed"), {
     exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
+  });
+  // YO_TEST_FORK=N: up to N files at a time in forked workers (see
+  // `_TestForkPool`). A worker compiles in process, so the knob turns the
+  // in-process compiles on. `--list` compiles nothing and keeps no workers.
+  (fork_workers : usize) = usize(0);
+  match(
+    proc_env.get(`YO_TEST_FORK`),
+    .Some(fw_raw) => match(
+      fw_raw.parse_u64(),
+      .Some(fw_n) => {
+        fork_workers = usize(fw_n);
+      },
+      .None => {
+        exn.throw(dyn(`test: YO_TEST_FORK must be a worker count, got '${fw_raw}'`));
+      }
+    ),
+    .None => ()
+  );
+  if((fork_workers > usize(0)) && !_test_fork_supported(), {
+    if(human, {
+      eprintln(String.from("test: YO_TEST_FORK needs fork(2) (Linux, macOS); running the files without workers"));
+    });
+    fork_workers = usize(0);
+  });
+  if(list_only, {
+    fork_workers = usize(0);
+  });
+  if(fork_workers > usize(0), {
+    test_in_process = true;
   });
   // §7 step 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md): the batch
   // compiles run IN PROCESS under this one evaluator — prelude and std
@@ -8592,10 +8863,67 @@ run_test :: (
     .Ok(exe) => proc_env.set(String.from("YO_EXE"), exe.to_string()),
     .Err(_) => false
   );
+  // YO_TEST_FORK state. `fork_warmed`: the first file has run in this
+  // process, so later files fork. `fork_child`/`fork_base`: this process is
+  // a worker, and where its output and verdict go.
+  fork_pool := _TestForkPool(
+    pids : ArrayList(i32).new(),
+    bases : ArrayList(String).new(),
+    files : ArrayList(String).new(),
+    statuses : ArrayList(i32).new(),
+    done : ArrayList(bool).new(),
+    next : usize(0),
+    running : usize(0),
+    passed : usize(0),
+    failed : usize(0),
+    bailed : false
+  );
+  (fork_warmed : bool) = false;
+  (fork_child : bool) = false;
+  (fork_base : String) = String.new();
+  fork_dir := temp_dir();
   while((fi < files.len()) && !bailed, {
     file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
     file_t0 := Instant.now();
+    if(fork_warmed, {
+      // Wait for a free slot (replaying what finished), then fork this
+      // file's worker. A replayed file that bailed stops the launches.
+      _test_fork_settle(&mut fork_pool, fork_workers - usize(1), bail);
+      if(fork_pool.bailed, {
+        break;
+      });
+      wbase := `${fork_dir}/yo-test-fork-${runner_pid}-${fi.to_string()}`;
+      wpid := _test_fork();
+      cond(
+        (wpid > i32(0)) => {
+          fork_pool.pids.push(wpid);
+          fork_pool.bases.push(wbase);
+          fork_pool.files.push(file.clone());
+          fork_pool.statuses.push(i32(0));
+          fork_pool.done.push(false);
+          fork_pool.running = (fork_pool.running + usize(1));
+          continue;
+        },
+        (wpid == i32(0)) => {
+          // The worker: this file's counts only, its output to the files.
+          fork_child = true;
+          fork_base = wbase;
+          passed = usize(0);
+          failed = usize(0);
+          _test_fork_redirect(&fork_base);
+        },
+        true => {
+          // fork failed (EAGAIN, ENOMEM): finish the running workers, then
+          // run this file here.
+          _test_fork_settle(&mut fork_pool, usize(0), bail);
+          if(fork_pool.bailed, {
+            break;
+          });
+          eprintln(`test: fork failed; running ${file} in the runner`);
+        }
+      );
+    });
     if(human, {
       println(``);
       println(`${file}`);
@@ -9203,6 +9531,9 @@ run_test :: (
     next_global := (resume_from + fi);
     (restart_ok : bool) = (test_in_process && (rss_at_boundary > usize(0)) && (rss_at_boundary > max_rss_mb_restart));
     restart_ok = (restart_ok && (next_global > resume_from) && (next_global < all_files.len()));
+    // YO_TEST_FORK: the runner grows by its first file only, and a worker's
+    // resident set goes back when it exits, so the valve stays off.
+    restart_ok = (restart_ok && (fork_workers == usize(0)));
     if(restart_ok, {
       eprintln(`test: resident ${rss_at_boundary.to_string()} MB exceeds YO_TEST_MAX_RSS_MB=${max_rss_mb_restart.to_string()} — exec-restarting the runner at file ${next_global.to_string()} of ${all_files.len().to_string()} (the next image re-warms)`);
       // TRUE execve, not spawn-and-wait: a waiting parent RETAINS its whole
@@ -9231,6 +9562,26 @@ run_test :: (
     });
     if(test_profile, {
       eprintln(`profile: file ${file} ${_fmt_profile_ms(file_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
+    });
+    if(fork_child, {
+      // The worker's warnings print with its file's output, not at the end.
+      flush_user_warnings(resolve_std_path(), get_global_cache_dir());
+      _test_fork_finish(&fork_base, _TestForkVerdict(passed : passed, failed : failed, bailed : bailed));
+    });
+    if((fork_workers > usize(0)) && !fork_warmed, {
+      // The first file's warnings print now: every worker would otherwise
+      // inherit them and print them again.
+      flush_user_warnings(resolve_std_path(), get_global_cache_dir());
+      fork_warmed = true;
+    });
+  });
+  // The workers still running: reap them, replaying in file order.
+  if(fork_workers > usize(0), {
+    _test_fork_settle(&mut fork_pool, usize(0), bail);
+    passed = (passed + fork_pool.passed);
+    failed = (failed + fork_pool.failed);
+    if(fork_pool.bailed, {
+      bailed = true;
     });
   });
   if(test_profile, {
@@ -11305,6 +11656,10 @@ Environment:
   YO_TEST_IN_PROCESS=1      Compile every batch in ONE resident evaluator (opt-in:
                             about 2x faster, needs the memory of the whole run)
   YO_TEST_MAX_RSS_MB=<N>    Restart the runner at a file boundary past N MB (default 4096)
+  YO_TEST_FORK=<N>          Run up to N files at a time in forked workers (Linux,
+                            macOS): the first file warms the runner in process,
+                            each later file runs in a fork of it that exits when
+                            the file is done; output stays in file order
 
 Examples:
   $ yo test                       All tests in the workspace
@@ -11347,6 +11702,9 @@ Examples:
   YO_TEST_IN_PROCESS=1      所有批次在同一个常驻求值器中编译（可选：约快 2 倍，
                             但需要整次运行的内存）
   YO_TEST_MAX_RSS_MB=<N>    超过 N MB 时在文件边界重启运行器（默认 4096）
+  YO_TEST_FORK=<N>          最多同时在 N 个 fork 出的工作进程中运行文件（Linux、
+                            macOS）：第一个文件在运行器内预热，之后每个文件在
+                            它的 fork 中运行，跑完即退出；输出保持文件顺序
 
 示例：
   $ yo test                       工作区内的全部测试

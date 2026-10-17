@@ -1,0 +1,9 @@
+# YO_TEST_FORK=N (plans/backlog/PARALLEL_COMPILATION.md P4 step 1): a.test.yo
+# warms the runner in process, b, c and d run in forked workers, two at a
+# time. Each worker's output is replayed in file order, so the stream, the
+# totals and the exit code are the sequential runner's: b's deliberate
+# failure prints between a's and c's results, and the run exits 1 with
+# 5 passed, 1 failed.
+env=YO_TEST_FORK=2
+stdout_keep_match=^(\$ yo .*|rc=[0-9]+|.*[a-d]\.test\.yo|  [✓✗] .*|[0-9]+ (passed|failed|total)|Bailing out.*)$
+timeout=600
