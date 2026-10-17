@@ -245,6 +245,32 @@ _split_top_level_args_list :: (fn(s : &String) -> ArrayList(String))({
 _resolve_var_name_in_context :: (fn(var_name : &String, context : &FunctionGenerationContext) -> String)(
   var_name
 );
+/// Declare the result temp the evaluator attached to `expr`
+/// (`attach_temp_variable_to_expr(expr, true, ...)`), assign it `code`, and
+/// return the temp's name. Every producer of an owning temp must declare its
+/// own: the scope-end release is a deferred drop of that temp, and
+/// `generate_deferred_drop_expressions` skips a name that was never declared.
+/// A binding, a by-value argument and `&` re-declare an operand that is not
+/// yet its temp. A `&self` method receiver and a discarded statement do not,
+/// so an emitter that returned a bare expression leaked there: `downcast`,
+/// `upcast` and the `Iso(T)(v)` constructor
+/// (issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md).
+bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)(
+  match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.variable_name,
+      .Some(tv) => {
+        em := context.base.emitter;
+        em.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &context.base)} = ${code};`);
+        _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
+        tv
+      },
+      .None => code
+    ),
+    .None => code
+  )
+);
 /// SM temp-var store. Inside a state machine, a local temp declared as a C
 /// local must ALSO be stored to its `sm->var_<id>` field, or every deferred
 /// drop naming that field is a silent no-op on calloc zero (the async-match-
@@ -2857,4 +2883,4 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   Option(String).Some(out)
 });
-export(_is_addressable_c_expr, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset);
+export(_is_addressable_c_expr, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset);

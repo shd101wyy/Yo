@@ -83,4 +83,4 @@ Re-measured on develop `b0c4630d3` (after #1378 and #1379) with leak verdicts on
 
 After the fix, all 32 files and `tests/async/exit_release.test.yo` are leak-clean with verdicts on (`async_await` 280/280, `combinators` 50/50, `channel` 22/22, `cross_thread_wake` 8/8). `leak-verdict.yml`'s allowlist now runs `combinators`, `channel`, `waker`, `cross_thread_wake` and `exit_release` with verdicts on.
 
-The non-async members of the 2026-10-02 list: `tests/collection_literals.test.yo` (the nested literals), `tests/closure_capture_rc_leak.test.yo` and `tests/async_while_in_match_arm.test.yo` are leak-clean; `tests/dyn.test.yo`'s downcast/upcast trio still leaks and has its own doc, `issues/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md`.
+The non-async members of the 2026-10-02 list: `tests/collection_literals.test.yo` (the nested literals), `tests/closure_capture_rc_leak.test.yo` and `tests/async_while_in_match_arm.test.yo` are leak-clean; `tests/dyn.test.yo`'s downcast/upcast trio leaked until #1409 and has its own doc, `issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md`.

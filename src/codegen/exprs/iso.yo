@@ -15,6 +15,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ bind_owning_result_temp } :: import("./other_fn_call.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
 _arg :: (fn(expr : &AstExpr, i : usize) -> Option(AstExpr))(
   match(expr, .FnCall(_, _, args, _, _) => args.get(i), .Atom(_, _) => Option(AstExpr).None)
@@ -123,6 +124,8 @@ generate_iso_type_call :: (fn(expr : &AstExpr, indent : &String, context : &Func
   out.push_str("(");
   out.push_string(&value_code);
   out.push_str(")");
-  out
+  // The Iso owns the value: a receiver (`Iso(T)(v).extract()`) or a discarded
+  // constructor is released only through its declared result temp.
+  bind_owning_result_temp(expr, out, indent, context)
 });
 export(generate_yo_iso_extract, generate_yo_iso_unique, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call);
