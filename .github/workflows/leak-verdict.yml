@@ -62,7 +62,10 @@ jobs:
       # raw heap on purpose and asserts only a value (the exact shape the
       # original issue measured passing green under the ratchet). Under this
       # job's configuration it MUST FAIL with a leak verdict; if it passes,
-      # every "N passed" below is vacuous and the job errors out.
+      # every "N passed" below is vacuous and the job errors out. The probe
+      # calls the prelude's own `__yo_malloc` binding; re-declaring it with an
+      # `extern` is a redefinition error since #1328
+      # (issues/fixed/2026-10-17-the-leak-verdict-vacuity-probe-redeclares-the-prelude-s-yo-malloc.md).
       - name: Vacuity probe (the leak verdict must fail a deliberately leaking test)
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -70,7 +73,6 @@ jobs:
           set -euo pipefail
           cat > /tmp/leak-probe.test.yo <<'EOF'
           pragma(Pragma.AllowUnsafe);
-          extern("Yo", __yo_malloc : (fn(size : usize) -> ?*void));
           { assert } :: import("std/assert");
 
           test("deliberate leak (the vacuity probe)", {
@@ -102,7 +104,10 @@ jobs:
       # issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md;
       # the async files joined when that debt was paid (2026-10-16), and
       # exit_release.test.yo is a NeedsLeakVerdict file this leg is the only
-      # CI run of.
+      # CI run of. sys/socketpair.test.yo runs its parked-recv cases on both
+      # Linux backends; its epoll twins leaked the backend's recycled records
+      # at thread exit until 2026-10-17
+      # (issues/fixed/2026-10-17-the-epoll-backend-leaks-its-recycled-pendings-and-registrations-at-thread-exit.md).
       # `YO_TEST_LEAK_VERDICT` is deliberately NOT set — the runner default
       # (verdict on) is the entire point of this leg.
       - name: Run the allowlisted leak-sensitive tests (leak verdicts ON)
@@ -116,3 +121,4 @@ jobs:
           "$S1" test ./tests/async/waker.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/async/exit_release.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/cross_thread_wake.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/sys/socketpair.test.yo --c-compiler clang --verbose
