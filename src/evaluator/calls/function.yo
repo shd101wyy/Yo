@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut, variable_is_future_operand_parameter } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
+{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -144,7 +144,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
 { evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
-{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
+{ _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
 { structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
@@ -2409,10 +2409,12 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
         if(f_bs.len() > usize(0), {
           f_label := match(cap_labels.get(fi), .Some(l) => l, .None => String.new());
           // The captured binding, when it is a borrow parameter of the
-          // function that writes the `io.async`.
+          // function that writes the `io.async`, or a by-value future operand
+          // of a combinator (§3.13 A4), whose borrows the caller lent for the
+          // call.
           f_param := match(
             get_variables_from_env(env, f_label.clone()).last(),
-            .Some(fv) => if(variable_is_borrow_parameter(&fv), Option(Variable).Some(fv), Option(Variable).None),
+            .Some(fv) => if(variable_is_borrow_parameter(&fv) || variable_is_future_operand_parameter(&fv), Option(Variable).Some(fv), Option(Variable).None),
             .None => Option(Variable).None
           );
           (bi : usize) = usize(0);
@@ -2464,7 +2466,7 @@ _note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &Array
   });
   cond(
     is_io_async_call(expr) => _register_borrowing_future(ret_ty, args, env, ctx),
-    is_io_await_call(expr) => _check_awaited_future(args, ctx, exn),
+    is_io_await_call(expr) => _check_awaited_future(args, env, ctx, exn),
     true => ()
   );
 });
@@ -2550,8 +2552,12 @@ _future_value_leaves :: (fn(e : &AstExpr, out : &mut ArrayList(AstExpr)) -> unit
 /// argument, evaluated after the future is made, must be a place: an
 /// expression that runs code could move, overwrite or lend `&mut` the place
 /// the future borrows, and the future's lent `&T` copy relies on that place
-/// staying frozen until the await completes.
-_check_awaited_future :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+/// staying frozen until the await completes. A leaf's borrow rooted outside
+/// this scope is a caller's place, lent for this call and checked at the call
+/// site: a combinator's future operand awaited in its generic body, directly
+/// or through its `io.async` capture (§3.13 A4). Code here cannot name that
+/// place, so it cannot disturb it before the await.
+_check_awaited_future :: (fn(args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   operand := match(args.get(usize(0)), .Some(a) => _unlabeled_argument(&a), .None => return(()));
   bs := ArrayList(CaptureBorrow).new();
   match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&operand)), .Some(oi) => collect_type_borrows(&oi.ty, &mut bs), .None => ());
@@ -2563,8 +2569,19 @@ _check_awaited_future :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContext, exn
   (li : usize) = usize(0);
   while(li < leaves.len(), li = (li + usize(1)), {
     leaf := match(leaves.get(li), .Some(l) => l, .None => return(()));
+    leaf_all_bs := ArrayList(CaptureBorrow).new();
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&leaf)), .Some(lfi) => collect_type_borrows(&lfi.ty, &mut leaf_all_bs), .None => ());
     leaf_bs := ArrayList(CaptureBorrow).new();
-    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&leaf)), .Some(lfi) => collect_type_borrows(&lfi.ty, &mut leaf_bs), .None => ());
+    (lbi : usize) = usize(0);
+    while(lbi < leaf_all_bs.len(), lbi = (lbi + usize(1)), {
+      match(
+        leaf_all_bs.get(lbi),
+        .Some(lb) => if(variable_id_in_scope(env, lb.root_id), {
+          leaf_bs.push(lb);
+        }),
+        .None => ()
+      );
+    });
     leaf_id := ast_expr_id(&leaf);
     leaf_checked := g_checked_future_calls.contains(&leaf_id);
     if((leaf_bs.len() > usize(0)) && !is_io_async_call(&leaf) && !leaf_checked, {
@@ -2714,6 +2731,10 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
   g_checked_future_calls.insert(call_id);
   g_checked_future_calls.insert(ast_expr_id(expr));
   _check_future_call_lends(expr, &op_callee, &op_args, &bs, ctx, exn);
+  // Operands first: two operands reaching one place is decision 38 B's
+  // overlap, which the general later-argument rule would otherwise report as
+  // a two-phase conflict.
+  _check_future_operand_lends(&op_callee, &op_args, &bs, ctx, exn);
   _check_future_call_argument_conflicts(&op_callee, &op_args, &bs, ctx, exn);
   _check_future_call_global_lends(&op_callee, &op_args, &bs, ctx, exn);
 });
@@ -2852,6 +2873,213 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
       _check_lent_place_untouched_after(&place, &lent, op_args, ai + usize(1), ctx, exn);
     });
   });
+});
+/// A place a call lends to the future it makes, in the caller's spelling
+/// (§3.13 A4): `x` for `f(&mut x, io)`, the receiver for `s.next(io)`, a
+/// capture-list place of an `io.async` written in place, and, through a
+/// combinator's future operand, every place the operand's own call lends.
+/// `via` is the argument that lends it.
+_FutureLend :: struct(place : _LentPlace, is_mut : bool, via : AstExpr);
+/// Some borrow in `bs` rooted at the parameter `name` is `&mut`.
+_borrows_root_named_mut :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> bool)({
+  (bi : usize) = usize(0);
+  while(bi < bs.len(), bi = (bi + usize(1)), {
+    if(match(bs.get(bi), .Some(b) => ((b.root_name == name) && b.is_mut), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// Append the places the borrowing future `e` holds, mapped to the caller
+/// (`_FutureLend`): through any `cond`/`match` arm or block tail, a call's
+/// lent arguments and receiver (a call's future carries borrows rooted at its
+/// callee's parameters, which the call's arguments name here), recursively
+/// through a future operand, and an `io.async` written in place.
+_future_lends_into :: (fn(e : &AstExpr, via : &AstExpr, ctx : &EvalContext, out : &mut ArrayList(_FutureLend), depth : u32) -> unit)({
+  if(depth > u32(16), {
+    return(());
+  });
+  leaves := ArrayList(AstExpr).new();
+  _future_value_leaves(e, &mut leaves);
+  (li : usize) = usize(0);
+  while(li < leaves.len(), li = (li + usize(1)), {
+    leaf := match(leaves.get(li), .Some(l) => l, .None => return(()));
+    leaf_bs := ArrayList(CaptureBorrow).new();
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&leaf)), .Some(lfi) => collect_type_borrows(&lfi.ty, &mut leaf_bs), .None => ());
+    cond(
+      (leaf_bs.len() == usize(0)) => (),
+      is_io_async_call(&leaf) => {
+        tok := ast_expr_token(&leaf);
+        (bi : usize) = usize(0);
+        while(bi < leaf_bs.len(), bi = (bi + usize(1)), {
+          b := match(leaf_bs.get(bi), .Some(x) => x, .None => return(()));
+          out.push(
+            _FutureLend(
+              place : _LentPlace(root : AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&b.root_name, &tok.module_path)), path : b.path.clone()),
+              is_mut : b.is_mut,
+              via : via.clone()
+            )
+          );
+        });
+      },
+      true => match(
+        leaf,
+        .FnCall(_, leaf_callee, leaf_args, _, _) => _future_call_lends_into(&leaf_callee, &leaf_args, &leaf_bs, via, ctx, out, depth),
+        .Atom(_, _) => ()
+      )
+    );
+  });
+});
+/// `_future_lends_into` for one call `leaf_callee(leaf_args)` whose future
+/// carries `leaf_bs`.
+_future_call_lends_into :: (
+  fn(leaf_callee : &AstExpr, leaf_args : &ArrayList(AstExpr), leaf_bs : &ArrayList(CaptureBorrow), via : &AstExpr, ctx : &EvalContext, out : &mut ArrayList(_FutureLend), depth : u32) -> unit
+)({
+  labels := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .None => ArrayList(String).new()
+  );
+  labels_known := (labels.len() > usize(0));
+  arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels);
+  if(arg_offset == usize(1), {
+    self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
+    if(_borrows_root_named(leaf_bs, &self_label), {
+      recv := match(leaf_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      match(
+        _lent_place_of(&recv),
+        .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone())),
+        .None => ()
+      );
+    });
+  });
+  (ai : usize) = usize(0);
+  while(ai < leaf_args.len(), ai = (ai + usize(1)), {
+    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    if(!labels_known || _borrows_root_named(leaf_bs, &label), {
+      lent := match(leaf_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+      match(
+        _lent_argument_place(&lent),
+        .Some(place) => match(
+          _lent_place_of(&place),
+          .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
+          .None => ()
+        ),
+        .None => _future_lends_into(&lent, via, ctx, out, depth + u32(1))
+      );
+    });
+  });
+});
+/// §3.13 A4 at a call that takes a borrowing future as an operand (a
+/// combinator, `_param_accepts_second_class`): the future the call makes holds
+/// what each operand holds, so
+/// - two arguments may not lend overlapping places when one side is `&mut`
+///   (decision 38 B: a value carrying a `&mut` borrow is lent exclusively, so
+///   two `s.next(io)` operands of one call are an error), and
+/// - a later argument may not move, overwrite or lend `&mut` a place an
+///   operand lends (the two-phase rule, `_check_future_call_argument_conflicts`).
+/// An operand's own lends were checked where it was made.
+_check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
+  labels := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .None => ArrayList(String).new()
+  );
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  // The lends of each argument, and whether it is a future operand.
+  lends := ArrayList(ArrayList(_FutureLend)).new();
+  is_operand := ArrayList(bool).new();
+  (any_operand : bool) = false;
+  (ai : usize) = usize(0);
+  while(ai < op_args.len(), ai = (ai + usize(1)), {
+    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+    arg_lends := ArrayList(_FutureLend).new();
+    (operand : bool) = false;
+    if(_borrows_root_named(bs, &label), {
+      match(
+        _lent_argument_place(&lent),
+        .Some(place) => match(
+          _lent_place_of(&place),
+          .Some(lp) => arg_lends.push(_FutureLend(place : lp, is_mut : ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))), via : lent.clone())),
+          .None => ()
+        ),
+        .None => if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&lent)), .Some(li) => (is_future_value_type(&li.ty) && type_is_second_class(&li.ty)), .None => false), {
+          operand = true;
+          any_operand = true;
+          _future_lends_into(&lent, &lent, ctx, &mut arg_lends, u32(0));
+        })
+      );
+    });
+    lends.push(arg_lends);
+    is_operand.push(operand);
+  });
+  if(!any_operand, {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < lends.len(), i = (i + usize(1)), {
+    li := match(lends.get(i), .Some(l) => l, .None => return(()));
+    (j : usize) = (i + usize(1));
+    while(j < lends.len(), j = (j + usize(1)), {
+      if(match(is_operand.get(i), .Some(o) => o, .None => false) || match(is_operand.get(j), .Some(o) => o, .None => false), {
+        lj := match(lends.get(j), .Some(l) => l, .None => return(()));
+        (x : usize) = usize(0);
+        while(x < li.len(), x = (x + usize(1)), {
+          a := match(li.get(x), .Some(v) => v, .None => return(()));
+          (y : usize) = usize(0);
+          while(y < lj.len(), y = (y + usize(1)), {
+            b := match(lj.get(y), .Some(v) => v, .None => return(()));
+            if((a.is_mut || b.is_mut) && _lent_places_overlap(&a.place, &b.place, ctx), {
+              _reject_future_operand_overlap(&a, &b, ctx, exn);
+            });
+          });
+        });
+      });
+    });
+  });
+  // Then the two-phase rule: no later argument touches a place an operand
+  // lends. After the overlap check, so two operands reaching one place get
+  // decision 38 B's error.
+  (oi : usize) = usize(0);
+  while(oi < lends.len(), oi = (oi + usize(1)), {
+    if(match(is_operand.get(oi), .Some(o) => o, .None => false), {
+      ol := match(lends.get(oi), .Some(l) => l, .None => return(()));
+      (fi : usize) = usize(0);
+      while(fi < ol.len(), fi = (fi + usize(1)), {
+        fl := match(ol.get(fi), .Some(x) => x, .None => return(()));
+        _check_lent_place_struct_untouched_after(&fl.place, &fl.via, op_args, oi + usize(1), ctx, exn);
+      });
+    });
+  });
+});
+/// The E0910 for two arguments of one call whose futures lend overlapping
+/// places, one of them `&mut` (decision 38 B, §3.13 A4).
+_reject_future_operand_overlap :: (fn(a : &_FutureLend, b : &_FutureLend, ctx : &EvalContext, exn : Exception) -> unit)({
+  mut_side := if(b.is_mut, b, a);
+  other := if(b.is_mut, a, b);
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        ast_expr_token(&mut_side.via),
+        `\`${ast_expr_to_string(&mut_side.via)}\` lends \`${_lent_place_string(&mut_side.place)}\` \`&mut\` to the future this call makes, and \`${ast_expr_to_string(&other.via)}\` in the same call lends \`${_lent_place_string(&other.place)}\`, which overlaps it: a borrowing future that carries a \`&mut\` borrow is lent exclusively, so two operands of one combinator may not reach one place with an exclusive side (decision 38 B, plans/VALUES_BY_DEFAULT.md §3.13 A4).`,
+        Option(String).Some(String.from("await the two futures one after the other, or lend them disjoint places"))
+      ),
+      E_BORROW_CONFLICT
+    ),
+    ctx,
+    exn
+  );
+});
+/// `lp` as written: `s.items`.
+_lent_place_string :: (fn(lp : &_LentPlace) -> String)({
+  out := ast_expr_to_string(&lp.root);
+  (i : usize) = usize(0);
+  while(i < lp.path.len(), i = (i + usize(1)), {
+    out.push_str(".");
+    out.push_string(match(lp.path.get(i), .Some(f) => f, .None => String.new()));
+  });
+  out
 });
 /// Decision 38 D's frozen-lender premise (§3.13 A2): a place lent to a
 /// borrowing future stays put only while its owner cannot run. A local's
@@ -3033,21 +3261,24 @@ _reject_lent_place_conflict :: (fn(at : &AstExpr, what : &String, lp : &_LentPla
 );
 /// `place`, lent to the future (by the argument `lent_arg`), is not moved,
 /// overwritten or lent `&mut` by `args` from `from` on.
-_check_lent_place_untouched_after :: (fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, ctx : &EvalContext, exn : Exception) -> unit)({
-  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
+_check_lent_place_untouched_after :: (fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(_lent_place_of(place), .Some(lp) => _check_lent_place_struct_untouched_after(&lp, lent_arg, args, from, ctx, exn), .None => ())
+);
+/// `_check_lent_place_untouched_after` over a place already taken apart.
+_check_lent_place_struct_untouched_after :: (fn(lp : &_LentPlace, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, ctx : &EvalContext, exn : Exception) -> unit)({
   match(
-    _lent_place_moved_at(&lp, ctx),
-    .Some(moved_atom) => _reject_lent_place_conflict(&moved_atom, &String.from("argument moves"), &lp, lent_arg, ctx, exn),
+    _lent_place_moved_at(lp, ctx),
+    .Some(moved_atom) => _reject_lent_place_conflict(&moved_atom, &String.from("argument moves"), lp, lent_arg, ctx, exn),
     .None => ()
   );
   (ai : usize) = from;
   while(ai < args.len(), ai = (ai + usize(1)), {
     arg := match(args.get(ai), .Some(a) => a, .None => return(()));
     match(
-      _find_lent_place_access(&arg, &lp, ctx),
+      _find_lent_place_access(&arg, lp, ctx),
       .Some(hit) => {
         what := `argument ${hit.1}`;
-        _reject_lent_place_conflict(&hit.0, &what, &lp, lent_arg, ctx, exn);
+        _reject_lent_place_conflict(&hit.0, &what, lp, lent_arg, ctx, exn);
       },
       .None => ()
     );
@@ -9400,7 +9631,12 @@ Fix: wrap the call:
                   exn,
                   argument_is_aliased_by_inout(&arg_expr_eff, fv_p_is_ref, inout_argument_roots(&fv_args, &fv_param_is_ref)),
                   fv_p_sink,
-                  is_io_async_call(expr) || is_io_await_call(expr)
+                  _param_accepts_second_class(
+                    expr,
+                    match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit()),
+                    match(fv_callee_ty, Rc(.Func({ result : fv_res_sc })) => fv_res_sc, _ => t_unit()),
+                    match(fv_callee_ty, Rc(.Func({ forall_types : fv_ft_sc })) => (fv_ft_sc.len() > usize(0)), _ => false)
+                  )
                 ),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(fv_s0d);

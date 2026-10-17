@@ -1175,15 +1175,16 @@ consume_argument_for_parameter :: (
     (aliased_by_inout : bool) ?= false,
     /// The parameter is declared `sink(x)`: the argument moves, never shared.
     (param_is_sink : bool) ?= false,
-    /// The slot is `io.async`'s body or `io.await`'s future, which accept a
-    /// second-class argument (decision 37, §3.13 A2).
+    /// The slot accepts a second-class argument (`_param_accepts_second_class`:
+    /// `io.async`'s body, `io.await`'s future, a combinator's future operand).
     (second_class_slot : bool) ?= false
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
   // Decision 38 A: a second-class value is never moved into a by-value
-  // parameter: the callee could keep it past the borrow. `io.async`'s body
-  // and `io.await`'s future are the exceptions: the future a borrowing body
+  // parameter: the callee could keep it past the borrow. `io.async`'s body,
+  // `io.await`'s future and a combinator's future operand are the exceptions
+  // (`_param_accepts_second_class`): the future a borrowing body or operand
   // makes is itself second-class, and an await finishes inside the borrow.
   if(param_is_owning && !param_is_ct && !second_class_slot, {
     reject_second_class_escape(&arg_info.ty, if(is_future_value_type(&arg_info.ty), String.from("spawned or moved into a by-value parameter (a borrowing future is awaited where it is made, §3.13 A2)"), String.from("moved into a by-value (`sink`) parameter")), ast_expr_token(actual_arg), ctx, exn);
@@ -1253,6 +1254,24 @@ consume_argument_for_parameter :: (
   });
   Option(AstExpr).None
 });
+/// The parameter slot accepts a second-class argument (decision 38 A's
+/// exceptions):
+/// - `io.async`'s body and `io.await`'s future (decision 37, §3.13 A2);
+/// - a by-value future operand of a GENERIC function whose result is a
+///   future, a combinator (§3.13 A4). A generic callee is checked per call,
+///   so inside it the operand is second-class too: it can be awaited, or
+///   captured by the `io.async` body whose future the function returns,
+///   which then carries the operand's borrows re-rooted at the parameter
+///   (`_register_borrowing_future`), and the call's future borrows what the
+///   operand borrows. A non-generic function's body is checked once, at its
+///   definition, where no operand borrows anything: its future could not
+///   carry the borrow, so it is not a combinator slot.
+_param_accepts_second_class :: (fn(call : &AstExpr, ptype : &TypeValue, result_ty : &TypeValue, callee_is_generic : bool) -> bool)(
+  cond(
+    (is_io_async_call(call) || is_io_await_call(call)) => true,
+    true => (callee_is_generic && (is_future_value_type(ptype) && is_future_value_type(result_ty)))
+  )
+);
 /// Report `msg` at `tok`, flagging the flow-violation channel first so a
 /// definition-time swallow re-raises it at `check` time (outside trials, cee
 /// propagate mode, and when a flag is already pending).
@@ -1444,8 +1463,8 @@ check_if_function_parameter_matches_argument :: (
     /// A projection's `&T` parameter, passed by pointer
     /// (`fn_param_is_ptr_borrow`): it binds as a non-reassignable reference.
     (param_is_ptr_borrow : bool) ?= false,
-    /// The call is `io.async(...)` or `io.await(...)`: a by-value slot that
-    /// accepts a second-class body or future (decision 37, §3.13 A2).
+    /// A by-value slot that accepts a second-class body or future
+    /// (`_param_accepts_second_class`, decision 37, §3.13 A2 and A4).
     (second_class_slot : bool) ?= false
   ) -> CheckParamResult
 )({
@@ -7980,7 +7999,7 @@ try_to_call_function_with_arguments :: (
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
-          is_io_async_call(expr) || is_io_await_call(expr)
+          _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0))
         );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {
@@ -9240,7 +9259,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
