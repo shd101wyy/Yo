@@ -278,7 +278,11 @@ source order.
   keeps its own C name). A pattern binding is declared in its arm, stored into
   its slot by `_bind_pattern_name`, found by declaration site
   (`_inline_binding_sm_field`: sibling arms share names), and read back
-  through `shadow_slots`.
+  through `shadow_slots`. A `mut` match's place binding (decision 26) is an
+  `is_ref` variable, so its slot is typed `T*` like a local borrow's
+  (`_capture_env_variable`), it is read as `(*sm->…)`, and it points into the
+  scrutinee's own storage: a `mut` match never copies its subject
+  (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
 - **Await results** live in `sm->__yo_await_result_<k>` only when a later
   await in the same statement can suspend before the result is consumed
   (`f(await a, await b)`); any other result is a C local

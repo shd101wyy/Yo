@@ -54,7 +54,7 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. Rules
 | #1307 | Plans only: `plans/backlog/LIFETIME_REPLACEMENT_PATTERNS.md`, the inventory of every mechanism that covers a lifetime's three jobs (express/store/verify), the selection table and the four-item boundary; review fixed two section references (squash `577ed8110`, admin-merged with the maintainer's OK) |
 | #1308 | **Decision 42 Generation A** (squash `8220b17e4`; pre-squash head `ae0651384`, whose last code commit is `e4a606982` = the pre-rebase `6549e5d83`). `x : &T` / `&mut T` / `-> &T` / `{ y : &y }` / `for(&mut xs, …)` parse everywhere as exact synonyms of the mode words (parse-time rewrite in `desugar_if_calls`); printer, diagnostics, docs and skills in the new spelling; `mut` reserved; `yo fix --migrate borrow-spelling`. Also fixed develop's red musl leg (the stack-sizing probe heredoc still said `inout(x)`). Local gates: suite 5,076/5,076, FIXPOINT_HOLDS, CLI corpus 0 diffs. Admin-merged with the maintainer's explicit OK |
 | #1306 | Plans only: decision 44 follow-ups in `plans/VALUES_BY_DEFAULT.md` and `plans/backlog/RUST_REFERENCE_PATTERNS.md` (merged on its green CI) |
-| #1305 | **Decision 26, the consuming `match`.** A by-value scrutinee moves; `match(&x, …)`/`match(&mut x, …)` borrow (`mut` place bindings write through); `yo fix --migrate match-scrutinee` (swept std 7, tests 1); exit drops for moved arm bindings; a value moved before `continue`/`break` is no longer dropped again. Filed: `issues/a-mut-match-place-binding-cannot-live-across-an-await.md` (S2) |
+| #1305 | **Decision 26, the consuming `match`.** A by-value scrutinee moves; `match(&x, …)`/`match(&mut x, …)` borrow (`mut` place bindings write through); `yo fix --migrate match-scrutinee` (swept std 7, tests 1); exit drops for moved arm bindings; a value moved before `continue`/`break` is no longer dropped again. Filed: `issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md` (S2) |
 | #1302 | **V3b step 3.** `&x` is only a borrow marker; raw pointers are `addr_of(x)` (`yo fix --migrate addr-of`, semantic: it records each `&x` the evaluator treats as address-of). `inout`/`own` are deleted, with errors naming `mut`/`sink`. markdown_yo is bumped to ^0.0.14, the release that migrated its 181 `&x` sites |
 | #1298 | A bare fn type cannot carry an opaque `Impl` (SIGBUS through `void*`). Calls through `Impl(Fn(..) -> R)` take `R` from the callee |
 | #1297 | Decision 38 A escape-route audit: every route is pinned by a test. The implicit capture of a local borrow names the borrow and the capture list |
@@ -98,7 +98,7 @@ Filed this cycle and still open:
 | `issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md` | S2 | Found by the escape-route audit |
 | `issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md` | S2 | From FnOnce Gen A's review |
 | `issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md` | S2 | |
-| `issues/a-mut-match-place-binding-cannot-live-across-an-await.md` | S2 | From the consuming match (#1305) |
+| `issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md` | S2 | From the consuming match (#1305) |
 | `issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md` | S3 | Decision 32 gap |
 | `issues/derive-clone-costs-17-ms-per-type.md` | S3 | Compile time |
 | `issues/tests-declared-under-src-are-never-run-by-ci.md` | S3 | |

@@ -1,0 +1,31 @@
+{ Stream, for_await } :: import("std/async/stream");
+Countdown :: struct(_n : i32);
+impl(
+  Countdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        ))
+    )
+  )
+);
+Holder :: ref(struct(o : Option(i32)));
+main :: (fn(io : Io) -> unit)({
+  h := Holder(o : .Some(i32(1)));
+  t := io.async((e : Io) => {
+    cur := &mut h.o;
+    for_await(Countdown(_n : i32(3)), e, x => {
+      cur = .Some(x);
+    });
+  });
+  io.await(t, io);
+});
+export(main);

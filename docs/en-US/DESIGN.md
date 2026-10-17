@@ -2665,8 +2665,10 @@ The rules of a consuming `match`:
 
 A `mut` place is exclusive while it is live: the arm reads, writes or moves the
 scrutinee only through it (E0911), and `&mut` needs a writable place (an `imm`
-binding is E0908, a temporary is an error). A place cannot live across an
-`await` yet (`issues/a-mut-match-place-binding-cannot-live-across-an-await.md`).
+binding is E0908, a temporary is an error). Inside an `io.async` body a place
+lives across an `await`, unless its scrutinee passes through a reference cell
+or a module-level place: another task could reach that place while this one is
+suspended (E0911, the rule for local borrows).
 `yo fix <path> --migrate match-scrutinee` writes `&` where an existing program
 needs the borrow.
 

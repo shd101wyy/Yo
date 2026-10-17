@@ -85,7 +85,6 @@ pragma(Pragma.AllowUnsafe);
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ expr_contains_await } :: import("../../expr_traversal.yo");
 { migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -95,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding } :: import("../utils.yo");
-{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
+{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -1261,20 +1260,6 @@ evaluate_match :: (
       );
       bi = (bi + usize(1));
     });
-    // A `mut` place is a C pointer, and an `io.async` body's slots hold
-    // values: a place that would live across an await is not lowered yet
-    // (issues/a-mut-match-place-binding-cannot-live-across-an-await.md).
-    if((place_vars.len() > usize(0)) && expr_contains_await(&body_ast), {
-      exn.throw(
-        dyn(
-          format_error_message_with_help(
-            ast_expr_token(&arm_expr),
-            `This arm binds \`mut\` places into the scrutinee and awaits: a place cannot live across an await yet (plans/VALUES_BY_DEFAULT.md decision 26).`,
-            Option(String).Some(`match by value or through \`&x\`, and write the new value back after the await (\`x = …\`)`)
-          )
-        )
-      );
-    });
     unbound_vars := _add_hidden_bindings(&own.unbound, &env, ctx);
     keep_vars := _add_hidden_bindings(&own.keeps, &env, ctx);
     classic := arm_is_classic(&pattern_ast, &pat, guard_ast.is_some(), scrutinee_is_primitive);
@@ -1492,9 +1477,15 @@ evaluate_match :: (
               // its bindings are already tracked as places a re-point goes
               // through (`local_borrow_note_pattern_binding`), and the
               // re-point must not read as an access of `cur` while `n` lives.
-              if(lb_scr_source.is_none(), {
-                match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp, &body_ast), .None => ());
-              });
+              // In an `io.async` body the place may live across an await:
+              // rule 4 rejects it there when the borrow it points through
+              // passes through a cell or a module-level place, judged at
+              // each await (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+              match(
+                lb_scr_source,
+                .Some(lbs) => local_borrow_note_match_place(&lbs, pv.name.clone(), &pv.token, &body_ast),
+                .None => match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp, &body_ast), .None => ())
+              );
             },
             .None => ()
           );

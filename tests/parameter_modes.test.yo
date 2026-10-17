@@ -524,6 +524,40 @@ test("the scrutinee is reached only through a live mut place", {
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
   assert(match(&h, .Some(n) => n, .None => i32(0)) == i32(1), "h untouched");
 });
+// A field or a dereference scrutinee is a place too: the arm writes it, not a
+// copy (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
+_PmPlaceHolder :: struct(o : Option(String), k : i32);
+_PmCell :: ref(struct(o : Option(i32)));
+test("a mut match on a field or a dereference writes the scrutinee's part", {
+  (s : _PmPlaceHolder) = _PmPlaceHolder(o : .Some(String.from("a")), k : i32(0));
+  match(
+    &mut s.o,
+    .Some(t) => {
+      t = String.from("bbb");
+    },
+    .None => ()
+  );
+  assert(match(&s.o, .Some(v) => v.len(), .None => usize(0)) == usize(3), "the field's payload was replaced in place");
+  h := _PmCell(o : .Some(i32(1)));
+  match(
+    &mut h.o,
+    .Some(n) => {
+      n = (n + i32(1));
+    },
+    .None => ()
+  );
+  assert(match(h.o, .Some(v) => v, .None => i32(0)) == i32(2), "a ref object's field was written");
+  (o5 : Option(i32)) = .Some(i32(5));
+  b := box(o5);
+  match(
+    &mut b.*,
+    .Some(n) => {
+      n = (n + i32(1));
+    },
+    .None => ()
+  );
+  assert(match(b.*, .Some(v) => v, .None => i32(0)) == i32(6), "the box's value was written");
+});
 test("a mut place's writing method writes the scrutinee's part", {
   (ol : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
   match(
