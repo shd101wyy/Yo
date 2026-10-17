@@ -117,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -2619,7 +2619,9 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 ///
 /// `in_generic` is set when the copy was evaluated inside a generic
 /// specialization (`ctx.currently_specializing_function`: a function with
-/// `comptime`/`generic` parameters or a generic impl's method). One
+/// `comptime`/`generic` parameters or a generic impl's method), or its type
+/// still mentions an open type parameter (a definition-time trial of a
+/// generic body no call instantiated: `type_contains_some_type_deep`). One
 /// `.clone()` there would demand `Clone` of every instantiation, while the
 /// run may have seen only one of them, so the site is listed, not rewritten
 /// (issues/fixed/2026-10-17-explicit-copy-migration-rewrites-a-generic-body-seen-at-one-type.md).
@@ -3386,7 +3388,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env), in_generic : ctx.currently_specializing_function.is_some()))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env), in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&ei.ty))))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
