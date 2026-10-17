@@ -602,7 +602,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
       - The compiler half landed in #1432: a generic combinator's by-value future operand accepts a borrowing future, and decision 38 B's overlap check is E0910.
       - The std half (`timeout`/`select` over futures) is parked on `wip/vbd-a4-std-half` (`a83d6ac8b`), blocked by `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`. Rebase it once that is fixed;
     - V3 A6's `Rc`-field half together with V2c;
-    - decision 39's iterators (V2b);
+    - decision 39's iterators (V2b): Generation A in #1429 (the cursor `for`, `indices()`, E0911 across the macro boundary); B7 proper remains;
     - the allocator interface version 2;
     - V2c;
     - decision 43 (four PRs, after V4: `TypeValue.Reference`, then Generation A with `.*`/`impl(&T)`/`FnMut` and `yo fix --migrate deref`, then root-joining containers with `depends`, then Generation B);

@@ -58,6 +58,9 @@ Progress:
     borrows `x : &T` / `x : &mut T`; a source mode word is E0009, rewritten
     by `yo fix --migrate borrow-spelling`;
   - the §6 measurement (#1220). Its call-site pass is deferred.
+  - decision 39 Generation A (#1429): the borrowed `for` walks a
+    `BorrowedWalk` cursor over a local borrow, `indices()` on `ArrayList`
+    and `Deque`, and E0911 across the macro boundary; B7 proper remains;
   - V3b Generation B: `yo fix --migrate params` and the parameter sweep
     (#1285), the flip to by-value plain parameters with static drop flags
     (#1296), and step 3, where `&x` is only a borrow, `addr_of(x)` makes a
@@ -6711,8 +6714,7 @@ heavy run, the command is given in item 2.
        `tests/index.test.yo`, `tests/derive_clone_complex.test.yo`; a new
        cli-case `fix-migrate-cloned-accessors`; in-process internal.
    - **B7 (c). Decision 39's iteration and decision 20's entries.**
-     - **Generation A landed first (2026-10-17, branch
-       `feat/vbd-decision39-gen-a`; decision 39's "the shape, settled
+     - **Generation A landed first (2026-10-17, #1429; decision 39's "the shape, settled
        2026-10-17" is the design).**
        - The borrowed `for` already walks a `BorrowedWalk` cursor over a
          local borrow, for every std collection including the maps and
