@@ -48,3 +48,13 @@ On the throw path, remove the entry from its generic-impl bucket (and its
 owner slot), its coherence site and its move-only declaration, and bump the
 trait-impl epoch; or run the `Copy`-side recheck against a candidate list that
 includes the new entry without registering it first.
+
+## Note for the fix
+
+`tests/cli-cases/fix-over-two-files-declaring-one-generic-type-name` relies on
+this leak: its a.yo rejects a `Copy` impl for `Tag(T)` under
+`comptime_expect_error`, and only because that impl stays registered does
+b.yo's `GenBox(T)` `Copy` derive put a `Copy` hand-written `Clone` from
+another declaration in front of the generic `Copy` recheck. Once this is
+fixed, that half of the case no longer exercises the recheck; give the fix
+its own direct test (the reproducer above).
