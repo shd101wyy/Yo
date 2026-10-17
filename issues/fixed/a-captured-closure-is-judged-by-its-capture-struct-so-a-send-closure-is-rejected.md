@@ -2,7 +2,7 @@
 
 **Severity:** S2 — valid Send-closure spawn helpers are rejected because Send is judged on the capture struct, not the closure's type
 
-**Status:** FIXED 2026-10-17 (`fix/send-closure-and-fn-value`). Re-measured on develop
+**Status:** FIXED 2026-10-17 (#1424). Re-measured on develop
 5425cd7bf: the recorded symptom and the value-route checks were already fixed by
 #612 and #902. The type-level route still judged a captured closure as a
 struct field, which this branch fixes (see "Fix" below).
