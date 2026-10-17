@@ -151,9 +151,10 @@ not a printed-name one, and it reproduces in one file:
   `Copy` hook.
 
 The coherence key itself still prints the receiver, so a duplicate generic
-impl spelled through an alias is accepted. That predates this fix and is
-filed as
-`issues/2026-10-17-a-duplicate-generic-trait-impl-spelled-through-an-alias-is-accepted.md`.
+impl whose receiver is spelled differently (through an alias, or with another
+binder name: `Option(T)` and `Option(U)`) is accepted. That predates this fix
+and is filed as
+`issues/2026-10-17-a-duplicate-generic-trait-impl-spelled-differently-is-accepted.md`.
 
 ## Regression test
 
