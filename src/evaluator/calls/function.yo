@@ -3524,7 +3524,7 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx :
           &at,
           `Cannot lend \`${place_text}\` to \`${callee_text}\` (${l.form}): \`${gv.name}\` is declared \`mut(${gv.name})\`, a mutable module-level binding, which has no run-time borrow flag. Any function can write it by name, and so can another task while the callee awaits, so the callee could read a value that was already released while it still holds the borrow (plans/VALUES_BY_DEFAULT.md decision 18 rule 3, decision 47).`,
           Option(String).Some(
-            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}.clone(); f(&mut v); ${gv.name} = v;\`), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
+            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}; f(&mut v); ${gv.name} = v;\`; \`${gv.name}.clone()\` would itself lend it), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
           )
         ),
         E_GLOBAL_LENT_TO_CALL

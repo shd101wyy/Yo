@@ -60,9 +60,10 @@ copy nothing, so they survive.
 
 ## Recommendation
 
-Option 1. The E0916 hint already tells users to write
-`v := G.clone(); f(&mut v); G = v;`, which is only sound if a structural
-clone is allowed. The check is local: the receiver's `Clone` impl is
+Option 1. Until #1414 the E0916 hint told users to write
+`v := G.clone(); f(&mut v); G = v;`, which is itself E0916; #1414 changed
+it to `v := G; …`, which stops working at V2b Generation B. Allowing a
+structural clone makes the natural spelling legal again. The check is local: the receiver's `Clone` impl is
 derived or comes from std's structural impls (the same test
 `type_is_bitwise_copy`'s neighbours make for decision 36). Option 2 remains
 right for a global that is written often, but it should not be forced on a
