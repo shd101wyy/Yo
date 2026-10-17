@@ -65,7 +65,7 @@ json :: import("std/encoding/json");
   E_BORROW_MARKER_MISMATCH,
   E_EXPLICIT_DESTRUCTOR_CALL,
   E_GLOBAL_LENT_TO_CALL,
-  E_IMMUTABLE_GLOBAL_WRITE,
+  E_IMMUTABLE_BINDING_WRITE,
   E_COMPTIME_BINDING_RUNTIME_WRITE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
@@ -464,10 +464,10 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_CANNOT_REASSIGN,
       "cannot reassign",
       "不能重新赋值",
-      "A binding declared with `:=`/`::` cannot be rebound with `=`.",
-      "用 `:=`/`::` 声明的绑定不能用 `=` 重新绑定。",
-      "`=` reassigns an EXISTING binding and only one declared to accept it. If you meant mutation, mutate fields (`x.field = v`) or index-write (`xs(i) = v`). If you meant a new value, use a fresh name (`x2 := ...`).",
-      "`=` 只能为已存在且允许的绑定重新赋值。若是想修改内容，请改字段（`x.field = v`）或索引写入（`xs(i) = v`）；若是想要新值，请换一个新名字（`x2 := ...`）。",
+      "A parameter or an implicit (`given`) binding cannot be rebound with `=`.",
+      "参数或隐式（`given`）绑定不能用 `=` 重新绑定。",
+      "`=` reassigns an EXISTING binding, and a parameter or an implicit (`given`) binding never accepts it. A body that changes a by-value argument rebinds it to a mutable local (`mut(y) := x;`, plans/VALUES_BY_DEFAULT.md decision 47); one that should change the caller's value takes `x : &mut T`. If you meant a new value, use a fresh name (`x2 := ...`).",
+      "`=` 只能为已存在的绑定重新赋值，而参数和隐式（`given`）绑定从不接受重新赋值。需要修改按值实参的函数体应把它重新绑定到一个可变局部变量（`mut(y) := x;`，见 plans/VALUES_BY_DEFAULT.md 决策 47）；需要修改调用方的值则改用 `x : &mut T`。若是想要新值，请换一个新名字（`x2 := ...`）。",
       "f :: (fn(a : i32) -> i32)({\n  a = i32(2);\n  a\n});\n",
       "f :: (fn(a : i32) -> i32)({\n  b := (a + i32(1));\n  b\n});\n",
       "Parameters are not reassignable; bind a new local instead.",
@@ -671,17 +671,17 @@ registry_entries :: (fn() -> ArrayList(Explain))({
   );
   out.push(
     _mk_explain(
-      E_IMMUTABLE_GLOBAL_WRITE,
-      "a write to an immutable module-level binding",
-      "写入了不可变的模块级绑定",
-      "A module-level or `thread_local` runtime binding declared without `mut(name)` is reassigned, has a field or element written, is lent `&mut`, or has a `&mut self` method called on it.",
-      "一个没有用 `mut(name)` 声明的模块级或 `thread_local` 运行时绑定被重新赋值、被写入字段或元素、被以 `&mut` 借出，或在其上调用了 `&mut self` 方法。",
-      "A binding is immutable unless its name is wrapped in `mut(...)` (decision 47, Rust's `let mut`; this generation applies it to module-level bindings: an unmarked one is Rust's `static`, `mut(G)` is `static mut`). Declare the binding `mut(G) := init`, `(mut(G) : T) = init` or `thread_local(mut(G)) := init` to write it. The marker is a promise the rest of the program relies on: an immutable global may be lent to any call, while a `mut` global cannot be lent at all (E0916), so a call reads it through a local copy. A `ref` handle the binding holds (a collection, a `ref` object) is a pointer: writing its fields or calling its `&mut self` methods writes through the handle, not the binding, and needs no `mut`; reassigning the binding does. `yo fix <path> --migrate mutable-globals` marks every global the program writes. In this generation the rule is enforced outside std and the compiler's own source, which the released seed still builds.",
-      "绑定是不可变的，除非它的名字被包在 `mut(...)` 中（决策 47，即 Rust 的 `let mut`；这一代把它应用于模块级绑定：未标记的绑定相当于 Rust 的 `static`，`mut(G)` 相当于 `static mut`）。要写入该绑定，请把它声明为 `mut(G) := init`、`(mut(G) : T) = init` 或 `thread_local(mut(G)) := init`。这个标记是程序其余部分所依赖的承诺：不可变的全局变量可以借给任何调用，而 `mut` 全局变量完全不能被借出（E0916），因此调用要通过一个局部副本来读取它。绑定持有的 `ref` 句柄（集合、`ref` 对象）是一个指针：写入其字段或调用其 `&mut self` 方法是通过句柄写入，而不是写入绑定本身，因此不需要 `mut`；重新赋值该绑定则需要。`yo fix <path> --migrate mutable-globals` 会标记程序写入的每个全局变量。在这一代中，该规则在 std 和编译器自身源码之外生效，因为已发布的种子编译器仍要构建它们。",
-      "counter := i64(0);\nbump :: (fn() -> unit)({\n  counter = (counter + i64(1));\n});\nmain :: (fn() -> unit)({\n  bump();\n});\nexport(main);\n",
-      "mut(counter) := i64(0);\nbump :: (fn() -> unit)({\n  counter = (counter + i64(1));\n});\nmain :: (fn() -> unit)({\n  bump();\n});\nexport(main);\n",
-      "`counter` is reassigned in `bump`, so it is declared `mut(counter)`; without the marker it is immutable.",
-      "`counter` 在 `bump` 中被重新赋值，因此声明为 `mut(counter)`；没有该标记时它是不可变的。"
+      E_IMMUTABLE_BINDING_WRITE,
+      "a write to an immutable binding",
+      "写入了不可变的绑定",
+      "A binding declared without `mut(name)` is reassigned, has a field or element written, is lent `&mut`, or has a `&mut self` method called on it: a local, a pattern or destructuring binding, a compile-time binding (`x :: v`, `comptime(x) := v`), a parameter, or a module-level or `thread_local` runtime binding.",
+      "一个没有用 `mut(name)` 声明的绑定被重新赋值、被写入字段或元素、被以 `&mut` 借出，或在其上调用了 `&mut self` 方法：局部变量、模式或解构绑定、编译期绑定（`x :: v`、`comptime(x) := v`）、参数，或模块级或 `thread_local` 运行时绑定。",
+      "A binding is immutable unless its name is wrapped in `mut(...)` (decision 47, Rust's `let mut`). The marker wraps the name in every binding position: `mut(x) := v`, `(mut(x) : T) = v`, `mut(x) :: v` and `comptime(mut(x)) := v` (mutable at compile time, in a block), `.Some(mut(v))` in a pattern, `{ a, mut(b) }` in a destructuring. A module-level runtime binding is the same rule: an unmarked one is Rust's `static`, `mut(G) := v` (or `thread_local(mut(G))`) is `static mut`, and a `mut` global cannot be lent to a call (E0916). Parameters take no `mut`: rebind one to a mutable local (`mut(y) := x;`, a move for an owning value), or take `x : &mut T` when the caller's value should change. A `ref` handle the binding holds (today's collections, a `ref` object) is a pointer: writing its fields or calling its `&mut self` methods writes through the handle and needs no `mut`; reassigning the binding does. A borrow (`x : &mut T`, `y := &mut place`) is written through, not written. `yo fix <path> --migrate mut-bindings` marks every written local, pattern and compile-time binding, and `--migrate mutable-globals` every written global. In this generation the rule is enforced outside std and the compiler's own source, which the released seed still builds.",
+      "绑定是不可变的，除非它的名字被包在 `mut(...)` 中（决策 47，即 Rust 的 `let mut`）。该标记在每个绑定位置都包住名字：`mut(x) := v`、`(mut(x) : T) = v`、`mut(x) :: v` 与 `comptime(mut(x)) := v`（在块中，编译期可变）、模式中的 `.Some(mut(v))`、解构中的 `{ a, mut(b) }`。模块级运行时绑定遵循同一规则：未标记的相当于 Rust 的 `static`，`mut(G) := v`（或 `thread_local(mut(G))`）相当于 `static mut`，且 `mut` 全局变量不能借给调用（E0916）。参数不接受 `mut`：把它重新绑定到一个可变局部变量（`mut(y) := x;`，对拥有所有权的值是移动），或在调用方的值应当改变时改用 `x : &mut T`。绑定持有的 `ref` 句柄（目前的集合、`ref` 对象）是一个指针：写入其字段或调用其 `&mut self` 方法是通过句柄写入，不需要 `mut`；重新赋值该绑定则需要。借用（`x : &mut T`、`y := &mut place`）是被“透过”写入，而不是被写入。`yo fix <path> --migrate mut-bindings` 会标记每个被写入的局部、模式和编译期绑定，`--migrate mutable-globals` 会标记每个被写入的全局变量。在这一代中，该规则在 std 和编译器自身源码之外生效，因为已发布的种子编译器仍要构建它们。",
+      "main :: (fn() -> unit)({\n  total := i64(0);\n  total = (total + i64(1));\n  _t := total;\n});\nexport(main);\n",
+      "main :: (fn() -> unit)({\n  mut(total) := i64(0);\n  total = (total + i64(1));\n  _t := total;\n});\nexport(main);\n",
+      "`total` is reassigned, so it is declared `mut(total)`; without the marker it is immutable.",
+      "`total` 被重新赋值，因此声明为 `mut(total)`；没有该标记时它是不可变的。"
     )
   );
   out.push(

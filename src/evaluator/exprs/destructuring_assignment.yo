@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { unknown_field_message, unknown_field_code } :: import("../../types/utils.yo");
-{ is_valid_variable_name } :: import("../utils.yo");
+{ is_valid_variable_name, strip_mut_marker } :: import("../utils.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
 { panic, assert } :: import("std/assert");
@@ -305,7 +305,14 @@ handle_member_destructuring :: (
   runtime_destructurings := ArrayList(RuntimeDestructuring).new();
   (i : usize) = usize(0);
   while(i < lhs_fields.len(), {
+    // Decision 47: `{ a, mut(b) } := s` and `{ x : mut(b) } := s` declare `b`
+    // mutable (per name); the marker is stripped from the tree and the name
+    // recorded (`strip_mut_marker`).
+    (field_is_mut : bool) = strip_mut_marker(lhs, i, exn).is_some();
     lhs_field := match(lhs_fields.get(i), .Some(f) => f, .None => make_err_expr());
+    if(!field_is_mut && ast_expr_is_fn_call_of(&lhs_field, BK_COLON, Option(usize).Some(usize(2))), {
+      field_is_mut = strip_mut_marker(&lhs_field, usize(1), exn).is_some();
+    });
     (field_index : usize) = i; // default: positional
     (field_value_opt : Option(EvalValue)) = Option(EvalValue).None;
     (rhs_field_label : String) = match(
@@ -620,6 +627,10 @@ handle_member_destructuring :: (
               added_var_opt,
               .Some(added_var) => {
                 added_var.is_created_from_destructuring_atom_variable = is_destructuring_atom_variable;
+                // A `mut(name)` binding may be reassigned (decision 47).
+                if(field_is_mut, {
+                  added_var.is_reassignable = true;
+                });
               },
               .None => ()
             );

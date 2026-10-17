@@ -77,7 +77,7 @@ pragma(Pragma.AllowUnsafe);
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
-{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, canonical_module_path } :: import("./utils.yo");
+{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, canonical_module_path, display_module_path } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
 { ExplicitCopySite, CopyWrite, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes } :: import("./evaluator/utils.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -3220,8 +3220,18 @@ _run_migrate_dyn_spelling :: (
 /// `mut(G) := v`, `(G : T) = v` becomes `(mut(G) : T) = v`, and
 /// `thread_local(G)` becomes `thread_local(mut(G))`. A write through a `ref`
 /// handle the binding holds is not a write of the binding.
-_run_migrate_mutable_globals :: (
-  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+///
+/// `yo fix --migrate mut-bindings` (decision 47 step 2) is the same sweep for
+/// the bindings below module level (`bindings`): each local, pattern or
+/// destructuring binding, `x :: v` or `comptime(x) := v` written after its
+/// definition gets `mut(...)` around its declared name (`x := v` →
+/// `mut(x) := v`, `.Some(v)` → `.Some(mut(v))`, `{ a, b }` → `{ a, mut(b) }`,
+/// `comptime(x)` → `comptime(mut(x))`). A local's writes are all in its
+/// function, so the inference is sound. A written parameter takes no marker
+/// (parameters stay immutable): it is listed with the position of the write,
+/// to rebind by hand.
+_run_migrate_mut_markers :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, bindings : bool, io : Io, exn : Exception) -> unit
 )({
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -3235,11 +3245,18 @@ _run_migrate_mutable_globals :: (
       });
       _drop_diags := take_error_diagnostics();
       failed = (failed + usize(1));
-      println(`fix: ${file} does not evaluate; its globals are migrated only as far as evaluation reached`);
+      println(`fix: ${file} does not evaluate; its ${if(bindings, "bindings", "globals")} are migrated only as far as evaluation reached`);
     });
   });
   set_migrate_mutable_globals(false);
-  sites := take_mutable_global_sites();
+  set_migrate_mut_bindings(false);
+  sites := if(bindings, take_mut_binding_sites(), take_mutable_global_sites());
+  param_sites := take_mut_param_sites();
+  (pmi : usize) = usize(0);
+  while(pmi < param_sites.len(), pmi = (pmi + usize(1)), {
+    ps := param_sites(pmi);
+    println(`fix: ${display_module_path(&ps.path)}:${(ps.row + usize(1)).to_string()}:${(ps.col + usize(1)).to_string()}: writes the parameter \`${ps.expect}\`, which takes no \`mut\`; rebind it to a mutable local (\`mut(${ps.expect}_m) := ${ps.expect};\`) by hand`);
+  });
   site_paths := ArrayList(String).new();
   (spi : usize) = usize(0);
   while(spi < sites.len(), spi = (spi + usize(1)), {
@@ -3305,11 +3322,16 @@ _run_migrate_mutable_globals :: (
     });
   });
   verb := if(dry_run, String.from("would mark"), String.from("marked"));
-  println(`fix: ${verb} ${n_marked.to_string()} module-level binding(s) mut(...); ${n_skipped.to_string()} left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  noun := if(bindings, String.from("binding(s)"), String.from("module-level binding(s)"));
+  params_note := if(bindings, `; ${param_sites.len().to_string()} parameter write(s) to rebind by hand (listed above)`, String.new());
+  println(`fix: ${verb} ${n_marked.to_string()} ${noun} mut(...); ${n_skipped.to_string()} left as written (listed above)${params_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated writes were not migrated`));
   });
 });
+_run_migrate_mutable_globals :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)(
+  _run_migrate_mut_markers(files, std_path, dry_run, false, io, exn)
+);
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -3327,7 +3349,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|explicit-copy]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -3352,8 +3374,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "explicit-copy")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals or explicit-copy`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "mut-bindings") && (argv(next_m) != "explicit-copy")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals, mut-bindings or explicit-copy`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -3368,7 +3390,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|explicit-copy]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -3457,6 +3479,9 @@ run_fix :: (
   if(migrate == "mutable-globals", {
     set_migrate_mutable_globals(true);
   });
+  if(migrate == "mut-bindings", {
+    set_migrate_mut_bindings(true);
+  });
   if(migrate == "explicit-copy", {
     set_migrate_explicit_copy(true);
   });
@@ -3499,6 +3524,10 @@ run_fix :: (
   });
   if(migrate == "mutable-globals", {
     _run_migrate_mutable_globals(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "mut-bindings", {
+    _run_migrate_mut_markers(&files, std_path.clone(), dry_run, true, io, exn);
     return(());
   });
   if(migrate == "explicit-copy", {
@@ -11383,7 +11412,9 @@ Options:
                             a callable passed bare to a Dyn(Fn(...))
                             slot), mutable-globals (mut(G) on every
                             module-level binding the program writes),
-                            or explicit-copy (.clone() on an
+                            mut-bindings (mut(x) on every local,
+                            pattern or comptime binding the program
+                            writes), or explicit-copy (.clone() on an
                             implicit copy of a String or collection
                             whose source is used again)
   --target <triple>         Evaluate for this target, as compile --target
@@ -11416,7 +11447,8 @@ Examples:
                             dyn-spelling（给裸传入 Dyn(Fn(...)) 位置的
                             可调用值加上 dyn(f)），mutable-globals
                             （给程序写入的每个模块级绑定加上 mut(G)），
-                            或 explicit-copy（源值之后仍被使用的
+                            mut-bindings（给程序写入的每个局部、模式或
+                            编译期绑定加上 mut(x)），或 explicit-copy（源值之后仍被使用的
                             String / 集合隐式复制加上 .clone()）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
