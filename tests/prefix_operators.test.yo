@@ -58,3 +58,33 @@ test("prefix type constructors: ?T, *T, ?*T, **T", {
 test("parenthesized operator atoms stay values", {
   assert(my_not(false), "(!) bound as a value and called");
 });
+
+// `!` on the pointee of a pointer that is a call's result, inside a function
+// with a comptime parameter: the specialization binds the pointer to a
+// runtime-only placeholder, and its deref used to drop that flag, so `!`
+// picked `comptime_not` and reported a false E1101
+// (issues/fixed/2026-10-16-not-on-a-runtime-bool-in-a-comptime-type-parameterized-fn-is-e1101.md).
+_NotCell :: (fn(comptime(T) : Type) -> comptime(Type))(struct(flag : bool, v : T));
+_not_take :: (fn(comptime(T) : Type, p : *_NotCell(T)) -> bool)({
+  was_clear := !unsafe(p.*.flag);
+  unsafe(consume(p.*.flag = false));
+  was_clear
+});
+_not_flag :: (fn(comptime(T) : Type, p : *bool) -> bool)(!unsafe(p.*));
+_not_ptr :: (fn(b : &bool) -> *bool)(addr_of(b));
+_NotWrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(st : Box(_NotCell(T))));
+impl(
+  generic(T : Type),
+  _NotWrap(T),
+  cell : (fn(self : &Self) -> *_NotCell(T))(addr_of(self.st.*)),
+  take : (fn(self : &Self) -> bool)(_not_take(T, self.cell()))
+);
+test("! on a runtime pointee through a call-result pointer in a comptime-parameterized fn", {
+  w := _NotWrap(i32)(st : box(_NotCell(i32)(flag : true, v : i32(1))));
+  assert(!w.take(), "the flag was set: ! of true");
+  assert(w.take(), "take cleared the flag: ! of false");
+  b := false;
+  assert(_not_flag(i32, _not_ptr(&b)), "! of a bool read through a call's pointer");
+  b = true;
+  assert(!_not_flag(u8, _not_ptr(&b)), "the same read sees the new value");
+});
