@@ -2,7 +2,7 @@
 
 **Severity:** S3 — a local passed by value to a call that `comptime_expect_error` expects to fail is never dropped: the rejected call's move leaks out of the trial, so the local's scope-end drop is skipped (a bounded leak, seen only under LeakSanitizer).
 
-**Found:** 2026-10-17, by the `fix/generic-binder-sink-closure-fn-type` Tier 1 gate: `tests/copy_trait.test.yo` "Copy: where(T <: Copy) rejects a closure that owns a String" fails locally with a LeakSanitizer report. CI passes it because it runs with `YO_TEST_LEAK_VERDICT=0`.
+**Found:** 2026-10-17, by the Tier 1 gate of #1428: `tests/copy_trait.test.yo` "Copy: where(T <: Copy) rejects a closure that owns a String" fails locally with a LeakSanitizer report. CI passes it because it runs with `YO_TEST_LEAK_VERDICT=0`.
 **Status:** open.
 
 ## Symptom

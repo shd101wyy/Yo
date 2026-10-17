@@ -3,7 +3,7 @@
 **Severity:** S2 — a `sink` closure parameter of a generic function whose type mentions the type parameter is never owned by the callee, so a move-only closure that holds a `Dispose` value cannot be moved on inside it (E0901), and ownership of every such closure argument stays with the caller.
 
 **Found:** 2026-10-15, root-causing `issues/fixed/2026-10-15-a-closure-parameter-captured-by-an-inner-closure-is-e0901.md`.
-**Status:** FIXED 2026-10-17 (`fix/generic-binder-sink-closure-fn-type`).
+**Status:** FIXED 2026-10-17 (#1428).
 
 ## Symptom
 

@@ -773,7 +773,7 @@ x :: 12;                           // a true constant
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
 - Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (filed with #1402, fixed by #1411), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
-- `issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md` (S2): found by #1388; **fixed** by `fix/generic-binder-sink-closure-fn-type` (a deferred closure literal is judged by its capture struct; the stopgap `capture_of_caller_owned_sink_param` is gone).
+- `issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md` (S2): found by #1388; **fixed** by #1428 (a deferred closure literal is judged by its capture struct; the stopgap `capture_of_caller_owned_sink_param` is gone).
 - `issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): fixed 2026-10-16 (`-DMI_BUILD_RELEASE` on every line that links mimalloc); `check ./src` 292 s → 202 s on the Linux box.
 - `issues/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md`.
 - `issues/a-generic-function-passed-to-an-impl-fn-parameter-fails-in-codegen.md`.

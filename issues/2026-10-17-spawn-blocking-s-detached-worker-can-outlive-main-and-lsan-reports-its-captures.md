@@ -2,7 +2,7 @@
 
 **Severity:** S3 — about one run in a few hundred, a program that awaits `spawn_blocking` and then exits gets a 104-byte LeakSanitizer report: the detached worker thread has not yet released its closure when the process ends. This makes `tests/spawn_blocking.test.yo` flaky under a local leak verdict.
 
-**Found:** 2026-10-17, by the `fix/generic-binder-sink-closure-fn-type` Tier 1 gate (`tests/spawn_blocking.test.yo`, "a sibling task keeps running while spawn_blocking blocks", one failure). CI runs with `YO_TEST_LEAK_VERDICT=0`, so CI does not see it.
+**Found:** 2026-10-17, by the Tier 1 gate of #1428 (`tests/spawn_blocking.test.yo`, "a sibling task keeps running while spawn_blocking blocks", one failure). CI runs with `YO_TEST_LEAK_VERDICT=0`, so CI does not see it.
 **Status:** open.
 
 ## Symptom
