@@ -592,13 +592,16 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
     "`mut(x)` was deleted"
   );
   comptime_expect_error((fn(s : String) -> imm(String))(s), "`imm(x)` was deleted");
-  (_c : i32) = i32(0);
+  // `_c` is lent `&mut` below, so it is declared `mut` (decision 47).
+  (mut(_c) : i32) = i32(0);
   comptime_expect_error({
     imm(y) := _c;
   }, "`imm(x)` was deleted");
-  comptime_expect_error({
-    mut(y) := _c;
-  }, "`mut(x)` was deleted");
+  // `mut(y) := place` is no longer a borrow: decision 47 made it a mutable
+  // local holding a copy (tests/mut_bindings.test.yo).
+  mut(c_copy) := _c;
+  c_copy = (c_copy + i32(1));
+  assert((c_copy == i32(1)) && (_c == i32(0)), "mut(c_copy) := _c copies");
   comptime_expect_error({
     y := &mut _c;
     mut(y) = _c;

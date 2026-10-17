@@ -1242,9 +1242,13 @@ evaluate_match :: (
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
           // A `mut(name)` pattern binding may be reassigned (decision 47).
           if(is_mut_binding(ast_expr_token(&b.atom), &b.name), {
-            match(_added, .Some(mb_var) => {
-              mb_var.is_reassignable = true;
-            }, .None => ());
+            match(
+              _added,
+              .Some(mb_var) => {
+                mb_var.is_reassignable = true;
+              },
+              .None => ()
+            );
           });
           // Decision 38 A: a pattern binding is a binding. A second-class
           // value it binds freezes what it borrows for the arm, and a
