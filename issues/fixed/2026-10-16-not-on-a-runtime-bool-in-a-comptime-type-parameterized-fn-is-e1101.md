@@ -56,11 +56,13 @@ comptime parameter (so the call specializes it), and a `.*` of that parameter:
 ```yo
 pragma(Pragma.AllowUnsafe);
 f :: (fn(comptime(T) : Type, p : *bool) -> unit)({
-  if(!unsafe(p.*), { __yo_panic("not set"); });
+  if(!unsafe(p.*), {
+    __yo_panic("not set");
+  });
 });
-sp :: (fn(b : &bool) -> *bool)(addr_of(b));
+sp :: (fn(b : &Box(bool)) -> *bool)(addr_of(b.*));
 main :: (fn() -> unit)({
-  b := true;
+  b := box(true);
   f(i32, sp(&b));
 });
 export(main);
@@ -86,4 +88,7 @@ pointee. `std/async/mutex.yo`'s `_unlock_state` drops its workaround
 `if(!unsafe(st.*._locked), …)` again. Test:
 `tests/prefix_operators.test.yo`, "! on a runtime pointee through a
 call-result pointer in a comptime-parameterized fn" (the issue's generic-impl
-shape and the direct call above); it failed to compile with E1101 before.
+shape and the direct call above); it failed to compile with E1101 before. Each
+call's result is bound before it is asserted: making the first call an operand
+of `!` drops a store in the callee, a separate bug found while gating this fix
+(`issues/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md`).

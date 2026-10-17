@@ -71,7 +71,7 @@ _not_take :: (fn(comptime(T) : Type, p : *_NotCell(T)) -> bool)({
   was_clear
 });
 _not_flag :: (fn(comptime(T) : Type, p : *bool) -> bool)(!unsafe(p.*));
-_not_ptr :: (fn(b : &bool) -> *bool)(addr_of(b));
+_not_ptr :: (fn(b : &Box(bool)) -> *bool)(addr_of(b.*));
 _NotWrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(st : Box(_NotCell(T))));
 impl(
   generic(T : Type),
@@ -79,12 +79,19 @@ impl(
   cell : (fn(self : &Self) -> *_NotCell(T))(addr_of(self.st.*)),
   take : (fn(self : &Self) -> bool)(_not_take(T, self.cell()))
 );
+// Each result is bound before it is asserted: a call to these functions as
+// the operand of `!` drops `_not_take`'s store, a separate bug
+// (issues/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md).
 test("! on a runtime pointee through a call-result pointer in a comptime-parameterized fn", {
   w := _NotWrap(i32)(st : box(_NotCell(i32)(flag : true, v : i32(1))));
-  assert(!w.take(), "the flag was set: ! of true");
-  assert(w.take(), "take cleared the flag: ! of false");
-  b := false;
-  assert(_not_flag(i32, _not_ptr(&b)), "! of a bool read through a call's pointer");
-  b = true;
-  assert(!_not_flag(u8, _not_ptr(&b)), "the same read sees the new value");
+  first := w.take();
+  assert(first == false, "the flag was set: ! of true");
+  second := w.take();
+  assert(second, "take cleared the flag: ! of false");
+  b := box(false);
+  clear := _not_flag(i32, _not_ptr(&b));
+  assert(clear, "! of a bool read through a call's pointer");
+  b.* = true;
+  set := _not_flag(u8, _not_ptr(&b));
+  assert(set == false, "the same read sees the new value");
 });

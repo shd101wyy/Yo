@@ -1,0 +1,16 @@
+// issues/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md: aborts with "second" (the store `p.*.flag = false` is not emitted).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+C :: struct(flag : bool);
+take :: (fn(comptime(T) : Type, p : *C) -> bool)({
+  (x : bool) = unsafe(p.*.flag);
+  unsafe(consume(p.*.flag = false));
+  x
+});
+cell :: (fn(b : &Box(C)) -> *C)(addr_of(b.*));
+main :: (fn() -> unit)({
+  c := box(C(flag : true));
+  assert(!!take(i32, cell(&c)), "first");
+  assert(!take(i32, cell(&c)), "second");
+});
+export(main);
