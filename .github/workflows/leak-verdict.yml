@@ -62,7 +62,10 @@ jobs:
       # raw heap on purpose and asserts only a value (the exact shape the
       # original issue measured passing green under the ratchet). Under this
       # job's configuration it MUST FAIL with a leak verdict; if it passes,
-      # every "N passed" below is vacuous and the job errors out.
+      # every "N passed" below is vacuous and the job errors out. The probe
+      # calls the prelude's own `__yo_malloc` binding; re-declaring it with an
+      # `extern` is a redefinition error since #1328
+      # (issues/fixed/2026-10-17-the-leak-verdict-vacuity-probe-redeclares-the-prelude-s-yo-malloc.md).
       - name: Vacuity probe (the leak verdict must fail a deliberately leaking test)
         env:
           YO_MAIN_STACK_MB: "4096"
@@ -70,7 +73,6 @@ jobs:
           set -euo pipefail
           cat > /tmp/leak-probe.test.yo <<'EOF'
           pragma(Pragma.AllowUnsafe);
-          extern("Yo", __yo_malloc : (fn(size : usize) -> ?*void));
           { assert } :: import("std/assert");
 
           test("deliberate leak (the vacuity probe)", {
