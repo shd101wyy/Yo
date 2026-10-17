@@ -495,6 +495,41 @@ impl(
     LinkedListIterPtr(T)(_current : self.head)
   )
 );
+/// A pointer to `node`'s value. A free function of the node alone, so the
+/// mutation summary of `walk_elem` (which calls it) sees no write to the list:
+/// taking an address is not a write, but `addr_of` in a method body is judged
+/// as one, which would put a borrow assert at `walk_elem`'s entry.
+_node_value_ptr :: (fn(generic(T : Type), node : &Node(T)) -> *T)(unsafe(addr_of(node.value)));
+/// The borrowed `for`'s cursor (decision 39, plans/VALUES_BY_DEFAULT.md): the
+/// current node, which holds no handle to the list itself. The nodes are a
+/// shared `ref` graph today, so the cursor keeps its node alive; V2b's
+/// representation decision for `LinkedList` replaces it.
+impl(
+  generic(T : Type),
+  LinkedList(T),
+  BorrowedWalk(
+    WalkCursor : Option(Node(T)),
+    WalkElem : T,
+    walk_start : (fn(self : &Self) -> Option(Node(T)))(self.head),
+    walk_valid : (fn(self : &Self, cur : &Option(Node(T))) -> bool)(cur.is_some()),
+    walk_elem : (fn(self : &mut Self, cur : &Option(Node(T))) -> &mut T)(
+      match(
+        cur,
+        // SAFETY: the node is held by the cursor and by the list's chain,
+        // which `self` keeps alive while it is borrowed.
+        .Some(node) => _node_value_ptr(&node),
+        .None => __yo_panic("LinkedList: walk cursor past the end")
+      )
+    ),
+    walk_next : (fn(self : &Self, cur : &Option(Node(T))) -> Option(Node(T)))(
+      match(
+        cur,
+        .Some(node) => node.next,
+        .None => .None
+      )
+    )
+  )
+);
 /// Index trait — `list(idx)` returns the element at `idx`. O(n) walk.
 /// `&(node.value)` is a valid heap pointer while `self` keeps the
 /// Rc chain alive — the dispatcher inlines and dereferences this
