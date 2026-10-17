@@ -1806,14 +1806,17 @@ test("Test effect handler conditional resume or unwind based on argument", {
       }
     );
     sum := rc(RefCell(i32).new(0));
+    q1 := safe_divide(10, 0, i32(1), raise);
     sum.with_mut(cur => {
-      cur = (cur + safe_divide(10, 0, i32(1), raise));
+      cur = (cur + q1);
     });
+    q2 := safe_divide(20, 0, i32(2), raise);
     sum.with_mut(cur => {
-      cur = (cur + safe_divide(20, 0, i32(2), raise));
+      cur = (cur + q2);
     });
+    q3 := safe_divide(30, 0, i32(3), raise);
     sum.with_mut(cur => {
-      cur = (cur + safe_divide(30, 0, i32(3), raise));
+      cur = (cur + q3);
     });
     return(sum.with(cur => cur));
   });
@@ -1945,8 +1948,9 @@ test("Test transitive SM with struct-record effect in while loop", {
     i := rc(RefCell(i32).new(0));
     c := rc(RefCell(i32).new(0));
     while(runtime(i.with(cur => cur) < limit), {
+      next_c := counter.increment(c.with(cur => cur));
       c.with_mut(cur => {
-        cur = counter.increment(cur);
+        cur = next_c;
       });
       sum.with_mut(cur_ => {
         cur_ = (cur_ + c.with(cur => cur));
