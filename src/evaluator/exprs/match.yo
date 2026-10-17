@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
+{ migrate_match_scrutinee_on, record_migrate_edit, is_mut_binding } :: import("../../expr_info.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("../types/gadt_registry.yo");
@@ -93,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut } :: import("../utils.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
@@ -907,6 +907,21 @@ evaluate_match :: (
     return(expr);
   });
   scrutinee_expr := match(all_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  // Decision 47: a pattern binds `mut(name)` to make the binding mutable
+  // (`.Some(mut(v)) => { v = (v + 1); v }`). The markers are stripped from the
+  // arm patterns before anything reads them, and the names recorded.
+  (mk_i : usize) = usize(1);
+  while(mk_i < all_args.len(), mk_i = (mk_i + usize(1)), {
+    match(
+      all_args.get(mk_i),
+      .Some(mk_arm) => if(ast_expr_is_fn_call_of(&mk_arm, "=>", Option(usize).Some(usize(2))), {
+        if(strip_mut_marker(&mk_arm, usize(0), exn).is_none(), {
+          match(mk_arm, .FnCall(_, _, mk_args, _, _) => match(mk_args.get(usize(0)), .Some(mk_pat) => strip_pattern_mut_markers(&mk_pat, exn), .None => ()), .Atom(_, _) => ());
+        });
+      }),
+      .None => ()
+    );
+  });
   // Evaluate scrutinee with cleared expectedType
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
@@ -1049,6 +1064,11 @@ evaluate_match :: (
   match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn);
   consuming := (match_mode == MATCH_MODE_CONSUME);
   mut_places := (match_mode == MATCH_MODE_MUT);
+  // Decision 47 step 2: a `&mut` scrutinee lends its place exclusively, so
+  // the binding at its root needs `mut(name)`.
+  if(mut_places, {
+    place_require_mut(&scrutinee_expr, ast_expr_token(&scrutinee_expr), &String.from("lend `&mut` (a `&mut` match scrutinee)"), true, &env, ctx, exn);
+  });
   // A consuming match over a type with drops: its arms own and drop parts,
   // which only the general lowering's per-arm bindings can express.
   consume_drops := (consuming && type_contains_rc_cell_or_move_only(&scrutinee_type));
@@ -1220,6 +1240,12 @@ evaluate_match :: (
           );
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &b.ty));
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
+          // A `mut(name)` pattern binding may be reassigned (decision 47).
+          if(is_mut_binding(ast_expr_token(&b.atom), &b.name), {
+            match(_added, .Some(mb_var) => {
+              mb_var.is_reassignable = true;
+            }, .None => ());
+          });
           // Decision 38 A: a pattern binding is a binding. A second-class
           // value it binds freezes what it borrows for the arm, and a
           // borrowing future cannot be bound at all (§3.13 A2).
