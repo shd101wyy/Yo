@@ -97,7 +97,7 @@ Filed this cycle and still open:
 | `issues/a-named-closure-bound-to-an-impl-fn-annotation-keeps-its-own-signature.md` | S2 | Found by the escape-route audit |
 | `issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md` | S2 | Found by the escape-route audit |
 | `issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md` | S2 | From FnOnce Gen A's review |
-| `issues/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md` | S2 | |
+| `issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md` | S2 | |
 | `issues/a-mut-match-place-binding-cannot-live-across-an-await.md` | S2 | From the consuming match (#1305) |
 | `issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md` | S3 | Decision 32 gap |
 | `issues/derive-clone-costs-17-ms-per-type.md` | S3 | Compile time |

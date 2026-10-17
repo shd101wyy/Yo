@@ -5855,9 +5855,11 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
   `RangeInclusive` and the iterator adapters), the compiler (15) and the tests
   (about 230, many function-local, which #1270 made possible).
   - `_ArrayIter` takes hand-written conditional impls, and `IterPeekable` none:
-    a generic derive cannot find a field's conditional impl under its own
+    a generic derive could not find a field's conditional impl under its own
     `where`
-    (`issues/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md`).
+    (`issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md`,
+    fixed 2026-10-17; `IterPeekable`'s pair waits for a seed that carries the
+    fix, `plans/backlog/SEED_VERSION_AUTOMATION.md`).
   - `markdown_yo` took its 11 derives upstream (v0.0.11).
 - **std that moved instead of copying.** The iterator consumers and adapters
   take `sink(self)`, and adapters `sink` the iterator or closure they store.
