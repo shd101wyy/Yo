@@ -1976,7 +1976,7 @@ arm_reachability :: (fn(arms : &ArrayList(Arm), i : usize, scrutinee_ty : &TypeV
   tys.push(scrutinee_ty);
   rows := _coverage_rows(arms, i, false);
   verdict_all := _part_reach(&arm.pattern, true, &rows, &tys, gadt_exact);
-  if(match(verdict_all, .Reachable => false, _ => true), {
+  if(match(&verdict_all, .Reachable => false, _ => true), {
     return(verdict_all);
   });
   alts := ArrayList(Pattern).new();
@@ -1984,7 +1984,7 @@ arm_reachability :: (fn(arms : &ArrayList(Arm), i : usize, scrutinee_ty : &TypeV
   (k : usize) = usize(0);
   while(k < alts.len(), {
     verdict := _part_reach(&alts(k), false, &rows, &tys, gadt_exact);
-    if(match(verdict, .Reachable => false, _ => true), {
+    if(match(&verdict, .Reachable => false, _ => true), {
       return(verdict);
     });
     rows.push(_row_of(&alts(k)));
