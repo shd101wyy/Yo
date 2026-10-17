@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid program is rejected ("Parameter `self` is `comptime` and requires a compile-time argument") when the function is instantiated from a generic impl method; `(x : bool) = …; !x` or `== false` works around it.
 
-**Status:** fixed 2026-10-17 (#PRNUM). Found 2026-10-16 while factoring
+**Status:** fixed 2026-10-17 (#1433). Found 2026-10-16 while factoring
 `std/async/mutex.yo`'s `_unlock_state` out of `Mutex.unlock` (#1380).
 Reproduced with the v0.2.63 release and with the tree.
 
