@@ -529,8 +529,9 @@ test("borrowed for: read-only and fresh-storage methods through an alias do not 
     total = (total + i32(collected.len()));
     x = (x + i32(1));
   });
-  // len/contains/get: (1*2 + 1) + (2*2 + 1) = 8; clone and collect: 2*(3+3) = 12.
-  assert(total == i32(20), "read-only and fresh-storage methods through the alias");
+  // Step 1: 1*2, then get(0) = 1, then 3 + 3 from the clone and the collect
+  // (9); the write makes xs(0) = 2. Step 2: 2*2, get(0) = 2, 3 + 3 (12).
+  assert(total == i32(21), "read-only and fresh-storage methods through the alias");
   assert(hits == i32(2), "index_of inside the borrowed body");
   assert((xs(usize(0)) == i32(2)) && (xs(usize(1)) == i32(3)), "the elements were written through");
   names := ArrayList(String).new();
