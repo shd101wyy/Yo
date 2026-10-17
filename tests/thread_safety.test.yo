@@ -209,6 +209,32 @@ comptime_expect_error({
   });
   _helper_with_a_nested_non_send_capture();
 }, "its captured variable 'items' (type ArrayList(i32)) does not implement Send");
+// `arc` of a closure over a closure crosses a thread. `Arc(T)` is `Send` when
+// `T` is `Send` and `Sync`, and `T` here is `outer`'s capture struct, whose one
+// field is `inner`'s closure type. That field counts by `inner`'s captures, an
+// `Arc` of an atomic; judged as a plain struct field, the closure type was never
+// `Send`, and capturing `k` was refused.
+_arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
+  hits := arc(AtomicI32(i32(0)));
+  h := hits;
+  (inner : Impl(Fn() -> unit)) = (
+    () => {
+      h.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  (outer : Impl(Fn() -> unit)) = (
+    () => {
+      inner();
+    }
+  );
+  k := arc(outer);
+  t := Thread(unit).spawn((io : Io) => {
+    k.*();
+    ()
+  });
+  t.join();
+});
 // ============================================================================
 // Phase P (THREAD_SAFETY): Field visibility — same-file access works
 // ============================================================================

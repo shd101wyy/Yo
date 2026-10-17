@@ -2,8 +2,10 @@
 
 **Severity:** S2 — valid Send-closure spawn helpers are rejected because Send is judged on the capture struct, not the closure's type
 
-**Status:** FIXED. Closed 2026-10-17: re-measured with develop at 5425cd7bf, and it no
-longer reproduces. Two earlier PRs fixed it; neither cited this doc (see "Fix" below).
+**Status:** FIXED 2026-10-17 (`fix/send-closure-and-fn-value`). Re-measured on develop
+5425cd7bf: the recorded symptom and the value-route checks were already fixed by
+#612 and #902. The type-level route still judged a captured closure as a
+struct field, which this branch fixes (see "Fix" below).
 **Class**: valid code rejected. **Split out 2026-09-14** from
 `issues/fixed/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`,
 whose two *emission* symptoms are fixed (`issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md`)
@@ -79,7 +81,7 @@ Landed 2026-10-17 in `tests/thread_safety.test.yo`, after the D18b block:
 
 ## Fix
 
-The fix landed in two earlier PRs. Neither PR cited this doc.
+Most of the fix landed in two earlier PRs. Neither PR cited this doc.
 
 1. **#612 (D18b, 2026-09-12): `_declared_bound_requires`** (`src/evaluator/utils/closure.yo`).
    - The symptom recorded above came from a captured variable whose declared
@@ -102,6 +104,33 @@ Re-measured on develop 5425cd7bf:
 - `arc(...)` of such a closure also compiles and runs.
 - The helper form compiles when the helper's parameter is declared
   `Impl(Fn(...), Send)`.
+
+3. **This branch: the same rule at the type level.** One route still failed:
+   `arc(outer)`, where `outer` captures a closure `inner` over an
+   `Arc(AtomicI32)`, was accepted, and a spawn closure capturing the
+   resulting `k : Arc(Impl(Fn() -> unit))` was refused with "Captured variable
+   'k' ... does not implement Send".
+   - `Arc(T)`'s `Send` impl requires `T <: (Send, Sync)`, and its generic impl
+     match binds `T` to `outer`'s capture struct.
+   - Judged structurally, that struct's field is `inner`'s `Impl(Fn...)`
+     wrapper, which keeps the SomeT rule and is never `Send` or `Sync` as a
+     type. So the struct was neither.
+   - That is exactly the "one more level of nesting puts a plain struct in
+     front of the checker" recorded above, on the type-level route.
+   - `type_implements_trait` (`src/evaluator/trait_checking.yo`) now answers
+     `Send`/`Sync` for a closure capture struct from the per-captured-variable
+     verdicts recorded where its closures were created
+     (`closure_capture_struct_marker`, `src/evaluator/utils/closure.yo`,
+     reached through `call_closure_capture_marker` in `context.yo`). That is
+     rule D4.
+   - What the closure's code reaches (D1) is still judged by value where the
+     closure enters a `Send` slot (`arc`'s own where clause here).
+   - A struct with no recorded verdict keeps the structural rule.
+   - A flat closure over an `Arc` was unaffected: its capture struct's fields
+     are `Send` as types.
+   - Test: `_arc_of_a_closure_over_a_closure_crosses_threads` in
+     `tests/thread_safety.test.yo`, which failed on develop with the error
+     above.
 
 **What is still rejected, by design.** A helper whose parameter is a bare
 `Impl(Fn() -> unit)`, with no `Send`, is refused where it is defined:

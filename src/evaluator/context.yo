@@ -1773,6 +1773,29 @@ call_function_value_marker :: (
     .None => Option(Option(String)).None
   )
 );
+/// Rule D4 at the type level: a closure's capture struct holds `Send` or `Sync`
+/// exactly when every value the closure captures does. The verdicts are taken
+/// per captured VARIABLE where the closure is created
+/// (`record_closure_capture_verdicts`, `utils/closure.yo`), so a captured
+/// closure counts by its own captures. Judged as a plain struct, the field of
+/// a captured closure is its `Impl(Fn...)` wrapper, which has no type-level
+/// `Send`. So `Arc` of a closure over a closure was not `Send`
+/// (issues/fixed/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md).
+/// Returns `.None` when no verdict is recorded for the struct (the caller keeps
+/// the structural rule), `.Some(holds)` otherwise.
+ClosureCaptureMarkerFn :: (fn(capture_ty : &TypeValue, marker : &String) -> Option(bool));
+(g_closure_capture_marker_fn : Option(ClosureCaptureMarkerFn)) = Option(ClosureCaptureMarkerFn).None;
+set_closure_capture_marker_fn :: (fn(f : ClosureCaptureMarkerFn) -> unit)({
+  g_closure_capture_marker_fn = Option(ClosureCaptureMarkerFn).Some(f);
+  ()
+});
+call_closure_capture_marker :: (fn(capture_ty : &TypeValue, marker : &String) -> Option(bool))(
+  match(
+    g_closure_capture_marker_fn,
+    .Some(f) => f(capture_ty, marker),
+    .None => Option(bool).None
+  )
+);
 /// Is the innermost function body one whose declared return is
 /// `comptime(...)` — a body that only ever runs by CTFE?
 fn_ctx_returns_comptime :: (fn(ctx : &EvalContext) -> bool)(
@@ -3523,6 +3546,8 @@ export(
   set_force_pending_def_fn,
   set_function_value_marker_fn,
   call_function_value_marker,
+  set_closure_capture_marker_fn,
+  call_closure_capture_marker,
   copy_eval_context,
   begin_module_walk,
   register_module_anchors,
