@@ -11,7 +11,17 @@ without an await, spawned or inline:
 - The unit-returning case is closed. `src/codegen/functions/generation.yo`'s "untranspilable body in
   a unit fn" gate (#724) aborts there too.
 
-What stays open: `yo check` exits 0 on the `io.async` variants. Their error is swallowed by the
+**Narrowed 2026-10-17** (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md):
+a closure whose parameters are concrete now gets Channel 3's re-raise when its
+parameter is `Io` or a struct holding it (`IoExn`), or an `e : E` row the call
+already resolved. So `yo check` reports the committed repro
+(`_boom`'s `io.async((e) => …)`, E0610 at the call) and every annotated
+`(io : Io) =>` / `(e : IoExn) =>` body. Still open: an unannotated `(e) =>`
+whose row is NOT resolved when the closure is evaluated (`f := io.async((e) =>
+{ … }); h := io.spawn(f, io)` in `main`) keeps the swallow, and `check` reports
+only the cascaded `E0610: No method "await" on JoinHandle(T)`.
+
+What stayed open before that: `yo check` exited 0 on the `io.async` variants. Their error is swallowed by the
 definition-time trial and reported only when codegen finds the body hollow
 (`lookup_hollow_body_error`). Making `check` report it needs a way to tell a body that no later
 evaluation reaches from one that codegen-prep evaluates again. Reporting every recorded error at
