@@ -472,6 +472,51 @@ test("derive Clone for a generic struct", {
   t := s.clone();
   assert(t.value == `hi`, "a second instantiation clones independently");
 });
+// A field whose type is a generic CONTAINER of the parameter: `Option(A)`'s
+// `Clone` impl is `where(T <: Clone)`, so it resolves only against the impl's
+// `where(A <: Clone)`-constrained `A` at a specialization. The definition-time
+// trial of the generated body cannot match it on the abstract `Option(A)`; that
+// trial raised every failure in auto-generated code, so the derive failed with
+// `No method "clone" on Option(A)`
+// (issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md).
+ClonePeek :: (fn(comptime(A) : Type) -> comptime(Type))(
+  struct(n : i32, peeked : Option(A), items : ArrayList(A), cell : Box(A))
+);
+derive(generic(A : Type), where(A <: Clone), ClonePeek(A), Clone);
+CloneSlot :: (fn(comptime(A) : Type) -> comptime(Type))(enum(Empty, Full(v : Option(A))));
+derive(generic(A : Type), where(A <: Clone, A <: Eq(A)), CloneSlot(A), Clone, Eq(CloneSlot(A)));
+test("derive Clone for a generic struct over containers of its parameter", {
+  items := ArrayList(String).new();
+  items.push(`x`);
+  p := ClonePeek(String)(n : i32(1), peeked : .Some(`p`), items : items, cell : box(`c`));
+  q := p.clone();
+  assert(q.n == i32(1), "n");
+  assert(match(q.peeked, .Some(s) => (s == `p`), .None => false), "the Option field");
+  assert(q.items.len() == usize(1), "the ArrayList field");
+  assert(q.cell.* == `c`, "the Box field");
+});
+// The generic trial leaves a miss on `Option(A)` to the specialization, but a
+// generic derive over a field no specialization can clone still fails: over a
+// concrete non-`Clone` field type (at the `derive` at top level; inside
+// `comptime_expect_error` the error surfaces at the use), and at the clone for
+// a non-`Clone` type argument.
+_CnInner :: struct(n : usize);
+_CnW :: (fn(comptime(A) : Type) -> comptime(Type))(struct(inner : _CnInner, a : A));
+_CnNC :: struct(n : usize);
+_CnOpt :: (fn(comptime(A) : Type) -> comptime(Type))(struct(k : i32, a : Option(A)));
+derive(generic(A : Type), _CnOpt(A), Clone);
+test("a generic derive still rejects a field no specialization can clone", {
+  comptime_expect_error({
+    derive(generic(A : Type), where(A <: Clone), _CnW(A), Clone);
+    _CnW(i32)(inner : _CnInner(n : usize(1)), a : i32(2)).clone()
+  }, "No method \"clone\" on _CnInner");
+  comptime_expect_error(_CnOpt(_CnNC)(k : i32(1), a : .Some(_CnNC(n : usize(1)))).clone(), "\"clone\" on _CnNC");
+});
+test("derive Clone and Eq for a generic enum over an Option of its parameter", {
+  a := CloneSlot(i32).Full(.Some(i32(5)));
+  assert(a.clone() == a, "the clone equals the original");
+  assert(CloneSlot(i32).Empty.clone() == CloneSlot(i32).Empty, "the empty variant");
+});
 // A field whose type is a generic INSTANTIATION — the shape that made
 // derive(FromJson) fail, and the whole point of naming field types by index
 // rather than by rendering: `ArrayList(i32)` has no written name to render.

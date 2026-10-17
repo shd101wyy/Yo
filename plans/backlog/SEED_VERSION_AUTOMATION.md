@@ -349,6 +349,28 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-17): a generic derive over a container of its parameter
+
+`derive(generic(A : Type), where(A <: Clone), T(A), Clone)` failed with
+`No method "clone" on Option(A)` when a field's type was a generic container
+of `A`: the deferred trial of the generated body cannot see a conditional
+impl on an abstract instantiation, and the trial re-raised every failure in
+auto-generated code
+(`issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md`).
+A seed without the fix fails to evaluate a prelude that uses such a derive.
+
+**Generation A DONE 2026-10-17:** the deferred generic trials leave that
+class out (`hard_swallow_diagnostic_in_generic_trial`), and
+`tests/derive.test.yo` uses the shape. `std/` does not.
+
+**Generation B, once `SEED_VERSION` carries the fix:**
+- `IterPeekable(I, A)` (`std/prelude.yo`) takes its conditional `Clone`:
+  `derive(generic(I : Type, A : Type), where(I <: Clone, A <: Clone), IterPeekable(I, A), Clone)`.
+  Its matching `where(I <: Copy, A <: Copy)` `Copy` derive also needs
+  `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`.
+- Verify the gate the usual way before merging: `yo build --std-path ./std`
+  with the actual seed bundle.
+
 ## Seed-gated follow-up (2026-10-14): the standard streams stop tracking an offset
 
 **Generation A** (fix/io-current-offset-sentinel): every runtime's read and
