@@ -26,21 +26,74 @@ note: raised here, inside the standard library  (std/prelude.yo, `arc`'s where c
 
 ## Analysis
 
-Rules D4 + D1 judge `Send` on a function type by its VALUES
-(`call_function_value_marker`): what a closure captures, what the code reaches.
-The `Impl(Fn() -> i32, Send)` parameter route passes the argument as the
-witness (`judge_function_argument_markers`) and accepts `nine`. `arc`'s
-`where(V <: (Send, Sync, Acyclic))` goes through
-`validate_concrete_type_constraints`, which calls the judgement with no
-witness; `function_value_marker` then looks for values of `fn() -> i32` in the
-environment, skips `::` definitions by design (a definition only shares the
-signature), finds none, and the type-level rule rejects the function type.
-`dyn(...)` into a `Send` `Dyn` boxes with `arc`, so it inherits the rejection
-even though `_require_dyn_traits_implemented` already judged the payload's
-markers by value.
+**Re-measured 2026-10-17 (develop 5425cd7bf).** The first analysis below
+blamed `arc`'s own `where` clause. That clause is not where the rejection
+happens.
+
+- **`arc`'s where clause passes.** It judges the function by its value: the
+  callee env binds `value` to the `FuncVal`, and `function_value_marker`'s
+  frame scan finds it. A copy of `arc`'s signature whose body never builds
+  an `Arc`, such as
+  `myarc :: (fn(generic(V : Type), sink(value) : V, where(V <: (Send, Sync, Acyclic))) -> V)(value)`,
+  accepts `myarc(nine)`.
+- **The rejection is at `std/prelude.yo`'s `arc` line, column 94.** That
+  column is the `Arc` of `Arc(V)(value)`, the type constructor's own
+  `where(V <: (Send, Sync, Acyclic))`. It is re-checked when the specialized
+  body is evaluated, with `V` bound to the bare type `fn() -> i32`.
+  - That check runs in `Arc`'s callee env, which holds no value of that type.
+  - So the type-level rule decides: a bare `fn(...)` type is not `Send`
+    (PARALLELISM_RULES D9).
+  - A closure gets through because its type is an identity: an `Impl(Fn...)`
+    SomeT that resolves to its capture struct. The `g_closure_fids_by_some`
+    and `g_closure_fids_by_capture` registries map that identity back to the
+    closure, which is then judged by value. A named function's type
+    `fn() -> i32` carries no identity at all.
+
+**Passing argument values into the where-clause validation (the first
+direction) would change nothing.** The clause that fails has no argument
+values to receive.
+
+**Admitting `Arc(fn() -> T)` for a binder that was proved by value is unsound.**
+Function types are structural, so admitting it by provenance, by scanning the
+caller's frames, or by a "specializing" scope all fail open.
+
+```yo
+_wrap :: (fn(generic(F : Type), f : F, where(F <: (Send, Sync, Acyclic))) -> Arc(F))(
+  Arc(F)(_d9_fill)      // F was proved by `f`'s value; `_d9_fill` has the same type
+);
+```
+
+Any rule that accepts `Arc(F)` here because `f` was clean also accepts
+`_d9_fill`, a function that pushes to a non-`Send` global. A later
+`make_mut()` write into an `Arc(fn() -> T)` is the same hole. A type that
+holds a bare function value is `Send` only if every write into it is judged
+by value, and nothing enforces that today. D9 made the bare type non-`Send`
+for exactly this reason (the struct route).
+
+**The declared-binding route fails too.** D9's documented workaround for a
+named function is `(f : Impl(Fn(...), Send)) = count`. It is E0601 today
+(`issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`).
+Even accepted, the binding would keep only the right-hand side's type, so the
+promise would be lost again.
 
 ## Direction
 
-Hand the where-clause validation the argument values the call binds to each
-generic (as the `Impl` parameter route does), so a named function is judged by
-what its code reaches.
+The fix needs a design decision first:
+`issues/questions/2026-10-17-how-a-named-function-value-carries-send.md`.
+That doc weighs two options:
+- function-item identity types, which is Rust's design;
+- rebinding a binder to a marker-declaring `Impl(Fn(...), Send, ...)` SomeT
+  once the binder has been proved by value.
+
+Until the decision lands, `dyn(() => nine())` and `arc` of a capture-free
+closure work. They take the closure's identity route, and the value is
+judged in the same way.
+
+The fix's tests must pin both halves on every route: `arc(f)`, `dyn(f)` into
+`Dyn(Fn, Send)`, the declared binding, `where(T <: Send)` and an
+`Impl(Fn, Send)` argument.
+- A clean named function (`_d9_count` in `tests/parallelism_soundness.test.yo`)
+  is accepted.
+- A dirty one (`_d9_fill`) is refused with its reach reason.
+- `Arc(F)(_d9_fill)` inside a generic body whose `F` was proved by a clean
+  argument stays refused.
