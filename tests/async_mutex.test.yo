@@ -42,35 +42,60 @@ test("with_lock with two different R bodies on ONE mutex (the C54 shape)", {
   assert(n2 == i64(30), "i64 body result (reverse order)");
 });
 
+// `with_lock` holds only the async lock while `body` runs, never the short
+// blocking guard: holding the guard made a long body block every other
+// thread's loop that touched the mutex, and made the body's own `is_locked`
+// or `try_lock` panic ("RawMutex.lock: locked again")
+// (issues/fixed/2026-10-16-the-async-mutex-with-lock-holds-its-blocking-guard-while-the-body-runs.md).
+test("with_lock's body runs under the async lock alone and may probe the mutex", {
+  m := Mutex(i64).new(i64(5));
+  r := io.await(
+    m.with_lock({ &m }(v : &mut i64) => {
+      v = (v + i64(1));
+      m.is_locked() && !m.try_lock()
+    }, io),
+    io
+  );
+  assert(r, "the body sees its own section held, and try_lock refuses");
+  assert(!m.is_locked(), "the unlocker released the section");
+  assert(m.try_lock(), "and the lock is free to take");
+  assert(m.get() == i64(6), "the body wrote the protected value");
+  m.unlock();
+});
+
 test("a contended lock suspends the waiter, and the loop stays live", {
-  m := Mutex(i64).new(i64(0));
+  // Tasks share the mutex as `Arc(Mutex(T))`, each with its own handle
+  // (plans/VALUES_BY_DEFAULT.md §3.13 A5).
+  m := arc(Mutex(i64).new(i64(0)));
+  m_holder := m;
   holder := io.spawn(
-    io.async((io : Io) => {
-      io.await(m.lock(io), io);
+    io.async({ m_holder }(io : Io) => {
+      io.await(m_holder.*.lock(io), io);
       io.await(sleep(u64(10)), io);
-      m.set(m.get() + i64(1));
-      m.unlock();
+      m_holder.*.set(m_holder.*.get() + i64(1));
+      m_holder.*.unlock();
       return(());
     }),
     io
   );
   // Let the holder enter its (sleeping) section before probing.
   io.await(sleep(u64(2)), io);
-  assert(m.is_locked(), "the holder is inside its section");
+  assert(m.*.is_locked(), "the holder is inside its section");
+  m_waiter := m;
   waiter := io.spawn(
-    io.async((io : Io) => {
-      io.await(m.lock(io), io);
-      m.set(m.get() + i64(10));
-      m.unlock();
+    io.async({ m_waiter }(io : Io) => {
+      io.await(m_waiter.*.lock(io), io);
+      m_waiter.*.set(m_waiter.*.get() + i64(10));
+      m_waiter.*.unlock();
       return(());
     }),
     io
   );
-  // The waiter suspends on the 1ms tick re-check; the loop keeps servicing
-  // the holder's timer (a parked loop would deadlock both, and the test
-  // runner's deadline would catch it).
+  // The waiter parks on the lock; the loop keeps servicing the holder's timer
+  // (a parked loop would deadlock both, and the test runner's deadline would
+  // catch it).
   holder.await(io);
   waiter.await(io);
-  assert(m.get() == i64(11), "both critical sections ran");
-  assert(!m.is_locked(), "released");
+  assert(m.*.get() == i64(11), "both critical sections ran");
+  assert(!m.*.is_locked(), "released");
 });

@@ -384,9 +384,11 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-借给借用的 Future 的位置不能经过 `Rc`/`Arc` 解引用、`ref` 对象或对集合的索引（`io.await(count(&r.*.items, io), io)` 和 `io.await(bump(&mut xs(i), io), io)` 都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄（`h : &Rc(S)`），在 Future 内每次使用时读取 `h.*.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
+借给借用的 Future 的位置不能经过 `Rc` 解引用、`ref` 对象、指针或对集合的索引（`io.await(count(&r.*.items, io), io)` 和 `io.await(bump(&mut xs(i), io), io)` 都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄（`h : &Rc(S)`），在 Future 内每次使用时读取 `h.*.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
 
-借出的位置也不能以模块级运行时绑定或 `thread_local` 为根（模块级 `G := ...` 时，`io.await(bump(&mut G, io), io)` 是 E0909，`io.await(G.bump(io), io)` 也是）：同一线程上的任何任务都能按名字访问该绑定，并在本任务等待期间重新给它赋值，从而释放 Future 所借用的值。请借出一个局部副本，或在 Future 内按名字读取这个全局变量，每次使用都会读到它的当前值。`::` 常量没有可改变的运行时存储，可以借出。
+对共享借用而言，`Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为 D3 按每个被调用者实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的，只经过 `Arc` 解引用的路径也都允许。经由 `Arc` 的 `&mut` 借用仍是 E0909，同时经过 `Rc` 的路径（`rc(arc(m))`）也是。等 `Rc` 的载荷经由句柄也变为只读之后，`Rc` 也会加入 `Arc` 的行列（plans/VALUES_BY_DEFAULT.md 决策 46）。
+
+借出的位置也不能以模块级运行时绑定或 `thread_local` 为根，经过 `Arc` 解引用也不例外（模块级 `G := ...` 时，`io.await(bump(&mut G, io), io)` 是 E0909，`io.await(G.bump(io), io)` 也是；`mut(G) := arc(...)` 时的 `io.await(peek(&G.*, io), io)` 同样如此）：同一线程上的任何任务都能按名字访问该绑定，并在本任务等待期间重新给它赋值，从而释放 Future 所借用的值。请借出一个局部副本，或在 Future 内按名字读取这个全局变量，每次使用都会读到它的当前值。`::` 常量没有可改变的运行时存储，可以借出。
 
 ### 中止的 Future
 
@@ -1375,6 +1377,43 @@ io.await(
 
 `register` 在挂起**之前**运行并拿到 waker，所以顺序不可能写错。这与 Rust 的
 `Future::poll(cx)` 是同一种形状。当等待者列表需要自己持有令牌时，直接使用 `Park`。
+
+### 在任务之间共享锁：异步 `Mutex`
+
+`std/async/mutex` 的 `Mutex(T)` 是一把临界区可以跨越 await 的锁：发现锁被占用的任务会停放自己，`unlock` 唤醒等待最久的任务。它与 Rust 的 `tokio::sync::Mutex` 一致：
+
+- `Mutex` 是只能移动的值（复制它是 E0901），任务以 `Arc(Mutex(T))` 共享它，每个任务持有 `Arc` 上自己的句柄；
+- `lock(self : &Self, io)` 和 `with_lock` 返回借用该互斥锁的 Future，所以它要在创建处通过句柄等待：`io.await(m.*.lock(io), io)`（经由 `Arc` 的共享借用可以跨越挂起点，见上文“借用的 Future”）；
+- 当 `T` 是 `Send` 时它是 `Send` 和 `Sync`：一个短暂的阻塞守卫保护它的状态，所以不同线程的事件循环上的任务也可以争用同一把锁。`with_lock` 的函数体运行时从不持有这个守卫；同一个事件循环上的等待者按到达顺序获得锁，跨事件循环时顺序并不严格（`issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md`）。
+
+```yo
+{ assert } :: import("std/assert");
+{ Mutex } :: import("std/async/mutex");
+{ sleep } :: import("std/sys/timer");
+
+main :: (fn(io : Io) -> unit)({
+  m := arc(Mutex(i64).new(i64(0)));
+  worker := m; // 同一把锁的另一个句柄（V2c 落地后写作 `m.clone()`）
+  h := io.spawn(
+    io.async({ worker }(io : Io) => {
+      io.await(worker.*.lock(io), io);
+      before := worker.*.get();
+      io.await(sleep(u64(1)), io); // 临界区跨越 await 仍然互斥
+      worker.*.set(before + i64(1));
+      worker.*.unlock();
+    }),
+    io
+  );
+  io.await(m.*.lock(io), io);
+  m.*.set(m.*.get() + i64(1));
+  m.*.unlock();
+  h.await(io);
+  assert(m.*.get() == i64(2), "both sections ran under the lock");
+});
+export(main);
+```
+
+单线程共享方式 `Rc(Mutex(T))`（Rust 的 `Rc<Mutex<T>>`）要等 `Rc` 的载荷经由句柄变为只读之后才能使用（决策 46）；在那之前，经由 `Rc` 调用 `lock` 是 E0909。
 
 ### `yield_now`：不带定时器的公平让出
 

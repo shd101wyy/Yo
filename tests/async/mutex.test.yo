@@ -1,10 +1,18 @@
 //! Async (event-loop) mutex — `std/async/mutex`
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6 / D7).
+//!
+//! A `Mutex` is a move-only value that tasks share as `Arc(Mutex(T))`, and
+//! `lock`'s future borrows it through the `Arc` (plans/VALUES_BY_DEFAULT.md
+//! §3.13 A2 and A5; the maintainer, 2026-10-14). An `Arc` copies implicitly
+//! until V2c makes the copy an explicit `a.clone()`.
+// The pragma switches D3 off in this file, so the `&mut`-through-`Arc` case
+// below reaches the E0909 rule itself (in safe code D3 rejects it first).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Mutex } :: import("std/async/mutex");
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
+{ Thread } :: import("std/thread");
 
 // ---------------------------------------------------------------------------
 // 1. try_lock / unlock / is_locked
@@ -23,15 +31,16 @@ test("Test mutex try_lock and unlock", {
 });
 // ---------------------------------------------------------------------------
 // 2. exclusion across awaits — a critical section spanning a sleep is not
-//    entered by the other task until released
+//    entered by the other task until released. Each worker owns its own
+//    handle on the `Arc` and borrows the mutex through it across the awaits.
 // ---------------------------------------------------------------------------
 test("Test mutex excludes across awaits", {
-  m := Mutex(i64).new(i64(0));
+  m := arc(Mutex(i64).new(i64(0)));
   in_section := Rc(bool)(false);
   overlaps := Rc(i64)(0);
-  worker :: (fn(m2 : &Mutex(i64), ins : &Rc(bool), ovl : &Rc(i64), io : Io) -> Impl(Future(unit, Io)))(
+  worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(bool), ovl : &Rc(i64), io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
-      io.await(m2.lock(io), io);
+      io.await(m2.*.lock(io), io);
       cond(
         ins.* => {
           ovl.* = (ovl.* + i64(1));
@@ -39,40 +48,41 @@ test("Test mutex excludes across awaits", {
         true => ()
       );
       ins.* = true;
-      before := m2.get();
+      before := m2.*.get();
       io.await(sleep(u64(5)), io);
-      m2.set(before + i64(1));
+      m2.*.set(before + i64(1));
       ins.* = false;
-      m2.unlock();
+      m2.*.unlock();
       return(());
     })
   );
-  h1 := io.spawn(worker(&m, &in_section, &overlaps, io), io);
-  h2 := io.spawn(worker(&m, &in_section, &overlaps, io), io);
-  h3 := io.spawn(worker(&m, &in_section, &overlaps, io), io);
+  h1 := io.spawn(worker(m, &in_section, &overlaps, io), io);
+  h2 := io.spawn(worker(m, &in_section, &overlaps, io), io);
+  h3 := io.spawn(worker(m, &in_section, &overlaps, io), io);
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
   assert(overlaps.* == i64(0), "no task may enter the section while another holds the lock");
-  assert(m.get() == i64(3), "read-modify-write across an await must not lose updates");
-  assert(!m.is_locked(), "all sections released");
+  assert(m.*.get() == i64(3), "read-modify-write across an await must not lose updates");
+  assert(!m.*.is_locked(), "all sections released");
 });
 // ---------------------------------------------------------------------------
 // 3. lock() waits for a holder to release
 // ---------------------------------------------------------------------------
 test("Test mutex lock waits", {
-  m := Mutex(i64).new(i64(0));
-  assert(m.try_lock(), "main takes the lock first");
-  releaser := io.async((io : Io) => {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main takes the lock first");
+  m2 := m;
+  releaser := io.async({ m2 }(io : Io) => {
     io.await(sleep(u64(10)), io);
-    m.set(i64(1));
-    m.unlock();
+    m2.*.set(i64(1));
+    m2.*.unlock();
     return(());
   });
   h := io.spawn(releaser, io);
-  io.await(m.lock(io), io);
-  assert(m.get() == i64(1), "lock should only be acquired after the releaser ran");
-  m.unlock();
+  io.await(m.*.lock(io), io);
+  assert(m.*.get() == i64(1), "lock should only be acquired after the releaser ran");
+  m.*.unlock();
   _done := h.await(io);
 });
 // ---------------------------------------------------------------------------
@@ -87,30 +97,30 @@ test("Test mutex lock waits", {
 // to be that all N ran, not that the program exited.
 // ---------------------------------------------------------------------------
 test("Test mutex acquisition is FIFO and no waiter is lost", {
-  m := Mutex(i64).new(i64(0));
+  m := arc(Mutex(i64).new(i64(0)));
   order := Rc(ArrayList(i64))(ArrayList(i64).new());
   // Main takes the lock first, so every worker below MUST queue.
-  assert(m.try_lock(), "main holds the lock while the workers queue");
-  worker :: (fn(m2 : &Mutex(i64), ord : &Rc(ArrayList(i64)), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
+  assert(m.*.try_lock(), "main holds the lock while the workers queue");
+  worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(ArrayList(i64)), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
-      io.await(m2.lock(io), io);
+      io.await(m2.*.lock(io), io);
       ord.*.push(tag);
-      m2.unlock();
+      m2.*.unlock();
       return(());
     })
   );
   // Spawned in order. Each reaches its `lock` and parks before the next runs,
   // because a spawn does not start the task — the first suspension of the
   // spawner does, and there is none between these six lines.
-  h1 := io.spawn(worker(&m, &order, i64(1), io), io);
-  h2 := io.spawn(worker(&m, &order, i64(2), io), io);
-  h3 := io.spawn(worker(&m, &order, i64(3), io), io);
-  h4 := io.spawn(worker(&m, &order, i64(4), io), io);
-  h5 := io.spawn(worker(&m, &order, i64(5), io), io);
+  h1 := io.spawn(worker(m, &order, i64(1), io), io);
+  h2 := io.spawn(worker(m, &order, i64(2), io), io);
+  h3 := io.spawn(worker(m, &order, i64(3), io), io);
+  h4 := io.spawn(worker(m, &order, i64(4), io), io);
+  h5 := io.spawn(worker(m, &order, i64(5), io), io);
   // Let them all reach the queue before anything is released.
   io.await(sleep(u64(5)), io);
-  assert(m.waiter_count() == usize(5), `all five queued, got ${m.waiter_count().to_string()}`);
-  m.unlock();
+  assert(m.*.waiter_count() == usize(5), `all five queued, got ${m.*.waiter_count().to_string()}`);
+  m.*.unlock();
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
@@ -127,27 +137,28 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
       `FIFO order: position ${i.to_string()} should be worker ${(i + usize(1)).to_string()}, got ${order.*(i).to_string()}`
     );
   });
-  assert(!m.is_locked(), "the last release leaves it unlocked");
-  assert(m.waiter_count() == usize(0), "and the queue empty");
+  assert(!m.*.is_locked(), "the last release leaves it unlocked");
+  assert(m.*.waiter_count() == usize(0), "and the queue empty");
 });
 test("Test an uncontended lock still costs no suspension", {
   // The fast path must not have gained a park: an uncontended acquire has to
   // stay synchronous inside the async body, or every lock in a hot loop pays a
   // loop turn it does not need.
-  m := Mutex(i64).new(i64(0));
-  body := io.async((io : Io) => {
+  m := arc(Mutex(i64).new(i64(0)));
+  m2 := m;
+  body := io.async({ m2 }(io : Io) => {
     (n : i64) = i64(0);
     while(n < i64(100), n = (n + i64(1)), {
-      io.await(m.lock(io), io);
-      m.set(m.get() + i64(1));
-      m.unlock();
+      io.await(m2.*.lock(io), io);
+      m2.*.set(m2.*.get() + i64(1));
+      m2.*.unlock();
     });
     return(());
   });
   h := io.spawn(body, io);
   _d := h.await(io);
-  assert(m.get() == i64(100), `a hundred uncontended round trips, got ${m.get().to_string()}`);
-  assert(m.waiter_count() == usize(0), "and nothing ever queued");
+  assert(m.*.get() == i64(100), `a hundred uncontended round trips, got ${m.*.get().to_string()}`);
+  assert(m.*.waiter_count() == usize(0), "and nothing ever queued");
 });
 // ---------------------------------------------------------------------------
 // with_lock with a body that borrows the caller's locals (§3.13 A2): the
@@ -170,48 +181,114 @@ test("Test with_lock runs a body that borrows the caller's locals", {
   assert(m.get() == i64(42), "the body wrote the protected value");
 });
 // ---------------------------------------------------------------------------
-// §3.13 A5: a `Mutex` is a handle on state behind an `Rc`. A copy is another
-// handle on the same lock, so a spawned task owns its copy; and `lock`'s
-// future holds its own handle, so it borrows nothing — not even through an
-// `Rc(Mutex(T))`, where a borrowing future would be E0909 (§3.13 A2;
-// issues/questions/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md).
+// §3.13 A5 (the maintainer, 2026-10-14: "lets match how rust does it?"): a
+// `Mutex` is a move-only value, shared as `Arc(Mutex(T))` (Rust's
+// `Arc<tokio::sync::Mutex<T>>`), and `lock`'s future borrows the mutex
+// through the task's own handle. §3.13 A2 accepts a shared borrow whose cell
+// hops are all `Arc` derefs, because no handle writes an `Arc`'s payload
+// (issues/fixed/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md).
 // ---------------------------------------------------------------------------
-test("Test a Mutex copy shares the lock with a task that owns it", {
-  m := Mutex(i64).new(i64(0));
-  assert(m.try_lock(), "main holds the lock");
-  m2 := m;
-  h := io.spawn(
-    io.async({ m2 }(io : Io) => {
-      io.await(m2.lock(io), io);
-      m2.set(m2.get() + i64(10));
-      m2.unlock();
+test("Test a Mutex is move-only", {
+  comptime_expect_error({
+    m := Mutex(i64).new(i64(0));
+    m2 := m;
+    _x := m.get();
+  }, "moved");
+});
+test("Test tasks contend through Arc handles, and lock borrows through them across awaits", {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main holds the lock");
+  a := m;
+  b := m;
+  ha := io.spawn(
+    io.async({ a }(io : Io) => {
+      // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
+      io.await(a.lock(io), io);
+      before := a.get();
+      io.await(sleep(u64(2)), io);
+      a.set(before + i64(10));
+      a.unlock();
       return(());
+    }),
+    io
+  );
+  hb := io.spawn(
+    io.async({ b }(io : Io) => {
+      r := io.await(
+        b.*.with_lock((v : &mut i64) => {
+          v = (v + i64(100));
+          v
+        }, io),
+        io
+      );
+      return(r);
     }),
     io
   );
   io.await(sleep(u64(5)), io);
-  assert(m.waiter_count() == usize(1), "the task's copy queued on the same lock");
-  m.set(i64(1));
-  m.unlock();
-  _d := h.await(io);
-  assert(m.get() == i64(11), "the task ran after main released, on the shared value");
-  assert(!m.is_locked(), "and released it");
+  assert(m.*.waiter_count() == usize(2), "both tasks queued on the one lock");
+  m.*.set(i64(1));
+  m.*.unlock();
+  _a := ha.await(io);
+  rb := match(hb.await(io), .Some(v) => v, .None => i64(-1));
+  assert(rb == i64(111), `the with_lock task ran second, got ${rb.to_string()}`);
+  assert(m.*.get() == i64(111), "both sections ran under the lock, in arrival order");
+  assert(!m.*.is_locked(), "and released it");
 });
-test("Test a Mutex shared through an Rc locks across an await", {
-  rm := rc(Mutex(i64).new(i64(0)));
-  h := io.spawn(
-    io.async({ rm }(io : Io) => {
-      io.await(rm.lock(io), io);
-      io.await(sleep(u64(2)), io);
-      rm.set(rm.get() + i64(1));
-      rm.unlock();
-      return(());
-    }),
-    io
-  );
-  io.await(rm.lock(io), io);
-  rm.set(rm.get() + i64(1));
-  rm.unlock();
-  _d := h.await(io);
-  assert(rm.get() == i64(2), "both sections ran under the lock");
+test("Test a task on another thread's loop contends for the same mutex", {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main holds the lock");
+  m2 := m;
+  t := Thread(i64).spawn({ m2 }(io : Io) => {
+    io.await(m2.*.lock(io), io);
+    v := (m2.*.get() + i64(10));
+    m2.*.set(v);
+    m2.*.unlock();
+    v
+  });
+  // The worker parks on the lock from its own loop; main's unlock wakes it
+  // across threads.
+  while(runtime(m.*.waiter_count() == usize(0)), {
+    io.await(sleep(u64(1)), io);
+  });
+  m.*.set(i64(1));
+  m.*.unlock();
+  r := t.join();
+  assert(r == i64(11), `the worker ran after main released, got ${r.to_string()}`);
+  assert(!m.*.is_locked(), "and released it");
+});
+// ---------------------------------------------------------------------------
+// The cells §3.13 A2 still rejects (E0909): a borrow through an `Rc` (a
+// shared mutable cell until it becomes read-only, decision 46), a path that
+// crosses an `Rc` and then an `Arc`, and a `&mut` borrow through an `Arc`.
+// ---------------------------------------------------------------------------
+test("Test a lock borrowing through an Rc is still E0909", {
+  comptime_expect_error({
+    r := rc(Mutex(i64).new(i64(0)));
+    io.await(r.*.lock(io), io);
+  }, "shared mutable cell");
+  comptime_expect_error({
+    r := rc(Mutex(i64).new(i64(0)));
+    io.await(r.lock(io), io);
+  }, "shared mutable cell");
+  comptime_expect_error({
+    ra := rc(arc(Mutex(i64).new(i64(0))));
+    io.await(ra.*.*.lock(io), io);
+  }, "shared mutable cell");
+});
+Gauge :: struct(n : i64);
+/// A future that borrows its `Gauge` mutably. This file's pragma keeps D3 (a
+/// `&mut` argument through an `Arc`) out of the way, so the E0909 rule is what
+/// answers.
+peek_mut :: (fn(g : &mut Gauge, io : Io) -> Impl(Future(i64, Io)))(
+  io.async({ &mut g }(io : Io) => {
+    io.await(sleep(u64(1)), io);
+    g.n
+  })
+);
+test("Test a mutable borrow through an Arc is still E0909", {
+  comptime_expect_error({
+    a := arc(Gauge(n : i64(1)));
+    _v := io.await(peek_mut(&mut a.*, io), io);
+  }, "mutably across its suspension");
 });

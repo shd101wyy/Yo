@@ -1216,7 +1216,12 @@ _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeFi
   out := ArrayList(TypeField).new();
   struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
   borrows := match(capture_struct_borrows(&struct_id), .Some(bs) => bs, .None => return(out));
-  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  // Each field's type from the instantiated capture type, not the registry:
+  // a generic body's capture struct id is shared by its instantiations, so the
+  // registry's `&T` field is another instantiation's and the copy slot was
+  // declared with its pointee
+  // (issues/fixed/2026-10-15-a-lent-parameter-copy-in-a-generic-io-async-body-has-another-instantiations-type.md).
+  fields := _capture_struct_fields(capture_type);
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(

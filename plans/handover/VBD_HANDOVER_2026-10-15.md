@@ -193,7 +193,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
-| 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-17 as #1397; #1380 restacks on it |
+| 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-17 as #1397; #1380 **landed** 2026-10-17, restacked on it |
 | 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
 | 7a | release v0.2.64 | §4 step 7a |
 | 8 | #1385 | **landed** 2026-10-16 (restacked, Tier 1 incl. the full in-process `tests/internal` and full cli-diff) |
@@ -286,6 +286,8 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 - **Then (Generation B):** `Waker.clone` needs a seed carrying `__yo_waker_clone`, so it waits for the release after A5 merges. Change `std/async/waker.yo` to `impl(Waker, Clone(clone : … Waker(_p : unsafe(__yo_waker_clone(self._p)))))`, and move the cross-thread tests back to `Park` and `w.clone()` (§3.13 A5 "`Waker.clone`, Generation B", in the plan as #1379 lands it; until then read it on `origin/feat/vbd-v3-async-a5-rebased`).
 
 #### #1380 — the async `Mutex` follows Rust (`feat/vbd-async-mutex-rust`, head `657146480`, draft, stacked on #1379)
+
+> **LANDED 2026-10-17 as #1380** (squash-merged after the `--onto` restack onto the D3 fix #1397, without the `is_implicitly_unsafe_capable_file(...)` early return in `d3_check_pending`). B1: the probe is rejected ("the callee may write through that mut parameter"). B2: the `&G.*` probe (`mut(G) := arc(...)` since #1401) is E0909 "is a module-level binding" with no change to `_reject_global_lend_to_future`; `tests/async_await.test.yo` now carries the `&_A2ArcGlobal.*` and `&_A2ArcGlobal.*.n` shapes plus a local-`Arc` canary. B3: the 10 substrings say "lives in a shared mutable cell". Should-fixes: `handle_payload_is_read_only` keys on the prelude `Arc`'s stamped name (`Arc(`, as `Box` is identified) plus its shape, so no `std/sync/atomic.yo` type qualifies; the V4 `Rc(.Struct(...))`/`rc(TypeValueNode.Unit)` spellings and the import/export unions are in. The root D3 doc was dropped and the branch's citations point at `issues/fixed/`. The pre-merge review's fixes: `with_lock` no longer holds the blocking guard while `body` runs (S2, `issues/fixed/2026-10-16-the-async-mutex-with-lock-holds-its-blocking-guard-while-the-body-runs.md`); the FIFO claim now says "among one loop's tasks" (S3, open: `issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md`); and a false E1101 found on the way (S2, open: `issues/2026-10-16-not-on-a-runtime-bool-in-a-comptime-type-parameterized-fn-is-e1101.md`). Everything below is the history.
 
 - **What:**
   - the async `Mutex(T)` is move-only like tokio's, shared as `Arc(Mutex(T))`;
@@ -646,7 +648,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 
 - `Mutex(T)` is move-only like `tokio::sync::Mutex`. `lock(self : &Self, io)` returns a future that borrows it.
 - It is shared as `Arc(Mutex(T))`. E0909 accepts a `&` through a handle whose payload is read-only through the handle: `Arc` now, `Rc` after decision 46.
-- This is PR #1380 (§2.3).
+- This is PR #1380 (§2.3), landed 2026-10-17.
 
 ### 5.4 Closures follow Rust (decision 36 amended, #1366)
 

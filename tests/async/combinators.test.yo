@@ -870,3 +870,23 @@ test("Test collect over chains of different shapes whose source holds an Rc", {
   assert(b.len() == usize(2), "filter then filter keeps 3 and 2");
   assert(c.len() == usize(2), "map then filter keeps 40 and 30");
 });
+// A generic function whose `io.async` body borrows its `&Impl(Fn)` parameter
+// (`{ &body }`) keeps a copy of the lent parameter in the future; called with
+// two closures of different capture shapes in one binary, that copy slot was
+// declared with the other instantiation's closure type
+// (issues/fixed/2026-10-15-a-lent-parameter-copy-in-a-generic-io-async-body-has-another-instantiations-type.md).
+apply_later :: (fn(generic(R : Type), body : &Impl(Fn(x : i64) -> R), io : Io) -> Impl(Future(R, Io)))(
+  io.async({ &body }(io : Io) => {
+    io.await(yield(io), io);
+    body(i64(20))
+  })
+);
+test("Test a lent closure parameter of a generic io.async body, at two closure types", {
+  k := i64(22);
+  s := ArrayList(i64).new();
+  s.push(i64(1));
+  n := io.await(apply_later({ k }(x : i64) => (x + k), io), io);
+  m := io.await(apply_later({ &s }(x : i64) => (x * i64(s.len())), io), io);
+  assert(n == i64(42), "the first instantiation's closure ran");
+  assert(m == i64(20), "the second instantiation's closure ran");
+});

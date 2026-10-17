@@ -76,6 +76,59 @@ comptime_expect_error({
   });
   _d3_user_atomic_receiver();
 });
+// D3 past the root: the `Arc` is reached through a field, a tuple element or
+// another cell, so the place's ROOT is not an atomic object
+// (issues/fixed/2026-10-14-d3-misses-a-write-through-an-arc-that-is-not-the-place-root.md).
+Holder :: struct(a : Arc(Counter), n : i32);
+comptime_expect_error({
+  _d3_field_root_assignment :: (fn() -> unit)({
+    h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
+    h.a.*.n = i32(1);
+  });
+  _d3_field_root_assignment();
+}, "atomic object");
+comptime_expect_error({
+  _d3_tuple_root_assignment :: (fn() -> unit)({
+    t := (arc(Counter(n : i32(0))), i32(1));
+    t.0.*.n = i32(5);
+  });
+  _d3_tuple_root_assignment();
+}, "atomic object");
+comptime_expect_error({
+  _d3_rc_of_arc_assignment :: (fn() -> unit)({
+    r := rc(arc(Counter(n : i32(0))));
+    r.*.*.n = i32(3);
+  });
+  _d3_rc_of_arc_assignment();
+}, "atomic object");
+comptime_expect_error({
+  _d3_field_root_payload_replaced :: (fn() -> unit)({
+    h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
+    h.a.* = Counter(n : i32(9));
+  });
+  _d3_field_root_payload_replaced();
+}, "atomic object");
+comptime_expect_error({
+  _d3_field_root_inout_argument :: (fn() -> unit)({
+    h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
+    _bump_by_ten(&mut h.a.*);
+  });
+  _d3_field_root_inout_argument();
+}, "atomic object");
+comptime_expect_error({
+  _d3_tuple_root_inout_receiver :: (fn() -> unit)({
+    t := (arc(Counter(n : i32(0))), i32(1));
+    t.0.*.bump();
+  });
+  _d3_tuple_root_inout_receiver();
+}, "atomic object");
+// Canary: the struct that holds the `Arc` is still a plain value: its own
+// fields are written, and the `Arc`'s payload is read, as before.
+test("D3 canary: a struct holding an Arc writes its own fields and reads through the Arc", {
+  h := Holder(a : arc(Counter(n : i32(4))), n : i32(0));
+  h.n = i32(2);
+  assert((h.n + h.a.*.n) == i32(6), "the field write landed and the payload read through the Arc");
+});
 // Canary: the same three shapes on a NON-atomic ref struct stay legal (they
 // are the ordinary way to mutate a thread-local object).
 Cell :: ref(struct(counter : Counter, slots : Array(i32, usize(2))));

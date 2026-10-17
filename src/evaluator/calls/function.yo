@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -2749,10 +2749,17 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
 });
 /// Decision 38 D as amended for futures (§3.13 A2): the borrowing future the
 /// call `op_callee(op_args)` makes borrows the places the call lent to the
-/// parameters the future captures. A lent place reached through an `Rc`/`Arc`
-/// deref, a `ref` object or an index has no run-time mark held across the
-/// suspension (decision 28's marks are call-scoped), so a write through
-/// another handle while this task waits would go unseen.
+/// parameters the future captures. A lent place reached through an `Rc`
+/// deref, a `ref` object, a pointer or an index has no run-time mark held
+/// across the suspension (decision 28's marks are call-scoped), so a write
+/// through another handle while this task waits would go unseen.
+///
+/// A shared (`&`) borrow whose cell hops are all derefs of a handle whose
+/// payload is read-only through it (`handle_payload_is_read_only`: an `Arc`)
+/// is accepted: no handle writes that payload in safe code (D3), and the
+/// handle the task lends keeps it alive. A `&mut` borrow through one stays
+/// rejected (2026-10-14, the maintainer: the async `Mutex` follows Rust's
+/// `Arc<Mutex<T>>` and `lock(&self)`).
 _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   (labels : ArrayList(String)) = ArrayList(String).new();
   (self_ty : Option(TypeValue)) = Option(TypeValue).None;
@@ -2782,8 +2789,18 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit));
     recv_is_cell := (is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty));
     self_is_cell := match(self_ty, .Some(st) => (is_reference_struct_type(&st) || is_atomic_reference_struct_type(&st)), .None => false);
-    if(_borrows_root_named(bs, &self_label) && (capture_place_crosses_cell(&recv, ctx) || (recv_is_cell && !self_is_cell)), {
-      _reject_cell_lend_to_future(&recv, &self_label, ctx, exn);
+    if(_borrows_root_named(bs, &self_label), {
+      hops := place_cell_hops(&recv, ctx);
+      // An auto-dereferenced receiver (`k.m(io)` on a cell whose payload is
+      // `Self`) lends the payload: one more hop through the receiver's cell.
+      if(recv_is_cell && !self_is_cell, {
+        if(handle_payload_is_read_only(&recv_ty), {
+          hops.read_only_handle = true;
+        }, {
+          hops.mutable_cell = true;
+        });
+      });
+      _check_future_lend_hops(&recv, &self_label, &hops, _borrow_rooted_is_mut(bs, &self_label), ctx, exn);
     });
   });
   (ai : usize) = usize(0);
@@ -2792,9 +2809,9 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
       place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      if(capture_place_crosses_cell(&place, ctx), {
-        _reject_cell_lend_to_future(&place, &label, ctx, exn);
-      });
+      lent_mut := (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || (labels_known && _borrow_rooted_is_mut(bs, &label)));
+      place_hops := place_cell_hops(&place, ctx);
+      _check_future_lend_hops(&place, &label, &place_hops, lent_mut, ctx, exn);
     });
   });
 });
@@ -3464,14 +3481,46 @@ _borrows_root_named :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> bo
   });
   false
 });
-/// The E0909 for a place lent to a borrowing future through a cell.
-_reject_cell_lend_to_future :: (fn(place : &AstExpr, label : &String, ctx : &EvalContext, exn : Exception) -> unit)(
+/// Some borrow in `bs` rooted at the binding named `name` is `&mut`.
+_borrow_rooted_is_mut :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> bool)({
+  (bi : usize) = usize(0);
+  while(bi < bs.len(), bi = (bi + usize(1)), {
+    if(match(bs.get(bi), .Some(b) => ((b.root_name == name) && b.is_mut), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// §3.13 A2's cell rule for one place lent to a borrowing future, given the
+/// cells its hops cross (`place_cell_hops`): any mutable cell is E0909, and so
+/// is a `&mut` borrow through a handle whose payload is read-only through it
+/// (an `Arc`). A shared borrow through such handles alone is accepted.
+_check_future_lend_hops :: (fn(place : &AstExpr, label : &String, hops : &PlaceCellHops, is_mut : bool, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(hops.mutable_cell, {
+    _reject_cell_lend_to_future(place, label, false, ctx, exn);
+  });
+  if(hops.read_only_handle && is_mut, {
+    _reject_cell_lend_to_future(place, label, true, ctx, exn);
+  });
+});
+/// The E0909 for a place lent to a borrowing future through a cell:
+/// `mut_through_read_only` for a `&mut` borrow through an `Arc`, else a
+/// borrow through a mutable cell.
+_reject_cell_lend_to_future :: (fn(place : &AstExpr, label : &String, mut_through_read_only : bool, ctx : &EvalContext, exn : Exception) -> unit)(
   raise_flow_violation(
     with_code(
-      format_error_message_with_help(
-        ast_expr_token(place),
-        `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and that place lives in a shared cell (\`Rc\`/\`Arc\`, or any \`ref\` object or pointer dereference): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
-        Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), or own the value in the task`)
+      if(
+        mut_through_read_only,
+        format_error_message_with_help(
+          ast_expr_token(place),
+          `This future borrows \`${ast_expr_to_string(place)}\` mutably across its suspension, through an \`Arc\`: the payload of an \`Arc\` is shared by every handle and is never written through one (D3), so an exclusive borrow of it cannot exist (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
+          Option(String).Some(`put the state the future mutates in a \`Mutex\` inside the \`Arc\` (\`Arc(Mutex(T))\`, whose \`lock\` takes \`&self\`), or own the value in the task`)
+        ),
+        format_error_message_with_help(
+          ast_expr_token(place),
+          `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and that place lives in a shared mutable cell (an \`Rc\`, any \`ref\` object, a pointer dereference, or a buffer reached by an index): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
+          Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), share it as \`Arc(T)\` (a shared borrow through an \`Arc\` may cross a suspension), or own the value in the task`)
+        )
       ),
       E_BORROW_ESCAPES
     ),
