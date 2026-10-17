@@ -100,8 +100,7 @@ impl(generic(T : Type), where(T <: Acyclic), Mutex(T), Acyclic());
 /// longest-waiting acquirer: `Mutex.unlock` and `with_lock`'s unlocker.
 _unlock_state :: (fn(comptime(T) : Type, guard : &RawMutex, st : *_MutexState(T)) -> unit)({
   guard.lock();
-  (was_locked : bool) = unsafe(st.*._locked);
-  if(!was_locked, {
+  if(!unsafe(st.*._locked), {
     guard.unlock();
     __yo_panic("Mutex.unlock: not locked");
   });
