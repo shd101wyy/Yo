@@ -19,7 +19,7 @@ impl(
 impl(
   Bag,
   total : (fn(self : &Self) -> i32)({
-    t := i32(0);
+    mut(t) := i32(0);
     for(self.items, x => {
       t = (t + x);
     });
@@ -31,7 +31,7 @@ main :: (fn() -> unit)({
   xs.push(i32(1));
   bag := Bag(items : xs);
   other := bag; // the body cannot name `bag` (E0911); the call goes through an alias
-  (seen : i32) = i32(0);
+  (mut(seen) : i32) = i32(0);
   for(&mut bag, x => {
     seen = (seen + other.total());
   });

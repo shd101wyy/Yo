@@ -39,8 +39,8 @@ main :: (fn(io : Io) -> unit)({
       // Child: chain 65536 Nodes — far past the 64 KiB region — holding every
       // node alive via `next`, so only Node constructors allocate and the
       // panic that fires is __yo_alloc_fail's.
-      (head : Option(Node)) = Option(Node).None;
-      (i : usize) = usize(0);
+      (mut(head) : Option(Node)) = Option(Node).None;
+      (mut(i) : usize) = usize(0);
       while(i < usize(65536), {
         head = Option(Node).Some(Node(i32(0), head));
         i = (i + usize(1));
@@ -58,8 +58,8 @@ main :: (fn(io : Io) -> unit)({
   assert(!out.status.success(), "the OOM child must die, not exit 0");
   text := String.from_bytes(out.stderr);
   lines := text.split("\n");
-  (found : bool) = false;
-  (i : usize) = usize(0);
+  (mut(found) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < lines.len(), {
     match(
       lines.get(i),
