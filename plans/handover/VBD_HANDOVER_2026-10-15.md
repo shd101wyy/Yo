@@ -788,7 +788,7 @@ x :: 12;                           // a true constant
 - `issues/option-of-self-inside-a-payload-gives-option-of-a-recursive-enum-two-c-types.md`.
 - New questions: `issues/questions/2026-10-14-effect-operation-contracts.md`, `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`.
 
-Still open from earlier cycles: the 2026-10-13 handover's §4 table (7 of its 8 docs), notably `issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`. Its `HashMap` entry is fixed: `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md` (2026-10-17, `fix/hashmap-move-only-key-value`; `HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue` and `OrderedMap`'s values hold move-only types), which filed the two collections with a different cause: `issues/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md` and `issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`.
+Still open from earlier cycles: the 2026-10-13 handover's §4 table (7 of its 8 docs), notably `issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`. Its `HashMap` entry is fixed: `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md` (2026-10-17, #1420; `HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue` and `OrderedMap`'s values hold move-only types), which filed the two collections with a different cause: `issues/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md` and `issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`.
 
 For the full list, run `python scripts/gen-issue-triage.py`. It writes `issues/TRIAGE.md`, which is untracked and never committed.
 
