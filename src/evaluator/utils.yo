@@ -76,6 +76,8 @@ pragma(Pragma.AllowUnsafe);
   UndoneMove,
   variable_record_undone_move,
   is_fn_capture_value_binding,
+  is_capture_list_value_binding,
+  is_macro_pattern_binding,
   is_fnonce_capture_frame,
   is_closure_param_frame,
   variable_note_arm_move,
@@ -108,7 +110,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_param_site } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -2325,16 +2327,23 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(marked, {
     return(());
   });
-  // A write inside a `comptime_expect_error` argument is the error that case
-  // expects: the migration leaves its binding unmarked.
+  is_macro_elem := is_macro_pattern_binding(v.id);
+  is_param_like := (v.is_parameter || (is_capture_list_value_binding(v.id) || is_macro_elem));
   if(migrate_mut_bindings_on(), {
-    if(!propagate_def_time_errors(), {
-      if(v.is_parameter, {
-        record_mut_param_site(tok, &v.name);
-      }, {
-        record_mut_binding_site(&v.token, &v.name);
-      });
-    });
+    cond(
+      // A write inside a `comptime_expect_error` argument is held until the
+      // case's outcome says whether it expects this error or another one
+      // (`settle_mut_binding_pending`).
+      propagate_def_time_errors() => {
+        if(is_param_like, {
+          record_mut_param_site_pending(tok, &v.name);
+        }, {
+          record_mut_binding_site_pending(&v.token, &v.name);
+        });
+      },
+      is_param_like => record_mut_param_site(tok, &v.name),
+      true => record_mut_binding_site(&v.token, &v.name)
+    );
     return(());
   });
   if(!global_mut_rule_applies(tok, ctx), {
@@ -2343,9 +2352,18 @@ binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &Ev
   name := v.name.clone();
   entries := ArrayList(TokenAndError).new();
   (help : String) = String.new();
-  if(v.is_parameter, {
-    entries.push(TokenAndError(token : tok, error_message : `Cannot ${how} \`${name}\`: it is a parameter, and a parameter is immutable (plans/VALUES_BY_DEFAULT.md decision 47).`));
-    help = `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`;
+  if(is_param_like, {
+    what_p := cond(
+      v.is_parameter => "a parameter, and a parameter",
+      is_macro_elem => "a binding a macro introduces (a `for` element), and such a binding",
+      true => "a capture-list entry, and a capture-list entry"
+    );
+    entries.push(TokenAndError(token : tok, error_message : `Cannot ${how} \`${name}\`: it is ${what_p} is immutable (plans/VALUES_BY_DEFAULT.md decision 47).`));
+    help = if(
+      is_macro_elem,
+      `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`), or loop with \`for(&mut coll, ${name} => ...)\` to write each element in place`,
+      `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
+    );
   }, {
     what := cond(
       v.is_compile_time_only => "a compile-time binding declared without `mut`",

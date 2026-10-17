@@ -3241,19 +3241,63 @@ set_migrate_mut_bindings :: (fn(on : bool) -> unit)({
 migrate_mut_bindings_on :: (fn() -> bool)(g_migrate_mut_bindings);
 /// Record the declaration `decl` of the written binding `name`, once.
 record_mut_binding_site :: (fn(decl : &Token, name : &String) -> unit)({
-  key := `${_mg_canon(&decl.module_path)}:${decl.row.to_string()}:${decl.column.to_string()}`;
+  _record_mut_binding_site_at(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+});
+_record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
+  key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
   if(!g_mut_binding_site_keys.insert(key), {
     return(());
   });
-  g_mut_binding_sites.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+  g_mut_binding_sites.push(site);
+});
+/// A write inside a `comptime_expect_error` argument is HELD, not recorded:
+/// whether its binding needs `mut` depends on what the case expects, which
+/// is known only once the argument has been evaluated
+/// (`settle_mut_binding_pending`).
+(g_mut_binding_pending : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
+record_mut_binding_site_pending :: (fn(decl : &Token, name : &String) -> unit)({
+  g_mut_binding_pending.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+});
+mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.len());
+/// A parameter write held the same way, by the position of the write.
+(g_mut_param_pending : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
+record_mut_param_site_pending :: (fn(at : &Token, name : &String) -> unit)({
+  g_mut_param_pending.push(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
+});
+mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.len());
+/// Settle the writes held since `mark`. `keep` (the argument raised an error
+/// even with the writes accepted) records them: the case expects some OTHER
+/// error, and its binding needs `mut` for that error to stay the one raised.
+/// Otherwise the case expects the immutable-binding write itself, and its
+/// binding stays unmarked. Returns how many writes were held.
+settle_mut_binding_pending :: (fn(mark : usize, pmark : usize, keep : bool) -> usize)({
+  held := ((g_mut_binding_pending.len() - mark) + (g_mut_param_pending.len() - pmark));
+  if(keep, {
+    (i : usize) = mark;
+    while(i < g_mut_binding_pending.len(), {
+      match(g_mut_binding_pending.get(i), .Some(site) => _record_mut_binding_site_at(site), .None => ());
+      i = (i + usize(1));
+    });
+    (j : usize) = pmark;
+    while(j < g_mut_param_pending.len(), {
+      match(g_mut_param_pending.get(j), .Some(psite) => _record_mut_param_site_at(psite), .None => ());
+      j = (j + usize(1));
+    });
+  });
+  g_mut_binding_pending.truncate(mark);
+  g_mut_param_pending.truncate(pmark);
+  held
 });
 /// Record a write `at` of the parameter `name`, once per position.
 record_mut_param_site :: (fn(at : &Token, name : &String) -> unit)({
-  key := `${_mg_canon(&at.module_path)}:${at.row.to_string()}:${at.column.to_string()}`;
+  _record_mut_param_site_at(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
+});
+_record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
+  key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
   if(!g_mut_param_site_keys.insert(key), {
     return(());
   });
-  g_mut_param_sites.push(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
+  g_mut_param_sites.push(site);
 });
 take_mut_binding_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   out := g_mut_binding_sites;
@@ -3267,4 +3311,4 @@ take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   g_mut_param_site_keys = HashSet(String).new();
   out
 });
-export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);
+export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);

@@ -87,6 +87,7 @@ pragma(Pragma.AllowUnsafe);
   mark_fnonce_capture_frame,
   mark_closure_param_frame,
   mark_fn_capture_value_binding,
+  mark_capture_list_value_binding,
   synthetic_token,
   snapshot_env,
   get_variables_from_env,
@@ -1575,6 +1576,9 @@ evaluate_anonymous_function_implementation :: (
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id);
               }));
+              if(!ce.is_borrow, {
+                mark_capture_list_value_binding(cv.id);
+              });
             },
             .None => ()
           );

@@ -550,10 +550,14 @@ n = (n + 1); // OK
 (mut(t) : i32) = 0;
 mut(c) :: 12; // mutable at compile time
 comptime(mut(d)) := 12; // a mutable compile-time variable
-r := match(opt, .Some(mut(v)) => {
-  v = (v + 1);
-  v
-}, .None => 0);
+r := match(
+  opt,
+  .Some(mut(v)) => {
+    v = (v + 1);
+    v
+  },
+  .None => 0
+);
 { a, mut(b) } := pair; // per name in a destructuring
 ```
 
@@ -577,9 +581,10 @@ by-value argument rebinds it, `mut(y) := x;`, which moves an owning value; one
 that should change the caller's value takes `x : &mut T`. A module-level
 binding follows the same rule: an unmarked one is Rust's `static`,
 `mut(G) := v` is `static mut` (and is never lent to a call, E0916). A
-mutable compile-time binding lives in a block; `mut(x) ::` at module level is
-an error, because module-level `::` bindings are forced lazily and in no fixed
-order.
+compile-time binding reassigned while compiling is declared `mut(x) :: v` (or
+`comptime(mut(x)) := v`), in a block or at module level. A `for` element and a
+closure's capture-list entry take no `mut` either; a body that changes one
+rebinds it.
 
 `yo fix <path> --migrate mut-bindings` inserts the markers in older code. In
 this release the rule is enforced outside `std/` and the compiler's own

@@ -1938,9 +1938,6 @@ evaluate_assignment :: (
       get_variables_from_env(&env, variable_name.clone()).last(),
       .Some(mut_v) => cond(
         (mut_v.is_module_level && !mut_v.is_compile_time_only) => register_mut_global(mut_tok.module_path.clone(), variable_name.clone()),
-        (mut_v.is_compile_time_only && !ctx.is_evaluating_function_body_or_async_block.is_some()) => {
-          exn.throw(dyn(format_error_message(&mut_tok, `"mut(${variable_name})" on a module-level compile-time binding is not supported: module-level compile-time bindings are forced lazily and in no fixed order, so a mutable one would have no single value. Declare it in a block, or a mutable runtime global with \`(mut(${variable_name}) : T) = v\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
-        },
         true => ()
       ),
       .None => ()

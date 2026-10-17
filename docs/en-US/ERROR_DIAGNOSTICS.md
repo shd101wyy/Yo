@@ -235,6 +235,13 @@ binding below module level (`[mut-binding] how=… kind=… marked=yes|no`)
 without rejecting it. In this release E0917 for these bindings applies outside
 `std` and the compiler's own sources.
 
+Run the two in phase order on code older than decision 42: in such code
+`mut(z) := x` is the deleted local-borrow spelling, so
+`--migrate borrow-spelling` must rewrite it to `z := &mut x` before
+`--migrate mut-bindings` adds markers. Never run borrow-spelling on code that
+already spells decision 47's `mut(x) := v`: it would turn each mutable local
+into a borrow.
+
 `yo fix <path> --migrate explicit-copy` prepares the values-by-default plan's
 unique buffers (V2b). Once `String` and the std collections own their buffers
 uniquely, an implicit copy whose source is used again is E0901. The migration

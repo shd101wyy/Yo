@@ -1772,14 +1772,6 @@ Use \`::\` for compile-time definitions inside impl.`
           if(is_module_level, {
             register_mut_global(actual_lhs_tok.module_path.clone(), var_name.clone());
           });
-          // A module-level compile-time binding is forced lazily and in no
-          // fixed order (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), so a
-          // mutable one would read whatever value it had when some other
-          // definition first forced it (decision 47's open point; the plan's
-          // recommendation is block scope only).
-          if(effective_is_compile_time_only && !ctx.is_evaluating_function_body_or_async_block.is_some(), {
-            exn.throw(dyn(format_error_message(&actual_lhs_tok, `"mut(${var_name})" on a module-level compile-time binding is not supported: module-level \`::\` bindings are forced lazily and in no fixed order, so a mutable one would have no single value. Declare the mutable compile-time binding in a block (\`mut(${var_name}) :: v\` or \`comptime(mut(${var_name})) := v\` inside a function or \`comptime\` body), or a mutable runtime global with \`mut(${var_name}) := v\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
-          });
         });
         // A thread-local is a module-level global PLUS the registry entry that
         // tells codegen to route its reads through the lazy accessor. Option 1
