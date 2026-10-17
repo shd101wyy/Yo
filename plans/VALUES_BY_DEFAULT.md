@@ -13,9 +13,11 @@
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
 - **Handover:** start with
-  [`plans/handover/VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md), which has the
-  releases, the open PRs, the branches in flight and the Generation B
-  queue.
+  [`plans/handover/VBD_HANDOVER_2026-10-17.md`](handover/VBD_HANDOVER_2026-10-17.md), which has the
+  releases, the open PRs, the branches in flight and the v0.2.65 gate;
+  its predecessor
+  [`VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md)
+  keeps the process recipes and scripts.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
