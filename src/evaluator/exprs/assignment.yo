@@ -2021,16 +2021,16 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
     exn.throw(
       dyn(
         format_error_message_with_help(
-            ast_expr_token(&lhs_resolved),
-            `Cannot reassign "${variable_name}": it is ${if(variable.is_parameter, "a parameter", "an immutable binding")}, which cannot be reassigned.`,
-            Option(String).Some(
-              if(
-                variable.is_parameter,
-                `rebind it to a mutable local and assign that (\`mut(${variable_name}_m) := ${variable_name};\`, plans/VALUES_BY_DEFAULT.md decision 47), or take \`${variable_name} : &mut T\` and write through it if the caller's value should change`,
-                String.from("bind a new name instead")
-              )
+          ast_expr_token(&lhs_resolved),
+          `Cannot reassign "${variable_name}": it is ${if(variable.is_parameter, "a parameter", "an immutable binding")}, which cannot be reassigned.`,
+          Option(String).Some(
+            if(
+              variable.is_parameter,
+              `rebind it to a mutable local and assign that (\`mut(${variable_name}_m) := ${variable_name};\`, plans/VALUES_BY_DEFAULT.md decision 47), or take \`${variable_name} : &mut T\` and write through it if the caller's value should change`,
+              String.from("bind a new name instead")
             )
           )
+        )
       )
     );
   });

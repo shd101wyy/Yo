@@ -2403,7 +2403,7 @@ place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalConte
       obj_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(oi) => oi.ty, .None => return(Option(Variable).None));
       in_storage := if(
         ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))),
-        ((is_struct_type(&obj_ty) && !is_reference_struct_type(&obj_ty)) || is_tuple_type(&obj_ty)),
+        (is_struct_type(&obj_ty) && !is_reference_struct_type(&obj_ty)) || is_tuple_type(&obj_ty),
         is_array_type(&obj_ty)
       );
       if(!in_storage, {

@@ -179,9 +179,13 @@ evaluate_binding :: (
   // Decision 47: `(mut(name) : T)` and `(comptime(mut(name)) : T)` declare a
   // mutable binding; the marker is stripped from the tree and the declared
   // name recorded (`strip_mut_marker`).
-  match(strip_mut_marker(expr, usize(0), exn), .Some(m_name) => {
-    lhs = m_name;
-  }, .None => ());
+  match(
+    strip_mut_marker(expr, usize(0), exn),
+    .Some(m_name) => {
+      lhs = m_name;
+    },
+    .None => ()
+  );
   if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
     _m_inner := strip_mut_marker(&lhs, usize(0), exn);
   });

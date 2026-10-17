@@ -108,7 +108,7 @@ test("typed declarations take mut(...) around the name", {
   (mut(t) : i32) = i32(1);
   t = i32(2);
   assert(t == i32(2), "(mut(t) : T) = v");
-  (mut(u) : i32);
+  mut(u) : i32;
   u = i32(1);
   u = i32(3);
   assert(u == i32(3), "(mut(u) : T); then two assignments");
@@ -119,10 +119,10 @@ test("typed declarations take mut(...) around the name", {
 });
 
 test("the first assignment of a binding declared without a value initializes it", {
-  (v : i32);
+  v : i32;
   v = i32(4);
   assert(v == i32(4), "one assignment initializes");
-  (b : i32);
+  b : i32;
   cond(
     (v > i32(2)) => {
       b = i32(1);
@@ -133,7 +133,7 @@ test("the first assignment of a binding declared without a value initializes it"
   );
   assert(b == i32(1), "each branch initializes once");
   comptime_expect_error({
-    (k : i32);
+    k : i32;
     k = i32(1);
     k = i32(2);
   }, "Cannot assign to `k`");
@@ -251,21 +251,25 @@ test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
   assert(match(o, .Some(p) => p.x, .None => i32(0)) == i32(9), "written in place");
   comptime_expect_error({
     o2 := Option(_MbPoint).None;
-    match(&mut o2, .Some(p) => {
-      p.x = i32(9);
-    }, .None => ());
+    match(
+      &mut o2,
+      .Some(p) => {
+        p.x = i32(9);
+      },
+      .None => ()
+    );
   }, "a `&mut` match scrutinee");
   mut(z) := i32(1);
-  bump := { &mut z }() => {
+  bump := ({ &mut z }() => {
     z = (z + i32(1));
-  };
+  });
   bump();
   assert(z == i32(2), "a `&mut` capture of a mut(...) local");
   comptime_expect_error({
     z2 := i32(1);
-    _f := { &mut z2 }() => {
+    _f := ({ &mut z2 }() => {
       z2 = i32(2);
-    };
+    });
   }, "a `&mut` capture");
 });
 
