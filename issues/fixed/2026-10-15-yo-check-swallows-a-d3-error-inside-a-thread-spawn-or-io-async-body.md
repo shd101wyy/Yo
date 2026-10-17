@@ -94,3 +94,22 @@ Tests: three cli-cases running `yo check`, each a GOLDEN-DIFF on develop:
 (D3 `take()` in an annotated `io.async` block; develop: the cascaded E0610),
 and `check-io-parameter-closure-body-error-is-reported` (an E0610 in a closure
 with an `Io` parameter, the general case).
+
+`compile` agrees: `compile --skip-c-compiler` on the thread repro now stops in
+the evaluator with the D3 message instead of reaching the C compiler's
+error-attribute stub. `compile-io-async-body-swallowed-error` was re-recorded:
+the same E0601 and span, now raised by the evaluator before main's
+unused-variable warning is printed.
+
+Still open, recorded in `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
+an unannotated `(e) =>` `io.async` closure whose row is not yet resolved when
+the closure is evaluated keeps the swallow.
+
+Verification (tree build of this branch): `check ./src` 278/278,
+`check ./std` 172/172; `yo check` on all 330 language test files is unchanged
+except the intended cases (the one failure, `tests/spec/verify_match_patterns.test.yo`,
+fails identically on develop); `parallelism_soundness` 18, `closure_capture_list` 41,
+`thread` 23, `thread_safety` 4, `send_sync` 15, `async_mutex` 5,
+`cross_thread_wake` 8, `type_soundness` 71, `move_only` 55, `arc` 18,
+`atomic_object` 21, `rc` 107, `async_await` 281; cli-diff 400 PASS plus the
+re-recorded case.

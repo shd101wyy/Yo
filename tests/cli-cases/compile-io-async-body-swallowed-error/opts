@@ -8,3 +8,8 @@
 # with its own code and span. A compiler with the bug scores a GOLDEN-DIFF
 # (the E0905 line).
 stdout_keep_match=(error\[E0601\]: Cannot unify incompatible types: "String" and "dyn\(ToString \+ Error\)"|error\[E0905\]|bad\.yo:[0-9]+:[0-9]+)
+# Since 2026-10-17 the evaluator re-raises it before codegen: `(e : IoExn)` is a
+# concrete parameter (IoExn's only SomeTs sit in generic fn fields), so the
+# closure trial's error reaches Channel 3, and main's unused-`result` warning
+# (`bad.yo:12:3`) is no longer printed ahead of it
+# (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md).
