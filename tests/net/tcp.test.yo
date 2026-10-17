@@ -6,6 +6,7 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { TcpListener, TcpStream, Shutdown } :: import("std/net/tcp");
@@ -478,7 +479,7 @@ _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoE
   })
 );
 _d6_scripted_server :: (
-  fn(listener : &TcpListener, rounds : usize, seen : &Rc(ArrayList(String)), io : Io) -> Impl(Future(unit, IoExn))
+  fn(listener : &TcpListener, rounds : usize, seen : &Rc(RefCell(ArrayList(String))), io : Io) -> Impl(Future(unit, IoExn))
 )(
   io.async(e => {
     mut(k) := usize(0);
@@ -486,7 +487,7 @@ _d6_scripted_server :: (
       eprintln(`  server: accept ${k} pending`);
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_d6_read_headers(&s, e.io), e);
-      seen.*.push(req);
+      seen.with_mut(xs => xs.push(req));
       _w := e.io.await(s.write_str("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok", e.io), e);
       e.io.await(s.close(e.io), e);
       eprintln(`  server: round ${k} done`);
@@ -506,7 +507,7 @@ test("accept pending in a spawned task before the client connects", {
   );
   addr := SocketAddr.loopback(u16(19913));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  seen := rc(ArrayList(String).new());
+  seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_d6_scripted_server(&listener, usize(1), &seen, io), IoExn(io : io, exn : exn));
   eprintln(`  client: connecting while the server task's accept is pending`);
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
@@ -518,8 +519,8 @@ test("accept pending in a spawned task before the client connects", {
   assert(body.len() == usize(59), "the whole response, then EOF from the server's close");
   io.await(client.close(io), IoExn(io : io, exn : exn));
   server.await(io);
-  assert(seen.*.len() == usize(1), "one request seen");
-  assert((seen.*)(usize(0)).starts_with(`GET /one`), "the request line");
+  assert(seen.with(xs => xs.len()) == usize(1), "one request seen");
+  assert(seen.with(xs => xs(usize(0))).starts_with(`GET /one`), "the request line");
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("three request/response rounds against a spawned scripted server", {
@@ -533,7 +534,7 @@ test("three request/response rounds against a spawned scripted server", {
   );
   addr := SocketAddr.loopback(u16(19914));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  seen := rc(ArrayList(String).new());
+  seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   server := io.spawn(_d6_scripted_server(&listener, usize(3), &seen, io), IoExn(io : io, exn : exn));
   mut(round) := 0;
   while(round < 3, {
@@ -547,7 +548,7 @@ test("three request/response rounds against a spawned scripted server", {
     round = (round + 1);
   });
   server.await(io);
-  assert(seen.*.len() == usize(3), "three requests seen");
+  assert(seen.with(xs => xs.len()) == usize(3), "three requests seen");
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("TCP local_addr is this end, and it is the peer's peer_addr", {

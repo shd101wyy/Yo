@@ -181,7 +181,7 @@ derive(_EnumRc, Clone);
 test("auto-deref: derive(Clone) clones an Rc field through the Rc's Clone", {
   x := _HoldsRc(r : rc(i32(1)), k : i32(2));
   y := x.clone();
-  x.r.* = i32(5);
+  Rc.make_mut(&mut x.r) = i32(5);
   assert(y.r.* == i32(1), "the derived clone made a new cell, as the Rc's Clone does");
   e := _EnumRc.A(r : rc(i32(6)));
   f := e.clone();

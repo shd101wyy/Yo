@@ -217,16 +217,18 @@ test("Test timeout aborts on deadline", {
 // ---------------------------------------------------------------------------
 /// A task that sleeps `ms`, then records that it ran past its sleep and
 /// returns `value`.
-sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(bool), io : Io) -> Impl(Future(i32, Io)))(
+sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(RefCell(bool)), io : Io) -> Impl(Future(i32, Io)))(
   io.async({ value, ms, ran }(io : Io) => {
     io.await(sleep(ms), io);
-    ran.* = true;
+    ran.with_mut(r => {
+      r = true;
+    });
     value
   })
 );
 test("Test race_first returns the fastest task's value", {
-  ran0 := Rc(bool)(false);
-  ran2 := Rc(bool)(false);
+  ran0 := rc(RefCell(bool).new(false));
+  ran2 := rc(RefCell(bool).new(false));
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy_flag(i32(10), u64(60), ran0, io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(1), io), io));
@@ -235,8 +237,8 @@ test("Test race_first returns the fastest task's value", {
   assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
   // Both losers were aborted and joined: neither runs past its sleep.
   io.await(sleep(u64(100)), io);
-  assert(!(ran0.*), "loser 0 was aborted, not left running");
-  assert(!(ran2.*), "loser 2 was aborted, not left running");
+  assert(!ran0.with(r => r), "loser 0 was aborted, not left running");
+  assert(!ran2.with(r => r), "loser 2 was aborted, not left running");
 });
 test("Test race_first with a single handle", {
   handles := ArrayList(JoinHandle(i32)).new();
@@ -245,14 +247,14 @@ test("Test race_first with a single handle", {
   assert(match(r, .Some(v) => (v == i32(7)), .None => false), "one handle wins by default");
 });
 test("Test any_first returns the first COMPLETED value and aborts the rest", {
-  ran0 := Rc(bool)(false);
+  ran0 := rc(RefCell(bool).new(false));
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy_flag(i32(1), u64(60), ran0, io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
   r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
   io.await(sleep(u64(100)), io);
-  assert(!(ran0.*), "the loser was aborted");
+  assert(!ran0.with(r => r), "the loser was aborted");
 });
 test("Test any_first is None when every handle was aborted", {
   handles := ArrayList(JoinHandle(i32)).new();
@@ -858,7 +860,7 @@ test("Stream.for_each releases what its body closure captures", {
 // the capture struct registered first: two chains of different shapes in one
 // binary failed the C compile.
 /// A countdown that keeps its counter in an `Rc` cell.
-RcCountdown :: struct(_n : Rc(i32));
+RcCountdown :: struct(_n : Rc(RefCell(i32)));
 impl(
   RcCountdown,
   Stream(
@@ -866,10 +868,12 @@ impl(
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
       io.async({ &mut self }(io : Io) =>
         cond(
-          (self._n.* <= i32(0)) => Option(i32).None,
+          (self._n.with(n => n) <= i32(0)) => Option(i32).None,
           true => {
-            v := self._n.*;
-            self._n.* = (self._n.* - i32(1));
+            v := self._n.with(n => n);
+            self._n.with_mut(n => {
+              n = (n - i32(1));
+            });
             Option(i32).Some(v)
           }
         ))
@@ -877,9 +881,9 @@ impl(
   )
 );
 test("Test collect over chains of different shapes whose source holds an Rc", {
-  a := io.await(RcCountdown(_n : rc(i32(4))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
-  b := io.await(RcCountdown(_n : rc(i32(4))).filter(x => (x > i32(1))).filter(x => (x < i32(4))).collect(io), io);
-  c := io.await(RcCountdown(_n : rc(i32(4))).map(x => (x * i32(10))).filter(x => (x > i32(20))).collect(io), io);
+  a := io.await(RcCountdown(_n : rc(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
+  b := io.await(RcCountdown(_n : rc(RefCell(i32).new(i32(4)))).filter(x => (x > i32(1))).filter(x => (x < i32(4))).collect(io), io);
+  c := io.await(RcCountdown(_n : rc(RefCell(i32).new(i32(4)))).map(x => (x * i32(10))).filter(x => (x > i32(20))).collect(io), io);
   assert(a.len() == usize(4), "map then map keeps every item");
   assert(a(usize(0)) == i32(41), "and applies both maps: 4 * 10 + 1");
   assert(b.len() == usize(2), "filter then filter keeps 3 and 2");

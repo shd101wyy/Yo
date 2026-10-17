@@ -97,7 +97,7 @@ test("Test Rc in different data structures", {
     x := rc(3);
     y := rc(x);
     z := rc(y);
-    z.* = rc(rc(10));
+    Rc.make_mut(&mut z) = rc(rc(10));
   };
   // Array containing Rc
   {
@@ -2648,6 +2648,7 @@ _ro_bump :: (fn(x : &mut i32) -> unit)({
 });
 _ro_peek :: (fn(x : &mut i32) -> i32)(x);
 _ro_read :: (fn(x : &i32) -> i32)(x);
+_ro_run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 _ro_make :: (fn() -> Rc(_RoShared))(rc(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
 _RoHolder :: struct(h : Rc(_RoShared));
 test("a write through an Rc handle is E0919, naming the doors", {
@@ -2678,6 +2679,11 @@ test("a write through an Rc handle is E0919, naming the doors", {
   // A `&mut` argument, whether or not the callee writes it, as in Rust.
   comptime_expect_error(_ro_bump(&mut h.n), "read-only through the handle");
   comptime_expect_error(_ro_peek(&mut h.n), "read-only through the handle");
+  // A local `&mut` borrow of a place in the payload.
+  comptime_expect_error({
+    r := &mut h.n;
+    r = i32(2);
+  }, "read-only through the handle");
   // A `self : &mut Self` receiver, spelled through the payload or auto-dereferenced.
   comptime_expect_error(h.items.push(i32(1)), "read-only through the handle");
   xs := rc(ArrayList(i32).new());
@@ -2701,13 +2707,12 @@ test("a write through an Rc handle is E0919, naming the doors", {
     nested.*.* = i32(2);
   }, "read-only through the handle");
   // Inside a closure body.
-  comptime_expect_error({
-    _w := (
-      () => {
-        h.n = i32(6);
-      }
-    );
-  }, "read-only through the handle");
+  comptime_expect_error(
+    _ro_run(() => {
+      h.n = i32(6);
+    }),
+    "read-only through the handle"
+  );
 });
 test("reads, & lends, the handle itself and the doors are not E0919", {
   h := _ro_make();

@@ -509,12 +509,14 @@ test("Test early return inside loop after fn resume", {
 });
 test("Test two different fn types in same scope (Log + Raise)", {
   Raise :: (ctl(msg : &String) -> i32);
-  Log :: (fn(msg : &String, counter : &Rc(i32)) -> unit);
-  log_count := rc(i32(0));
+  Log :: (fn(msg : &String, counter : &Rc(RefCell(i32))) -> unit);
+  log_count := rc(RefCell(i32).new(i32(0)));
   (log : Log) = (
     (msg, counter) -> {
       println(msg);
-      counter.* = (counter.* + i32(1));
+      counter.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
       return(());
     }
   );
@@ -527,7 +529,7 @@ test("Test two different fn types in same scope (Log + Raise)", {
   log(`first log`, &log_count);
   log(`second log`, &log_count);
   result := raise(`error!`);
-  assert(log_count.* == i32(2), "log_count should be 2");
+  assert(log_count.with(cur => cur) == i32(2), "log_count should be 2");
   assert(result == i32(42), "result should be 42");
 });
 test("Test single-level effect propagation via using parameter", {
@@ -938,17 +940,19 @@ test("Test closure with using() effect - unwind", {
   // frame). Pass the effect handler explicitly as a parameter instead.
   Log :: (ctl(msg : &String) -> unit);
   run_test :: (fn() -> i32)({
-    x := Rc(i32)(0);
+    x := rc(RefCell(i32).new(i32(0)));
     (log : Log) = (
       msg -> {
         println(msg);
         unwind(i32(99));
       }
     );
-    apply :: (fn(v : i32, msg : &String, b : &Rc(i32), lg : Log) -> i32)({
+    apply :: (fn(v : i32, msg : &String, b : &Rc(RefCell(i32)), lg : Log) -> i32)({
       lg(msg);
-      b.* = (b.* + v);
-      return(b.*);
+      b.with_mut(cur => {
+        cur = (cur + v);
+      });
+      return(b.with(cur => cur));
     });
     result := apply(1, `hello`, &x, log);
     assert(false, "closure+effect unwind: should not reach here");
