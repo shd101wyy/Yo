@@ -134,15 +134,10 @@ not a printed-name one, and it reproduces in one file:
   key apart; the same declaration still keys alike from any module, so a
   duplicate impl in an importing module is still E0612
   (`tests/cli-cases/check-coherence-cross-module-duplicate`).
-- `_receiver_patterns_could_overlap` gates the rejection in the generic
-  `Copy` recheck: two nominal roots overlap only when they are the same
-  declaration (printed base name and declaring module); a type-variable or
-  structural root still defers to `_root_shapes_could_match`. The recheck
-  still asks `_pattern_implements_via_hook` for every root-shape match, as
-  develop does; only the throw needs the same declaration. Gating the hook
-  call too left the results unchanged but exposed a latent `Token` leak in
-  every evaluator session
-  (`issues/2026-10-17-skipping-the-generic-copy-recheck-hook-leaks-prelude-tokens.md`).
+- `_receiver_patterns_could_overlap` replaces the root-shape prefilter in the
+  generic `Copy` recheck: two nominal roots overlap only when they are the
+  same declaration (printed base name and declaring module); a type-variable
+  or structural root still defers to `_root_shapes_could_match`.
 
 ## Regression test
 
