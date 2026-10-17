@@ -1,21 +1,24 @@
 { assert } :: import("std/assert");
 { Exception } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 boom :: (fn(exn : Exception) -> i32)({
   exn.throw(dyn(`kaboom`));
   i32(0)
 });
 main :: (fn() -> unit)({
-  thrown := Rc(bool)(false);
+  thrown := rc(RefCell(bool).new(false));
   exn := Exception(
     throw : (
       err -> {
-        thrown.* = true;
+        thrown.with_mut(v => {
+          v = true;
+        });
         unwind(());
       }
     )
   );
   _r := boom(exn);
-  assert(thrown.*, "must throw");
+  assert(thrown.with(v => v), "must throw");
   ()
 });
 export(main);
