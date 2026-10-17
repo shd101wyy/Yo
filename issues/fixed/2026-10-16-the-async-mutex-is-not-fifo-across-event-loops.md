@@ -63,7 +63,8 @@ The lock state and its guard moved into an `Arc(_Core)` that each claim
 holds a handle on: an aborted task releases its captures before its pending
 futures, so a claim can outlive the `Mutex` it came from.
 
-Tests (`tests/async/mutex.test.yo`): "the lock is handed FIFO across loops,
+Tests (the two that spawn a thread in `tests/async/mutex_threads.test.yo`,
+which skips WASI; the third in `tests/async/mutex.test.yo`): "the lock is handed FIFO across loops,
 ahead of a later same-loop waiter" (a waiter on a spawned thread's loop queues
 first and a main-loop task second, gated on `waiter_count` rather than on
 timing; right after `unlock` the lock must still be held and `try_lock`
