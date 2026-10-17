@@ -2591,29 +2591,6 @@ _ic_place_root_var :: (fn(place : &AstExpr, env : &Environment) -> Option(Variab
 _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
   match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
 );
-/// What `place` is rooted in when that root is not owned by the copy's
-/// frame, for the `return` split: a `&` or `&mut` parameter, a `&mut` borrow
-/// (a `&mut` local, or a `match` binding through one), a module-level binding,
-/// or a borrowed binding (a `match`/`for` binding of a borrowed place). Empty
-/// for an owning local, an owned parameter, a temporary, or a `match` binding
-/// of either.
-_ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
-  match(
-    _ic_place_root_var(place, env),
-    .Some(v) => cond(
-      v.is_imm_borrow => String.from("a `&` parameter"),
-      (v.is_ref && v.is_parameter) => String.from("a `&mut` parameter"),
-      v.is_ref => String.from("a `&mut` borrow"),
-      v.is_module_level => `the module-level binding \`${v.name}\``,
-      (v.is_owning_the_rc_value || is_any_temp_variable_name(v.name.clone())) => String.new(),
-      // A `match` binding owns what it binds out of a temporary, or is a
-      // part of an owning local judged at that local's frame end.
-      match(g_implicit_copy_match_roots.get(&v.id), .Some(r) => ((r.kind == "temp") || (r.kind == "local")), .None => false) => String.new(),
-      true => String.from("a borrowed binding")
-    ),
-    .None => String.new()
-  )
-);
 /// Record a write to the variable `place` is rooted in, at `at`, while the
 /// migration runs.
 record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
@@ -2660,6 +2637,29 @@ ImplicitCopyPending :: struct(
 /// element: a borrow) or `place` (a parameter, field, global: a borrow).
 ImplicitCopyRoot :: struct(kind : String, root_id : usize);
 (g_implicit_copy_match_roots : HashMap(usize, ImplicitCopyRoot)) = HashMap(usize, ImplicitCopyRoot).new();
+/// What `place` is rooted in when that root is not owned by the copy's
+/// frame, for the `return` split: a `&` or `&mut` parameter, a `&mut` borrow
+/// (a `&mut` local, or a `match` binding through one), a module-level binding,
+/// or a borrowed binding (a `match`/`for` binding of a borrowed place). Empty
+/// for an owning local, an owned parameter, a temporary, or a `match` binding
+/// of either.
+_ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
+  match(
+    _ic_place_root_var(place, env),
+    .Some(v) => cond(
+      v.is_imm_borrow => String.from("a `&` parameter"),
+      (v.is_ref && v.is_parameter) => String.from("a `&mut` parameter"),
+      v.is_ref => String.from("a `&mut` borrow"),
+      v.is_module_level => `the module-level binding \`${v.name}\``,
+      (v.is_owning_the_rc_value || is_any_temp_variable_name(v.name.clone())) => String.new(),
+      // A `match` binding owns what it binds out of a temporary, or is a
+      // part of an owning local judged at that local's frame end.
+      match(g_implicit_copy_match_roots.get(&v.id), .Some(r) => ((r.kind == "temp") || (r.kind == "local")), .None => false) => String.new(),
+      true => String.from("a borrowed binding")
+    ),
+    .None => String.new()
+  )
+);
 /// Record what `binding`, a pattern binding of a `match` whose evaluated
 /// scrutinee is described by `scr_info`, borrows from.
 audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> unit)({
