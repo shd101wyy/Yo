@@ -53,14 +53,24 @@ Around the trial, `_index_arg_moved_here` finds the variable the argument
 names when this call's rule has just moved it (its `consumed_at_token` is the
 argument's own token). The trial sees it unmoved, and the move at that token
 is put back afterwards, so the variable is moved once and the trial's
-specialization reaches codegen. Nothing changes for an argument that was not
-moved here: a copyable or shared one, or a temporary.
+specialization reaches codegen. An owning temporary the rule consumed at the
+same token (a `String` temporary key) is cleared and restored the same way;
+the trial evaluates the argument into a fresh temporary, so that is a no-op.
+A copyable or shared named argument is never marked, and nothing changes for
+it.
 
 ## Verification
 
+- The reproducer fails at the C compiler with the develop-built
+  `yo-dev-ed733408c` and compiles and prints `78` after the fix.
 - `tests/index.test.yo`, "Index: a generic impl takes a move-only named local
   by value": the reproducer, a later read of the moved `k` is still E0901, and
-  a `HashMap(Box(i32), i32)` looked up by a named box. It failed at the C
-  compiler before the fix.
+  a `HashMap(Box(i32), i32)` looked up by a named box (on develop that half
+  fails earlier, at the map's probe E0901 of
+  `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`).
+- The second Consume event the trial now logs is harmless: with a
+  `Drop`-counting key moved through `b(k)` in one `cond` arm only, each path
+  drops the key exactly once under ASan (1, then 2), and a `b(k)` of an outer
+  `k` inside a `while` is still E0901 ("moved inside the loop").
 - `tests/rc.test.yo`'s unique-`Box` section looks a `HashMap(Box(UBoxPoint),
   Box(i32))` up by the named box `h2`.
