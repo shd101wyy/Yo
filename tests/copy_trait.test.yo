@@ -100,6 +100,21 @@ impl(
     clone : (fn(self : &Self) -> Self)(Self(id : self.id))
   )
 );
+// The same shape again, with the Copy impl spelled through an alias: the
+// alias names the same declaration, so the hand-written Clone still rejects
+// it (a printed name is not a declaration's identity;
+// issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md).
+_CtTagged :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(id : i32)
+);
+_CtTaggedAlias :: _CtTagged;
+impl(
+  generic(T : Type),
+  _CtTagged(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(Self(id : self.id))
+  )
+);
 // No Clone: Copy is rejected on each, checked in a test below. The derive's
 // rejection is pinned at module level: a derive inside a function body is
 // skipped by the def-time trial (its registrations are module-level
@@ -354,6 +369,7 @@ test("Copy: a hand-written Clone on a type Copy for every instantiation is an er
   comptime_expect_error(impl(_CtPoint, Clone(clone : (fn(self : &Self) -> Self)(self))), "Write derive(_CtPoint, Clone) instead");
   comptime_expect_error(impl(_CtHandle, Copy()), "a hand-written Clone impl can only repeat it or contradict it");
   comptime_expect_error(impl(generic(T : Type), _CtTag(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
+  comptime_expect_error(impl(generic(T : Type), _CtTaggedAlias(T), Copy()), "a hand-written Clone impl can only repeat it or contradict it");
 });
 
 // ============================================================================

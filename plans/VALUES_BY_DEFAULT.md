@@ -6416,8 +6416,10 @@ heavy run, the command is given in item 2.
      grep -E ': return: ' xc-src.txt | wc -l   # the return sites open question 2 re-routes
      ```
 
-   - **N2, `tests/`**, one file per run (a multi-file run mixes same-named
-     generic impls, `issues/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`):
+   - **N2, `tests/`**, one file per run. That was the workaround while a
+     multi-file run mixed same-named generic impls
+     (`issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`,
+     fixed by #1430); one directory run works since:
 
      ```bash
      for f in $(git ls-files 'tests/*.yo' | grep -v '^tests/cli-cases/'); do
