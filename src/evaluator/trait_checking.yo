@@ -29,7 +29,8 @@ pragma(Pragma.AllowUnsafe);
   is_enum_type,
   is_reference_struct_type,
   is_reference_enum_type,
-  is_primitive_type
+  is_primitive_type,
+  unique_box_payload_type
 } :: import("../types/guards.yo");
 { enum_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
 {
@@ -39,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
   is_type_hierarchy_type
 } :: import("../types/guards.yo");
 { are_types_compatible, set_compat_type_implements_trait_fn } :: import("../types/compatibility.yo");
-{ resolve_enum_shell, type_binding_name } :: import("../types/creators.yo");
+{ resolve_enum_shell, resolve_struct_shell, type_binding_name } :: import("../types/creators.yo");
 {
   get_trait_type_from_env,
   get_value_of_some_type_from_env
@@ -68,7 +69,8 @@ pragma(Pragma.AllowUnsafe);
   trait_impl_epoch,
   is_drop_trait_name,
   value_type_owns_buffer,
-  value_acyclic_obligations
+  value_acyclic_obligations,
+  buffer_element_types
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -91,7 +93,8 @@ pragma(Pragma.AllowUnsafe);
   get_trait_key,
   find_associated_type_from_generic_impls,
   type_has_impl_shape_for,
-  generic_pattern_implements_trait
+  generic_pattern_implements_trait,
+  type_has_user_clone_impl
 }
 :: import("./values/impl.yo");
 {
@@ -914,6 +917,75 @@ _type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
     .None => false
   )
 );
+/// E0916's structural-clone exemption (decision 47 with V2b unique buffers,
+/// issues/questions/2026-10-17-how-a-non-copy-mut-global-is-read-once-buffers-are-unique.md,
+/// option 1): does `x.clone()` on a value of `ty` run no user code? It does
+/// not when every `Clone` impl the clone reaches is derived, the prelude's or
+/// std's: `ty`'s own, and recursively those of its fields, variant payloads,
+/// tuple parts, array elements, buffer elements (`ArrayList(T)`'s `T`) and a
+/// `Box`'s payload. A hand-written `Clone` outside std anywhere inside
+/// (`type_has_user_clone_impl`) runs user code, which can reach the global
+/// while the clone holds it; so does a `Dyn` or a closure, whose clone is not
+/// known here.
+type_clone_runs_no_user_code :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
+  match(
+    get_trait_type_from_env(env, String.from("Clone")),
+    .Some(clone_tt) => {
+      visited := HashMap(String, bool).new();
+      _clone_runs_no_user_code_inner(ty, &clone_tt, &mut visited, u32(0))
+    },
+    .None => false
+  )
+);
+_clone_parts_run_no_user_code :: (fn(parts : &ArrayList(TypeValue), clone_tt : &TypeValue, visited : &mut HashMap(String, bool), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < parts.len(), i = (i + usize(1)), {
+    if(!match(parts.get(i), .Some(pt) => _clone_runs_no_user_code_inner(&pt, clone_tt, visited, depth + u32(1)), .None => true), {
+      return(false);
+    });
+  });
+  true
+});
+_clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue, visited : &mut HashMap(String, bool), depth : u32) -> bool)({
+  inner := t_refine_inner(ty_in);
+  ty := resolve_enum_shell(resolve_struct_shell(&inner));
+  if(depth > u32(32), {
+    return(false);
+  });
+  key := type_to_string(&ty);
+  if(visited.contains_key(key.clone()), {
+    return(true);
+  });
+  visited.insert(key, true);
+  if(type_has_user_clone_impl(&ty, clone_tt), {
+    return(false);
+  });
+  match(
+    unique_box_payload_type(&ty),
+    .Some(payload) => {
+      return(_clone_runs_no_user_code_inner(&payload, clone_tt, visited, depth + u32(1)));
+    },
+    .None => ()
+  );
+  match(
+    ty,
+    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields), clone_tt, visited, depth)),
+    Rc(.EnumT({ variant_fields : all_fields })) => {
+      (vi : usize) = usize(0);
+      while(vi < all_fields.len(), vi = (vi + usize(1)), {
+        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf, clone_tt, visited, depth), .None => true), {
+          return(false);
+        });
+      });
+      true
+    },
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs, clone_tt, visited, depth),
+    Rc(.Array(element : el, length : _, length_var : _)) => _clone_runs_no_user_code_inner(&el, clone_tt, visited, depth + u32(1)),
+    Rc(.DynT(required_trait_types : _)) => false,
+    Rc(.Func({ result : _ })) => false,
+    _ => true
+  )
+});
 /// True when a value of the plain-data type `ty` is NOT implicitly copyable
 /// under decision 36's flip: it is not `Copy`. Compile-time-only types (their
 /// copies never reach run time), control-bound records (`Exception`, effect
@@ -3110,6 +3182,7 @@ _trait_checking_init := (fn() -> bool)({
 export(TraitCheckResult, AssocTypeCheckResult);
 export(type_implements_comptime_builtin);
 export(type_implements_trait, type_implements_trait_bool);
+export(type_clone_runs_no_user_code);
 export(check_type_implements_self_constraints);
 export(type_implements_comptime, type_implements_runtime_full);
 export(begin_send_derivation, end_send_derivation);

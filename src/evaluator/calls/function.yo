@@ -117,7 +117,8 @@ pragma(Pragma.AllowUnsafe);
   resolve_assoc_type_for_target,
   deref_target_type,
   copy_structural_parts,
-  type_implements_trait
+  type_implements_trait,
+  type_clone_runs_no_user_code
 } :: import("../trait_checking.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { make_deref_expr } :: import("../exprs/property_access.yo");
@@ -3468,7 +3469,7 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
     match(
       lends.get(li),
       .Some(l) => {
-        match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _judge_global_lend(call, &l, &gv, ctx, exn), .None => ());
+        match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _judge_global_lend(call, &l, &gv, env, ctx, exn), .None => ());
         // Decision 47 step 2: an exclusive lend (a `&mut x` argument, the
         // receiver of a `&mut self` method) writes the binding below module
         // level whose own storage the place is.
@@ -3485,13 +3486,14 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
 /// - an exclusive lend of a place the binding itself holds (`&mut G`,
 ///   `&mut G.f`, a `&mut self` method on a value) WRITES the binding: E0917
 ///   unless it is declared `mut(G)`;
-/// - any lend of a `mut(G)` binding, or a place under it, is E0916;
+/// - any lend of a `mut(G)` binding, or a place under it, is E0916, except
+///   the receiver of a structural `clone()` (`_is_structural_clone_call`);
 /// - a lend into the storage behind a handle an unmarked binding holds is
 ///   checked against the writes through that handle (rules A and B,
 ///   `global_note_handle_lend`), and an exclusive lend of a handle place is
 ///   such a write (rule A).
 /// Under `YO_AUDIT_GLOBAL_LEND` each lend prints a census line instead.
-_judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx : &EvalContext, exn : Exception) -> unit)({
+_judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   callee_text := _callee_display(call);
   place_text := _place_display(&l.place);
   at := ast_expr_token(&l.lent_arg);
@@ -3518,13 +3520,16 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx :
     if(global_lend_audit_enabled(), {
       return(());
     });
+    if((l.tag == "recv-imm") && _is_structural_clone_call(call, &place_ty, env, ctx), {
+      return(());
+    });
     raise_flow_violation(
       with_code(
         format_error_message_with_help(
           &at,
           `Cannot lend \`${place_text}\` to \`${callee_text}\` (${l.form}): \`${gv.name}\` is declared \`mut(${gv.name})\`, a mutable module-level binding, which has no run-time borrow flag. Any function can write it by name, and so can another task while the callee awaits, so the callee could read a value that was already released while it still holds the borrow (plans/VALUES_BY_DEFAULT.md decision 18 rule 3, decision 47).`,
           Option(String).Some(
-            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}; f(&mut v); ${gv.name} = v;\`; \`${gv.name}.clone()\` would itself lend it), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
+            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}; f(&mut v); ${gv.name} = v;\`; a \`String\` or a collection is copied out with \`v := ${gv.name}.clone()\`, since a \`clone()\` whose \`Clone\` is derived or std's may lend it), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
           )
         ),
         E_GLOBAL_LENT_TO_CALL
@@ -3540,6 +3545,34 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx :
   if(pp.heap || pp.through_handle, {
     global_note_handle_lend(gv, GlobalHandleLend(path : pp.path.clone(), heap : pp.heap, at : at.clone(), text : `\`${place_text}\` to \`${callee_text}\` (${l.form})`), ctx, exn);
   });
+});
+/// Is `call` a `place.clone()` whose clone runs no user code: the resolved
+/// method is defined in std, the prelude or generated code (a derived
+/// `Clone`, std's structural impls), and every `Clone` impl it reaches is too
+/// (`type_clone_runs_no_user_code`)? Such a clone copies the value and
+/// returns before anything else runs, so nothing can write a `mut(G)` global
+/// while it holds the borrow: `v := G.clone()` is how a reassigned
+/// explicit-copy global is read (decision 47 with V2b unique buffers,
+/// issues/questions/2026-10-17-how-a-non-copy-mut-global-is-read-once-buffers-are-unique.md,
+/// option 1).
+_is_structural_clone_call :: (fn(call : &AstExpr, place_ty : &TypeValue, env : &Environment, ctx : &EvalContext) -> bool)({
+  (callee : AstExpr) = match(call, .FnCall(_, c, a, _, _) => if(a.len() == usize(0), c, return(false)), .Atom(_, _) => return(false));
+  if(!ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(false);
+  });
+  is_clone := match(callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(1)), .Some(m) => ast_expr_is_atom_of(&m, "clone"), .None => false), .Atom(_, _) => false);
+  if(!is_clone, {
+    return(false);
+  });
+  defined_in_std := match(
+    lookup_method_callee_value(ast_expr_id(call)),
+    .Some(.FuncVal(mfv, _)) => {
+      mp := ast_expr_token(&mfv.*.body).module_path.clone();
+      mp.starts_with("auto-generated://") || is_std_module_path(&mp, &ctx.std_path)
+    },
+    _ => false
+  );
+  defined_in_std && type_clone_runs_no_user_code(place_ty, env)
 });
 /// A place or callee as a diagnostic writes it: a `.` chain without the
 /// parentheses the AST printer puts around each `.` form (`G.f.push`).
