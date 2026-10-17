@@ -2,9 +2,16 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** OPEN — found 2026-10-17 while landing decision 47 globals
-Generation B (#1414). It matters at V2b unique buffers Generation B, not
-before.
+**Status:** DECIDED 2026-10-17 (maintainer, via the coordinator): option 1,
+with the exemption made **recursive**. A structural `clone()` receiver of a
+`mut(G)` global is exempt from E0916 only if every `Clone` impl the clone
+reaches is derived or std-structural. A derived struct with one user-`Clone`
+field runs user code, so its clone stays E0916. Recorded in
+plans/VALUES_BY_DEFAULT.md (V2b Generation B, open question 1; #1408).
+Awaiting implementation. It is a compiler change and not seed-gated; it is
+planned as an early commit of V2b B1, which is stacked on #1414. The doc
+moves to `issues/fixed/` with the implementing PR. Found 2026-10-17 while
+landing decision 47 globals Generation B (#1414).
 
 ## The two rules that meet
 
