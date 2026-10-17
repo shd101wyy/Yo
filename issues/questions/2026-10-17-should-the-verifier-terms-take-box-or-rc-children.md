@@ -17,9 +17,8 @@ that the other two trees did not have.
    overlay) and `HashMap(String, VcSort)` (`array_sorts`, the declared-name
    collectors). A `VcTerm` with a `Box(Self)` child is move-only (`Box`
    implements `Drop`), and:
-   - a `HashMap` of a move-only value does not compile today
-     (`issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`;
-     a fix is in flight on `fix/hashmap-move-only-key-value`);
+   - a `HashMap` of a move-only value did not compile before #1420
+     (`issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`);
    - even with that fix, `HashMap.get` still returns `Option(V)` by copy, so
      each of the 49 `get`s in `vc.yo` that reads a term or a sort out of a
      map needs a borrowing accessor that does not exist yet (V2b's
