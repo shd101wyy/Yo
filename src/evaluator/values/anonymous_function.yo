@@ -2082,14 +2082,16 @@ evaluate_anonymous_function_implementation :: (
   // `yo check` passed a D3 write through an `Arc` that `compile` rejected
   // only as a hollow body
   // (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md).
-  // A parameter typed by a `SomeT` itself (an `Impl(...)`, an unannotated
-  // `e` row) stays abstract even when the call resolved it.
+  // A parameter typed by an unresolved `SomeT` (an `Impl(...)`) stays
+  // abstract; one the call resolved (io.async's `e : E`) is judged by its
+  // resolution, which the predicate follows.
   (body_params_abstract : bool) = (forall_param_exprs.len() > usize(0));
   {
     (bpa_i : usize) = usize(0);
     while((bpa_i < param_types.len()) && !body_params_abstract, {
       bpa_pt := match(param_types.get(bpa_i), .Some(t) => t, .None => t_unit());
-      if(is_some_type(&bpa_pt) || type_contains_some_type_for_codegen_param(&bpa_pt, ArrayList(String).new()), {
+      bpa_unresolved := match(bpa_pt, Rc(.SomeT({ resolution : bpa_r })) => bpa_r.is_none(), _ => false);
+      if(bpa_unresolved || type_contains_some_type_for_codegen_param(&bpa_pt, ArrayList(String).new()), {
         body_params_abstract = true;
       });
       bpa_i = (bpa_i + usize(1));
