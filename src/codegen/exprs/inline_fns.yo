@@ -75,7 +75,7 @@
 { get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript, _idx_c_string_literal, _is_decimal_literal, _parse_decimal } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
 _a :: (fn(args : &ArrayList(String), i : usize) -> String)(
-  match(args.get(i), .Some(s) => s, .None => String.from(""))
+  match(args.get(i), .Some(s) => s.clone(), .None => String.from(""))
 );
 /// `((a) <op> (b))`.
 _binop :: (fn(args : &ArrayList(String), op : str) -> String)({
@@ -560,7 +560,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     },
     (function_name == BF_YO_AS) => match(
       _as_saturating_expr(args, expr, context),
-      .Some(sat) => sat,
+      .Some(sat) => sat.clone(),
       .None => {
         target_c_type := get_type_string(ei_ty(expr, context), &context.base);
         if(_as_source_is_tagged_enum(expr, context), {

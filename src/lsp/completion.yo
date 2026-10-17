@@ -210,13 +210,13 @@ _func_snippet :: (fn(name : &String, ty : &TypeValue) -> String)(
       (n : usize) = usize(0);
       (i : usize) = usize(0);
       while(i < param_types.len(), {
-        label := match(meta.*.param_labels.get(i), .Some(l) => l, .None => `arg${i}`);
+        label := match(meta.*.param_labels.get(i), .Some(l) => l.clone(), .None => `arg${i}`);
         if(label != "self", {
           n = (n + usize(1));
           if(n > usize(1), {
-            parts = (parts + String.from(", "));
+            parts = (parts.clone() + String.from(", "));
           });
-          parts = (parts + _placeholder(n, &label));
+          parts = (parts.clone() + _placeholder(n, &label));
         });
         i = (i + usize(1));
       });
@@ -250,17 +250,17 @@ _push_variant :: (
     (i : usize) = usize(0);
     while(i < fields.len(), {
       ft := match(fields.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-      flabel := match(labels.get(i), .Some(l) => l, .None => String.new());
+      flabel := match(labels.get(i), .Some(l) => l.clone(), .None => String.new());
       ph := cond(
         (flabel.len() > usize(0)) => flabel.clone(),
         true => type_to_string(&ft)
       );
       if(i > usize(0), {
-        dparts = (dparts + String.from(", "));
-        sparts = (sparts + String.from(", "));
+        dparts = (dparts.clone() + String.from(", "));
+        sparts = (sparts.clone() + String.from(", "));
       });
-      dparts = (dparts + type_to_string(&ft));
-      sparts = (sparts + _placeholder(i + usize(1), &ph));
+      dparts = (dparts.clone() + type_to_string(&ft));
+      sparts = (sparts.clone() + _placeholder(i + usize(1), &ph));
       i = (i + usize(1));
     });
     detail = (String.from("(") + dparts + String.from(")"));
@@ -280,7 +280,7 @@ _type_member_items :: (
     Rc(.Struct({ field_labels, field_types, is_source_namespace })) => {
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
-        label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(field_labels.get(i), .Some(l) => l.clone(), .None => String.new());
         fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         hidden := ((label.len() == usize(0)) || _hidden_name(label.clone()));
         if(!hidden && !seen.contains(label.clone()), {
@@ -301,9 +301,9 @@ _type_member_items :: (
     Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
-        vname := match(variant_names.get(i), .Some(n) => n, .None => String.new());
-        vfields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+        vname := match(variant_names.get(i), .Some(n) => n.clone(), .None => String.new());
+        vfields := match(variant_fields.get(i), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+        vlabels := match(variant_field_labels.get(i), .Some(l) => l.clone(), .None => ArrayList(String).new());
         if(vname.len() > usize(0), {
           _push_variant(&vname, &vfields, &vlabels, false, out, seen);
         });
@@ -313,7 +313,7 @@ _type_member_items :: (
     Rc(.Union({ field_labels : u_labels, field_types : u_types })) => {
       (i : usize) = usize(0);
       while(i < u_labels.len(), {
-        label := match(u_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(u_labels.get(i), .Some(l) => l.clone(), .None => String.new());
         fty := match(u_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if((label.len() > usize(0)) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
@@ -325,7 +325,7 @@ _type_member_items :: (
     Rc(.TraitT({ field_labels : t_labels, field_types : t_types })) => {
       (i : usize) = usize(0);
       while(i < t_labels.len(), {
-        label := match(t_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(t_labels.get(i), .Some(l) => l.clone(), .None => String.new());
         fty := match(t_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
         if(keep && !_hidden_name(label.clone()) && !seen.contains(label.clone()), {
@@ -401,7 +401,7 @@ _add_methods :: (
       .Some(ge) => {
         (mi : usize) = usize(0);
         while(mi < ge.method_names.len(), {
-          mname := match(ge.method_names.get(mi), .Some(n) => n, .None => String.new());
+          mname := match(ge.method_names.get(mi), .Some(n) => n.clone(), .None => String.new());
           mty := match(ge.method_types.get(mi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(mname.len() > usize(0), {
             _push_method(&mname, &mty, out, seen);
@@ -839,7 +839,7 @@ _import_items :: (
   names.sort();
   (j : usize) = usize(0);
   while(j < names.len(), {
-    name := names(j);
+    name := names(j).clone();
     if(!name.starts_with(String.from(".")), {
       cond(
         dirs.contains(name.clone()) => {
@@ -1009,7 +1009,7 @@ _import_member_items :: (
   );
   abs := match(
     resolve_module_path(import_path, &doc_dir, std_path.clone()),
-    .Found(p) => p,
+    .Found(p) => p.clone(),
     .NotFound(_) => {
       return(items);
     },
@@ -1028,7 +1028,7 @@ _import_member_items :: (
       });
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
-        label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(field_labels.get(i), .Some(l) => l.clone(), .None => String.new());
         fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         (already : bool) = false;
         (li : usize) = usize(0);
@@ -1072,8 +1072,8 @@ handle_completion :: (
 )({
   items := ArrayList(JsonValue).new();
   lines := text.split(String.from("\n"));
-  line_text := match(lines.get(line), .Some(l) => l, .None => String.new());
-  bytes := line_text;
+  line_text := match(lines.get(line), .Some(l) => l.clone(), .None => String.new());
+  bytes := line_text.clone();
   // `character` is a RUNE column (what this server serves and receives — see
   // `rune_col_to_byte_offset`), while `bytes` and `line_text` are BYTE
   // indexed. Everything below this line works in BYTES; `dot_col` converts
@@ -1217,9 +1217,9 @@ handle_completion :: (
                 seen2 := HashSet(String).new();
                 (vi : usize) = usize(0);
                 while(vi < variant_names.len(), {
-                  vname := match(variant_names.get(vi), .Some(n) => n, .None => String.new());
-                  vfields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-                  vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+                  vname := match(variant_names.get(vi), .Some(n) => n.clone(), .None => String.new());
+                  vfields := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+                  vlabels := match(variant_field_labels.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
                   if(vname.len() > usize(0), {
                     _push_variant(&vname, &vfields, &vlabels, true, &mut items, &mut seen2);
                   });
@@ -1257,7 +1257,7 @@ handle_completion :: (
   emitted := HashSet(String).new();
   (ni : usize) = usize(0);
   while(ni < names.len(), {
-    name := names(ni);
+    name := names(ni).clone();
     if(!_hidden_name(name.clone()) && _matches_prefix(name.clone(), prefix_lower.clone()), {
       emitted.insert(name.clone());
       (detail : String) = String.new();
@@ -1325,7 +1325,7 @@ handle_completion :: (
   kws := keyword_names();
   (ki : usize) = usize(0);
   while(ki < kws.len(), {
-    kw := kws(ki);
+    kw := kws(ki).clone();
     if(!emitted.contains(kw.clone()) && _matches_prefix(kw.clone(), prefix_lower.clone()), {
       emitted.insert(kw.clone());
       items.push(_ci(kw.clone(), K_KEYWORD, String.new(), _sort_key(kw.clone(), prefix_lower.clone()), String.new()));

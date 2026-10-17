@@ -75,7 +75,7 @@ _iso_function_offense :: (
   fn(ty : &TypeValue, send : &TypeValue, seen : &mut ArrayList(String), env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
   // Cycle guard on nominal identity (ArrayList(T) reaches T through its buffer).
-  nid := match(ty, Rc(.Struct({ id : sid })) => sid, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
+  nid := match(ty, Rc(.Struct({ id : sid })) => sid.clone(), Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(), _ => String.new());
   if(!nid.is_empty(), {
     (si : usize) = usize(0);
     while(si < seen.len(), {
@@ -172,7 +172,7 @@ _iso_function_offense :: (
       .Some(ct) => match(
         _iso_function_offense(&ct, send, seen, env, ctx),
         .Some(o) => {
-          return(Option(String).Some(o));
+          return(Option(String).Some(o.clone()));
         },
         .None => ()
       ),
@@ -194,7 +194,7 @@ evaluate_iso_type_call :: (
   // Extract the single arg.
   arg_exprs := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     _ => {
       exn.throw(
         dyn(
@@ -236,9 +236,9 @@ evaluate_iso_type_call :: (
   });
   arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
   env.frames = arg_info.env.frames;
-  env.module_path = arg_info.env.module_path;
+  env.module_path = arg_info.env.module_path.clone();
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
-  env.input_string = arg_info.env.input_string;
+  env.input_string = arg_info.env.input_string.clone();
   // Check that the argument is a type value.
   if(!is_type_value(&arg_info.value), {
     exn.throw(
@@ -355,9 +355,9 @@ _join_strings :: (fn(items : &ArrayList(String), sep : &String) -> String)({
       items.get(i),
       .Some(s) => {
         if(i > usize(0), {
-          result = (result + sep);
+          result = (result.clone() + sep);
         });
-        result = (result + s);
+        result = (result.clone() + s.clone());
       },
       .None => ()
     );
@@ -387,7 +387,7 @@ _find_rc_aliases :: (fn(env : &Environment, owner_id : &String) -> ArrayList(Str
                 .None => String.from("")
               );
               if((same_owner_id == owner_id) && !(v.id.to_string() == owner_id), {
-                result.push(v.name);
+                result.push(v.name.clone());
               });
             },
             .None => ()
@@ -442,7 +442,7 @@ evaluate_iso_value_call :: (
   );
   arg_exprs := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     _ => ArrayList(AstExpr).new()
   );
   arg_expr := match(
@@ -481,9 +481,9 @@ evaluate_iso_value_call :: (
   });
   arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
   env.frames = arg_info.env.frames;
-  env.module_path = arg_info.env.module_path;
+  env.module_path = arg_info.env.module_path.clone();
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
-  env.input_string = arg_info.env.input_string;
+  env.input_string = arg_info.env.input_string.clone();
   // Check ownership / alias constraints using the variable name from ExprInfo.
   match(
     arg_info.variable_name,
@@ -575,7 +575,7 @@ evaluate_iso_value_call :: (
   // Wrap result in iso_type — value is runtime only (no comptime value).
   out_info := new_expr_info(&env, iso_type);
   out_info.value = .None;
-  out_info.path_collection = arg_info.path_collection;
+  out_info.path_collection = arg_info.path_collection.clone();
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   attach_temp_variable_to_expr(expr, true, ctx);
   expr

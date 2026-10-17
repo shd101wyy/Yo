@@ -55,7 +55,7 @@
 str_lit_unquote :: (fn(raw : &String) -> String)(str_lit_unquote_bytes(raw));
 // Wrap an unquoted string with quote chars to produce a StrLit.raw.
 str_lit_quote :: (fn(s : &String) -> String)(
-  String.from("\"") + s + String.from("\"")
+  String.from("\"") + s.clone() + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is comptime_str type.
@@ -147,7 +147,7 @@ evaluate_yo_comptime_string_functions :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(expr);
     }

@@ -167,14 +167,14 @@ _add_mapping :: (fn(mappings : &mut ArrayList(EffectFieldMapping), label : &Stri
 /// The capture-struct field label matching an effect/bundle field: exact label,
 /// then case-insensitive label, then structural type match (`type_key`).
 _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_type : &TypeValue) -> Option(String))({
-  clabels := match(capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  ctypes := match(capture_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  clabels := match(capture_type, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
+  ctypes := match(capture_type, Rc(.Struct({ field_types : ft })) => ft.clone(), _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < clabels.len(), {
     match(
       clabels.get(i),
       .Some(l) => if(l == label, {
-        return(Option(String).Some(l));
+        return(Option(String).Some(l.clone()));
       }),
       .None => ()
     );
@@ -186,7 +186,7 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
     match(
       clabels.get(j),
       .Some(l) => if(l.to_lowercase() == ll, {
-        return(Option(String).Some(l));
+        return(Option(String).Some(l.clone()));
       }),
       .None => ()
     );
@@ -195,7 +195,7 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
   fk := type_key(field_type);
   (k : usize) = usize(0);
   while(k < clabels.len(), {
-    lbl := match(clabels.get(k), .Some(l) => l, .None => String.from(""));
+    lbl := match(clabels.get(k), .Some(l) => l.clone(), .None => String.from(""));
     t := match(ctypes.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(type_key(&t) == fk, {
       return(Option(String).Some(lbl));
@@ -210,11 +210,11 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
 _visit_effect_struct_fields :: (
   fn(struct_type : &TypeValue, base_path : &String, base_label : &String, mappings : &mut ArrayList(EffectFieldMapping)) -> unit
 )({
-  flabels := match(struct_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  ftypes := match(struct_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  flabels := match(struct_type, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
+  ftypes := match(struct_type, Rc(.Struct({ field_types : ft })) => ft.clone(), _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < flabels.len(), {
-    flabel := match(flabels.get(i), .Some(l) => l, .None => String.from(""));
+    flabel := match(flabels.get(i), .Some(l) => l.clone(), .None => String.from(""));
     ftype := match(ftypes.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       el := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
@@ -268,7 +268,7 @@ _find_bundle_var_field :: (
         sm_var := b.value;
         is_outer := match(sm_var.kind, .Outer => true, .Local => false);
         if(!is_outer && (type_key(&sm_var.base.ty) == target_key), {
-          vid := sm_var.base.id;
+          vid := sm_var.base.id.clone();
           alias_opt := match(
             state_machine_field_aliases,
             .Some(al) => al.get(vid.clone()),
@@ -311,11 +311,11 @@ get_injectable_future_effect_field_mappings :: (
   ) -> ArrayList(EffectFieldMapping)
 )({
   mappings := ArrayList(EffectFieldMapping).new();
-  eff_labels := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => ArrayList(String).new());
-  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+  eff_labels := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => el.clone(), _ => ArrayList(String).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et.clone(), _ => ArrayList(TypeValue).new());
   (ei : usize) = usize(0);
   while(ei < eff_labels.len(), {
-    elabel := match(eff_labels.get(ei), .Some(l) => l, .None => String.from(""));
+    elabel := match(eff_labels.get(ei), .Some(l) => l.clone(), .None => String.from(""));
     etype := match(eff_types.get(ei), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&etype), {
       // Function-typed effect → matching capture field.
@@ -330,11 +330,11 @@ get_injectable_future_effect_field_mappings :: (
         match(
           capture_type,
           .Some(ct) => {
-            ef_labels := match(etype, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-            ef_types := match(etype, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+            ef_labels := match(etype, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
+            ef_types := match(etype, Rc(.Struct({ field_types : ft })) => ft.clone(), _ => ArrayList(TypeValue).new());
             (fi : usize) = usize(0);
             while(fi < ef_labels.len(), {
-              flabel := match(ef_labels.get(fi), .Some(l) => l, .None => String.from(""));
+              flabel := match(ef_labels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
               ftype := match(ef_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(is_function_type(&ftype), {
                 match(_find_capture_field(&ct, &flabel, &ftype), .Some(cf) => _add_mapping(&mut mappings, &flabel, `__capture.${sanitize_for_c_identifier(&cf, false)}`), .None => ());
@@ -370,7 +370,7 @@ SyncParamSlot :: ref(struct(field_name : String, c_type : String));
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
 /// `.None`.
 _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeValue))({
-  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et.clone(), _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < eff_types.len(), {
     match(
@@ -399,7 +399,7 @@ _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeV
 /// function always meant.
 _capitalize_last_segment :: (fn(label : &String) -> String)({
   parts := label.split(".");
-  last := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p, .None => label.clone()), label.clone());
+  last := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p.clone(), .None => label.clone()), label.clone());
   if(last.len() == usize(0), {
     return(last);
   });
@@ -454,7 +454,7 @@ generate_future_effect_setter :: (
           keyword := if(first_case, String.from("if"), String.from("else if"));
           first_case = false;
           parts := m.effect_label.split(".");
-          last_seg := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p, .None => m.effect_label.clone()), m.effect_label.clone());
+          last_seg := if(parts.len() > usize(0), match(parts.last(), .Some(p) => p.clone(), .None => m.effect_label.clone()), m.effect_label.clone());
           cap_last := _capitalize_last_segment(m.effect_label.clone());
           // Build the OR'd strcmp condition over the unique aliases.
           cond := String.from("");
@@ -526,7 +526,7 @@ _find_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionG
     found,
     .Some(name) => name,
     .None => {
-      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       o := String.from("async_capture_");
       o.push_string(&cap_id);
       o
@@ -902,7 +902,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
   ordered := ArrayList(String).new();
   (head : usize) = usize(0);
   while(head < queue.len(), {
-    n := match(queue.get(head), .Some(x) => x, .None => String.from(""));
+    n := match(queue.get(head), .Some(x) => x.clone(), .None => String.from(""));
     head = (head + usize(1));
     ordered.push(n.clone());
     match(
@@ -917,7 +917,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
               next := (match(indegree.get(m.clone()), .Some(d) => d, .None => usize(0)) - usize(1));
               indegree.insert(m.clone(), next);
               if(next == usize(0), {
-                queue.push(m);
+                queue.push(m.clone());
               });
             },
             .None => {
@@ -977,8 +977,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
             capture_type : b.capture_type,
             analysis : b.analysis,
             cross_boundary_ids : Option(HashSet(String)).Some(cbr.cross_boundary_ids),
-            await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases),
-            overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases),
+            await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
+            overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
             overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(osr.slots),
             closure_param_slots : b.closure_param_slots
           ),
@@ -1110,11 +1110,11 @@ _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &Function
 /// The labels and the effect-parameter flags come from the registry; each
 /// type comes from `capture_type` itself.
 _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(ArrayList(TypeField).new()));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => return(ArrayList(TypeField).new()));
   fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
   (labels, types) := match(
     capture_type,
-    Rc(.Struct({ field_labels : fl, field_types : ft })) => (fl, ft),
+    Rc(.Struct({ field_labels : fl, field_types : ft })) => (fl.clone(), ft.clone()),
     _ => (ArrayList(String).new(), ArrayList(TypeValue).new())
   );
   out := ArrayList(TypeField).new();
@@ -1147,7 +1147,7 @@ _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField)
 /// generated (e.g. it holds unresolved SomeType fields).
 _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
   fields := _capture_struct_fields(capture_type);
   owns_captures := is_fnonce_capture_struct(&struct_id);
   (i : usize) = usize(0);
@@ -1188,7 +1188,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
 /// any other capture struct, whose fields the dispose drops unconditionally.
 _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
   out := ArrayList(TypeField).new();
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => return(out));
   if(!is_fnonce_capture_struct(&struct_id), {
     return(out);
   });
@@ -1214,7 +1214,7 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
 /// nothing, so nothing drops it.
 _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
   out := ArrayList(TypeField).new();
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid.clone(), _ => return(out));
   borrows := match(capture_struct_borrows(&struct_id), .Some(bs) => bs, .None => return(out));
   // Each field's type from the instantiated capture type, not the registry:
   // a generic body's capture struct id is shared by its instantiations, so the
@@ -1380,7 +1380,7 @@ generate_async_block_state_dispose_function :: (
                 .Some(flag) => local_drop_lines.push(`    if (${flag}) { memset(&(${field_ref}), 0, sizeof(${field_ref})); }`),
                 .None => ()
               );
-              local_drop_lines.push(line);
+              local_drop_lines.push(line.clone());
             },
             .None => ()
           );
@@ -1400,7 +1400,7 @@ generate_async_block_state_dispose_function :: (
         match(
           _rc_field_drop_line(`sm->${os.field_name.clone()}`, &os.ty, String.from("    "), context),
           .Some(line) => {
-            local_drop_lines.push(line);
+            local_drop_lines.push(line.clone());
           },
           .None => ()
         );
@@ -1463,7 +1463,7 @@ generate_async_block_constructor :: (
   // Constructor signature (returns a pointer for a stable Future/SM address).
   // The per-TYPE operations live in one static vtable the prefix points at
   // (`__yo_future_vtable_t`), not in every instance.
-  vt_cancel := match(cancel_pending_function_name.clone(), .Some(cpfn) => cpfn, .None => String.from("NULL"));
+  vt_cancel := match(cancel_pending_function_name.clone(), .Some(cpfn) => cpfn.clone(), .None => String.from("NULL"));
   em.emit_string_line(`static const __yo_future_vtable_t ${struct_name.clone()}_vt = { ${resume_function_name.clone()}, ${set_effect_function_name.clone()}, ${vt_cancel}, ${vt_bundle} };`);
   match(
     capture_type,
@@ -1540,7 +1540,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
       match(
         args.get(usize(0)),
         .Some(a0) => if(ast_expr_is_atom(&a0), {
-          return(Option(String).Some(ast_expr_token(&a0).value));
+          return(Option(String).Some(ast_expr_token(&a0).value.clone()));
         }),
         .None => ()
       );
@@ -1553,7 +1553,7 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
             match(
               fargs.get(usize(0)),
               .Some(f0) => if(ast_expr_is_atom(&f0), {
-                return(Option(String).Some(ast_expr_token(&f0).value));
+                return(Option(String).Some(ast_expr_token(&f0).value.clone()));
               }),
               .None => ()
             );
@@ -1673,7 +1673,7 @@ _build_async_capture_struct_literal :: (
               if(in_special_context, Option(AstExpr).None, matched),
               .Some(dup_expr) => {
                 settled.insert(label.clone());
-                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name, .None => Option(String).None);
+                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name.clone(), .None => Option(String).None);
                 match(
                   dup_var,
                   .Some(vname) => {
@@ -1767,7 +1767,7 @@ _build_async_capture_struct_literal :: (
         match(
           _rc_field_retain_line(`${tmp.clone()}.${sanitize_for_c_identifier(f.label.clone(), false)}`, &f.ty, indent.clone(), context),
           .Some(line) => {
-            retain_lines.push(line);
+            retain_lines.push(line.clone());
           },
           .None => ()
         );
@@ -1854,7 +1854,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     .Some(fe) => match(fe.value, .FuncVal(wfvd, _) => wfvd.*.body, _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
-  stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), match(wrapper_body, .FnCall(_, _, sa, _, _) => sa, _ => ArrayList(AstExpr).new()), {
+  stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), match(wrapper_body, .FnCall(_, _, sa, _, _) => sa.clone(), _ => ArrayList(AstExpr).new()), {
     one := ArrayList(AstExpr).new();
     one.push(wrapper_body);
     one
@@ -1953,7 +1953,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     FusedAwaitSite(
       prefix : `${context.fusion_field_prefix}__fz${own_segment}`,
       call : future_arg,
-      wrapper_fid : cand.func_id,
+      wrapper_fid : cand.func_id.clone(),
       wrapper_body : wrapper_body,
       prologue : prologue,
       io_async_call : io_call,
@@ -1985,7 +1985,7 @@ _collect_fused_sites :: (
       .Some(ap) => {
         exprs := match(
           ap.base.cond_branch_suspension_exprs,
-          .Some(be) => be,
+          .Some(be) => be.clone(),
           .None => {
             one := ArrayList(AstExpr).new();
             one.push(ap.base.expr);
@@ -2109,7 +2109,7 @@ _emit_fused_site_releases :: (
   match(
     site.block.capture_type,
     .Some(ct) => {
-      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (fi : usize) = usize(0);
       while(fi < fields.len(), fi = (fi + usize(1)), {
@@ -2199,7 +2199,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
   match(
     site.block.capture_type,
     .Some(ct) => {
-      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (fi : usize) = usize(0);
       while(fi < fields.len(), fi = (fi + usize(1)), {
@@ -2233,7 +2233,7 @@ _fused_sm_aliases :: (fn(site : &FusedAwaitSite) -> HashMap(String, String))({
 });
 /// The statements of a block expression.
 _fused_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), match(e, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
+  if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), match(e, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new()), {
     one := ArrayList(AstExpr).new();
     one.push(e);
     one
@@ -2253,7 +2253,7 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
         // does: a borrowed tail (an implicit capture) is the capture's, and
         // the capture is dropped once the value is read
         // (issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md).
-        code := if(is_tail, match(arm_value_with_dups(&st, indent, context), .Some(c) => c, .None => _call_generate_expr(&st, indent.clone(), context)), _call_generate_expr(&st, indent.clone(), context));
+        code := if(is_tail, match(arm_value_with_dups(&st, indent, context), .Some(c) => c.clone(), .None => _call_generate_expr(&st, indent.clone(), context)), _call_generate_expr(&st, indent.clone(), context));
         if(is_tail, {
           tail = code;
         }, {
@@ -2273,7 +2273,7 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
 /// +1 of a borrowed projection) are not emitted in a state machine.
 _fused_arg_carries_param_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(false));
-  dl := match(expr_info_deferred_dup_expressions(&ei), .Some(d) => d, .None => return(false));
+  dl := match(expr_info_deferred_dup_expressions(&ei), .Some(d) => d.clone(), .None => return(false));
   (i : usize) = usize(0);
   while(i < dl.len(), i = (i + usize(1)), {
     match(
@@ -2298,7 +2298,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     tok := ast_expr_token(await_expr);
     // The callee's position, as the `fusable` line prints it: the block id is
     // a C name derived from the module path, so it differs between checkouts.
-    callee_at := match(await_fusion_candidate(&site.call), .Some(c) => c.callee_at, .None => String.from("?"));
+    callee_at := match(await_fusion_candidate(&site.call), .Some(c) => c.callee_at.clone(), .None => String.from("?"));
     eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
@@ -2338,7 +2338,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // that parameter's share takes it here, on its own spelling, as a call in
   // a state machine does (`_materialize_arg`, other_fn_call.yo)
   // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md).
-  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
+  rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra.clone(), .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
   (ai : usize) = usize(0);
   while(ai < rargs.len(), ai = (ai + usize(1)), {
@@ -2379,9 +2379,9 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
       (pi : usize) = usize(0);
       while(pi < wpts.len(), pi = (pi + usize(1)), {
         pt := match(wpts.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
+        label := match(wmeta.*.param_labels.get(pi), .Some(l) => l.clone(), .None => `param${pi.to_string()}`);
         cname := sanitize_for_c_identifier(&label, false);
-        code := match(arg_codes.get(pi), .Some(c) => c, .None => String.from("0"));
+        code := match(arg_codes.get(pi), .Some(c) => c.clone(), .None => String.from("0"));
         em.emit_string_line(`${inner}${get_variable_type_string(&pt, cname.clone(), &context.base)} = ${code};`);
         em.emit_string_line(`${inner}(void)${cname.clone()};`);
         declare_c_var_name(&context.base, &cname);
@@ -2403,8 +2403,8 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // such as the future it does not build, is skipped there).
   generate_deferred_drop_expressions(&site.wrapper_body, inner.clone(), context);
   context.state_machine_variables = saved_smv;
-  context.state_machine_field_aliases = saved_aliases;
-  context.variable_id_remapping = saved_remap;
+  context.state_machine_field_aliases = saved_aliases.clone();
+  context.variable_id_remapping = saved_remap.clone();
   context.declared_temp_vars = saved_temps;
   context.emitted_deferred_drop_ids = saved_drop_ids;
   em.emit_string_line(`${indent}}`);
@@ -2430,7 +2430,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   saved_pdd := context.pending_deferred_drops;
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
-  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping);
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
   context.sm_capture_slot = `${site.prefix}capture`;
   context.fusion_field_prefix = site.prefix.clone();
   low.analysis = site.block.analysis;
@@ -2616,7 +2616,7 @@ _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)(
       if(hb.diagnostics.len() > usize(0), {
         codegen_report_error(dyn(yo_error_from_diagnostics(&hb.diagnostics)));
       }, {
-        codegen_report_error(dyn(hb.message));
+        codegen_report_error(dyn(hb.message.clone()));
       });
     },
     .None => codegen_user_error(&tok, _hollow_async_body_message(body_expr, via_fsm))
@@ -2697,7 +2697,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // State-machine struct name (this struct IS the Future implementation).
   async_block_id := match(
     ei.variable_name,
-    .Some(n) => n,
+    .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived with MERGE semantics — see the twin above.
       ab2_tok := ast_expr_token(expr);
@@ -2773,8 +2773,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   match(
     fsm_capture_type,
     .Some(ct) => {
-      (cap_id : String) = match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
-      cap_labels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+      (cap_id : String) = match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
+      cap_labels := match(ct, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
       if((cap_labels.len() > usize(0)) && !capture_struct_has_decl_sites(cap_id.clone()), {
         codegen_fatal(`the capture struct ${cap_id} of an io.async block recorded no declaration sites, so its captures cannot be told from body bindings`);
       });
@@ -2827,7 +2827,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
         await_points : analysis_kinded.await_points,
         captured_variables : remapped_cvs,
         has_awaits : analysis_kinded.has_awaits,
-        variable_id_remapping : analysis_kinded.variable_id_remapping
+        variable_id_remapping : analysis_kinded.variable_id_remapping.clone()
       );
     },
     .None => ()
@@ -2837,7 +2837,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // Per-closure composite key for some-resolved-concrete: append the unique
   // async_block_id so different closures sharing the same Future(T) trait
   // do NOT cross-contaminate each other's registered result type.
-  _rsid_base := match(result_type, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
+  _rsid_base := match(result_type, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
   _per_clone_rsid := _rsid_base.clone();
   _per_clone_rsid.push_str("@@");
   _per_clone_rsid.push_string(async_block_id.clone());
@@ -2934,7 +2934,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       .Some(closure_fid) => match(
         get_func_type(closure_fid.clone()),
         Rc(.Func({ param_types : pts, meta : __fm1 })) => {
-          pls := __fm1.*.param_labels;
+          pls := __fm1.*.param_labels.clone();
           (i : usize) = usize(0);
           while(i < pts.len(), {
             pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -2952,7 +2952,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
               pt
             );
             ctype := get_type_string(&pt_slot, &context.base);
-            pname := match(pls.get(i), .Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`), .None => `param_${i.to_string()}`);
+            pname := match(pls.get(i), .Some(l) => if(l.len() > usize(0), l.clone(), `param_${i.to_string()}`), .None => `param_${i.to_string()}`);
             closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname.clone(), param_type : pt_slot, decl_site : _closure_param_decl_site(expr, &pname)));
             i = (i + usize(1));
           });
@@ -2977,7 +2977,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     result_type : result_type,
     result_type_c_name : result_type_c_name.clone(),
     capture_type : fsm_capture_type,
-    capture_dups : match(fsm_capture_dups, .Some(d) => d, .None => ArrayList(AstExpr).new()),
+    capture_dups : match(fsm_capture_dups, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new()),
     analysis : analysis_kinded,
     closure_param_slots : closure_param_slots_opt,
     source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
@@ -2986,7 +2986,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   blocks.push(dab);
   context.deferred_async_blocks = Option(ArrayList(DeferredAsyncBlock)).Some(blocks);
   // Emit the constructor call (lazy: the future stays cold until await/spawn).
-  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => String.from("async_result")), false);
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n.clone(), .None => String.from("async_result")), false);
   constructor_call := match(
     fsm_capture_type,
     .Some(cap_ty) => {
@@ -3045,7 +3045,7 @@ _copy_string_map :: (fn(src : &HashMap(String, String)) -> HashMap(String, Strin
 _sm_unwind_catch_for :: (fn(block : &DeferredAsyncBlock, context : &FunctionGenerationContext) -> Option(SmUnwindCatch))(
   match(
     unwind_catch_condition(unwind_catches_of_body(&block.body_expr)),
-    .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c, drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : is_unit_type(&block.result_type), label : block.async_block_id.clone())),
+    .Some(c) => Option(SmUnwindCatch).Some(SmUnwindCatch(condition : c.clone(), drop_locals_fn : `${block.dispose_function_name.clone()}_locals`, result_is_unit : is_unit_type(&block.result_type), label : block.async_block_id.clone())),
     .None => Option(SmUnwindCatch).None
   )
 );
@@ -3071,7 +3071,7 @@ _block_cross_boundary :: (fn(block : &DeferredAsyncBlock, context : &FunctionGen
               match(
                 parts.get(ppi),
                 .Some(site) => {
-                  param_sites.insert(site);
+                  param_sites.insert(site.clone());
                 },
                 .None => ()
               );
@@ -3155,9 +3155,9 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   cross_boundary_ids := cbr.cross_boundary_ids;
-  await_future_temp_var_aliases := cbr.await_future_temp_var_aliases;
+  await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
   osr := compute_overlapping_slots(&cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
-  overlapping_slot_aliases := osr.slot_aliases;
+  overlapping_slot_aliases := osr.slot_aliases.clone();
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   filtered := ArrayList(CapturedVariable).new();
   src_cvs := block.analysis.captured_variables;
@@ -3214,7 +3214,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   match(
     block.capture_type,
     .Some(cap_ty) => {
-      cap_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       cap_fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (cfi : usize) = usize(0);
       while(cfi < cap_fields.len(), {
@@ -3348,8 +3348,8 @@ generate_deferred_async_blocks :: (fn(context : &FunctionGenerationContext) -> u
                 capture_type : nb.capture_type,
                 analysis : nb.analysis,
                 cross_boundary_ids : Option(HashSet(String)).Some(ncbr.cross_boundary_ids),
-                await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases),
-                overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases),
+                await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
+                overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),
                 overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(nosr.slots),
                 closure_param_slots : nb.closure_param_slots
               ),
@@ -3387,7 +3387,7 @@ _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext
     ft,
     Rc(.Func({ meta : __fm2 })) => match(
       __fm2.*.is_extern,
-      .Some(lang) => if(lang == "yo", __fm2.*.extern_name, Option(String).None),
+      .Some(lang) => if(lang == "yo", __fm2.*.extern_name.clone(), Option(String).None),
       .None => Option(String).None
     ),
     _ => Option(String).None
@@ -3409,7 +3409,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
           .Some(_) => {
             async_block_id := match(
               ei.variable_name,
-              .Some(n) => n,
+              .Some(n) => n.clone(),
               .None => {
                 // Phase 2: the unnamed block's identity is its source
                 // position — file-scope SM names must not follow the
@@ -3442,7 +3442,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
           .Some(_) => {
             async_block_id := match(
               ei.variable_name,
-              .Some(n) => n,
+              .Some(n) => n.clone(),
               .None => {
                 // Phase 2: position-derived, MERGE semantics (two passes
                 // must agree on the struct name).
@@ -3522,7 +3522,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
     .None => ()
   );
   match(expr, .FnCall(_, callee, _, _, _) => recur(&callee, context), _ => ());
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(args.get(i), .Some(arg) => recur(&arg, context), .None => ());
@@ -3588,7 +3588,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // it to a concrete type below, we record it under this id (with the block id,
   // `g_async_block_result_types`) so this block's later emission agrees with it
   // instead of lowering the await binding to `void*`.
-  output_some_id := match(result_type, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
+  output_some_id := match(result_type, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
   // Per-closure composite key: append the unique async_block_id to the
   // output_some_id so that different closures implementing the same Future(T)
   // do NOT share the same resolved-concrete-type registration. Without this,
@@ -3596,7 +3596,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // types → "assigning from incompatible type" C errors.
   ab_id := match(
     cei.variable_name,
-    .Some(n) => n,
+    .Some(n) => n.clone(),
     .None => {
       // Phase 2: position-derived, MERGE semantics — see the twin above.
       io2_tok := ast_expr_token(expr);
@@ -3671,7 +3671,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     g_async_block_result_types.insert(per_clone_key.clone(), result_type.clone());
   });
   result_type_c_name := get_type_string(&result_type, &context.base);
-  struct_name := match(expr_info_async_state_machine_struct_name(&ei), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));
+  struct_name := match(expr_info_async_state_machine_struct_name(&ei), .Some(s) => s.clone(), .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));
   dispose_function_name := `${struct_name.clone()}_dispose`;
   resume_function_name := `${struct_name.clone()}_resume`;
   // Generate the closure argument value (registers the closure fn + emits capture
@@ -3710,7 +3710,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   );
   closure_function_c_name := match(
     closure_fn_val,
-    .Some(fv) => match(fv, .FuncVal(__fvd6, _) => match(context.base.get_function_entry(&__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, .FuncVal(__fvd6, _) => match(context.base.get_function_entry(&__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   );
   eff_capture_type := match(
@@ -3883,7 +3883,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     match(
       eff_capture_type,
       .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty), {
-        cap_struct_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+        cap_struct_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
         cap_fields := match(get_struct_fields(&cap_struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
         (cfi : usize) = usize(0);
         while(cfi < cap_fields.len(), {
@@ -3977,7 +3977,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   em.emit_declaration_line("}");
   em.emit_declaration_line("");
   // Allocation + initialization (body code).
-  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n, .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
+  result_var := sanitize_for_c_identifier(match(ei.variable_name, .Some(n) => n.clone(), .None => `__io_async_result_${ast_expr_id(expr).to_string()}`), false);
   var_type_and_name := get_variable_type_string(&future_type, result_var.clone(), &context.base);
   em.emit_string_line(`${indent.clone()}__yo_alloc_scope_t ${result_var.clone()}__sc = __yo_scope_current();`);
   em.emit_string_line(`${indent.clone()}${var_type_and_name} = (${struct_name.clone()}*)${_sm_alloc_call(struct_name.clone(), dispose_function_name.clone(), `${result_var.clone()}__sc`, context)};`);
@@ -4010,8 +4010,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     // capture struct's field labels — each captured field is the same-named
     // variable in scope at the io.async call site. (The closure `value` is a
     // function reference, not a capture struct, so it cannot be used here.)
-    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new()), .None => ArrayList(String).new());
-    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => ArrayList(TypeValue).new()), .None => ArrayList(TypeValue).new());
+    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new()), .None => ArrayList(String).new());
+    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys.clone(), _ => ArrayList(TypeValue).new()), .None => ArrayList(TypeValue).new());
     lit := String.from("(");
     lit.push_string(ccn.clone());
     lit.push_str("){ ");
@@ -4027,7 +4027,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         lit.push_str(", ");
       });
       lit_first = false;
-      lbl := match(cap_labels.get(cli), .Some(l) => l, .None => String.from(""));
+      lbl := match(cap_labels.get(cli), .Some(l) => l.clone(), .None => String.from(""));
       lbl_c := sanitize_for_c_identifier(lbl.clone(), false);
       lit.push_str(".");
       lit.push_string(lbl_c.clone());
@@ -4060,7 +4060,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         // undeclared identifier 'i'/'a'/'responses'", sync-future-in-SM arms).
         true => match(
           _generate_sm_atom(expr, lbl.clone(), context),
-          .Some(sm_lbl) => sm_lbl,
+          .Some(sm_lbl) => sm_lbl.clone(),
           .None => lbl_c.clone()
         )
       );

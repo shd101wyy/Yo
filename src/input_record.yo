@@ -108,7 +108,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
     i = (i + usize(1));
   });
   g_input_files.push(fs);
-  g_input_hashes.push(content_sha256);
+  g_input_hashes.push(content_sha256.clone());
 });
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
@@ -154,7 +154,7 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
   while(i < g_touches.len(), {
     match(
       g_touches.get(i),
-      .Some(t) => out.push(t),
+      .Some(t) => out.push(t.clone()),
       .None => ()
     );
     i = (i + usize(1));
@@ -224,8 +224,8 @@ input_file_entries :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < g_input_files.len(), {
-    path := match(g_input_files.get(i), .Some(p) => p, .None => String.new());
-    h := match(g_input_hashes.get(i), .Some(x) => x, .None => String.new());
+    path := match(g_input_files.get(i), .Some(p) => p.clone(), .None => String.new());
+    h := match(g_input_hashes.get(i), .Some(x) => x.clone(), .None => String.new());
     marker := cond(
       (h.len() > usize(0)) => h,
       true => String.from("-")
@@ -263,7 +263,7 @@ record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
   g_env_reads.push(entry);
 });
 /// The environment reads so far, as `name=value` lines in first-read order.
-env_reads :: (fn() -> ArrayList(String))(g_env_reads);
+env_reads :: (fn() -> ArrayList(String))(g_env_reads.clone());
 export(
   record_input_file,
   reset_input_files,

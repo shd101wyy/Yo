@@ -65,7 +65,7 @@ evaluate_comptime_print :: (
   parts := ArrayList(String).new();
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   (i : usize) = usize(0);
@@ -119,7 +119,7 @@ evaluate_comptime_print :: (
   if(!ctx.is_validating_function_definition && ctx.is_executing, {
     (j : usize) = usize(0);
     while(j < parts.len(), {
-      part := match(parts.get(j), .Some(p) => p, .None => String.new());
+      part := match(parts.get(j), .Some(p) => p.clone(), .None => String.new());
       if(j > usize(0), {
         print(" ");
       });

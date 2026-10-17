@@ -154,7 +154,7 @@ evaluate_recur :: (
     );
     arg_exprs := match(
       expr,
-      .FnCall(_, _, args, _, _) => args,
+      .FnCall(_, _, args, _, _) => args.clone(),
       _ => ArrayList(AstExpr).new()
     );
     call_result := try_to_call_function_with_arguments(
@@ -203,8 +203,8 @@ evaluate_recur :: (
     out_info := new_expr_info(&caller_env, &return_type);
     out_info.value = Option(EvalValue).Some(recur_unknown);
     out_info.runtime_arg_exprs_in_order =
-      Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order);
-    out_info.deferred_drop_expressions = call_result.deferred_drop_expressions;
+      Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order.clone());
+    out_info.deferred_drop_expressions = call_result.deferred_drop_expressions.clone();
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach a temp variable for RC drop tracking.
     // Stub: no-op for now.

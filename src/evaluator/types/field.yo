@@ -155,7 +155,7 @@ evaluate_type_field :: (
   (field_type : Option(TypeValue)) = Option(TypeValue).None;
   // --- Check for default value: `x ?= default` ---
   if(ast_expr_is_fn_call_of(&expr_, "?=", Option(usize).Some(usize(2))), {
-    args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     default_value_expr = Option(AstExpr).Some(match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
     expr_ = match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
@@ -164,7 +164,7 @@ evaluate_type_field :: (
     is_const := ast_expr_is_fn_call_of(&expr_, BK_CONST, Option(usize).Some(usize(2)));
     if(is_const, {
       is_comptime = true;
-      args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
       lhs_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       if(!is_valid_variable_name(&lhs_expr), {
         exn.throw(
@@ -177,9 +177,9 @@ evaluate_type_field :: (
         );
       });
       label_expr = Option(AstExpr).Some(lhs_expr);
-      label = Option(String).Some(ast_expr_token(&lhs_expr).value);
+      label = Option(String).Some(ast_expr_token(&lhs_expr).value.clone());
     });
-    args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    args2 := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     assigned_value_expr = Option(AstExpr).Some(match(args2.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
     expr_ = match(args2.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
@@ -196,7 +196,7 @@ evaluate_type_field :: (
   });
   // --- Parse the lhs expr: `x: T`, `comptime(x): T`, or just `comptime(x)` ---
   if(ast_expr_is_fn_call_of(&expr_, ":", Option(usize).Some(usize(2))), {
-    colon_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    colon_args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     (lhs_ : AstExpr) = match(colon_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     rhs := match(colon_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
     type_expr = Option(AstExpr).Some(rhs);
@@ -213,7 +213,7 @@ evaluate_type_field :: (
         );
       });
       is_comptime = true;
-      ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+      ct_args := match(lhs_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
       lhs_ = match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     });
     if(!ast_expr_is_atom(&lhs_) || !is_valid_variable_name(&lhs_), {
@@ -227,7 +227,7 @@ evaluate_type_field :: (
       );
     });
     label_expr = Option(AstExpr).Some(lhs_);
-    label = Option(String).Some(ast_expr_token(&lhs_).value);
+    label = Option(String).Some(ast_expr_token(&lhs_).value.clone());
   }, if(ast_expr_is_fn_call_of(&expr_, BK_COMPTIME, Option(usize).Some(usize(1))), {
     if(is_comptime, {
       exn.throw(
@@ -240,7 +240,7 @@ evaluate_type_field :: (
       );
     });
     is_comptime = true;
-    ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_, _ => ArrayList(AstExpr).new());
+    ct_args := match(expr_, .FnCall(_, _, args_, _, _) => args_.clone(), _ => ArrayList(AstExpr).new());
     lhs_ := match(ct_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     if(!ast_expr_is_atom(&lhs_) || !is_valid_variable_name(&lhs_), {
       exn.throw(
@@ -253,7 +253,7 @@ evaluate_type_field :: (
       );
     });
     label_expr = Option(AstExpr).Some(lhs_);
-    label = Option(String).Some(ast_expr_token(&lhs_).value);
+    label = Option(String).Some(ast_expr_token(&lhs_).value.clone());
   }, if(!default_value_expr.is_some() && !assigned_value_expr.is_some(), {
     // Bare type expression (positional tuple field, or `Self :: i32` shorthand)
     type_expr = Option(AstExpr).Some(expr_);
@@ -304,9 +304,9 @@ evaluate_type_field :: (
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
     te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
     env.frames = te_info.env.frames;
-    env.module_path = te_info.env.module_path;
+    env.module_path = te_info.env.module_path.clone();
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
-    env.input_string = te_info.env.input_string;
+    env.input_string = te_info.env.input_string.clone();
     if(!is_type_value(&te_info.value), {
       exn.throw(
         dyn(
@@ -335,7 +335,7 @@ evaluate_type_field :: (
               format_error_message_with_help(
                 ast_expr_token(&te),
                 fn_type_unrepresentable_impl_message(
-                  `${for_type} field "${match(label, .Some(l) => l, .None => `${tuple_field_index}`)}"`,
+                  `${for_type} field "${match(label, .Some(l) => l.clone(), .None => `${tuple_field_index}`)}"`,
                   match(field_type, .Some(fft2) => fft2, .None => rc(TypeValueNode.Unit)),
                   &ffi_impl
                 ),
@@ -405,9 +405,9 @@ evaluate_type_field :: (
       }
     );
     env.frames = av_info.env.frames;
-    env.module_path = av_info.env.module_path;
+    env.module_path = av_info.env.module_path.clone();
     env.function_declaration_frame_level = av_info.env.function_declaration_frame_level;
-    env.input_string = av_info.env.input_string;
+    env.input_string = av_info.env.input_string.clone();
     if(av_info.value.is_none(), {
       exn.throw(
         dyn(
@@ -496,9 +496,9 @@ evaluate_type_field :: (
       }
     );
     env.frames = dv_info.env.frames;
-    env.module_path = dv_info.env.module_path;
+    env.module_path = dv_info.env.module_path.clone();
     env.function_declaration_frame_level = dv_info.env.function_declaration_frame_level;
-    env.input_string = dv_info.env.input_string;
+    env.input_string = dv_info.env.input_string.clone();
     if(dv_info.value.is_none(), {
       exn.throw(
         dyn(

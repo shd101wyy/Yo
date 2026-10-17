@@ -65,7 +65,7 @@ _first_future_effect :: (fn(ft : &TypeValue) -> Option(_FutureEffect))(
   match(
     ft,
     Rc(.FutureTraitT({ effect_labels : els, effect_types : ets })) => if(els.len() > usize(0), {
-      l := match(els.get(usize(0)), .Some(x) => x, .None => return(Option(_FutureEffect).None));
+      l := match(els.get(usize(0)), .Some(x) => x.clone(), .None => return(Option(_FutureEffect).None));
       t := match(ets.get(usize(0)), .Some(x) => x, .None => return(Option(_FutureEffect).None));
       Option(_FutureEffect).Some(_FutureEffect(label : l, ty : t))
     }, Option(_FutureEffect).None),
@@ -84,7 +84,7 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
         match(
           it.next(),
           .Some(e) => if(e.value.field_label == field_label, {
-            return(Option(String).Some(e.value.c_param_name));
+            return(Option(String).Some(e.value.c_param_name.clone()));
           }),
           .None => {
             go = false;
@@ -145,11 +145,11 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
       .Some(v) => match(
         v.value.get(usize(0)),
         .Some(val) => if(is_struct_val(&val), {
-          field_names := match(val, .StructVal(_, fns, _) => fns, _ => ArrayList(String).new());
+          field_names := match(val, .StructVal(_, fns, _) => fns.clone(), _ => ArrayList(String).new());
           field_values := match(val, .StructVal(_, _, fvs) => fvs, _ => ArrayList(EvalValue).new());
           (fi : usize) = usize(0);
           while(fi < field_names.len(), {
-            flbl := match(field_names.get(fi), .Some(l) => l, .None => String.from(""));
+            flbl := match(field_names.get(fi), .Some(l) => l.clone(), .None => String.from(""));
             if(flbl == field_label, {
               match(
                 field_values.get(fi),
@@ -158,7 +158,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
                     fv,
                     .FuncVal(__fvd1, _) => match(
                       context.base.get_function_entry(&__fvd1.*.func_id),
-                      .Some(e) => return(Option(String).Some(e.c_name)),
+                      .Some(e) => return(Option(String).Some(e.c_name.clone())),
                       .None => ()
                     ),
                     _ => ()
@@ -181,11 +181,11 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
 /// capture struct. Resolves each fn field from SM captures, caller evidence
 /// params, or `given` bindings.
 emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> unit)({
-  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft.clone(), _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
-    flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+    flbl := match(field_labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
     fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&fty), {
       (member_code : Option(String)) = Option(String).None;
@@ -227,7 +227,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
               match(
                 it.next(),
                 .Some(e) => if(e.value.field_label == flbl, {
-                  member_code = Option(String).Some(e.value.c_param_name);
+                  member_code = Option(String).Some(e.value.c_param_name.clone());
                   go = false;
                 }),
                 .None => {
@@ -411,7 +411,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
   // `__pre_await_state` defaults (C "redefinition" errors).
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => ast_expr_id(expr).to_string());
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => ast_expr_id(expr).to_string());
   sync_future_var := if(name_suffix.len() > usize(0), `__sync_future_${name_suffix.clone()}`, String.from("__sync_future"));
   pre_await_state_var := if(name_suffix.len() > usize(0), `__pre_await_state_${name_suffix.clone()}`, String.from("__pre_await_state"));
   em.emit_string_line(`${indent.clone()}// Synchronous await (io.await outside state machine)`);
@@ -451,7 +451,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     match(
       saved_drops,
       .Some(drops) => {
-        result_var_to_skip := expr_ei.variable_name;
+        result_var_to_skip := expr_ei.variable_name.clone();
         filtered := ArrayList(AstExpr).new();
         (di : usize) = usize(0);
         while(di < drops.len(), {
@@ -559,7 +559,7 @@ generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   em := context.base.emitter;
   future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
-  name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
+  name_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
   result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
@@ -649,7 +649,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .${c_variant_member_name(String.from("Some"))} = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
-  unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));
+  unique_suffix := match(expr_ei.variable_name, .Some(n) => n.clone(), .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
   result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));

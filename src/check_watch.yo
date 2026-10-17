@@ -133,7 +133,7 @@ watch_round :: (
                           match(
                             dropped_by_m.get(di),
                             .Some(k) => {
-                              removed.insert(k);
+                              removed.insert(k.clone());
                               ()
                             },
                             .None => ()
@@ -186,7 +186,7 @@ watch_round :: (
                           match(
                             dropped_by_m.get(di),
                             .Some(k) => {
-                              removed.insert(k);
+                              removed.insert(k.clone());
                               ()
                             },
                             .None => ()
@@ -232,7 +232,7 @@ watch_round :: (
                   match(
                     dropped.get(di),
                     .Some(k) => {
-                      removed.insert(k);
+                      removed.insert(k.clone());
                       ()
                     },
                     .None => ()
@@ -334,7 +334,7 @@ watch_snapshot :: (
       .Some(p) => match(
         _stat_key(p.clone(), io),
         .Some(k) => {
-          stats.insert(p.clone(), k);
+          stats.insert(p.clone(), k.clone());
           ()
         },
         .None => ()
@@ -365,9 +365,9 @@ wait_for_change :: (
         .Some(p) => match(
           _stat_key(p.clone(), io),
           .Some(k) => {
-            prev := match(stats.get(p.clone()), .Some(sv) => sv, .None => String.new());
+            prev := match(stats.get(p.clone()), .Some(sv) => sv.clone(), .None => String.new());
             if(!(prev == k), {
-              stats.insert(p.clone(), k);
+              stats.insert(p.clone(), k.clone());
               changed.push(p.clone());
             });
           },

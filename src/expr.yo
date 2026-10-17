@@ -429,7 +429,7 @@ impl(
       match(
         self,
         .Atom(aid, atok) => AstExpr.Atom(aid, atok.clone()),
-        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs, finfix, ftok.clone())
+        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs.clone(), finfix, ftok.clone())
       )
     )
   )
@@ -567,7 +567,7 @@ ast_expr_is_infix_op_fn_call :: (fn(e : &AstExpr) -> bool)(
 ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, tok) => tok.value,
+    .Atom(_, tok) => tok.value.clone(),
     .FnCall(_, func_box, args, is_infix, _) => {
       n := args.len();
       func_is_op_or_dot := match(
@@ -584,7 +584,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
         func_is_op_or_dot => {
           func_tok_val := match(
             func_box,
-            .Atom(_, ftok) => ftok.value,
+            .Atom(_, ftok) => ftok.value.clone(),
             .FnCall(_, _, _, _, _) => String.from("?")
           );
           cond(
@@ -659,7 +659,7 @@ ast_expr_to_string :: (fn(e : &AstExpr) -> String)(
           func_str0 := recur(&func_box);
           func_str := cond(
             (ast_expr_is_infix_op_fn_call(&func_box) || ast_expr_is_atom_and_operator(&func_box)) => `(${func_str0})`,
-            true => func_str0
+            true => func_str0.clone()
           );
           // A `match(&x, …)` the desugar peeled prints with its marker.
           scr_marker := cond(
@@ -907,13 +907,13 @@ ast_call_args_unmarked :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 ast_place_text :: (fn(e : &AstExpr) -> String)(
   match(
     e,
-    .Atom(_, tok) => tok.value,
+    .Atom(_, tok) => tok.value.clone(),
     .FnCall(_, pf, pargs, _, _) => cond(
       ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => {
         base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
         field := match(
           pargs.get(usize(1)),
-          .Some(.Atom(_, ft)) => ft.value,
+          .Some(.Atom(_, ft)) => ft.value.clone(),
           .Some(f) => recur(&f),
           .None => String.new()
         );
@@ -1248,7 +1248,7 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
   });
   pair_args := match(
     arg,
-    .FnCall(_, _, pa, _, _) => pa,
+    .FnCall(_, _, pa, _, _) => pa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   label_matches := match(
@@ -1390,7 +1390,7 @@ _bs_with_args :: (fn(e : &AstExpr, args : &ArrayList(AstExpr)) -> AstExpr)(
   )
 );
 _bs_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// An identifier atom: the only name a local borrow or a capture pun binds.
 _bs_is_name :: (fn(e : &AstExpr) -> bool)(
@@ -1515,9 +1515,9 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
           _bs_params(&cl_params),
           .Some(np) => {
             changed = true;
-            np
+            np.clone()
           },
-          .None => cl_params
+          .None => cl_params.clone()
         );
         cond(
           changed => Option(AstExpr).Some(AstExpr.FnCall(lid, _bs_with_args(&cl_callee, &new_entries), new_params, cl_infix, ltok)),
@@ -2084,8 +2084,8 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
     column : tok.column,
     character : tok.character,
     byte_offset : tok.byte_offset,
-    module_path : tok.module_path,
-    input : tok.input
+    module_path : tok.module_path.clone(),
+    input : tok.input.clone()
   );
   args := ArrayList(AstExpr).new();
   args.push(body);
@@ -2152,7 +2152,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = mark.value;
+      mark.module_path = mark.value.clone();
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);
@@ -2233,7 +2233,7 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
           _projection_returns(&pr_f, is_mut, mismatches),
           .Some(nf) => match(
             e,
-            .FnCall(pf_id, _, pf_args, pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, pf_args, pf_infix, pf_tok)),
+            .FnCall(pf_id, _, pf_args, pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, pf_args.clone(), pf_infix, pf_tok)),
             .Atom(_, _) => Option(AstExpr).None
           ),
           .None => Option(AstExpr).None

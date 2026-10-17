@@ -232,7 +232,7 @@ _evaluate_inout_local_binding :: (
   // The LHS: `mut(name)`, one identifier, and the annotation `T` of
   // `(name : &T) = &place`, which the parse-time rewrite (decision 42) passes
   // as a second argument.
-  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   if((lhs_args.len() != usize(1)) && (lhs_args.len() != usize(2)), {
     exn.throw(
       dyn(
@@ -355,9 +355,9 @@ _evaluate_inout_local_binding :: (
     }
   );
   env.frames = rhs_info.env.frames;
-  env.module_path = rhs_info.env.module_path;
+  env.module_path = rhs_info.env.module_path.clone();
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
+  env.input_string = rhs_info.env.input_string.clone();
   prohibit_void_type(&rhs_info.ty, ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
   // `Type.member` is a namespace access, not storage.
@@ -479,7 +479,7 @@ _evaluate_inout_local_binding :: (
     pin_expr,
     .Some(pp) => {
       pp_tok := ast_expr_token(&pp);
-      pin_name := generate_new_temp_variable_name(&env.module_path, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path));
+      pin_name := generate_new_temp_variable_name(&env.module_path, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.clone()));
       pin_var = add_variable_to_env(env, &pin_name, &pin_type, Option(EvalValue).None, false, false, true, false, &name_tok);
     },
     .None => ()
@@ -511,7 +511,7 @@ _evaluate_inout_local_binding :: (
       range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
       (step_pin : Option(Variable)) = Option(Variable).None;
       if(range.has_repoint, {
-        sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+        sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.clone()));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
         match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
       });
@@ -662,7 +662,7 @@ _bind_projection_result :: (
   range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
   (step_pin : Option(Variable)) = Option(Variable).None;
   if(range.has_repoint, {
-    sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+    sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.clone()));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
     match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
   });
@@ -703,13 +703,13 @@ _bind_projection_result :: (
 /// pin, `macro_expansion` = the cell expression it takes.
 evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = env_in;
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(&lhs);
   is_mut := ast_expr_is_inout_mode_call(&lhs, .None);
   sig := if(is_mut, String.from("&mut "), String.from("&"));
-  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(&name_expr), {
     exn.throw(dyn(format_error_message(&lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));
@@ -798,9 +798,9 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
     }
   );
   env.frames = rhs_info.env.frames;
-  env.module_path = rhs_info.env.module_path;
+  env.module_path = rhs_info.env.module_path.clone();
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
+  env.input_string = rhs_info.env.input_string.clone();
   if(!are_types_compatible(&rhs_info.ty, &cur_var.ty), {
     exn.throw(
       dyn(
@@ -1215,9 +1215,9 @@ evaluate_initialization_assignment :: (
     rhs_info_opt,
     .Some(rhs_info) => {
       env.frames = rhs_info.env.frames;
-      env.module_path = rhs_info.env.module_path;
+      env.module_path = rhs_info.env.module_path.clone();
       env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-      env.input_string = rhs_info.env.input_string;
+      env.input_string = rhs_info.env.input_string.clone();
     },
     .None => ()
   );
@@ -1304,9 +1304,9 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs)),
       .Some(ri) => {
         env.frames = ri.env.frames;
-        env.module_path = ri.env.module_path;
+        env.module_path = ri.env.module_path.clone();
         env.function_declaration_frame_level = ri.env.function_declaration_frame_level;
-        env.input_string = ri.env.input_string;
+        env.input_string = ri.env.input_string.clone();
       },
       .None => ()
     );
@@ -1407,9 +1407,9 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
       rhs = synth.expr;
       rhs_type_opt = Option(TypeValue).Some(synth.ty);
       env.frames = synth.env.frames;
-      env.module_path = synth.env.module_path;
+      env.module_path = synth.env.module_path.clone();
       env.function_declaration_frame_level = synth.env.function_declaration_frame_level;
-      env.input_string = synth.env.input_string;
+      env.input_string = synth.env.input_string.clone();
       // Re-read rhs_info for the updated rhs.
       rhs_info_opt = expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs));
       // Check type compatibility.
@@ -1546,7 +1546,7 @@ ${rhs_str}`
                 register_type_display_name(st_id.clone(), binding_name.clone());
                 register_type_binding_name(st_id.clone(), binding_name.clone());
                 Option(TypeValue).Some(
-                  rc(TypeValueNode.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns))
+                  rc(TypeValueNode.Struct(st_id.clone(), binding_name, st_fls.clone(), st_fts.clone(), st_ref, st_at, st_nt, st_cfid.clone(), st_ta.clone(), st_sns))
                 )
               },
               true => Option(TypeValue).None
@@ -1558,14 +1558,14 @@ ${rhs_str}`
                 register_type_binding_name(en_id.clone(), binding_name.clone());
                 register_type_binding_name(`${en_id}__self_shell`, binding_name.clone());
                 Option(TypeValue).Some(
-                  rc(TypeValueNode.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar, en_tas))
+                  rc(TypeValueNode.EnumT(en_id.clone(), binding_name, en_vns.clone(), en_vfs.clone(), en_sel.clone(), en_vfl.clone(), en_vd.clone(), en_irs, en_iar, en_tas.clone()))
                 )
               },
               true => Option(TypeValue).None
             ),
             Rc(.Union(un_name, un_fls, un_fts)) => cond(
               (un_name.len() == usize(0)) => Option(TypeValue).Some(
-                rc(TypeValueNode.Union(binding_name, un_fls, un_fts))
+                rc(TypeValueNode.Union(binding_name, un_fls.clone(), un_fts.clone()))
               ),
               // A union's `name` is its identity (`union_<module>_<binding>_r…`),
               // so it is never renamed. The FIRST binding becomes its display
@@ -1586,7 +1586,7 @@ ${rhs_str}`
             // the where-clause "does not implement required trait" error.
             Rc(.TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct)) => cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
-                rc(TypeValueNode.TraitT(binding_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct))
+                rc(TypeValueNode.TraitT(binding_name, tr_atns.clone(), tr_fls.clone(), tr_fts.clone(), tr_id.clone(), tr_conc, tr_sc.clone(), tr_nsc.clone(), tr_atcl.clone(), tr_atct.clone()))
               ),
               true => Option(TypeValue).None
             ),
@@ -1650,7 +1650,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(&actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value == "_") =>
-        generate_new_temp_variable_name(&env.module_path, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path)),
+        generate_new_temp_variable_name(&env.module_path, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.clone())),
       true =>
         actual_lhs_tok.value.clone()
     );
@@ -1678,7 +1678,7 @@ Use \`::\` for compile-time definitions inside impl.`
       .None => Option(String).None,
       .Some(lookup) => {
         key := doc_comment_lookup_key_from_token(&actual_lhs_tok);
-        match(lookup.get(&key), .Some(v) => Option(String).Some(v), .None => Option(String).None)
+        match(lookup.get(&key), .Some(v) => Option(String).Some(v.clone()), .None => Option(String).None)
       }
     );
     // No-shadowing rule: a `:=`/`::` binding may not reuse a name visible in
@@ -1834,7 +1834,7 @@ Use \`::\` for compile-time definitions inside impl.`
         .Some(a) => a,
         .None => new_expr_info(&env, &final_lhs_type)
       );
-      ali_after.variable_name = Option(String).Some(var_name);
+      ali_after.variable_name = Option(String).Some(var_name.clone());
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&actual_lhs), &ali_after);
     });
     // Update env in ExprInfo for actual_lhs.
@@ -1872,9 +1872,9 @@ Use \`::\` for compile-time definitions inside impl.`
       exn
     );
     env.frames = destr_result.env.frames;
-    env.module_path = destr_result.env.module_path;
+    env.module_path = destr_result.env.module_path.clone();
     env.function_declaration_frame_level = destr_result.env.function_declaration_frame_level;
-    env.input_string = destr_result.env.input_string;
+    env.input_string = destr_result.env.input_string.clone();
     expr_info := new_expr_info(&env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);

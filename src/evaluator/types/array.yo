@@ -52,7 +52,7 @@ _length_projection_text :: (fn(e : &AstExpr) -> Option(String))({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(String).None);
   });
-  parts := match(e, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
+  parts := match(e, .FnCall(_, _, args, _, _) => args.clone(), _ => ArrayList(AstExpr).new());
   if(parts.len() != usize(2), {
     return(Option(String).None);
   });
@@ -89,7 +89,7 @@ evaluate_array_type :: (
   });
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   element_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());

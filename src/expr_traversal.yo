@@ -123,7 +123,7 @@ expr_tree_contains_return :: (fn(e : &AstExpr) -> bool)(
   match(
     e,
     .Atom(_, tok) => {
-      v := tok.value;
+      v := tok.value.clone();
       (v == BK_RETURN) || (v == BF_UNWIND)
     },
     .FnCall(_, func_box, args, _, _) => {
@@ -549,7 +549,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
 /// The statements of a block (`begin(...)`), or the expression itself.
 _fusion_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), {
-    return(match(e, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new()));
+    return(match(e, .FnCall(_, _, args, _, _) => args.clone(), _ => ArrayList(AstExpr).new()));
   });
   one := ArrayList(AstExpr).new();
   one.push(e);
@@ -751,7 +751,7 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
       match(
         async_wrapper_fusion_verdict(body),
         .Some(v) => Option(FusionCandidate).Some(
-          FusionCandidate(func_id : func_id.clone(), callee_at : `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`, verdict : v)
+          FusionCandidate(func_id : func_id.clone(), callee_at : `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`, verdict : v.clone())
         ),
         .None => Option(FusionCandidate).None
       )
@@ -760,7 +760,7 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
   // Only a wrapper's calls are recorded: every other call would grow the
   // table for nothing.
   if(match(g_fusion_candidate_of_fn.get(func_id.clone()), .Some(c) => c.is_some(), .None => false), {
-    g_fusion_callee_of_call.insert(ast_expr_id(call).to_string(), func_id);
+    g_fusion_callee_of_call.insert(ast_expr_id(call).to_string(), func_id.clone());
   });
 });
 /// The recorded candidate for `call`, if its callee is an `io.async` wrapper.

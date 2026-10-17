@@ -243,7 +243,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
     .Some(rm) => match(
       rm.get(var_id.clone()),
       .Some(mapped) => {
-        var_id = mapped;
+        var_id = mapped.clone();
       },
       .None => ()
     ),
@@ -252,7 +252,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
   match(smv.get(&var_id), .Some(cv) => match(cv.kind, .Local => true, .Outer => false), .None => false)
 });
 _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &HashSet(String), additional_skip : &Option(HashSet(String)), use_env : bool, context : &FunctionGenerationContext) -> bool)({
-  var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn, .None => return(false));
+  var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn.clone(), .None => return(false));
   if(is_deferred_drop_for_closure_capture(drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
     return(false);
   });
@@ -398,7 +398,7 @@ generate_pending_deferred_drops :: (fn(indent : &String, context : &FunctionGene
                   .Some(d) => match(
                     get_deferred_drop_target_atom_name(&d),
                     .Some(vn) => {
-                      already.insert(vn);
+                      already.insert(vn.clone());
                     },
                     .None => ()
                   ),
@@ -499,7 +499,7 @@ collect_names_released_by_escape_sequence :: (fn(expr : &AstExpr, context : &Fun
           .Some(de) => match(
             get_deferred_drop_target_atom_name(&de),
             .Some(vn) => {
-              names.insert(vn);
+              names.insert(vn.clone());
             },
             .None => ()
           ),
@@ -523,7 +523,7 @@ collect_names_released_by_escape_sequence :: (fn(expr : &AstExpr, context : &Fun
               .Some(de) => match(
                 get_deferred_drop_target_atom_name(&de),
                 .Some(vn) => {
-                  names.insert(vn);
+                  names.insert(vn.clone());
                 },
                 .None => ()
               ),
@@ -544,7 +544,7 @@ collect_names_released_by_escape_sequence :: (fn(expr : &AstExpr, context : &Fun
               .Some(de) => match(
                 get_deferred_drop_target_atom_name(&de),
                 .Some(vn) => {
-                  names.insert(vn);
+                  names.insert(vn.clone());
                 },
                 .None => ()
               ),
@@ -863,7 +863,7 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
 /// Generate a `return` statement.
 generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("return expression missing metadata"))));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // (ctl-handler resume is Phase 5: FGC has no continuation_variables — omitted.)
   match(
     args.get(usize(0)),
@@ -886,7 +886,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       (arg_code : String) = String.from("");
       arg_vn_with_dup := if(
         arg_has_dup,
-        match(arg_ei_opt, .Some(aei) => aei.variable_name, .None => Option(String).None),
+        match(arg_ei_opt, .Some(aei) => aei.variable_name.clone(), .None => Option(String).None),
         Option(String).None
       );
       match(
@@ -1148,7 +1148,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
                   .Some(de) => match(
                     get_deferred_drop_target_atom_name(&de),
                     .Some(vn) => {
-                      dropped_by_this_return.insert(vn);
+                      dropped_by_this_return.insert(vn.clone());
                     },
                     .None => ()
                   ),
@@ -1169,7 +1169,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
                   .Some(de) => match(
                     get_deferred_drop_target_atom_name(&de),
                     .Some(vn) => {
-                      dropped_by_this_return.insert(vn);
+                      dropped_by_this_return.insert(vn.clone());
                     },
                     .None => ()
                   ),
@@ -1267,7 +1267,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
         match(
           context.base.get_expr_info(&arg),
           .Some(aei) => {
-            name := ast_expr_token(&arg).value;
+            name := ast_expr_token(&arg).value.clone();
             vars := scope_variables(ast_expr_id(&arg), &aei.env, name.clone());
             if(
               vars.len() == usize(0),
@@ -1456,7 +1456,7 @@ _emit_effect_handler_param_drops :: (fn(context : &FunctionGenerationContext, in
       em := context.base.emitter;
       (di : usize) = usize(0);
       while(di < drops.len(), {
-        d := match(drops.get(di), .Some(s) => s, .None => String.from(""));
+        d := match(drops.get(di), .Some(s) => s.clone(), .None => String.from(""));
         em.emit_string_line(`${indent.clone()}${d};`);
         di = (di + usize(1));
       });
@@ -1479,7 +1479,7 @@ _current_result_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
 _current_c_result_type :: (fn(rt : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     context.override_return_type_str,
-    .Some(s) => s,
+    .Some(s) => s.clone(),
     .None => {
       base := get_type_string(rt, &context.base);
       if(_current_result_is_ref(context), {
@@ -1530,7 +1530,7 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
   // stack. See issues/fixed/escape-path-drops-unwound-call-result-temp.md.
   escaped_result := match(
     context.base.get_expr_info(expr),
-    .Some(ei) => ei.variable_name,
+    .Some(ei) => ei.variable_name.clone(),
     .None => Option(String).None
   );
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);
@@ -1585,7 +1585,7 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
 /// Record whose unwind is in flight: the handler being generated. The frame
 /// that installed it (`unwind_catches_of_body`) is the one that catches it.
 _emit_unwind_target :: (fn(indent : &String, context : &FunctionGenerationContext) -> unit)({
-  origin := match(context.current_unwind_origin, .Some(o) => o, .None => String.from("0"));
+  origin := match(context.current_unwind_origin, .Some(o) => o.clone(), .None => String.from("0"));
   em := context.base.emitter;
   em.emit_string_line(`${indent}__yo_unwind_target = ${origin};`);
 });

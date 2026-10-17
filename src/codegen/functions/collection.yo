@@ -223,7 +223,7 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext,
           field_values.get(i),
           .Some(fv) => cond(
             (is_func_val(&fv) && !is_module_namespace) => {
-              func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+              func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
               if(!context.has_function(func_id.clone()), {
                 mark_as_effect_record_member(func_id.clone());
                 context.register_function(func_id.clone(), &fv, function_c_name(&func_id));
@@ -248,7 +248,7 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext,
 _callee_token_value :: (fn(expr : &AstExpr) -> String)(
   match(
     expr,
-    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")),
+    .FnCall(_, func_box, _, _, _) => match(func_box, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")),
     .Atom(_, _) => String.from("")
   )
 );
@@ -359,7 +359,7 @@ _register_extern_global_header :: (
 });
 /// func_id of a FuncVal EvalValue, or "".
 _func_val_id :: (fn(v : &EvalValue) -> String)(
-  match(v, .FuncVal(__fvd3, _) => __fvd3.*.func_id, _ => String.from(""))
+  match(v, .FuncVal(__fvd3, _) => __fvd3.*.func_id.clone(), _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
 _func_val_body :: (fn(v : &EvalValue) -> AstExpr)(
@@ -569,7 +569,7 @@ collect_required_functions :: (
       n := field_names.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_names.get(i), .Some(l) => l.clone(), .None => String.from(""));
         match(
           field_values.get(i),
           .Some(value) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
@@ -582,7 +582,7 @@ collect_required_functions :: (
       n := field_names.len();
       (i : usize) = usize(0);
       while(i < n, {
-        label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
+        label := match(field_names.get(i), .Some(l) => l.clone(), .None => String.from(""));
         match(
           field_values.get(i),
           .Some(.Some(value)) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
@@ -745,9 +745,9 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       // gets a C name (the same collection the dyn path does for
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
-        cdot_args := match(callee, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
+        cdot_args := match(callee, .FnCall(_, _, da, _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
-        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_token(&m).value, String.from("")), .None => String.from(""));
+        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_token(&m).value.clone(), String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
         // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
@@ -1111,11 +1111,11 @@ _specialize_and_register_trace :: (
   // them as runtime UnknownVals here. The receiver param binds to the CONCRETE
   // container `ct` (its declared type is the still-unresolved `Self`); subsequent
   // params use their post-substitution declared types.
-  p_labels := match(method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.param_labels, _ => ArrayList(String).new());
-  p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => __mpt, _ => ArrayList(TypeValue).new());
+  p_labels := match(method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.param_labels.clone(), _ => ArrayList(String).new());
+  p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => __mpt.clone(), _ => ArrayList(TypeValue).new());
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
-    plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
+    plabel := match(p_labels.get(pi), .Some(l) => l.clone(), .None => String.from(""));
     pty := if(pi == usize(0), ct.clone(), match(p_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
     _bp := add_variable_to_env(
       &fresh,
@@ -1158,7 +1158,7 @@ _specialize_and_register_trace :: (
   match(
     spec,
     .FuncVal(__sfvd, _) => {
-      spec_fid := __sfvd.*.func_id;
+      spec_fid := __sfvd.*.func_id.clone();
       spec_body := __sfvd.*.body;
       if(!base.has_function(spec_fid.clone()), {
         base.register_function(spec_fid.clone(), &spec, function_c_name(&spec_fid));
@@ -1339,7 +1339,7 @@ _eval_and_register_rc_method :: (
       match(
         fv,
         .FuncVal(__dfvd, _) => {
-          fid := __dfvd.*.func_id;
+          fid := __dfvd.*.func_id.clone();
           fbody := __dfvd.*.body;
           if(!base.has_function(fid.clone()), {
             base.register_function(fid.clone(), &fv, function_c_name(&fid));
@@ -1464,7 +1464,7 @@ _synthesize_and_register_dispose :: (
             match(
               mfv,
               .FuncVal(__dfvd, _) => {
-                fid := __dfvd.*.func_id;
+                fid := __dfvd.*.func_id.clone();
                 fbody := __dfvd.*.body;
                 if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), &mfv, function_c_name(&fid));
@@ -1496,8 +1496,8 @@ _synthesize_and_register_dispose :: (
   // `find_function_calls_in_expr` collects it for emission.
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
-  flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  ftypes := match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => ArrayList(TypeValue).new());
+  flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
+  ftypes := match(ct, Rc(.Struct({ field_types : ftys })) => ftys.clone(), _ => ArrayList(TypeValue).new());
   // Destructuring + `___drop` calls over the RC-containing fields.
   destructs := String.from("");
   calls := String.from("");
@@ -1505,7 +1505,7 @@ _synthesize_and_register_dispose :: (
   nf := flabels.len();
   (fi : usize) = usize(0);
   while(fi < nf, {
-    lbl := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
+    lbl := match(flabels.get(fi), .Some(l) => l.clone(), .None => String.from(""));
     fty := match(ftypes.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(type_contains_rc_cell_or_move_only(&fty), {
       // Index-based alias (the field label may not be a valid identifier — e.g. the
@@ -1572,7 +1572,7 @@ _synthesize_and_register_enum_dispose :: (
             match(
               mfv,
               .FuncVal(__dfvd, _) => {
-                fid := __dfvd.*.func_id;
+                fid := __dfvd.*.func_id.clone();
                 fbody := __dfvd.*.body;
                 if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), &mfv, function_c_name(&fid));
@@ -1595,8 +1595,8 @@ _synthesize_and_register_enum_dispose :: (
   // `(Self <: Drop).drop(self)` call in the synthesized body is that call site).
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
-  variant_names := match(ct, Rc(.EnumT({ variant_names : vn })) => vn, _ => ArrayList(String).new());
-  variant_fields := match(ct, Rc(.EnumT({ variant_fields : vf })) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_names := match(ct, Rc(.EnumT({ variant_names : vn })) => vn.clone(), _ => ArrayList(String).new());
+  variant_fields := match(ct, Rc(.EnumT({ variant_fields : vf })) => vf.clone(), _ => ArrayList(ArrayList(TypeValue)).new());
   // One match arm per variant with RC-containing fields: bind every field
   // positionally under an index alias (labels may not be valid identifiers),
   // drop the RC-containing ones.
@@ -1605,8 +1605,8 @@ _synthesize_and_register_enum_dispose :: (
   (rc_variants : usize) = usize(0);
   (vi : usize) = usize(0);
   while(vi < nv, {
-    vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
-    fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+    vname := match(variant_names.get(vi), .Some(v) => v.clone(), .None => String.from(""));
+    fields := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
     nf := fields.len();
     (has_rc : bool) = false;
     (fi : usize) = usize(0);
@@ -1698,7 +1698,7 @@ _synthesize_and_register_value_dispose :: (
           .Some(mfv) => match(
             mfv,
             .FuncVal(__vdfvd, _) => {
-              fid := __vdfvd.*.func_id;
+              fid := __vdfvd.*.func_id.clone();
               if(!base.has_function(fid.clone()), {
                 base.register_function(fid.clone(), &mfv, function_c_name(&fid));
                 find_function_calls_in_expr(&__vdfvd.*.body, base, info);

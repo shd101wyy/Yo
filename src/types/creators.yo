@@ -204,7 +204,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         (cal_found2 : bool) = false;
         (cal_vi : usize) = usize(0);
         while((cal_vi < cal_vfs.len()) && !cal_found2, {
-          cal_vf := match(cal_vfs.get(cal_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          cal_vf := match(cal_vfs.get(cal_vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
           (cal_vj : usize) = usize(0);
           while((cal_vj < cal_vf.len()) && !cal_found2, {
             match(
@@ -321,7 +321,7 @@ t_iso :: (fn(child : &TypeValue) -> TypeValue)(
 /// The printed form breaks ties between instances of one generic trait and
 /// orders the id-less `Fn` traits.
 _dyn_trait_sort_key :: (fn(t : &TypeValue) -> String)({
-  tid := match(t, Rc(.TraitT(id : i)) => i, _ => String.new());
+  tid := match(t, Rc(.TraitT(id : i)) => i.clone(), _ => String.new());
   `${tid}#${type_to_string(t)}`
 });
 /// Reorder `types` (and its parallel `levels`, when it has one entry per
@@ -345,7 +345,7 @@ _sort_dyn_traits :: (fn(types : &mut ArrayList(TypeValue), levels : &mut ArrayLi
   (i : usize) = usize(1);
   while(i < types.len(), {
     (j : usize) = i;
-    while((j > usize(0)) && (match(keys.get(j - usize(1)), .Some(k) => k, .None => String.new()) > match(keys.get(j), .Some(k) => k, .None => String.new())), {
+    while((j > usize(0)) && (match(keys.get(j - usize(1)), .Some(k) => k.clone(), .None => String.new()) > match(keys.get(j), .Some(k) => k.clone(), .None => String.new())), {
       keys.swap(j - usize(1), j);
       types.swap(j - usize(1), j);
       if(has_levels, {
@@ -453,10 +453,10 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
             String.from(""),
             frame_level,
             rc(TypeValueNode.TypeUni(usize(0))),
-            dpw_rtt,
-            dpw_rtl,
-            dpw_ntt,
-            dpw_ntl,
+            dpw_rtt.clone(),
+            dpw_rtl.clone(),
+            dpw_ntt.clone(),
+            dpw_ntl.clone(),
             Option(TypeValue).None,
             Option(TypeValue).None
           )
@@ -474,14 +474,14 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
     t,
     Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _)) => rc(
       TypeValueNode.SomeT(
-        wr_id,
-        wr_nm,
+        wr_id.clone(),
+        wr_nm.clone(),
         wr_fl,
         wr_pt,
-        wr_rtt,
-        wr_rtl,
-        wr_ntt,
-        wr_ntl,
+        wr_rtt.clone(),
+        wr_rtl.clone(),
+        wr_ntt.clone(),
+        wr_ntl.clone(),
         wr_kft,
         Option(TypeValue).Some(concrete)
       )
@@ -494,7 +494,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt)),
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(fr_ft.clone(), fr_pt.clone(), fr_it.clone(), fr_wt.clone(), result, fr_meta, fr_vt.clone())),
     _ => ft
   )
 );
@@ -520,13 +520,13 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
     Rc(.SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _)) => rc(
       TypeValueNode.SomeT(
         generate_some_type_id(),
-        snm,
+        snm.clone(),
         sfl,
         spt,
-        sreq,
-        sreql,
-        sneg,
-        snegl,
+        sreq.clone(),
+        sreql.clone(),
+        sneg.clone(),
+        snegl.clone(),
         skind,
         Option(TypeValue).None
       )
@@ -669,7 +669,7 @@ _contains_self_shell :: (
         (hit : bool) = false;
         (vi : usize) = usize(0);
         while((vi < variant_fields.len()) && !hit, {
-          inner := match(variant_fields.get(vi), .Some(x) => x, .None => ArrayList(TypeValue).new());
+          inner := match(variant_fields.get(vi), .Some(x) => x.clone(), .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while((fi < inner.len()) && !hit, {
             ft := match(inner.get(fi), .Some(x) => x, .None => t_unit());
@@ -761,7 +761,7 @@ _patch_self_shell_guarded :: (
         new_vfs := ArrayList(ArrayList(TypeValue)).new();
         (vi : usize) = usize(0);
         while(vi < variant_fields.len(), {
-          inner := match(variant_fields.get(vi), .Some(x) => x, .None => ArrayList(TypeValue).new());
+          inner := match(variant_fields.get(vi), .Some(x) => x.clone(), .None => ArrayList(TypeValue).new());
           new_inner := ArrayList(TypeValue).new();
           (fi : usize) = usize(0);
           while(fi < inner.len(), {
@@ -779,11 +779,11 @@ _patch_self_shell_guarded :: (
           new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
-        rc(TypeValueNode.EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas))
+        rc(TypeValueNode.EnumT(id.clone(), name.clone(), variant_names.clone(), new_vfs, selected_variant_name.clone(), variant_field_labels.clone(), variant_discriminants.clone(), is_reference_semantics, is_atomic_rc, new_etas))
       }
     ),
     Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
-    Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv)),
+    Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv.clone())),
     Rc(.ComptimeListT(el)) => rc(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
     Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
@@ -809,7 +809,7 @@ _patch_self_shell_guarded :: (
           new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
-        rc(TypeValueNode.Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace))
+        rc(TypeValueNode.Struct(id.clone(), name.clone(), field_labels.clone(), new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id.clone(), new_tas, is_source_namespace))
       }
     ),
     _ => t
@@ -845,7 +845,7 @@ _patch_self_shell :: (
 (g_enum_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   if((enum_id.len() > usize(0)) && g_enum_finals.get(enum_id).is_none(), {
-    g_enum_finals.insert(enum_id, ty);
+    g_enum_finals.insert(enum_id.clone(), ty);
     bump_type_key_epoch();
   });
 });
@@ -883,7 +883,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// `g_ctor_phantom_positions`); the first record wins.
 register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(bool)) -> unit)({
   if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.contains_key(func_id), {
-    _prev := g_ctor_phantom_positions.insert(func_id, phantom);
+    _prev := g_ctor_phantom_positions.insert(func_id.clone(), phantom.clone());
     bump_type_key_epoch();
   });
 });
@@ -913,14 +913,14 @@ ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))
 (g_enum_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
 _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(bool)) -> unit)({
   if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.contains_key(enum_id), {
-    _prev := g_enum_phantom_positions.insert(enum_id, phantom);
+    _prev := g_enum_phantom_positions.insert(enum_id.clone(), phantom.clone());
     bump_type_key_epoch();
   });
 });
 /// The phantom-position flags recorded for an enum instantiation (see
 /// `g_enum_phantom_positions`), or an empty list when it has none.
 enum_phantom_positions :: (fn(enum_id : &String) -> ArrayList(bool))(
-  match(g_enum_phantom_positions.get(enum_id), .Some(m) => m, .None => ArrayList(bool).new())
+  match(g_enum_phantom_positions.get(enum_id), .Some(m) => m.clone(), .None => ArrayList(bool).new())
 );
 /// Stamp an enum instantiation's type arguments onto its finalized form in the
 /// enum-final registry (keyed by the self-shell id), so a leaked self-shell
@@ -942,7 +942,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
-        _ := g_enum_finals.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
+        _ := g_enum_finals.insert(shell_key, rc(TypeValueNode.EnumT(fid.clone(), fnm.clone(), fvns.clone(), fvfs.clone(), fsvn.clone(), fvfl.clone(), fdis.clone(), firs, fiar, args.clone())));
         bump_type_key_epoch();
       }),
       _ => ()
@@ -967,7 +967,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
 (g_struct_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
   if((struct_id.len() > usize(0)) && g_struct_finals.get(struct_id).is_none(), {
-    g_struct_finals.insert(struct_id, ty);
+    g_struct_finals.insert(struct_id.clone(), ty);
     bump_type_key_epoch();
   });
 });
@@ -996,7 +996,7 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
 (g_type_binding_names : HashMap(String, String)) = HashMap(String, String).new();
 register_type_binding_name :: (fn(type_id : &String, name : &String) -> unit)({
   if((type_id.len() > usize(0)) && g_type_binding_names.get(type_id).is_none(), {
-    g_type_binding_names.insert(type_id, name);
+    g_type_binding_names.insert(type_id.clone(), name.clone());
   });
 });
 type_binding_name :: (fn(type_id : &String) -> Option(String))(
@@ -1026,7 +1026,7 @@ clear_type_binding_names :: (fn() -> unit)({
 register_some_binder_kind :: (
   fn(name : &String, lvl : usize, kind_name : &String) -> unit
 )({
-  _some_binder_kinds.insert(`${name}@${lvl.to_string()}`, kind_name);
+  _some_binder_kinds.insert(`${name}@${lvl.to_string()}`, kind_name.clone());
 });
 clear_some_binder_kind :: (fn(name : &String, lvl : usize) -> unit)({
   _some_binder_kinds.remove(`${name}@${lvl.to_string()}`);

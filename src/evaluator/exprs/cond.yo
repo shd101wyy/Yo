@@ -118,7 +118,7 @@ evaluate_cond :: (
   // Extract argument list.
   statements := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   statement_count := statements.len();
@@ -355,7 +355,7 @@ evaluate_cond :: (
         );
         out_info := new_expr_info(&body_info.env, &result_ty);
         out_info.value = body_info.value;
-        out_info.path_collection = body_info.path_collection;
+        out_info.path_collection = body_info.path_collection.clone();
         out_info.control_flow = body_info.control_flow;
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         return(expr);
@@ -379,9 +379,9 @@ evaluate_cond :: (
         bodies.push(evaluated_body);
         value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_info.ty, env : body_info.env));
         env.frames = body_info.env.frames;
-        env.module_path = body_info.env.module_path;
+        env.module_path = body_info.env.module_path.clone();
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
-        env.input_string = body_info.env.input_string;
+        env.input_string = body_info.env.input_string.clone();
         result_ty := cond(
           match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
@@ -389,7 +389,7 @@ evaluate_cond :: (
         );
         out_info := new_expr_info(&env, &result_ty);
         out_info.value = body_info.value;
-        out_info.variable_name = body_info.variable_name;
+        out_info.variable_name = body_info.variable_name.clone();
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
         // Only attach a new temp variable if the inner body doesn't have one.
         if(body_info.variable_name.is_none(), {

@@ -950,8 +950,8 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
         i = (i + usize(1));
       });
       cond(
-        is_sns => rc(TypeValueNode.Struct(name, String.from(""), labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)),
-        true => rc(TypeValueNode.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false))
+        is_sns => rc(TypeValueNode.Struct(name.clone(), String.from(""), labels.clone(), tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)),
+        true => rc(TypeValueNode.Struct(String.from(""), name.clone(), labels.clone(), tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false))
       )
     },
     .UnknownVal(ty, _) => ty,
@@ -998,11 +998,11 @@ export(eval_value_eq);
 (g_enum_cfids : HashMap(String, String)) = HashMap(String, String).new();
 register_enum_cfid :: (fn(enum_id : &String, func_id : &String) -> unit)({
   if((enum_id.len() > usize(0)) && (func_id.len() > usize(0)) && !g_enum_cfids.contains_key(enum_id), {
-    _prev := g_enum_cfids.insert(enum_id, func_id);
+    _prev := g_enum_cfids.insert(enum_id.clone(), func_id.clone());
   });
 });
 lookup_enum_cfid :: (fn(enum_id : &String) -> String)(
-  match(g_enum_cfids.get(enum_id), .Some(f) => f, .None => String.from(""))
+  match(g_enum_cfids.get(enum_id), .Some(f) => f.clone(), .None => String.from(""))
 );
 export(register_enum_cfid, lookup_enum_cfid);
 // Type-constructor VALUES by func_id: the comptime function (`Option`,
@@ -1016,7 +1016,7 @@ export(register_enum_cfid, lookup_enum_cfid);
 (g_type_ctor_values : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 register_type_ctor_value :: (fn(func_id : &String, v : &EvalValue) -> unit)({
   if((func_id.len() > usize(0)) && !g_type_ctor_values.contains_key(func_id), {
-    _prev := g_type_ctor_values.insert(func_id, v);
+    _prev := g_type_ctor_values.insert(func_id.clone(), v);
   });
 });
 lookup_type_ctor_value :: (fn(func_id : &String) -> Option(EvalValue))(g_type_ctor_values.get(func_id));

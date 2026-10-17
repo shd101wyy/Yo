@@ -85,11 +85,11 @@ _url_to_dep_name :: (fn(url : &String) -> String)({
 /// `*`). Branches and commits are flags (`--branch`, `--rev`), not `@`.
 _requirement_from_suffix :: (fn(suffix : &String) -> Result(GitRequirement, String))({
   if((suffix.starts_with("v") || suffix.starts_with("V")) && parse_semver(suffix.clone()).is_some(), {
-    return(Result(GitRequirement, String).Ok(GitRequirement.Tag(suffix)));
+    return(Result(GitRequirement, String).Ok(GitRequirement.Tag(suffix.clone())));
   });
   match(
     parse_version_req(suffix.clone()),
-    .Ok(_) => Result(GitRequirement, String).Ok(GitRequirement.Version(suffix)),
+    .Ok(_) => Result(GitRequirement, String).Ok(GitRequirement.Version(suffix.clone())),
     .Err(msg) => Result(GitRequirement, String).Err(`"${suffix}" is neither a tag (v1.2.3) nor a version requirement (^1.2, ~1, >=1, <2, *): ${msg}. Use --branch or --rev for other refs.`)
   )
 });
@@ -106,7 +106,7 @@ parse_package_specifier :: (fn(spec : &String) -> Result(ParsedPackage, String))
   spec_str := spec.clone();
   if(is_local_path(&spec_str), {
     name := _url_to_dep_name(&spec_str);
-    return(Result(ParsedPackage, String).Ok(ParsedPackage.Path(name, spec)));
+    return(Result(ParsedPackage, String).Ok(ParsedPackage.Path(name, spec.clone())));
   });
   // The requirement is after the LAST `@` — but only when what follows it
   // is not part of the remote (`git@github.com:user/repo` has no suffix).
@@ -145,7 +145,7 @@ parse_package_specifier :: (fn(spec : &String) -> Result(ParsedPackage, String))
       _requirement_from_suffix(&s),
       .Ok(r) => Option(GitRequirement).Some(r),
       .Err(msg) => {
-        return(Result(ParsedPackage, String).Err(msg));
+        return(Result(ParsedPackage, String).Err(msg.clone()));
       }
     )
   );
@@ -160,7 +160,7 @@ parse_package_specifier :: (fn(spec : &String) -> Result(ParsedPackage, String))
 _user_cwd :: (fn() -> String)(
   match(
     env.get(String.from("YO_ORIGINAL_CWD")),
-    .Some(d) => d,
+    .Some(d) => d.clone(),
     .None => match(cwd(), .Ok(p) => p.to_string(), .Err(_) => String.from("."))
   )
 );
@@ -170,7 +170,7 @@ load_project_manifest :: (fn(exn : Exception) -> Manifest)({
   start := _user_cwd();
   path := match(
     find_manifest(start.clone()),
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
       exn.throw(
         dyn(
@@ -303,7 +303,7 @@ run_add :: (
         if(options.branch.is_some() || options.rev.is_some() || options.subdir.is_some(), {
           e.exn.throw(dyn(String.from("Error: --branch, --rev and --path apply to git dependencies only")));
         });
-        dep_name = match(options.name, .Some(n) => n, .None => p_name);
+        dep_name = match(options.name, .Some(n) => n.clone(), .None => p_name.clone());
         // Stored relative to the manifest's directory, however it was typed.
         abs := if(
           Path.new(p_rel_path.clone()).is_absolute(),
@@ -316,16 +316,16 @@ run_add :: (
         git_url = abs.to_string();
       },
       .Git(g_name, g_url, g_requirement) => {
-        dep_name = match(options.name, .Some(n) => n, .None => g_name);
+        dep_name = match(options.name, .Some(n) => n.clone(), .None => g_name.clone());
         git_url = g_url.clone();
-        git_subdir = match(options.subdir, .Some(s) => s, .None => String.new());
+        git_subdir = match(options.subdir, .Some(s) => s.clone(), .None => String.new());
         requirement := match(
           options.rev,
           .Some(r) => {
             if(g_requirement.is_some(), {
               e.exn.throw(dyn(String.from("Error: --rev cannot be combined with an @version")));
             });
-            Option(GitRequirement).Some(GitRequirement.Rev(r))
+            Option(GitRequirement).Some(GitRequirement.Rev(r.clone()))
           },
           .None => match(
             options.branch,
@@ -333,7 +333,7 @@ run_add :: (
               if(g_requirement.is_some(), {
                 e.exn.throw(dyn(String.from("Error: --branch cannot be combined with an @version")));
               });
-              Option(GitRequirement).Some(GitRequirement.Branch(b))
+              Option(GitRequirement).Some(GitRequirement.Branch(b.clone()))
             },
             .None => g_requirement
           )
@@ -341,7 +341,7 @@ run_add :: (
         match(
           requirement,
           .Some(r) => {
-            source = Option(DependencySource).Some(DependencySource.Git(g_url, r, git_subdir.clone()));
+            source = Option(DependencySource).Some(DependencySource.Git(g_url.clone(), r, git_subdir.clone()));
           },
           .None => {
             needs_latest = true;
@@ -418,7 +418,7 @@ run_add :: (
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     edited := match(
       set_entry(&text, table.clone(), dep_name.clone(), value.clone()),
-      .Ok(t) => t,
+      .Ok(t) => t.clone(),
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
         String.new()
@@ -464,7 +464,7 @@ run_remove :: (
     match(
       remove_entry(text.clone(), String.from("dependencies"), name.clone()),
       .Ok(.Some(t)) => {
-        edited = t;
+        edited = t.clone();
         removed_from = String.from("dependencies");
       },
       .Ok(.None) => (),
@@ -476,7 +476,7 @@ run_remove :: (
       match(
         remove_entry(text.clone(), String.from("dev-dependencies"), name.clone()),
         .Ok(.Some(t)) => {
-          edited = t;
+          edited = t.clone();
           removed_from = String.from("dev-dependencies");
         },
         .Ok(.None) => (),
@@ -554,9 +554,9 @@ _bump_ranges_to_latest :: (
       match(
         dep.source,
         .Git(u, r, sd) => {
-          url = u;
-          subdir = sd;
-          range_text = match(r, .Version(v) => v, _ => String.new());
+          url = u.clone();
+          subdir = sd.clone();
+          range_text = match(r, .Version(v) => v.clone(), _ => String.new());
         },
         .Path(_) => ()
       );
@@ -603,7 +603,7 @@ _bump_ranges_to_latest :: (
             table := if(dep.dev, String.from("dev-dependencies"), String.from("dependencies"));
             edited = match(
               set_entry(edited.clone(), &table, dep.name.clone(), &value),
-              .Ok(t) => t,
+              .Ok(t) => t.clone(),
               .Err(msg) => {
                 e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
                 String.new()
@@ -695,7 +695,7 @@ run_install :: (
     mode := cond(
       !options.update => ResolveMode.Install,
       (options.names.len() == usize(0)) => ResolveMode.UpdateAll,
-      true => ResolveMode.Update(options.names)
+      true => ResolveMode.Update(options.names.clone())
     );
     if(options.update, {
       println("Updating: re-resolving refs to the latest satisfying commits...");

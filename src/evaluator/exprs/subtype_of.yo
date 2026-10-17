@@ -86,9 +86,9 @@ evaluate_subtype_of :: (
     }
   );
   env.frames = lhs_info.env.frames;
-  env.module_path = lhs_info.env.module_path;
+  env.module_path = lhs_info.env.module_path.clone();
   env.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
-  env.input_string = lhs_info.env.input_string;
+  env.input_string = lhs_info.env.input_string.clone();
   // LHS must be a TypeValue.
   lhs_type_val := match(
     lhs_info.value,
@@ -142,7 +142,7 @@ evaluate_subtype_of :: (
     // Tuple form: (Trait1, Trait2, ...).
     rhs_args := match(
       rhs_expr,
-      .FnCall(_, _, args, _, _) => args,
+      .FnCall(_, _, args, _, _) => args.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     (i : usize) = usize(0);
@@ -218,9 +218,9 @@ evaluate_subtype_of :: (
       }
     );
     env.frames = te_info.env.frames;
-    env.module_path = te_info.env.module_path;
+    env.module_path = te_info.env.module_path.clone();
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
-    env.input_string = te_info.env.input_string;
+    env.input_string = te_info.env.input_string.clone();
     // RHS must be a TypeValue that is a TraitType.
     trait_ty_val := match(
       te_info.value,
@@ -344,7 +344,7 @@ evaluate_subtype_of :: (
             lhs_implements = type_implements_trait_bool(&lhs_ty, &trait_ty, &env);
           },
           .Error({ msg : st_force_msg }) => {
-            exn.throw(dyn(st_force_msg));
+            exn.throw(dyn(st_force_msg.clone()));
           },
           .NoneForced => ()
         );

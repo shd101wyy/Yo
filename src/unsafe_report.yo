@@ -87,7 +87,7 @@ _is_ws_byte :: (fn(b : u8) -> bool)(
 /// with the original (escapes become two spaces), so a byte index in the
 /// stripped line IS the original byte index.
 _strip_comments_and_strings :: (fn(line : &String) -> ArrayList(u8))({
-  bytes := line;
+  bytes := line.clone();
   out := ArrayList(u8).new();
   (in_str : u8) = u8(0);
   (i : usize) = usize(0);
@@ -458,8 +458,8 @@ _scan_line :: (
           _find_matching_close(full_src, unsafe_open),
           .Some(close_idx) => {
             c := _classify_unsafe_body(full_src, unsafe_open + usize(1), close_idx, extern_c_fns);
-            sub_kind = c.sub_kind;
-            callee_name = c.callee_name;
+            sub_kind = c.sub_kind.clone();
+            callee_name = c.callee_name.clone();
           },
           .None => {
             sub_kind = Option(String).Some(String.from("other"));
@@ -529,7 +529,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
         (ok : bool) = true;
         (si : usize) = usize(0);
         while(runtime((si + usize(1)) < segs.len()), {
-          seg := segs(si);
+          seg := segs(si).clone();
           skip := ((seg == "node_modules") || (seg == ".git") || (seg == "dist") || (seg == "yo-out") || (seg == "build") || seg.starts_with(`.`));
           if(skip, {
             ok = false;
@@ -569,8 +569,8 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
     extern_c_fns := _harvest_extern_c_fns(&file_srcs);
     (f2 : usize) = usize(0);
     while(f2 < yo_files.len(), {
-      file := yo_files(f2);
-      src := file_srcs(f2);
+      file := yo_files(f2).clone();
+      src := file_srcs(f2).clone();
       src_bytes := src.to_bytes();
       lines := src.split(`\n`);
       prev := ArrayList(String).new();
@@ -578,7 +578,7 @@ generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> 
       (line_start : usize) = usize(0);
       (li : usize) = usize(0);
       while(li < lines.len(), {
-        raw_line := lines(li);
+        raw_line := lines(li).clone();
         line_findings := _scan_line(file.clone(), li + usize(1), raw_line.clone(), &prev, &extern_c_fns, &src_bytes, line_start);
         (lf : usize) = usize(0);
         while(lf < line_findings.len(), {
@@ -789,7 +789,7 @@ format_unsafe_report :: (fn(report : &UnsafeReport) -> String)({
 /// duplicated because unsafe_report is a leaf CLI module).
 _json_str :: (fn(text : &String) -> String)({
   out := String.from("\"");
-  bytes := text;
+  bytes := text.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(runtime(i < n), {

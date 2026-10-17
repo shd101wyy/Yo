@@ -81,7 +81,7 @@ evaluate_anonymous_struct_value :: (
       )
     );
   });
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   // Generate unique struct id. Phase 2: occurrence-indexed at this literal's
   // source position — every evaluation still mints a FRESH id (distinct
   // anonymous-struct instantiations must never share, see struct.yo's twin),
@@ -153,7 +153,7 @@ evaluate_anonymous_struct_value :: (
           )
         );
       });
-      lstr := match(lae, .Atom(_, ltok) => ltok.value, .FnCall(_, _, _, _, _) => String.from(""));
+      lstr := match(lae, .Atom(_, ltok) => ltok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""));
       label_opt = Option(String).Some(lstr);
     });
     // Evaluate the value expression with SelfType = prelim_ty
@@ -219,7 +219,7 @@ evaluate_anonymous_struct_value :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
+      field_labels.clone(),
       field_types,
       false,
       false,
@@ -259,7 +259,7 @@ evaluate_anonymous_struct_value :: (
         match(
           field_labels.get(si),
           .Some(l) => {
-            sv_names.push(l);
+            sv_names.push(l.clone());
           },
           .None => ()
         );

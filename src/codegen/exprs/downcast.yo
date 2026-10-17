@@ -32,7 +32,7 @@
 /// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
@@ -46,7 +46,7 @@ generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   target_type_c_name := get_type_string(&target_type, &context.base);
   // Register the typeid static for the target type (address = canonical id).
   tid := type_key(&target_type);
-  type_id_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
+  type_id_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn.clone(), .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(c_symbol_name(&type_id_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
@@ -265,7 +265,7 @@ _is_plain_c_identifier :: (fn(s : &String) -> bool)({
   if(s.len() == usize(0), {
     return(false);
   });
-  bytes := s;
+  bytes := s.clone();
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
@@ -284,7 +284,7 @@ _is_plain_c_identifier :: (fn(s : &String) -> bool)({
 /// vtable carries as `__yo_up_<Tgt>`.
 generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
   dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
   dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);

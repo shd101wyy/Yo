@@ -41,7 +41,7 @@ import("std/fmt");
 _fn_trait_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -152,7 +152,7 @@ evaluate_fn_trait_type :: (
         break;
       }
     );
-    call_param_labels.push(p.label);
+    call_param_labels.push(p.label.clone());
     call_param_types.push(p.ty);
     call_param_is_ref.push(p.is_ref);
     call_param_is_owning.push(p.is_owning_rc_value);
@@ -170,7 +170,7 @@ evaluate_fn_trait_type :: (
         break;
       }
     );
-    implicit_labels.push(ip.label);
+    implicit_labels.push(ip.label.clone());
     implicit_types.push(ip.ty);
     ii = (ii + usize(1));
   });

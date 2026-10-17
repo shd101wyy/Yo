@@ -153,7 +153,7 @@ evaluate_consume :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(expr);
     }
@@ -197,7 +197,7 @@ evaluate_consume :: (
     .None => false
   );
   // Get variable name from ExprInfo.
-  variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name, .None => Option(String).None);
+  variable_name_opt := match(arg_info_opt, .Some(i) => i.variable_name.clone(), .None => Option(String).None);
   match(
     variable_name_opt,
     .Some(vname) => {

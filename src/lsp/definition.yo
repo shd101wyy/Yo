@@ -97,7 +97,7 @@ _module_exprs :: (
   });
   src := match(
     mm_module_source(target_fs.clone()),
-    .Some(s) => s,
+    .Some(s) => s.clone(),
     .None => {
       return(ArrayList(AstExpr).new());
     }
@@ -335,15 +335,15 @@ _type_head_name :: (fn(ty : &TypeValue) -> String)({
   match(
     ty,
     Rc(.Struct({ id : sid, name : snm })) => {
-      nm = snm;
-      id = sid;
+      nm = snm.clone();
+      id = sid.clone();
     },
     Rc(.EnumT(eid, enm, _, _, _, _, _, _, _, _)) => {
-      nm = enm;
-      id = eid;
+      nm = enm.clone();
+      id = eid.clone();
     },
     Rc(.Union(unm, _, _)) => {
-      nm = unm;
+      nm = unm.clone();
     },
     _ => ()
   );
@@ -355,7 +355,7 @@ _type_head_name :: (fn(ty : &TypeValue) -> String)({
     .Some(d) => match(
       d.index_of(String.from("(")),
       .Some(p) => d.substring(usize(0), p),
-      .None => d
+      .None => d.clone()
     ),
     .None => String.new()
   )
@@ -526,7 +526,7 @@ _module_member_decl :: (
 )({
   import_path := match(
     _import_path_of_binding(doc_exprs, receiver_name),
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
       return(Option(Token).None);
     }
@@ -538,7 +538,7 @@ _module_member_decl :: (
   );
   abs := match(
     resolve_module_path(&import_path, &doc_dir, std_path),
-    .Found(p) => p,
+    .Found(p) => p.clone(),
     .NotFound(_) => {
       return(Option(Token).None);
     },

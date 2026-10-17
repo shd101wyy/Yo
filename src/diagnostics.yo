@@ -24,12 +24,12 @@ json :: import("std/encoding/json");
 set_error_format :: (fn(mode : &String) -> unit)({
   g_error_format = mode;
 });
-error_format :: (fn() -> String)(g_error_format);
+error_format :: (fn() -> String)(g_error_format.clone());
 /// Print already-rendered diagnostic text on the right stream: JSON Lines
 /// are DATA (stdout); human/short go to stderr like every compiler's
 /// diagnostics.
 emit_rendered_text :: (fn(text : &String) -> unit)({
-  fmt := g_error_format;
+  fmt := g_error_format.clone();
   cond(
     ((fmt == "json") || (fmt == "sarif")) => println(text),
     true => eprintln(text)
@@ -38,7 +38,7 @@ emit_rendered_text :: (fn(text : &String) -> unit)({
 /// Progress chatter (`check: …`): stdout normally, stderr under
 /// `--error-format json` so the data channel stays pure JSON Lines.
 emit_chatter :: (fn(text : &String) -> unit)({
-  fmt := g_error_format;
+  fmt := g_error_format.clone();
   cond(
     ((fmt == "json") || (fmt == "sarif")) => eprintln(text),
     true => println(text)
@@ -572,7 +572,7 @@ suggest_name :: (
         d := edit_distance(target, &c);
         if(d < best_d, {
           best_d = d;
-          best = Option(String).Some(c);
+          best = Option(String).Some(c.clone());
         });
       },
       .None => ()
@@ -603,7 +603,7 @@ _first_message_line :: (fn(message : &String) -> String)({
   lines := message.split(String.from("\n"));
   match(
     lines.get(usize(0)),
-    .Some(line) => line,
+    .Some(line) => line.clone(),
     .None => String.new()
   )
 });
@@ -630,7 +630,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
             .None => out.push(`${_colorize(&prefix, sev_ansi, color)}: ${line}`)
           );
         }, {
-          out.push(line);
+          out.push(line.clone());
         });
       },
       .None => ()
@@ -661,7 +661,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   if(d.help.is_some(), {
     h := match(
       d.help,
-      .Some(hh) => hh,
+      .Some(hh) => hh.clone(),
       .None => String.new()
     );
     out.push(`${_colorize(`help:`, _ANSI_HELP, color)} ${h}`);
@@ -669,7 +669,7 @@ _render_block :: (fn(d : &Diagnostic, w : usize, color : bool, out : &mut ArrayL
   if(d.code.is_some(), {
     c := match(
       d.code,
-      .Some(cc) => cc,
+      .Some(cc) => cc.clone(),
       .None => String.new()
     );
     out.push(`${_colorize(`help:`, _ANSI_HELP, color)} run \`yo explain ${c}\` for more information`);
@@ -761,12 +761,12 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
       diagnostics.get(di),
       .Some(d) => {
         single := ArrayList(Diagnostic).new();
-        single.push(d);
+        single.push(d.clone());
         sev := _severity_prefix(d.severity);
         span_keys := ArrayList(String).new();
         span_vals := ArrayList(JsonValue).new();
         span_keys.push(String.from("file"));
-        span_vals.push(JsonValue.Str(value : d.span.path));
+        span_vals.push(JsonValue.Str(value : d.span.path.clone()));
         span_keys.push(String.from("row"));
         span_vals.push(JsonValue.Number(value : f64(d.span.row)));
         span_keys.push(String.from("col"));
@@ -779,14 +779,14 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         vals.push(
           match(
             d.code,
-            .Some(c) => JsonValue.Str(value : c),
+            .Some(c) => JsonValue.Str(value : c.clone()),
             .None => JsonValue.Null
           )
         );
         keys.push(String.from("severity"));
         vals.push(JsonValue.Str(value : sev));
         keys.push(String.from("message"));
-        vals.push(JsonValue.Str(value : d.message));
+        vals.push(JsonValue.Str(value : d.message.clone()));
         keys.push(String.from("span"));
         vals.push(JsonValue.Object(keys : span_keys, values : span_vals));
         keys.push(String.from("labels"));
@@ -801,7 +801,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
               rk := ArrayList(String).new();
               rv := ArrayList(JsonValue).new();
               rk.push(String.from("file"));
-              rv.push(JsonValue.Str(value : r.span.path));
+              rv.push(JsonValue.Str(value : r.span.path.clone()));
               rk.push(String.from("row"));
               rv.push(JsonValue.Number(value : f64(r.span.row)));
               rk.push(String.from("col"));
@@ -809,9 +809,9 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
               rk.push(String.from("end_col"));
               rv.push(JsonValue.Number(value : f64(r.span.col + r.span.len)));
               rk.push(String.from("replacement"));
-              rv.push(JsonValue.Str(value : r.replacement));
+              rv.push(JsonValue.Str(value : r.replacement.clone()));
               rk.push(String.from("description"));
-              rv.push(JsonValue.Str(value : r.description));
+              rv.push(JsonValue.Str(value : r.description.clone()));
               JsonValue.Object(keys : rk, values : rv)
             },
             .None => JsonValue.Null
@@ -821,7 +821,7 @@ render_diagnostics_json :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
         vals.push(
           match(
             d.help,
-            .Some(h) => JsonValue.Str(value : h),
+            .Some(h) => JsonValue.Str(value : h.clone()),
             .None => JsonValue.Null
           )
         );
@@ -1048,7 +1048,7 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
 /// Render a diagnostic group in the process's current format (defined after
 /// the renderers it dispatches to — module-level order matters).
 render_diagnostics_for_mode :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)({
-  fmt := g_error_format;
+  fmt := g_error_format.clone();
   cond(
     (fmt == "short") => render_diagnostics_short(diagnostics),
     (fmt == "json") => render_diagnostics_json(diagnostics),

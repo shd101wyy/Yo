@@ -265,7 +265,7 @@ _string_field :: (
     .None => Result(String, String).Ok(String.new()),
     .Some(v) => match(
       v.as_string(),
-      .Some(s) => Result(String, String).Ok(s),
+      .Some(s) => Result(String, String).Ok(s.clone()),
       .None => Result(String, String).Err(`${where_}: "${key}" must be a string`)
     )
   )
@@ -288,12 +288,12 @@ _parse_dependency :: (
       )
     );
   });
-  git := match(_string_field(value, String.from("git"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
-  path := match(_string_field(value, String.from("path"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
-  version := match(_string_field(value, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
-  tag := match(_string_field(value, String.from("tag"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
-  branch := match(_string_field(value, String.from("branch"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
-  rev := match(_string_field(value, String.from("rev"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(ManifestDependency, String).Err(m)));
+  git := match(_string_field(value, String.from("git"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(ManifestDependency, String).Err(m.clone())));
+  path := match(_string_field(value, String.from("path"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(ManifestDependency, String).Err(m.clone())));
+  version := match(_string_field(value, String.from("version"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(ManifestDependency, String).Err(m.clone())));
+  tag := match(_string_field(value, String.from("tag"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(ManifestDependency, String).Err(m.clone())));
+  branch := match(_string_field(value, String.from("branch"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(ManifestDependency, String).Err(m.clone())));
+  rev := match(_string_field(value, String.from("rev"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(ManifestDependency, String).Err(m.clone())));
   // Unknown keys are errors: a typo (`verison`) must not silently mean
   // "default branch".
   match(
@@ -301,7 +301,7 @@ _parse_dependency :: (
     .Table(keys, _) => {
       (ki : usize) = usize(0);
       while(ki < keys.len(), {
-        k := keys(ki);
+        k := keys(ki).clone();
         known := ((k == "git") || (k == "path") || (k == "version") || (k == "tag") || (k == "branch") || (k == "rev"));
         if(!known, {
           return(Result(ManifestDependency, String).Err(`${where_}: dependency "${name}" has an unknown key "${k}" (expected git, path, version, tag, branch, rev)`));
@@ -377,7 +377,7 @@ _parse_dependency_table :: (
         .Table(keys, values) => {
           (i : usize) = usize(0);
           while(i < keys.len(), {
-            name := keys(i);
+            name := keys(i).clone();
             (dup : usize) = usize(0);
             while(dup < out.len(), {
               if(out(dup).name == name, {
@@ -389,7 +389,7 @@ _parse_dependency_table :: (
               _parse_dependency(&name, &values(i), dev, where_.clone()),
               .Ok(d) => out.push(d),
               .Err(m) => {
-                return(Result(unit, String).Err(m));
+                return(Result(unit, String).Err(m.clone()));
               }
             );
             i = (i + usize(1));
@@ -427,17 +427,17 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
   if(!package.is_table(), {
     return(Result(Manifest, String).Err(`${where_}: [package] must be a table`));
   });
-  name := match(_string_field(&package, String.from("name"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  name := match(_string_field(&package, String.from("name"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(Manifest, String).Err(m.clone())));
   if(name.len() == usize(0), {
     return(Result(Manifest, String).Err(`${where_}: [package] name is required`));
   });
   if(name.contains("/") || name.contains("\\"), {
     return(Result(Manifest, String).Err(`${where_}: [package] name "${name}" may not contain a path separator (it is what importers write in import("${name}"))`));
   });
-  version := match(_string_field(&package, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
-  description := match(_string_field(&package, String.from("description"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
-  license := match(_string_field(&package, String.from("license"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
-  yo_version := match(_string_field(&package, String.from("yo"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  version := match(_string_field(&package, String.from("version"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(Manifest, String).Err(m.clone())));
+  description := match(_string_field(&package, String.from("description"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(Manifest, String).Err(m.clone())));
+  license := match(_string_field(&package, String.from("license"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(Manifest, String).Err(m.clone())));
+  yo_version := match(_string_field(&package, String.from("yo"), where_.clone()), .Ok(s) => s.clone(), .Err(m) => return(Result(Manifest, String).Err(m.clone())));
   modules := ArrayList(ManifestModule).new();
   match(
     root.get(String.from("modules")),
@@ -451,10 +451,10 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
         .Table(keys, values) => {
           (i : usize) = usize(0);
           while(i < keys.len(), {
-            mname := keys(i);
+            mname := keys(i).clone();
             mroot := match(
               values(i).as_string(),
-              .Some(s) => s,
+              .Some(s) => s.clone(),
               .None => {
                 return(Result(Manifest, String).Err(`${where_}: [modules] ${mname} must be a string path`));
               }
@@ -478,14 +478,14 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
     _parse_dependency_table(&root, String.from("dependencies"), false, where_.clone(), &mut dependencies),
     .Ok(_) => (),
     .Err(m) => {
-      return(Result(Manifest, String).Err(m));
+      return(Result(Manifest, String).Err(m.clone()));
     }
   );
   match(
     _parse_dependency_table(&root, String.from("dev-dependencies"), true, where_.clone(), &mut dependencies),
     .Ok(_) => (),
     .Err(m) => {
-      return(Result(Manifest, String).Err(m));
+      return(Result(Manifest, String).Err(m.clone()));
     }
   );
   // `[workspace] members = [...]` (§4.6). A workspace root may also be an
@@ -658,7 +658,7 @@ dependency_dir :: (
       });
       stored := match(
         store_tree_dir(get_global_cache_dir(), entry.integrity.clone()),
-        .Ok(d) => d,
+        .Ok(d) => d.clone(),
         .Err(msg) => {
           return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": yo.lock ${msg} — run \`yo install\``, true)));
         }
@@ -732,7 +732,7 @@ _register_package_roots :: (
             _add_root(&mut out.roots, `${entry.name}/${m_entry.name}`, &root, via.clone()),
             .Ok(_) => (),
             .Err(msg) => {
-              return(Result(unit, String).Err(msg));
+              return(Result(unit, String).Err(msg.clone()));
             }
           );
         });
@@ -782,7 +782,7 @@ resolve_import_roots :: (
     _register_package_roots(&root_entry, true, &out, manifest.path.clone()),
     .Ok(_) => (),
     .Err(msg) => {
-      return(Result(ImportRoots, String).Err(msg));
+      return(Result(ImportRoots, String).Err(msg.clone()));
     }
   );
   pending := ArrayList(_ClosureEntry).new();
@@ -809,7 +809,7 @@ resolve_import_roots :: (
       });
       dep_dir := match(
         dependency_dir(&dep, current.dir.clone(), root_lock_text.clone()),
-        .Ok(d) => d,
+        .Ok(d) => d.clone(),
         .Err(unavailable) => {
           out.unavailable.push(unavailable);
           continue;
@@ -831,7 +831,7 @@ resolve_import_roots :: (
         _register_package_roots(&entry, false, &out, `${current_manifest.path} → ${dep.name}`),
         .Ok(_) => (),
         .Err(msg) => {
-          return(Result(ImportRoots, String).Err(msg));
+          return(Result(ImportRoots, String).Err(msg.clone()));
         }
       );
       // Expand each package once, whichever path reached it.

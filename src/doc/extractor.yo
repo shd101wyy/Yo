@@ -136,7 +136,7 @@ strip_doc_block_comment :: (fn(value : &String) -> String)({
   while(j < m, {
     raw_line := match(
       raw_lines.get(j),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -156,7 +156,7 @@ strip_doc_block_comment :: (fn(value : &String) -> String)({
   while(processed.len() > usize(0), {
     first := match(
       processed.get(usize(0)),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -172,7 +172,7 @@ strip_doc_block_comment :: (fn(value : &String) -> String)({
     last_idx := (processed.len() - usize(1));
     last := match(
       processed.get(last_idx),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -207,7 +207,7 @@ find_next_declaration_name_ :: (fn(tokens : &ArrayList(Token), start_index : usi
       if(token.kind == TokenKind.Identifier, {
         return(
           DeclarationNameResult_(
-            name : token.value,
+            name : token.value.clone(),
             position : Option(DocPosition).Some(DocPosition(row : usize(token.row), column : usize(token.column)))
           )
         );
@@ -251,7 +251,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
         inner_doc_position,
         .None => {
           inner_doc_position = Option(DocPosition).Some(DocPosition(row : usize(token.row), column : usize(token.column)));
-          inner_doc_module_path = token.module_path;
+          inner_doc_module_path = token.module_path.clone();
         },
         .Some(_) => ()
       );
@@ -316,7 +316,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
         doc_parts := ArrayList(String).new();
         start_row := usize(token.row);
         start_col := usize(token.column);
-        start_mod_path := token.module_path;
+        start_mod_path := token.module_path.clone();
         doc_parts.push(strip_doc_line_comment_(&token.value));
         i = (i + usize(1));
         // Merge consecutive /// lines
@@ -365,7 +365,7 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
         declarations.push(
           DocAssociation(
             comment : doc_comment,
-            declaration_name : decl.name,
+            declaration_name : decl.name.clone(),
             declaration_position : decl.position
           )
         );
@@ -376,14 +376,14 @@ extract_doc_comments :: (fn(tokens : &ArrayList(Token)) -> DocExtractionResult)(
             inner : false,
             row : usize(token.row),
             column : usize(token.column),
-            module_path : token.module_path
+            module_path : token.module_path.clone()
           );
           i = (i + usize(1));
           decl := find_next_declaration_name_(tokens, i);
           declarations.push(
             DocAssociation(
               comment : doc_comment,
-              declaration_name : decl.name,
+              declaration_name : decl.name.clone(),
               declaration_position : decl.position
             )
           );
@@ -428,7 +428,7 @@ find_next_identifier_ :: (fn(tokens : &ArrayList(Token), start_index : usize, en
       i = (i + usize(1));
     }, {
       if(token.kind == TokenKind.Identifier, {
-        return(token.value);
+        return(token.value.clone());
       }, {
         if(token.kind == TokenKind.LParen, {
           i = (i + usize(1));

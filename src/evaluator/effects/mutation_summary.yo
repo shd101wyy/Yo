@@ -364,7 +364,7 @@ impl(
       e,
       .FnCall(_, f, a, _, _) => {
         func_expr = f;
-        args = a;
+        args = a.clone();
       },
       .Atom(_, _) => ()
     );
@@ -538,7 +538,7 @@ impl(
           match(
             callee_ty,
             Rc(.Func({ param_types : cpt, meta : cm, variadic_types : cvt })) => {
-              callee_extern = cm.*.extern_name;
+              callee_extern = cm.*.extern_name.clone();
               callee_ptypes = cpt;
               callee_vtypes = cvt;
             },
@@ -864,7 +864,7 @@ _msp_type_may_root :: (fn(ty : &TypeValue) -> bool)(
   type_contains_rc_type(ty) || _msp_type_contains_pointer_inner(ty, u32(0))
 );
 _msp_labels :: (fn(fid : &String) -> ArrayList(String))(
-  match(get_func_type(fid), Rc(.Func({ meta : m })) => m.*.param_labels, _ => ArrayList(String).new())
+  match(get_func_type(fid), Rc(.Func({ meta : m })) => m.*.param_labels.clone(), _ => ArrayList(String).new())
 );
 /// Allocation externs hand back storage nothing else references.
 _msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
@@ -1064,7 +1064,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
     }),
     .None => ()
   );
-  name := ast_expr_token(atom).value;
+  name := ast_expr_token(atom).value.clone();
   // A payload-less variant (`.None`) constructs a value holding nothing.
   if(name.starts_with("."), {
     return(_msp_root(MSP_NONE));
@@ -1096,7 +1096,7 @@ _msp_atom_local_name :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> Option(String))(
   if(!_msp_type_may_root(&info.ty), {
     return(Option(String).None);
   });
-  name := ast_expr_token(atom).value;
+  name := ast_expr_token(atom).value.clone();
   vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
   if(vars.len() == usize(0), {
     return(Option(String).None);
@@ -1415,7 +1415,7 @@ impl(
       roots : HashMap(String, _MspRoot).new(),
       names : ArrayList(String).new(),
       table : table,
-      touched : local_touched,
+      touched : local_touched.clone(),
       changed : false
     );
     // Fixpoint over the body's definitions and flows (the lattice is finite;
@@ -1660,7 +1660,7 @@ impl(
       e,
       .FnCall(_, f, a, _, _) => {
         func_expr = f;
-        args = a;
+        args = a.clone();
       },
       .Atom(_, _) => ()
     );
@@ -1892,7 +1892,7 @@ impl(
     match(
       e,
       .Atom(_, _) => {
-        match(_msp_atom_local_name(ctx, e), .Some(n) => out.push(n), .None => ());
+        match(_msp_atom_local_name(ctx, e), .Some(n) => out.push(n.clone()), .None => ());
       },
       .FnCall(_, f, args, _, _) => {
         (head : String) = String.new();
@@ -2058,7 +2058,7 @@ impl(
           Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => match(
             cm.*.extern_name,
             .Some(en) => {
-              return(Option(_MspExtern).Some(_MspExtern(name : en, ptypes : p0, vtypes : v0)));
+              return(Option(_MspExtern).Some(_MspExtern(name : en.clone(), ptypes : p0.clone(), vtypes : v0.clone())));
             },
             .None => {
               return(Option(_MspExtern).None);
@@ -2090,7 +2090,7 @@ impl(
         t2,
         Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => match(
           tm.*.extern_name,
-          .Some(ten) => Option(_MspExtern).Some(_MspExtern(name : ten, ptypes : tpt, vtypes : tvt)),
+          .Some(ten) => Option(_MspExtern).Some(_MspExtern(name : ten.clone(), ptypes : tpt, vtypes : tvt)),
           .None => Option(_MspExtern).None
         ),
         _ => Option(_MspExtern).None
@@ -2218,7 +2218,7 @@ impl(
       e,
       .FnCall(_, f, a, _, _) => {
         func_expr = f;
-        args = a;
+        args = a.clone();
       },
       .Atom(_, _) => ()
     );
@@ -2626,7 +2626,7 @@ impl(
       e,
       .FnCall(_, f, a, _, _) => {
         func_expr = f;
-        args = a;
+        args = a.clone();
       },
       .Atom(_, _) => ()
     );
@@ -2900,7 +2900,7 @@ impl(
       e,
       .FnCall(_, f, a, _, _) => {
         func_expr = f;
-        args = a;
+        args = a.clone();
       },
       .Atom(_, _) => ()
     );
@@ -3118,9 +3118,9 @@ impl(
           match(
             get_func_type(fid.clone()),
             Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => {
-              callee_extern = cm.*.extern_name;
-              cpt = p0;
-              cvt = v0;
+              callee_extern = cm.*.extern_name.clone();
+              cpt = p0.clone();
+              cvt = v0.clone();
             },
             _ => ()
           );
@@ -3519,7 +3519,7 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
                 });
                 near := match(nearest, .Some(nb) => nb, .None => base);
                 if((kind == "rc") && first_rc.is_none(), {
-                  first_rc = Option(_RcwCross).Some(_RcwCross(handle : base, kind : kind, ty : bt, nearest : near));
+                  first_rc = Option(_RcwCross).Some(_RcwCross(handle : base, kind : kind.clone(), ty : bt, nearest : near));
                 });
                 if((kind == "ref") && first_ref.is_none(), {
                   first_ref = Option(_RcwCross).Some(_RcwCross(handle : base, kind : kind, ty : bt, nearest : near));
@@ -3612,7 +3612,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
     e,
     .FnCall(_, f, a, _, _) => {
       func_expr = f;
-      args = a;
+      args = a.clone();
     },
     .Atom(_, _) => {
       return(());
@@ -3634,7 +3634,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
       match(
         get_func_type(cfid.clone()),
         Rc(.Func({ param_types : cpts, meta : cm })) => if(cm.*.extern_name.is_none() && !is_control_fn(cfid.clone()), {
-          labels := cm.*.param_labels;
+          labels := cm.*.param_labels.clone();
           match(
             _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
             .Some(av) => {
@@ -3672,7 +3672,7 @@ _rcw_walk :: (fn(e : &AstExpr, ctx : &_MspCtx, in_closure_in : bool) -> unit)({
                             // an `ArrayList`) lends the callee that handle's
                             // storage: the write lands there.
                             arg_is_handle := match(_rcw_type_of(&aj, &ctx.table), .Some(ajt) => (_rcw_handle_kind(&ajt).len() > usize(0)), .None => false);
-                            written := _RcwCross(handle : c.handle, kind : c.kind, ty : c.ty, nearest : if(arg_is_handle, aj, c.nearest));
+                            written := _RcwCross(handle : c.handle, kind : c.kind.clone(), ty : c.ty, nearest : if(arg_is_handle, aj, c.nearest));
                             _rcw_report(if(is_recv, "mut-recv", "mut-arg"), &aj, &written, in_closure, ctx);
                           });
                         },
@@ -3788,7 +3788,7 @@ _gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
       .Some(pf) => match(
         g_gr_pending.remove(pf.clone()),
         .Some(pe) => if(memoize, {
-          g_gr_by_fid.insert(pf, _GrMemo(body_id : pe.body_id, reach : Option(String).None));
+          g_gr_by_fid.insert(pf.clone(), _GrMemo(body_id : pe.body_id, reach : Option(String).None));
         }),
         .None => ()
       ),
@@ -3839,15 +3839,15 @@ _GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(Typ
 (g_gr_reads_by_fid : HashMap(String, HashMap(String, String))) = HashMap(String, HashMap(String, String)).new();
 (g_gr_callees_by_fid : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
 _gr_note_read :: (fn(fid : &String, key : &String, loc : &String) -> unit)({
-  reads := match(g_gr_reads_by_fid.get(fid.clone()), .Some(m) => m, .None => HashMap(String, String).new());
+  reads := match(g_gr_reads_by_fid.get(fid.clone()), .Some(m) => m.clone(), .None => HashMap(String, String).new());
   if(!reads.contains_key(key.clone()), {
-    reads.insert(key, loc);
+    reads.insert(key.clone(), loc.clone());
   });
-  g_gr_reads_by_fid.insert(fid, reads);
+  g_gr_reads_by_fid.insert(fid.clone(), reads);
 });
 _gr_note_callee :: (fn(ctx : &_GrCtx, callee : &String) -> unit)({
   set := match(g_gr_callees_by_fid.get(ctx.fid.clone()), .Some(c) => c, .None => HashSet(String).new());
-  set.insert(callee);
+  set.insert(callee.clone());
   g_gr_callees_by_fid.insert(ctx.fid.clone(), set);
 });
 /// Function `fid` runs on another thread (it is a `Send` closure, or code a
@@ -3868,9 +3868,9 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
   (violation : Option(String)) = Option(String).None;
   seen := HashSet(String).new();
   todo := ArrayList(String).new();
-  todo.push(fid);
+  todo.push(fid.clone());
   while(runtime(todo.len() > usize(0)), {
-    f := match(todo.pop(), .Some(x) => x, .None => String.new());
+    f := match(todo.pop(), .Some(x) => x.clone(), .None => String.new());
     if(!seen.contains(f.clone()), {
       seen.insert(f.clone());
       match(
@@ -3886,7 +3886,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
                   match(
                     g_d1_written.get(k.clone()),
                     .Some(wloc) => {
-                      rloc := match(reads.get(k.clone()), .Some(l) => l, .None => String.new());
+                      rloc := match(reads.get(k.clone()), .Some(l) => l.clone(), .None => String.new());
                       gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
                       violation = Option(String).Some(`reads the module-level global '${gname}' (at ${rloc}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${gname}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state`);
                     },
@@ -3897,7 +3897,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
                   match(
                     reads.get(k.clone()),
                     .Some(loc) => {
-                      g_d1_reached.insert(k, loc);
+                      g_d1_reached.insert(k.clone(), loc.clone());
                     },
                     .None => ()
                   );
@@ -3920,7 +3920,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
             match(
               cit.next(),
               .Some(c) => {
-                todo.push(c);
+                todo.push(c.clone());
               },
               .None => {
                 cgo = false;
@@ -4074,7 +4074,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     e,
     .Atom(_, _) => match(
       _gr_atom(e, ctx),
-      .Some(m) => Option(String).Some(m),
+      .Some(m) => Option(String).Some(m.clone()),
       .None => _gr_value_function(e, ctx)
     ),
     .FnCall(_, f, args, _, _) => {
@@ -4100,7 +4100,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
         return(
           match(
             match(args.get(usize(0)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None),
-            .Some(m) => Option(String).Some(m),
+            .Some(m) => Option(String).Some(m.clone()),
             .None => _gr_value_function(e, ctx)
           )
         );
@@ -4148,7 +4148,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
             _ => match(
               _gr_walk_closure_callee(&f, ctx),
               .Some(m) => {
-                return(Option(String).Some(m));
+                return(Option(String).Some(m.clone()));
               },
               .None => ()
             )
@@ -4156,7 +4156,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
           .None => match(
             _gr_walk_closure_callee(&f, ctx),
             .Some(m) => {
-              return(Option(String).Some(m));
+              return(Option(String).Some(m.clone()));
             },
             .None => ()
           )
@@ -4168,7 +4168,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
         match(
           _gr_walk(&f, ctx),
           .Some(m) => {
-            return(Option(String).Some(m));
+            return(Option(String).Some(m.clone()));
           },
           .None => ()
         );
@@ -4180,7 +4180,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
           .Some(a) => match(
             _gr_walk(&a, ctx),
             .Some(m) => {
-              return(Option(String).Some(m));
+              return(Option(String).Some(m.clone()));
             },
             .None => ()
           ),
@@ -4201,7 +4201,7 @@ function_reaches_non_send_global :: (
   match(
     g_gr_by_fid.get(fid.clone()),
     .Some(m) => if(m.body_id == body_id, {
-      return(m.reach);
+      return(m.reach.clone());
     }),
     .None => ()
   );
@@ -4223,7 +4223,7 @@ function_reaches_non_send_global :: (
   );
   // A body defined in a pragma'd file is the audited base.
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.clone())), {
-    g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None));
+    g_gr_by_fid.insert(fid.clone(), _GrMemo(body_id : body_id, reach : Option(String).None));
     return(Option(String).None);
   });
   if(expr_info_table_get(table, body_id).is_none(), {
@@ -4260,11 +4260,11 @@ function_reaches_non_send_global :: (
   cond(
     r.is_some() => {
       _gr_settle_pending(pending_start, false);
-      g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : r.clone()));
+      g_gr_by_fid.insert(fid.clone(), _GrMemo(body_id : body_id, reach : r.clone()));
     },
     ancestor_low.is_none() => {
       _gr_settle_pending(pending_start, true);
-      g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None));
+      g_gr_by_fid.insert(fid.clone(), _GrMemo(body_id : body_id, reach : Option(String).None));
     },
     true => {
       al := match(ancestor_low, .Some(x) => x, .None => usize(0));
@@ -4286,7 +4286,7 @@ function_reaches_non_send_global :: (
         pi = (pi + usize(1));
       });
       g_gr_pending.insert(fid.clone(), _GrPend(body_id : body_id, low : al));
-      g_gr_pending_order.push(fid);
+      g_gr_pending_order.push(fid.clone());
     }
   );
   r
@@ -4365,6 +4365,6 @@ mutation_summary_entry_count :: (fn() -> usize)(
 /// where it is created — `validate_send_closure_global_reach`), for a later
 /// judgement that holds only the closure's type.
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
-  match(g_gr_by_fid.get(fid), .Some(m) => Option(Option(String)).Some(m.reach), .None => Option(Option(String)).None)
+  match(g_gr_by_fid.get(fid), .Some(m) => Option(Option(String)).Some(m.reach.clone()), .None => Option(Option(String)).None)
 );
 export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

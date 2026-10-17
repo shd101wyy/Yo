@@ -140,7 +140,7 @@ _insert_attr_before_first_decl :: (
 
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Shallow-copy a deferred-drop/dup expr list into a FRESH ArrayList (same AstExpr
 /// refs, independent list). `context.pending_deferred_drops` is MUTATED as drops are
@@ -435,7 +435,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                 // specialized at a future then declared its temp as the OTHER
                 // specialization's `_P*`
                 // (issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md).
-                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors, .None => get_type_string(&ret_ty, &context.base)));
+                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors.clone(), .None => get_type_string(&ret_ty, &context.base)));
                 // A projection (decision 24) returns its place's address.
                 if(context.override_return_type_str.is_none() && match(function_type, Rc(.Func({ meta : sr_m })) => sr_m.*.result_is_ref, _ => false), {
                   decl.push_str("*");
@@ -591,7 +591,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => t_unit());
         is_object := (is_reference_struct_type(&pt) || is_atomic_reference_struct_type(&pt));
-        label := match(__fm.*.param_labels.get(i), .Some(l) => l, .None => String.new());
+        label := match(__fm.*.param_labels.get(i), .Some(l) => l.clone(), .None => String.new());
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
           // the caller's handle slot); the object the flag lives on is `*name`.
@@ -639,7 +639,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
     function_value,
     .FuncVal(__fvm6, _) => {
       body_box := __fvm6.*.body;
-      func_id := __fvm6.*.func_id;
+      func_id := __fvm6.*.func_id.clone();
       em := context.base.emitter;
       function_type := get_func_type(func_id.clone());
       // YO_AUDIT_RC_WRITE: decision 46's census of writes through a cell.
@@ -774,7 +774,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
-            cap_labels := match(ci.capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+            cap_labels := match(ci.capture_type, Rc(.Struct({ field_labels : fl })) => fl.clone(), _ => ArrayList(String).new());
             if(is_fnonce_closure_fn(func_id.clone()), {
               owned_capture_labels = cap_labels.clone();
             });
@@ -800,7 +800,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       match(
         function_type,
         Rc(.Func({ param_types : _pt, meta : _pm })) => {
-          _pls := _pm.*.param_labels;
+          _pls := _pm.*.param_labels.clone();
           _pn := _pt.len();
           (_pi : usize) = usize(0);
           while(_pi < _pn, {
@@ -1177,7 +1177,7 @@ generate_all_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
 /// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`).
 /// (Evidence-param mains are unimplemented.)
 _main_call_args :: (fn(main_func_id : &String, context : &FunctionGenerationContext) -> String)({
-  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt.clone(), _ => ArrayList(TypeValue).new());
   out := String.from("(");
   n := pts.len();
   (i : usize) = usize(0);
@@ -1263,7 +1263,7 @@ emit_module_level_variable_declarations :: (
           context.base.get_expr_info(&var_atom),
           .None => (),
           .Some(vi) => {
-            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_token(&var_atom).value);
+            var_name := match(vi.variable_name, .Some(vn) => vn.clone(), .None => ast_expr_token(&var_atom).value.clone());
             (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(&var_atom), &var_name, Option(Environment).Some(vi.env));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
@@ -1272,7 +1272,7 @@ emit_module_level_variable_declarations :: (
             // handles module-level vars, so qualify directly from the
             // registry using the declaration's own token
             // (issues/fixed/module-global-c-names-are-not-namespaced.md).
-            mg_decl_path := ast_expr_token(&var_atom).module_path;
+            mg_decl_path := ast_expr_token(&var_atom).module_path.clone();
             // A thread-local's READS are rewritten to `(*name__tl_get())` by
             // get_variable_name_for_codegen — correct everywhere except HERE,
             // where the name is being DECLARED. Build the declaration name
@@ -1496,7 +1496,7 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
           match(
             entry.value,
             .FuncVal(__fvd1, _) => {
-              main_func_id = __fvd1.*.func_id;
+              main_func_id = __fvd1.*.func_id.clone();
               found = true;
               go = false;
             },

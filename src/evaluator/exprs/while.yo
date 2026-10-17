@@ -102,7 +102,7 @@ max_comptime_loop_iterations :: (fn() -> usize)(
 _find_misplaced_invariant :: (fn(expr : &AstExpr) -> Option(AstExpr))({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     .Atom(_, _) => return(Option(AstExpr).None)
   );
   if(ast_expr_is_fn_call_of(expr, BF_INVARIANT, Option(usize).None), {
@@ -134,7 +134,7 @@ _enforce_loop_invariant_placement :: (fn(body_expr : &AstExpr) -> Option(Invaria
   stmts := cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None) => match(
       body_expr,
-      .FnCall(_, _, a, _, _) => a,
+      .FnCall(_, _, a, _, _) => a.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     ),
     true => {
@@ -249,7 +249,7 @@ evaluate_while :: (
   // Follow cond.yo pattern: extract args list once, then derive length.
   all_args := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   n_args := all_args.len();
@@ -372,7 +372,7 @@ evaluate_while :: (
       if(ast_expr_is_fn_call_of(&inner_cond_expr, "begin", .None), {
         inner_args_lb := match(
           inner_cond_expr,
-          .FnCall(_, _, a, _, _) => a,
+          .FnCall(_, _, a, _, _) => a.clone(),
           .Atom(_, _) => ArrayList(AstExpr).new()
         );
         if(inner_args_lb.len() == usize(1), {
@@ -485,7 +485,7 @@ evaluate_while :: (
         prop_cf := ControlFlowFlags(return_flag : cf_ret, unwind_flag : cf_esc, break_flag : false, continue_flag : false);
         out_info := new_expr_info(&body_info.env, &body_info.ty);
         out_info.value = body_info.value;
-        out_info.path_collection = body_info.path_collection;
+        out_info.path_collection = body_info.path_collection.clone();
         out_info.control_flow = Option(ControlFlowFlags).Some(prop_cf);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       }, {
@@ -583,7 +583,7 @@ evaluate_while :: (
         if(ast_expr_is_fn_call_of(&inner_cond_expr, "begin", .None), {
           inner_args_lt := match(
             inner_cond_expr,
-            .FnCall(_, _, a, _, _) => a,
+            .FnCall(_, _, a, _, _) => a.clone(),
             .Atom(_, _) => ArrayList(AstExpr).new()
           );
           if(inner_args_lt.len() == usize(1), {
@@ -627,9 +627,9 @@ evaluate_while :: (
   });
   // Update the environment with the body's post-evaluation state.
   env.frames = body_info.env.frames;
-  env.module_path = body_info.env.module_path;
+  env.module_path = body_info.env.module_path.clone();
   env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
-  env.input_string = body_info.env.input_string;
+  env.input_string = body_info.env.input_string.clone();
   // Execute the step expression if provided (3-argument form).
   match(
     step_expr_opt,

@@ -261,7 +261,7 @@ collect_import_paths_recursive :: (
   match(
     extract_import_path(expr),
     .Some(p) => {
-      out.push(p);
+      out.push(p.clone());
     },
     .None => ()
   );
@@ -546,7 +546,7 @@ _resolve_for_match :: (fn(p : &String) -> String)({
   kept := ArrayList(String).new();
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    part := match(parts.get(pi), .Some(s) => s, .None => String.from(""));
+    part := match(parts.get(pi), .Some(s) => s.clone(), .None => String.from(""));
     pi = (pi + usize(1));
     cond(
       ((part == "") || (part == ".")) => (),
@@ -561,7 +561,7 @@ _resolve_for_match :: (fn(p : &String) -> String)({
   (rebuilt : String) = String.from("");
   (ki : usize) = usize(0);
   while(ki < kept.len(), {
-    seg := match(kept.get(ki), .Some(s) => s, .None => String.from(""));
+    seg := match(kept.get(ki), .Some(s) => s.clone(), .None => String.from(""));
     rebuilt.push_string(String.from("/"));
     rebuilt.push_string(&seg);
     ki = (ki + usize(1));
@@ -629,7 +629,7 @@ _index_std_dir :: (
   _sort_strings(&mut dirs);
   (fi : usize) = usize(0);
   while(fi < files.len(), {
-    name := match(files.get(fi), .Some(n) => n, .None => String.new());
+    name := match(files.get(fi), .Some(n) => n.clone(), .None => String.new());
     fi = (fi + usize(1));
     if(has_index && (name != "index.yo"), {
       continue;
@@ -781,7 +781,7 @@ collect_check_files :: (
   resolved_excludes := ArrayList(String).new();
   (rei : usize) = usize(0);
   while(rei < excludes.len(), {
-    rex := match(excludes.get(rei), .Some(e) => e, .None => String.from(""));
+    rex := match(excludes.get(rei), .Some(e) => e.clone(), .None => String.from(""));
     if(!rex.is_empty(), {
       resolved_excludes.push(_resolve_for_match(&rex));
     });
@@ -790,12 +790,12 @@ collect_check_files :: (
   out := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < raw.len(), {
-    fp := match(raw.get(ri), .Some(p) => p, .None => String.from(""));
+    fp := match(raw.get(ri), .Some(p) => p.clone(), .None => String.from(""));
     fp_res := _resolve_for_match(fp.clone());
     (skip : bool) = false;
     (ei : usize) = usize(0);
     while((ei < resolved_excludes.len()) && !skip, {
-      ex := match(resolved_excludes.get(ei), .Some(e) => e, .None => String.from(""));
+      ex := match(resolved_excludes.get(ei), .Some(e) => e.clone(), .None => String.from(""));
       if((fp_res == ex) || fp_res.starts_with(`${ex}/`), {
         skip = true;
       });
@@ -870,7 +870,7 @@ _run_contract_verification :: (
   fail_without_solver := (strict_missing_solver && needs_proofs);
   binary := match(
     resolve_solver_sync(&cfg),
-    .Resolved(p) => p,
+    .Resolved(p) => p.clone(),
     .InvalidPath(p) => {
       eprintln(`verify: solver path '${p}' does not exist`);
       if(fail_without_solver, {
@@ -1059,7 +1059,7 @@ _apply_fixes_to_file :: (
     match(
       fixes.get(fi),
       .Some(f) => if(f.row < lines.len(), {
-        old_line := match(lines.get(f.row), .Some(l) => l, .None => String.new());
+        old_line := match(lines.get(f.row), .Some(l) => l.clone(), .None => String.new());
         lines(f.row) = _splice_runes(&old_line, f.col, f.len, f.replacement.clone());
         applied = (applied + usize(1));
       }),
@@ -1113,7 +1113,7 @@ _run_migrate_params :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -1135,7 +1135,7 @@ _run_migrate_params :: (
   canon_targets := ArrayList(String).new();
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    t := match(files.get(ti), .Some(f) => f, .None => String.new());
+    t := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon_targets.push(canonical_module_path(t.clone()));
     targets.push(t);
   });
@@ -1143,8 +1143,8 @@ _run_migrate_params :: (
   (n_stale : usize) = usize(0);
   (ci : usize) = usize(0);
   while(ci < canon_targets.len(), ci = (ci + usize(1)), {
-    canon := match(canon_targets.get(ci), .Some(c) => c, .None => String.new());
-    file := match(targets.get(ci), .Some(f) => f, .None => String.new());
+    canon := match(canon_targets.get(ci), .Some(c) => c.clone(), .None => String.new());
+    file := match(targets.get(ci), .Some(f) => f.clone(), .None => String.new());
     pending := ArrayList(_PendingFix).new();
     seen := HashSet(String).new();
     (ei : usize) = usize(0);
@@ -1167,7 +1167,7 @@ _run_migrate_params :: (
     (pi : usize) = usize(0);
     while(pi < pending.len(), pi = (pi + usize(1)), {
       p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
-      line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get(p.row), .Some(l) => l.clone(), .None => String.new());
       if(_rune_slice(&line, p.col, p.len) != p.description, {
         n_stale = (n_stale + usize(1));
         continue;
@@ -1242,7 +1242,7 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
       _parse_or_none(&src, file.clone()),
@@ -1267,7 +1267,7 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
             continue;
           });
           seen.insert(key);
-          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          line := match(lines.get(p.row), .Some(l) => l.clone(), .None => String.new());
           if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
@@ -1475,7 +1475,7 @@ _dtm_walk :: (
         match(
           args.get(usize(0)),
           .Some(.Atom(_, lt)) => if(lt.value == "dispose", {
-            lline := match(lines.get(usize(lt.row)), .Some(l) => l, .None => String.new());
+            lline := match(lines.get(usize(lt.row)), .Some(l) => l.clone(), .None => String.new());
             sig := String.from("dispose : (fn(self : &Self)");
             if(_rune_slice(&lline, usize(lt.column), sig.len()) == sig, {
               o.fixes.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : sig.len(), replacement : String.from("drop : (fn(self : &mut Self)"), description : sig));
@@ -1508,7 +1508,7 @@ _dtm_walk :: (
                       match(
                         iargs.get(usize(1)),
                         .Some(.Atom(_, st)) => {
-                          sline := match(lines.get(usize(st.row)), .Some(l) => l, .None => String.new());
+                          sline := match(lines.get(usize(st.row)), .Some(l) => l.clone(), .None => String.new());
                           if(_rune_slice(&sline, usize(st.column), usize(9)) == "\"Dispose\"", {
                             o.fixes.push(_PendingFix(row : usize(st.row), col : usize(st.column), len : usize(9), replacement : String.from("\"Drop\""), description : String.from("\"Dispose\"")));
                           });
@@ -1548,7 +1548,7 @@ _dtm_walk :: (
       match(
         member,
         .Some(mt) => {
-          line := match(lines.get(usize(mt.row)), .Some(l) => l, .None => String.new());
+          line := match(lines.get(usize(mt.row)), .Some(l) => l.clone(), .None => String.new());
           obj := match(dot_obj, .Some(o) => o, .None => make_err_expr());
           obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.clone(), true => String.new()), _ => String.new());
           is_witness := match(
@@ -1640,7 +1640,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
   (n_unevaluated : usize) = usize(0);
   (ei : usize) = usize(0);
   while(ei < files.len(), ei = (ei + usize(1)), {
-    file := match(files.get(ei), .Some(f) => f, .None => String.new());
+    file := match(files.get(ei), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop_err := _take_load_error();
@@ -1669,7 +1669,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
       _parse_or_none(&src, file.clone()),
@@ -1715,7 +1715,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
             continue;
           });
           seen.insert(key);
-          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          line := match(lines.get(p.row), .Some(l) => l.clone(), .None => String.new());
           if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
@@ -1787,7 +1787,7 @@ _bsm_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
   match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
 _bsm_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 _bsm_callee :: (fn(e : &AstExpr) -> AstExpr)(
   match(e, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => e)
@@ -1937,9 +1937,9 @@ _bsm_param :: (
   if(ast_expr_is_fn_call_of(&label, "comptime", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&label, "sink", Option(usize).Some(usize(1))), {
     m = _bsm_arg(&label, usize(0));
   });
-  sig := match(_bsm_mode_sig(&m), .Some(s) => s, .None => return(Option(String).None));
+  sig := match(_bsm_mode_sig(&m), .Some(s) => s.clone(), .None => return(Option(String).None));
   colon := ast_expr_token(&core);
-  line := match(lines.get(usize(colon.row)), .Some(l) => l, .None => String.new());
+  line := match(lines.get(usize(colon.row)), .Some(l) => l.clone(), .None => String.new());
   if(_rune_slice(&line, usize(colon.column), usize(2)) != ": ", {
     return(Option(String).None);
   });
@@ -2066,7 +2066,7 @@ _bsm_walk :: (
               .Some(lsig) => {
                 op := ast_expr_token(e);
                 op_text := `${op.value} `;
-                line := match(lines.get(usize(op.row)), .Some(l) => l, .None => String.new());
+                line := match(lines.get(usize(op.row)), .Some(l) => l.clone(), .None => String.new());
                 if((_rune_slice(&line, usize(op.column), _bsm_rune_len(&op_text)) == op_text) && _bsm_unwrap(&lb, String.new(), lines, out, claimed), {
                   out.push(_bsm_edit(usize(op.row), usize(op.column), op_text.clone(), `${op_text}${lsig}`));
                   if(word == ":=", {
@@ -2185,7 +2185,7 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
       _raw_parse_or_none(&src, file.clone()),
@@ -2228,7 +2228,7 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
             continue;
           });
           seen.insert(key);
-          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          line := match(lines.get(p.row), .Some(l) => l.clone(), .None => String.new());
           if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
@@ -2325,7 +2325,7 @@ _run_migrate_addr_of :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2346,7 +2346,7 @@ _run_migrate_addr_of :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon := canonical_module_path(file.clone());
     lent_keys := HashSet(String).new();
     addr := ArrayList(AddrOfSite).new();
@@ -2384,7 +2384,7 @@ _run_migrate_addr_of :: (
         println(`fix: ${at}: \`${st.expect}\` is lent in one evaluation and the address-of in another; left as written`);
         continue;
       });
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get(st.row), .Some(l) => l.clone(), .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -2503,7 +2503,7 @@ _run_migrate_markers :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2524,7 +2524,7 @@ _run_migrate_markers :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position, and a position
@@ -2564,7 +2564,7 @@ _run_migrate_markers :: (
         println(`fix: ${at}: \`${st.expect}\` is passed to an \`imm\` parameter in one evaluation and a \`mut\` one in another; left as written`);
         continue;
       });
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get(st.row), .Some(l) => l.clone(), .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -2650,7 +2650,7 @@ _run_migrate_rc_pattern :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2670,7 +2670,7 @@ _run_migrate_rc_pattern :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position.
@@ -2874,7 +2874,7 @@ _run_migrate_explicit_copy :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       _drop := _take_load_error();
@@ -2906,7 +2906,7 @@ _run_migrate_explicit_copy :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position. A position recorded
@@ -3124,7 +3124,7 @@ _run_migrate_dyn_spelling :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       load_err := _take_load_error();
@@ -3147,7 +3147,7 @@ _run_migrate_dyn_spelling :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon := canonical_module_path(file.clone());
     // One position can be recorded under both spellings of its module path
     // and by several evaluations: keep one per position.
@@ -3169,7 +3169,7 @@ _run_migrate_dyn_spelling :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get(st.row), .Some(l) => l.clone(), .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -3249,7 +3249,7 @@ _run_migrate_mutable_globals :: (
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     if(!outcome.ok, {
       load_err := _take_load_error();
@@ -3272,7 +3272,7 @@ _run_migrate_mutable_globals :: (
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
-    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    file := match(files.get(ti), .Some(f) => f.clone(), .None => String.new());
     canon := canonical_module_path(file.clone());
     mine := ArrayList(MutableGlobalSite).new();
     seen_pos := HashSet(String).new();
@@ -3292,7 +3292,7 @@ _run_migrate_mutable_globals :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
-      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      line := match(lines.get(st.row), .Some(l) => l.clone(), .None => String.new());
       runes := ArrayList(rune).new();
       lit := line.chars();
       (lgo : bool) = true;
@@ -3431,8 +3431,8 @@ run_fix :: (
     (fdi : usize) = usize(0);
     while(fdi < found.len(), fdi = (fdi + usize(1)), {
       if(!seen_files.contains(&found(fdi)), {
-        seen_files.insert(found(fdi));
-        files.push(found(fdi));
+        seen_files.insert(found(fdi).clone());
+        files.push(found(fdi).clone());
       });
     });
   });
@@ -3570,7 +3570,7 @@ run_fix :: (
     // local: the only module that leaves the cache is one whose bytes changed.
     (fi : usize) = usize(0);
     while(fi < files.len(), {
-      file := match(files.get(fi), .Some(f) => f, .None => String.new());
+      file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
       fi = (fi + usize(1));
       outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
       fix_dbg := proc_env.get(`YO_DEBUG_FIX`).is_some();
@@ -3589,7 +3589,7 @@ run_fix :: (
       // "check_if_function_parameter_matches_argument: arg has no ExprInfo"
       // from std/prelude.yo for a file whose actual error was an undefined
       // name). Reading it would make `fix` act on the wrong diagnostic.
-      diags := match(take_error_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+      diags := match(take_error_diagnostics(), .Some(ds) => ds.clone(), .None => ArrayList(Diagnostic).new());
       if(fix_dbg, {
         eprintln(`[fix] ${file}: failed, ${diags.len().to_string()} diagnostic(s)`);
         (ddj : usize) = usize(0);
@@ -4007,7 +4007,7 @@ run_verify_cmd :: (
   // synchronous by design (see src/verifier/z3.yo's header note).
   binary := match(
     resolve_solver_sync(&cfg),
-    .Resolved(path) => path,
+    .Resolved(path) => path.clone(),
     .InvalidPath(path) => {
       exn.throw(dyn(`verify: solver path '${path}' does not exist`));
       String.new()
@@ -4591,7 +4591,7 @@ _opt_step :: (fn(attached : &Option(String)) -> usize)(
 _opt_value :: (
   fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : Exception) -> String
 )(
-  match(attached, .Some(v) => v, .None => _arg_val_req(argv, i, flag, exn))
+  match(attached, .Some(v) => v.clone(), .None => _arg_val_req(argv, i, flag, exn))
 );
 /// `--heap-size <n>[K|M|G]` (suffix case-insensitive) -> bytes, validated:
 /// 64 KiB minimum (the TLSF control block alone needs ~8 KiB), 4 GiB maximum
@@ -4670,7 +4670,7 @@ _find_available_compiler :: (fn(io : Io) -> Option(String))({
   candidates.push(String.from("zig"));
   (fci : usize) = usize(0);
   while(fci < candidates.len(), {
-    c := match(candidates.get(fci), .Some(x) => x, .None => String.from(""));
+    c := match(candidates.get(fci), .Some(x) => x.clone(), .None => String.from(""));
     if(_check_compiler_available(c.clone(), io), {
       return(Option(String).Some(c));
     });
@@ -4719,7 +4719,7 @@ export(windows_path_with_dir_first);
 /// Put the ASan runtime DLL directory on this process's PATH (see
 /// `windows_path_with_dir_first`); children inherit it.
 _put_asan_dll_dir_on_path :: (fn(dll_dir : &String) -> unit)({
-  cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
+  cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv.clone(), .None => String.from(""));
   _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(&cur_path, dll_dir));
 });
 /// Windows: the directory holding clang's ASan runtime DLL, to prepend to
@@ -4737,7 +4737,7 @@ _find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))
   if(wout.status.raw != i32(0), {
     return(Option(String).None);
   });
-  wtxt := String.from_bytes(wout.stdout);
+  wtxt := String.from_bytes(wout.stdout.clone());
   first_line := match(wtxt.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.from(""));
   if(first_line.len() == usize(0), {
     return(Option(String).None);
@@ -4873,7 +4873,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   out := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
   cond(
     (out.status.raw == i32(0)) => {
-      flags = Option(String).Some(String.from_bytes(out.stdout));
+      flags = Option(String).Some(String.from_bytes(out.stdout.clone()));
     },
     true => ()
   );
@@ -4883,7 +4883,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   kegs.push(String.from("/opt/homebrew/opt/openssl/lib/pkgconfig"));
   kegs.push(String.from("/usr/local/opt/openssl/lib/pkgconfig"));
   while((ki < kegs.len()) && flags.is_none(), {
-    keg := kegs(ki);
+    keg := kegs(ki).clone();
     kprobe := Command.new(String.from("pkg-config"));
     kprobe.env(String.from("PKG_CONFIG_PATH"), &keg);
     kprobe.arg(String.from("--cflags"));
@@ -4892,7 +4892,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
     kout := io.await(kprobe.output(io), IoExn(io : io, exn : probe_exn));
     cond(
       (kout.status.raw == i32(0)) => {
-        flags = Option(String).Some(String.from_bytes(kout.stdout));
+        flags = Option(String).Some(String.from_bytes(kout.stdout.clone()));
       },
       true => ()
     );
@@ -4904,7 +4904,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
       toks := fl.trim().split(String.from(" "));
       (ti : usize) = usize(0);
       while(ti < toks.len(), {
-        t := toks(ti);
+        t := toks(ti).clone();
         cond(
           (t.starts_with("-I") && (t.len() > usize(2))) => {
             g_openssl_includes.push(t.substring(usize(2), t.len()));
@@ -5092,7 +5092,7 @@ _chunk_read :: (fn(path : &String, io : Io) -> Option(ArrayList(u8)))({
 });
 /// Recorded stamp beside an object file, `.None` when absent.
 _chunk_read_stamp :: (fn(path : &String, io : Io) -> Option(String))(
-  match(_chunk_read(path, io), .Some(b) => Option(String).Some(String.from_bytes(b)), .None => Option(String).None)
+  match(_chunk_read(path, io), .Some(b) => Option(String).Some(String.from_bytes(b.clone())), .None => Option(String).None)
 );
 /// Record a stamp; failures are silent (the cache is only an optimization).
 _chunk_write_stamp :: (fn(path : &String, stamp : &String, io : Io) -> unit)({
@@ -5142,10 +5142,10 @@ _compile_chunks_parallel :: (
   stamp_paths := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < chunk_c_files.len(), {
-    cf := match(chunk_c_files.get(i), .Some(x) => x, .None => String.new());
+    cf := match(chunk_c_files.get(i), .Some(x) => x.clone(), .None => String.new());
     obj := _chunk_obj_path(cf.clone());
     objs.push(obj.clone());
-    text_hash := match(chunk_text_hashes.get(i), .Some(h) => h, .None => String.new());
+    text_hash := match(chunk_text_hashes.get(i), .Some(h) => h.clone(), .None => String.new());
     stamp_src := ArrayList(u8).new();
     sb := `${text_hash}\n${flags_key}\n${CURRENT_YO_VERSION}`;
     (si : usize) = usize(0);
@@ -5163,7 +5163,7 @@ _compile_chunks_parallel :: (
       (fi : usize) = usize(0);
       while(fi < flags.len(), {
         cmdline.push_str(" ");
-        cmdline.push_string(_sh_quote(match(flags.get(fi), .Some(f) => f, .None => String.new())));
+        cmdline.push_string(_sh_quote(match(flags.get(fi), .Some(f) => f.clone(), .None => String.new())));
         fi = (fi + usize(1));
       });
       cmdline.push_str(" -c ");
@@ -5193,8 +5193,8 @@ _compile_chunks_parallel :: (
       // No `sh`: compile sequentially, one Command per chunk.
       (li : usize) = usize(0);
       while(li < chunk_c_files.len(), {
-        cf := match(chunk_c_files.get(li), .Some(x) => x, .None => String.new());
-        obj := match(objs.get(li), .Some(x) => x, .None => String.new());
+        cf := match(chunk_c_files.get(li), .Some(x) => x.clone(), .None => String.new());
+        obj := match(objs.get(li), .Some(x) => x.clone(), .None => String.new());
         seq := _cc_command(cc.clone(), flags);
         seq.arg(String.from("-c"));
         seq.arg(cf.clone());
@@ -5215,7 +5215,7 @@ _compile_chunks_parallel :: (
       (li : usize) = usize(0);
       (in_wave : usize) = usize(0);
       while(li < lines.len(), {
-        script.push_string(match(lines.get(li), .Some(l) => l, .None => String.new()));
+        script.push_string(match(lines.get(li), .Some(l) => l.clone(), .None => String.new()));
         script.push_str(" & pids=\"$pids $!\"\n");
         in_wave = (in_wave + usize(1));
         if(in_wave >= jobs, {
@@ -5241,8 +5241,8 @@ _compile_chunks_parallel :: (
   (wi : usize) = usize(0);
   while(wi < stamp_paths.len(), {
     _chunk_write_stamp(
-      match(stamp_paths.get(wi), .Some(p) => p, .None => String.new()),
-      match(stamps.get(wi), .Some(s) => s, .None => String.new()),
+      match(stamp_paths.get(wi), .Some(p) => p.clone(), .None => String.new()),
+      match(stamps.get(wi), .Some(s) => s.clone(), .None => String.new()),
       io
     );
     wi = (wi + usize(1));
@@ -5653,7 +5653,7 @@ _cc_plan_push_list :: (fn(out : &mut String, key : str, items : &ArrayList(Strin
   while(i < items.len(), {
     out.push_str(key);
     out.push_str(" ");
-    out.push_string(_cc_plan_escape(match(items.get(i), .Some(x) => x, .None => String.new())));
+    out.push_string(_cc_plan_escape(match(items.get(i), .Some(x) => x.clone(), .None => String.new())));
     out.push_str("\n");
     i = (i + usize(1));
   });
@@ -5687,7 +5687,7 @@ _cc_plan_parse :: (fn(text : &String, exn : Exception) -> CcPlan)({
   });
   (li : usize) = usize(1);
   while(li < lines.len(), {
-    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    line := match(lines.get(li), .Some(l) => l.clone(), .None => String.new());
     li = (li + usize(1));
     match(
       line.index_of(String.from(" ")),
@@ -5773,7 +5773,7 @@ _physical_memory_mb_linux :: (fn() -> usize)({
   lines := String.from_bytes(read_file_sync(String.from("/proc/meminfo"), swallow)).split(String.from("\n"));
   (li : usize) = usize(0);
   while(li < lines.len(), {
-    line := match(lines.get(li), .Some(l) => l, .None => String.new());
+    line := match(lines.get(li), .Some(l) => l.clone(), .None => String.new());
     if(line.starts_with(String.from("MemTotal:")), {
       digits := line.substring(usize(9), line.len()).trim().split(String.from(" "));
       total_mb = match(digits.get(usize(0)), .Some(kb) => usize(kb.parse_u64().unwrap_or(u64(0)) / u64(1024)), .None => usize(0));
@@ -5995,7 +5995,7 @@ _report_captured_cc_stderr :: (fn(captured_err : &ArrayList(u8)) -> unit)({
       .Some(line) => match(
         _parse_cc_diagnostic_line(line.clone()),
         .Some(d) => {
-          diags.push(d);
+          diags.push(d.clone());
         },
         .None => if(line.len() > usize(0), {
           raw.push_string(line.clone());
@@ -6167,7 +6167,7 @@ _finish_cc_plan :: (fn(plan : &CcPlan, profile_json : &String, io : Io, exn : Ex
 run_cc_plan_cmd :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   plan_path := match(
     argv.get(usize(2)),
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
       exn.throw(dyn(String.from("compile: __cc-plan needs a plan file")));
       String.new()
@@ -6695,7 +6695,7 @@ run_compile :: (
     match(
       _find_available_compiler(io),
       .Some(found_cc) => {
-        cc = found_cc;
+        cc = found_cc.clone();
       },
       .None => {
         exn.throw(dyn(String.from("Error: No C compiler found. Please install a C compiler (cc, gcc, clang, or zig) or specify one using the -cc/--c-compiler flag.")));
@@ -7112,9 +7112,9 @@ run_compile :: (
         // siblings by construction — a full relative path would double the
         // directory prefix). Every chunk file becomes a cc input.
         shared_h := `${c_base}_shared.h`;
-        shared_h_base := match(Path.new(shared_h.clone()).file_name(), .Some(bn) => bn, .None => shared_h.clone());
+        shared_h_base := match(Path.new(shared_h.clone()).file_name(), .Some(bn) => bn.clone(), .None => shared_h.clone());
         io.await(
-          write_string(Path.new(shared_h.clone()), match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()), io),
+          write_string(Path.new(shared_h.clone()), match(chunk_parts.get(usize(0)), .Some(x) => x.clone(), .None => String.new()), io),
           IoExn(io : io, exn : exn)
         );
         (pi2 : usize) = usize(1);
@@ -7124,7 +7124,7 @@ run_compile :: (
           cbody.push_str("#include \"");
           cbody.push_string(shared_h_base.clone());
           cbody.push_str("\"\n");
-          cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
+          cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x.clone(), .None => String.new()));
           io.await(write_string(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
           chunk_c_files.push(cf);
           chunk_text_hashes.push(sha256_hex(cbody.to_bytes()));
@@ -7513,7 +7513,7 @@ run_compile :: (
     // the build runner) is what resolves it. Linux's equivalent is the soname.
     so_base := match(
       Path.new(output.clone()).file_name(),
-      .Some(b) => b,
+      .Some(b) => b.clone(),
       .None => output.clone()
     );
     if(is_target_macos(&target), {
@@ -7553,7 +7553,7 @@ run_compile :: (
   if(openssl_ok, {
     (oii : usize) = usize(0);
     while(oii < g_openssl_includes.len(), {
-      oinc0 := match(g_openssl_includes.get(oii), .Some(x) => x, .None => String.new());
+      oinc0 := match(g_openssl_includes.get(oii), .Some(x) => x.clone(), .None => String.new());
       _arg_c := cmd.arg(`-I${oinc0}`);
       oii = (oii + usize(1));
     });
@@ -7573,7 +7573,7 @@ run_compile :: (
       // alone, and the link line below still compiles them once.
       (rfi : usize) = usize(0);
       while(rfi < cmd.recorded.len(), {
-        rf := match(cmd.recorded.get(rfi), .Some(x) => x, .None => String.new());
+        rf := match(cmd.recorded.get(rfi), .Some(x) => x.clone(), .None => String.new());
         if(!link_only_sources.contains(rf.clone()), {
           chunk_compile_flags.push(rf);
         });
@@ -7628,7 +7628,7 @@ run_compile :: (
   if(openssl_ok, {
     (ol : usize) = usize(0);
     while(ol < g_openssl_libdirs.len(), {
-      olib := match(g_openssl_libdirs.get(ol), .Some(x) => x, .None => String.new());
+      olib := match(g_openssl_libdirs.get(ol), .Some(x) => x.clone(), .None => String.new());
       _arg_c := cmd.arg(`-L${olib}`);
       ol = (ol + usize(1));
     });
@@ -7659,7 +7659,7 @@ run_compile :: (
     cmd.arg(String.from("-lcrypt32"));
   });
   plan := _new_cc_plan(if(chunk_c_files.len() > usize(0), _CC_PLAN_CHUNKED, _CC_PLAN_EXE), cc.clone(), c_path.clone(), output.clone());
-  plan.argv = cmd.recorded;
+  plan.argv = cmd.recorded.clone();
   plan.chunk_flags = chunk_compile_flags;
   plan.chunk_files = chunk_c_files;
   plan.chunk_hashes = chunk_text_hashes;
@@ -7686,7 +7686,7 @@ _collect_workspace_test_files :: (
   cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
   root_path := match(
     find_manifest(cwd_str.clone()),
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
       exn.throw(dyn(`test --workspace: no ${MANIFEST_FILENAME} here or above, so there is no workspace to test`));
       String.new()
@@ -7696,7 +7696,7 @@ _collect_workspace_test_files :: (
     load_manifest(root_path.clone(), exn),
     .Ok(m) => m,
     .Err(msg) => {
-      exn.throw(dyn(msg));
+      exn.throw(dyn(msg.clone()));
       return(ArrayList(String).new())
     }
   );
@@ -7712,7 +7712,7 @@ _collect_workspace_test_files :: (
     found := _collect_test_files(&members(i), excludes, io, exn);
     (j : usize) = usize(0);
     while(j < found.len(), {
-      out.push(found(j));
+      out.push(found(j).clone());
       j = (j + usize(1));
     });
     i = (i + usize(1));
@@ -8445,7 +8445,7 @@ run_test :: (
     (skipped_n : usize) = usize(0);
     (sfi : usize) = usize(0);
     while(sfi < files.len(), {
-      sf := match(files.get(sfi), .Some(f) => f, .None => String.from(""));
+      sf := match(files.get(sfi), .Some(f) => f.clone(), .None => String.from(""));
       sfi = (sfi + usize(1));
       sf_bytes := io.await(read(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
       sf_src := String.from_bytes(sf_bytes);
@@ -8453,7 +8453,7 @@ run_test :: (
       (skip_this : bool) = false;
       (sli : usize) = usize(0);
       while((sli < sf_lines.len()) && ((sli < usize(50)) && !skip_this), {
-        sline := match(sf_lines.get(sli), .Some(l) => l, .None => String.from(""));
+        sline := match(sf_lines.get(sli), .Some(l) => l.clone(), .None => String.from(""));
         sli = (sli + usize(1));
         // Whitespace-stripped `contains` tolerates arbitrary
         // intra-call whitespace; the trailing `)` in the needle
@@ -8485,7 +8485,7 @@ run_test :: (
     (win_skipped : usize) = usize(0);
     (wfi : usize) = usize(0);
     while(wfi < files.len(), {
-      wf := match(files.get(wfi), .Some(f) => f, .None => String.from(""));
+      wf := match(files.get(wfi), .Some(f) => f.clone(), .None => String.from(""));
       wfi = (wfi + usize(1));
       wf_bytes := io.await(read(Path.new(wf.clone()), io), IoExn(io : io, exn : exn));
       wf_src := String.from_bytes(wf_bytes);
@@ -8493,7 +8493,7 @@ run_test :: (
       (win_skip : bool) = false;
       (wli : usize) = usize(0);
       while((wli < wf_lines.len()) && ((wli < usize(50)) && !win_skip), {
-        wline := match(wf_lines.get(wli), .Some(l) => l, .None => String.from(""));
+        wline := match(wf_lines.get(wli), .Some(l) => l.clone(), .None => String.from(""));
         wli = (wli + usize(1));
         wstripped := wline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
         if(wstripped.contains("pragma(Pragma.SkipWindows)"), {
@@ -8530,7 +8530,7 @@ run_test :: (
   );
   nlv_san_choice := match(
     proc_env.get(`YO_TEST_SANITIZE`),
-    .Some(sv) => sv,
+    .Some(sv) => sv.clone(),
     .None => String.from("address")
   );
   // Same `run_is_wasi` correction as the batch site's `use_asan`: emcc/WASI
@@ -8546,7 +8546,7 @@ run_test :: (
     (nlv_skipped : usize) = usize(0);
     (nfi : usize) = usize(0);
     while(nfi < files.len(), {
-      nf := match(files.get(nfi), .Some(f) => f, .None => String.from(""));
+      nf := match(files.get(nfi), .Some(f) => f.clone(), .None => String.from(""));
       nfi = (nfi + usize(1));
       nf_bytes := io.await(read(Path.new(nf.clone()), io), IoExn(io : io, exn : exn));
       nf_src := String.from_bytes(nf_bytes);
@@ -8554,7 +8554,7 @@ run_test :: (
       (nlv_skip : bool) = false;
       (nli : usize) = usize(0);
       while((nli < nf_lines.len()) && ((nli < usize(50)) && !nlv_skip), {
-        nline := match(nf_lines.get(nli), .Some(l) => l, .None => String.from(""));
+        nline := match(nf_lines.get(nli), .Some(l) => l.clone(), .None => String.from(""));
         nli = (nli + usize(1));
         nstripped := nline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
         if(nstripped.contains("pragma(Pragma.NeedsLeakVerdict)"), {
@@ -8616,7 +8616,7 @@ run_test :: (
     .Err(_) => false
   );
   while((fi < files.len()) && !bailed, {
-    file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.from(""));
     fi = (fi + usize(1));
     file_t0 := Instant.now();
     if(human, {
@@ -8633,14 +8633,14 @@ run_test :: (
       e := match(prog.get(pi), .Some(x) => x, .None => make_err_expr());
       pi = (pi + usize(1));
       if(ast_expr_is_fn_call_of(&e, BK_TEST, .None), {
-        targs := match(e, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
+        targs := match(e, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
           // Go through extract_test_name, which strips the surrounding quotes a
           // StringLit token value carries ("name" -> name): it reads the
           // EVALUATED comptime string and only falls back to the raw token
           // value. Taking ntok.value directly printed `✓ "name"` and made
           // --test-name-pattern match against the quote characters.
-          tname := match(extract_test_name(&e), .Some(n) => n, .None => String.from("unnamed_test"));
+          tname := match(extract_test_name(&e), .Some(n) => n.clone(), .None => String.from("unnamed_test"));
           tbody := match(extract_test_body(&e), .Some(b) => b, .None => make_err_expr());
           keep := match(name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
           if(keep, {
@@ -8655,7 +8655,7 @@ run_test :: (
           match(
             _export_without_main(&e),
             .Some(stmt) => {
-              non_test.push(stmt);
+              non_test.push(stmt.clone());
             },
             .None => ()
           );
@@ -8853,7 +8853,7 @@ run_test :: (
             get_std_path_override(),
             .Some(sp) => {
               cargv.push(String.from("--std-path"));
-              cargv.push(sp);
+              cargv.push(sp.clone());
             },
             .None => ()
           );
@@ -8863,7 +8863,7 @@ run_test :: (
             get_imports_file_override(),
             .Some(imf) => {
               cargv.push(String.from("--imports"));
-              cargv.push(imf);
+              cargv.push(imf.clone());
             },
             .None => ()
           );
@@ -8937,7 +8937,7 @@ run_test :: (
         // mapping and the ASan-usability probe.
         san_choice := match(
           proc_env.get(`YO_TEST_SANITIZE`),
-          .Some(sv) => sv,
+          .Some(sv) => sv.clone(),
           .None => String.from("address")
         );
         // `run_is_wasi` is part of the emcc test, not just the literal cc
@@ -9097,8 +9097,8 @@ run_test :: (
           );
           test_t0 := Instant.now();
           tout := io.await(tcmd.output(io), IoExn(io : io, exn : exn));
-          (combined : String) = String.from_bytes(tout.stdout);
-          combined.push_string(String.from_bytes(tout.stderr));
+          (combined : String) = String.from_bytes(tout.stdout.clone());
+          combined.push_string(String.from_bytes(tout.stderr.clone()));
           (t_status : i32) = tout.status.raw;
           // Older ASan runtimes: "detect_leaks is not supported" → retry once
           // without leak detection.
@@ -9106,8 +9106,8 @@ run_test :: (
             _sv_asan2 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=0"));
             tcmd2 := Command.new(tmp_bin.clone());
             tout2 := io.await(tcmd2.output(io), IoExn(io : io, exn : exn));
-            combined = String.from_bytes(tout2.stdout);
-            combined.push_string(String.from_bytes(tout2.stderr));
+            combined = String.from_bytes(tout2.stdout.clone());
+            combined.push_string(String.from_bytes(tout2.stderr.clone()));
             t_status = tout2.status.raw;
             _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
           });
@@ -9136,7 +9136,7 @@ run_test :: (
               `Memory leak detected:\n${combined}`,
               `Test failed with exit code ${t_status.to_string()}\n${combined}`
             );
-            first_line := match(err_msg.split("\n").get(usize(0)), .Some(l) => l, .None => String.from(""));
+            first_line := match(err_msg.split("\n").get(usize(0)), .Some(l) => l.clone(), .None => String.from(""));
             if(json_lines, {
               println(`{"event":"test","file":"${_json_escape(file.clone())}","name":"${_json_escape(t.name.clone())}","status":"failed","duration_ms":${test_ms.to_string()},"message":"${_json_escape(first_line.clone())}","output":"${_json_escape(combined.clone())}"}`);
             }, {
@@ -9151,7 +9151,7 @@ run_test :: (
                 err_lines := err_msg.split("\n");
                 (eli : usize) = usize(0);
                 while(eli < err_lines.len(), {
-                  el := match(err_lines.get(eli), .Some(l) => l, .None => String.from(""));
+                  el := match(err_lines.get(eli), .Some(l) => l.clone(), .None => String.from(""));
                   println(`    ${el}`);
                   eli = (eli + usize(1));
                 });
@@ -9362,13 +9362,13 @@ run_effects :: (
   });
   (fi : usize) = usize(0);
   while(fi < files.len(), {
-    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    file := match(files.get(fi), .Some(f) => f.clone(), .None => String.new());
     fi = (fi + usize(1));
     outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
     sep := if(fi < files.len(), String.from(","), String.new());
     if(!outcome.ok, {
       failed = (failed + usize(1));
-      why := match(_take_load_error(), .Some(r) => r, .None => String.from("evaluation failed"));
+      why := match(_take_load_error(), .Some(r) => r.clone(), .None => String.from("evaluation failed"));
       if(as_json, {
         println(`  {"file":"${_json_escape(file.clone())}","error":"${_json_escape(why.clone())}"}${sep}`);
       }, {
@@ -9382,8 +9382,8 @@ run_effects :: (
     match(
       outcome.module_type,
       Rc(.Struct({ field_labels, field_types })) => {
-        labels = field_labels;
-        types = field_types;
+        labels = field_labels.clone();
+        types = field_types.clone();
       },
       _ => ()
     );
@@ -9408,7 +9408,7 @@ run_effects :: (
     (seen_fns : usize) = usize(0);
     (li : usize) = usize(0);
     while(li < labels.len(), {
-      name := match(labels.get(li), .Some(l) => l, .None => String.new());
+      name := match(labels.get(li), .Some(l) => l.clone(), .None => String.new());
       ty := match(types.get(li), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       li = (li + usize(1));
       match(
@@ -9418,10 +9418,10 @@ run_effects :: (
           fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
           entries := ArrayList(String).new();
           json_entries := ArrayList(String).new();
-          param_labels := meta.*.param_labels;
+          param_labels := meta.*.param_labels.clone();
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
-            plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
+            plabel := match(param_labels.get(pi), .Some(l) => l.clone(), .None => String.new());
             pty := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             pi = (pi + usize(1));
             kinds := _effect_kinds_of_type(&pty, usize(0));
@@ -9430,10 +9430,10 @@ run_effects :: (
               json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(&pty))}","via":"param","kinds":[${_json_string_list(&kinds)}]}`);
             });
           });
-          implicit_labels := meta.*.implicit_labels;
+          implicit_labels := meta.*.implicit_labels.clone();
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
-            ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
+            ilabel := match(implicit_labels.get(ii), .Some(l) => l.clone(), .None => String.new());
             ity := match(implicit_types.get(ii), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             ii = (ii + usize(1));
             // An implicit (`using`) parameter is an effect by construction.
@@ -9452,7 +9452,7 @@ run_effects :: (
           _collect_future_effects(&result, &mut fut_labels, &mut fut_types);
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
-            elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
+            elabel := match(fut_labels.get(ei), .Some(l) => l.clone(), .None => String.new());
             ety := match(fut_types.get(ei), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             ei = (ei + usize(1));
             kinds := _effect_kinds_of_type(&ety, usize(0));
@@ -9504,7 +9504,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
       (has_async : bool) = false;
       (fi : usize) = usize(0);
       while(fi < field_types.len(), {
-        flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.new());
+        flabel := match(field_labels.get(fi), .Some(l) => l.clone(), .None => String.new());
         fty := match(field_types.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(
@@ -9697,7 +9697,7 @@ run_fmt :: (
   // the cwd.
   fmt_cwd := match(
     proc_env.get(`YO_ORIGINAL_CWD`),
-    .Some(oc) => oc,
+    .Some(oc) => oc.clone(),
     .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
   );
   // Errors print the BARE message — no `yo: error:` prefix.
@@ -9792,7 +9792,7 @@ _cache_clean :: (
   dirs.push(get_index_dir(cache_dir.clone()));
   (i : usize) = usize(0);
   while(i < dirs.len(), {
-    d := dirs(i);
+    d := dirs(i).clone();
     i = (i + usize(1));
     d_present := io.await(exists(Path.new(d.clone()), io), io);
     if(d_present, {
@@ -9804,7 +9804,7 @@ _cache_clean :: (
   files.push(projects_registry_path(cache_dir.clone()));
   (j : usize) = usize(0);
   while(j < files.len(), {
-    f := files(j);
+    f := files(j).clone();
     j = (j + usize(1));
     f_present := io.await(exists(Path.new(f.clone()), io), io);
     if(f_present, {
@@ -10146,34 +10146,34 @@ run_build_cmd :: (
   (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "--cc") || (arg == "--c-compiler")) => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --cc requires a value")));
         });
-        c_compiler = Option(String).Some(argv(ai + usize(1)));
+        c_compiler = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       ((arg == "-t") || (arg == "--target")) => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --target requires a value")));
         });
-        target_triple = Option(String).Some(argv(ai + usize(1)));
+        target_triple = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       (arg == "--sysroot") => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --sysroot requires a value")));
         });
-        sysroot = Option(String).Some(argv(ai + usize(1)));
+        sysroot = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       (arg == "--build-file") => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: --build-file requires a value")));
         });
-        build_file = argv(ai + usize(1));
+        build_file = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--build-file=")) => {
@@ -10224,7 +10224,7 @@ run_build_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: -p requires a workspace member name")));
         });
-        package = Option(String).Some(argv(ai + usize(1)));
+        package = Option(String).Some(argv(ai + usize(1)).clone());
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--package=")) => {
@@ -10404,7 +10404,7 @@ run_unsafe_report_cmd :: (
   (as_json : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       (arg == "--json") => {
         as_json = true;
@@ -10442,7 +10442,7 @@ run_public_safe_report_cmd :: (
   (as_json : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       (arg == "--json") => {
         as_json = true;
@@ -10490,13 +10490,13 @@ run_doc_cmd :: (
   (saw_input : bool) = false;
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
-    arg := argv(ai);
+    arg := argv(ai).clone();
     cond(
       ((arg == "-o") || (arg == "--output")) => {
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --output requires a value")));
         });
-        output_dir = argv(ai + usize(1));
+        output_dir = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--output=")) => {
@@ -10506,7 +10506,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --title requires a value")));
         });
-        title = argv(ai + usize(1));
+        title = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--title=")) => {
@@ -10522,7 +10522,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --format requires a value")));
         });
-        format = argv(ai + usize(1));
+        format = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--format=")) => {
@@ -10532,7 +10532,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --version requires a value")));
         });
-        version = argv(ai + usize(1));
+        version = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--version=")) => {
@@ -10542,7 +10542,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --logo requires a value")));
         });
-        logo = argv(ai + usize(1));
+        logo = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--logo=")) => {
@@ -10552,7 +10552,7 @@ run_doc_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("doc: --favicon requires a value")));
         });
-        favicon = argv(ai + usize(1));
+        favicon = argv(ai + usize(1)).clone();
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--favicon=")) => {
@@ -10610,7 +10610,7 @@ run_version_cmd :: (
   (remote : bool) = false;
   (vi : usize) = usize(2);
   while(vi < argv.len(), {
-    a := argv(vi);
+    a := argv(vi).clone();
     cond(
       (a == "--remote") => {
         remote = true;
@@ -10632,7 +10632,7 @@ run_version_cmd :: (
   });
   version_cwd := match(
     proc_env.get(`YO_ORIGINAL_CWD`),
-    .Some(oc) => oc,
+    .Some(oc) => oc.clone(),
     .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
   );
   if(action == "", {
@@ -11003,7 +11003,7 @@ run_explain :: (
   (target : String) = String.new();
   (ai : usize) = usize(1);
   while(ai < argv.len(), {
-    a := argv(ai);
+    a := argv(ai).clone();
     if(a == "--list", {
       show_list = true;
       ai = (ai + usize(1));
@@ -12216,7 +12216,7 @@ main :: (fn(io : Io) -> unit)({
   argv0 := ArrayList(String).new();
   ai0 := usize(0);
   while(ai0 < raw_argv0.len(), {
-    a0 := raw_argv0(ai0);
+    a0 := raw_argv0(ai0).clone();
     if(a0 == "--error-format", {
       if((ai0 + usize(1)) < raw_argv0.len(), {
         err_format = raw_argv0(ai0 + usize(1)).clone();
@@ -12258,7 +12258,7 @@ main :: (fn(io : Io) -> unit)({
   argv1 := ArrayList(String).new();
   ci0 := usize(0);
   while(ci0 < argv0.len(), {
-    c0 := argv0(ci0);
+    c0 := argv0(ci0).clone();
     if(c0 == "--color", {
       if((ci0 + usize(1)) < argv0.len(), {
         color_mode = argv0(ci0 + usize(1)).clone();
@@ -12299,7 +12299,7 @@ main :: (fn(io : Io) -> unit)({
   argv := ArrayList(String).new();
   ai := usize(0);
   while(ai < raw_argv.len(), {
-    a := raw_argv(ai);
+    a := raw_argv(ai).clone();
     if(a == "--std-path", {
       if((ai + usize(1)) < raw_argv.len(), {
         set_std_path_override(raw_argv(ai + usize(1)).clone());
@@ -12359,7 +12359,7 @@ main :: (fn(io : Io) -> unit)({
     eprintln(_top_level_help_text());
     unsafe(exit(int(1)));
   });
-  subcmd := argv(usize(1));
+  subcmd := argv(usize(1)).clone();
   // Per-subcommand `--help` / `-h`: answered LOCALLY, before the .yo-version
   // pre-dispatch (help must not require a cached binary or a network). The
   // scan stops at `--` so pass-through arguments (e.g. a program's own
@@ -12368,7 +12368,7 @@ main :: (fn(io : Io) -> unit)({
   (help_wanted : bool) = false;
   (help_i : usize) = usize(2);
   while((help_i < argv.len()) && !help_wanted, {
-    help_a := argv(help_i);
+    help_a := argv(help_i).clone();
     if(help_a == "--", {
       help_i = argv.len();
     }, {
@@ -12393,7 +12393,7 @@ main :: (fn(io : Io) -> unit)({
   if((subcmd != "version") && (subcmd != "lsp") && match(proc_env.get(`YO_VERSION_DISPATCHED`), .Some(dv) => (dv != "1"), .None => true), {
     dispatch_cwd := match(
       proc_env.get(`YO_ORIGINAL_CWD`),
-      .Some(oc) => oc,
+      .Some(oc) => oc.clone(),
       .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
     );
     pin_exn := Exception(throw : (_pe -> unwind(())));

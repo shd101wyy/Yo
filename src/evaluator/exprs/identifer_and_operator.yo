@@ -226,7 +226,7 @@ evaluate_identifier_and_operator :: (
   // ------------------------------------------------------------------
   // Variable lookup
   // ------------------------------------------------------------------
-  identifier_string := token.value;
+  identifier_string := token.value.clone();
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
     eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
@@ -270,7 +270,7 @@ evaluate_identifier_and_operator :: (
         pending_var
       },
       .Error({ msg : pending_msg }) => {
-        exn.throw(dyn(pending_msg));
+        exn.throw(dyn(pending_msg.clone()));
         return(expr);
       },
       .NotPending => {
@@ -304,7 +304,7 @@ evaluate_identifier_and_operator :: (
         // piece of advice means the rename is no longer the unique fix, and
         // that branch clears the repair for exactly that reason.
         not_found_suggestion := suggest_name(&identifier_string, env_candidate_names(env));
-        (not_found_repair : Option(String)) = not_found_suggestion;
+        (not_found_repair : Option(String)) = not_found_suggestion.clone();
         not_found_help := match(
           not_found_suggestion,
           .Some(h) => Option(String).Some(`did you mean "${h}"?`),
@@ -319,7 +319,7 @@ evaluate_identifier_and_operator :: (
         std_exporters := lookup_std_exporters(&identifier_string);
         (import_repair : Option(String)) = Option(String).None;
         if(std_exporters.len() > usize(0), {
-          first_spec := match(std_exporters.get(usize(0)), .Some(s0) => s0, .None => String.new());
+          first_spec := match(std_exporters.get(usize(0)), .Some(s0) => s0.clone(), .None => String.new());
           import_line := `{ ${identifier_string} } :: import("${first_spec}");`;
           (spec_list : String) = String.new();
           (sxi : usize) = usize(0);
@@ -389,7 +389,7 @@ evaluate_identifier_and_operator :: (
                     &token,
                     `Variable "${identifier_string}" not found.`,
                     &not_found_help,
-                    Span(path : token.module_path, row : _first_code_row(&token.input), col : usize(0), len : usize(0)),
+                    Span(path : token.module_path.clone(), row : _first_code_row(&token.input), col : usize(0), len : usize(0)),
                     `${line}\n`,
                     `add ${line}`
                   ),
@@ -468,7 +468,7 @@ evaluate_identifier_and_operator :: (
   info := new_expr_info(env, &variable.ty);
   info.value = resolved_value;
   expr_info_set_origin_type(&info, Option(TypeValue).Some(variable.ty));
-  info.variable_name = Option(String).Some(variable.name);
+  info.variable_name = Option(String).Some(variable.name.clone());
   info.source_variable = Option(Variable).Some(variable);
   // path_collection = [[variable.name]], shared per name.
   info.path_collection = path_collection_of_name(&variable.name);

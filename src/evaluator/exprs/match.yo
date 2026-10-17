@@ -277,7 +277,7 @@ _variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
 _gadt_refined_expected :: (
   fn(expected : &TypeValue, tca : &ArrayList(TypeValue), gra : &ArrayList(TypeValue)) -> TypeValue
 )({
-  exp_id := match(expected, Rc(.SomeT({ id : sid })) => sid, _ => String.new());
+  exp_id := match(expected, Rc(.SomeT({ id : sid })) => sid.clone(), _ => String.new());
   if(exp_id.len() == usize(0), {
     return(expected);
   });
@@ -566,9 +566,9 @@ _ArmOwnership :: ref(
 );
 _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
-  name := generate_new_temp_variable_name(&env.module_path, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path));
+  name := generate_new_temp_variable_name(&env.module_path, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path.clone()));
   own.counter = (own.counter + usize(1));
-  atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : tok.module_path, input : tok.input);
+  atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : tok.module_path.clone(), input : tok.input.clone());
   BindInfo(name : name, ty : ty, value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))
 });
 _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> Pattern)({
@@ -664,7 +664,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
           f = (f + usize(1));
         });
       });
-      v := Pattern.Variant(name : vname, idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : enum_ty, through_ptr : through_ptr, arity : arity);
+      v := Pattern.Variant(name : vname.clone(), idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : enum_ty, through_ptr : through_ptr, arity : arity);
       cond(
         (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, &v, env),
         true => v
@@ -715,7 +715,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       sub_names := pattern_bindings(&sub);
       (si : usize) = usize(0);
       while(si < sub_names.len(), {
-        sn := match(sub_names.get(si), .Some(n) => n, .None => String.new());
+        sn := match(sub_names.get(si), .Some(n) => n.clone(), .None => String.new());
         sty := _bind_ty_of(own, sn.clone());
         bad := cond(
           (in_cell || _names_contain(&own.borrowed, sn.clone())) => false,
@@ -741,7 +741,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         });
         si = (si + usize(1));
       });
-      Pattern.At(name : name, token : atok, atom : aatom, sub : new_sub)
+      Pattern.At(name : name.clone(), token : atok, atom : aatom, sub : new_sub)
     },
     .ThroughBox(box_ty, inner_ty, sub) => {
       tb := Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : recur(&sub, &inner_ty, true, own, env, exn));
@@ -759,11 +759,11 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         match(subs.get(i), .Some(sub) => new_subs.push(recur(&sub, &ety, cell, own, env, exn)), .None => ());
         i = (i + usize(1));
       });
-      Pattern.Tuple(subs : new_subs, elem_tys : elem_tys)
+      Pattern.Tuple(subs : new_subs, elem_tys : elem_tys.clone())
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
       cell := (in_cell || pattern_position_is_cell(ty));
-      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => fts, _ => ArrayList(TypeValue).new());
+      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => fts.clone(), _ => ArrayList(TypeValue).new());
       new_idx := ArrayList(usize).new();
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
@@ -893,7 +893,7 @@ evaluate_match :: (
   });
   all_args := match(
     expr,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   if(all_args.len() < usize(2), {
@@ -1002,7 +1002,7 @@ evaluate_match :: (
     is_ptr_match => t_ptr(&matched_type),
     true => matched_type
   );
-  en_id := match(matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
+  en_id := match(matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(), _ => String.new());
   // GADT match detection: the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
@@ -1155,7 +1155,7 @@ evaluate_match :: (
     // `(p && (g)) => body`: a guard.
     (guard_ast : Option(AstExpr)) = Option(AstExpr).None;
     if(ast_expr_is_fn_call_of(&pattern_ast, "&&", .Some(usize(2))), {
-      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga, .Atom(_, _) => ArrayList(AstExpr).new());
+      gargs := match(pattern_ast, .FnCall(_, _, ga, _, _) => ga.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       guard_ast = gargs.get(usize(1));
       pattern_ast = match(gargs.get(usize(0)), .Some(a) => a, .None => pattern_ast);
     });
@@ -1369,7 +1369,7 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, etas)),
+            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id.clone(), n.clone(), vn.clone(), vf.clone(), Option(String).Some(vname.clone()), vfl.clone(), discs.clone(), eirs, eiar, etas.clone())),
             _ => venum
           );
           cond(is_ptr_match => t_ptr(&sel), true => sel)
@@ -1404,7 +1404,7 @@ evaluate_match :: (
         pattern_test_exprs(&pat, &mut tests);
         if(tests.len() > usize(0), {
           ptok := ast_expr_token(&arm_expr);
-          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path, input : ptok.input));
+          begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path.clone(), input : ptok.input.clone()));
           arm_info := new_expr_info(&env, t_unit());
           expr_info_set_macro_expansion(&arm_info, Option(AstExpr).Some(AstExpr.FnCall(alloc_global_expr_id(), begin_atom, tests, false, ptok)));
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&arm_expr), &arm_info);
@@ -1631,7 +1631,7 @@ evaluate_match :: (
             gadt_va_em,
             .Some(av) => match(
               top_variant_idx,
-              .Some(vidx2) => match(av.get(vidx2), .Some(g) => g, .None => ArrayList(TypeValue).new()),
+              .Some(vidx2) => match(av.get(vidx2), .Some(g) => g.clone(), .None => ArrayList(TypeValue).new()),
               .None => ArrayList(TypeValue).new()
             ),
             .None => ArrayList(TypeValue).new()
@@ -1769,7 +1769,7 @@ evaluate_match :: (
           .Some(aa) => match(
             aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx == target_idx, {
-              vname = an;
+              vname = an.clone();
               varity = aar;
               vptr = aptr;
               vety = aety;

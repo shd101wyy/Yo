@@ -63,7 +63,7 @@ collect_evidence_from_record :: (
       n := field_labels.len();
       (i : usize) = usize(0);
       while(i < n, {
-        field_label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
+        field_label := match(field_labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
         field_ty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cond(
           is_function_type(&field_ty) => {
@@ -126,7 +126,7 @@ generate_function_prototype :: (
   match(
     function_type,
     Rc(.Func({ param_types, result, meta : __fm1 })) => {
-      param_labels := __fm1.*.param_labels;
+      param_labels := __fm1.*.param_labels.clone();
       // The C pointer flags: a `&mut T` parameter, or a projection's `&T`.
       param_is_ref := fn_abi_param_is_ptr(function_type);
       result_is_ref := __fm1.*.result_is_ref;
@@ -137,7 +137,7 @@ generate_function_prototype :: (
       context.current_function_name = `<proto:${c_function_name}>`;
       return_type_str := match(
         override_return_type,
-        .Some(s) => s,
+        .Some(s) => s.clone(),
         .None => {
           base := get_type_string(&result, context);
           if(result_is_ref, {
@@ -253,9 +253,9 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
-        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        vname := match(variant_names.get(vi), .Some(v) => v.clone(), .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
         nf := fields.len();
         params := String.from("");
         (emitted : usize) = usize(0);
@@ -267,7 +267,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
-              flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
+              flabel := match(labels.get(pi), .Some(l) => l.clone(), .None => String.from(""));
               params.push_string(get_type_string(&ft, context));
               params.push_str(" ");
               params.push_string(sanitize_for_c_identifier(&flabel, false));
@@ -790,7 +790,7 @@ emitted_return_type_string :: (
           Option(String).Some(
             match(
               _return_type_override(&ft, &body, context),
-              .Some(s) => s,
+              .Some(s) => s.clone(),
               .None => match(
                 ft,
                 Rc(.Func({ result : r, meta : __erm })) => {
@@ -831,8 +831,8 @@ static_dispatch_callee_return_type :: (
     .Some(cei) => {
       sd_id := match(
         resolve_some_type_to_concrete(&cei.ty),
-        Rc(.Struct({ id : i })) => i,
-        Rc(.SomeT({ id : i })) => i,
+        Rc(.Struct({ id : i })) => i.clone(),
+        Rc(.SomeT({ id : i })) => i.clone(),
         _ => String.from("")
       );
       cond(
@@ -871,7 +871,7 @@ _is_threading_macro_function :: (fn(name : &String) -> bool)(
 );
 /// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
 _func_extern_tag :: (fn(ft : &TypeValue) -> Option(String))(
-  match(ft, Rc(.Func({ meta : __fm3 })) => __fm3.*.is_extern, _ => Option(String).None)
+  match(ft, Rc(.Func({ meta : __fm3 })) => __fm3.*.is_extern.clone(), _ => Option(String).None)
 );
 /// Generate constructor declarations for closures. No-op: Impl(Fn(...)) closures
 /// use concrete capture structs + direct calls; Dyn(Fn(...)) uses dyn

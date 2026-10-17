@@ -123,7 +123,7 @@ clear_cee_observed_error :: (fn() -> unit)({
   g_cee_observed_messages.clear();
 });
 record_cee_error_message :: (fn(msg : &String) -> unit)({
-  g_cee_observed_messages.push(msg);
+  g_cee_observed_messages.push(msg.clone());
 });
 cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.clone());
 cee_observed_error :: (fn() -> bool)(
@@ -192,7 +192,7 @@ _unwrap_begin_blocks :: (fn(expr : &AstExpr) -> AstExpr)({
   (go : bool) = true;
   while(go, {
     if(ast_expr_is_fn_call(&current) && ast_expr_is_fn_call_of(&current, BK_BEGIN, Option(usize).None), {
-      args := match(current, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+      args := match(current, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
       if(args.len() == usize(0), {
         go = false;
       }, {
@@ -216,7 +216,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // `Identifier(name : "x")`, named call args) are transparent for flow
   // purposes; the VALUE side is what flows.
   if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, ":", .Some(usize(2))), {
-    labeled_args := match(expr, .FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
+    labeled_args := match(expr, .FnCall(_, _, la, _, _) => la.clone(), _ => ArrayList(AstExpr).new());
     match(
       labeled_args.get(usize(1)),
       .Some(lv) => {
@@ -263,7 +263,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     );
     var_name := match(
       info.variable_name,
-      .Some(n) => n,
+      .Some(n) => n.clone(),
       .None => {
         return(false);
       }
@@ -308,7 +308,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     return(false);
   });
   call_func := match(expr, .FnCall(_, f, _, _, _) => f, _ => expr);
-  call_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  call_args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   // R2: `expr.field` — a 2-arg `.` call. Flowable iff the base is flowable.
   if(ast_expr_is_fn_call_of(&expr, BF_DOT, Option(usize).Some(usize(2))), {
     base := match(
@@ -393,7 +393,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
         fa_member := match(fa_fn, .FnCall(_, _, fa_fargs2, _, _) => fa_fargs2.get(usize(1)), _ => Option(AstExpr).None);
         fa_name := match(
           fa_member,
-          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_token(&fa_m).value, String.new()),
+          .Some(fa_m) => if(ast_expr_is_atom(&fa_m), ast_expr_token(&fa_m).value.clone(), String.new()),
           .None => String.new()
         );
         if((fa_name == "add") || (fa_name == "sub"), {
@@ -527,8 +527,8 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   if(!is_ref_return && !is_slice_return, {
     return(false);
   });
-  param_types := match(callee_ty, Rc(.Func({ param_types : pts })) => pts, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(callee_ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
+  param_types := match(callee_ty, Rc(.Func({ param_types : pts })) => pts.clone(), _ => ArrayList(TypeValue).new());
+  param_is_ref := match(callee_ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_is_ref.clone(), _ => ArrayList(bool).new());
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
@@ -676,7 +676,7 @@ require_ref_own_argument_exclusivity :: (
     if(!is_ref && !is_owning, {
       pi = (pi + usize(1));
     }, {
-      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi), .Some(l) => l, .None => String.from("")), true => String.from(""));
+      lbl := cond((pi < param_labels.len()) => match(param_labels.get(pi), .Some(l) => l.clone(), .None => String.from("")), true => String.from(""));
       match(
         args.get(pi),
         .Some(arg) => {
@@ -746,8 +746,8 @@ require_ref_own_argument_exclusivity :: (
                       ref_root_vars.get(ri),
                       .Some(ref_var) =>
                         if(alias_group_root(&ref_var) == alias_group_root(&own_var), {
-                          own_lbl := match(own_root_lbls.get(oi), .Some(l) => l, .None => String.from(""));
-                          ref_lbl := match(ref_root_lbls.get(ri), .Some(l) => l, .None => String.from(""));
+                          own_lbl := match(own_root_lbls.get(oi), .Some(l) => l.clone(), .None => String.from(""));
+                          ref_lbl := match(ref_root_lbls.get(ri), .Some(l) => l.clone(), .None => String.from(""));
                           match(
                             args.get(own_idx),
                             .Some(own_arg) =>
@@ -804,7 +804,7 @@ _reject_if_container_reachable :: (
     return(());
   });
   cvar := match(cvars.last(), .Some(v) => v, .None => return(()));
-  cname := ast_expr_token(container_atom).value;
+  cname := ast_expr_token(container_atom).value.clone();
   fix := cond(
     (kind == "index") => String.from("Copy the element out with \".get(i)\" first, or split the calls."),
     true => String.from("Bind the intermediate object to a local first (\"b := ...;\") and pass a field of \"b\" instead, or split the calls.")

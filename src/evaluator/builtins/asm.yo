@@ -108,12 +108,12 @@ _is_discard_atom :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_atom(e) && (_atom_value(e) == String.from("_"))
 );
 _fn_call_args_of :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, args, _, _) => args, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, args, _, _) => args.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Strip the surrounding `"` delimiters that the StrLit convention
 /// keeps (see evaluator/values/string.yo — raw stores the QUOTED token).
 _strip_delims :: (fn(s : &String) -> String)({
-  b := s;
+  b := s.clone();
   n := b.len();
   first_q := match(b.get_byte(usize(0)), .Some(x) => (x == u8(34)), .None => false);
   last_q := match(b.get_byte(n - usize(1)), .Some(x) => (x == u8(34)), .None => false);
@@ -160,7 +160,7 @@ _evaluate_constraint :: (
   match(
     _eval_comptime_str(constraint_expr, env, ctx, exn),
     .Some(s) => {
-      return(s);
+      return(s.clone());
     },
     .None => ()
   );
@@ -210,7 +210,7 @@ _parse_special_operand :: (
     match(
       _eval_comptime_str(&first, env, ctx, exn),
       .Some(s) => {
-        name = Option(String).Some(s);
+        name = Option(String).Some(s.clone());
         value_idx = usize(1);
       },
       .None => ()
@@ -259,7 +259,7 @@ _parse_operand :: (
       match(
         _eval_comptime_str(&first, env, ctx, exn),
         .Some(s) => {
-          name = Option(String).Some(s);
+          name = Option(String).Some(s.clone());
           constraint_idx = usize(1);
         },
         .None => {
@@ -555,7 +555,7 @@ _validate_template_placeholders :: (
       i = (i + usize(1));
     });
   };
-  bytes := template;
+  bytes := template.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -593,7 +593,7 @@ _validate_template_placeholders :: (
         if(ref_str.len() > usize(0), {
           (all_digits : bool) = true;
           {
-            rb := ref_str;
+            rb := ref_str.clone();
             (di : usize) = usize(0);
             while(di < rb.len(), {
               db := match(rb.get_byte(di), .Some(b) => b, .None => u8(0));
@@ -606,7 +606,7 @@ _validate_template_placeholders :: (
           if(all_digits, {
             (pos : usize) = usize(0);
             {
-              rb2 := ref_str;
+              rb2 := ref_str.clone();
               (pi : usize) = usize(0);
               while(pi < rb2.len(), {
                 db2 := match(rb2.get_byte(pi), .Some(b) => b, .None => u8(0));

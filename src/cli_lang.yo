@@ -12,7 +12,7 @@
 (mut(g_lang_override) : Option(String)) = Option(String).None;
 /// Record the global `--lang` flag value.
 set_cli_lang_override :: (fn(lang : &String) -> unit)({
-  g_lang_override = Option(String).Some(lang);
+  g_lang_override = Option(String).Some(lang.clone());
 });
 /// Resolve the CLI language: `"zh-CN"` when the override or `YO_LANG` names a
 /// Simplified-Chinese spelling we translate (`zh-CN`, `zh_CN`, `zh-Hans`,
@@ -21,10 +21,10 @@ set_cli_lang_override :: (fn(lang : &String) -> unit)({
 cli_lang :: (fn() -> String)({
   named := match(
     g_lang_override,
-    .Some(l) => l,
+    .Some(l) => l.clone(),
     .None => match(
       env.get(String.from("YO_LANG")),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => String.from("")
     )
   );

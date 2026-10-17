@@ -79,7 +79,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   if(match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false), {
     return(String.from(""));
   });
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   lhs0 := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing lhs"))));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing rhs"))));
   // `(lhs : T) = rhs` is an initialization; unwrap to the real lhs variable.
@@ -106,7 +106,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     return(String.from(""));
   });
   // LHS is a field/index write whose base variable is compile-time.
-  pc := lhs_ei.path_collection;
+  pc := lhs_ei.path_collection.clone();
   if(pc.len() > usize(0), {
     match(
       pc.get(usize(0)),

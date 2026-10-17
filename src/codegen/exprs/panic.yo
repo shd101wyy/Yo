@@ -26,7 +26,7 @@ _strip_panic_quotes :: (fn(raw : &String) -> String)({
 generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
   return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   na := args.len();
   cond(
     (na == usize(0)) => {
@@ -39,7 +39,7 @@ generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       msg_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("panic missing argument"))));
       msg_ei := context.base.get_expr_info(&msg_arg);
       // Compile-time string message → fprintf the escaped literal.
-      comptime_msg := match(msg_ei, .Some(mei) => match(mei.value, .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw), _ => Option(String).None), .None => .None), .None => .None);
+      comptime_msg := match(msg_ei, .Some(mei) => match(mei.value, .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw.clone()), _ => Option(String).None), .None => .None), .None => .None);
       match(
         comptime_msg,
         .Some(raw) => {

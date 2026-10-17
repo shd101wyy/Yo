@@ -153,7 +153,7 @@ _comptime_value_type :: (fn(env : &Environment) -> Option(TypeValue))({
 _string_argument :: (
   fn(name : &String, expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(String)
 )({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
     exn.throw(
       dyn(

@@ -219,8 +219,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       st := resolve_struct_shell(t);
       (sid, scfid, stas, sfts, s_is_ref) := match(
         st,
-        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid, rcfid, rtas, rfts, rirs),
-        _ => (id, cfid, tas, fts, t_is_ref)
+        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), rcfid.clone(), rtas.clone(), rfts.clone(), rirs),
+        _ => (id.clone(), cfid.clone(), tas.clone(), fts.clone(), t_is_ref)
       );
       // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
       // field) and a value struct with the SAME fields have DIFFERENT C layouts
@@ -413,12 +413,12 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // Passthrough for any non-shell enum. See
       // issues/.../recursive-enum-self-shell.md.
       rs := resolve_enum_shell(t);
-      eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
-      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs);
-      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => ArrayList(String).new());
-      evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds, _ => ArrayList(i64).new());
+      eid := match(rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
+      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs.clone(), _ => vfs.clone());
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns.clone(), _ => ArrayList(String).new());
+      evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds.clone(), _ => ArrayList(i64).new());
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => false);
-      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls, _ => ArrayList(ArrayList(String)).new());
+      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls.clone(), _ => ArrayList(ArrayList(String)).new());
       // Cycle guard (see g_tk_visited): an enum already on the expansion
       // path renders id-only rather than re-expanding its variant fields. The
       // node is the id AND its type arguments' identities, as the Struct arm's:
@@ -428,7 +428,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // guard cut the inner one to its bare id. That gave the outer instance a
       // second C type beside the declared `Option(Option(i32))`
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => nd_tas, _ => ArrayList(TypeValue).new());
+      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => nd_tas.clone(), _ => ArrayList(TypeValue).new());
       e_node := _tk_node_id(&eid, &e_node_targs);
       if((eid.len() > usize(0)) && _tk_seen(&e_node), {
         return(eid.clone());
@@ -523,7 +523,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         // plus a type-variable argument no payload mentions. A resolved variable keys as its resolution, and a
         // non-type argument (`Unit`) adds nothing; an enum with no phantom
         // position keys exactly as before.
-        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => rtas, _ => ArrayList(TypeValue).new());
+        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => rtas.clone(), _ => ArrayList(TypeValue).new());
         if(e_targs.len() > usize(0), {
           e_mask := enum_phantom_positions(&eid);
           e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
@@ -842,7 +842,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       (sid, sfls, sfts, s_is_ref) := match(
         st,
         Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid, rfls, rfts, rirs),
-        _ => (id, fls, fts, t_is_ref)
+        _ => (id.clone(), fls.clone(), fts.clone(), t_is_ref)
       );
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
       if((sid.len() > usize(0)) && _sti_seen(&sid), {
@@ -858,7 +858,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       (i : usize) = usize(0);
       while(i < sfts.len(), {
         ft := match(sfts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
-        fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
+        fl := match(sfls.get(i), .Some(x) => x.clone(), .None => String.from(""));
         out.push_str("_");
         out.push_string(&fl);
         out.push_str(":");
@@ -869,9 +869,9 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     },
     Rc(.EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 })) => {
       rs := resolve_enum_shell(t);
-      eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
-      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => vns0);
-      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs0);
+      eid := match(rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns.clone(), _ => vns0.clone());
+      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs.clone(), _ => vfs0.clone());
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => e_is_ref0);
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
       // The path node carries the type arguments, as `_type_key_at`'s does:
@@ -893,7 +893,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       out.push_string(&eid);
       (vi : usize) = usize(0);
       while(vi < evfs.len(), {
-        vn := match(evns.get(vi), .Some(x) => x, .None => String.from(""));
+        vn := match(evns.get(vi), .Some(x) => x.clone(), .None => String.from(""));
         out.push_str("_");
         out.push_string(&vn);
         match(

@@ -80,14 +80,14 @@ record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
         // Stored back: a `get` copy is not the stored list once collections
         // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
         grown := list;
-        grown.push(header);
-        g_extern_c_includes.insert(name, grown);
+        grown.push(header.clone());
+        g_extern_c_includes.insert(name.clone(), grown);
       });
     },
     .None => {
       list := ArrayList(String).new();
-      list.push(header);
-      g_extern_c_includes.insert(name, list);
+      list.push(header.clone());
+      g_extern_c_includes.insert(name.clone(), list);
     }
   );
 });
@@ -98,7 +98,7 @@ get_c_include_for_extern :: (fn(name : &String) -> Option(String))(
 );
 /// Every C header a `c_include`d extern symbol was declared under.
 get_c_includes_for_extern :: (fn(name : &String) -> ArrayList(String))(
-  match(g_extern_c_includes.get(name), .Some(l) => l, .None => ArrayList(String).new())
+  match(g_extern_c_includes.get(name), .Some(l) => l.clone(), .None => ArrayList(String).new())
 );
 /// The already-bound type a `c_include` `Name : Type` field should ADOPT, or
 /// `.None` when the name is free (the ordinary opaque-handle case).
@@ -127,12 +127,12 @@ _c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String)
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(String).None);
   });
-  pair := match(arg, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  pair := match(arg, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   rhs := match(pair.get(usize(1)), .Some(r) => r, .None => arg);
   if(!ast_expr_is_fn_call_of(&rhs, "c_type", .None), {
     return(Option(String).None);
   });
-  cargs := match(rhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  cargs := match(rhs, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get(usize(0)), .Some(a) => a, .None => rhs);
   raw := ast_expr_token(&spelling_atom).value.clone();
   rn := raw.len();
@@ -196,7 +196,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
   });
   (env : Environment) = env_in;
-  all_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  all_args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
   if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(&a), .None => false), {
@@ -214,14 +214,14 @@ User code should normally call stdlib wrappers (e.g. functions in
   hdr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_hdr));
   hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
   env.frames = hdr_info.env.frames;
-  env.module_path = hdr_info.env.module_path;
+  env.module_path = hdr_info.env.module_path.clone();
   env.function_declaration_frame_level = hdr_info.env.function_declaration_frame_level;
-  env.input_string = hdr_info.env.input_string;
+  env.input_string = hdr_info.env.input_string.clone();
   raw_hdr := match(
     hdr_info.value,
     .Some(v) => match(
       v,
-      .StrLit(s) => s,
+      .StrLit(s) => s.clone(),
       _ => {
         exn.throw(
           dyn(
@@ -302,7 +302,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get(dup_idx), .Some(l) => l.clone(), .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
       });
@@ -312,7 +312,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(
-          match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
+          match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new()).get(usize(0)),
           .Some(fe) => ast_expr_token(&fe),
           .None => ast_expr_token(&arg)
         ),
@@ -353,10 +353,10 @@ User code should normally call stdlib wrappers (e.g. functions in
         })
       ) => rc(
         TypeValueNode.Func(
-          fts,
-          pts,
-          its,
-          wts,
+          fts.clone(),
+          pts.clone(),
+          its.clone(),
+          wts.clone(),
           ret,
           rc(
             FuncMeta(
@@ -384,9 +384,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     field_labels.push(result.label.clone());
     field_types.push(field_ty_with_extern);
     env.frames = result.env.frames;
-    env.module_path = result.env.module_path;
+    env.module_path = result.env.module_path.clone();
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env.input_string = result.env.input_string;
+    env.input_string = result.env.input_string.clone();
     // If the field type is Type (TypeUni(0)), this is a type declaration (e.g. time_t : Type).
     // Create a SomeType placeholder so the identifier can be used in type expressions.
     (field_val : EvalValue) = match(
@@ -412,7 +412,7 @@ User code should normally call stdlib wrappers (e.g. functions in
             _adoptable_type_binding(&env, result.label.clone()),
             .Some(existing_ty) => {
               register_adopted_extern_c_type(
-                match(type_decl_id(&existing_ty), .Some(d) => d, .None => String.from("")),
+                match(type_decl_id(&existing_ty), .Some(d) => d.clone(), .None => String.from("")),
                 &c_spelling,
                 c_header_file.clone()
               );

@@ -272,7 +272,7 @@ _flag_trial_swallow_diags :: (fn(err : &AnyError) -> unit)({
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.push(d), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.push(d.clone()), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -286,11 +286,11 @@ _clear_trial_swallow :: (fn() -> unit)({
 _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
-  match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.code, .None => Option(String).None)
+  match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.code.clone(), .None => Option(String).None)
 );
 /// The code as census text (`-` for an uncoded error).
 _trial_swallow_code_text :: (fn() -> String)(
-  match(_trial_swallow_code(), .Some(c) => c, .None => String.from("-"))
+  match(_trial_swallow_code(), .Some(c) => c.clone(), .None => String.from("-"))
 );
 _trial_swallow_message :: (fn() -> String)(
   match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
@@ -306,7 +306,7 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
       tsd_out := ArrayList(Diagnostic).new();
       (tsd_i : usize) = usize(0);
       while(tsd_i < g_trial_swallow_diags.len(), {
-        match(g_trial_swallow_diags.get(tsd_i), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
+        match(g_trial_swallow_diags.get(tsd_i), .Some(tsd_d) => tsd_out.push(tsd_d.clone()), .None => ());
         tsd_i = (tsd_i + usize(1));
       });
       Option(ArrayList(Diagnostic)).Some(tsd_out)
@@ -322,7 +322,7 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
 /// call may still resolve it.
 generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
   if(match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
-    return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()))));
+    return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds.clone(), .None => ArrayList(Diagnostic).new()))));
   });
   if(!fv_was, {
     match(
@@ -492,11 +492,11 @@ _ctor_binder_some_ids :: (
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < labels.len(), {
-    lbl := match(labels.get(i), .Some(l) => l, .None => String.from(""));
+    lbl := match(labels.get(i), .Some(l) => l.clone(), .None => String.from(""));
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
-        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid, _ => String.from("")),
+        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid.clone(), _ => String.from("")),
         .None => String.from("")
       )
     );
@@ -546,7 +546,7 @@ _record_ctor_phantom_positions :: (
   flags := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < binder_ids.len(), {
-    bid := match(binder_ids.get(i), .Some(x) => x, .None => String.from(""));
+    bid := match(binder_ids.get(i), .Some(x) => x.clone(), .None => String.from(""));
     (in_payload : bool) = false;
     (j : usize) = usize(0);
     while((j < payload_somes.len()) && !in_payload, {
@@ -646,9 +646,9 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
   });
   Environment(
     frames : new_frames,
-    module_path : env.module_path,
+    module_path : env.module_path.clone(),
     function_declaration_frame_level : env.function_declaration_frame_level,
-    input_string : env.input_string,
+    input_string : env.input_string.clone(),
     frozen : false
   )
 });
@@ -710,7 +710,7 @@ _build_def_time_body_env :: (
     strip_outer_runtime : bool
   ) -> Environment
 )({
-  module_path := caller_env.module_path;
+  module_path := caller_env.module_path.clone();
   // ENV SHARING (plans/backlog/YO_SELF_ENV_SHARING.md §3) — the body env
   // shares the caller env's VARIABLE handles (when nested, only frame 0 and
   // the comptime variables; else the caller env itself). The
@@ -785,7 +785,7 @@ _build_def_time_body_env :: (
                 .None => match(
                   rv_bty,
                   .Some(_) => {
-                    rk_names.push(rv.name);
+                    rk_names.push(rv.name.clone());
                     rk_tys.push(rv_bty);
                     rk_reassign.push(rv.is_reassignable);
                     rk_module_level.push(rv.is_module_level);
@@ -816,7 +816,7 @@ _build_def_time_body_env :: (
       .Some(rk_o) => match(
         rk_o,
         .Some(rk_bty) => {
-          rk_n := match(rk_names.get(rk_bi), .Some(n) => n, .None => String.from(""));
+          rk_n := match(rk_names.get(rk_bi), .Some(n) => n.clone(), .None => String.from(""));
           rk_r := match(rk_reassign.get(rk_bi), .Some(b) => b, .None => false);
           rk_ml := match(rk_module_level.get(rk_bi), .Some(b) => b, .None => false);
           rk_var_opt := add_variable_to_env(
@@ -899,11 +899,11 @@ _build_def_time_body_env :: (
   // Skipped when a parameter of the same name exists: the parameter loop is
   // authoritative for it (and runs after, so it would overwrite anyway).
   {
-    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => __fa_m.*.forall_labels, _ => ArrayList(String).new());
-    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => __fa_t, _ => ArrayList(TypeValue).new());
+    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => __fa_m.*.forall_labels.clone(), _ => ArrayList(String).new());
+    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => __fa_t.clone(), _ => ArrayList(TypeValue).new());
     (fa_i : usize) = usize(0);
     while(fa_i < fa_labels.len(), {
-      fa_name := match(fa_labels.get(fa_i), .Some(n) => n, .None => String.from(""));
+      fa_name := match(fa_labels.get(fa_i), .Some(n) => n.clone(), .None => String.from(""));
       fa_ty := match(fa_types.get(fa_i), .Some(t) => t, .None => t_unit());
       is_param_too := {
         (fp_i : usize) = usize(0);
@@ -950,7 +950,7 @@ _build_def_time_body_env :: (
   };
   (pi : usize) = usize(0);
   while(pi < param_labels.len(), {
-    pn := match(param_labels.get(pi), .Some(n) => n, .None => String.from(""));
+    pn := match(param_labels.get(pi), .Some(n) => n.clone(), .None => String.from(""));
     pt := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
     p_ref := match(param_is_ref.get(pi), .Some(b) => b, .None => false);
     p_own := match(param_is_owning.get(pi), .Some(b) => b, .None => false);
@@ -1125,11 +1125,11 @@ try_to_implement_function_by_function_type :: (
   match(
     function_type,
     Rc(.Func({ param_types, result : result_box, meta : __fm2 })) => {
-      forall_labels := __fm2.*.forall_labels;
-      param_labels := __fm2.*.param_labels;
-      implicit_labels := __fm2.*.implicit_labels;
-      param_is_ref := __fm2.*.param_is_ref;
-      param_is_owning := __fm2.*.param_is_owning;
+      forall_labels := __fm2.*.forall_labels.clone();
+      param_labels := __fm2.*.param_labels.clone();
+      implicit_labels := __fm2.*.implicit_labels.clone();
+      param_is_ref := __fm2.*.param_is_ref.clone();
+      param_is_owning := __fm2.*.param_is_owning.clone();
       result_is_ref := __fm2.*.result_is_ref;
       result_is_comptime_only := __fm2.*.result_is_comptime_only;
       tok := ast_expr_token(expr);
@@ -1164,7 +1164,7 @@ Result type: ${type_to_string(&result_box)}`
       // Extract the function body from args[0] of the outer call expression.
       args := match(
         expr,
-        .FnCall(_, _, a, _, _) => a,
+        .FnCall(_, _, a, _, _) => a.clone(),
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       if(args.len() != usize(1), {
@@ -1253,7 +1253,7 @@ Result type: ${type_to_string(&result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
-          .Some(Rc(.SomeT(_, name, _, _, _, _, _, _, _, _))) => name,
+          .Some(Rc(.SomeT(_, name, _, _, _, _, _, _, _, _))) => name.clone(),
           .Some(_) => String.from(""),
           .None => String.from("")
         );
@@ -1530,7 +1530,7 @@ Result type: ${type_to_string(&result_box)}`
           pred_env.push_frame(false);
           (pv_i : usize) = usize(0);
           while(pv_i < param_labels.len(), {
-            pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
+            pv_name := match(param_labels.get(pv_i), .Some(l) => l.clone(), .None => String.new());
             pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
             if(pv_name.len() > usize(0), {
               add_variable_to_env(
@@ -1660,7 +1660,7 @@ Result type: ${type_to_string(&result_box)}`
               ),
               return_label : get_func_return_label(fn_val_id.clone()),
               table : ctx.expr_info_table,
-              mode : vmode,
+              mode : vmode.clone(),
               func_val : func_val,
               // V6 task 5: an `assumed()` body is not walked, but its
               // predicates were evaluated above all the same, so a caller
@@ -1795,7 +1795,7 @@ Result type: ${type_to_string(&result_box)}`
               match(
                 def_where_entries.get(fwi),
                 .Some(fwe) => {
-                  fwe_id := match(fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid, _ => String.from(""));
+                  fwe_id := match(fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid.clone(), _ => String.from(""));
                   if(fwe_id != "", {
                     flow_where_ids.push(fwe_id);
                   });
@@ -1887,7 +1887,7 @@ Result type: ${type_to_string(&result_box)}`
               PendingDefEval(
                 body : body_expr.clone(),
                 param_labels : param_labels,
-                param_types : param_types,
+                param_types : param_types.clone(),
                 param_is_ref : param_is_ref,
                 param_is_owning : param_is_owning,
                 param_is_comptime : def_ct_flags,
@@ -2249,7 +2249,7 @@ Result type: ${type_to_string(&result_box)}`
                 match(
                   dg_where.get(dgw_i),
                   .Some(dgw_e) => {
-                    dgw_id := match(dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid, _ => String.from(""));
+                    dgw_id := match(dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid.clone(), _ => String.from(""));
                     if(dgw_id != "", {
                       dg_where_ids.push(dgw_id);
                     });
@@ -2285,7 +2285,7 @@ Result type: ${type_to_string(&result_box)}`
             // never-called compile-time fn kept its `:=`
             // (issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
             if(_trial_swallow_pending() && match(_trial_swallow_code(), .Some(dg_code) => (dg_code == String.from(E_COMPTIME_RUNTIME_BINDING)), .None => false), {
-              dg_ct_diags := match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new());
+              dg_ct_diags := match(_trial_swallow_diagnostics(), .Some(ds) => ds.clone(), .None => ArrayList(Diagnostic).new());
               _clear_trial_swallow();
               if(!dg_fv_was, {
                 clear_flow_violation();
@@ -2350,7 +2350,7 @@ Result type: ${type_to_string(&result_box)}`
             // itself succeeded and the flag is a nested trial's leftover.
             dg_site := trial_body_site(&body_expr);
             if(_trial_swallow_pending() && (dg_out.len() == usize(0)), {
-              record_generic_trial_error(&dg_site, _trial_swallow_message(), match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()));
+              record_generic_trial_error(&dg_site, _trial_swallow_message(), match(_trial_swallow_diagnostics(), .Some(ds) => ds.clone(), .None => ArrayList(Diagnostic).new()));
               if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                 eprintln(`[kept] site=dg code=${_trial_swallow_code_text()} owner=${dg_site}`);
               });

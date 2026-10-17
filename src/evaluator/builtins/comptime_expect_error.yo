@@ -78,7 +78,7 @@ evaluate_comptime_expect_error :: (
 )({
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(expr);
     }
@@ -323,7 +323,7 @@ evaluate_comptime_expect_error :: (
           mi = (mi + usize(1));
         });
         if(!matched, {
-          got := match(observed_msgs.get(usize(0)), .Some(m) => m, .None => String.from("(an error whose text was not recorded)"));
+          got := match(observed_msgs.get(usize(0)), .Some(m) => m.clone(), .None => String.from("(an error whose text was not recorded)"));
           exn.throw(
             dyn(
               format_error_message(
@@ -353,7 +353,7 @@ evaluate_comptime_expect_error :: (
           match(
             msg_info.value,
             .Some(v) => {
-              err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(&v));
+              err_msg := match(v, .StrLit(raw) => raw.clone(), _ => value_to_string(&v));
               exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
             },
             .None => ()

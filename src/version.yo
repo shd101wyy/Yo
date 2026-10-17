@@ -63,10 +63,10 @@ parse_yo_version :: (fn(content : &String) -> Result(String, String))({
   first_byte_opt := version.get_byte(usize(0));
   version = match(
     first_byte_opt,
-    .None => version,
+    .None => version.clone(),
     .Some(b) => cond(
       ((b == u8(118)) || (b == u8(86))) => version.substring(usize(1), version.len()),
-      true => version
+      true => version.clone()
     )
   );
   // Reject "latest"
@@ -174,8 +174,8 @@ read_yo_version :: (
         content := e.io.await(read_to_string(&path, e.io), e);
         match(
           parse_yo_version(&content),
-          .Err(msg) => e.exn.throw(dyn(msg)),
-          .Ok(version) => .Some(version)
+          .Err(msg) => e.exn.throw(dyn(msg.clone())),
+          .Ok(version) => .Some(version.clone())
         )
       }
     )

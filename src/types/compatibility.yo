@@ -31,7 +31,7 @@ _visited_contains :: (fn(visited : &ArrayList(String), key : &String) -> bool)({
   i := usize(0);
   n := visited.len();
   while(i < n, {
-    s := match(visited.get(i), .Some(v) => v, .None => ``);
+    s := match(visited.get(i), .Some(v) => v.clone(), .None => ``);
     if(s == key, {
       return(true);
     });
@@ -55,7 +55,7 @@ _is_in_used :: (fn(used : &ArrayList(usize), idx : usize) -> bool)({
 /// level)? Looks inside a trait's member types and an Fn trait's signature,
 /// which `get_all_some_types` does not enter.
 _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
-  (sv_n, sv_l) := match(self_var, Rc(.SomeT({ name : n, frame_level : l })) => (n, l), _ => (String.new(), usize(0)));
+  (sv_n, sv_l) := match(self_var, Rc(.SomeT({ name : n, frame_level : l })) => (n.clone(), l), _ => (String.new(), usize(0)));
   if(sv_n.len() == usize(0), {
     return(false);
   });
@@ -232,8 +232,8 @@ _push_alpha_pairs :: (fn(a_labels : &ArrayList(String), a_types : &ArrayList(Typ
   (pushed : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < a_labels.len(), {
-    an := match(a_labels.get(i), .Some(l) => l, .None => String.new());
-    en := match(e_labels.get(i), .Some(l) => l, .None => String.new());
+    an := match(a_labels.get(i), .Some(l) => l.clone(), .None => String.new());
+    en := match(e_labels.get(i), .Some(l) => l.clone(), .None => String.new());
     match(
       _binder_level(a_types, an.clone()),
       .Some(al) => match(
@@ -448,12 +448,12 @@ _compat_impl :: (
   if(!identity && is_some_type(actual) && is_dyn_type(expected), {
     artt := match(
       actual,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt,
+      Rc(.SomeT(required_trait_types : rtt)) => rtt.clone(),
       _ => ArrayList(TypeValue).new()
     );
     drtt := match(
       expected,
-      Rc(.DynT(required_trait_types : rtt)) => rtt,
+      Rc(.DynT(required_trait_types : rtt)) => rtt.clone(),
       _ => ArrayList(TypeValue).new()
     );
     i := usize(0);
@@ -490,12 +490,12 @@ _compat_impl :: (
   if(!identity && is_dyn_type(actual) && is_some_type(expected), {
     erts := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt)) => rtt,
+      Rc(.SomeT(required_trait_types : rtt)) => rtt.clone(),
       _ => ArrayList(TypeValue).new()
     );
     adrtt := match(
       actual,
-      Rc(.DynT(required_trait_types : rtt)) => rtt,
+      Rc(.DynT(required_trait_types : rtt)) => rtt.clone(),
       _ => ArrayList(TypeValue).new()
     );
     i := usize(0);
@@ -543,7 +543,7 @@ _compat_impl :: (
   if(!require_exact && is_some_type(expected) && !is_some_type(actual), {
     erts2 := match(
       expected,
-      Rc(.SomeT(required_trait_types : rtt2)) => rtt2,
+      Rc(.SomeT(required_trait_types : rtt2)) => rtt2.clone(),
       _ => ArrayList(TypeValue).new()
     );
     if(erts2.len() == usize(0), {
@@ -620,7 +620,7 @@ _compat_impl :: (
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
           .None => if(!require_exact, {
-            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => ArrayList(TypeValue).new());
+            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq.clone(), _ => ArrayList(TypeValue).new());
             if(a_reqs.len() == usize(0), {
               return(true);
             });
@@ -750,7 +750,7 @@ _compat_impl :: (
           // b : f64, c : bool)`. They ARE part of its identity (the codegen
           // key spells them), so the exact relation compares them: the CTFE
           // memo must not answer `Tuple(c : i32)` with `Tuple(a : i32)`.
-          if(require_exact && (match(alabels.get(i), .Some(l) => l, .None => ``) != match(elabels.get(i), .Some(l) => l, .None => ``)), {
+          if(require_exact && (match(alabels.get(i), .Some(l) => l.clone(), .None => ``) != match(elabels.get(i), .Some(l) => l.clone(), .None => ``)), {
             return(false);
           });
           if(!recur(&at, &et, mode, visited), {
@@ -801,7 +801,7 @@ _compat_impl :: (
         });
         (ii : usize) = usize(0);
         while(ii < aits.len(), {
-          if(require_exact && (match(ameta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``) != match(emeta.*.implicit_labels.get(ii), .Some(l) => l, .None => ``)), {
+          if(require_exact && (match(ameta.*.implicit_labels.get(ii), .Some(l) => l.clone(), .None => ``) != match(emeta.*.implicit_labels.get(ii), .Some(l) => l.clone(), .None => ``)), {
             return(false);
           });
           if(!recur(match(aits.get(ii), .Some(v) => v, .None => rc(TypeValueNode.Unit)), match(eits.get(ii), .Some(v) => v, .None => rc(TypeValueNode.Unit)), mode, visited), {
@@ -894,12 +894,12 @@ _compat_impl :: (
         // payloads concretely where it can.
         ({
           (pay_differ : bool) = false;
-          pa := ata;
-          pe := eta;
+          pa := ata.clone();
+          pe := eta.clone();
           // Cycle guard: a recursive instantiation (`Node(T)` holding
           // `Node(T)`) re-enters this comparison through its own type
           // arguments — an already-open pair is not a disagreement.
-          vkey_pay := (aid + String.from("=>pay") + eid);
+          vkey_pay := (aid.clone() + String.from("=>pay") + eid.clone());
           if((pa.len() > usize(0)) && (pa.len() == pe.len()) && !_visited_contains(visited, &vkey_pay), {
             visited.push(vkey_pay);
             (pi : usize) = usize(0);
@@ -966,7 +966,7 @@ _compat_impl :: (
         (!type_contains_some_type(actual) && !type_contains_some_type(expected) && ((aname != ename) && (aname.len() > usize(0)) && (ename.len() > usize(0)) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
-          vkey_ne := (aid + String.from("=>ne") + eid);
+          vkey_ne := (aid.clone() + String.from("=>ne") + eid.clone());
           cond(
             _visited_contains(visited, &vkey_ne) => true,
             true => {
@@ -974,8 +974,8 @@ _compat_impl :: (
               (ok_ne : bool) = true;
               (si_ne : usize) = usize(0);
               while((si_ne < alabels.len()) && ok_ne, {
-                al_ne := match(alabels.get(si_ne), .Some(v) => v, .None => ``);
-                el_ne := match(elabels.get(si_ne), .Some(v) => v, .None => ``);
+                al_ne := match(alabels.get(si_ne), .Some(v) => v.clone(), .None => ``);
+                el_ne := match(elabels.get(si_ne), .Some(v) => v.clone(), .None => ``);
                 at_ne := match(atypes.get(si_ne), .Some(v) => v, .None => rc(TypeValueNode.Unit));
                 et_ne := match(etypes.get(si_ne), .Some(v) => v, .None => rc(TypeValueNode.Unit));
                 if((al_ne != el_ne) || !recur(&at_ne, &et_ne, _CompatMode.Flow, visited), {
@@ -1101,7 +1101,7 @@ _compat_impl :: (
       // Limited to non-generic declarations: an instantiation's unstamped
       // copy may legitimately be nameless.
       (((aname.len() == usize(0)) != (ename.len() == usize(0))) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (acfid.len() == usize(0)) && (ecfid.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
-        vkey := (aid + String.from("=>") + eid);
+        vkey := (aid.clone() + String.from("=>") + eid.clone());
         cond(
           _visited_contains(visited, &vkey) => true,
           true => {
@@ -1109,8 +1109,8 @@ _compat_impl :: (
             (ok : bool) = true;
             (si : usize) = usize(0);
             while((si < alabels.len()) && ok, {
-              al := match(alabels.get(si), .Some(v) => v, .None => ``);
-              el := match(elabels.get(si), .Some(v) => v, .None => ``);
+              al := match(alabels.get(si), .Some(v) => v.clone(), .None => ``);
+              el := match(elabels.get(si), .Some(v) => v.clone(), .None => ``);
               at := match(atypes.get(si), .Some(v) => v, .None => rc(TypeValueNode.Unit));
               et := match(etypes.get(si), .Some(v) => v, .None => rc(TypeValueNode.Unit));
               if((al != el) || !recur(&at, &et, _exact_mode(mode), visited), {
@@ -1173,7 +1173,7 @@ _compat_impl :: (
         // remaining positions exactly.
         {
           (eta_differ : bool) = false;
-          vkey_eta := (aid + String.from("=>eta") + eid);
+          vkey_eta := (aid.clone() + String.from("=>eta") + eid.clone());
           if((aid != eid) && (a_eta.len() > usize(0)) && (a_eta.len() == e_eta.len()) && !_visited_contains(visited, &vkey_eta), {
             visited.push(vkey_eta);
             (etai : usize) = usize(0);
@@ -1191,13 +1191,13 @@ _compat_impl :: (
           eta_differ
         } => false, !require_exact => cond({
           (vp_differ : bool) = false;
-          vkey_vp := (aid + String.from("=>vp") + eid);
+          vkey_vp := (aid.clone() + String.from("=>vp") + eid.clone());
           if((avns.len() == evns.len()) && !_visited_contains(visited, &vkey_vp), {
             visited.push(vkey_vp);
             (vpi : usize) = usize(0);
             while((vpi < avfs.len()) && !vp_differ, {
-              vafl := match(avfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-              vefl := match(evfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+              vafl := match(avfs.get(vpi), .Some(v) => v.clone(), .None => ArrayList(TypeValue).new());
+              vefl := match(evfs.get(vpi), .Some(v) => v.clone(), .None => ArrayList(TypeValue).new());
               if(vafl.len() == vefl.len(), {
                 (vfi : usize) = usize(0);
                 while((vfi < vafl.len()) && !vp_differ, {
@@ -1225,7 +1225,7 @@ _compat_impl :: (
           (vn_same : bool) = (avns.len() == evns.len());
           (vni : usize) = usize(0);
           while((vni < avns.len()) && vn_same, {
-            if(match(avns.get(vni), .Some(a) => a, .None => ``) != match(evns.get(vni), .Some(e) => e, .None => ``), {
+            if(match(avns.get(vni), .Some(a) => a.clone(), .None => ``) != match(evns.get(vni), .Some(e) => e.clone(), .None => ``), {
               vn_same = false;
             });
             vni = (vni + usize(1));
@@ -1245,7 +1245,7 @@ _compat_impl :: (
         // `Result(unit, HashMapError)` instance
         // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
         ((aname.len() > usize(0)) && (ename.len() > usize(0)) && (aname != ename)) => false, (avns.len() != evns.len()) => false, true => {
-          vkey := (aid + String.from("=>") + eid);
+          vkey := (aid.clone() + String.from("=>") + eid.clone());
           cond(
             _visited_contains(visited, &vkey) => true,
             true => {
@@ -1253,16 +1253,16 @@ _compat_impl :: (
               (ok : bool) = true;
               (vi : usize) = usize(0);
               while((vi < avns.len()) && ok, {
-                avn := match(avns.get(vi), .Some(v) => v, .None => ``);
-                evn := match(evns.get(vi), .Some(v) => v, .None => ``);
+                avn := match(avns.get(vi), .Some(v) => v.clone(), .None => ``);
+                evn := match(evns.get(vi), .Some(v) => v.clone(), .None => ``);
                 if(avn != evn, {
                   ok = false;
                 });
                 if(ok, {
-                  afl := match(avfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                  efl := match(evfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                  all := match(avls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
-                  ell := match(evls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
+                  afl := match(avfs.get(vi), .Some(v) => v.clone(), .None => ArrayList(TypeValue).new());
+                  efl := match(evfs.get(vi), .Some(v) => v.clone(), .None => ArrayList(TypeValue).new());
+                  all := match(avls.get(vi), .Some(v) => v.clone(), .None => ArrayList(String).new());
+                  ell := match(evls.get(vi), .Some(v) => v.clone(), .None => ArrayList(String).new());
                   if(afl.len() != efl.len(), {
                     ok = false;
                   }, {
@@ -1270,8 +1270,8 @@ _compat_impl :: (
                     while((fi < afl.len()) && ok, {
                       at := match(afl.get(fi), .Some(v) => v, .None => rc(TypeValueNode.Unit));
                       et := match(efl.get(fi), .Some(v) => v, .None => rc(TypeValueNode.Unit));
-                      al := match(all.get(fi), .Some(v) => v, .None => ``);
-                      el := match(ell.get(fi), .Some(v) => v, .None => ``);
+                      al := match(all.get(fi), .Some(v) => v.clone(), .None => ``);
+                      el := match(ell.get(fi), .Some(v) => v.clone(), .None => ``);
                       if((al != el) || !recur(&at, &et, _exact_mode(mode), visited), {
                         ok = false;
                       });
@@ -1301,7 +1301,7 @@ _compat_impl :: (
           (u_ok : bool) = true;
           (ui : usize) = usize(0);
           while((ui < alabels.len()) && u_ok, {
-            if(match(alabels.get(ui), .Some(a) => a, .None => ``) != match(elabels.get(ui), .Some(e) => e, .None => ``), {
+            if(match(alabels.get(ui), .Some(a) => a.clone(), .None => ``) != match(elabels.get(ui), .Some(e) => e.clone(), .None => ``), {
               u_ok = false;
             }, {
               if(!recur(match(atypes.get(ui), .Some(t) => t, .None => rc(TypeValueNode.Unit)), match(etypes.get(ui), .Some(t) => t, .None => rc(TypeValueNode.Unit)), mode, visited), {
@@ -1427,8 +1427,8 @@ _compat_impl :: (
         if(!acid_valid || !ecid_valid, {
           return(false);
         });
-        acid := match(acon, Rc(.SomeT(id : cid)) => cid, _ => ``);
-        ecid := match(econ, Rc(.SomeT(id : cid)) => cid, _ => ``);
+        acid := match(acon, Rc(.SomeT(id : cid)) => cid.clone(), _ => ``);
+        ecid := match(econ, Rc(.SomeT(id : cid)) => cid.clone(), _ => ``);
         if(acid != ecid, {
           return(false);
         });

@@ -150,7 +150,7 @@ _flag_force_failure :: (fn(msg : &String) -> unit)({
   ()
 });
 _take_force_failure :: (fn() -> Option(String))({
-  r := g_force_failure;
+  r := g_force_failure.clone();
   g_force_failure = Option(String).None;
   r
 });
@@ -337,7 +337,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
           skip_statement,
           (),
           if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, BK_EXPORT, .None), {
-            export_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+            export_args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
             (j : usize) = usize(0);
             nj := export_args.len();
             while((j < nj) && !should_stop, {
@@ -353,7 +353,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       ast_expr_is_fn_call(&export_expr) &&
                         ast_expr_is_fn_call_of(&export_expr, "...", .None)
                     ) => {
-                      spread_args := match(export_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                      spread_args := match(export_expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                       ext_mod_expr := match(spread_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                       // Optional exclude(...) second arg
                       exclude_expr_opt := spread_args.get(usize(1));
@@ -375,9 +375,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       });
                       ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
                       env.frames = ext_info.env.frames;
-                      env.module_path = ext_info.env.module_path;
+                      env.module_path = ext_info.env.module_path.clone();
                       env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
-                      env.input_string = ext_info.env.input_string;
+                      env.input_string = ext_info.env.input_string.clone();
                       ext_mod_type := ext_info.ty;
                       if(!is_module_type(&ext_mod_type), {
                         exn.throw(
@@ -392,7 +392,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       // Extract the source-namespace StructVal if available
                       ext_mod_val_opt := match(
                         ext_info.value,
-                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn, ns, vs)),
+                        .Some(.StructVal(sn, ns, vs)) => Option(EvalValue).Some(EvalValue.StructVal(sn.clone(), ns.clone(), vs)),
                         .Some(_) => Option(EvalValue).None,
                         .None => Option(EvalValue).None
                       );
@@ -525,7 +525,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           (k : usize) = usize(0);
                           nk := efls.len();
                           while((k < nk) && !should_stop, {
-                            ext_label := match(efls.get(k), .Some(l) => l, .None => String.from(""));
+                            ext_label := match(efls.get(k), .Some(l) => l.clone(), .None => String.from(""));
                             ext_type := match(efts.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
@@ -593,7 +593,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           ast_expr_is_fn_call(&export_expr) &&
                             ast_expr_is_fn_call_of(&export_expr, ":", .Some(usize(2)))
                         ) => {
-                          colon_args := match(export_expr, .FnCall(_, _, ca, _, _) => ca, _ => ArrayList(AstExpr).new());
+                          colon_args := match(export_expr, .FnCall(_, _, ca, _, _) => ca.clone(), _ => ArrayList(AstExpr).new());
                           label_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                           name_expr := match(colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
                           if(!ast_expr_is_atom(&label_expr), {
@@ -653,7 +653,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             forced_var = Option(Variable).Some(fv);
                           },
                           .Error({ msg : fmsg }) => {
-                            exn.throw(dyn(fmsg));
+                            exn.throw(dyn(fmsg.clone()));
                           },
                           .NotPending => {
                             exn.throw(
@@ -765,9 +765,9 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
               info_opt,
               .Some(info) => {
                 env.frames = info.env.frames;
-                env.module_path = info.env.module_path;
+                env.module_path = info.env.module_path.clone();
                 env.function_declaration_frame_level = info.env.function_declaration_frame_level;
-                env.input_string = info.env.input_string;
+                env.input_string = info.env.input_string.clone();
               },
               .None => ()
             );
@@ -792,7 +792,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
             //                         sizeof() fold then fails.
             if(ast_expr_is_fn_call(&evaluated), {
               if(ast_expr_is_fn_call_of(&evaluated, ":=", Option(usize).Some(usize(2))), {
-                init_args := match(evaluated, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                init_args := match(evaluated, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                 init_lhs := match(init_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                 if(ast_expr_is_atom(&init_lhs), {
                   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&init_lhs));
@@ -800,14 +800,14 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     lhs_info_opt,
                     .Some(li) => if(li.value.is_none(), {
                       record_module_level_init_expr(&evaluated);
-                      g_module_level_static_names.insert(ast_expr_token(&init_lhs).value);
+                      g_module_level_static_names.insert(ast_expr_token(&init_lhs).value.clone());
                     }),
                     .None => ()
                   );
                 });
               }, {
                 if(ast_expr_is_fn_call_of(&evaluated, "=", Option(usize).Some(usize(2))), {
-                  assign_args := match(evaluated, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+                  assign_args := match(evaluated, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
                   assign_lhs := match(assign_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                   // A `(x : T) = v` binding at module-begin scope is a module-level
                   // runtime global by construction — the LHS is a `:` binding.
@@ -816,7 +816,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                     if(ast_expr_is_atom(&binding_lhs), {
                       record_module_level_init_expr(&evaluated);
-                      g_module_level_static_names.insert(ast_expr_token(&binding_lhs).value);
+                      g_module_level_static_names.insert(ast_expr_token(&binding_lhs).value.clone());
                     });
                   }, {
                     // Bare-atom reassignment of a previously recorded static.

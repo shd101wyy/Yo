@@ -57,7 +57,7 @@ trim_section_content_ :: (fn(lines : &ArrayList(String)) -> String)({
   while(start < count, {
     line := match(
       lines.get(start),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -73,7 +73,7 @@ trim_section_content_ :: (fn(lines : &ArrayList(String)) -> String)({
     prev := (end - usize(1));
     line := match(
       lines.get(prev),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -89,7 +89,7 @@ trim_section_content_ :: (fn(lines : &ArrayList(String)) -> String)({
   while(i < end, {
     line := match(
       lines.get(i),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -111,7 +111,7 @@ extract_summary_ :: (fn(description : &String) -> String)({
   while(i < count, {
     line := match(
       lines.get(i),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -152,7 +152,7 @@ parse_doc_comment :: (fn(text : &String) -> ParsedDocComment)({
   while(i < count, {
     line := match(
       lines.get(i),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => {
         break;
       }
@@ -166,7 +166,7 @@ parse_doc_comment :: (fn(text : &String) -> ParsedDocComment)({
       match(
         current_section_name,
         .Some(name) => {
-          sections.insert(name, trim_section_content_(&current_section_lines));
+          sections.insert(name.clone(), trim_section_content_(&current_section_lines));
           current_section_lines = ArrayList(String).new();
         },
         .None => ()

@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 _future_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, args, _, _) => args,
+    .FnCall(_, _, args, _, _) => args.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -47,8 +47,8 @@ _future_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _effect_label_for :: (fn(effect_type : &TypeValue, effect_expr : &AstExpr) -> String)(
   match(
     effect_type,
-    Rc(.Struct({ name, is_source_namespace : fl_sns })) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
-    Rc(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
+    Rc(.Struct({ name, is_source_namespace : fl_sns })) => cond(fl_sns => name.clone(), true => ast_expr_to_string(effect_expr)),
+    Rc(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name.clone(),
     _ => ast_expr_to_string(effect_expr)
   )
 );

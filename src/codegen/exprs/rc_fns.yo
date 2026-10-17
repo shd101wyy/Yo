@@ -352,7 +352,7 @@ generate_yo_drop_tuple_element :: (fn(expr : &AstExpr, indent : &String, context
   if(!is_tuple_type(&tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a tuple type")));
   });
-  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
+  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r.clone(), _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
   index_i64 := match(parse_raw_int(raw.clone()), .Some(n) => n, .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
   field_types := match(tuple_type, Rc(.Tuple({ field_types : fts })) => fts, _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a tuple type"))));
   if(index_i64 < i64(0), {
@@ -389,7 +389,7 @@ generate_yo_dup_tuple_element :: (fn(expr : &AstExpr, indent : &String, context 
   if(!is_tuple_type(&tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a tuple type")));
   });
-  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));
+  raw := match(context.base.get_expr_info(&index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r.clone(), _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));
   index_i64 := match(parse_raw_int(raw.clone()), .Some(n) => n, .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));
   field_types := match(tuple_type, Rc(.Tuple({ field_types : fts })) => fts, _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a tuple type"))));
   if(index_i64 < i64(0), {

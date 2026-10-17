@@ -198,7 +198,7 @@ set_std_path_override :: (fn(path : &String) -> unit)({
 /// The stashed `--std-path` override, if any. `build_runner.yo` forwards it
 /// to child `compile`/`test` processes.
 get_std_path_override :: (fn() -> Option(String))({
-  return(g_std_path_override);
+  return(g_std_path_override.clone());
 });
 /// Resolve the standard-library root. The proper evaluator needs this so
 /// `import("std/...")` can be satisfied — without it, the prelude cannot be
@@ -469,7 +469,7 @@ mm_resolve_entry_abs :: (fn(input_path : &String, std_path : &String) -> String)
     // `false`: the entry is a FILE PATH, so the manifest's import-root names
     // must not rewrite it (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
     resolve_module_path_ex(input_path.clone(), String.from("."), std_path, false),
-    .Found(p) => p,
+    .Found(p) => p.clone(),
     .NotFound(_) => input_path.clone(),
     .Ambiguous(_) => input_path.clone(),
     .Unavailable(_, _) => input_path
@@ -482,7 +482,7 @@ mm_resolve_entry_abs :: (fn(input_path : &String, std_path : &String) -> String)
 mm_resolve_import_abs :: (fn(input_path : &String, base_dir : &String, std_path : &String) -> String)(
   match(
     resolve_module_path_ex(input_path.clone(), base_dir.clone(), std_path, false),
-    .Found(p) => p,
+    .Found(p) => p.clone(),
     .NotFound(_) => input_path.clone(),
     .Ambiguous(_) => input_path.clone(),
     .Unavailable(_, _) => input_path
@@ -553,7 +553,7 @@ mm_module_source :: (fn(fs_path : &String) -> Option(String))({
   match(
     _open_doc_text(fs_path.clone()),
     .Some(t) => {
-      return(Option(String).Some(t));
+      return(Option(String).Some(t.clone()));
     },
     .None => ()
   );
@@ -608,7 +608,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   _read_source_capturing_error(fs_path.clone(), &mut read_out);
   src_bytes := match(
     read_out.get(usize(0)),
-    .Some(b) => b,
+    .Some(b) => b.clone(),
     .None => {
       _take_load_error();
       return(Option(DefDiff).None)
@@ -626,7 +626,7 @@ mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   _parse_capturing_error(&src, walk_key.clone(), &mut parse_out);
   mod_exprs := match(
     parse_out.get(usize(0)),
-    .Some(es) => es,
+    .Some(es) => es.clone(),
     .None => {
       _take_load_error();
       return(Option(DefDiff).None)
@@ -980,7 +980,7 @@ _list_contains :: (fn(list : &ArrayList(String), item : &String) -> bool)({
 _rev_add_index :: (fn(indexes_by_module : &mut HashMap(String, ArrayList(usize)), module : &String, index : usize) -> unit)({
   list := match(
     indexes_by_module.get(module.clone()),
-    .Some(existing) => existing,
+    .Some(existing) => existing.clone(),
     .None => ArrayList(usize).new()
   );
   list.push(index);
@@ -1103,7 +1103,7 @@ _admit_closure_key :: (
   });
   names := match(
     names_by_module.get(module.clone()),
-    .Some(ns) => ns,
+    .Some(ns) => ns.clone(),
     .None => ArrayList(String).new()
   );
   names.push(d.name.clone());
@@ -1222,7 +1222,7 @@ _revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
                 .Some(d) => {
                   names := match(
                     names_by_module.get(module.clone()),
-                    .Some(ns) => ns,
+                    .Some(ns) => ns.clone(),
                     .None => {
                       modules.push(module.clone());
                       ArrayList(String).new()
@@ -1392,7 +1392,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
                 if(def_ok, {
                   names := match(
                     names_by_module.get(module.clone()),
-                    .Some(ns) => ns,
+                    .Some(ns) => ns.clone(),
                     .None => ArrayList(String).new()
                   );
                   names.push(d.name.clone());
@@ -1422,7 +1422,7 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   // revalidated too, and their ordered readers must fall back).
   cn := match(
     names_by_module.get(diff.module_key.clone()),
-    .Some(ns) => ns,
+    .Some(ns) => ns.clone(),
     .None => ArrayList(String).new()
   );
   (cni : usize) = usize(0);
@@ -1595,9 +1595,9 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   });
   Option(RevalPlan).Some(
     RevalPlan(
-      module_key : diff.module_key,
+      module_key : diff.module_key.clone(),
       changed : diff.changed,
-      fresh_exprs : diff.fresh_exprs,
+      fresh_exprs : diff.fresh_exprs.clone(),
       closure_keys : closure_keys,
       fallback_modules : fallbacks,
       rebinds : rebinds
@@ -2008,7 +2008,7 @@ set_imports_file_override :: (fn(path : &String) -> unit)({
   g_imports_file_override = Option(String).Some(path);
   g_imports_file_loaded = false;
 });
-get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override);
+get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override.clone());
 /// Load the `--imports` mapping once. A relative root is absolutized against
 /// the process cwd (the runner writes absolute paths; the flag is usable by
 /// hand too). Malformed lines (no `=`, empty name or root) are errors — the
@@ -2081,7 +2081,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
     .None => String.from(".")
   );
   found := find_manifest(&entry_dir);
-  key := match(found, .Some(p) => p, .None => String.new());
+  key := match(found, .Some(p) => p.clone(), .None => String.new());
   match(
     g_manifest_roots_for,
     .Some(k) => if(k == key, {
@@ -2101,7 +2101,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
         .Err(msg) => {
           // Forget the failed registration so a corrected manifest is re-read.
           g_manifest_roots_for = Option(String).None;
-          exn.throw(dyn(msg));
+          exn.throw(dyn(msg.clone()));
           load_manifest(&manifest_path, exn).unwrap()
         }
       );
@@ -2134,7 +2134,7 @@ _stash_load_error :: (fn(msg : &String) -> unit)({
   g_load_module_error = Option(String).Some(msg);
 });
 _take_load_error :: (fn() -> Option(String))({
-  r := g_load_module_error;
+  r := g_load_module_error.clone();
   g_load_module_error = Option(String).None;
   r
 });
@@ -2308,7 +2308,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
     eprintln(`[warmload] MISS path=${abs.clone()}`);
   });
   touch_mark := module_load_begin();
-  std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
+  std_path := match(g_loader_std_path, .Some(s) => s.clone(), .None => String.from(""));
   fs_path := abs.replace(String.from("file://"), String.new());
   // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
   // WHOLE load so the parent window subtracts the load's true total.
@@ -2320,8 +2320,8 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   _read_source_capturing_error(fs_path.clone(), &mut read_out);
   src_bytes := match(
     read_out.get(usize(0)),
-    .Some(b) => b,
-    .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to read module "${abs}"`)))
+    .Some(b) => b.clone(),
+    .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m.clone(), .None => `Failed to read module "${abs}"`)))
   );
   // Record the hash of the bytes just read, NOT a re-read later: the artifact
   // stamp is built from this, and a re-read after the compile would absorb any
@@ -2352,8 +2352,8 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   _parse_capturing_error(&src, abs.clone(), &mut parse_out);
   mod_exprs := match(
     parse_out.get(usize(0)),
-    .Some(es) => es,
-    .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to parse module "${abs}"`)))
+    .Some(es) => es.clone(),
+    .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m.clone(), .None => `Failed to parse module "${abs}"`)))
   );
   _record_static_import_edges(abs.clone(), &mod_exprs, std_path.clone());
   (prof_parse_ns : i64) = prof_t0.elapsed().as_nanos();
@@ -2413,7 +2413,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
     .None => Option(String).Some(
       match(
         _take_load_error(),
-        .Some(m) => m,
+        .Some(m) => m.clone(),
         .None => `Failed to evaluate module "${abs}"`
       )
     )
@@ -2510,7 +2510,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
         LoadModuleResult(
           module_value : EvalValue.UnitVal,
           module_type : rc(TypeValueNode.Unit),
-          module_error : Option(String).Some(load_err)
+          module_error : Option(String).Some(load_err.clone())
         )
       );
     },

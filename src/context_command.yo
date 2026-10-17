@@ -401,7 +401,7 @@ _context_corpus_root :: (fn(explicit : &String, io : Io, exn : Exception) -> Str
 _user_cwd :: (fn() -> String)(
   match(
     env.get(String.from("YO_ORIGINAL_CWD")),
-    .Some(d) => d,
+    .Some(d) => d.clone(),
     .None => match(
       cwd(),
       .Ok(c) => c.to_string(),
@@ -432,7 +432,7 @@ _dep_corpora :: (
   start := _user_cwd();
   manifest_path := match(
     find_manifest(start.clone()),
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
       _fail(_EXIT_USAGE, tr(`context: --deps needs a project: no yo.toml in ${start} or above`, `context：--deps 需要项目：${start} 及其上级目录中没有 yo.toml`), exn);
       return(out);
@@ -470,7 +470,7 @@ _dep_corpora :: (
               exn
             );
           });
-          out.push(Corpus(root : tree, prefix : pkg.name.clone()));
+          out.push(Corpus(root : tree.clone(), prefix : pkg.name.clone()));
         },
         .Err(msg) => _fail(_EXIT_USAGE, tr(`context: dependency '${pkg.name}': ${msg} Run yo install.`, `context：依赖 '${pkg.name}'：${msg} 请运行 yo install。`), exn)
       );
@@ -703,7 +703,7 @@ _did_you_mean :: (
       });
       bi = (bi + usize(1));
     });
-    out.push(cands(best));
+    out.push(cands(best).clone());
   });
   out
 });
@@ -766,10 +766,10 @@ _resolve_module :: (fn(mods : &ArrayList(ContextIndexModule), arg : &String) -> 
   tiers.push(suffix);
   (t : usize) = usize(0);
   while(t < tiers.len(), {
-    tier := tiers(t);
+    tier := tiers(t).clone();
     t = (t + usize(1));
     if(tier.len() == usize(1), {
-      return(ModuleResolution.Found(tier(usize(0))));
+      return(ModuleResolution.Found(tier(usize(0)).clone()));
     });
     if(tier.len() > usize(1), {
       return(ModuleResolution.Ambiguous(tier));
@@ -781,7 +781,7 @@ _resolve_module :: (fn(mods : &ArrayList(ContextIndexModule), arg : &String) -> 
 _require_module :: (fn(world : &LoadedWorld, arg : &String, as_json : bool, exn : Exception) -> String)(
   match(
     _resolve_module(&world.mods, arg),
-    .Found(m) => m,
+    .Found(m) => m.clone(),
     .Ambiguous(c) => {
       _miss(_EXIT_NO_MATCH, tr(`context: '${arg}' matches ${c.len().to_string()} modules — spell more of the path`, `context：'${arg}' 匹配 ${c.len().to_string()} 个模块——请写出更多路径`), &c, as_json, exn);
       String.new()
@@ -834,13 +834,13 @@ _page_sections :: (fn(content : &String) -> ArrayList(PageSection))({
   cur := String.new();
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    line := lines(i);
+    line := lines(i).clone();
     i = (i + usize(1));
     if(!in_fence && _is_structural_heading(line.clone()), {
       match(
         cur_anchor,
         .Some(a) => {
-          out.push(PageSection(anchor : a, text : _section_body(cur.clone())));
+          out.push(PageSection(anchor : a.clone(), text : _section_body(cur.clone())));
         },
         .None => ()
       );
@@ -1039,7 +1039,7 @@ search_score :: (fn(e : &ContextIndexEntry, query : &String) -> usize)({
   (score : usize) = usize(400);
   (i : usize) = usize(0);
   while(i < tokens.len(), {
-    t := tokens(i);
+    t := tokens(i).clone();
     i = (i + usize(1));
     tier := cond(
       (low_name == t) => usize(400),
@@ -1281,7 +1281,7 @@ _entry_names_item :: (
     return(e.name == item);
   });
   segs := item.split(String.from("."));
-  leaf := segs(segs.len() - usize(1));
+  leaf := segs(segs.len() - usize(1)).clone();
   if((e.name != leaf) || (e.kind != "method"), {
     return(false);
   });
@@ -1377,7 +1377,7 @@ _run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : 
     ents := _entry_names(&world.entries, String.new());
     (k : usize) = usize(0);
     while(k < ents.len(), {
-      names.push(ents(k));
+      names.push(ents(k).clone());
       k = (k + usize(1));
     });
     _miss(_EXIT_NO_MATCH, tr(`context: no module or item '${name}' in the corpus`, `context：语料中没有模块或条目 '${name}'`), _did_you_mean(&names, name.clone()), q.as_json, exn);
@@ -1441,7 +1441,7 @@ _doc_title :: (fn(content : &String) -> String)({
   lines := content.split(`\n`);
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    l := lines(i);
+    l := lines(i).clone();
     if(l.starts_with(`# `), {
       return(l.substring(usize(2), l.len()));
     });
@@ -1524,7 +1524,7 @@ _run_context_doc :: (fn(query : &String, as_json : bool, io : Io, exn : Exceptio
   (i : usize) = usize(0);
   while(i < names.len(), {
     if(names(i).to_lowercase() == want, {
-      found = Option(String).Some(names(i));
+      found = Option(String).Some(names(i).clone());
     });
     i = (i + usize(1));
   });

@@ -115,7 +115,7 @@ impl(
 _string_or_empty :: (fn(table : &TomlValue, key : str) -> String)(
   match(
     table.get(String.from(key)),
-    .Some(v) => match(v.as_string(), .Some(s) => s, .None => String.new()),
+    .Some(v) => match(v.as_string(), .Some(s) => s.clone(), .None => String.new()),
     .None => String.new()
   )
 );
@@ -173,7 +173,7 @@ parse_lock_file :: (fn(content : &String) -> Result(LockFile, String))({
               .Some(ds) => {
                 (d : usize) = usize(0);
                 while(d < ds.len(), {
-                  match(ds(d).as_string(), .Some(s) => deps.push(s), .None => ());
+                  match(ds(d).as_string(), .Some(s) => deps.push(s.clone()), .None => ());
                   d = (d + usize(1));
                 });
               },
@@ -292,7 +292,7 @@ read_lock_file :: (
     match(
       parse_lock_file(&content),
       .Ok(lock) => LockRead(lock : lock, absent : false, problem : Option(String).None),
-      .Err(msg) => LockRead(lock : LockFile.empty(), absent : false, problem : Option(String).Some(msg))
+      .Err(msg) => LockRead(lock : LockFile.empty(), absent : false, problem : Option(String).Some(msg.clone()))
     )
   })
 );

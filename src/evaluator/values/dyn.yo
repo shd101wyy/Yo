@@ -86,7 +86,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
     .None => Option(TypeValue).None,
     .Some(bfv) => {
       param0_ty := match(box_ft, Rc(.Func({ param_types : pts })) => match(pts.get(usize(0)), .Some(p) => p, .None => t_type()), _ => t_type());
-      param0_label := match(box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
+      param0_label := match(box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l.clone(), .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = env;
       _cfr := cenv.push_frame(false);
       vtok := synthetic_token(param0_label.clone(), &cenv.module_path);
@@ -315,7 +315,7 @@ _require_dyn_traits_implemented :: (
       dfn_is_fn := is_function_type(&fv_payload);
       dfn_note := cond(
         (dfn_is_fn && type_implements_trait_bool(fv_payload.clone(), &dfn_req, env)) => Option(String).None,
-        dfn_is_fn => match(function_value_slot_mismatch(dyn_type, &fv_payload), .Some(dfn_m) => Option(String).Some(dfn_m), .None => Option(String).Some(String.from(""))),
+        dfn_is_fn => match(function_value_slot_mismatch(dyn_type, &fv_payload), .Some(dfn_m) => Option(String).Some(dfn_m.clone()), .None => Option(String).Some(String.from(""))),
         true => function_value_slot_mismatch(dyn_type, &fv_payload)
       );
       match(
@@ -420,7 +420,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
               owned := match(ft, Rc(.Func({ meta : m })) => match(m.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
-                label := match(fls.get(j), .Some(l) => l, .None => String.from("?"));
+                label := match(fls.get(j), .Some(l) => l.clone(), .None => String.from("?"));
                 return(Option(String).Some(`${tn}.${label}`));
               });
             });
@@ -494,7 +494,7 @@ _require_send_dyn_methods_reach_no_global :: (
                     written := d1_note_thread_reach(fvd.*.func_id.clone());
                     if(reach.is_some(), reach, written)
                   }, .Some(reason) => {
-                    mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                    mname := match(fnames.get(fi), .Some(n) => n.clone(), .None => String.new());
                     msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is ${thread_marker}), but its method '${mname}' ${reason}.`;
                     raise_flow_violation(format_error_message(token, &msg), ctx, exn);
                   }, .None => ()),
@@ -563,7 +563,7 @@ _reject_dyn_borrowing_future_methods :: (
             match(
               bs.get(usize(0)),
               .Some(b0) => {
-                mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                mname := match(fnames.get(fi), .Some(n) => n.clone(), .None => String.new());
                 raise_flow_violation(
                   with_code(
                     format_error_message_with_help(
@@ -725,7 +725,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
               field_vals := ArrayList(Option(EvalValue)).new();
               (j : usize) = usize(0);
               while(j < n_fields, {
-                fname := match(fl.get(j), .Some(s) => s, .None => String.from(""));
+                fname := match(fl.get(j), .Some(s) => s.clone(), .None => String.from(""));
                 field_names.push(fname.clone());
                 // Prefer an entry matching BOTH label and trait id; fall back to
                 // a label-only match (the Dyn(Trait) annotation's trait id can
@@ -796,7 +796,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                 field_vals.push(resolved_field);
                 j = (j + usize(1));
               });
-              trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));
+              trait_vals.push(EvalValue.TraitVal(tname.clone(), field_names, field_vals));
               ()
             },
             // Fn trait (Dyn(Fn(...)) — e.g. a dyn'd CLOSURE stored in a struct
@@ -923,7 +923,7 @@ evaluate_dyn_value :: (
   // Extract the args ArrayList and the single value argument.
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       exn.throw(
         dyn(
@@ -1064,10 +1064,10 @@ evaluate_dyn_value :: (
         ) =>
           rc(
             TypeValueNode.DynT(
-              required_trait_types : rtt,
-              required_trait_levels : rtl,
-              negative_trait_types : ntt,
-              negative_trait_levels : ntl
+              required_trait_types : rtt.clone(),
+              required_trait_levels : rtl.clone(),
+              negative_trait_types : ntt.clone(),
+              negative_trait_levels : ntl.clone()
             )
           ),
         _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).Some(et.ty), ne_have_inner_ty, exn)
@@ -1112,14 +1112,14 @@ evaluate_dyn_value :: (
                 Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _)) => {
                   ne_box_inner_ty = rc(
                     TypeValueNode.SomeT(
-                      bx_id,
-                      bx_nm,
+                      bx_id.clone(),
+                      bx_nm.clone(),
                       bx_fl,
                       bx_pt,
-                      bx_rtt,
-                      bx_rtl,
-                      bx_ntt,
-                      bx_ntl,
+                      bx_rtt.clone(),
+                      bx_rtl.clone(),
+                      bx_ntt.clone(),
+                      bx_ntl.clone(),
                       bx_kft,
                       Option(TypeValue).Some(cci.capture_type)
                     )
@@ -1292,10 +1292,10 @@ evaluate_dyn_value :: (
         Option(TypeValue).Some(
           rc(
             TypeValueNode.DynT(
-              required_trait_types : rtt,
-              required_trait_levels : rtl,
-              negative_trait_types : ntt,
-              negative_trait_levels : ntl
+              required_trait_types : rtt.clone(),
+              required_trait_levels : rtl.clone(),
+              negative_trait_types : ntt.clone(),
+              negative_trait_levels : ntl.clone()
             )
           )
         ),

@@ -205,7 +205,7 @@ _stable_id_module_stem :: (fn(module_path : &String) -> String)({
       if(out.len() > usize(0), {
         out.push_str("__");
       });
-      seg := match(segments.get(si), .Some(s) => s, .None => String.new());
+      seg := match(segments.get(si), .Some(s) => s.clone(), .None => String.new());
       bytes := seg;
       (bi : usize) = usize(0);
       while(bi < bytes.len(), {
@@ -437,7 +437,7 @@ stable_type_id :: (
 _stable_type_id_owner_key :: (fn(module_path : &String) -> String)(
   match(
     g_stable_type_id_owner_memo.get(module_path),
-    .Some(c) => c,
+    .Some(c) => c.clone(),
     .None => {
       c := canonical_module_path(module_path);
       g_stable_type_id_owner_memo.insert(module_path.clone(), c.clone());
@@ -629,7 +629,7 @@ profile_memory_mark :: (fn(label : str) -> unit)({
 });
 profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.len());
 profile_mark_line_at :: (fn(i : usize) -> String)(
-  `profile: mark ${match(g_prof_mark_labels.get(i), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB`
+  `profile: mark ${match(g_prof_mark_labels.get(i), .Some(l) => l.clone(), .None => String.new())} rss=${match(g_prof_mark_rss_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB`
 );
 _prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
   match(probe, .Some(f) => f(), .None => usize(0))
@@ -805,8 +805,8 @@ generate_new_temp_variable_name :: (
     (anchor_module_opt : &Option(String)) ?= .None
   ) -> String
 )({
-  slot := match(slot_opt, .Some(s) => s, .None => String.new());
-  anchor_module := match(anchor_module_opt, .Some(a) => a, .None => String.new());
+  slot := match(slot_opt, .Some(s) => s.clone(), .None => String.new());
+  anchor_module := match(anchor_module_opt, .Some(a) => a.clone(), .None => String.new());
   prefix := generate_temp_variable_name_prefix(module_path);
   // The digit tail is a HASH of the mint site's identity (prefix + position
   // + slot) with this key's occurrence index appended — digits only, keeping
@@ -836,7 +836,7 @@ generate_new_temp_variable_name :: (
   pos_key := cond(
     (anchor_module.len() > usize(0)) => {
       (k0, _k1) := _anchored_position(&anchor_module, row, column);
-      k0
+      k0.clone()
     },
     true => `${row.to_string()}:${column.to_string()}`
   );
@@ -928,10 +928,10 @@ export(str_lit_unquote_bytes);
 debug_knob :: (fn(name : &String) -> Option(String))(
   match(
     g_debug_knobs.get(name),
-    .Some(cached) => cached,
+    .Some(cached) => cached.clone(),
     .None => {
       fresh := env.get(name);
-      _prev := g_debug_knobs.insert(name, fresh);
+      _prev := g_debug_knobs.insert(name, fresh.clone());
       fresh
     }
   )
@@ -944,7 +944,7 @@ debug_knob :: (fn(name : &String) -> Option(String))(
 set_current_owner :: (fn(owner : &String) -> unit)({
   g_current_owner = owner;
 });
-current_owner :: (fn() -> String)(g_current_owner);
+current_owner :: (fn() -> String)(g_current_owner.clone());
 /// Whether the owner logs (`OwnedKeys` and the owned expr/func-id logs) are
 /// recorded at all. They exist only so `mm_invalidate_document`
 /// can purge an edited module's entries, which `yo lsp`, `check --watch`,
@@ -978,19 +978,19 @@ OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
 owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));
 /// Record `key` under the current owner (no-op outside a module load).
 owned_keys_record :: (fn(log : &OwnedKeys, key : &String) -> unit)({
-  cur_owner := g_current_owner;
+  cur_owner := g_current_owner.clone();
   if((cur_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  keys := match(log.by_owner.remove(cur_owner.clone()), .Some(k) => k, .None => ArrayList(String).new());
+  keys := match(log.by_owner.remove(cur_owner.clone()), .Some(k) => k.clone(), .None => ArrayList(String).new());
   keys.push(key);
   log.by_owner.insert(cur_owner.clone(), keys);
 });
 /// Remove and return the keys recorded under `owner`.
 owned_keys_take :: (fn(log : &OwnedKeys, owner : &String) -> ArrayList(String))(
-  match(log.by_owner.remove(owner), .Some(keys) => keys, .None => ArrayList(String).new())
+  match(log.by_owner.remove(owner), .Some(keys) => keys.clone(), .None => ArrayList(String).new())
 );
 export(set_current_owner, current_owner, set_owner_logs_enabled, owner_logs_enabled, set_codegen_tables_enabled, codegen_tables_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take);
 export(debug_knob);

@@ -130,7 +130,7 @@ _scan_call_edges :: (
                   raw_callee := fvd.*.func_id.clone();
                   callee_fid := match(
                     specialized_base_of(raw_callee.clone()),
-                    .Some(b) => b,
+                    .Some(b) => b.clone(),
                     .None => raw_callee
                   );
                   if(callee_fid != caller_fid, {
@@ -190,7 +190,7 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
         stack.push(n.clone());
         seen.insert(n.clone(), true);
         while(stack.len() > usize(0), {
-          cur := match(stack.pop(), .Some(c) => c, .None => String.new());
+          cur := match(stack.pop(), .Some(c) => c.clone(), .None => String.new());
           (ei : usize) = usize(0);
           while(ei < from.len(), {
             match(
@@ -313,7 +313,7 @@ _is_lex_measure :: (fn(e : &AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BF_DECRE
 _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
-    .FnCall(_, _, ca, _, _) => ca,
+    .FnCall(_, _, ca, _, _) => ca.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
@@ -353,7 +353,7 @@ _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 _is_array_list_shape :: (fn(id : &String, name : &String, labels : &ArrayList(String)) -> bool)({
   display := cond(
     (name.len() > usize(0)) => name.clone(),
-    true => match(type_display_name(id.clone()), .Some(d) => d, .None => String.new())
+    true => match(type_display_name(id.clone()), .Some(d) => d.clone(), .None => String.new())
   );
   head_ok := ((display == "ArrayList") || display.starts_with("ArrayList("));
   fields_ok := ((labels.len() == usize(3)) && match(labels.get(usize(0)), .Some(l0) => (l0 == "_ptr"), .None => false) && match(labels.get(usize(1)), .Some(l1) => (l1 == "_length"), .None => false) && match(labels.get(usize(2)), .Some(l2) => (l2 == "_capacity"), .None => false));
@@ -1524,7 +1524,7 @@ _sorted_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
       key := unsafe((buf.add(j)).*).clone();
       (k : usize) = j;
       while(k > usize(0), {
-        prev := unsafe((buf.add(k - usize(1))).*);
+        prev := unsafe((buf.add(k - usize(1))).*).clone();
         if(prev <= key, {
           break;
         });
@@ -1704,7 +1704,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
               match(
                 map.get(mk.clone()),
                 .Some(mv) => {
-                  inner_map.insert(mk.clone(), mv);
+                  inner_map.insert(mk.clone(), mv.clone());
                 },
                 .None => ()
               );
@@ -1727,7 +1727,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
       });
       VcTerm.Quant(
         kind : kind,
-        names : names,
+        names : names.clone(),
         sorts : sorts,
         body : _rename_vars(&body, &inner_map),
         triggers : renamed_triggers
@@ -1846,7 +1846,7 @@ _untyped_opaque_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   });
   oargs := match(
     e,
-    .FnCall(_, _, oa, _, _) => oa,
+    .FnCall(_, _, oa, _, _) => oa.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   lhs := _untyped_opaque_term(ctx, oargs.get(usize(0)).unwrap());
@@ -1854,8 +1854,8 @@ _untyped_opaque_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(lhs.is_none() || rhs.is_none(), {
     return(Option(VcTerm).None);
   });
-  ls := match(_term_sort(lhs.unwrap()), .Some(.Uninterpreted(ln)) => ln, _ => String.new());
-  rs := match(_term_sort(rhs.unwrap()), .Some(.Uninterpreted(rn)) => rn, _ => String.new());
+  ls := match(_term_sort(lhs.unwrap()), .Some(.Uninterpreted(ln)) => ln.clone(), _ => String.new());
+  rs := match(_term_sort(rhs.unwrap()), .Some(.Uninterpreted(rn)) => rn.clone(), _ => String.new());
   if((ls.len() == usize(0)) || (ls != rs), {
     return(Option(VcTerm).None);
   });
@@ -1961,7 +1961,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   // unification between a match-tail and a return-tail block is a unit
   // trap; see the V2 notes in issues/async-closure-*).
   if(ast_expr_is_atom(e), {
-    name := ast_expr_token(e).value;
+    name := ast_expr_token(e).value.clone();
     return(
       match(
         ctx.vars.get(name.clone()),
@@ -1976,7 +1976,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   if(ast_expr_is_fn_call(e), {
     args := match(
       e,
-      .FnCall(_, _, a, _, _) => a,
+      .FnCall(_, _, a, _, _) => a.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     // An `old(...)` CALLEE (`old(self)(k)`, a list read through the
@@ -2025,7 +2025,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     );
     head := match(
       e,
-      .FnCall(_, f, _, _, _) => ast_expr_token(&f).value,
+      .FnCall(_, f, _, _, _) => ast_expr_token(&f).value.clone(),
       .Atom(_, _) => String.new()
     );
     return(_call_term(ctx, e, &head, &args, &info));
@@ -2058,13 +2058,13 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
           sb.write_byte(u8(0x7C));
           (vi : usize) = usize(0);
           while(vi < e_names.len(), {
-            vname := match(e_names.get(vi), .Some(n) => n, .None => String.new());
+            vname := match(e_names.get(vi), .Some(n) => n.clone(), .None => String.new());
             if(vi > usize(0), {
               sb.write_byte(u8(0x20));
             });
             sb.write_string(_enum_ctor_name(e_id.clone(), vname.clone()));
-            vfs := match(e_fields.get(vi), .Some(l) => l, .None => ArrayList(TypeValue).new());
-            vls := match(e_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+            vfs := match(e_fields.get(vi), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
+            vls := match(e_labels.get(vi), .Some(l) => l.clone(), .None => ArrayList(String).new());
             if(vfs.len() > usize(0), {
               // A SPACE separates the ctor name from its field group —
               // the encoder's segment scanner keys on it.
@@ -2253,8 +2253,8 @@ _build_enum_ctor :: (
   cond(
     _variant_named(e_names, variant.clone()) => {
       vidx := _variant_index_of(e_names, variant.clone());
-      vname := match(e_names.get(vidx), .Some(n) => n, .None => String.new());
-      vfs := match(e_fields.get(vidx), .Some(l) => l, .None => ArrayList(TypeValue).new());
+      vname := match(e_names.get(vidx), .Some(n) => n.clone(), .None => String.new());
+      vfs := match(e_fields.get(vidx), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
       // The construction's VALUE args are the dot-args AFTER the variant
       // atom.
       cargs := ArrayList(VcTerm).new();
@@ -2697,7 +2697,7 @@ _variant_accessors :: (fn(e_ty : &TypeValue, variant : &String, count : usize) -
     e_ty,
     Rc(.EnumT({ variant_names : e_names, variant_field_labels : e_labels })) => match(
       e_labels.get(_variant_index_of(&e_names, variant.clone())),
-      .Some(l) => l,
+      .Some(l) => l.clone(),
       .None => ArrayList(String).new()
     ),
     _ => ArrayList(String).new()
@@ -2795,7 +2795,7 @@ _scan_assigned :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut ArrayList
         expanded,
         .Some(xp) => _scan_assigned(table, &xp, out),
         .None => {
-          head := ast_expr_token(&f).value;
+          head := ast_expr_token(&f).value.clone();
           // A mutating METHOD call on a named receiver (`out.push(v)`: the
           // callee's contract mentions `old(self...)`) rebinds the receiver
           // name at the call (R1 slice 2), so it joins the havoc set.
@@ -2891,7 +2891,7 @@ _pop_receiver_name :: (fn(e : &AstExpr) -> Option(String))({
   if(ast_expr_token(&m).value != "pop", {
     return(Option(String).None);
   });
-  Option(String).Some(ast_expr_token(&recv).value)
+  Option(String).Some(ast_expr_token(&recv).value.clone())
 });
 /// The receiver NAME of a method call whose callee's contract mentions
 /// `old(self...)` — a call that mutates its receiver (R1 slice 2).
@@ -2906,7 +2906,7 @@ _mutated_receiver_name :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(St
   dot_args := match(
     callee,
     .FnCall(_, cf, da, _, _) => cond(
-      (ast_expr_token(&cf).value == ".") => da,
+      (ast_expr_token(&cf).value == ".") => da.clone(),
       true => {
         return(Option(String).None);
       }
@@ -2950,7 +2950,7 @@ _mutated_receiver_name :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(St
     return(Option(String).None);
   });
   if(_contracts_mention_old_of(get_func_requires_exprs(fid.clone()), get_func_ensures_exprs(fid.clone()), String.from("self")), {
-    return(Option(String).Some(ast_expr_token(&recv).value));
+    return(Option(String).Some(ast_expr_token(&recv).value.clone()));
   });
   Option(String).None
 });
@@ -3225,8 +3225,8 @@ _for_expansion_loop :: (fn(xp : &AstExpr) -> Option(LoopAnnotations))({
   match(
     _loop_annotations(&wbody),
     .Some(an) => {
-      invs = an.invariants;
-      stmts = an.body;
+      invs = an.invariants.clone();
+      stmts = an.body.clone();
     },
     .None => ()
   );
@@ -3276,7 +3276,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
     _fail_subset(ctx, String.from("for over something other than an ArrayList variable"), e);
     return(Option(VcTerm).None);
   });
-  coll_name := ast_expr_token(&coll).value;
+  coll_name := ast_expr_token(&coll).value.clone();
   list_t := ctx.vars.get(coll_name.clone());
   // The element sort is read off the list's own term: the source-form
   // `for` call's arguments are typed through its expansion, not in place.
@@ -3312,7 +3312,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
   a := a_opt.unwrap();
   idx_name := `__yo_for_idx_${ast_expr_id(e).to_string()}`;
   ctx.vars.insert(idx_name.clone(), VcTerm.BvLit(value : u64(0), width : usize(64)));
-  fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_token(&var).value);
+  fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_token(&var).value.clone());
   ctx.for_frames.push(fr);
   r := _loop_core(ctx, e, &a, Option(AstExpr).None, ctx.for_frames.get(ctx.for_frames.len() - usize(1)));
   _ := ctx.for_frames.pop();
@@ -3650,7 +3650,7 @@ _quant_term :: (
     });
     ba := match(
       b,
-      .FnCall(_, _, a2, _, _) => a2,
+      .FnCall(_, _, a2, _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     nm_arg := match(
@@ -3662,7 +3662,7 @@ _quant_term :: (
       _fail_subset(ctx, String.from("quantifier binder name must be a plain name"), &b);
       return(Option(VcTerm).None);
     });
-    bn := ast_expr_token(&nm_arg).value;
+    bn := ast_expr_token(&nm_arg).value.clone();
     // The binder's sort: the `:`-call's SECOND argument (the type
     // expression) evaluates to a TypeVal; the annotation call itself
     // does not carry one.
@@ -4048,8 +4048,8 @@ _call_term :: (
       _fail_subset(ctx, String.from("distinct(...) over something other than two parameter names"), e);
       return(Option(VcTerm).None);
     });
-    an := ast_expr_token(&da).value;
-    bn := ast_expr_token(&db).value;
+    an := ast_expr_token(&da).value.clone();
+    bn := ast_expr_token(&db).value.clone();
     return(
       cond(
         (ctx.requires_phase == usize(1)) => {
@@ -4058,8 +4058,8 @@ _call_term :: (
           Option(VcTerm).Some(VcTerm.BoolLit(true))
         },
         (ctx.requires_phase == usize(2)) => {
-          xn := match(ctx.call_arg_names.get(an.clone()), .Some(x) => x, .None => String.new());
-          yn := match(ctx.call_arg_names.get(bn.clone()), .Some(y) => y, .None => String.new());
+          xn := match(ctx.call_arg_names.get(an.clone()), .Some(x) => x.clone(), .None => String.new());
+          yn := match(ctx.call_arg_names.get(bn.clone()), .Some(y) => y.clone(), .None => String.new());
           Option(VcTerm).Some(VcTerm.BoolLit(_lists_distinct(ctx, &xn, &yn)))
         },
         true => {
@@ -4074,7 +4074,7 @@ _call_term :: (
   if((head == "produced") && (n == usize(1)), {
     pa := args.get(usize(0)).unwrap();
     if(ast_expr_is_atom(&pa), {
-      pname := ast_expr_token(&pa).value;
+      pname := ast_expr_token(&pa).value.clone();
       (fi : usize) = ctx.for_frames.len();
       while(fi > usize(0), {
         fi = (fi - usize(1));
@@ -4106,7 +4106,7 @@ _call_term :: (
   if((head == "ghost") && (n == usize(1)) && ast_expr_is_fn_call_of(args.get(usize(0)).unwrap(), ":=", Option(usize).Some(usize(2))), {
     ga := match(
       args.get(usize(0)).unwrap(),
-      .FnCall(_, _, a2, _, _) => a2,
+      .FnCall(_, _, a2, _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     gv := _expr_term(ctx, ga.get(usize(1)).unwrap());
@@ -4688,7 +4688,7 @@ _call_term :: (
           if(ast_expr_is_atom(&lr.recv), {
             new_len := _app3(VcOp.IteOp, &non_empty, &last_i, &len_t);
             rebound := VcTerm.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len));
-            rnm := ast_expr_token(&lr.recv).value;
+            rnm := ast_expr_token(&lr.recv).value.clone();
             ctx.vars.insert(rnm.clone(), rebound);
             // A popped parameter is a mutation its callers must learn of
             // through old(), exactly as a push is (the subset rule in
@@ -4742,7 +4742,7 @@ _list_len_read_by_var :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))(
   if(!ast_expr_is_atom(&recv) || !ast_expr_is_atom(&m), {
     return(Option(VcTerm).None);
   });
-  mname := ast_expr_token(&m).value;
+  mname := ast_expr_token(&m).value.clone();
   if(!((mname == "len") || (mname == "is_empty")), {
     return(Option(VcTerm).None);
   });
@@ -4835,7 +4835,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
         .Var(_, rv_sort) => match(
           _list_sort_elem(&rv_sort),
           .Some(les0) => {
-            return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value, elem : les0)));
+            return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value.clone(), elem : les0)));
           },
           .None => ()
         ),
@@ -4850,7 +4850,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
       _list_elem_sort(&ri.ty),
       .Some(les) => {
         _register_list_datatype(&les);
-        Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value, elem : les))
+        Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value.clone(), elem : les))
       },
       .None => Option(ListReceiver).None
     ),
@@ -5213,7 +5213,7 @@ _atom_arg_name :: (fn(args : &ArrayList(AstExpr)) -> Option(String))(
   match(
     args.get(usize(0)),
     .Some(first) => cond(
-      ast_expr_is_atom(&first) => Option(String).Some(ast_expr_token(&first).value),
+      ast_expr_is_atom(&first) => Option(String).Some(ast_expr_token(&first).value.clone()),
       true => Option(String).None
     ),
     .None => Option(String).None
@@ -5233,7 +5233,7 @@ _typed_binding_lhs_name :: (fn(lhs : &AstExpr) -> Option(String))(
 /// by `_index_write_target`).
 _binding_name_of :: (fn(lhs : &AstExpr) -> Option(String))(
   cond(
-    ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value),
+    ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value.clone()),
     ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))) => _typed_binding_lhs_name(lhs),
     true => Option(String).None
   )
@@ -5245,7 +5245,7 @@ _index_write_name_shape :: (fn(lhs : &AstExpr) -> Option(String))(
   match(
     lhs,
     .FnCall(_, f, a, _, _) => cond(
-      (ast_expr_is_atom(&f) && (a.len() == usize(1))) => Option(String).Some(ast_expr_token(&f).value),
+      (ast_expr_is_atom(&f) && (a.len() == usize(1))) => Option(String).Some(ast_expr_token(&f).value.clone()),
       true => Option(String).None
     ),
     .Atom(_, _) => Option(String).None
@@ -5258,7 +5258,7 @@ _index_write_target :: (fn(ctx : &mut VcCtx, lhs : &AstExpr) -> Option(String))(
     _index_write_name_shape(lhs),
     .Some(nm) => match(
       ctx.array_sorts.get(nm.clone()),
-      .Some(_) => Option(String).Some(nm),
+      .Some(_) => Option(String).Some(nm.clone()),
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -5373,8 +5373,8 @@ _requires_state_distinct :: (fn(reqs : &ArrayList(AstExpr), a : &String, b : &St
       p := ra.get(usize(0)).unwrap();
       q := ra.get(usize(1)).unwrap();
       if(ast_expr_is_atom(&p) && ast_expr_is_atom(&q), {
-        pn := ast_expr_token(&p).value;
-        qn := ast_expr_token(&q).value;
+        pn := ast_expr_token(&p).value.clone();
+        qn := ast_expr_token(&q).value.clone();
         if(((pn == a) && (qn == b)) || ((pn == b) && (qn == a)), {
           return(true);
         });
@@ -5419,7 +5419,7 @@ _list_dt_of_type :: (fn(t : &TypeValue) -> Option(String))(
   cond(
     _list_elem_type(t).is_some() => match(
       _type_sort(t),
-      .Some(.DataS(dn)) => Option(String).Some(dn),
+      .Some(.DataS(dn)) => Option(String).Some(dn.clone()),
       _ => Option(String).None
     ),
     true => Option(String).None
@@ -5507,7 +5507,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
     if(is_bind || is_assign, {
       ba := match(
         stmt,
-        .FnCall(_, _, a2, _, _) => a2,
+        .FnCall(_, _, a2, _, _) => a2.clone(),
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       match(
@@ -5539,7 +5539,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
             .Some(aname) => {
               la := match(
                 ba.get(usize(0)).unwrap(),
-                .FnCall(_, _, a3, _, _) => a3,
+                .FnCall(_, _, a3, _, _) => a3.clone(),
                 .Atom(_, _) => ArrayList(AstExpr).new()
               );
               idx := _expr_term(ctx, la.get(usize(0)).unwrap());
@@ -5731,7 +5731,7 @@ _transparent_call_term :: (
   if(failed, {
     // The innermost reason wins (a nested callee's recursion); else name
     // what this attempt hit.
-    prior_reason := g_transparent_reason;
+    prior_reason := g_transparent_reason.clone();
     if(prior_reason.len() == usize(0), {
       g_transparent_reason = cond(
         (ctx.mutated_names.len() > saved_mut) => String.from("it changes an argument"),
@@ -5787,7 +5787,7 @@ _ghost_fn_app_term :: (
     .Some(ci) => match(
       ci.value,
       .Some(.FuncVal(gfvd, _)) => {
-        params = gfvd.*.params;
+        params = gfvd.*.params.clone();
         body = gfvd.*.body;
         found = true;
       },
@@ -5948,7 +5948,7 @@ _ghost_fn_inline_term :: (
           match(
             v,
             .FuncVal(gfvd, _) => {
-              params = gfvd.*.params;
+              params = gfvd.*.params.clone();
               body = gfvd.*.body;
               found = true;
             },
@@ -6066,7 +6066,7 @@ _callee_call_term :: (
   // (R1 slice 2).
   callee_id = match(
     callee_id,
-    .Some(cid) => Option(String).Some(cid),
+    .Some(cid) => Option(String).Some(cid.clone()),
     .None => match(
       lookup_method_callee_value(ast_expr_id(e)),
       .Some(mv) => match(
@@ -6115,8 +6115,8 @@ _callee_call_term :: (
   is_self_recursion := (fid == ctx.func_id);
   walk_base_fid := match(
     specialized_base_of(fid.clone()),
-    .Some(b) => b,
-    .None => fid
+    .Some(b) => b.clone(),
+    .None => fid.clone()
   );
   is_clique_recursion := (!is_self_recursion && _same_recursion_clique(ctx.func_id.clone(), walk_base_fid.clone()));
   m_current := Option(VcTerm).None;
@@ -6158,8 +6158,8 @@ _callee_call_term :: (
       base_preds := get_func_refined_params(
         match(
           specialized_base_of(fid.clone()),
-          .Some(b) => b,
-          .None => fid
+          .Some(b) => b.clone(),
+          .None => fid.clone()
         ).clone()
       );
       (hri : usize) = usize(0);
@@ -6192,7 +6192,7 @@ _callee_call_term :: (
       },
       .None => ()
     );
-    reason := g_transparent_reason;
+    reason := g_transparent_reason.clone();
     _fail_subset(ctx, `call to a callee without contracts (not spec-transparent: ${reason})`, e);
     return(Option(VcTerm).None);
   });
@@ -6207,7 +6207,7 @@ _callee_call_term :: (
     expr_info_table_get(&ctx.table, ast_expr_id(&callee_atom)),
     .Some(ci2) => match(
       ci2.value,
-      .Some(.FuncVal(fvd2, _)) => fvd2.*.params,
+      .Some(.FuncVal(fvd2, _)) => fvd2.*.params.clone(),
       .Some(_) => ArrayList(String).new(),
       .None => ArrayList(String).new()
     ),
@@ -6218,7 +6218,7 @@ _callee_call_term :: (
       lookup_method_callee_value(ast_expr_id(e)),
       .Some(mv2) => match(
         mv2,
-        .FuncVal(mfvd2, _) => mfvd2.*.params,
+        .FuncVal(mfvd2, _) => mfvd2.*.params.clone(),
         _ => ArrayList(String).new()
       ),
       .None => ArrayList(String).new()
@@ -6239,8 +6239,8 @@ _callee_call_term :: (
   refine_preds := get_func_refined_params(
     match(
       specialized_base_of(fid.clone()),
-      .Some(b) => b,
-      .None => fid
+      .Some(b) => b.clone(),
+      .None => fid.clone()
     ).clone()
   );
   // Walk every actual in the caller's scope first, then bind the callee's
@@ -6314,7 +6314,7 @@ _callee_call_term :: (
       callee_params.get(ani),
       .Some(acp) => {
         aa := eff_args.get(ani).unwrap();
-        ctx.call_arg_names.insert(acp.clone(), match(_arg_place_atom(&aa), .Some(pa) => ast_expr_token(&pa).value, .None => String.new()));
+        ctx.call_arg_names.insert(acp.clone(), match(_arg_place_atom(&aa), .Some(pa) => ast_expr_token(&pa).value.clone(), .None => String.new()));
         ()
       },
       .None => ()
@@ -6393,8 +6393,8 @@ _callee_call_term :: (
       .Some(ha_arg) => match(
         _arg_place_atom(&ha_arg),
         .Some(ha) => {
-          hnm := ast_expr_token(&ha).value;
-          hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
+          hnm := ast_expr_token(&ha).value.clone();
+          hcp := match(callee_params.get(hvi), .Some(c) => c.clone(), .None => String.new());
           if((hcp.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, hcp.clone()), {
             match(
               arg_terms.get(hvi),

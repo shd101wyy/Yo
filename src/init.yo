@@ -48,7 +48,7 @@ _is_valid_name_byte :: (fn(b : u8) -> bool)(
 /// Replace characters that are not `[a-zA-Z0-9_-]` with `-`.
 sanitize_project_name :: (fn(raw : &String) -> String)({
   result := String.new();
-  bytes := raw;
+  bytes := raw.clone();
   i := usize(0);
   while(i < bytes.len(), {
     b_opt := bytes.get_byte(i);
@@ -327,7 +327,7 @@ init_project :: (
     // Resolve user CWD (yo-cli overrides this env var when it changes directory)
     user_cwd_str := match(
       env.get(String.from("YO_ORIGINAL_CWD")),
-      .Some(d) => d,
+      .Some(d) => d.clone(),
       .None => match(
         cwd(),
         .Ok(p) => p.to_string(),
@@ -342,10 +342,10 @@ init_project :: (
     // Derive project name
     raw_name := match(
       options.name,
-      .Some(n) => n,
+      .Some(n) => n.clone(),
       .None => match(
         project_dir.file_name(),
-        .Some(s) => s,
+        .Some(s) => s.clone(),
         .None => String.from("my-project")
       )
     );

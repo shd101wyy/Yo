@@ -500,7 +500,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   (i : usize) = usize(0);
   while(i < b.path.len(), {
     out.push_str(".");
-    out.push_string(match(b.path.get(i), .Some(f) => f, .None => String.new()));
+    out.push_string(match(b.path.get(i), .Some(f) => f.clone(), .None => String.new()));
     i = (i + usize(1));
   });
   out
@@ -577,7 +577,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(all_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           recur(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), out, depth + u32(1));
@@ -630,7 +630,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(all_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           comps.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
@@ -842,7 +842,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
       Rc(.EnumT({ variant_fields : all_fields })) => {
         (vi : usize) = usize(0);
         while(vi < all_fields.len(), {
-          vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(all_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
             if(match(vf.get(fi), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
@@ -1005,7 +1005,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     Rc(.Struct({ field_labels : fls, field_types : fields })) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
-        fl := match(fls.get(i), .Some(l) => l, .None => String.new());
+        fl := match(fls.get(i), .Some(l) => l.clone(), .None => String.new());
         labels.push(`field \`${fl}\``);
         comps.push(match(fields.get(i), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
         i = (i + usize(1));
@@ -1014,8 +1014,8 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     Rc(.EnumT({ variant_names : vns, variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        vn := match(vns.get(vi), .Some(n) => n, .None => String.new());
+        vf := match(all_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+        vn := match(vns.get(vi), .Some(n) => n.clone(), .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`variant \`${vn}\``);
@@ -1040,7 +1040,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     match(
       recur(&c, depth + u32(1)),
       .Some(inner) => {
-        lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
+        lbl := match(labels.get(ci), .Some(l) => l.clone(), .None => String.new());
         return(Option(String).Some(`\`${type_to_string(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string(&c)}\`): ${inner}`));
       },
       .None => ()
@@ -1571,7 +1571,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => true,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           (found : bool) = false;
           (i : usize) = usize(0);
           while((i < sfields.len()) && !found, {
@@ -1614,7 +1614,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => false,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           match(unique_box_payload_type(ty), .Some(payload) => recur(&payload, original_id, &v2), .None => false)
         }
       ),
@@ -1672,7 +1672,7 @@ _type_refs_back_to_cyclic :: (
       _id_already_visited(visited, &eid) => false,
       true => {
         v2 := visited.clone();
-        v2.push(eid);
+        v2.push(eid.clone());
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
@@ -1764,7 +1764,7 @@ can_type_form_rc_cycle :: (fn(ty : &TypeValue) -> bool)(
       ty,
       Rc(.Struct({ id : sid, field_types : fields })) => {
         visited := ArrayList(String).new();
-        visited.push(sid);
+        visited.push(sid.clone());
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !found, {
@@ -1808,7 +1808,7 @@ can_type_form_rc_cycle :: (fn(ty : &TypeValue) -> bool)(
       ty,
       Rc(.EnumT({ id : eid, variant_fields : vfs })) => {
         visited := ArrayList(String).new();
-        visited.push(eid);
+        visited.push(eid.clone());
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
@@ -2096,7 +2096,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
       });
       (evi : usize) = usize(0);
       while(evi < en_vfs.len(), {
-        vf := match(en_vfs.get(evi), .Some(fl) => fl, .None => ArrayList(TypeValue).new());
+        vf := match(en_vfs.get(evi), .Some(fl) => fl.clone(), .None => ArrayList(TypeValue).new());
         (efi : usize) = usize(0);
         while(efi < vf.len(), {
           if(recur(match(vf.get(efi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), visited_ids), {
@@ -2173,7 +2173,7 @@ enum_phantom_type_arg_somes :: (fn(ty : &TypeValue) -> ArrayList(TypeValue))(
 /// flags already looked up (`type_key` reads them itself).
 enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
-  targs := match(ty, Rc(.EnumT({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new());
+  targs := match(ty, Rc(.EnumT({ type_arguments : ta })) => ta.clone(), _ => ArrayList(TypeValue).new());
   (field_somes : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
   (i : usize) = usize(0);
   while(i < targs.len(), {
@@ -2185,7 +2185,7 @@ enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
-          ta_id := match(ta, Rc(.SomeT({ id : x })) => x, _ => String.from(""));
+          ta_id := match(ta, Rc(.SomeT({ id : x })) => x.clone(), _ => String.from(""));
           fs := field_somes.unwrap();
           (in_field : bool) = false;
           (j : usize) = usize(0);
@@ -2838,7 +2838,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         (vi : usize) = usize(0);
         n_v := evf.len();
         while((vi < n_v) && !unknown, {
-          vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(evf.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
           match(
             _max_field_alignment(&vf),
             .Some(a) => {
@@ -2906,7 +2906,7 @@ _enum_value_size :: (fn(evf : &ArrayList(ArrayList(TypeValue))) -> Option(usize)
     // Only the fields the data-union emitter keeps — see
     // `_variant_storage_field_types`.
     vf := _variant_storage_field_types(
-      match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new())
+      match(evf.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new())
     );
     match(
       _aggregate_size(&vf),
@@ -3150,7 +3150,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
   bucket := match(g_repr_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
-  _ := g_repr_memo.insert(key, bucket);
+  _ := g_repr_memo.insert(key.clone(), bucket);
 });
 /// Start a top-level predicate call: an empty memo, no cut.
 _repr_memo_reset :: (fn() -> unit)({
@@ -3271,7 +3271,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
-              vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              vf := match(vfs.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
               (fi : usize) = usize(0);
               while((fi < vf.len()) && !found, {
                 ft := match(vf.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -3387,7 +3387,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
-              vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              vf := match(vfs.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
               (fi : usize) = usize(0);
               while((fi < vf.len()) && !found, {
                 ft := match(vf.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -3519,12 +3519,12 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
       if(fts.len() > usize(0), {
         return(Option(String).Some(String.from("it takes generic(...) parameters, so there is no single function to put in the vtable")));
       });
-      labels := m.*.param_labels;
+      labels := m.*.param_labels.clone();
       (i : usize) = usize(1);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(_mentions_trait_self(&pt), {
-          label := match(labels.get(i), .Some(l) => l, .None => String.from("?"));
+          label := match(labels.get(i), .Some(l) => l.clone(), .None => String.from("?"));
           return(Option(String).Some(`its parameter "${label}" has type ${type_to_string(&pt)}, which the Dyn erases`));
         });
         i = (i + usize(1));
@@ -3608,7 +3608,7 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
                   match(
                     ft,
                     Rc(.Func({ param_types : fpts, meta : fm })) => {
-                      fpir := fm.*.param_is_ref;
+                      fpir := fm.*.param_is_ref.clone();
                       (k : usize) = usize(0);
                       while(k < fpts.len(), {
                         out.push(match(fpir.get(k), .Some(r) => r, .None => false));
@@ -3724,8 +3724,8 @@ same_name_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)({
   if(type_to_string(expected) != type_to_string(given), {
     return(String.new());
   });
-  e_mod := match(type_decl_module(_decl_id_of(expected)), .Some(m) => m, .None => String.new());
-  g_mod := match(type_decl_module(_decl_id_of(given)), .Some(m) => m, .None => String.new());
+  e_mod := match(type_decl_module(_decl_id_of(expected)), .Some(m) => m.clone(), .None => String.new());
+  g_mod := match(type_decl_module(_decl_id_of(given)), .Some(m) => m.clone(), .None => String.new());
   cond(
     ((e_mod.len() > usize(0)) && (g_mod.len() > usize(0)) && (e_mod != g_mod)) =>
       `\nThese are two different types with the same name: the expected one is declared in ${e_mod}, the given one in ${g_mod}.`,
@@ -3741,7 +3741,7 @@ unknown_field_message :: (fn(label : &String, base_ty : &TypeValue, fields : &Ar
     if(fi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(fields.get(fi), .Some(f) => f, .None => String.new()));
+    list.push_string(match(fields.get(fi), .Some(f) => f.clone(), .None => String.new()));
     fi = (fi + usize(1));
   });
   // A module is a source-namespace struct: name what it exports, not its
@@ -3782,7 +3782,7 @@ unknown_field_through_deref_message :: (
     if(fi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(payload_fields.get(fi), .Some(f) => f, .None => String.new()));
+    list.push_string(match(payload_fields.get(fi), .Some(f) => f.clone(), .None => String.new()));
     fi = (fi + usize(1));
   });
   fields_note := cond(
@@ -3801,7 +3801,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
     if(vi > usize(0), {
       list.push_str(", ");
     });
-    list.push_string(match(variants.get(vi), .Some(v) => v, .None => String.new()));
+    list.push_string(match(variants.get(vi), .Some(v) => v.clone(), .None => String.new()));
     vi = (vi + usize(1));
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
@@ -3864,16 +3864,16 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
       .Some(d) => entries.push(
         cond(
           (i == usize(0)) => Diagnostic(
-            code : d.code,
+            code : d.code.clone(),
             severity : d.severity,
-            message : d.message,
-            span : d.span,
-            source_line : d.source_line,
-            help : d.help,
-            repair : d.repair,
+            message : d.message.clone(),
+            span : d.span.clone(),
+            source_line : d.source_line.clone(),
+            help : d.help.clone(),
+            repair : d.repair.clone(),
             generic_independent : true
           ),
-          true => d
+          true => d.clone()
         )
       ),
       .None => ()

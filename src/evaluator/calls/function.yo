@@ -460,7 +460,7 @@ _labels_contain :: (fn(labels : &ArrayList(String), name : &String) -> bool)({
 _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(ArrayList(AstExpr)), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   dot_args := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => pargs,
+    .FnCall(_, _, pargs, _, _) => pargs.clone(),
     _ => {
       return(());
     }
@@ -755,7 +755,7 @@ _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &St
   replacement := `${ctor}.${name_tok.value}(${recv_tok.value}${sep}`;
   Option(Repair).Some(
     Repair(
-      span : Span(path : recv_tok.module_path, row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
+      span : Span(path : recv_tok.module_path.clone(), row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
       replacement : replacement,
       description : `call the ${ctor}'s own ${name_tok.value}: ${ctor}.${name_tok.value}(${recv_tok.value}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
     )
@@ -894,7 +894,7 @@ _try_structural_copy_clone :: (
   });
   pargs := match(
     callee,
-    .FnCall(_, _, pa, _, _) => pa,
+    .FnCall(_, _, pa, _, _) => pa.clone(),
     _ => {
       return(Option(AstExpr).None);
     }
@@ -952,7 +952,7 @@ _try_find_receiver_method :: (
   });
   prop_args := match(
     callee,
-    .FnCall(_, _, pargs, _, _) => pargs,
+    .FnCall(_, _, pargs, _, _) => pargs.clone(),
     _ => {
       return(Option(ReceiverMethodResult).None);
     }
@@ -1196,7 +1196,7 @@ _infer_unapplied_ctor_receiver :: (
   });
   uc_dargs := match(
     callee,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(Option(usize).None);
     }
@@ -1215,7 +1215,7 @@ _infer_unapplied_ctor_receiver :: (
       uc_ri.value,
       .Some(.FuncVal(uc_fvd, _)) => match(
         get_func_type(&uc_fvd.*.func_id),
-        Rc(.Func({ result : uc_res })) => if(is_type_hierarchy_type(&uc_res), uc_fvd.*.func_id, String.new()),
+        Rc(.Func({ result : uc_res })) => if(is_type_hierarchy_type(&uc_res), uc_fvd.*.func_id.clone(), String.new()),
         _ => String.new()
       ),
       _ => String.new()
@@ -1355,7 +1355,7 @@ _static_dot_receiver_self_type :: (
   });
   pargs := match(
     callee,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(Option(TypeValue).None);
     }
@@ -1397,7 +1397,7 @@ _instance_dot_receiver_self_type :: (
   });
   pargs := match(
     callee,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(Option(TypeValue).None);
     }
@@ -1463,7 +1463,7 @@ _rre_dot_receiver_type :: (
   });
   pargs := match(
     callee,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     _ => {
       return(Option(TypeValue).None);
     }
@@ -1506,7 +1506,7 @@ _resolve_array_length_vars_from_self :: (
         new_elem := recur(&elem, &s_elem);
         resolve := ((lvar.len() > usize(0)) && (s_lvar.len() == usize(0)));
         new_len := cond(resolve => s_len, true => len);
-        new_lvar := cond(resolve => String.from(""), true => lvar);
+        new_lvar := cond(resolve => String.from(""), true => lvar.clone());
         rc(TypeValueNode.Array(new_elem, new_len, new_lvar))
       },
       _ => ty
@@ -1618,8 +1618,8 @@ _build_receiver_call_args :: (
           column : recv_tok.column,
           character : recv_tok.character,
           byte_offset : recv_tok.byte_offset,
-          module_path : recv_tok.module_path,
-          input : recv_tok.input
+          module_path : recv_tok.module_path.clone(),
+          input : recv_tok.input.clone()
         )
       );
       amp_args := ArrayList(AstExpr).new();
@@ -1753,7 +1753,7 @@ _select_matching_overload :: (
     (aw_done : bool) = false;
     while((aw_mi < matching.len()) && !aw_done, {
       aw_idx := match(matching.get(aw_mi), .Some(i) => i, .None => usize(0));
-      aw_src := match(base.all_hits.get(aw_idx), .Some(c) => c.source_trait_id, .None => String.from(""));
+      aw_src := match(base.all_hits.get(aw_idx), .Some(c) => c.source_trait_id.clone(), .None => String.from(""));
       if(aw_src != "", {
         (aw_wi : usize) = usize(0);
         while((aw_wi < aw_ids.len()) && !aw_done, {
@@ -1865,7 +1865,7 @@ _select_matching_overload :: (
         amb_list := String.new();
         (an : usize) = usize(0);
         while(an < amb_traits.len(), {
-          tn := _trait_display_name(match(amb_traits.get(an), .Some(t) => t, .None => String.new()), env);
+          tn := _trait_display_name(match(amb_traits.get(an), .Some(t) => t.clone(), .None => String.new()), env);
           amb_list = cond((an == usize(0)) => tn, true => `${amb_list} and ${tn}`);
           an = (an + usize(1));
         });
@@ -1937,8 +1937,8 @@ _try_expand_call_overload :: (
   if(sns_parts.is_none(), {
     return(());
   });
-  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f, _ => ArrayList(String).new());
-  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t, _ => ArrayList(TypeValue).new());
+  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f.clone(), _ => ArrayList(String).new());
+  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t.clone(), _ => ArrayList(TypeValue).new());
   (call_idx : Option(usize)) = Option(usize).None;
   (li : usize) = usize(0);
   while((li < s_fls.len()) && call_idx.is_none(), {
@@ -2278,7 +2278,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
               rt,
               Rc(.FutureTraitT(fb, fo, fel, fet)) => match(
                 fo,
-                Rc(.SomeT({ id : _ })) => rc(TypeValueNode.FutureTraitT(fb, t_with_resolution(&fo, concrete), fel, fet)),
+                Rc(.SomeT({ id : _ })) => rc(TypeValueNode.FutureTraitT(fb.clone(), t_with_resolution(&fo, concrete), fel.clone(), fet.clone())),
                 _ => rt
               ),
               _ => rt
@@ -2288,7 +2288,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
         );
         i = (i + usize(1));
       });
-      rc(TypeValueNode.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc))
+      rc(TypeValueNode.SomeT(fw_id.clone(), fw_nm.clone(), fw_fl, fw_pt, new_rtt, fw_rtl.clone(), fw_ntt.clone(), fw_ntl.clone(), fw_kft, fw_rc))
     },
     _ => wrapper
   )
@@ -2296,7 +2296,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
 _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
   match(
     t,
-    Rc(.FutureTraitT({ output : o })) => match(o, Rc(.SomeT({ id : oid })) => Option(String).Some(oid), _ => Option(String).None),
+    Rc(.FutureTraitT({ output : o })) => match(o, Rc(.SomeT({ id : oid })) => Option(String).Some(oid.clone()), _ => Option(String).None),
     Rc(.SomeT({ required_trait_types : rtts })) => {
       (i : usize) = usize(0);
       (found : Option(String)) = Option(String).None;
@@ -2308,7 +2308,7 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
             Rc(.FutureTraitT({ output : o })) => match(
               o,
               Rc(.SomeT({ id : oid })) => {
-                found = Option(String).Some(oid);
+                found = Option(String).Some(oid.clone());
               },
               _ => ()
             ),
@@ -2378,7 +2378,7 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
   if(!capture_borrows_exist(), {
     return(());
   });
-  fut_id := match(fut_ty, Rc(.SomeT({ id : fid })) => fid, _ => return(()));
+  fut_id := match(fut_ty, Rc(.SomeT({ id : fid })) => fid.clone(), _ => return(()));
   body := match(args.get(usize(0)), .Some(b) => b, .None => return(()));
   body_info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&body)), .Some(bi) => bi, .None => return(()));
   // The body argument is typed as the slot (`Impl(FnOnce(e : E) -> T)`); its
@@ -2408,7 +2408,7 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
         f_bs := ArrayList(CaptureBorrow).new();
         collect_type_borrows(&f_ty, &mut f_bs);
         if(f_bs.len() > usize(0), {
-          f_label := match(cap_labels.get(fi), .Some(l) => l, .None => String.new());
+          f_label := match(cap_labels.get(fi), .Some(l) => l.clone(), .None => String.new());
           // The captured binding, when it is a borrow parameter of the
           // function that writes the `io.async`.
           f_param := match(
@@ -2487,7 +2487,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
       while(fi < types.len(), fi = (fi + usize(1)), {
         fty := match(types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(type_requires_explicit_copy(&fty), {
-          label := match(labels.get(fi), .Some(l) => l, .None => String.new());
+          label := match(labels.get(fi), .Some(l) => l.clone(), .None => String.new());
           raise_flow_violation(
             with_code(
               format_error_message_with_help(
@@ -2646,14 +2646,14 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     return(());
   });
   (op_callee : AstExpr) = match(expr, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(()));
-  op_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
+  op_args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => return(()));
   bs := ArrayList(CaptureBorrow).new();
   collect_type_borrows(&info.ty, &mut bs);
   if((bs.len() == usize(0)) && some_resolution(&info.ty).is_none() && _callee_is_opaque_function_value(expr, &op_callee, ctx), {
     // The callee's parameter labels name the assumed borrows.
     labels := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
-      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels.clone(), _ => ArrayList(String).new()),
       .None => ArrayList(String).new()
     );
     tok := ast_expr_token(expr);
@@ -2666,7 +2666,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
       lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
       lent_mut := ast_expr_is_fn_call_of(&lent, "&mut", Option(usize).Some(usize(1)));
       if(lent_mut || ast_expr_is_fn_call_of(&lent, "&", Option(usize).Some(usize(1))), {
-        label := match(labels.get(ai + syn_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+        label := match(labels.get(ai + syn_offset), .Some(l) => l.clone(), .None => _unlabeled_argument_name(ai));
         bs.push(
           CaptureBorrow(
             label : label.clone(),
@@ -2769,7 +2769,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     .Some(ci) => match(
       ci.ty,
       Rc(.Func({ param_types : opt, meta : om })) => {
-        labels = om.*.param_labels;
+        labels = om.*.param_labels.clone();
         self_ty = opt.get(usize(0));
       },
       _ => ()
@@ -2786,7 +2786,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
   if(ast_expr_is_fn_call_of(op_callee, BF_DOT, Option(usize).Some(usize(2))) && (!labels_known || (labels.len() == (op_args.len() + usize(1)))), {
     arg_offset = usize(1);
     recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-    self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
+    self_label := match(labels.get(usize(0)), .Some(l) => l.clone(), .None => String.from("self"));
     recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit));
     recv_is_cell := (is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty));
     self_is_cell := match(self_ty, .Some(st) => (is_reference_struct_type(&st) || is_atomic_reference_struct_type(&st)), .None => false);
@@ -2806,7 +2806,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
   });
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
-    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    label := match(labels.get(ai + arg_offset), .Some(l) => l.clone(), .None => _unlabeled_argument_name(ai));
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
       place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
@@ -2832,13 +2832,13 @@ _future_call_receiver_offset :: (fn(op_callee : &AstExpr, op_args : &ArrayList(A
 _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels.clone(), _ => ArrayList(String).new()),
     .None => ArrayList(String).new()
   );
   labels_known := (labels.len() > usize(0));
   arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
   if(arg_offset == usize(1), {
-    self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
+    self_label := match(labels.get(usize(0)), .Some(l) => l.clone(), .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
       recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
       _check_lent_place_untouched_after(&recv, &recv, op_args, usize(0), ctx, exn);
@@ -2846,7 +2846,7 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
   });
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
-    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    label := match(labels.get(ai + arg_offset), .Some(l) => l.clone(), .None => _unlabeled_argument_name(ai));
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
       place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
@@ -2868,13 +2868,13 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
 _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels.clone(), _ => ArrayList(String).new()),
     .None => ArrayList(String).new()
   );
   labels_known := (labels.len() > usize(0));
   arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
   if(arg_offset == usize(1), {
-    self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
+    self_label := match(labels.get(usize(0)), .Some(l) => l.clone(), .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
       recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
       _reject_global_lend_to_future(&recv, ctx, exn);
@@ -2882,7 +2882,7 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
   });
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
-    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    label := match(labels.get(ai + arg_offset), .Some(l) => l.clone(), .None => _unlabeled_argument_name(ai));
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
       place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
@@ -2941,7 +2941,7 @@ _lent_place_of :: (fn(e : &AstExpr) -> Option(_LentPlace))({
   (ri : usize) = rev.len();
   while(ri > usize(0), {
     ri = (ri - usize(1));
-    path.push(match(rev.get(ri), .Some(f) => f, .None => String.new()));
+    path.push(match(rev.get(ri), .Some(f) => f.clone(), .None => String.new()));
   });
   Option(_LentPlace).Some(_LentPlace(root : cur, path : path))
 });
@@ -2971,7 +2971,7 @@ _lent_places_overlap :: (fn(a : &_LentPlace, b : &_LentPlace, ctx : &EvalContext
   n := if(a.path.len() < b.path.len(), a.path.len(), b.path.len());
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
-    if(match(a.path.get(i), .Some(x) => x, .None => String.new()) != match(b.path.get(i), .Some(y) => y, .None => String.new()), {
+    if(match(a.path.get(i), .Some(x) => x.clone(), .None => String.new()) != match(b.path.get(i), .Some(y) => y.clone(), .None => String.new()), {
       return(false);
     });
   });
@@ -2991,7 +2991,7 @@ _find_lent_place_access :: (fn(e : &AstExpr, lent : &_LentPlace, ctx : &EvalCont
     .None => ()
   );
   (callee : AstExpr) = match(e, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(Option(Tuple(AstExpr, String)).None));
-  c_args := match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  c_args := match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   first := match(c_args.get(usize(0)), .Some(f) => f, .None => make_err_expr());
   cond(
     (ast_expr_is_fn_call_of(e, "&mut", Option(usize).Some(usize(1))) && _lent_place_touched(&first, lent, ctx)) => {
@@ -3086,7 +3086,7 @@ _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstE
 /// A root in `moved_before` was already moved when the call started
 /// (`_lent_roots_moved_before`), so no argument of this call moved it.
 _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
+  op_args := match(call, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => return(()));
   (li : usize) = usize(0);
   while(li < lends.len(), li = (li + usize(1)), {
     match(
@@ -3113,7 +3113,7 @@ _CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : 
 /// type-qualified call (`T.m(&x, k)`) names a type there, not a receiver.
 _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))({
   out := ArrayList(_CallLend).new();
-  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
+  op_args := match(call, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => return(out));
   (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
     match(
@@ -3365,8 +3365,8 @@ _operator_operand_is_lent :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
     .Some(ci) => match(
       ci.ty,
-      Rc(.Func({ meta : om })) => om.*.param_is_owning,
-      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, cpof))) => cpof, _ => return(none))
+      Rc(.Func({ meta : om })) => om.*.param_is_owning.clone(),
+      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, cpof))) => cpof.clone(), _ => return(none))
     ),
     .None => return(none)
   );
@@ -3455,7 +3455,7 @@ _lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
 /// `match(&x, …)`); everywhere else `&x` of a moved binding is E0901.
 _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayList(String))({
   out := ArrayList(String).new();
-  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
+  op_args := match(call, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => return(out));
   places := ArrayList(AstExpr).new();
   match(_call_receiver_place(call), .Some(r) => places.push(r), .None => ());
   // An infix operator's operands may be lent (`a == b`); which ones is known
@@ -3725,9 +3725,9 @@ _gc_collect_binder_sites :: (
                   (seen : bool) = false;
                   (oi : usize) = usize(0);
                   while((oi < out_names.len()) && !seen, {
-                    if((match(out_names.get(oi), .Some(x) => x, .None => String.new()) == snm)
+                    if((match(out_names.get(oi), .Some(x) => x.clone(), .None => String.new()) == snm)
                     && (match(out_levels.get(oi), .Some(l) => l, .None => usize(0)) == slvl)
-                    && (match(out_ids.get(oi), .Some(d) => d, .None => String.new()) == sid), {
+                    && (match(out_ids.get(oi), .Some(d) => d.clone(), .None => String.new()) == sid), {
                       seen = true;
                     });
                     oi = (oi + usize(1));
@@ -3813,11 +3813,11 @@ _gc_freshen_all_sites :: (
   fresh_types := ArrayList(TypeValue).new();
   (gi : usize) = usize(0);
   while(gi < site_ids.len(), {
-    g_id := match(site_ids.get(gi), .Some(x) => x, .None => String.new());
+    g_id := match(site_ids.get(gi), .Some(x) => x.clone(), .None => String.new());
     (g_have : bool) = false;
     (gf : usize) = usize(0);
     while((gf < fresh_ids.len()) && !g_have, {
-      if(match(fresh_ids.get(gf), .Some(x) => x, .None => String.new()) == g_id, {
+      if(match(fresh_ids.get(gf), .Some(x) => x.clone(), .None => String.new()) == g_id, {
         g_have = true;
       });
       gf = (gf + usize(1));
@@ -3858,13 +3858,13 @@ _gc_freshen_all_sites :: (
   gs := subst_new();
   (si : usize) = usize(0);
   while(si < site_names.len(), {
-    s_nm := match(site_names.get(si), .Some(x) => x, .None => String.new());
+    s_nm := match(site_names.get(si), .Some(x) => x.clone(), .None => String.new());
     s_lvl := match(site_levels.get(si), .Some(l) => l, .None => usize(0));
-    s_id := match(site_ids.get(si), .Some(x) => x, .None => String.new());
+    s_id := match(site_ids.get(si), .Some(x) => x.clone(), .None => String.new());
     (s_distinct : usize) = usize(0);
     (sj : usize) = usize(0);
     while(sj < site_names.len(), {
-      if((match(site_names.get(sj), .Some(x) => x, .None => String.new()) == s_nm)
+      if((match(site_names.get(sj), .Some(x) => x.clone(), .None => String.new()) == s_nm)
       && (match(site_levels.get(sj), .Some(l) => l, .None => usize(0)) == s_lvl), {
         s_distinct = (s_distinct + usize(1));
       });
@@ -3873,7 +3873,7 @@ _gc_freshen_all_sites :: (
     if(s_distinct == usize(1), {
       (sk : usize) = usize(0);
       while(sk < fresh_ids.len(), {
-        if(match(fresh_ids.get(sk), .Some(x) => x, .None => String.new()) == s_id, {
+        if(match(fresh_ids.get(sk), .Some(x) => x.clone(), .None => String.new()) == s_id, {
           match(
             fresh_types.get(sk),
             .Some(s_rep) => {
@@ -3893,7 +3893,7 @@ _gc_ids_str :: (fn(ids : &ArrayList(String)) -> String)({
   (out : String) = String.new();
   (i : usize) = usize(0);
   while(i < ids.len(), {
-    out = `${out}${match(ids.get(i), .Some(x) => x, .None => String.new())},`;
+    out = `${out}${match(ids.get(i), .Some(x) => x.clone(), .None => String.new())},`;
     i = (i + usize(1));
   });
   out
@@ -3950,10 +3950,10 @@ _freshen_generic_closure_callee :: (
               gc_p_ids := _rre_binder_ids(&gc_pt, forall_names);
               (gc_pi : usize) = usize(0);
               while((gc_pi < gc_p_ids.len()) && !gc_hit, {
-                gc_pid := match(gc_p_ids.get(gc_pi), .Some(x) => x, .None => String.new());
+                gc_pid := match(gc_p_ids.get(gc_pi), .Some(x) => x.clone(), .None => String.new());
                 (gc_ri : usize) = usize(0);
                 while((gc_ri < gc_ret_ids.len()) && !gc_hit, {
-                  if(gc_pid == match(gc_ret_ids.get(gc_ri), .Some(y) => y, .None => String.new()), {
+                  if(gc_pid == match(gc_ret_ids.get(gc_ri), .Some(y) => y.clone(), .None => String.new()), {
                     gc_hit = true;
                   });
                   gc_ri = (gc_ri + usize(1));
@@ -4044,7 +4044,7 @@ _fv_fn_trait_with_result :: (fn(ftt : &TypeValue, result : &TypeValue) -> TypeVa
     ftt,
     Rc(.FnTraitT(bn, cpl, cpt, cr, il, it, cpr, cpo)) => if(
       is_some_type(&cr) || (get_all_some_types(&cr).len() > usize(0)),
-      rc(TypeValueNode.FnTraitT(bn, cpl, cpt, result, il, it, cpr, cpo)),
+      rc(TypeValueNode.FnTraitT(bn.clone(), cpl.clone(), cpt.clone(), result, il.clone(), it.clone(), cpr.clone(), cpo.clone())),
       ftt
     ),
     _ => ftt
@@ -4081,7 +4081,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           })
         ) => if(
           is_some_type(&cb_res) || (get_all_some_types(&cb_res).len() > usize(0)),
-          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new())),
+          rc(TypeValueNode.Func(cb_ft.clone(), cb_pt.clone(), cb_it.clone(), cb_wt.clone(), body, cb_meta, ArrayList(TypeValue).new())),
           info.ty
         ),
         Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)) => {
@@ -4091,7 +4091,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
             match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
-          rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
+          rc(TypeValueNode.SomeT(rf_id.clone(), rf_nm.clone(), rf_fl, rf_pt, new_rtt, rf_rtl.clone(), rf_ntt.clone(), rf_ntl.clone(), rf_kft, rf_rc))
         },
         Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _fv_fn_trait_with_result(&info.ty, &body),
         _ => info.ty
@@ -4414,7 +4414,7 @@ _fv_refine_closure_expected :: (
   (se_opt : Option(Environment)) = Option(Environment).None;
   (k : usize) = usize(0);
   while(k < forall_names.len(), {
-    f_name := match(forall_names.get(k), .Some(n) => n, .None => String.new());
+    f_name := match(forall_names.get(k), .Some(n) => n.clone(), .None => String.new());
     k = (k + usize(1));
     (f_ty : Option(TypeValue)) = Option(TypeValue).None;
     (p : usize) = usize(0);
@@ -4569,7 +4569,7 @@ _fv_bind_unbound_forall_placeholders :: (
   );
   (fi : usize) = usize(0);
   while(fi < forall_names.len(), {
-    fname := match(forall_names.get(fi), .Some(n) => n, .None => String.new());
+    fname := match(forall_names.get(fi), .Some(n) => n.clone(), .None => String.new());
     fi = (fi + usize(1));
     (already : bool) = false;
     (bi : usize) = usize(0);
@@ -4658,8 +4658,8 @@ _phantom_binder_args :: (fn(decl : &TypeValue, arg : &TypeValue, name : &String,
     Rc(.EnumT({ id : d_id, type_arguments : dt })) => match(
       arg,
       Rc(.EnumT({ id : a_id, type_arguments : at })) => {
-        d_tas = dt;
-        a_tas = at;
+        d_tas = dt.clone();
+        a_tas = at.clone();
         flags = enum_phantom_positions(&d_id);
         if(flags.len() == usize(0), {
           flags = enum_phantom_positions(&a_id);
@@ -4722,7 +4722,7 @@ _funcval_bind_foralls :: (
   (fa_synth_env : Option(Environment)) = Option(Environment).None;
   (fa_i : usize) = usize(0);
   while(fa_i < n_forall, {
-    fa_name := match(forall_names.get(fa_i), .Some(n) => n, .None => String.from(""));
+    fa_name := match(forall_names.get(fa_i), .Some(n) => n.clone(), .None => String.from(""));
     n_ptn := param_type_names.len();
     (ptn_i : usize) = usize(0);
     (fa_bound : bool) = false;
@@ -4732,7 +4732,7 @@ _funcval_bind_foralls :: (
     {
       (pfa_i : usize) = usize(0);
       while((pfa_i < pre_forall_names.len()) && !fa_bound, {
-        pf_name := match(pre_forall_names.get(pfa_i), .Some(n) => n, .None => String.from(""));
+        pf_name := match(pre_forall_names.get(pfa_i), .Some(n) => n.clone(), .None => String.from(""));
         if(pf_name == fa_name, {
           pf_val := match(pre_forall_vals.get(pfa_i), .Some(v) => v, .None => EvalValue.UnitVal);
           pf_ty := match(pre_forall_types.get(pfa_i), .Some(t) => t, .None => t_unit());
@@ -4764,7 +4764,7 @@ _funcval_bind_foralls :: (
     (fa_first_ty : Option(TypeValue)) = if(fa_bound, match(fa_bound_types.last(), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None), Option(TypeValue).None);
     (fa_first_arg : Option(usize)) = Option(usize).None;
     while(ptn_i < n_ptn, {
-      ptn := match(param_type_names.get(ptn_i), .Some(n) => n, .None => String.from(""));
+      ptn := match(param_type_names.get(ptn_i), .Some(n) => n.clone(), .None => String.from(""));
       // A LATER parameter spelled with the same binder: its argument must
       // agree with the first binding. The name-match used to stop at the
       // first match, so `pair_same(String.from("a"), i32(2))` with
@@ -4890,10 +4890,10 @@ _funcval_bind_foralls :: (
             _fv_synthesize_arg_into(&dpt, &se_new, &sp_info, env);
             (sn_i : usize) = usize(0);
             while(sn_i < forall_names.len(), {
-              sn_name := match(forall_names.get(sn_i), .Some(n) => n, .None => String.new());
+              sn_name := match(forall_names.get(sn_i), .Some(n) => n.clone(), .None => String.new());
               sn_i = (sn_i + usize(1));
               sn_ty := _scratch_concrete_binding(&se_new, sn_name.clone());
-              sn_len := match(sn_ty, .Some(_) => String.new(), .None => match(_scratch_len_binding(&se_new, sn_name.clone()), .Some(l) => l, .None => String.new()));
+              sn_len := match(sn_ty, .Some(_) => String.new(), .None => match(_scratch_len_binding(&se_new, sn_name.clone()), .Some(l) => l.clone(), .None => String.new()));
               if(sn_ty.is_none() && (sn_len.len() == usize(0)), {
                 continue;
               });
@@ -4904,7 +4904,7 @@ _funcval_bind_foralls :: (
                 if(match(se_seen_names.get(sn_k), .Some(n) => (n == sn_name), .None => false), {
                   sn_found = true;
                   sn_prev := match(se_seen_tys.get(sn_k), .Some(t) => t, .None => t_unit());
-                  sn_prev_len := match(se_seen_lens.get(sn_k), .Some(l) => l, .None => String.new());
+                  sn_prev_len := match(se_seen_lens.get(sn_k), .Some(l) => l.clone(), .None => String.new());
                   sn_prev_arg := match(se_seen_args.get(sn_k), .Some(i) => i, .None => usize(0));
                   if((sn_len.len() > usize(0)) && (sn_prev_len.len() > usize(0)) && (sn_len != sn_prev_len), {
                     fa_conflicts.push(_forall_len_conflict_message(sn_name.clone(), &sn_prev_len, _forall_arg_phrase(sn_prev_arg), sn_len.clone(), sp_i));
@@ -4990,7 +4990,7 @@ _funcval_bind_foralls :: (
                   fresh_env,
                   &fa_name,
                   &se_var.ty,
-                  Option(EvalValue).Some(EvalValue.IntLit(se_il)),
+                  Option(EvalValue).Some(EvalValue.IntLit(se_il.clone())),
                   true,
                   false,
                   false,
@@ -5149,7 +5149,7 @@ _funcval_bind_foralls :: (
     (cx_p : usize) = usize(0);
     while(cx_p < declared_param_types.len(), {
       cx_dpt := match(declared_param_types.get(cx_p), .Some(t) => t, .None => t_unit());
-      cx_ptn := match(param_type_names.get(cx_p), .Some(n) => n, .None => String.new());
+      cx_ptn := match(param_type_names.get(cx_p), .Some(n) => n.clone(), .None => String.new());
       cx_i := cx_p;
       cx_p = (cx_p + usize(1));
       (cx_is_bare : bool) = false;
@@ -5175,7 +5175,7 @@ _funcval_bind_foralls :: (
       _funcval_try_synthesize_param(&cx_dpt, &cx_env, &cx_info.ty, env);
       (cx_b : usize) = usize(0);
       while(cx_b < fa_bound_names.len(), {
-        cx_name := match(fa_bound_names.get(cx_b), .Some(n) => n, .None => String.new());
+        cx_name := match(fa_bound_names.get(cx_b), .Some(n) => n.clone(), .None => String.new());
         cx_prev := match(fa_bound_types.get(cx_b), .Some(t) => t, .None => t_unit());
         cx_b = (cx_b + usize(1));
         match(
@@ -5549,7 +5549,7 @@ _evaluate_funcval_runtime_call :: (
           Rc(.SomeT(_, rst_name, rst_lvl, _, _, _, _, _, _, _)) => {
             (bni : usize) = usize(0);
             while(bni < fa_bound_names.len(), {
-              bn := match(fa_bound_names.get(bni), .Some(x) => x, .None => String.from(""));
+              bn := match(fa_bound_names.get(bni), .Some(x) => x.clone(), .None => String.from(""));
               if(bn == rst_name, {
                 bt := match(fa_bound_types.get(bni), .Some(t) => t, .None => t_unit());
                 subst_add(&s_ret, rst_name.clone(), rst_lvl, &bt);
@@ -5883,7 +5883,7 @@ _evaluate_funcval_runtime_call :: (
       _func_type_has_closure_param(&spec_ft) => true,
       true => {
         (ou_sg_all_concrete : bool) = true;
-        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => ArrayList(TypeValue).new());
+        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p.clone(), _ => ArrayList(TypeValue).new());
         (ou_sg_i : usize) = usize(0);
         while(ou_sg_i < ou_sg_pts.len(), {
           ou_sg_pt := match(ou_sg_pts.get(ou_sg_i), .Some(t) => t, .None => t_unit());
@@ -6039,7 +6039,7 @@ _evaluate_funcval_runtime_call :: (
       // lengths mint distinct specs, keyed on the compile-time arg VALUES.
       // Minting `TypeVal(usize)` here would both collide the key and feed
       // the mint a kind-wrong TypeVal for a non-Type binder.
-      fbn := match(fa_bound_names.get(sfa_i), .Some(n) => n, .None => String.new());
+      fbn := match(fa_bound_names.get(sfa_i), .Some(n) => n.clone(), .None => String.new());
       (fbv : EvalValue) = EvalValue.TypeVal(fbt.clone());
       fbn_vars := get_variables_from_env(fresh_env, &fbn);
       if(fbn_vars.len() > usize(0), {
@@ -6114,7 +6114,7 @@ _evaluate_funcval_runtime_call :: (
     );
     spec_fv := create_specialization_at_call(cv, &spec_ct, &spec_av, fresh_env, env, ast_expr_token(expr), ast_expr_to_string(func_expr), fa_bound_names.clone(), ctx, exn);
     rt_s1_spec_fv = Option(EvalValue).Some(spec_fv);
-    spec_fid := match(spec_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+    spec_fid := match(spec_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
     // A resolved_ret still carrying an Array LENGTH VAR (a value-generic
     // stamped return, e.g. `-> _ArrayIter(T, N)`) is a def-era instance
     // substitution cannot re-stamp — adopt the mint's rte-re-evaluated
@@ -6198,10 +6198,10 @@ _evaluate_funcval_runtime_call :: (
         })
       ) => rc(
         TypeValueNode.Func(
-          fx_ft,
-          fx_pt,
-          fx_it,
-          fx_wt,
+          fx_ft.clone(),
+          fx_pt.clone(),
+          fx_it.clone(),
+          fx_wt.clone(),
           resolved_ret.clone(),
           fx_meta,
           ArrayList(TypeValue).new()
@@ -6493,7 +6493,7 @@ _d6_callee_is_by_name :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> bool)(
 /// `No method "m" on T.` for a dot callee `recv.m` whose receiver type has
 /// neither a field nor a method `m`.
 _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
-  dot_args := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  dot_args := match(func_expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   // A static call's receiver is a type VALUE (`String.nope(s)`, `Rc.nope(b)`
   // once decision 32 inferred `Rc(i32)`): name that type, not `Type`.
   recv_ty_str := match(
@@ -6639,7 +6639,7 @@ _instantiate_struct_over_closure_args :: (
       if(rep_ids.len() == usize(0), {
         return(st);
       });
-      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas, &rep_ids, &rep_tys), ic_sns))
+      rc(TypeValueNode.Struct(ic_id.clone(), ic_nm.clone(), ic_labels.clone(), _replace_some_ids(&ic_fts, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid.clone(), _replace_some_ids(&ic_tas, &rep_ids, &rep_tys), ic_sns))
     },
     _ => st
   )
@@ -6856,7 +6856,7 @@ _attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &
     .Some(callee) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
       .Some(ci) => {
-        drops := match(ci.deferred_drop_expressions, .Some(d) => d, .None => ArrayList(AstExpr).new());
+        drops := match(ci.deferred_drop_expressions, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new());
         drops.push(callee);
         ci.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
       },
@@ -6877,7 +6877,7 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   holds_owned := (type_contains_rc_type(&callee_info.ty) || type_requires_explicit_copy(&callee_info.ty));
   name := match(
     callee_info.variable_name,
-    .Some(n) => n,
+    .Some(n) => n.clone(),
     .None => {
       // A closure stored in a field (`h.f()`): the call would move it out of
       // its holder, which then still owns it (Yo has no partial moves).
@@ -6953,7 +6953,7 @@ _evaluate_function_call_unanchored :: (
   );
   args := match(
     expr,
-    .FnCall(_, _, a, _, _) => a,
+    .FnCall(_, _, a, _, _) => a.clone(),
     .Atom(_, _) => ArrayList(AstExpr).new()
   );
   // Pre-fold `-(IntLit)` to a comptime negative integer literal.
@@ -6966,7 +6966,7 @@ _evaluate_function_call_unanchored :: (
   // sites evaluate as comptime_int.
   neg_callee_str := match(
     func_expr,
-    .Atom(_, ftok) => ftok.value,
+    .Atom(_, ftok) => ftok.value.clone(),
     _ => String.new()
   );
   is_neg_call :=
@@ -7020,7 +7020,7 @@ _evaluate_function_call_unanchored :: (
   // downstream binding).
   // ------------------------------------------------------------------
   is_infix_call := match(expr, .FnCall(_, _, _, inf, _) => inf, .Atom(_, _) => false);
-  op_name := match(func_expr, .Atom(_, ftok) => ftok.value, _ => String.new());
+  op_name := match(func_expr, .Atom(_, ftok) => ftok.value.clone(), _ => String.new());
   op_is_operator := string_is_operator(op_name.clone());
   if(is_infix_call && op_is_operator && (args.len() >= usize(1)), {
     first_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -7242,7 +7242,7 @@ _evaluate_function_call_unanchored :: (
       // `usize`). Diverging → leave unresolved (no wrong resolution).
       resolved_ret := call_result_op.return_type;
       if(is_some_type(&resolved_ret), {
-        assoc_nm := match(resolved_ret, Rc(.SomeT(name : nm)) => nm, _ => String.new());
+        assoc_nm := match(resolved_ret, Rc(.SomeT(name : nm)) => nm.clone(), _ => String.new());
         recv_id := type_id_or_empty(&receiver_ty);
         if((assoc_nm.len() > usize(0)) && (recv_id.len() > usize(0)), {
           assoc_entries := get_assoc_type_entries(&receiver_ty, assoc_nm.clone());
@@ -7374,7 +7374,7 @@ _evaluate_function_call_unanchored :: (
         match(
           op_fv,
           .FuncVal(__fvm4, op_cvals) => {
-            op_pnames := __fvm4.*.params;
+            op_pnames := __fvm4.*.params.clone();
             op_csrc := fv_capture_source(&__fvm4.*);
             (oci : usize) = usize(0);
             (n_oc : usize) = fv_source_count(&op_csrc, &op_cvals);
@@ -7388,7 +7388,7 @@ _evaluate_function_call_unanchored :: (
             _ofr := op_env.push_frame(false);
             (opi : usize) = usize(0);
             while(opi < op_pnames.len(), {
-              opn := match(op_pnames.get(opi), .Some(n) => n, .None => String.from(""));
+              opn := match(op_pnames.get(opi), .Some(n) => n.clone(), .None => String.from(""));
               oa := match(call_result_op.arg_values.args.get(opi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
               _oap := add_variable_to_env(&op_env, &opn, &oa.arg_type, &oa.value, match(oa.value, .Some(_) => true, .None => false), false, false, false, synthetic_token(&opn, &op_env.module_path));
               opi = (opi + usize(1));
@@ -7420,8 +7420,8 @@ _evaluate_function_call_unanchored :: (
       // and the value emits "// Failed to transpile". Gate to the runtime case
       // (comptime scalars are unaffected — they never hit is_runtime_ctor).
       if(op_result_is_runtime, {
-        out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order);
-        out_op.deferred_drop_expressions = call_result_op.deferred_drop_expressions;
+        out_op.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_op.runtime_arg_exprs_in_order.clone());
+        out_op.deferred_drop_expressions = call_result_op.deferred_drop_expressions.clone();
       });
       expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_op);
       // RUNTIME operator on a non-primitive type (e.g. derived `==`/`<` on an
@@ -7510,7 +7510,7 @@ _evaluate_function_call_unanchored :: (
   );
   if(callee_is_marked_dot, {
     unmark_dot_callee();
-    _reject_explicit_destructor_call(&evaluated_callee, Option(ArrayList(AstExpr)).Some(args), env, ctx, exn);
+    _reject_explicit_destructor_call(&evaluated_callee, Option(ArrayList(AstExpr)).Some(args.clone()), env, ctx, exn);
   });
   ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct
@@ -7738,7 +7738,7 @@ _evaluate_function_call_unanchored :: (
       dyn(
         format_error_message(
           &tok,
-          `Calling the runtime extern '${match(callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(__fm_d6n.*.extern_name, .Some(n) => n, .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Calling the runtime extern '${match(callee_ty_for_gate, Rc(.Func({ meta : __fm_d6n })) => match(__fm_d6n.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)), _ => ast_expr_to_string(&func_expr))}' is not available in safe code. Runtime entry points are the implementation of std's wrappers (std/thread, std/fs, ...) and do not keep the invariants those wrappers keep — call the std API instead. A file that genuinely needs the raw entry point declares 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -7746,7 +7746,7 @@ _evaluate_function_call_unanchored :: (
   if(gate_is_extern_c && !ctx.unsafe_context && !gate_in_autogen, {
     callee_name := match(
       callee_ty_for_gate,
-      Rc(.Func({ meta : __fm4 })) => match(__fm4.*.extern_name, .Some(n) => n, .None => ast_expr_to_string(&func_expr)),
+      Rc(.Func({ meta : __fm4 })) => match(__fm4.*.extern_name, .Some(n) => n.clone(), .None => ast_expr_to_string(&func_expr)),
       _ => ast_expr_to_string(&func_expr)
     );
     exn.throw(
@@ -8125,7 +8125,7 @@ Fix: wrap the call:
             });
             out_s := new_expr_info(&call_result_s.caller_env, _instantiate_struct_over_closure_args(&func_type, &fields, &call_result_s.arg_types));
             out_s.value = struct_val;
-            out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order);
+            out_s.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_s.runtime_arg_exprs_in_order.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_s);
             // Set temp variable holding the struct-construction result so an
             // owned RC struct (ref-struct) is materialized into a caller-frame
@@ -8146,7 +8146,7 @@ Fix: wrap the call:
           Rc(.EnumT(_, _, variant_names, variant_fields_e, sel_var_name, variant_field_labels, _, _, _, _)) => {
             variant_name := match(
               sel_var_name,
-              .Some(n) => n,
+              .Some(n) => n.clone(),
               .None => {
                 exn.throw(
                   dyn(
@@ -8185,8 +8185,8 @@ Fix: wrap the call:
                 )
               );
             });
-            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => ArrayList(String).new());
+            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l.clone(), .None => ArrayList(String).new());
             tf_e := ArrayList(TypeField).new();
             (tfi_e : usize) = usize(0);
             while(tfi_e < fields_for_var.len(), {
@@ -8254,7 +8254,7 @@ Fix: wrap the call:
             }, Option(EvalValue).None);
             out_e := new_expr_info(&call_result_e.caller_env, &func_type);
             out_e.value = enum_val;
-            out_e.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order);
+            out_e.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_e.runtime_arg_exprs_in_order.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_e);
             // Materialize the enum-construction result into an owning temp so a
             // ref-enum value is dropped at scope end.
@@ -8286,7 +8286,7 @@ Fix: wrap the call:
             call_result_u := try_to_call_type_with_arguments(&tf_u, &func_expr, &args, &callee_env, ctx, true, exn);
             out_u := new_expr_info(&call_result_u.caller_env, &func_type);
             out_u.value = Option(EvalValue).None;
-            out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order);
+            out_u.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_u.runtime_arg_exprs_in_order.clone());
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_u);
             // Materialize the union-construction result into an owning temp.
             attach_temp_variable_to_expr(expr, true, ctx);
@@ -8443,14 +8443,14 @@ Fix: wrap the call:
         )
       },
       .FuncVal(__fvm7, cap_vals) => {
-        forall_names := __fvm7.*.forall_names;
-        param_names := __fvm7.*.params;
-        param_type_names := __fvm7.*.param_type_names;
-        evidence_names := __fvm7.*.evidence_params;
+        forall_names := __fvm7.*.forall_names.clone();
+        param_names := __fvm7.*.params.clone();
+        param_type_names := __fvm7.*.param_type_names.clone();
+        evidence_names := __fvm7.*.evidence_params.clone();
         body_box := __fvm7.*.body;
-        cap_names := __fvm7.*.cap_names;
-        cap_tys := __fvm7.*.cap_tys;
-        func_id_fv := __fvm7.*.func_id;
+        cap_names := __fvm7.*.cap_names.clone();
+        cap_tys := __fvm7.*.cap_tys.clone();
+        func_id_fv := __fvm7.*.func_id.clone();
         fv_env_key := __fvm7.*.env_key;
         // Per-call identity for this callee's own forall binders, taken
         // BEFORE the parameter types, the forall list and the declared result
@@ -8500,7 +8500,7 @@ Fix: wrap the call:
           pa_fty := match(callee_info_opt, .Some(pa_ci) => pa_ci.ty, .None => t_unit());
           pa_ret_ct := match(pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
-            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt, _ => ArrayList(TypeValue).new());
+            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt.clone(), _ => ArrayList(TypeValue).new());
             pa_res := match(pa_fty, Rc(.Func({ result : pr })) => pr, _ => t_unit());
             if(n_a != pa_pt.len(), {
               exn.throw(
@@ -8573,7 +8573,7 @@ Fix: wrap the call:
                 rc(
                   FuncMeta(
                     forall_labels : ArrayList(String).new(),
-                    param_labels : pa_new_labels,
+                    param_labels : pa_new_labels.clone(),
                     implicit_labels : ArrayList(String).new(),
                     result_is_comptime_only : true,
                     param_is_ref : pa_new_flags,
@@ -8635,7 +8635,7 @@ Fix: wrap the call:
         // Placed AFTER the partial-application block above on purpose: the
         // `_`-hole logic runs BEFORE the peel, so
         // `f(generic(i32), _)` must still see the raw argument count.
-        (fv_args : ArrayList(AstExpr)) = args;
+        (fv_args : ArrayList(AstExpr)) = args.clone();
         fv_pre_forall_names := ArrayList(String).new();
         fv_pre_forall_vals := ArrayList(EvalValue).new();
         fv_pre_forall_tys := ArrayList(TypeValue).new();
@@ -8643,7 +8643,7 @@ Fix: wrap the call:
         if(match(args.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(&a0, "generic", Option(usize).None), .None => false), {
           fv_g_node := match(args.get(usize(0)), .Some(a0) => a0, .None => make_err_expr());
           fv_g_args := match(fv_g_node, .FnCall(_, _, g_as, _, _) => g_as, .Atom(_, _) => ArrayList(AstExpr).new());
-          fv_forall_arg_exprs = Option(ArrayList(AstExpr)).Some(fv_g_args);
+          fv_forall_arg_exprs = Option(ArrayList(AstExpr)).Some(fv_g_args.clone());
           fv_peeled := ArrayList(AstExpr).new();
           {
             (pk : usize) = usize(1);
@@ -8675,7 +8675,7 @@ Fix: wrap the call:
                     .Some(fv_g_info) => match(
                       fv_g_info.value,
                       .Some(fv_g_val) => {
-                        fv_pre_forall_names.push(match(forall_names.get(gi), .Some(n) => n, .None => String.from("")));
+                        fv_pre_forall_names.push(match(forall_names.get(gi), .Some(n) => n.clone(), .None => String.from("")));
                         fv_pre_forall_vals.push(fv_g_val);
                         fv_pre_forall_tys.push(fv_g_info.ty);
                       },
@@ -8700,10 +8700,10 @@ Fix: wrap the call:
         // below does, so the call-site markers see every position.
         fv_param_types := match(
           fv_callee_ty,
-          Rc(.Func({ param_types : fpts })) => fpts,
+          Rc(.Func({ param_types : fpts })) => fpts.clone(),
           _ => match(
             extract_fn_trait_from_type(&fv_callee_ty),
-            .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _, _, _))) => fv_cpt,
+            .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _, _, _))) => fv_cpt.clone(),
             _ => ArrayList(TypeValue).new()
           )
         );
@@ -8718,10 +8718,10 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            Rc(.Func({ meta : __fm5 })) => __fm5.*.param_labels,
+            Rc(.Func({ meta : __fm5 })) => __fm5.*.param_labels.clone(),
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _, _, _))) => fv_cpl,
+              .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _, _, _))) => fv_cpl.clone(),
               _ => ArrayList(String).new()
             )
           ),
@@ -8731,7 +8731,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            Rc(.Func({ meta : __fm6 })) => __fm6.*.param_is_ref,
+            Rc(.Func({ meta : __fm6 })) => __fm6.*.param_is_ref.clone(),
             // Closure callee: the variable's type is the Fn TRAIT (or a SomeT
             // wrapping it), not a Func — read the trait's `inout` call-param
             // flags so `body(self._value)` inside a specialized method binds
@@ -8739,7 +8739,7 @@ Fix: wrap the call:
             // with_lock write-through arm).
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, _, _, _, _, _, fv_cprf, _))) => fv_cprf,
+              .Some(Rc(.FnTraitT(_, _, _, _, _, _, fv_cprf, _))) => fv_cprf.clone(),
               .Some(_) => ArrayList(bool).new(),
               .None => ArrayList(bool).new()
             )
@@ -8758,10 +8758,10 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci) => match(
             ci.ty,
-            Rc(.Func({ meta : __fm7 })) => __fm7.*.param_is_owning,
+            Rc(.Func({ meta : __fm7 })) => __fm7.*.param_is_owning.clone(),
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
-              .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, fv_cpof))) => fv_cpof,
+              .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, fv_cpof))) => fv_cpof.clone(),
               _ => ArrayList(bool).new()
             )
           ),
@@ -8771,7 +8771,7 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci_s) => match(
             ci_s.ty,
-            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new()),
+            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l.clone(), .None => ArrayList(bool).new()),
             _ => ArrayList(bool).new()
           ),
           .None => ArrayList(bool).new()
@@ -8779,7 +8779,7 @@ Fix: wrap the call:
         // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
         // before any rule reads the arguments (helper.yo's shared rule).
         // The arguments as written, for decision 33's bare-argument rule.
-        fv_written_args := fv_args;
+        fv_written_args := fv_args.clone();
         fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types, &fv_param_is_ref, &fv_param_is_owning, &fv_param_labels, false, exn);
         // An operator's operands take no marker (decision 34).
         fv_call_is_operator := match(expr, .FnCall(_, fop_f, _, fop_infix, _) => (fop_infix || match(fop_f, .Atom(_, fop_t) => (fop_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
@@ -8824,7 +8824,7 @@ Fix: wrap the call:
         match(
           fv_variadic_entry_opt,
           .Some(vpe) => {
-            fv_variadic_label = vpe.label;
+            fv_variadic_label = vpe.label.clone();
             fv_variadic_ty = vpe.ty;
             fv_variadic_is_quote = is_expr_list_type(fv_variadic_ty.clone());
             fv_variadic_is_comptime = (!fv_variadic_is_quote && is_comptime_list_type(fv_variadic_ty.clone()));
@@ -8868,7 +8868,7 @@ Fix: wrap the call:
         // infer enum variant type".
         fv_func_type := fv_callee_ty;
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
-        (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
+        (resolved_param_types : ArrayList(TypeValue)) = fv_param_types.clone();
         (rpt_from_expected : bool) = false;
         // The binders the expected type alone fixes (bound below when no
         // argument binds them).
@@ -8958,11 +8958,11 @@ Fix: wrap the call:
             if((ai < n_p) && ast_expr_is_fn_call_of(&arg_expr, ":", .Some(usize(2))), {
               q_cl_args := match(
                 arg_expr,
-                .FnCall(_, _, q_as, _, _) => q_as,
+                .FnCall(_, _, q_as, _, _) => q_as.clone(),
                 _ => ArrayList(AstExpr).new()
               );
               q_label_expr := match(q_cl_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-              q_label_matches := (ast_expr_is_atom(&q_label_expr) && (ast_expr_token(&q_label_expr).value == match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())));
+              q_label_matches := (ast_expr_is_atom(&q_label_expr) && (ast_expr_token(&q_label_expr).value == match(fv_param_labels.get(ai), .Some(l) => l.clone(), .None => String.new())));
               if(q_label_matches, {
                 q_arg_expr = match(q_cl_args.get(usize(1)), .Some(a) => a, .None => arg_expr);
               });
@@ -8984,7 +8984,7 @@ Fix: wrap the call:
             // parameter label at that position.
             (arg_expr_eff : AstExpr) = if(
               ai < n_p,
-              strip_argument_label(&arg_expr, match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new()), exn),
+              strip_argument_label(&arg_expr, match(fv_param_labels.get(ai), .Some(l) => l.clone(), .None => String.new()), exn),
               arg_expr
             );
             // An `undefined` argument uses the parameter's declared default
@@ -9014,7 +9014,7 @@ Fix: wrap the call:
                   du_frame_pushed = true;
                   (du_j : usize) = usize(0);
                   while(du_j < ai, {
-                    du_name := match(param_names.get(du_j), .Some(nm) => nm, .None => String.new());
+                    du_name := match(param_names.get(du_j), .Some(nm) => nm.clone(), .None => String.new());
                     match(
                       evaled_arg_infos.get(du_j),
                       .Some(du_info) => if(du_name.len() > usize(0), {
@@ -9183,7 +9183,7 @@ Fix: wrap the call:
                 });
                 (lp_k : usize) = usize(0);
                 while(lp_k < forall_names.len(), {
-                  lp_fn := match(forall_names.get(lp_k), .Some(nm) => nm, .None => String.new());
+                  lp_fn := match(forall_names.get(lp_k), .Some(nm) => nm.clone(), .None => String.new());
                   lp_vars := get_variables_from_env(&lp_se, lp_fn.clone());
                   if(lp_vars.len() > usize(0), {
                     match(
@@ -9335,7 +9335,7 @@ Fix: wrap the call:
             // helper.yo's record; this inline loop bypasses
             // try_to_call_function_with_arguments).
             if(fv_p_is_ref && !fv_p_is_ct, {
-              fv_p_label := match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new());
+              fv_p_label := match(fv_param_labels.get(ai), .Some(l) => l.clone(), .None => String.new());
               d3_record_inout_place(&mut fv_d3_pending, ai, &fv_p_label, &arg_expr_eff, env);
             });
             fv_callee_is_extern := match(
@@ -9356,7 +9356,7 @@ Fix: wrap the call:
                 check_call_site_borrow_marker(
                   _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
                   &arg_expr_eff,
-                  match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new()),
+                  match(fv_param_labels.get(ai), .Some(l) => l.clone(), .None => String.new()),
                   match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit()),
                   fv_p_is_ref,
                   fv_p_owning,
@@ -9373,7 +9373,7 @@ Fix: wrap the call:
                   match(resolved_param_types.get(ai), .Some(t) => t, .None => t_unit()),
                   &arg_info.ty,
                   _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
-                  `the argument for parameter "${match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())}"`,
+                  `the argument for parameter "${match(fv_param_labels.get(ai), .Some(l) => l.clone(), .None => String.new())}"`,
                   ctx,
                   exn
                 );
@@ -9439,7 +9439,7 @@ Fix: wrap the call:
           {
             (dbi : usize) = usize(0);
             while(dbi < n_supplied_reg, {
-              db_name := match(param_names.get(dbi), .Some(nm) => nm, .None => String.new());
+              db_name := match(param_names.get(dbi), .Some(nm) => nm.clone(), .None => String.new());
               match(
                 evaled_arg_infos.get(dbi),
                 .Some(dbi_info) => {
@@ -9504,7 +9504,7 @@ Fix: wrap the call:
                 // Bind this spliced param so the NEXT param's default sees
                 // it (`(Output : Type) ?= Lhs` after `(Rhs : Type) ?= Lhs`).
                 {
-                  dsn := match(param_names.get(dpi), .Some(nm) => nm, .None => String.new());
+                  dsn := match(param_names.get(dpi), .Some(nm) => nm.clone(), .None => String.new());
                   if(dsn.len() > usize(0), {
                     add_variable_to_env(
                       &def_env,
@@ -9627,10 +9627,10 @@ Fix: wrap the call:
         fv_for_recur := EvalValue.FuncVal(
           rc(
             FuncValData(
-              forall_names : forall_names,
-              params : param_names,
-              param_type_names : param_type_names,
-              evidence_params : evidence_names,
+              forall_names : forall_names.clone(),
+              params : param_names.clone(),
+              param_type_names : param_type_names.clone(),
+              evidence_params : evidence_names.clone(),
               body : body_box,
               cap_names : cap_names,
               cap_tys : cap_tys,
@@ -9659,7 +9659,7 @@ Fix: wrap the call:
         // issues/fixed/self-dispatch-loses-type-args.md.
         recv_type_args := match(
           _static_dot_receiver_self_type(&func_expr, ctx),
-          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new()),
+          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta.clone(), _ => ArrayList(TypeValue).new()),
           .None => ArrayList(TypeValue).new()
         );
         // Infer generic type params from argument types.
@@ -9686,7 +9686,7 @@ Fix: wrap the call:
           if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
           &fv_param_types,
           &fv_param_ct,
-          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => ArrayList(TypeValue).new()),
+          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts.clone(), _ => ArrayList(TypeValue).new()),
           &fv_pre_forall_names,
           &fv_pre_forall_vals,
           &fv_pre_forall_tys,
@@ -9696,7 +9696,7 @@ Fix: wrap the call:
         if(fv_forall_conflicts.len() > usize(0), {
           fc_arg := match(fv_forall_conflict_args.get(usize(0)), .Some(i) => i, .None => usize(0));
           fc_tok := match(fv_args.get(fc_arg), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
-          exn.throw(dyn(format_error_message(&fc_tok, match(fv_forall_conflicts.get(usize(0)), .Some(m) => m, .None => String.new()))));
+          exn.throw(dyn(format_error_message(&fc_tok, match(fv_forall_conflicts.get(usize(0)), .Some(m) => m.clone(), .None => String.new()))));
         });
         // A binder no argument fixed, bound from the EXPECTED type instead:
         // `(x : Option(i32)) = mk()` with `mk : fn(generic(T)) -> Option(T)`
@@ -9704,7 +9704,7 @@ Fix: wrap the call:
         // (issues/fixed/uninferable-generic-result-passes-check-and-ices-in-compile.md).
         (fve_i : usize) = usize(0);
         while(fve_i < fv_exp_forall_names.len(), {
-          fve_name := match(fv_exp_forall_names.get(fve_i), .Some(n) => n, .None => String.new());
+          fve_name := match(fv_exp_forall_names.get(fve_i), .Some(n) => n.clone(), .None => String.new());
           fve_ty := match(fv_exp_forall_types.get(fve_i), .Some(t) => t, .None => t_unit());
           fve_i = (fve_i + usize(1));
           (fve_bound : bool) = false;
@@ -9756,7 +9756,7 @@ Fix: wrap the call:
         param_vars := ArrayList(Variable).new();
         (pi : usize) = usize(0);
         while(pi < n_p, {
-          pname := match(param_names.get(pi), .Some(n) => n, .None => String.from(""));
+          pname := match(param_names.get(pi), .Some(n) => n.clone(), .None => String.from(""));
           (arg_info : ExprInfo) = new_expr_info(env, t_unit());
           if(pi < n_supplied_reg, {
             arg_info = match(evaled_arg_infos.get(pi), .Some(i) => i, .None => new_expr_info(env, t_unit()));
@@ -9805,12 +9805,12 @@ Fix: wrap the call:
           // str" while specializing println/print (Gap-6).
           resolved_decl_pt := cond(
             is_some_type(&bind_decl_pt) => {
-              sname := match(bind_decl_pt, Rc(.SomeT({ name : sn })) => sn, _ => String.from(""));
+              sname := match(bind_decl_pt, Rc(.SomeT({ name : sn })) => sn.clone(), _ => String.from(""));
               (rt : TypeValue) = bind_decl_pt;
               (rk : usize) = usize(0);
               (rn : usize) = fa_bound_names.len();
               while(rk < rn, {
-                bn := match(fa_bound_names.get(rk), .Some(s) => s, .None => String.from(""));
+                bn := match(fa_bound_names.get(rk), .Some(s) => s.clone(), .None => String.from(""));
                 if((sname.len() > usize(0)) && (bn == sname), {
                   rt = match(fa_bound_types.get(rk), .Some(t) => t, .None => bind_decl_pt);
                   rk = rn;
@@ -10018,7 +10018,7 @@ Fix: wrap the call:
         // Bind evidence params (implicit args at indices n_p..n_p+n_ev).
         (evi : usize) = usize(0);
         while(evi < n_ev, {
-          ev_name := match(evidence_names.get(evi), .Some(n) => n, .None => String.from(""));
+          ev_name := match(evidence_names.get(evi), .Some(n) => n.clone(), .None => String.from(""));
           ev_info := match(evaled_arg_infos.get(n_supplied_reg + evi), .Some(i) => i, .None => new_expr_info(env, t_unit()));
           is_ct_ev := match(ev_info.value, .Some(_) => true, .None => false);
           _add_ev := add_variable_to_env(
@@ -10060,7 +10060,7 @@ Fix: wrap the call:
         // specialization and the return type see them.
         (wp_i : usize) = usize(0);
         while(wp_i < fv_where_placeholders.len(), {
-          wp_label := match(fv_where_placeholders.get(wp_i), .Some(l) => l, .None => String.new());
+          wp_label := match(fv_where_placeholders.get(wp_i), .Some(l) => l.clone(), .None => String.new());
           wp_i = (wp_i + usize(1));
           match(
             forall_binding_now(&fresh_env, wp_label.clone()),
@@ -10264,7 +10264,7 @@ Fix: wrap the call:
                 call_macro_info := new_expr_info(&exp_info.env, &exp_info.ty);
                 call_macro_info.value = exp_info.value;
                 call_macro_info.control_flow = exp_info.control_flow;
-                call_macro_info.variable_name = exp_info.variable_name;
+                call_macro_info.variable_name = exp_info.variable_name.clone();
                 expr_info_set_macro_expansion(&call_macro_info, Option(AstExpr).Some(expanded_expr));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &call_macro_info);
                 // Durably record the expansion keyed by call id: the per-pass
@@ -10335,7 +10335,7 @@ Fix: wrap the call:
                   Rc(.SomeT(_, ct_rst_name, ct_rst_lvl, _, _, _, _, _, _, _)) => {
                     (ct_bni : usize) = usize(0);
                     while(ct_bni < fa_bound_names.len(), {
-                      ct_bn := match(fa_bound_names.get(ct_bni), .Some(x) => x, .None => String.from(""));
+                      ct_bn := match(fa_bound_names.get(ct_bni), .Some(x) => x.clone(), .None => String.from(""));
                       if(ct_bn == ct_rst_name, {
                         ct_bt := match(fa_bound_types.get(ct_bni), .Some(t) => t, .None => t_unit());
                         subst_add(&s_ct_ret, ct_rst_name.clone(), ct_rst_lvl, &ct_bt);
@@ -10400,7 +10400,7 @@ Fix: wrap the call:
                     (rl_out : TypeValue) = rl_t;
                     (rl_i : usize) = usize(0);
                     while(rl_i < rl_labels.len(), {
-                      rl_nm := match(rl_labels.get(rl_i), .Some(l) => l, .None => String.from(""));
+                      rl_nm := match(rl_labels.get(rl_i), .Some(l) => l.clone(), .None => String.from(""));
                       if(rl_nm == rl_var, {
                         match(
                           rl_infos.get(rl_i),
@@ -10426,7 +10426,7 @@ Fix: wrap the call:
                     });
                     rl_out
                   },
-                  true => rc(TypeValueNode.Array(recur(&rl_elem, rl_labels, rl_infos), rl_len, rl_var))
+                  true => rc(TypeValueNode.Array(recur(&rl_elem, rl_labels, rl_infos), rl_len, rl_var.clone()))
                 ),
                 _ => rl_t
               )
@@ -10757,8 +10757,8 @@ Fix: wrap the call:
         _note_io_builtin_call(expr, &ret_type_rt, &args, &call_result_rt.caller_env, ctx, exn);
         out_rt := new_expr_info(&call_result_rt.caller_env, &ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_rt, env));
-        out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
-        out_rt.deferred_drop_expressions = call_result_rt.deferred_drop_expressions;
+        out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order.clone());
+        out_rt.deferred_drop_expressions = call_result_rt.deferred_drop_expressions.clone();
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt);
         // Same temp attachment as the method + valueless-callee arms (attached
         // for EVERY runtime call). Without it, an
@@ -10834,7 +10834,7 @@ Fix: wrap the call:
           // own binder list; the gate inside the helper is unchanged.
           m_callee_ty := _freshen_generic_closure_callee(
             &method_info.method_ty,
-            match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => ArrayList(String).new())
+            match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels.clone(), _ => ArrayList(String).new())
           );
           all_args := ArrayList(AstExpr).new();
           if(!method_info.is_static, {
@@ -10857,8 +10857,8 @@ Fix: wrap the call:
                   column : recv_tok.column,
                   character : recv_tok.character,
                   byte_offset : recv_tok.byte_offset,
-                  module_path : recv_tok.module_path,
-                  input : recv_tok.input
+                  module_path : recv_tok.module_path.clone(),
+                  input : recv_tok.input.clone()
                 )
               );
               amp_args := ArrayList(AstExpr).new();
@@ -11000,7 +11000,7 @@ Fix: wrap the call:
                     rm_rid := type_id_or_empty(&rm_conc);
                     rm_name := match(
                       func_expr,
-                      .FnCall(_, _, rm_dargs, _, _) => match(rm_dargs.get(usize(1)), .Some(rm_ne) => ast_expr_token(&rm_ne).value, .None => String.from("")),
+                      .FnCall(_, _, rm_dargs, _, _) => match(rm_dargs.get(usize(1)), .Some(rm_ne) => ast_expr_token(&rm_ne).value.clone(), .None => String.from("")),
                       .Atom(_, _) => String.from("")
                     );
                     if((rm_rid != "") && (rm_name != ""), {
@@ -11101,7 +11101,7 @@ Fix: wrap the call:
             match(
               m_fv,
               .FuncVal(__fvm5, m_cvals) => {
-                m_pnames := __fvm5.*.params;
+                m_pnames := __fvm5.*.params.clone();
                 m_csrc := fv_capture_source(&__fvm5.*);
                 (mci : usize) = usize(0);
                 (n_mc : usize) = fv_source_count(&m_csrc, &m_cvals);
@@ -11115,7 +11115,7 @@ Fix: wrap the call:
                 _mfr := m_env.push_frame(false);
                 (mpi : usize) = usize(0);
                 while(mpi < m_pnames.len(), {
-                  mpn := match(m_pnames.get(mpi), .Some(n) => n, .None => String.from(""));
+                  mpn := match(m_pnames.get(mpi), .Some(n) => n.clone(), .None => String.from(""));
                   ma := match(call_result_m.arg_values.args.get(mpi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
                   _map := add_variable_to_env(&m_env, &mpn, &ma.arg_type, &ma.value, match(ma.value, .Some(_) => true, .None => false), false, false, false, synthetic_token(&mpn, &m_env.module_path));
                   mpi = (mpi + usize(1));
@@ -11228,8 +11228,8 @@ Fix: wrap the call:
           });
           out_m := new_expr_info(&call_result_m.caller_env, &m_out_ty);
           out_m.value = m_result_val;
-          out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
-          out_m.deferred_drop_expressions = call_result_m.deferred_drop_expressions;
+          out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order.clone());
+          out_m.deferred_drop_expressions = call_result_m.deferred_drop_expressions.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_m);
           // Attach the call-result temp (attached for
           // EVERY runtime call, methods included). Without it a method call's
@@ -11246,7 +11246,7 @@ Fix: wrap the call:
           match(
             take_pending_impl_force_error(),
             .Some(impl_fail_msg) => {
-              exn.throw(dyn(impl_fail_msg));
+              exn.throw(dyn(impl_fail_msg.clone()));
             },
             .None => ()
           );
@@ -11349,7 +11349,7 @@ Fix: wrap the call:
             // Without this arm the gate threw inside a SILENT closure-spec
             // channel and the aborted eval leaked a Type(1) stamp downstream
             // (tests/iterator_combinators.test.yo, `[vcall-throw]`-pinned).
-            cvl_cap_sid := match(callee_ty_none, Rc(.Struct({ id : cvl_s })) => cvl_s, _ => String.from(""));
+            cvl_cap_sid := match(callee_ty_none, Rc(.Struct({ id : cvl_s })) => cvl_s.clone(), _ => String.from(""));
             cvl_is_fnish = cvl_cap_sid.starts_with("capture_");
           });
           //   - NOT during a deferred-generic def-time trial: dg trials leave
@@ -11477,8 +11477,8 @@ Fix: wrap the call:
           _note_io_builtin_call(expr, &ret_type_none, &args, &call_result_none.caller_env, ctx, exn);
           out_none := new_expr_info(&call_result_none.caller_env, &ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_none, &callee_env));
-          out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
-          out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions;
+          out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order.clone());
+          out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions.clone();
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_none);
           // Same temp attachment as the method arm.
           // The result temp is OWNING (+1 the callee produced) — except for

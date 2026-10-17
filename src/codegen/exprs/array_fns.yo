@@ -100,7 +100,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
           decl.push_str(";");
           em := context.base.emitter;
           em.emit_string_line(&decl);
-          Option(String).Some(temp_var)
+          Option(String).Some(temp_var.clone())
         },
         .None => Option(String).Some(array_value)
       )
@@ -128,7 +128,7 @@ generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &Func
   fill_value_code := _call_generate_expr(&fill_value_arg, indent.clone(), context);
   temp_var_name := match(
     ei.variable_name,
-    .Some(v) => v,
+    .Some(v) => v.clone(),
     .None => fresh_local_name(
       String.from("temp_array_"),
       &context.base.current_function_name

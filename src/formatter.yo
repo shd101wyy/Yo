@@ -1776,8 +1776,8 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                   column : anchor.column,
                   character : anchor.character,
                   byte_offset : anchor.byte_offset,
-                  module_path : anchor.module_path,
-                  input : anchor.input
+                  module_path : anchor.module_path.clone(),
+                  input : anchor.input.clone()
                 )
               );
             }
@@ -1799,8 +1799,8 @@ canonicalize_callee_prefix_calls :: (fn(tokens : &ArrayList(Token)) -> ArrayList
                       column : anchor_o.column,
                       character : anchor_o.character,
                       byte_offset : anchor_o.byte_offset,
-                      module_path : anchor_o.module_path,
-                      input : anchor_o.input
+                      module_path : anchor_o.module_path.clone(),
+                      input : anchor_o.input.clone()
                     )
                   );
                 }
@@ -2123,7 +2123,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
           .Some(line) => {
             // Skip blank lines
             stripped_len := {
-              ll_bytes := line;
+              ll_bytes := line.clone();
               ll_n := ll_bytes.len();
               (lk : usize) = usize(0);
               (ll_done : bool) = false;
@@ -2163,7 +2163,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
             match(
               lines.get(usize(0)),
               .Some(first) => {
-                out.push(first);
+                out.push(first.clone());
               },
               .None => ()
             );
@@ -2173,7 +2173,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
                 lines.get(oi),
                 .None => (),
                 .Some(line) => {
-                  ll_bytes := line;
+                  ll_bytes := line.clone();
                   ll_n := ll_bytes.len();
                   // If line is blank → ""
                   (lk : usize) = usize(0);
@@ -2284,7 +2284,7 @@ raw_token_value :: (fn(input : &String, tokens : &ArrayList(Token), index : usiz
     .None => String.new(),
     .Some(t) => cond(
       (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, usize(t.byte_offset)),
-      true => t.value
+      true => t.value.clone()
     )
   )
 );
@@ -2423,7 +2423,7 @@ _format_yo_source_impl :: (
             );
             previous := previous_token;
             next := next_token(&significant_tokens, &skipped_paren_indices, index);
-            raw := match(raw_values.get(index), .Some(s) => s, .None => String.new());
+            raw := match(raw_values.get(index), .Some(s) => s.clone(), .None => String.new());
             // ---- Comment handling ----
             cond(
               is_comment_token(token.kind) => {
@@ -3463,7 +3463,7 @@ collect_yo_files :: (
             entries.get(ei),
             .None => (),
             .Some(entry) => {
-              entry_name := entry.name;
+              entry_name := entry.name.clone();
               skip := match(
                 entry.file_type,
                 .Directory => is_ignored_format_dir(entry_name.clone()),
@@ -3590,7 +3590,7 @@ _fence_prefix :: (fn(line : &String, in_comment : bool) -> Option(String))({
 /// `yo ignore` block (left as written), `.None` any other language.
 _yo_fence_info :: (fn(info : &String) -> Option(bool))({
   words := info.trim().split(" ");
-  first := match(words.get(usize(0)), .Some(w) => w, .None => String.new());
+  first := match(words.get(usize(0)), .Some(w) => w.clone(), .None => String.new());
   if(first != "yo", {
     return(Option(bool).None);
   });
@@ -3614,7 +3614,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    line := match(lines.get(i), .Some(l) => l, .None => String.new());
+    line := match(lines.get(i), .Some(l) => l.clone(), .None => String.new());
     (handled : bool) = false;
     match(
       _fence_prefix(&line, in_comment),
@@ -3631,7 +3631,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
               (close : Option(usize)) = Option(usize).None;
               (consistent : bool) = true;
               while((j < lines.len()) && close.is_none(), j = (j + usize(1)), {
-                lj := match(lines.get(j), .Some(l) => l, .None => String.new());
+                lj := match(lines.get(j), .Some(l) => l.clone(), .None => String.new());
                 (lj_rest : Option(String)) = cond(
                   lj.starts_with(pre.clone()) => Option(String).Some(lj.substring(pre.len(), lj.len())),
                   (lj.trim_end() == base) => Option(String).Some(String.new()),
@@ -3654,7 +3654,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
                   body := ArrayList(String).new();
                   (k : usize) = (i + usize(1));
                   while(k < cj, k = (k + usize(1)), {
-                    lk := match(lines.get(k), .Some(l) => l, .None => String.new());
+                    lk := match(lines.get(k), .Some(l) => l.clone(), .None => String.new());
                     body.push(
                       cond(
                         lk.starts_with(pre.clone()) => lk.substring(pre.len(), lk.len()),
@@ -3668,7 +3668,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
                   fl := formatted.split("\n");
                   (fi : usize) = usize(0);
                   while(fi < fl.len(), fi = (fi + usize(1)), {
-                    f := match(fl.get(fi), .Some(x) => x, .None => String.new());
+                    f := match(fl.get(fi), .Some(x) => x.clone(), .None => String.new());
                     out.push(
                       cond(
                         (f.len() == usize(0)) => base.clone(),
@@ -3676,7 +3676,7 @@ format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn :
                       )
                     );
                   });
-                  out.push(match(lines.get(cj), .Some(l) => l, .None => String.new()));
+                  out.push(match(lines.get(cj), .Some(l) => l.clone(), .None => String.new()));
                   i = (cj + usize(1));
                   handled = true;
                 }),
@@ -3725,7 +3725,7 @@ format_yo_files :: (
           true => format_yo_fences(format_yo_source(&original, &file, exn), &file, true, exn)
         );
         if(formatted != original, {
-          changed.push(file);
+          changed.push(file.clone());
           if(!options.check, {
             io.await(write_string(Path.new(&file), &formatted, io), IoExn(io : io, exn : exn));
           });

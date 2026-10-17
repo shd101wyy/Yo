@@ -167,7 +167,7 @@ register_type_trait :: (fn(type_id : &String, trait_name : str, env : &Environme
 register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit)({
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l.clone(), .None => ArrayList(TypeValue).new());
   list.push(trait_ty);
   g_type_trait_registry.insert(type_id, list);
   bump_trait_impl_epoch();
@@ -177,9 +177,9 @@ register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> un
 _trait_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
-    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name,
-    Rc(.FutureTraitT(base_name, _, _, _)) => base_name,
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id.clone(),
+    Rc(.FnTraitT(base_name, _, _, _, _, _, _, _)) => base_name.clone(),
+    Rc(.FutureTraitT(base_name, _, _, _)) => base_name.clone(),
     _ => String.from("")
   )
 );
@@ -261,7 +261,7 @@ _marker_name_of :: (fn(trait_type : &TypeValue, env : &Environment) -> String)({
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
-    marker := match(markers.get(i), .Some(m) => m, .None => String.from(""));
+    marker := match(markers.get(i), .Some(m) => m.clone(), .None => String.from(""));
     match(
       get_trait_type_from_env(env, marker.clone()),
       .Some(mt) => if(_trait_type_id(&mt) == tid, {
@@ -306,7 +306,7 @@ _type_id_for_trait_check :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     // `type_id_or_empty` has no Union arm — keep the name-keyed special case.
-    Rc(.Union(name, _, _)) => name,
+    Rc(.Union(name, _, _)) => name.clone(),
     // SomeT: must mirror `type_id_or_empty` (the REGISTRATION key in
     // impl.yo) — a manual `impl(X, Send())` on an extern opaque type
     // declaration (`extern("Yo", X : Type)` binds X to a SomeT placeholder,
@@ -559,12 +559,12 @@ _check_associated_type_constraints :: (
 )({
   atc_labels := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l,
+    Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l.clone(),
     _ => ArrayList(String).new()
   );
   atc_types := match(
     trait_type,
-    Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t,
+    Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t.clone(),
     _ => ArrayList(TypeValue).new()
   );
   n_atc := atc_labels.len();
@@ -575,7 +575,7 @@ _check_associated_type_constraints :: (
   (ok : bool) = true;
   (ci : usize) = usize(0);
   while((ci < n_atc) && ok, {
-    label := match(atc_labels.get(ci), .Some(l) => l, .None => String.from(""));
+    label := match(atc_labels.get(ci), .Some(l) => l.clone(), .None => String.from(""));
     constraint_ty := match(atc_types.get(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     // Step 1: the target's OWN registrations (a CONCRETE impl's
     // `Item : i32`). The equivalent store is the
@@ -679,7 +679,7 @@ copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(ArrayList(TypeValue))
     return(
       match(
         resolve_cell_chain(&ty),
-        Rc(.Struct({ field_types : cs_fields })) => Option(ArrayList(TypeValue)).Some(cs_fields),
+        Rc(.Struct({ field_types : cs_fields })) => Option(ArrayList(TypeValue)).Some(cs_fields.clone()),
         _ => Option(ArrayList(TypeValue)).None
       )
     );
@@ -716,7 +716,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
     Rc(.Struct({ field_labels : nc_labels, field_types : nc_fields })) => {
       (i : usize) = usize(0);
       while(i < nc_fields.len(), {
-        labels.push(`its field \`${match(nc_labels.get(i), .Some(l) => l, .None => String.new())}\``);
+        labels.push(`its field \`${match(nc_labels.get(i), .Some(l) => l.clone(), .None => String.new())}\``);
         parts.push(match(nc_fields.get(i), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
         i = (i + usize(1));
       });
@@ -724,8 +724,8 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
     Rc(.EnumT({ variant_names : nc_vns, variant_fields : nc_vfs })) => {
       (vi : usize) = usize(0);
       while(vi < nc_vfs.len(), {
-        vf := match(nc_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        vn := match(nc_vns.get(vi), .Some(n) => n, .None => String.new());
+        vf := match(nc_vfs.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
+        vn := match(nc_vns.get(vi), .Some(n) => n.clone(), .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`its variant \`${vn}\``);
@@ -753,7 +753,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       );
     });
     if(!part_is_copy, {
-      lbl := match(labels.get(pi), .Some(l) => l, .None => String.new());
+      lbl := match(labels.get(pi), .Some(l) => l.clone(), .None => String.new());
       return(Option(String).Some(`${lbl} has type \`${type_to_string(&part)}\``));
     });
     pi = (pi + usize(1));
@@ -1140,7 +1140,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   });
   parts := match(
     copy_structural_parts(&ty),
-    .Some(sp) => sp,
+    .Some(sp) => sp.clone(),
     .None => ArrayList(TypeValue).new()
   );
   if(is_value_nominal_type(&ty), {
@@ -1163,7 +1163,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       Rc(.EnumT({ variant_fields : bl_vfs })) => {
         (vi : usize) = usize(0);
         while(vi < bl_vfs.len(), {
-          vf := match(bl_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(bl_vfs.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
             parts.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
@@ -1399,19 +1399,19 @@ type_implements_trait :: (
       Rc(.FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns)) => rc(
         TypeValueNode.Func(
           ArrayList(TypeValue).new(),
-          param_types,
+          param_types.clone(),
           ArrayList(TypeValue).new(),
           ArrayList(TypeValue).new(),
           result,
           rc(
             FuncMeta(
               forall_labels : ArrayList(String).new(),
-              param_labels : param_labels,
+              param_labels : param_labels.clone(),
               implicit_labels : ArrayList(String).new(),
               result_is_comptime_only : false,
               // Fn-trait call type (runtime)
-              param_is_ref : ft_refs,
-              param_is_owning : ft_owns,
+              param_is_ref : ft_refs.clone(),
+              param_is_owning : ft_owns.clone(),
               result_is_ref : false,
               has_variadic : false,
               is_extern : Option(String).None,
@@ -1514,7 +1514,7 @@ type_implements_trait :: (
           (tn == "Runtime") => if(is_ref, {
             direct_true = true;
           }, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts.clone());
           }),
           // Send / Sync: a value struct needs every field to hold the
           // marker; an atomic object needs every field `Sync`; a non-atomic
@@ -1522,12 +1522,12 @@ type_implements_trait :: (
           // to impls (fall through).
           is_thread_marker => cond(
             !is_ref => {
-              fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+              fields_opt = Option(ArrayList(TypeValue)).Some(fts.clone());
             },
             is_atomic => match(
               sync_trait,
               .Some(st) => {
-                fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+                fields_opt = Option(ArrayList(TypeValue)).Some(fts.clone());
                 field_trait = st;
               },
               .None => ()
@@ -1536,7 +1536,7 @@ type_implements_trait :: (
           ),
           // Comptime: objects never; value structs need all fields Comptime.
           (tn == "Comptime") => if(!is_ref, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(ArrayList(TypeValue)).Some(fts.clone());
           }),
           // Acyclic: a value struct needs its fields Acyclic, and the
           // elements of a buffer it owns that reach a cell (V2b's unique
@@ -1556,7 +1556,7 @@ type_implements_trait :: (
           flat := ArrayList(TypeValue).new();
           (vi : usize) = usize(0);
           while(vi < vfs.len(), {
-            vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+            vf := match(vfs.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
             (vj : usize) = usize(0);
             while(vj < vf.len(), {
               flat.push(match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
@@ -1591,7 +1591,7 @@ type_implements_trait :: (
         // marker holds iff every field type holds it.
         // See issues/fixed/tuple-types-derive-no-auto-derived-marker.md.
         Rc(.Tuple({ field_types : tuple_fts })) => {
-          fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts);
+          fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts.clone());
         },
         // A `fn(...)` type is a code pointer: it holds no reference, so it is
         // Acyclic. It is NOT Send as a type: whether a function may run on
@@ -1849,7 +1849,7 @@ type_implements_trait :: (
   while(gi < gn, {
     entry := match(
       g_trait_check_recursion_guard.get(gi),
-      .Some(s) => s,
+      .Some(s) => s.clone(),
       .None => {
         gi = (gi + usize(1));
         continue;
@@ -1993,7 +1993,7 @@ check_self_constraints_violation_msg :: (
   match(
     receiver_kind_trait_violation_msg(target_type, trait_type, env),
     .Some(cell_msg) => {
-      return(Option(String).Some(cell_msg));
+      return(Option(String).Some(cell_msg.clone()));
     },
     .None => ()
   );
@@ -2022,7 +2022,7 @@ check_self_constraints_violation_msg :: (
               sc_implemented = type_implements_trait_bool(target_type, &constraint, env);
             },
             .Error({ msg : sc_force_msg }) => {
-              return(Option(String).Some(sc_force_msg));
+              return(Option(String).Some(sc_force_msg.clone()));
             },
             .NoneForced => ()
           );
@@ -2132,7 +2132,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
   while(i < n, {
     entry := match(
       g_send_derivation_in_progress.get(i),
-      .Some(s) => s,
+      .Some(s) => s.clone(),
       .None => {
         i = (i + usize(1));
         continue;
@@ -2170,7 +2170,7 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
   while(id < nd, {
     entry := match(
       g_send_derivation_in_progress.get(id),
-      .Some(s) => s,
+      .Some(s) => s.clone(),
       .None => {
         id = (id + usize(1));
         continue;
@@ -2537,8 +2537,8 @@ function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -
           e_own := match(fm_e.owns.get(fm_i), .Some(b) => b, .None => false);
           g_own := match(fm_g.owns.get(fm_i), .Some(b) => b, .None => false);
           if((e_ref != g_ref) || (e_own != g_own), {
-            e_lbl := match(fm_e.labels.get(fm_i), .Some(l) => l, .None => String.from("_"));
-            g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l, .None => e_lbl.clone());
+            e_lbl := match(fm_e.labels.get(fm_i), .Some(l) => l.clone(), .None => String.from("_"));
+            g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l.clone(), .None => e_lbl.clone());
             return(
               Option(String).Some(
                 `\nParameter ${fm_i + usize(1)} is \`${_param_mode_spelling(&e_lbl, fm_e.types.get(fm_i), e_ref, e_own)}\` in the expected type and \`${_param_mode_spelling(&g_lbl, fm_g.types.get(fm_i), g_ref, g_own)}\` in the given one: a parameter's mode is part of the function type.`
@@ -2717,9 +2717,9 @@ type_contains_some_type_for_codegen_param :: (
   // Cycle guard on nominal type id.
   nominal_id := match(
     ty,
-    Rc(.Struct({ id : sid })) => sid,
-    Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid,
-    Rc(.Union(uname, _, _)) => uname,
+    Rc(.Struct({ id : sid })) => sid.clone(),
+    Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid.clone(),
+    Rc(.Union(uname, _, _)) => uname.clone(),
     _ => String.from("")
   );
   if(!nominal_id.is_empty(), {
@@ -2833,7 +2833,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < variant_fields.len()) && !found, {
-        vf := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(variant_fields.get(vi), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new());
         (vj : usize) = usize(0);
         while((vj < vf.len()) && !found, {
           ft := match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -2873,7 +2873,7 @@ type_contains_some_type_for_codegen_param :: (
       found
     },
     Rc(.Func({ param_types : param_types, result : result_box, meta : __fm1 })) => {
-      forall_labels := __fm1.*.forall_labels;
+      forall_labels := __fm1.*.forall_labels.clone();
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {
@@ -3056,7 +3056,7 @@ find_some_type_missing_comptime_constraint :: (
               match(
                 get_where_clause_constraints_for_some_type(env, ty.clone()),
                 .Some(wcc) => {
-                  wc_reqs := wcc.required_traits;
+                  wc_reqs := wcc.required_traits.clone();
                   (wi : usize) = usize(0);
                   while(wi < wc_reqs.len(), {
                     match(

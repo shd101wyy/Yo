@@ -105,11 +105,11 @@ VerifyResult :: ref(
 /// A two-key JSON object.
 _json_obj2 :: (fn(k1 : &String, v1 : &JsonValue, k2 : &String, v2 : &JsonValue) -> JsonValue)({
   ks := ArrayList(String).new();
-  ks.push(k1);
-  ks.push(k2);
+  ks.push(k1.clone());
+  ks.push(k2.clone());
   vs := ArrayList(JsonValue).new();
-  vs.push(v1);
-  vs.push(v2);
+  vs.push(v1.clone());
+  vs.push(v2.clone());
   JsonValue.Object(keys : ks, values : vs)
 });
 /// A JSON array of strings.
@@ -236,7 +236,7 @@ _verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
 verify_cache_dir :: (fn() -> String)({
   root := match(
     env.get(String.from("YO_CACHE_DIR")),
-    .Some(d) => d,
+    .Some(d) => d.clone(),
     .None => match(
       env.get(String.from("XDG_CACHE_HOME")),
       .Some(d) => d.concat(String.from("/yo")),
@@ -365,7 +365,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
   verdict := match(
     run_z3_script(binary.clone(), &script),
     .Ok(response) => verdict_of_response(&response),
-    .Err(msg) => VerifyVerdict.SolverError(msg)
+    .Err(msg) => VerifyVerdict.SolverError(msg.clone())
   );
   match(
     verdict,
@@ -381,7 +381,7 @@ run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> V
       verdict = match(
         run_z3_script(binary.clone(), &retry),
         .Ok(response) => verdict_of_response(&response),
-        .Err(msg) => VerifyVerdict.SolverError(msg)
+        .Err(msg) => VerifyVerdict.SolverError(msg.clone())
       );
     },
     _ => ()
@@ -413,8 +413,8 @@ resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
     cfg.solver_path,
     .Some(p) => if(
       _z3_exists_sync(p.clone()),
-      SolverResolution.Resolved(path : p),
-      SolverResolution.InvalidPath(path : p)
+      SolverResolution.Resolved(path : p.clone()),
+      SolverResolution.InvalidPath(path : p.clone())
     ),
     // `discover_z3` hands back the `YO_Z3_PATH` override as given, so check
     // it exists: a dangling override is `InvalidPath`, not a solver. As
@@ -424,8 +424,8 @@ resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
       discover_z3(),
       .Some(p) => if(
         _z3_exists_sync(p.clone()),
-        SolverResolution.Resolved(path : p),
-        SolverResolution.InvalidPath(path : p)
+        SolverResolution.Resolved(path : p.clone()),
+        SolverResolution.InvalidPath(path : p.clone())
       ),
       .None => SolverResolution.Installable
     )
@@ -959,9 +959,9 @@ verify_and_strip_tasks :: (
                     clean_verdict := match(
                       r.verdict,
                       .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
-                      .Proved(core) => VerifyVerdict.Proved(core),
-                      .Unproven(reason) => VerifyVerdict.Unproven(reason),
-                      .SolverError(msg) => VerifyVerdict.SolverError(msg)
+                      .Proved(core) => VerifyVerdict.Proved(core.clone()),
+                      .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
+                      .SolverError(msg) => VerifyVerdict.SolverError(msg.clone())
                     );
                     obligations.push(
                       VerifyFnObligation(

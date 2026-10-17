@@ -38,7 +38,7 @@ evaluate_va_start :: (
 )({
   (args : ArrayList(AstExpr)) = match(
     expr,
-    .FnCall(_, _, fargs, _, _) => fargs,
+    .FnCall(_, _, fargs, _, _) => fargs.clone(),
     _ => ArrayList(AstExpr).new()
   );
   n := args.len();
@@ -62,7 +62,7 @@ evaluate_va_start :: (
             )
           );
         });
-        var_name := ast_expr_token(&arg).value;
+        var_name := ast_expr_token(&arg).value.clone();
         // Arg 0: mark the va_list variable as initialized.
         if(i == usize(0), {
           variables := get_variables_from_env(env, &var_name);
@@ -86,7 +86,7 @@ evaluate_va_start :: (
             .Some(variable) => {
               new_var := Variable(
                 id : variable.id,
-                name : variable.name,
+                name : variable.name.clone(),
                 ty : variable.ty,
                 is_compile_time_only : variable.is_compile_time_only,
                 frame_level : variable.frame_level,

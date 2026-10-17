@@ -301,7 +301,7 @@ _classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String)
   st := _Scan(ml : u8(0), depth : i32(0));
   (li : usize) = usize(0);
   while(li < lines.len(), {
-    line := lines(li);
+    line := lines(li).clone();
     if((st.ml != u8(0)) || (st.depth != i32(0)), {
       // Continuation of the previous entry's value.
       _ := _scan_line(&line, usize(0), &st);
@@ -324,7 +324,7 @@ _classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String)
             return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: malformed table header`));
           }
         );
-        out.push(_Line(kind : _LineKind.Header(path.keys, is_array), end : li));
+        out.push(_Line(kind : _LineKind.Header(path.keys.clone(), is_array), end : li));
       },
       true => {
         path := match(
@@ -350,7 +350,7 @@ _classify :: (fn(lines : &ArrayList(String)) -> Result(ArrayList(_Line), String)
         if((st.ml != u8(0)) || (st.depth != i32(0)), {
           return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: unterminated value`));
         });
-        out.push(_Line(kind : _LineKind.Entry(path.keys), end : end));
+        out.push(_Line(kind : _LineKind.Entry(path.keys.clone()), end : end));
         // The continuation lines are classified as Other by the loop head
         // (state is clean again, so mark them here).
         (k : usize) = (li + usize(1));
@@ -477,7 +477,7 @@ _delete_ranges :: (fn(lines : &ArrayList(String), ranges : &ArrayList(_Range)) -
         r = (r + usize(1));
       },
       true => {
-        out.push(lines(i));
+        out.push(lines(i).clone());
         i = (i + usize(1));
       }
     );
@@ -522,7 +522,7 @@ set_entry :: (
     _classify(&lines),
     .Ok(k) => k,
     .Err(msg) => {
-      return(Result(String, String).Err(msg));
+      return(Result(String, String).Err(msg.clone()));
     }
   );
   entry_line := `${toml_key(key.clone())} = ${value_text}`;
@@ -577,7 +577,7 @@ set_entry :: (
             i = (keep.end - shift);
           },
           true => {
-            out.push(pruned(i));
+            out.push(pruned(i).clone());
             i = (i + usize(1));
           }
         );
@@ -591,7 +591,7 @@ set_entry :: (
         _classify(&pruned),
         .Ok(k) => k,
         .Err(msg) => {
-          return(Result(String, String).Err(msg));
+          return(Result(String, String).Err(msg.clone()));
         }
       );
       match(
@@ -618,7 +618,7 @@ set_entry :: (
             if(j == insert_at, {
               out.push(entry_line.clone());
             });
-            out.push(pruned(j));
+            out.push(pruned(j).clone());
             j = (j + usize(1));
           });
           if(insert_at >= pruned.len(), {
@@ -633,7 +633,7 @@ set_entry :: (
           out := ArrayList(String).new();
           (j : usize) = usize(0);
           while(j < pruned.len(), {
-            out.push(pruned(j));
+            out.push(pruned(j).clone());
             j = (j + usize(1));
           });
           // Trim trailing blank elements, then rebuild the ending.
@@ -684,7 +684,7 @@ remove_entry :: (
     _classify(&lines),
     .Ok(k) => k,
     .Err(msg) => {
-      return(Result(Option(String), String).Err(msg));
+      return(Result(Option(String), String).Err(msg.clone()));
     }
   );
   ranges := _entry_ranges(&kinds, table.clone(), key.clone());

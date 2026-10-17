@@ -26,7 +26,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : &FunctionGenerationContext, func_id : &String) -> Option(String))(
-  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
+  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
 );
 /// The `&` (address-of) operator generation.
 generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
@@ -40,7 +40,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     // codegen/functions/generation.yo.
     .None => return(`// Error: No type information for pointer/reference expression ${ast_expr_to_string(expr)}`)
   );
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   arg := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("address-of requires an argument"))));
   arg_ei_opt := context.base.get_expr_info(&arg);
   // Compile-time literals need a compound literal to be addressable.
@@ -176,7 +176,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             .None => ()
           );
           // Fallback to a direct call of the index method.
-          fid := match(mv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+          fid := match(mv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
           match(
             _c_function_name_opt(context, &fid),
             .Some(c_func_name) => {

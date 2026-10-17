@@ -122,7 +122,7 @@ evaluate_struct_type :: (
   // Trait MARKERS (Send/Acyclic/Comptime/Runtime) are auto-derived AFTER field
   // evaluation by `auto_derive_traits_for_struct_type` (below).
   // Evaluate fields
-  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
   runtime_field_types := ArrayList(TypeValue).new();
@@ -140,14 +140,14 @@ evaluate_struct_type :: (
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
     while((dup_idx < field_labels.len()) && !has_dup, {
-      existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
+      existing := match(field_labels.get(dup_idx), .Some(l) => l.clone(), .None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
       });
       dup_idx = (dup_idx + usize(1));
     });
     if(has_dup, {
-      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
+      arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(
         ast_expr_is_fn_call(&arg),
         match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
@@ -179,7 +179,7 @@ evaluate_struct_type :: (
     // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
     // cannot collide and must stay legal.
     if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
-      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3, .Atom(_, _) => ArrayList(AstExpr).new());
+      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
       res_tok := if(
         ast_expr_is_fn_call(&arg),
         match(res_args.get(usize(0)), .Some(fe2) => ast_expr_token(&fe2), .None => ast_expr_token(&arg)),
@@ -226,9 +226,9 @@ evaluate_struct_type :: (
     });
     fields.push(field);
     env.frames = result.env.frames;
-    env.module_path = result.env.module_path;
+    env.module_path = result.env.module_path.clone();
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env.input_string = result.env.input_string;
+    env.input_string = result.env.input_string.clone();
     i = (i + usize(1));
   });
   // Phase H: Ban Arc(Iso(T)) — the `*` field of an atomic object wrapping Iso
@@ -285,8 +285,8 @@ evaluate_struct_type :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      field_types,
+      field_labels.clone(),
+      field_types.clone(),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
@@ -316,7 +316,7 @@ evaluate_struct_type :: (
     (vc_i : usize) = usize(0);
     while(vc_i < patched_types.len(), {
       vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-      vc_label := match(field_labels.get(vc_i), .Some(l) => l, .None => String.from(""));
+      vc_label := match(field_labels.get(vc_i), .Some(l) => l.clone(), .None => String.from(""));
       if(_type_reaches_root_by_value(&vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
         exn.throw(
           dyn(
@@ -336,8 +336,8 @@ evaluate_struct_type :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      patched_types,
+      field_labels.clone(),
+      patched_types.clone(),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,

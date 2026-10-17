@@ -28,7 +28,7 @@
 /// Record the stable field name for a local capture (idempotent — a
 /// re-registered SM re-derives the same name).
 register_sm_local_field_name :: (fn(variable_id : &String, field : &String) -> unit)({
-  _ := g_sm_local_field_names.insert(variable_id, field);
+  _ := g_sm_local_field_names.insert(variable_id.clone(), field.clone());
 });
 /// Assign every LOCAL capture its stable field name — `var_<name>_<hash of
 /// the binding's declaration site>` — and record the assignments. The suffix
@@ -69,7 +69,7 @@ register_sm_captured_names :: (
 sm_local_field_name :: (fn(variable_id : &String) -> String)(
   match(
     g_sm_local_field_names.get(variable_id.clone()),
-    .Some(stable) => stable,
+    .Some(stable) => stable.clone(),
     .None => {
       pre := String.from("var_");
       pre.push_string(variable_id);
@@ -85,7 +85,7 @@ sm_local_field_name :: (fn(variable_id : &String) -> String)(
 get_state_machine_field_name :: (fn(variable_id : &String, aliases : &Option(HashMap(String, String))) -> String)({
   match(
     aliases,
-    .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al), .None => ()),
+    .Some(a) => match(a.get(variable_id.clone()), .Some(al) => return(al.clone()), .None => ()),
     .None => ()
   );
   sm_local_field_name(variable_id)
@@ -102,7 +102,7 @@ export(
 /// (a capture) is not a slot, and the local then has storage of its own.
 sm_storage_id :: (fn(v : &Variable, smv : &HashMap(String, CapturedVariable), remap : &Option(HashMap(String, String))) -> String)({
   canon := (fn(id : &String, remap : &Option(HashMap(String, String))) -> String)(
-    match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id)
+    match(remap, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m.clone(), .None => id), .None => id)
   );
   own := canon(v.id.to_string(), remap);
   match(
@@ -147,7 +147,7 @@ sm_slot_of_variable :: (
     .Outer => `${capture_slot}.${sanitize_for_c_identifier(cv.base.name.clone(), false)}`,
     .Local => match(
       aliases,
-      .Some(al) => match(al.get(id.clone()), .Some(af) => af, .None => sm_local_field_name(id.clone())),
+      .Some(al) => match(al.get(id.clone()), .Some(af) => af.clone(), .None => sm_local_field_name(id.clone())),
       .None => sm_local_field_name(id.clone())
     )
   );
@@ -159,7 +159,7 @@ sm_slot_of_variable :: (
 /// (the abort dispose would then drop it a second time).
 (g_await_consumed_temps : HashSet(String)) = HashSet(String).new();
 note_await_consumed_temp :: (fn(name : &String) -> unit)({
-  g_await_consumed_temps.insert(name);
+  g_await_consumed_temps.insert(name.clone());
 });
 is_await_consumed_temp :: (fn(name : &String) -> bool)(
   g_await_consumed_temps.contains(name)
@@ -176,7 +176,7 @@ is_await_consumed_temp :: (fn(name : &String) -> bool)(
 /// Field names carry the variable id, so a name identifies one struct's field.
 (g_sm_move_flag_fields : HashSet(String)) = HashSet(String).new();
 note_sm_move_flag_field :: (fn(field : &String) -> unit)({
-  g_sm_move_flag_fields.insert(field);
+  g_sm_move_flag_fields.insert(field.clone());
 });
 /// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
 /// (`sm-><field>`), or `.None` when the slot has none. A capture-list field

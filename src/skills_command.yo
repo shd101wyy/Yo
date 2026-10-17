@@ -109,7 +109,7 @@ _copy_skills_dir :: (
     names := _sorted_dir_names(item.src.clone(), io, exn);
     (j : usize) = usize(0);
     while(j < names.len(), {
-      name := names(j);
+      name := names(j).clone();
       src_entry := item.src.join(Path.new(name.clone()));
       dest_entry := item.dest.join(Path.new(name.clone()));
       display := `${item.prefix}/${name}`;
@@ -160,7 +160,7 @@ description_from_frontmatter :: (fn(content : &String) -> String)({
   // "looking for the opening fence" state and a markdown horizontal rule in
   // the body would re-open it, letting body prose match `description:`.
   while((i < lines.len()) && (desc.len() == usize(0)) && !closed, {
-    line := lines(i);
+    line := lines(i).clone();
     if(in_frontmatter, {
       cond(
         (line.trim() == String.from("---")) => {
@@ -247,7 +247,7 @@ _find_bundled_skills_dir :: (
 _user_cwd :: (fn() -> String)(
   match(
     env.get(String.from("YO_ORIGINAL_CWD")),
-    .Some(d) => d,
+    .Some(d) => d.clone(),
     .None => match(cwd(), .Ok(p) => p.to_string(), .Err(_) => String.from("."))
   )
 );
@@ -294,7 +294,7 @@ install_skills_into :: (
   skills := ArrayList(SkillEntry).new();
   (n : usize) = usize(0);
   while(n < names.len(), {
-    name := names(n);
+    name := names(n).clone();
     src_entry := bundled_dir.join(Path.new(name.clone()));
     md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
     description := String.from("");
@@ -314,7 +314,7 @@ install_skills_into :: (
   targets := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < project_agent_dirs.len(), {
-    d := project_agent_dirs(i);
+    d := project_agent_dirs(i).clone();
     p := project.join(Path.new(d.clone()));
     present := io.await(exists(p.clone(), io), io);
     if(present, {
@@ -332,12 +332,12 @@ install_skills_into :: (
   counters := SkillCopyCounters(created : usize(0), overwritten : usize(0));
   (t : usize) = usize(0);
   while(t < targets.len(), {
-    parent := targets(t);
+    parent := targets(t).clone();
     dest_skills := project.join(Path.new(parent.clone())).join(Path.new(String.from("skills")));
     io.await(create_dir_all(dest_skills.clone(), io), IoExn(io : io, exn : exn));
     (e : usize) = usize(0);
     while(e < names.len(), {
-      name := names(e);
+      name := names(e).clone();
       src_entry := bundled_dir.join(Path.new(name.clone()));
       dest_entry := dest_skills.join(Path.new(name.clone()));
       display := `${parent}/skills/${name}`;
@@ -404,7 +404,7 @@ run_skills_install :: (
   if(argv.len() < usize(3), {
     exn.throw(dyn(tr(`skills: missing action. Usage: yo skills install`, `skills: 缺少动作。用法：yo skills install`)));
   });
-  action := argv(usize(2));
+  action := argv(usize(2)).clone();
   if(!(action == "install"), {
     exn.throw(dyn(tr(`skills: unknown action '${action}'. Usage: yo skills install`, `skills: 未知动作 '${action}'。用法：yo skills install`)));
   });

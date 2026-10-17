@@ -15,7 +15,7 @@ generate_binding :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGe
   match(
     context.base.get_expr_info(&lhs),
     .Some(ei) => {
-      var_name := ast_expr_token(&lhs).value;
+      var_name := ast_expr_token(&lhs).value.clone();
       // NOTE: we cannot apply `const` here (the value is assigned afterwards).
       decl := indent.clone();
       decl.push_string(get_variable_type_string(&ei.ty, &var_name, &context.base));

@@ -21,13 +21,13 @@
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// Build `(<cName>){ ._0 = a, ... }`, emitting into a named temp when the
 /// tuple has a result variable name. Shared by the main and fallback paths.
 _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
-  elem_types := match(ei.ty, Rc(.Tuple({ field_types : fts })) => fts, _ => ArrayList(TypeValue).new());
+  elem_types := match(ei.ty, Rc(.Tuple({ field_types : fts })) => fts.clone(), _ => ArrayList(TypeValue).new());
   args_list := String.from("");
   n := arg_exprs.len();
   (i : usize) = usize(0);
@@ -117,7 +117,7 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
       // the value there too — the same rule as every other temp-declaring
       // site (other_fn_call.yo; the async-loop-body temp leak family).
       _store_temp_var_to_state_machine_if_needed(temp_var.clone(), indent.clone(), context);
-      temp_var
+      temp_var.clone()
     },
     .None => tuple_value
   )

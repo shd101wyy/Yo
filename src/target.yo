@@ -330,7 +330,7 @@ parse_target :: (fn(triple : &String) -> Result(TargetInfo, String))({
   if((parts_n < usize(2)) || (parts_n > usize(4)), {
     return(_target_error(triple, String.from("expected <arch>-<vendor>-<os>[-<env>] or wasm32-wasip1.")));
   });
-  arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
+  arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p.clone());
   a := match(
     parse_arch(&arch_str),
     .None => {
@@ -348,7 +348,7 @@ parse_target :: (fn(triple : &String) -> Result(TargetInfo, String))({
   );
   // The two-component form is exactly `wasm32-wasip1`.
   if(parts_n == usize(2), {
-    os_word := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
+    os_word := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p.clone());
     if(os_word != "wasip1", {
       // `aarch64-macos`, `wasm32-wasi`, `x86_64-linux`: an OS where the vendor
       // belongs — the pre-triple vocabulary. Say what the triple is.
@@ -366,8 +366,8 @@ parse_target :: (fn(triple : &String) -> Result(TargetInfo, String))({
     });
     return(Result(TargetInfo, String).Ok(_build_target_info(Arch.Wasm32, Os.Wasi, Option(Abi).Some(Abi.P1))));
   });
-  vendor_str := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p);
-  os_str := match(parts.get(usize(2)), .None => String.new(), .Some(p) => p);
+  vendor_str := match(parts.get(usize(1)), .None => String.new(), .Some(p) => p.clone());
+  os_str := match(parts.get(usize(2)), .None => String.new(), .Some(p) => p.clone());
   // `x86_64-linux-gnu`, `x86_64-windows-msvc`: an OS in the vendor slot is the
   // pre-triple vocabulary. Say what the triple is, keeping a typed env.
   match(
@@ -397,7 +397,7 @@ parse_target :: (fn(triple : &String) -> Result(TargetInfo, String))({
   });
   abi := cond(
     (parts_n == usize(4)) => {
-      env_str := match(parts.get(usize(3)), .None => String.new(), .Some(p) => p);
+      env_str := match(parts.get(usize(3)), .None => String.new(), .Some(p) => p.clone());
       env := match(
         parse_abi(&env_str),
         .None => {

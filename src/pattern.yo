@@ -248,7 +248,7 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
       tca_opt,
       .None => true,
       .Some(tca) => {
-        gra := match(all_vargs.get(variant_idx), .Some(g) => g, .None => ArrayList(TypeValue).new());
+        gra := match(all_vargs.get(variant_idx), .Some(g) => g.clone(), .None => ArrayList(TypeValue).new());
         if(gra.len() == usize(0), {
           return(true);
         });
@@ -328,7 +328,7 @@ _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeValue))(
   match(
     enum_ty,
-    Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
+    Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(idx), .Some(f) => f.clone(), .None => ArrayList(TypeValue).new()),
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -338,7 +338,7 @@ variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeV
 _struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
-    Rc(.Struct({ field_types : fts })) => fts,
+    Rc(.Struct({ field_types : fts })) => fts.clone(),
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -346,7 +346,7 @@ _struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
 _struct_field_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
   match(
     t,
-    Rc(.Struct({ field_labels : fls })) => fls,
+    Rc(.Struct({ field_labels : fls })) => fls.clone(),
     _ => ArrayList(String).new()
   )
 );
@@ -362,15 +362,15 @@ _struct_type_name :: (fn(t : &TypeValue) -> String)(
 _tuple_elem_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
-    Rc(.Tuple({ field_types : fts })) => fts,
+    Rc(.Tuple({ field_types : fts })) => fts.clone(),
     _ => ArrayList(TypeValue).new()
   )
 );
 _enum_variant_names :: (fn(enum_ty : &TypeValue) -> ArrayList(String))(
-  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => ArrayList(String).new())
+  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns.clone(), _ => ArrayList(String).new())
 );
 _enum_id :: (fn(enum_ty : &TypeValue) -> String)(
-  match(enum_ty, Rc(.EnumT({ id : eid })) => eid, _ => String.new())
+  match(enum_ty, Rc(.EnumT({ id : eid })) => eid.clone(), _ => String.new())
 );
 // ---------------------------------------------------------------------------
 // Walkers
@@ -979,7 +979,7 @@ _cons_str :: (fn(head : &String, rest : &ArrayList(String)) -> ArrayList(String)
     match(
       rest.get(i),
       .Some(s) => {
-        out.push(s);
+        out.push(s.clone());
       },
       .None => ()
     );
@@ -1018,7 +1018,7 @@ _render_variant_witness :: (fn(name : &String, arity : usize, w : &ArrayList(Str
     match(
       w.get(k),
       .Some(s) => {
-        rest.push(s);
+        rest.push(s.clone());
       },
       .None => ()
     );
@@ -1051,7 +1051,7 @@ _render_tuple_witness :: (fn(w : &ArrayList(String), n : usize) -> ArrayList(Str
     match(
       w.get(k),
       .Some(s) => {
-        rest.push(s);
+        rest.push(s.clone());
       },
       .None => ()
     );
@@ -1094,7 +1094,7 @@ _render_struct_witness :: (fn(struct_ty : &TypeValue, w : &ArrayList(String), n 
     match(
       w.get(k),
       .Some(s) => {
-        rest.push(s);
+        rest.push(s.clone());
       },
       .None => ()
     );
@@ -1113,7 +1113,7 @@ _missing_variants :: (fn(rows : &ArrayList(ArrayList(Pattern)), enum_ty : &TypeV
   missing := ArrayList(usize).new();
   (vi : usize) = usize(0);
   while(vi < vns.len(), {
-    vname := match(vns.get(vi), .Some(n) => n, .None => String.new());
+    vname := match(vns.get(vi), .Some(n) => n.clone(), .None => String.new());
     if(!gadt_exact || gadt_branch_reachable(eid.clone(), vi), {
       (present : bool) = false;
       (ri : usize) = usize(0);
@@ -1568,7 +1568,7 @@ _wrap_witness_head :: (fn(w : &ArrayList(String), cell : &String) -> ArrayList(S
         if((i == usize(0)) && (s != "_"), {
           out.push(`${cell}(${s})`);
         }, {
-          out.push(s);
+          out.push(s.clone());
         });
       },
       .None => ()
@@ -1636,7 +1636,7 @@ _useful_at :: (
             match(
               _useful_at(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact),
               .Some(w) => {
-                return(Option(ArrayList(String)).Some(w));
+                return(Option(ArrayList(String)).Some(w.clone()));
               },
               .None => ()
             );
@@ -1761,7 +1761,7 @@ _useful_at :: (
           .Some(w) => {
             vns := _enum_variant_names(&ty0);
             first_missing := match(missing.get(usize(0)), .Some(m) => m, .None => usize(0));
-            mname := match(vns.get(first_missing), .Some(n) => n, .None => String.from("_"));
+            mname := match(vns.get(first_missing), .Some(n) => n.clone(), .None => String.from("_"));
             marity := variant_field_types(&ty0, first_missing).len();
             wild_w := ArrayList(String).new();
             (wi : usize) = usize(0);
@@ -1774,7 +1774,7 @@ _useful_at :: (
               match(
                 w.get(k),
                 .Some(s) => {
-                  wild_w.push(s);
+                  wild_w.push(s.clone());
                 },
                 .None => ()
               );
@@ -1814,7 +1814,7 @@ _useful_at :: (
         match(
           _useful(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
           .Some(w) => {
-            mb := match(missing_b.get(usize(0)), .Some(s) => s, .None => String.from("_"));
+            mb := match(missing_b.get(usize(0)), .Some(s) => s.clone(), .None => String.from("_"));
             return(Option(ArrayList(String)).Some(_cons_str(&mb, &w)));
           },
           .None => {
@@ -1957,7 +1957,7 @@ match_missing_witness :: (fn(arms : &ArrayList(Arm), scrutinee_ty : &TypeValue, 
   tys.push(scrutinee_ty);
   match(
     _useful(&rows, _row_of(Pattern.Wildcard), &tys, true),
-    .Some(w) => match(w.get(usize(0)), .Some(s) => Option(String).Some(s), .None => Option(String).Some(String.from("_"))),
+    .Some(w) => match(w.get(usize(0)), .Some(s) => Option(String).Some(s.clone()), .None => Option(String).Some(String.from("_"))),
     .None => Option(String).None
   )
 });

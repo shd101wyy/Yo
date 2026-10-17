@@ -48,7 +48,7 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
   // for `IoFuture` — and misclassifying an io future as a lazy sync future
   // emits a `->vt->resume` cold-start on `__yo_io_future_t`, whose `vt` is
   // NULL (the fs/gc batch C errors, when it had no such member).
-  some_id := match(ty, Rc(.SomeT({ id })) => id, _ => String.from(""));
+  some_id := match(ty, Rc(.SomeT({ id })) => id.clone(), _ => String.from(""));
   rc_final := some_resolution(ty);
   match(
     rc_final,
@@ -59,7 +59,7 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.
-  rts := match(ty, Rc(.SomeT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+  rts := match(ty, Rc(.SomeT({ required_trait_types })) => required_trait_types.clone(), _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < rts.len(), {
     rt := match(rts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -121,14 +121,14 @@ _await_future_expr_is_borrowed_place :: (fn(e : &AstExpr) -> bool)({
   if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     return(false);
   });
-  e_args := match(e, .FnCall(_, _, __afp_a, _, _) => __afp_a, .Atom(_, _) => ArrayList(AstExpr).new());
+  e_args := match(e, .FnCall(_, _, __afp_a, _, _) => __afp_a.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
   field := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
   if(!ast_expr_is_atom(&field), {
     return(false);
   });
   (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
+    r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     r_field := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
     if(!ast_expr_is_atom(&r_field), {
       return(false);

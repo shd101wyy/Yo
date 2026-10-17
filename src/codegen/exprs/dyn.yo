@@ -52,7 +52,7 @@ _unwrap_box_concrete :: (fn(t : &TypeValue) -> TypeValue)({
 _dyn_c_name :: (fn(dyn_type : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     context.base.get_type_c_name(type_key(dyn_type)),
-    .Some(cn) => cn,
+    .Some(cn) => cn.clone(),
     .None => {
       out := String.from("__yo_dyn_");
       out.push_string(type_id_or_empty(dyn_type));
@@ -65,12 +65,12 @@ _dyn_c_name :: (fn(dyn_type : &TypeValue, context : &FunctionGenerationContext) 
 _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     dyn_concrete_c_name(concrete_type, &context.base),
-    .Some(cn) => cn,
+    .Some(cn) => cn.clone(),
     .None => match(
       extract_fn_trait_from_type(concrete_type),
       .Some(ft) => match(
         context.base.get_type_c_name(type_key(&ft)),
-        .Some(fcn) => fcn,
+        .Some(fcn) => fcn.clone(),
         .None => {
           out := String.from("unknown_");
           out.push_string(type_id_or_empty(concrete_type));
@@ -187,7 +187,7 @@ generate_dyn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
     }),
     .None => ()
   );
-  temp_var_name := match(ei.variable_name, .Some(tv) => tv, .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
+  temp_var_name := match(ei.variable_name, .Some(tv) => tv.clone(), .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
   vtable_name := String.from("__yo_vtable_");
   vtable_name.push_string(&impl_key);
   // Track the temp var (SM-field routing is Phase 5, gated dead here).
