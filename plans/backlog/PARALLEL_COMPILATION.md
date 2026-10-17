@@ -1,6 +1,6 @@
 # Parallel compilation: using more than one core
 
-**Status: DESIGN; P1.1 and P4 step 1 (`YO_TEST_FORK`) landed.** Written 2026-10-16 at the maintainer's request:
+**Status: DESIGN; P1.1 and P4 step 1 (`YO_TEST_FORK`, #1427) landed.** Written 2026-10-16 at the maintainer's request:
 "If we make evaluator and codegen multi threads, then can we speed up?" The
 measurements below were taken that day on develop `6986090a1`. P0 below re-takes
 them on an idle machine before any code changes.
@@ -268,7 +268,7 @@ of their imports.
      parallel, without its shared-heap growth: each child exits and returns
      its pages.
 
-   **Landed as `YO_TEST_FORK=N`** (opt-in, Linux and macOS; `src/main.yo`,
+   **Landed as `YO_TEST_FORK=N`** (#1427; opt-in, Linux and macOS; `src/main.yo`,
    `_TestForkPool`):
    - **Warm-up.** The runner runs the first file in process, exactly as
      `YO_TEST_IN_PROCESS` does. That leaves the prelude, std and the first
