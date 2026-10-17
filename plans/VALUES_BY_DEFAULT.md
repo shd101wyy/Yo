@@ -7308,7 +7308,8 @@ once `SEED_VERSION` parses it.
      - `is_global_mut_rule_exempt` and `global_mut_rule_applies` are gone:
        E0916 and E0917 apply everywhere, macro expansions and fetched
        dependencies included. `markdown_yo` marks its four globals in the
-       companion release (shd101wyy/markdown_yo#19).
+       companion (shd101wyy/markdown_yo#19, merged as `9bfd5c1e2`, which
+       `yo.toml` pins by `rev` until markdown_yo cuts 0.0.18).
      - E0909 for a place lent to a borrowing future fires only when its root
        is a `mut(G)` or `thread_local(mut(x))` binding; an unmarked global is
        immutable and is lent freely (`tests/async_await.test.yo`). Rules A
