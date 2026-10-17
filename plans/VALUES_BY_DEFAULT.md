@@ -135,9 +135,10 @@ Progress:
     hashed (feat/vbd-v4-typevalue-rc-handle; decision 21's "As built"
     note). The value-enum conversion was built and measured first, and
     lost.
-  - V4's `Z3Sexpr` as a value enum (feat/vbd-v4-z3sexpr-box; V4's "as
-    built"). `VcSort` and `VcTerm` wait on a decision (`Box` or `Rc`
-    children, `issues/questions/`).
+  - V4's `Z3Sexpr` as a value enum (#1435) and `Pattern` with `Box`
+    children (feat/vbd-v4-pattern-box), after the unwind S1 it exposed
+    (#1438); V4's "as built". `VcSort` and `VcTerm` wait on a decision (`Box`
+    or `Rc` children, `issues/questions/`).
   - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
     the cycle, reach and `Acyclic` walks through its buffer, not a raw view
     in safe code, and value-rooted borrow flags lower to nothing (#1384).
@@ -7224,6 +7225,30 @@ stage-2 RSS):
     allocation calls against 1,823,309,567 (−0.045%; the ratchet baseline
     is 1,799,052,684). The timing A/B (`check ./src` time and stage-2 RSS,
     exclusive) is measured after merge, because the heavy queue was 35 deep.
+  - **`Pattern`** (2026-10-18): a value enum with `Box(Self)` children
+    (`At`'s and `ThroughBox`'s `sub`) and `ArrayList(Self)` lists.
+    - **Clone.** `derive(Clone)` refuses an enum that mixes `Box(Self)` with
+      `ArrayList(Self)`, so `Pattern` has a manual `Clone`: `Box.clone` for
+      the boxes, an index loop for the lists, and shared handles for the
+      `field_idx` / `elem_tys` lists.
+    - **Element access.** Elements are read through `&subs(i)` arguments and
+      `subs(i).clone()`. `get`, `clone()` of the list and `for(&xs, …)` are
+      E0901 for a move-only element, and so is
+      `match(&xs(i), …)` (`issues/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md`).
+      The usefulness walk's row specialization therefore moved into per-row
+      helpers (`_specialize_variant_row`, `_specialize_aggregate_row`,
+      `_expand_row_head`).
+    - **Arms.** Arms spell `Box(sub)`; the v0.2.63 seed carries the
+      pattern.
+    - **The S1 it exposed.** The conversion found an S1 codegen bug, fixed
+      first in #1438: an unwind through a frame whose destructor makes a
+      call was lost.
+    - **Measured** against develop's binary, both built from `5425cd7bf`
+      with seed v0.2.63:
+      - the C that `src/main.yo` compiles to is byte-identical;
+      - `check src/main.yo` makes 1,828,286,478 allocation calls against
+        1,823,309,567 (+0.27%; the clones of rows and arm patterns).
+    - **Timing.** The timing A/B is measured after merge, like `Z3Sexpr`'s.
   - **`VcSort`, `VcTerm`:** not converted. They live in
     `HashMap(String, VcTerm)` / `HashMap(String, VcSort)`, which cannot hold
     a move-only value and whose `get` copies (49 sites in `vc.yo`). The
@@ -7243,8 +7268,8 @@ stage-2 RSS):
     patterns are one evaluator rule and one codegen rule, in
     `pattern_compile.yo` and `codegen/exprs/match.yo`. Landed: Generation A
     (#1327) and Generation B (the `Rc` look-through deleted,
-    `yo fix --migrate rc-pattern`; decision 31's "as built"). A `Box`
-    position still looks through implicitly until a seed carries `Box(p)`.
+    `yo fix --migrate rc-pattern`; decision 31's "as built"). Seeds from
+    v0.2.63 on carry `Box(p)`, and `Pattern`'s arms spell it.
   - **Constructions and arms.** About 750 `TypeValue.`, 430 `EvalValue.` and
     90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
     destructuring arms that reaches through a child, which a `yo fix`
