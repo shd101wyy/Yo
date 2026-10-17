@@ -77,15 +77,24 @@ local still fell back to the undeclared method.
   a `HashMap(Box(i32), i32)` looked up by a named box (on develop that half
   fails earlier, at the map's probe E0901 of
   `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`).
-- The second Consume event the trial now logs is harmless: with a
-  `Drop`-counting key moved through `b(k)` in one `cond` arm only, each path
-  drops the key exactly once under ASan (1, then 2), and a `b(k)` of an outer
-  `k` inside a `while` is still E0901 ("moved inside the loop").
+- The extra Consume events the trials log are harmless. Rechecked with the
+  final fix under ASan, with a `Drop`-counting key: a read through a named
+  key, a constructor temporary and a call temporary each drop the key exactly
+  once, and so does a `b(k)` in one `cond` arm only, on each path (1, then 2).
+  A `b(k)` of an outer `k` inside a `while` is still E0901 ("moved inside the
+  loop"), and so is a read of `key` after `m(key) = v`. The write itself drops
+  its key twice, but that is the assignment's codegen running the
+  `index_mut` call twice, on develop too and with any owning key
+  (`issues/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md`, S1).
+- A nested access through generic impls can still fall back to an
+  unspecialized method without any named move
+  (`issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`).
 - The review cases, both of which fail at the C compiler with the
   first-version binary (`call to undeclared function`) and pass after:
-  `tests/index.test.yo` writes `m(wkey) = i32(60)` through a named box and
-  reads it back, and "Index: a temporary argument that moves a named local"
-  looks up `b(_IxWrap(k : k1))` and `b(_ix_wrap(k2))`, each local still E0901
-  afterwards.
+  "IndexMut: a write through a generic impl with a move-only named key"
+  writes `m(wk) = i32(60)` and reads it back, and "Index: a temporary
+  argument that moves a named local" looks up `b(_IxWrap(k : k1))` and
+  `b(_ix_wrap(k2))`, each local still E0901 afterwards and each key dropped
+  once.
 - `tests/rc.test.yo`'s unique-`Box` section looks a `HashMap(Box(UBoxPoint),
   Box(i32))` up by the named box `h2`.
