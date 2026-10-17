@@ -3314,11 +3314,14 @@ and in git, not a silent edit.
           `ArrayList` and `Deque`;
         - the cursor lowering of both `&mut` forms (element and map);
         - the macro-site rule;
-        - the tests and goldens that move. A same-variable push or pop in
-          the body is now E0911 at compile time
-          (`inout-for-push-same-variable-panics`,
-          `inout-for-pop-under-borrow-panics`); the alias, global and
-          stored-into cases keep their run-time panic.
+        - the tests and goldens that move. A same-variable push, pop or
+          insert in the body is now E0911 at compile time (the cli-case
+          `inout-for-push-same-variable-panics` became
+          `borrowed-for-push-same-variable-is-e0911`). The run-time cases
+          keep their panic by reaching the collection through a second
+          handle (`inout-for-pop-under-borrow-panics`,
+          `inout-for-nested-storage-insert-panics`, the two `Bag` cases),
+          and the alias and global cases are unchanged.
       - **Generation B** is B7 proper, after B6:
         - `for(&xs, x => …)` becomes the read walk over `c := &xs` with a
           `walk_ref` projection (`x : &T`). Today `src/expr.yo` rewrites it

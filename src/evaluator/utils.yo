@@ -4949,12 +4949,12 @@ local_borrow_push_macro_site :: (fn(call : &AstExpr, start : &Token) -> usize)({
   g_lb_macro_sites.push(LocalBorrowMacroSite(start : start, end : _last_token_of(call, start)));
   mark
 });
-local_borrow_pop_macro_site :: (fn(mark : usize) -> unit)(
+local_borrow_pop_macro_site :: (fn(mark : usize) -> unit)({
   while(g_lb_macro_sites.len() > mark, {
     g_lb_macro_sites.pop();
     ()
-  })
-);
+  });
+});
 /// The innermost macro call whose expansion declares a borrow named at
 /// `decl`, when `decl` is template code of that macro (another module).
 _lb_macro_site_of :: (fn(decl : &Token) -> Option(LocalBorrowMacroSite))(
