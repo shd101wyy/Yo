@@ -75,7 +75,8 @@ instead of passing it to a call.
 - A closure that is move-only because it holds a `Dispose` value still moves,
   and is still E0901 in this shape. A copy of it would dispose twice. The
   binder's typing is the real defect:
-  `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`.
+  `issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`
+  (fixed 2026-10-17, which removed `capture_of_caller_owned_sink_param`).
 - The first attempt was rejected by its own Tier 1 ASan run (heap-use-after-free
   in `tests/spawn_blocking.test.yo` and the new `send_sync` test). It made the
   owner lookup accept that binding, so the capture moved it. The inner
