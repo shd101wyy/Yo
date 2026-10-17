@@ -20,18 +20,22 @@
 //! loops may contend for one mutex. A waker fired from another thread resumes
 //! its task on that task's own loop (`std/async/waker`).
 //!
-//! **Contended acquisition is WAKER-BASED, and FIFO among the tasks of one
-//! loop.** A task that finds the lock held parks itself and puts its waker at
-//! the back of a queue; `unlock` wakes the one at the front. There is no timer
-//! under it, so a hand-off costs a loop turn rather than a millisecond. Among
-//! waiters on the same loop the order is the order they arrived in. Across
-//! loops it is not strict: a waker on another thread only posts the wake, so
-//! `unlock` cannot tell that it landed and wakes the next waiter too, and
-//! whichever re-checks first takes the lock (each woken task re-checks, as
-//! `lock` describes); a waiter on another loop can lose to a later same-loop
-//! waiter (issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md).
-//! Until 2026-09-11 this re-checked on a 1 ms tick and was explicitly unfair
-//! (`plans/archive/WAKER_BASED_SCHEDULING.md` stage 3).
+//! **Contended acquisition is WAKER-BASED and FIFO**, across loops as within
+//! one. A task that finds the lock held parks itself and puts its waker at the
+//! back of a queue; `unlock` HANDS the lock to the waiter at the front: the
+//! lock stays held, marked as that waiter's, and the waiter owns it when it
+//! resumes, with no re-check a later arrival or a `try_lock` could win. So
+//! the order the tasks arrived in is the order they acquire, whichever
+//! thread's loop each runs on. There is no timer under it, so a hand-off
+//! costs a loop turn rather than a millisecond. A waiter whose task is
+//! cancelled leaves the queue; one cancelled after the lock was handed to it
+//! passes the lock on to the next waiter, when its task's last reference
+//! goes away (`unlock` skips a same-loop waiter that refused its wake at
+//! once). Until 2026-09-11 this re-checked on a 1 ms tick and was explicitly
+//! unfair (`plans/archive/WAKER_BASED_SCHEDULING.md` stage 3); until
+//! 2026-10-17 `unlock` freed the lock and woke the front waiter to re-check,
+//! which was FIFO only among one loop's tasks
+//! (issues/fixed/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md).
 //!
 //! ```yo
 //! { Mutex } :: import("std/async/mutex");
@@ -48,125 +52,246 @@
 //! `get` and `set` are intended to keep their names and meanings. What changed
 //! under them in 2026-09-11 is the MECHANISM (a waiter queue instead of a 1 ms
 //! tick) and one guarantee that is now stronger than it was: acquisition is
-//! FIFO among one loop's tasks, where the timer version documented itself as
-//! unfair. On 2026-10-14 the
-//! mutex became a move-only value shared as `Arc(Mutex(T))`; it was a copyable
-//! handle over `Rc` state before.
+//! FIFO, where the timer version documented itself as unfair. On 2026-10-14
+//! the mutex became a move-only value shared as `Arc(Mutex(T))`; it was a
+//! copyable handle over `Rc` state before. On 2026-10-17 `unlock` began
+//! handing the lock over instead of freeing it, which made the FIFO order hold
+//! across loops.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { Waker, Park } :: import("./waker.yo");
-{ RawMutex } :: import("../sync/mutex");
+{ RawMutex, __yo_thread_self } :: import("../sync/mutex");
 
-/// The state a `Mutex(T)` owns in its cell, read and written only under the
-/// mutex's guard.
-_MutexState :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _locked : bool,
-    /// Waiters in arrival order. `unlock` wakes the FRONT one, which is what
-    /// makes acquisition FIFO; a stack here would starve the first arrival
-    /// under sustained contention. Each waker is moved in, and moved back out
-    /// to be fired.
-    _waiters : ArrayList(Waker),
-    _value : T
-  )
+/// One queued acquirer.
+_Waiter :: struct(
+  /// Unique per mutex and never `0`: the mark `unlock` leaves on the lock it
+  /// hands to this waiter.
+  _ticket : u64,
+  /// `__yo_thread_self()` of the thread whose loop runs the waiting task.
+  _thread : usize,
+  /// Moved in at the back of the queue, and moved back out to be fired.
+  _waker : Waker
 );
-/// A mutual-exclusion lock for async tasks, protecting a `T`.
-///
-/// A move-only value (it owns its state cell): tasks share one as
-/// `Arc(Mutex(T))`, each holding its own handle, and `lock`'s and
-/// `with_lock`'s futures borrow the mutex through it
-/// (`io.await(m.*.lock(io), io)`; plans/VALUES_BY_DEFAULT.md §3.13 A2 and A5).
-/// Its methods take `self : &Self` and change the state inside the cell under
-/// `_guard`, Rust's interior mutability.
-Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    /// Held only for the few instructions that read or write `_st`, never
-    /// across an await.
-    _guard : RawMutex,
-    _st : Box(_MutexState(T))
-  )
+/// The lock's state, read and written only under its core's guard.
+_LockState :: struct(
+  /// Held, including while handed to a waiter that has not resumed yet.
+  _locked : bool,
+  /// The ticket of the waiter the lock was handed to, until it resumes and
+  /// takes it; `0` when the lock is free or held by a task that took it.
+  _handed : u64,
+  _next_ticket : u64,
+  /// Waiters in arrival order. `unlock` hands the lock to the FRONT one,
+  /// which is what makes acquisition FIFO; a stack here would starve the
+  /// first arrival under sustained contention.
+  _waiters : ArrayList(_Waiter)
 );
-// SAFETY: every read and write of the state goes through `_guard`, one thread
-// at a time, and wakers are thread-safe (`std/async/waker`), so the mutex may
-// be moved to and shared between threads whenever `T` may be moved between
-// them: `Sync` for `T <: Send`, as `std/sync`'s `Mutex` and Rust's
-// `tokio::sync::Mutex`.
-impl(generic(T : Type), where(T <: Send), Mutex(T), Send());
-impl(generic(T : Type), where(T <: Send), Mutex(T), Sync());
-// SAFETY: the cell holds wakers (tokens, which reach no `Rc`) and a `T`, so a
-// mutex can close a cycle only through an `Acyclic` violation in `T`.
-impl(generic(T : Type), where(T <: Acyclic), Mutex(T), Acyclic());
-/// Release the lock whose state is `st` (guarded by `guard`) and wake the
-/// longest-waiting acquirer: `Mutex.unlock` and `with_lock`'s unlocker.
-_unlock_state :: (fn(comptime(T) : Type, guard : &RawMutex, st : *_MutexState(T)) -> unit)({
-  guard.lock();
-  if(!unsafe(st.*._locked), {
-    guard.unlock();
-    __yo_panic("Mutex.unlock: not locked");
-  });
-  unsafe(consume(st.*._locked = false));
-  // A waiter whose task was cancelled refuses the wake (its park was taken
-  // back), so keep going until a live waiter has it — spending the one wake
-  // on a dead waiter left the next one suspended on a free lock. A waiter on
-  // another thread's loop may not report the wake yet, so the next one is
-  // woken too; each re-checks, so an extra wake costs only a re-park.
-  (woken : bool) = false;
-  while(runtime(!woken && (unsafe(st.*._waiters.len()) > usize(0))), {
-    w := unsafe(st.*._waiters.remove(usize(0)));
-    w.wake();
-    woken = w.is_woken();
-  });
-  guard.unlock();
-});
-/// Releases a `with_lock` section when it is dropped, so the async lock is
-/// let go on every way out of the section's frame, as `std/sync`'s
-/// `__MutexUnlocker` does for the blocking lock. Private: it holds its own
-/// handle on the guard and a pointer into the state cell of a mutex the
-/// section's future borrows, so it never outlives that mutex.
-_AsyncUnlocker :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(
-    _guard : RawMutex,
-    _st : *_MutexState(T)
-  )
+/// The guard and the lock state, shared by the mutex and by every acquirer
+/// still parked on it (`_Claim`): an aborted task releases its captures before
+/// its pending futures, so a claim may outlive the `Mutex` that made it, and
+/// it must still find the state it hands on.
+_Core :: struct(
+  /// Held only for the few instructions that read or write `_st`, never
+  /// across an await.
+  _guard : RawMutex,
+  _st : Box(_LockState)
+);
+// SAFETY: every read and write of `_st` happens under `_guard`, one thread at
+// a time, and the state holds only plain words and wakers, which are
+// thread-safe tokens that reach no `Rc` (`std/async/waker`). So the core may be
+// moved to, shared between and dropped on any thread, and cannot close a
+// cycle, which is what `Arc(_Core)` asks.
+impl(_Core, Send());
+impl(_Core, Sync());
+impl(_Core, Acyclic());
+impl(
+  _Core,
+  /// The state cell. Read or write it only between `_guard.lock()` and
+  /// `_guard.unlock()`.
+  _state : (fn(self : &Self) -> *_LockState)(addr_of(self._st.*)),
+  /// Hand the held lock to the longest-waiting acquirer that can still take
+  /// it, or free it when none can. Call with the guard held.
+  ///
+  /// The woken waiter owns the lock from here: it stays held, marked with the
+  /// waiter's ticket, so neither a later arrival nor a `try_lock` can take it
+  /// first. A same-loop waiter whose task was cancelled refuses the wake
+  /// (`Waker.is_woken`), and is skipped. A waiter on another thread's loop
+  /// only has the wake posted, so `is_woken` cannot tell a live one from a
+  /// cancelled one; it gets the lock either way, and a cancelled one passes
+  /// it on when its claim is released.
+  _hand_off : (fn(self : &Self) -> unit)({
+    st := self._state();
+    me := __yo_thread_self();
+    (handed : bool) = false;
+    while(runtime(!handed && (unsafe(st.*._waiters.len()) > usize(0))), {
+      w := unsafe(st.*._waiters.remove(usize(0)));
+      w._waker.wake();
+      if(w._waker.is_woken() || (w._thread != me), {
+        unsafe(consume(st.*._handed = w._ticket));
+        handed = true;
+      });
+    });
+    if(!handed, {
+      unsafe(consume(st.*._locked = false));
+    });
+  }),
+  /// Release the lock: `Mutex.unlock` and `with_lock`'s unlocker.
+  _release : (fn(self : &Self) -> unit)({
+    self._guard.lock();
+    st := self._state();
+    held := unsafe(st.*._locked);
+    // A lock still being handed to a waiter is that waiter's, not the
+    // caller's.
+    handing := (unsafe(st.*._handed) != u64(0));
+    if(!held || handing, {
+      self._guard.unlock();
+      __yo_panic("Mutex.unlock: not locked");
+    });
+    self._hand_off();
+    self._guard.unlock();
+  }),
+  /// The waiter holding `ticket` resumed: take the lock handed to it.
+  _take : (fn(self : &Self, ticket : u64) -> unit)({
+    self._guard.lock();
+    st := self._state();
+    if(unsafe(st.*._handed) != ticket, {
+      self._guard.unlock();
+      __yo_panic("Mutex.lock: woken without the lock being handed over");
+    });
+    unsafe(consume(st.*._handed = u64(0)));
+    self._guard.unlock();
+  }),
+  /// The waiter holding `ticket` is gone without taking the lock: pass the
+  /// lock on if it was handed to it, else take it out of the queue.
+  _abandon : (fn(self : &Self, ticket : u64) -> unit)({
+    self._guard.lock();
+    st := self._state();
+    if(unsafe(st.*._handed) == ticket, {
+      unsafe(consume(st.*._handed = u64(0)));
+      self._hand_off();
+    }, {
+      n := unsafe(st.*._waiters.len());
+      (i : usize) = usize(0);
+      while(i < n, {
+        if(unsafe(st.*._waiters(i)._ticket) == ticket, {
+          _gone := unsafe(st.*._waiters.remove(i));
+          i = n;
+        }, {
+          i = (i + usize(1));
+        });
+      });
+    });
+    self._guard.unlock();
+  })
+);
+/// A parked acquirer's hold on its place: in the queue while it waits, then
+/// on the lock once `unlock` hands it over. `Mutex.lock`'s future keeps one
+/// across its suspension and `take`s the lock when it resumes. If the future
+/// is released first, its task was cancelled, and the claim's `Drop` leaves
+/// the queue or passes the handed lock on, so a cancelled waiter never strands
+/// the lock.
+_Claim :: struct(
+  _core : Arc(_Core),
+  /// `0` once the lock is taken: nothing is left to give back.
+  _ticket : u64
 );
 impl(
-  generic(T : Type),
-  _AsyncUnlocker(T),
+  _Claim,
+  take : (fn(self : &mut Self) -> unit)({
+    self._core.*._take(self._ticket);
+    self._ticket = u64(0);
+  })
+);
+impl(
+  _Claim,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      _unlock_state(T, &self._guard, self._st);
+      if(self._ticket != u64(0), {
+        self._core.*._abandon(self._ticket);
+      });
     })
   )
 );
+/// Releases a `with_lock` section when it is dropped, so the async lock is
+/// let go on every way out of the section's frame, as `std/sync`'s
+/// `__MutexUnlocker` does for the blocking lock. Private: it holds its own
+/// handle on the mutex's core.
+_AsyncUnlocker :: struct(_core : Arc(_Core));
+impl(
+  _AsyncUnlocker,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self._core.*._release();
+    })
+  )
+);
+/// What `_acquire_or_park` returns when the lock is held: the park to wait on
+/// and the ticket its waker was queued with.
+_Parked :: struct(
+  _park : Park,
+  _ticket : u64
+);
+/// A mutual-exclusion lock for async tasks, protecting a `T`.
+///
+/// A move-only value (it owns its value cell and a handle on its lock state):
+/// tasks share one as `Arc(Mutex(T))`, each holding its own handle, and
+/// `lock`'s and `with_lock`'s futures borrow the mutex through it
+/// (`io.await(m.*.lock(io), io)`; plans/VALUES_BY_DEFAULT.md §3.13 A2 and A5).
+/// Its methods take `self : &Self` and change the state inside the cells under
+/// the core's guard, Rust's interior mutability.
+Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _core : Arc(_Core),
+    _value : Box(T)
+  )
+);
+// SAFETY: every read and write of the lock state goes through the core's
+// guard, one thread at a time; the value is read and written under the guard
+// or by the task holding the async lock; and wakers are thread-safe
+// (`std/async/waker`). So the mutex may be moved to and shared between threads
+// whenever `T` may be moved between them: `Sync` for `T <: Send`, as
+// `std/sync`'s `Mutex` and Rust's `tokio::sync::Mutex`.
+impl(generic(T : Type), where(T <: Send), Mutex(T), Send());
+impl(generic(T : Type), where(T <: Send), Mutex(T), Sync());
+// SAFETY: the core holds wakers (tokens, which reach no `Rc`) and the value
+// cell a `T`, so a mutex can close a cycle only through an `Acyclic` violation
+// in `T`.
+impl(generic(T : Type), where(T <: Acyclic), Mutex(T), Acyclic());
 impl(
   generic(T : Type),
   Mutex(T),
   /// A new unlocked mutex protecting `value`.
   new : (fn(value : T) -> Self)(
     Self(
-      _guard : RawMutex.new(),
-      _st : box(_MutexState(T)(_locked : false, _waiters : ArrayList(Waker).new(), _value : value))
+      _core : arc(
+        _Core(
+          _guard : RawMutex.new(),
+          _st : box(_LockState(_locked : false, _handed : u64(0), _next_ticket : u64(1), _waiters : ArrayList(_Waiter).new()))
+        )
+      ),
+      _value : box(value)
     )
   ),
-  /// The state cell. Read or write it only between `_guard.lock()` and
-  /// `_guard.unlock()` (or while holding the async lock, for `_value`).
-  _state : (fn(self : &Self) -> *_MutexState(T))(addr_of(self._st.*)),
+  /// The value cell. Read or write it under the core's guard, or while
+  /// holding the async lock.
+  _value_ptr : (fn(self : &Self) -> *T)(addr_of(self._value.*)),
   /// Take the lock if it is free (`.None`), else queue a fresh park's waker
-  /// (moved) at the back of the waiters and return the park, in one guarded
-  /// step: a waiter cannot miss an `unlock` that runs between its check and
-  /// its queueing.
-  _acquire_or_park : (fn(self : &Self) -> Option(Park))({
-    st := self._state();
-    self._guard.lock();
-    (out : Option(Park)) = Option(Park).None;
+  /// (moved) at the back of the waiters and return the park with its ticket,
+  /// in one guarded step: a waiter cannot miss an `unlock` that runs between
+  /// its check and its queueing.
+  _acquire_or_park : (fn(self : &Self) -> Option(_Parked))({
+    st := self._core.*._state();
+    self._core.*._guard.lock();
+    (out : Option(_Parked)) = Option(_Parked).None;
     if(unsafe(st.*._locked), {
       p := Park.new();
-      unsafe(st.*._waiters.push(p.waker()));
-      out = Option(Park).Some(p);
+      t := unsafe(st.*._next_ticket);
+      unsafe(consume(st.*._next_ticket = (t + u64(1))));
+      unsafe(st.*._waiters.push(_Waiter(_ticket : t, _thread : __yo_thread_self(), _waker : p.waker())));
+      out = Option(_Parked).Some(_Parked(_park : p, _ticket : t));
     }, {
       unsafe(consume(st.*._locked = true));
     });
-    self._guard.unlock();
+    self._core.*._guard.unlock();
     out
   }),
   /// Acquire the lock, suspending while another task holds it.
@@ -174,35 +299,33 @@ impl(
   /// The check and the acquisition happen under the guard with no suspension
   /// between them, so tasks cannot interleave inside the hand-off. When the
   /// lock IS held, the task publishes its waker and then suspends — in that
-  /// order, which is the order that cannot lose a wake (`std/async/waker`). It
-  /// re-checks after waking rather than trusting the wake, because `unlock`
-  /// hands over the RIGHT to try, not the lock itself: a `try_lock` from a
-  /// third task can still win in between, and the loop would otherwise have
-  /// two holders.
+  /// order, which is the order that cannot lose a wake (`std/async/waker`).
+  /// It is woken only by the `unlock` that hands it the lock, so it takes the
+  /// lock without re-checking: nothing that arrived later can have taken it.
   ///
   /// The future borrows the mutex (§3.13 A2): await it where it is made,
   /// `io.await(m.*.lock(io), io)`.
   lock : (fn(self : &Self, io : Io) -> Impl(Future(unit)))(
     io.async({ &self }(io : Io) => {
-      (waiting : bool) = true;
-      while(waiting, {
-        match(
-          self._acquire_or_park(),
-          .None => {
-            waiting = false;
-          },
-          .Some(p) => {
-            io.await(p.wait(io), io);
-          }
-        );
-      });
+      match(
+        self._acquire_or_park(),
+        .None => (),
+        .Some(_Parked(_park : p, _ticket : t)) => {
+          // Until the lock is taken, dropping the claim (this future released
+          // with its cancelled task) gives the place in line, or the handed
+          // lock, back.
+          claim := _Claim(_core : self._core, _ticket : t);
+          io.await(p.wait(io), io);
+          claim.take();
+        }
+      );
       return(());
     })
   ),
   /// Run `body` under the lock as one critical section: acquire, run to
   /// completion, release. `body` is a synchronous closure and cannot await;
   /// for a section that spans awaits call `lock`/`unlock` directly. Only the
-  /// async lock is held while `body` runs, never `_guard`, so a waiter on
+  /// async lock is held while `body` runs, never the guard, so a waiter on
   /// another thread parks instead of blocking its loop, and `body` may call
   /// `is_locked`/`try_lock` on this mutex (`get`/`set` too, though it has the
   /// value already). Was DEFERRED on C54 — a generic
@@ -214,52 +337,50 @@ impl(
   with_lock : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
     io.async({ &self, &body }(io : Io) => {
       io.await(self.lock(io), io);
-      // The async lock alone guards the section: `_guard` is not held while
+      // The async lock alone guards the section: the guard is not held while
       // `body` runs, so a long body never blocks another thread's loop in
       // `_acquire_or_park`, and `body` may ask this mutex `is_locked` or
       // `try_lock`. The unlocker releases the lock however the frame is left.
-      st := self._state();
-      _release := _AsyncUnlocker(T)(_guard : self._guard, _st : st);
-      r := body(&mut unsafe(st.*)._value);
+      vp := self._value_ptr();
+      _release := _AsyncUnlocker(_core : self._core);
+      r := body(&mut unsafe(vp.*));
       return(r);
     })
   ),
-  /// Acquire the lock without suspending: true on success.
+  /// Acquire the lock without suspending: true on success. A lock being
+  /// handed to a waiter is held, so `try_lock` never jumps the queue.
   try_lock : (fn(self : &Self) -> bool)({
-    st := self._state();
-    self._guard.lock();
+    st := self._core.*._state();
+    self._core.*._guard.lock();
     acquired := !unsafe(st.*._locked);
     if(acquired, {
       unsafe(consume(st.*._locked = true));
     });
-    self._guard.unlock();
+    self._core.*._guard.unlock();
     acquired
   }),
-  /// Release the lock and wake the longest-waiting acquirer, if any (and, when
-  /// that waiter is on another thread's loop, the next ones too; see the
-  /// module doc on ordering). Panics if the mutex is not locked.
-  ///
-  /// The woken task is not handed the lock — it is handed the right to try for
-  /// it, and it re-checks. That is deliberate: handing over the lock itself
-  /// would make `try_lock` from a third task able to observe an unlocked mutex
-  /// that is already spoken for.
+  /// Release the lock and hand it to the longest-waiting acquirer, if any:
+  /// the lock stays held, and that waiter owns it when its task resumes, on
+  /// whichever thread's loop it runs (see the module doc on ordering). With no
+  /// waiter the lock is free. Panics if the mutex is not locked.
   unlock : (fn(self : &Self) -> unit)({
-    _unlock_state(T, &self._guard, self._state());
+    self._core.*._release();
   }),
-  /// True while some task holds the lock.
+  /// True while some task holds the lock, or it is being handed to one.
   is_locked : (fn(self : &Self) -> bool)({
-    st := self._state();
-    self._guard.lock();
+    st := self._core.*._state();
+    self._core.*._guard.lock();
     locked := unsafe(st.*._locked);
-    self._guard.unlock();
+    self._core.*._guard.unlock();
     locked
   }),
-  /// How many tasks are suspended waiting for this lock. Diagnostics only.
+  /// How many tasks are suspended waiting for this lock, not counting one it
+  /// is being handed to. Diagnostics only.
   waiter_count : (fn(self : &Self) -> usize)({
-    st := self._state();
-    self._guard.lock();
+    st := self._core.*._state();
+    self._core.*._guard.lock();
     n := unsafe(st.*._waiters.len());
-    self._guard.unlock();
+    self._core.*._guard.unlock();
     n
   }),
   /// Read the protected value. Meaningful only while YOU hold the lock: an
@@ -267,18 +388,18 @@ impl(
   /// `get`/`set` calls, not against a `with_lock` body, which runs under the
   /// async lock alone.
   get : (fn(self : &Self) -> T)({
-    st := self._state();
-    self._guard.lock();
-    v := unsafe(st.*._value);
-    self._guard.unlock();
+    vp := self._value_ptr();
+    self._core.*._guard.lock();
+    v := unsafe(vp.*);
+    self._core.*._guard.unlock();
     v
   }),
   /// Replace the protected value (same locking contract as `get`).
   set : (fn(self : &Self, value : T) -> unit)({
-    st := self._state();
-    self._guard.lock();
-    unsafe(consume(st.*._value = value));
-    self._guard.unlock();
+    vp := self._value_ptr();
+    self._core.*._guard.lock();
+    unsafe(consume(vp.* = value));
+    self._core.*._guard.unlock();
   })
 );
 export(Mutex);
