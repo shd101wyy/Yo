@@ -19,8 +19,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr,
   BK_GENERIC,
   BK_WHERE,
-  desugar_if_calls,
-  clone_expr_fresh_ids
+  desugar_if_calls
 } :: import("../../expr.yo");
 {
   Environment,
@@ -255,17 +254,9 @@ call_registered_derive_rule :: (
   // 2. rule fn (bound by VALUE; the declared type is irrelevant to the call).
   rule_fn_name := `__derive_rule_${generate_variable_id(&caller_env.module_path, String.from("dr"))}`;
   add_comptime_var(caller_env, rule_fn_name.clone(), derive_rule_ty, derive_rule_val);
-  // 3. target Expr value: a copy with FRESH node ids. `evaluate_derive`
-  //    already evaluated the user's target node, with each `generic(...)`
-  //    name bound to an unconstrained placeholder, and the generated impl
-  //    splices this Expr as its receiver. Re-evaluating that same node in the
-  //    impl's env resolved `_Peek(A)` against the derive's placeholder
-  //    instead of the impl's `where(A <: Clone)`-constrained `A`, so a field
-  //    typed `Option(A)` found no `Clone` (expr.yo's `clone_expr_fresh_ids`:
-  //    a quoted argument gets fresh ids;
-  //    issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md).
+  // 3. target Expr value.
   target_expr_var := `__derive_te_${generate_variable_id(&caller_env.module_path, String.from("dte"))}`;
-  add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), EvalValue.ExprVal(clone_expr_fresh_ids(target_type_expr)));
+  add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), EvalValue.ExprVal(target_type_expr.clone()));
   // 4. forall_params / where_clause as Option(Expr).
   forall_expr_var := _derive_bind_opt(caller_env, String.from("dfp"), forall_arg_opt, ctx, exn);
   where_expr_var := _derive_bind_opt(caller_env, String.from("dwp"), where_arg_opt, ctx, exn);

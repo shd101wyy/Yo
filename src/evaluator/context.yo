@@ -1097,22 +1097,26 @@ forward_ref_diagnostic :: (fn(msg : &String) -> Option(String))({
 /// at a call) while `check` stayed green; the missing `println` import only
 /// surfaced as codegen's "body was never fully evaluated" ICE
 /// (issues/fixed/async-closure-body-unknown-identifier-passes-check.md).
-hard_swallow_diagnostic :: (fn(msg : &String) -> Option(String))(
+///
+/// `include_generated` selects the fourth class (any failure inside
+/// auto-generated code); see `hard_swallow_diagnostic_in_generic_trial` for
+/// the trials that leave it out.
+_hard_swallow_classes :: (fn(msg : &String, include_generated : bool) -> Option(String))(
   match(
     forward_ref_diagnostic(msg),
     .Some(fwd) => Option(String).Some(fwd),
     .None =>
       cond(
         // Fourth class: ANY failure inside auto-generated code (a derive's
-        // generated method body, `generate_expr_from_code`). Nothing in it
-        // is a speculative trial the user could redeem at a call site — the
-        // derive wrote the body, and a `self.inner.clone()` that resolves to
-        // nothing means the field's type lacks the trait. Swallowing it
-        // shipped a check-green binary that aborted on the first clone
+        // generated method body, `generate_expr_from_code`) whose body is
+        // not generic. The derive wrote the body, and a `self.inner.clone()`
+        // that resolves to nothing means the field's type lacks the trait.
+        // Swallowing it shipped a check-green binary that aborted on the
+        // first clone
         // (issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md).
         // The location marker is the generated module path, which the
         // rendered diagnostic carries.
-        (msg.contains(String.from("--> auto-generated://")) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
+        ((include_generated && msg.contains(String.from("--> auto-generated://"))) || msg.contains(String.from("Argument count mismatch")) || (msg.contains(String.from("Variable \"")) && msg.contains(String.from("\" not found.")))) => {
           // The swallowed dyn-message often already carries an "Error: " or
           // "error[E0401]: " prefix; format_error_message adds its own —
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
@@ -1131,6 +1135,19 @@ hard_swallow_diagnostic :: (fn(msg : &String) -> Option(String))(
       )
   )
 );
+hard_swallow_diagnostic :: (fn(msg : &String) -> Option(String))(_hard_swallow_classes(msg, true));
+/// `hard_swallow_diagnostic` for the definition-time trial of a DEFERRED
+/// generic body (a parameter's type holds a type variable), which leaves the
+/// fourth class out. Every specialization evaluates such a body again with
+/// concrete types, and that evaluation reports a field type that lacks the
+/// trait. The trial itself cannot see a conditional impl on an abstract
+/// instantiation (`try_match_generic_impl` never matches an unbound type
+/// variable), so `self.peeked.clone()` on `Option(A)` misses there even under
+/// `where(A <: Clone)`. A hand-written impl's trial swallows that miss; a
+/// derive's generated body raised it, and a generic derive over a container
+/// of its parameter could not be written
+/// (issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md).
+hard_swallow_diagnostic_in_generic_trial :: (fn(msg : &String) -> Option(String))(_hard_swallow_classes(msg, false));
 // --- Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4, P1 + P2) ---
 //
 // A module walk (values/anonymous_module.yo) PRE-SCANS its begin_exprs and
@@ -3515,6 +3532,7 @@ export(
   module_expr_binds_name,
   forward_ref_diagnostic,
   hard_swallow_diagnostic,
+  hard_swallow_diagnostic_in_generic_trial,
   PendingDefState,
   PendingDef,
   ModuleWalk,

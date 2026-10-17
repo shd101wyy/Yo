@@ -43,25 +43,26 @@ Then give `IterPeekable` its pair.
 
 ## Root cause
 
-**Status: FIXED 2026-10-17.** The `where` clause was not the cause. A hand-written `impl(generic(A : Type), where(A <: Clone), _Peek(A), Clone(...))` with the same body compiles with the `where` at either position. The cause is the generated impl's receiver node.
+**Status: FIXED 2026-10-17.** The derive's `where` does reach the generated impl. Two things combine to cause the failure:
 
-- `evaluate_derive` evaluates the user's target node `_Peek(A)` itself, to learn the target type. At that point each `generic(...)` name is bound to an unconstrained placeholder type variable.
-- The rule's `DeriveContext.target` was that same `AstExpr`, and the derived `AstExpr` clone keeps node ids. So `ctx.make_impl` spliced the already-evaluated node into the generated `impl(generic(A : Type), _Peek(A), where(A <: Clone), Clone(...))`.
-- Evaluating the impl re-evaluated the node under the original ids. `Self` came out as the derive-time `_Peek(A)`, whose `_peeked : Option(A)` holds the unconstrained placeholder, not the impl's `A`.
-- `Option`'s `Clone` impl is `where(T <: Clone)`, so it did not match. A field typed by the bare parameter worked because a method on a bare type variable resolves through the environment.
+- **The trial misses for every generic impl.** A generic impl's method body is trialled at definition time with its type variables abstract. `try_match_generic_impl` never matches an unbound type variable, so the trial cannot use a conditional impl on an abstract instantiation. `self._peeked.clone()` on `Option(A)` therefore misses even under `where(A <: Clone)`, while a method on the bare `A` resolves through the environment. `YO_DEBUG_CTFE=1` shows the same `[vcall-throw] callee=((self._peeked).clone)` for a hand-written impl. There the deferred trial swallows the miss, and the specialization evaluates the body again with concrete types, where `Option(i32).clone` resolves.
+- **A derive's miss is not swallowed.** A derive's body is parsed by `generate_expr_from_code`, so its tokens carry `auto-generated://`. `hard_swallow_diagnostic`'s fourth class (`src/evaluator/context.yo`, from `issues/fixed/derive-clone-over-a-non-clone-field-is-swallowed-into-a-runtime-abort.md`) re-raises any failure at that location, including the miss above in a deferred generic trial. The derive reported it.
 
-The discriminator was a user `derive_rule` for a marker trait run on `_Peek(A)` before the working hand-written impl. That impl still compiled, so the derive-time evaluation leaves nothing global behind. Only the shared node carries it.
+Two experiments separate this from the derive machinery. A user `derive_rule` whose body is a `quote(...)` written in the source compiles. The same body passed through `"...".to_expr()` fails with this error, and so does a body where only the `.clone()` call comes from `to_expr`.
 
 ## Fix
 
-`call_registered_derive_rule` (`src/evaluator/builtins/derive.yo`) binds `clone_expr_fresh_ids(target_type_expr)` as the rule's target. `expr.yo` prescribes exactly that for quoted-argument binding. Each trait in a `derive` gets its own fresh copy, so a later trait's impl never sees an earlier impl's evaluation either.
+- **The deferred trials leave the fourth class out.** `hard_swallow_diagnostic_in_generic_trial` (`src/evaluator/context.yo`) keeps the forward-reference, arity and unbound-name classes. The deferred generic trials use it: the closure trial in `src/evaluator/values/anonymous_function.yo` and the named-fn trial in `src/evaluator/calls/function_type.yo`. A non-generic derive's body is evaluated by the concrete-parameter path, which keeps the full class, so the 2026-09-20 hole stays closed.
+- **A concrete miss is still raised at the `derive`.** The no-method error raised inside auto-generated code, on a receiver whose type has no type variable, is marked generic-independent (`_generated_no_method_independence`, `src/evaluator/calls/function.yo`). The deferred trial's Phase 6 re-raise reports it at the `derive`. `derive(generic(A : Type), W(A), Clone)` over a field of a non-`Clone` struct still fails there, and hand-written bodies are unchanged.
 
-**Test:** `tests/derive.test.yo`, after `CloneBox`, covers three cases:
+**Tests:** `tests/derive.test.yo`, after `CloneBox`, covers three passing cases:
 
 - `derive(Clone)` on a generic struct whose fields are `Option(A)`, `ArrayList(A)` and `Box(A)`.
 - The conditional `Clone`/`Copy` pair on a generic struct with an `Option(A)` field. The test checks that `CopyPeek(i32)` is `Copy` and `CopyPeek(String)` is not.
 - `derive(Clone, Eq(...))` on a generic enum over `Option(A)`.
 
-Before the fix, the file failed with the E0610 above.
+It also adds two canaries that must keep failing: a generic derive over a concrete non-`Clone` field, which fails at the `derive`, and `Option(NC).clone()` reached through a generic derive with no `where`, which fails at the clone. The 2026-09-20 canaries in the same file still pass: a field whose `Clone` impl is registered below the derive, and `tests/cli-cases/check-derive-clone-non-clone-field`. Before the fix, the passing cases failed with the E0610 above.
+
+**Limitation recorded here:** a deferred trial still cannot resolve a conditional impl on an abstract instantiation, so `check` judges such calls only at a specialization, as it already did for hand-written impls.
 
 **Deferred to Generation B:** `IterPeekable`'s conditional `Copy`/`Clone` pair in `std/prelude.yo`. A seed without this fix fails to evaluate the prelude with that derive, and the compiler builds with `--std-path ./std`. It waits until `SEED_VERSION` carries the fix: `plans/backlog/SEED_VERSION_AUTOMATION.md`, "a generic derive over a container of its parameter".

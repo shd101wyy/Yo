@@ -353,13 +353,15 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
 
 `derive(generic(A : Type), where(A <: Clone), T(A), Clone)` failed with
 `No method "clone" on Option(A)` when a field's type was a generic container
-of `A`. The generated impl re-evaluated the target node that `derive` had
-already evaluated with an unconstrained `A`
+of `A`: the deferred trial of the generated body cannot see a conditional
+impl on an abstract instantiation, and the trial re-raised every failure in
+auto-generated code
 (`issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md`).
 A seed without the fix fails to evaluate a prelude that uses such a derive.
 
-**Generation A DONE 2026-10-17:** the derive binds a fresh-id copy of the
-target, and `tests/derive.test.yo` uses the shape. `std/` does not.
+**Generation A DONE 2026-10-17:** the deferred generic trials leave that
+class out (`hard_swallow_diagnostic_in_generic_trial`), and
+`tests/derive.test.yo` uses the shape. `std/` does not.
 
 **Generation B, once `SEED_VERSION` carries the fix:**
 - `IterPeekable(I, A)` (`std/prelude.yo`) takes its conditional pair, like

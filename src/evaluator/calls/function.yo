@@ -6759,6 +6759,28 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
   );
   `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}`
 });
+/// A method miss inside auto-generated code (a derive's generated body) on a
+/// receiver whose type holds no type variable is generic-independent: no
+/// specialization of the enclosing generic can give that type the method, so
+/// the deferred trial of a generic body re-raises it at the `derive`
+/// (`derive(generic(A : Type), W(A), Clone)` over a field of a non-`Clone`
+/// struct). A miss on `Option(A)` stays a trial miss for the specialization
+/// to judge (issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md).
+/// Hand-written bodies keep the plain error.
+_generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, ctx : &EvalContext) -> YoError)(
+  cond(
+    !ast_expr_token(func_expr).module_path.starts_with(String.from("auto-generated://")) => err,
+    true => match(
+      match(func_expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None),
+      .Some(recv) => match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
+        .Some(ri) => mark_generic_independent(err, &ri.ty, &ri.ty),
+        .None => err
+      ),
+      .None => err
+    )
+  )
+);
 /// The note on the standard-library location of an error that
 /// `evaluate_function_call` reports at the user's call.
 STD_RAISE_NOTE :: "raised here, inside the standard library";
@@ -11625,9 +11647,13 @@ Fix: wrap the call:
             exn.throw(
               dyn(
                 cond(
-                  ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => with_code(
-                    format_error_message(ast_expr_token(&func_expr), _no_method_message(&func_expr, ctx)),
-                    E_NO_MATCHING_CALL
+                  ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).None) => _generated_no_method_independence(
+                    &with_code(
+                      format_error_message(ast_expr_token(&func_expr), _no_method_message(&func_expr, ctx)),
+                      E_NO_MATCHING_CALL
+                    ),
+                    &func_expr,
+                    ctx
                   ),
                   true => with_code(
                     format_error_message(

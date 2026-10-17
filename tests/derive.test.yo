@@ -506,6 +506,18 @@ test("derive Copy and Clone for a generic struct with an Option of its parameter
   c := CopyPeek(String)(n : i32(3), peeked : .Some(`s`)).clone();
   assert(c.n == i32(3), "the clone");
 });
+// The generic trial leaves a miss on `Option(A)` to the specialization, but a
+// generic derive over a field no specialization can clone still fails: at the
+// `derive` for a concrete field type, at the clone for a type argument.
+_CnInner :: struct(n : usize);
+_CnW :: (fn(comptime(A) : Type) -> comptime(Type))(struct(inner : _CnInner, a : A));
+_CnNC :: struct(n : usize);
+_CnOpt :: (fn(comptime(A) : Type) -> comptime(Type))(struct(k : i32, a : Option(A)));
+derive(generic(A : Type), _CnOpt(A), Clone);
+test("a generic derive still rejects a field no specialization can clone", {
+  comptime_expect_error(derive(generic(A : Type), where(A <: Clone), _CnW(A), Clone), "No method \"clone\" on _CnInner");
+  comptime_expect_error(_CnOpt(_CnNC)(k : i32(1), a : .Some(_CnNC(n : usize(1)))).clone(), "\"clone\" on _CnNC");
+});
 test("derive Clone and Eq for a generic enum over an Option of its parameter", {
   a := CloneSlot(i32).Full(.Some(i32(5)));
   assert(a.clone() == a, "the clone equals the original");
