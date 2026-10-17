@@ -256,18 +256,23 @@ thread_local(mut(_tl_seeded)) := false;
 /// which is the same relationship two `Rng.from_entropy()` values have always
 /// had with each other.
 _next_u64_thread :: (fn() -> u64)({
+  // A `mut` global is not lent to a call (decision 47): the draw runs on a
+  // local copy of the state, which is written back.
+  (st : _RngState) = _tl_state;
   cond(
     _tl_seeded => (),
     true => {
-      _tl_state.state = u64(0);
-      _tl_state.inc = _inc_for_stream(_DEFAULT_STREAM);
-      _d1 := _tl_state.next_u32();
-      _tl_state.state = _tl_state.state.wrapping_add(_entropy_u64());
-      _d2 := _tl_state.next_u32();
+      st.state = u64(0);
+      st.inc = _inc_for_stream(_DEFAULT_STREAM);
+      _d1 := st.next_u32();
+      st.state = st.state.wrapping_add(_entropy_u64());
+      _d2 := st.next_u32();
       _tl_seeded = true;
     }
   );
-  _tl_state.next_u64()
+  r := st.next_u64();
+  _tl_state = st;
+  r
 });
 /// 32 uniformly random bits from this thread's generator.
 rand_u32 :: (fn() -> u32)(u32(_next_u64_thread() & u64(4294967295)));

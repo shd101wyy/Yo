@@ -327,6 +327,7 @@ set_traverse_visit_expr :: (fn(expr : &String) -> unit)({
 });
 _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
+  visit := g_traverse_visit_expr;
   // Nothing reference-counted anywhere in this value → nothing to trace.
   if(!type_contains_rc_cell_or_move_only(ty), {
     return();
@@ -336,7 +337,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
   if(is_unique_box_type(ty), {
     match(
       _box_trace_fn_of(ty, context),
-      .Some(bf) => em.emit_string_line(`  ${bf}((void*)${access}, (void(*)(void*, void*))${g_traverse_visit_expr});`),
+      .Some(bf) => em.emit_string_line(`  ${bf}((void*)${access}, (void(*)(void*, void*))${visit});`),
       .None => ()
     );
     return();
@@ -348,7 +349,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
     match(
       get_trace_function_for_type(ty, context),
       .Some(trace_c_name) => {
-        em.emit_string_line(`  ${trace_c_name}(${access}, (void*)${g_traverse_visit_expr});`);
+        em.emit_string_line(`  ${trace_c_name}(${access}, (void*)${visit});`);
         return();
       },
       .None => ()
@@ -360,7 +361,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
     if(is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty), {
       return();
     });
-    em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${g_traverse_visit_expr})(${access}, ${_child_traverse_fn_expr(ty, context)}); }`);
+    em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${visit})(${access}, ${_child_traverse_fn_expr(ty, context)}); }`);
     return();
   });
   cond(
@@ -376,10 +377,10 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
           // `Option(Box(T))`: a non-NULL cell's payload is traced in place.
           .Some(nb) => match(
             _box_trace_fn_of(&nb, context),
-            .Some(bf) => em.emit_string_line(`  if (${access}) { ${bf}((void*)${access}, (void(*)(void*, void*))${g_traverse_visit_expr}); }`),
+            .Some(bf) => em.emit_string_line(`  if (${access}) { ${bf}((void*)${access}, (void(*)(void*, void*))${visit}); }`),
             .None => ()
           ),
-          .None => em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${g_traverse_visit_expr})(${access}, ${_nullable_payload_traverse_fn_expr(ty, context)}); }`)
+          .None => em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${visit})(${access}, ${_nullable_payload_traverse_fn_expr(ty, context)}); }`)
         );
       }, {
         if(!can_optimize_as_simple_enum(ty), {
@@ -954,7 +955,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
               // count.
               em.emit_string_line(`static void __yo_iso_roots_${iso_name}(void* __yo_p) {`);
               em.emit_string_line(`  ${child_c} value = *(${child_c}*)__yo_p;`);
-              saved_visit := g_traverse_visit_expr.clone();
+              saved_visit := g_traverse_visit_expr;
               g_traverse_visit_expr = String.from("__yo_iso_uq_visit");
               _traverse_value(String.from("value"), &child, context);
               g_traverse_visit_expr = saved_visit;

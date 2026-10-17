@@ -134,7 +134,8 @@ _state_at :: (fn(index : usize) -> *_ArenaState)({
   first := (_CHUNK0 * ((usize(1) << c) - usize(1)));
   // SAFETY: `_dir` and its entry `c` were written before `index` was handed
   // out, and are never written again.
-  chunk := unsafe((*?*void)(_dir.unwrap()).add(c).*).unwrap();
+  dir := _dir;
+  chunk := unsafe((*?*void)(dir.unwrap()).add(c).*).unwrap();
   (*_ArenaState)(unsafe((*u8)(chunk).add((j - first) * size_of(_ArenaState))))
 });
 // A context word as the `?*void` an `Allocator` carries, and back. The word
@@ -277,7 +278,7 @@ _new_state :: (fn() -> *_ArenaState)({
     true => ()
   );
   cond(
-    _dir.is_none() => {
+    match(_dir, .Some(_) => false, .None => true) => {
       _dir = match(
         GlobalAllocator.calloc(_INDEX_BITS, size_of(?*void)),
         .Some(d) => .Some(d),
@@ -288,7 +289,8 @@ _new_state :: (fn() -> *_ArenaState)({
   );
   c := _chunk_of(index);
   // SAFETY: `_dir` holds `_INDEX_BITS` entries, more than any index needs.
-  slot := unsafe((*?*void)(_dir.unwrap()).add(c));
+  dir := _dir;
+  slot := unsafe((*?*void)(dir.unwrap()).add(c));
   cond(
     unsafe(slot.*).is_none() => {
       chunk := match(

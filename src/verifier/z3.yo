@@ -228,8 +228,10 @@ _z3_temp_path :: (fn(ext : &String) -> String)({
     },
     .Some(_) => ()
   );
-  p := `${temp_dir()}/yo-verify-${g_z3_tmp_prefix.unwrap().to_string()}-${g_z3_tmp_counter.to_string()}.${ext}`;
-  g_z3_tmp_counter = (g_z3_tmp_counter + usize(1));
+  prefix := g_z3_tmp_prefix;
+  n := g_z3_tmp_counter;
+  g_z3_tmp_counter = (n + usize(1));
+  p := `${temp_dir()}/yo-verify-${prefix.unwrap().to_string()}-${n.to_string()}.${ext}`;
   p
 });
 // ============================================================================

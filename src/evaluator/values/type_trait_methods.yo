@@ -219,7 +219,7 @@ set_registration_owner :: (fn(owner : &String) -> unit)({
 (g_owned_func_ids : HashMap(String, HashMap(String, bool))) = HashMap(String, HashMap(String, bool)).new();
 /// The current owner tag ("" outside any module evaluation). Read by this
 /// module's own registration and by impl.yo's generic-impl registry.
-registration_owner :: (fn() -> String)(_registration_owner.clone());
+registration_owner :: (fn() -> String)(_registration_owner);
 /// Expression ids by owner, for the ExprId-keyed side tables in
 /// `src/expr_info.yo` (method-callee values/types, macro expansions, arm
 /// init ranges, io-builtin calls). An id is recorded when a table is written
@@ -230,14 +230,15 @@ registration_owner :: (fn() -> String)(_registration_owner.clone());
 (g_owned_expr_ids : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
 /// Record expression id `id` under the current owner (no-op outside a module load).
 record_owned_expr_id :: (fn(id : usize) -> unit)({
-  if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
+  cur_owner := _registration_owner;
+  if((cur_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  ids := match(g_owned_expr_ids.remove(_registration_owner.clone()), .Some(l) => l, .None => ArrayList(usize).new());
+  ids := match(g_owned_expr_ids.remove(cur_owner.clone()), .Some(l) => l, .None => ArrayList(usize).new());
   ids.push(id);
-  g_owned_expr_ids.insert(_registration_owner.clone(), ids);
+  g_owned_expr_ids.insert(cur_owner.clone(), ids);
 });
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
@@ -274,12 +275,13 @@ take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))(
 );
 /// Record `func_id` under the current owner (no-op outside a module load).
 record_owned_func_id :: (fn(func_id : &String) -> unit)({
-  if((_registration_owner.len() == usize(0)) || !owner_logs_enabled(), {
+  cur_owner := _registration_owner;
+  if((cur_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
-  ids := match(g_owned_func_ids.remove(_registration_owner.clone()), .Some(m) => m, .None => HashMap(String, bool).new());
+  ids := match(g_owned_func_ids.remove(cur_owner.clone()), .Some(m) => m, .None => HashMap(String, bool).new());
   _old := ids.insert(func_id, true);
-  g_owned_func_ids.insert(_registration_owner.clone(), ids);
+  g_owned_func_ids.insert(cur_owner.clone(), ids);
 });
 /// Remove and return the function ids `owner`'s evaluation registered.
 take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
@@ -340,19 +342,20 @@ _canonical_owner :: (fn(owner : &String) -> String)(
 ///     (the prelude's key is in every closure via `mark_owner_always_visible`,
 ///     module_loader.yo — mm_load_prelude_file marks it when it stamps it).
 owner_visible_from_current :: (fn(owner : &String) -> bool)({
-  if(_registration_owner.len() == usize(0), {
+  cur_owner := _registration_owner;
+  if(cur_owner.len() == usize(0), {
     return(true);
   });
   if(owner.len() == usize(0), {
     return(true);
   });
-  if(owner == _registration_owner, {
+  if(owner == cur_owner, {
     return(true);
   });
   match(
     g_import_closure_fn,
     .None => true,
-    .Some(f) => f(_registration_owner.clone()).contains(_canonical_owner(owner))
+    .Some(f) => f(cur_owner.clone()).contains(_canonical_owner(owner))
   )
 });
 /// Append `entry` to the method list for `type_id`. The list is
@@ -361,7 +364,7 @@ owner_visible_from_current :: (fn(owner : &String) -> bool)({
 register_type_trait_method :: (
   fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
-  owner := _registration_owner.clone();
+  owner := _registration_owner;
   if(entry.owner.len() == usize(0), {
     entry.owner = owner.clone();
   });
@@ -591,7 +594,8 @@ get_visible_type_trait_methods_by_name :: (
   fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   all := get_type_trait_methods_by_name(type_id, method_name);
-  if(_registration_owner.len() == usize(0), {
+  cur_owner := _registration_owner;
+  if(cur_owner.len() == usize(0), {
     return(all);
   });
   result := ArrayList(MethodEntry).new();
@@ -616,7 +620,7 @@ get_visible_type_trait_methods_by_name :: (
     while(oi < n, {
       match(
         all.get(oi),
-        .Some(e) => eprintln(`[visibility] ${_registration_owner} cannot see .${method_name} registered by ${e.owner}`),
+        .Some(e) => eprintln(`[visibility] ${cur_owner} cannot see .${method_name} registered by ${e.owner}`),
         .None => ()
       );
       oi = (oi + usize(1));
