@@ -32,8 +32,11 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-A temporary argument (`b(Key(n : i32(1)))`), a copyable argument, or a
-non-generic impl all work.
+A temporary that moves nothing (`b(Key(n : i32(1)))`), a copyable argument,
+or a non-generic impl all work. A temporary whose construction moves a named
+local fails the same way (`b(Wrap(k : k))`, `b(take(k))`), and so does a write,
+which re-dispatches to `index_mut` (`m(key) = v`, a `&mut m(key)` argument,
+`addr_of(m(key))`), and the bounds-check-free twin's specialization.
 
 ## Root cause
 
@@ -41,23 +44,29 @@ non-generic impl all work.
 the by-value index argument's ownership rule first
 (`consume_argument_for_parameter`), which moves a move-only named local: `k`
 is consumed at the argument's token. It then specializes the index method
-with a trial call (`_specialize_index_method`) that re-evaluates the same
-argument inside a whole call. That call's own argument rule moved `k` again,
+with a trial call (`_specialize_index_method`) that re-evaluates the receiver
+and the argument inside a whole call. That call's own argument rule moved `k`
+again,
 and `set_expr_as_consumed` has no same-site exemption, so the trial threw
 E0901. The trial's exception is swallowed, and the call fell back to the
-unspecialized generic method value, which codegen never emits.
+unspecialized generic method value, which codegen never emits. The same
+trial runs again for the unchecked twin (`_record_index_unchecked_twin`) and,
+after the read dispatch, for a write's `index_mut` (`_promote_index_call`).
 
 ## Fix
 
-Around the trial, `_index_arg_moved_here` finds the variable the argument
-names when this call's rule has just moved it (its `consumed_at_token` is the
-argument's own token). The trial sees it unmoved, and the move at that token
-is put back afterwards, so the variable is moved once and the trial's
-specialization reaches codegen. An owning temporary the rule consumed at the
-same token (a `String` temporary key) is cleared and restored the same way;
-the trial evaluates the argument into a fresh temporary, so that is a no-op.
-A copyable or shared named argument is never marked, and nothing changes for
-it.
+`_specialize_index_method`, which all three trials go through, collects the
+locals the index call has already moved (`_locals_moved_inside`): every local
+the call names whose `consumed_at_token` lies inside the call's own source,
+the receiver and the argument both. The trial sees each one unmoved, and its
+move is put back at the same token afterwards, so the variable is moved once
+and the trial's specialization reaches codegen. A copyable or shared named
+argument is never marked, and nothing changes for it.
+
+The first version of the fix (review of #1420) only covered a bare named
+argument on the read dispatch (`_index_arg_moved_here`, keyed on the
+argument's own token); the write, the twin and a temporary that moves a
+local still fell back to the undeclared method.
 
 ## Verification
 
@@ -72,5 +81,11 @@ it.
   `Drop`-counting key moved through `b(k)` in one `cond` arm only, each path
   drops the key exactly once under ASan (1, then 2), and a `b(k)` of an outer
   `k` inside a `while` is still E0901 ("moved inside the loop").
+- The review cases, both of which fail at the C compiler with the
+  first-version binary (`call to undeclared function`) and pass after:
+  `tests/index.test.yo` writes `m(wkey) = i32(60)` through a named box and
+  reads it back, and "Index: a temporary argument that moves a named local"
+  looks up `b(_IxWrap(k : k1))` and `b(_ix_wrap(k2))`, each local still E0901
+  afterwards.
 - `tests/rc.test.yo`'s unique-`Box` section looks a `HashMap(Box(UBoxPoint),
   Box(i32))` up by the named box `h2`.

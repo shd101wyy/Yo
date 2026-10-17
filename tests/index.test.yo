@@ -1382,16 +1382,46 @@ test("Index: a generic impl takes a move-only named local by value", {
   rkey := box(i32(5));
   assert(m(rkey) == i32(60), "written through index_mut with a named box");
 });
-// The argument is a temporary that moves a named local: the trial re-ran
-// the inner move too.
-_IxWrap :: struct(k : _IxKey);
-_ix_wrap :: (fn(k : _IxKey) -> _IxWrap)(_IxWrap(k : k));
+// The argument is a temporary that moves a named local, and a write through
+// `index_mut` with a named key: the trials re-ran those moves too. The key
+// counts its drops, so each case checks it is dropped exactly once.
+(mut(g_ix_dropped) : i32) = i32(0);
+_IxDk :: struct(n : i32);
+derive(_IxDk, Eq(_IxDk), Hash);
+impl(
+  _IxDk,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_ix_dropped = (g_ix_dropped + i32(1));
+    })
+  )
+);
+_IxWrap :: struct(k : _IxDk);
+_ix_wrap :: (fn(k : _IxDk) -> _IxWrap)(_IxWrap(k : k));
 test("Index: a temporary argument that moves a named local", {
+  before := g_ix_dropped;
   b := _IxBag(_IxWrap)(v : i32(79));
-  k1 := _IxKey(n : i32(1));
+  k1 := _IxDk(n : i32(1));
   assert(b(_IxWrap(k : k1)) == i32(79), "a constructor that moves the local");
   comptime_expect_error(k1.n, "moved");
-  k2 := _IxKey(n : i32(2));
+  assert(g_ix_dropped == (before + i32(1)), "the index drops the moved key once");
+  k2 := _IxDk(n : i32(2));
   assert(b(_ix_wrap(k2)) == i32(79), "a call that moves the local");
   comptime_expect_error(k2.n, "moved");
+  assert(g_ix_dropped == (before + i32(2)), "and the second one once");
+});
+test("IndexMut: a write through a generic impl with a move-only named key", {
+  before := g_ix_dropped;
+  {
+    m := HashMap(_IxDk, i32).new();
+    m.insert(_IxDk(n : i32(5)), i32(50));
+    wk := _IxDk(n : i32(5));
+    m(wk) = i32(60);
+    comptime_expect_error(wk.n, "moved");
+    assert(g_ix_dropped == (before + i32(1)), "index_mut drops the moved key once");
+    rk := _IxDk(n : i32(5));
+    assert(m(rk) == i32(60), "the write landed");
+    assert(g_ix_dropped == (before + i32(2)), "the read drops its key once");
+  };
+  assert(g_ix_dropped == (before + i32(3)), "and the map its stored key");
 });

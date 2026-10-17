@@ -103,8 +103,12 @@ key is stored three times).
   through two rehashes, overwrite, `Index` read, `remove`, `remove_entry`,
   `retain`, `clear` and `and_modify`; a move-only key with a copyable value
   (`get`); `HashSet`, `BTreeMap` (value and key), `OrderedMap`, `Deque` past a
-  grow, and `PriorityQueue` of move-only types. Every test counts the drops
-  (each value exactly once, by its own value). It fails to compile on develop
+  grow, and `PriorityQueue` of move-only types. The value tests count the
+  value drops (each value exactly once, by its own value), and two tests
+  count the drops of a `Drop` key `_McKd` through `HashMap` overwrite,
+  `remove`, `remove_entry` and `retain`, `HashSet` insert and remove, and
+  `BTreeMap` overwrite, `remove` and `pop_first`: every key made, stored or
+  probed, is dropped exactly once. It fails to compile on develop
   `36c41e62b` with the E0901 above.
 - `tests/rc.test.yo`'s unique-`Box` section builds a
   `HashMap(Box(UBoxPoint), Box(i32))`: insert, lookup by an equal payload,
