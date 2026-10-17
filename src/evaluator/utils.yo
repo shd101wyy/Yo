@@ -133,7 +133,7 @@ pragma(Pragma.AllowUnsafe);
 /// The macro calls whose expansion is being evaluated, outermost first. An
 /// expansion's `await` carries a token of the macro's own source, so rule 4
 /// judges it at these call sites too.
-(g_lb_macro_sites : ArrayList(Token)) = ArrayList(Token).new();
+(g_lb_macro_sites : ArrayList(LocalBorrowMacroSite)) = ArrayList(LocalBorrowMacroSite).new();
 /// The receiver node a `.` access is about to evaluate as part of a place
 /// chain: its own evaluator reports no access (the chain's outermost node
 /// reports the whole place).
@@ -4935,6 +4935,9 @@ LocalBorrowPatternBinding :: struct(name : String, decl : Token, borrow : LocalB
 /// (`match(cur, .Some(n) => …)`): it points into `borrow`'s place from its
 /// binding `decl` to `end` (its last mention `last_use`).
 LocalBorrowMatchPlace :: struct(name : String, decl : Token, last_use : Token, end : Token, borrow : LocalBorrowInfo);
+/// A macro call at `site` whose expansion is being evaluated, and the ids of
+/// the `.await(…)` calls written in that expansion (`local_borrow_enter_macro_site`).
+LocalBorrowMacroSite :: struct(site : Token, await_ids : ArrayList(usize));
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
@@ -5518,7 +5521,7 @@ local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception
   sites.push(tok);
   (si : usize) = usize(0);
   while(si < g_lb_macro_sites.len(), si = (si + usize(1)), {
-    match(g_lb_macro_sites.get(si), .Some(st) => sites.push(st), .None => ());
+    match(g_lb_macro_sites.get(si), .Some(ms) => sites.push(ms.site), .None => ());
   });
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
@@ -5589,15 +5592,73 @@ _lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &To
     exn
   );
 });
-/// A macro call at `tok` is about to evaluate its expansion
-/// (`local_borrow_note_await`).
-local_borrow_enter_macro_site :: (fn(tok : &Token) -> unit)({
-  g_lb_macro_sites.push(tok);
+/// The ids of the `<recv>.await(…)` calls written in `e`, into `out`.
+_lb_collect_await_ids :: (fn(e : &AstExpr, out : &mut ArrayList(usize)) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, callee, args, _, _) => {
+      is_await := match(
+        callee,
+        .FnCall(_, dot, dargs, is_infix, _) => (
+          is_infix && (dargs.len() == usize(2)) &&
+            match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
+              dargs.get(usize(1)),
+              .Some(m) => ast_expr_is_atom_of(&m, "await"),
+              .None => false
+            )
+        ),
+        .Atom(_, _) => false
+      );
+      if(is_await, {
+        out.push(ast_expr_id(e));
+      });
+      _lb_collect_await_ids(&callee, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => _lb_collect_await_ids(&a, out), .None => ());
+      });
+    }
+  )
+);
+/// A macro call at `tok` is about to evaluate its `expansion`
+/// (`local_borrow_note_await`). The awaits written in the expansion carry the
+/// macro's own tokens; `local_borrow_is_macro_await` names them.
+local_borrow_enter_macro_site :: (fn(tok : &Token, expansion : &AstExpr) -> unit)({
+  ids := ArrayList(usize).new();
+  _lb_collect_await_ids(expansion, &mut ids);
+  g_lb_macro_sites.push(LocalBorrowMacroSite(site : tok, await_ids : ids));
 });
 /// The expansion `local_borrow_enter_macro_site` announced is evaluated.
 local_borrow_leave_macro_site :: (fn() -> unit)({
   g_lb_macro_sites.pop();
   ()
+});
+/// The call `id` is an `await` written in a macro expansion being evaluated.
+/// Such a call carries the macro's tokens (std's, for `for_await`), and a
+/// call in std skips the local-borrow rules, so its caller checks rule 4 for
+/// it (`evaluate_function_call`).
+local_borrow_is_macro_await :: (fn(id : usize) -> bool)({
+  (i : usize) = usize(0);
+  while(i < g_lb_macro_sites.len(), i = (i + usize(1)), {
+    match(
+      g_lb_macro_sites.get(i),
+      .Some(ms) => {
+        (j : usize) = usize(0);
+        while(j < ms.await_ids.len(), j = (j + usize(1)), {
+          match(
+            ms.await_ids.get(j),
+            .Some(aid) => if(aid == id, {
+              return(true);
+            }),
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  false
 });
 // --- Live ranges -------------------------------------------------------------
 /// `e` mentions the identifier `name` (a field name after `.` does not count).
@@ -6034,6 +6095,7 @@ export(
   local_borrow_note_await,
   local_borrow_enter_macro_site,
   local_borrow_leave_macro_site,
+  local_borrow_is_macro_await,
   local_borrow_note_runtime_call,
   local_borrow_is_scalar_type,
   local_borrow_range_of,
