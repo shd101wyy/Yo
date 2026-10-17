@@ -8213,8 +8213,11 @@ try_to_call_function_with_arguments :: (
       // A closure value's call lends the closure itself (its receiver,
       // decision 38 B): it joins the overlap test.
       require_capture_borrow_exclusivity(&vrf_param_is_ref, &vrf_param_is_owning, &adjusted_args, match(func_type, Rc(.Func({ result : _ })) => Option(AstExpr).None, _ => Option(AstExpr).Some(callee_expr)), &caller_env_m, ctx, exn);
-      vrf_returns_place := match(func_type, Rc(.Func({ result : vrf_res })) => is_pointer_type(&vrf_res), _ => false);
-      require_no_inout_write_through_borrow(&mut d3_pending, &vrf_param_labels, &vrf_param_is_ref, &adjusted_args, vrf_returns_place, &caller_env_m, ctx);
+      // The modes come from the normalized signature: a closure-trait callee
+      // (`cb : &Dyn(Fn(n : &mut i32) -> unit)`) is no `Func`, so `vrf_*` are
+      // empty for it, and a borrowed place lent to its `&mut` parameter was
+      // never judged.
+      require_no_inout_write_through_borrow(&mut d3_pending, &pl, &pref, &adjusted_args, is_pointer_type(&ret_b), &caller_env_m, ctx);
       // Restore the io.async arg-eval context flag (set before Step 7).
       ctx.is_inside_io_async_call = h_prev_io_async_ctx;
       // ----------------------------------------------------------------
