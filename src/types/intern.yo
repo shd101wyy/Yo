@@ -798,10 +798,19 @@ type_intern_probe_report :: (fn() -> String)({
   // cost is ~4^N in its interpolation count (fixed on develop 2026-09-20, not
   // in the seed), and `yo build` compiles src/ with the seed — one
   // ten-interpolation line here made the self-build run 30+ minutes.
-  head := `[type-intern] retained_types=${g_ti_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${g_ti_nodes.to_string()}`;
-  lists := ` lists=${g_ti_lists.to_string()} empty_lists=${g_ti_lists_empty.to_string()}`;
-  kinds := ` func=${g_ti_func.to_string()} struct=${g_ti_struct.to_string()} enum=${g_ti_enum.to_string()}`;
-  rest := ` some=${g_ti_some.to_string()} other=${g_ti_other.to_string()}`;
+  (n_total : usize) = g_ti_total;
+  (n_nodes : usize) = g_ti_nodes;
+  (n_lists : usize) = g_ti_lists;
+  (n_lists_empty : usize) = g_ti_lists_empty;
+  (n_func : usize) = g_ti_func;
+  (n_struct : usize) = g_ti_struct;
+  (n_enum : usize) = g_ti_enum;
+  (n_some : usize) = g_ti_some;
+  (n_other : usize) = g_ti_other;
+  head := `[type-intern] retained_types=${n_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${n_nodes.to_string()}`;
+  lists := ` lists=${n_lists.to_string()} empty_lists=${n_lists_empty.to_string()}`;
+  kinds := ` func=${n_func.to_string()} struct=${n_struct.to_string()} enum=${n_enum.to_string()}`;
+  rest := ` some=${n_some.to_string()} other=${n_other.to_string()}`;
   head + lists + kinds + rest
 });
 (g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();

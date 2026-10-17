@@ -116,7 +116,8 @@ export(LspDiag, RelatedInfo);
 /// error here (the same pattern as module_manager's load-error stash).
 (mut(g_parse_error) : Option(String)) = Option(String).None;
 _stash_parse_error :: (fn(msg : &String) -> unit)({
-  if(g_parse_error.is_none(), {
+  prior := g_parse_error;
+  if(prior.is_none(), {
     g_parse_error = Option(String).Some(msg);
   });
 });

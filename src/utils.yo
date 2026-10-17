@@ -642,7 +642,10 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   entries := _prof_sample(g_prof_table_probe);
   (i : usize) = usize(0);
   while(i < g_prof_phase_names.len(), {
-    if(g_prof_phase_names(i) == name, {
+    // A copy: an element of a handle global that is pushed to elsewhere is
+    // not lent to a call (rule A, decision 47).
+    phase := g_prof_phase_names(i);
+    if(phase == name, {
       g_prof_phase_nanos(i) = (g_prof_phase_nanos(i) + nanos);
       g_prof_phase_rss_mb(i) = rss;
       g_prof_phase_table_entries(i) = entries;
@@ -689,7 +692,8 @@ profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> u
   });
   (i : usize) = usize(0);
   while(i < g_prof_mod_paths.len(), {
-    if(g_prof_mod_paths(i) == path, {
+    mod_path := g_prof_mod_paths(i);
+    if(mod_path == path, {
       g_prof_mod_parse_ns(i) = (g_prof_mod_parse_ns(i) + parse_ns);
       g_prof_mod_eval_ns(i) = (g_prof_mod_eval_ns(i) + eval_ns);
       return(());
@@ -940,7 +944,7 @@ debug_knob :: (fn(name : &String) -> Option(String))(
 set_current_owner :: (fn(owner : &String) -> unit)({
   g_current_owner = owner;
 });
-current_owner :: (fn() -> String)(g_current_owner.clone());
+current_owner :: (fn() -> String)(g_current_owner);
 /// Whether the owner logs (`OwnedKeys` and the owned expr/func-id logs) are
 /// recorded at all. They exist only so `mm_invalidate_document`
 /// can purge an edited module's entries, which `yo lsp`, `check --watch`,
@@ -974,14 +978,15 @@ OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
 owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));
 /// Record `key` under the current owner (no-op outside a module load).
 owned_keys_record :: (fn(log : &OwnedKeys, key : &String) -> unit)({
-  if((g_current_owner.len() == usize(0)) || !g_owner_logs_enabled, {
+  cur_owner := g_current_owner;
+  if((cur_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  keys := match(log.by_owner.remove(g_current_owner.clone()), .Some(k) => k, .None => ArrayList(String).new());
+  keys := match(log.by_owner.remove(cur_owner.clone()), .Some(k) => k, .None => ArrayList(String).new());
   keys.push(key);
-  log.by_owner.insert(g_current_owner.clone(), keys);
+  log.by_owner.insert(cur_owner.clone(), keys);
 });
 /// Remove and return the keys recorded under `owner`.
 owned_keys_take :: (fn(log : &OwnedKeys, owner : &String) -> ArrayList(String))(
