@@ -10,6 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Mutex } :: import("std/async/mutex");
+{ RefCell } :: import("std/sync/refcell");
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 
@@ -32,25 +33,30 @@ test("Test mutex try_lock and unlock", {
 // 2. exclusion across awaits — a critical section spanning a sleep is not
 //    entered by the other task until released. Each worker owns its own
 //    handle on the `Arc` and borrows the mutex through it across the awaits.
+//    The flags the workers write are in `RefCell`s, since an `Rc`'s payload
+//    is read-only through the handle (decision 46).
 // ---------------------------------------------------------------------------
 test("Test mutex excludes across awaits", {
   m := arc(Mutex(i64).new(i64(0)));
-  in_section := Rc(bool)(false);
-  overlaps := Rc(i64)(0);
-  worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(bool), ovl : &Rc(i64), io : Io) -> Impl(Future(unit, Io)))(
+  in_section := rc(RefCell(bool).new(false));
+  overlaps := rc(RefCell(i64).new(i64(0)));
+  worker :: (fn(m2 : Arc(Mutex(i64)), ins : &Rc(RefCell(bool)), ovl : &Rc(RefCell(i64)), io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
       io.await(m2.*.lock(io), io);
-      cond(
-        ins.* => {
-          ovl.* = (ovl.* + i64(1));
-        },
-        true => ()
-      );
-      ins.* = true;
+      if(ins.with(v => v), {
+        ovl.with_mut(n => {
+          n = (n + i64(1));
+        });
+      });
+      ins.with_mut(v => {
+        v = true;
+      });
       before := m2.*.get();
       io.await(sleep(u64(5)), io);
       m2.*.set(before + i64(1));
-      ins.* = false;
+      ins.with_mut(v => {
+        v = false;
+      });
       m2.*.unlock();
       return(());
     })
@@ -61,7 +67,7 @@ test("Test mutex excludes across awaits", {
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
-  assert(overlaps.* == i64(0), "no task may enter the section while another holds the lock");
+  assert(overlaps.with(n => n) == i64(0), "no task may enter the section while another holds the lock");
   assert(m.*.get() == i64(3), "read-modify-write across an await must not lose updates");
   assert(!m.*.is_locked(), "all sections released");
 });
@@ -97,13 +103,13 @@ test("Test mutex lock waits", {
 // ---------------------------------------------------------------------------
 test("Test mutex acquisition is FIFO and no waiter is lost", {
   m := arc(Mutex(i64).new(i64(0)));
-  order := Rc(ArrayList(i64))(ArrayList(i64).new());
+  order := rc(RefCell(ArrayList(i64)).new(ArrayList(i64).new()));
   // Main takes the lock first, so every worker below MUST queue.
   assert(m.*.try_lock(), "main holds the lock while the workers queue");
-  worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(ArrayList(i64)), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
+  worker :: (fn(m2 : Arc(Mutex(i64)), ord : &Rc(RefCell(ArrayList(i64))), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
       io.await(m2.*.lock(io), io);
-      ord.*.push(tag);
+      ord.with_mut(o => o.push(tag));
       m2.*.unlock();
       return(());
     })
@@ -125,15 +131,17 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   _r3 := h3.await(io);
   _r4 := h4.await(io);
   _r5 := h5.await(io);
-  assert(order.*.len() == usize(5), `all five ran, got ${order.*.len().to_string()}`);
+  ran := order.with(o => o.len());
+  assert(ran == usize(5), `all five ran, got ${ran.to_string()}`);
   // FIFO: the queue is drained from the front, so the arrival order is the
   // acquisition order. A stack would give 5,4,3,2,1 and would starve worker 1
   // under sustained contention.
   (i : usize) = usize(0);
   while(i < usize(5), i = (i + usize(1)), {
+    got := order.with(o => o(i));
     assert(
-      order.*(i) == i64(i + usize(1)),
-      `FIFO order: position ${i.to_string()} should be worker ${(i + usize(1)).to_string()}, got ${order.*(i).to_string()}`
+      got == i64(i + usize(1)),
+      `FIFO order: position ${i.to_string()} should be worker ${(i + usize(1)).to_string()}, got ${got.to_string()}`
     );
   });
   assert(!m.*.is_locked(), "the last release leaves it unlocked");
@@ -235,23 +243,41 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
   assert(!m.*.is_locked(), "and released it");
 });
 // ---------------------------------------------------------------------------
-// The cells §3.13 A2 still rejects (E0909): a borrow through an `Rc` (a
-// shared mutable cell until it becomes read-only, decision 46), a path that
-// crosses an `Rc` and then an `Arc`, and a `&mut` borrow through an `Arc`.
+// Decision 46 makes an `Rc`'s payload read-only through the handle, like an
+// `Arc`'s, so same-thread tasks share a mutex as `Rc(Mutex(T))` (Rust's
+// `Rc<tokio::sync::Mutex<T>>` on a current-thread runtime), and a path that
+// crosses an `Rc` and then an `Arc` is accepted too. A `&mut` borrow through
+// an `Arc` is still E0909.
 // ---------------------------------------------------------------------------
-test("Test a lock borrowing through an Rc is still E0909", {
-  comptime_expect_error({
-    r := rc(Mutex(i64).new(i64(0)));
-    io.await(r.*.lock(io), io);
-  }, "shared mutable cell");
-  comptime_expect_error({
-    r := rc(Mutex(i64).new(i64(0)));
-    io.await(r.lock(io), io);
-  }, "shared mutable cell");
-  comptime_expect_error({
-    ra := rc(arc(Mutex(i64).new(i64(0))));
-    io.await(ra.*.*.lock(io), io);
-  }, "shared mutable cell");
+test("Test tasks contend through Rc handles, and lock borrows through them across awaits (decision 46)", {
+  r := rc(Mutex(i64).new(i64(0)));
+  assert(r.*.try_lock(), "main holds the lock");
+  a := r;
+  ha := io.spawn(
+    io.async({ a }(io : Io) => {
+      // The receiver is auto-dereferenced: `a.lock(io)` lends `a.*`.
+      io.await(a.lock(io), io);
+      before := a.get();
+      io.await(sleep(u64(2)), io);
+      a.set(before + i64(10));
+      a.unlock();
+      return(());
+    }),
+    io
+  );
+  io.await(sleep(u64(5)), io);
+  assert(r.*.waiter_count() == usize(1), "the task queued on the lock through its own Rc handle");
+  r.*.set(i64(1));
+  r.*.unlock();
+  _a := ha.await(io);
+  assert(r.*.get() == i64(11), "the task's section ran under the lock");
+  io.await(r.*.lock(io), io);
+  r.*.unlock();
+  ra := rc(arc(Mutex(i64).new(i64(5))));
+  io.await(ra.*.*.lock(io), io);
+  assert(ra.*.*.get() == i64(5), "a lock through an Rc and then an Arc");
+  ra.*.*.unlock();
+  assert(!r.*.is_locked() && !ra.*.*.is_locked(), "both released");
 });
 Gauge :: struct(n : i64);
 /// A future that borrows its `Gauge` mutably. This file's pragma keeps D3 (a

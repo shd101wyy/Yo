@@ -1,6 +1,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Deque } :: import("std/collections/deque");
+{ RefCell } :: import("std/sync/refcell");
 { println } :: import("std/fmt");
 // Listed: a push through a by-value parameter.
 fill_copy :: (fn(out : &ArrayList(i32)) -> unit)({
@@ -38,10 +39,11 @@ main :: (fn() -> unit)({
   apply(() => {
     seen.push(i32(9));
   });
-  // Not listed: a `Box` is the explicit shared handle.
-  recorded := rc(ArrayList(i32).new());
+  // Not listed: a shared handle written through its `RefCell` door (a
+  // write through a plain `Rc` is E0919, decision 46).
+  recorded := rc(RefCell(ArrayList(i32)).new(ArrayList(i32).new()));
   apply(() => {
-    recorded.*.push(i32(10));
+    recorded.with_mut(r => r.push(i32(10)));
   });
   // Not listed: a local.
   local := ArrayList(i32).new();

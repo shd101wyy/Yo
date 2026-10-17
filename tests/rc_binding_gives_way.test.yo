@@ -27,8 +27,9 @@ test("the prelude rc(v) builds a cell with ref_count 1", {
 test("rc(v) builds an Rc(V), the shared cell", {
   (b : Rc(i32)) = rc(i32(1));
   b2 := b;
-  consume(b2.* = i32(2));
-  assert(b.* == i32(2), "a write through one handle is seen through the other");
+  assert(b2.* == i32(1), "a read through the other handle sees the same value");
+  // The payload is read-only through the handle (decision 46).
+  comptime_expect_error(b2.* = i32(2), "read-only through the handle");
 });
 test("a local definition of rc is a shadowing error", {
   comptime_expect_error(rc := i32(3));

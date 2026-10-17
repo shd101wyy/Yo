@@ -64,25 +64,34 @@ Yo 的 async 使用**代数效应**和 `Io` 效应类型。异步任务是**惰�
 
 ```yo
 { yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(i32(0)));
 
   // 惰性创建——两个任务都尚未启动
   task1 := io.async((io : Io) => {
-    counter.* = (counter.* + 1); // 启动时执行
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    }); // 启动时执行
     io.await(yield(io), io); // 让出控制权给事件循环
-    counter.* = (counter.* + 1); // 其他任务让出后恢复执行
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    }); // 其他任务让出后恢复执行
   });
 
   task2 := io.async((io : Io) => {
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
   });
 
   // 此时 counter 仍为 0——任务尚未启动
-  assert(counter.* == i32(0), "tasks are lazy");
+  assert(counter.with(v => v) == i32(0), "tasks are lazy");
 
   // spawn 启动两个任务但不等待：
   // 1. task1 运行：counter=0→1，让出
@@ -96,7 +105,7 @@ main :: (fn(io : Io) -> unit)({
   handle1.await(io);
   handle2.await(io);
 
-  assert(counter.* == i32(22), "both tasks interleaved and completed");
+  assert(counter.with(v => v) == i32(22), "both tasks interleaved and completed");
 });
 export(main);
 ```
@@ -385,9 +394,9 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-借给借用的 Future 的位置不能经过 `Rc` 解引用、`ref` 对象、指针或对集合的索引（`io.await(count(&r.*.items, io), io)` 和 `io.await(bump(&mut xs(i), io), io)` 都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄（`h : &Rc(S)`），在 Future 内每次使用时读取 `h.*.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
+借给借用的 Future 的位置不能经过 `ref` 对象、指针或对集合的索引（`h` 为 `ref` 对象时的 `io.await(count(&h.items, io), io)`，以及 `io.await(bump(&mut xs(i), io), io)`，都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄，在 Future 内每次使用时读取 `h.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
 
-对共享借用而言，`Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为 D3 按每个被调用者实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的，只经过 `Arc` 解引用的路径也都允许。经由 `Arc` 的 `&mut` 借用仍是 E0909，同时经过 `Rc` 的路径（`rc(arc(m))`）也是。等 `Rc` 的载荷经由句柄也变为只读之后，`Rc` 也会加入 `Arc` 的行列（plans/VALUES_BY_DEFAULT.md 决策 46）。
+对共享借用而言，`Rc` 与 `Arc` 解引用是例外：安全代码中没有任何句柄会写入 `Rc` 的载荷（E0919，决策 46）或 `Arc` 的载荷（它的状态只通过其内部的 `Mutex` 或原子类型改变，与 Rust 相同；`a.*.o.take()` 这类标准库修改方法与直接写入一样被拒绝，因为 D3 按每个被调用者实际写入的内容来判断），而任务自己的句柄让载荷保持存活。所以当 `a : Arc(Mutex(T))` 时，`io.await(a.*.lock(io), io)` 是允许的；`r : Rc(S)` 时的 `io.await(count(&r.*.items, io), io)`，以及只经过 `Rc` 和 `Arc` 解引用的路径（`rc(arc(m))`）也都允许。经由两者之一的 `&mut` 借用仍被拒绝：`Rc` 是 E0919，`Arc` 是 E0909。
 
 借出的位置也不能以模块级运行时绑定或 `thread_local` 为根，经过 `Arc` 解引用也不例外（模块级 `G := ...` 时，`io.await(bump(&mut G, io), io)` 是 E0909，`io.await(G.bump(io), io)` 也是；`mut(G) := arc(...)` 时的 `io.await(peek(&G.*, io), io)` 同样如此）：同一线程上的任何任务都能按名字访问该绑定，并在本任务等待期间重新给它赋值，从而释放 Future 所借用的值。请借出一个局部副本，或在 Future 内按名字读取这个全局变量，每次使用都会读到它的当前值。`::` 常量没有可改变的运行时存储，可以借出。
 
@@ -1272,22 +1281,31 @@ r2 := handle2.await(io);
 
 ```yo
 { yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
-    counter.* = (counter.* + 1);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
-    return(counter.*);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
+    return(counter.with(v => v));
   });
 
   task2 := io.async((io : Io) => {
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 10);
-    return(counter.*);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
+    return(counter.with(v => v));
   });
 
   // 任务为冷状态——counter 仍为 0
@@ -1304,20 +1322,29 @@ export(main);
 
 ```yo
 { yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
-    counter.* = (counter.* + 1);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
   });
 
   task2 := io.async((io : Io) => {
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
   });
 
   // 不使用 spawn：任务顺序执行
@@ -1414,7 +1441,7 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-单线程共享方式 `Rc(Mutex(T))`（Rust 的 `Rc<Mutex<T>>`）要等 `Rc` 的载荷经由句柄变为只读之后才能使用（决策 46）；在那之前，经由 `Rc` 调用 `lock` 是 E0909。
+单线程共享方式 `Rc(Mutex(T))`（Rust 的 `Rc<Mutex<T>>`）同样可用：`Rc` 的载荷经由句柄是只读的（决策 46），所以 `r : Rc(Mutex(T))` 时 `io.await(r.*.lock(io), io)` 是允许的。
 
 ### `yield_now`：不带定时器的公平让出
 

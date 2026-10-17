@@ -2521,7 +2521,7 @@ strip_proved_ensures_asserts :: (
       body := fvd.*.body;
       match(
         body,
-        .FnCall(begin_id, begin_func, args, begin_infix, begin_tok) => {
+        .FnCall(_, _, args, _, _) => {
           kept := ArrayList(AstExpr).new();
           (ens_idx : usize) = usize(0);
           (stripped : usize) = usize(0);
@@ -2557,7 +2557,13 @@ strip_proved_ensures_asserts :: (
             i = (i + usize(1));
           });
           if(stripped > usize(0), {
-            fvd.*.body = AstExpr.FnCall(begin_id, begin_func, kept, begin_infix, begin_tok);
+            // Rewrite the body's statement list in place: the list is shared
+            // with the tree every holder of this function reads, and the
+            // `FuncValData` is behind an `Rc`, whose payload is read-only
+            // through the handle (plans/VALUES_BY_DEFAULT.md decision 46).
+            stmts := args;
+            stmts.clear();
+            stmts.extend(&kept);
           });
           stripped
         },

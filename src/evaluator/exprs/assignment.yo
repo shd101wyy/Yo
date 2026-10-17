@@ -89,6 +89,7 @@ pragma(Pragma.AllowUnsafe);
   set_expr_as_needs_to_call_dup,
   attach_temp_variable_to_expr,
   reject_second_class_escape,
+  reject_write_through_rc,
   note_second_class_binding,
   check_capture_freeze_access,
   LocalBorrowPlace,
@@ -1302,6 +1303,8 @@ evaluate_assignment :: (
     // The target is written: its element accesses dispatch `IndexMut`
     // (decision 34, V2b).
     call_promote_index_places_for_write(&evaluated_lhs, &env, ctx, exn);
+    // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
+    reject_write_through_rc(&evaluated_lhs, "assign", Option(TypeValue).None, ctx, exn);
     // Decision 47: a field or element write of a module-level binding writes
     // the binding unless it goes through a `ref` handle the binding holds;
     // a write through a handle is checked against the lends of the places

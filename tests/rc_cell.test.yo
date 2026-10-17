@@ -35,8 +35,9 @@ CellOf :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(T));
 test("rc(v) builds an Rc(T) whose handles share one cell", {
   (a : Rc(i32)) = rc(i32(42));
   b := a;
-  consume(b.* = i32(7));
-  assert(a.* == i32(7), "a write through one handle is seen through the other");
+  assert(b.* == i32(42), "a read through one handle sees the cell the other holds");
+  // The payload is read-only through the handle (decision 46).
+  comptime_expect_error(b.* = i32(7), "read-only through the handle");
   c := Rc(i32)(i32(3));
   assert(c.* == i32(3), "the type constructor builds the same cell");
 });
@@ -63,17 +64,18 @@ test("ref_count reads an Rc's count", {
   };
   assert(ref_count(a) == usize(1), "the copies released their count");
 });
-test("auto-dereference reads, writes and calls through an Rc", {
+// Writes through the handle are E0919 (decision 46): the payload is
+// read-only through it.
+test("auto-dereference reads and calls through an Rc; writes are E0919", {
   c := rc(Counter(n : i32(1), items : ArrayList(i32).new()));
   assert(c.n == i32(1), "a payload field reads through the cell");
-  c.n = i32(2);
-  assert(c.*.n == i32(2), "a field write lands in the payload");
-  assert(c.bump(i32(3)) == i32(5), "a payload method is called through the cell");
-  c.items.push(i32(9));
-  assert(c.*.items.len() == usize(1), "a place write through the cell reaches the payload");
+  assert(c.*.n == i32(1), "the explicit deref reads the same field");
+  assert(c.items.len() == usize(0), "a &self payload method is called through the cell");
+  comptime_expect_error(c.n = i32(2), "read-only through the handle");
+  comptime_expect_error(c.bump(i32(3)), "read-only through the handle");
+  comptime_expect_error(c.items.push(i32(9)), "read-only through the handle");
   d := c;
-  d.n = i32(11);
-  assert(c.n == i32(11), "a write through one handle is shared");
+  assert(d.n == i32(1), "another handle reads the same payload");
 });
 test("nested patterns look through an Rc payload", {
   f :: (fn(l : &List) -> i32)(
@@ -131,9 +133,9 @@ test("Rc implements Clone, Eq, Hash and Default by payload", {
   a := rc(Key(k : i32(1)));
   b := Rc.clone(a);
   assert(a == b, "a clone is equal");
-  b.k = i32(2);
-  assert(a.k == i32(1), "the clone is a new cell");
-  assert(!(a == b), "and compares by payload");
+  assert((ref_count(a) == usize(1)) && (ref_count(b) == usize(1)), "the clone is a new cell");
+  c := rc(Key(k : i32(2)));
+  assert(!(a == c), "and compares by payload");
   m := HashMap(Rc(Key), i32).new();
   m.insert(rc(Key(k : i32(3))), i32(30));
   assert(m.get(rc(Key(k : i32(3)))).unwrap_or(i32(0)) == i32(30), "an equal cell hashes to the same entry");

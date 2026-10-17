@@ -7,6 +7,7 @@ import("std/string");
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
 { platform, Platform } :: import("std/process");
+{ RefCell } :: import("std/sync/refcell");
 // ============================================================================
 // sleep_blocking — parks the calling thread
 // ============================================================================
@@ -53,18 +54,24 @@ test("sleep suspends the task instead of blocking the loop", {
   // develop@b8a24016e with `350 ms (order=11)` on a box where a 60ms sleep
   // measured 198ms, while ubuntu on the same run measured `200 ms (order=11)`
   // (issues/fixed/sleep-overlap-test-measured-runner-load.md).
-  order := Rc(i32)(0);
+  order := rc(RefCell(i32).new(0));
   slow := io.async((io : Io) => {
-    order.* = (order.* + i32(100));
+    order.with_mut(cur => {
+      cur = (cur + i32(100));
+    });
     io.await(sleep(Duration.from_millis(i64(200)), io), io);
-    order.* = (order.* + i32(10));
+    order.with_mut(cur => {
+      cur = (cur + i32(10));
+    });
   });
   fast := io.async((io : Io) => {
     io.await(sleep(Duration.from_millis(i64(20)), io), io);
     // 100 = the slow task started and has NOT finished. 0 would mean it never
     // started (fast ran first, serially); 110 would mean it finished first.
-    assert(order.* == i32(100), "fast task must finish while the slow one sleeps");
-    order.* = (order.* + i32(1));
+    assert(order.with(cur => cur) == i32(100), "fast task must finish while the slow one sleeps");
+    order.with_mut(cur => {
+      cur = (cur + i32(1));
+    });
   });
   start := Instant.now();
   hs := io.spawn(slow, io);
@@ -72,8 +79,8 @@ test("sleep suspends the task instead of blocking the loop", {
   _rs := hs.await(io);
   _rf := hf.await(io);
   elapsed := start.elapsed();
-  unsafe(printf("  overlapped sleeps took %lld ms (order=%d)\n", elapsed.as_millis(), order.*));
-  assert(order.* == i32(111), "both tasks must have run, fast finishing mid-sleep");
+  unsafe(printf("  overlapped sleeps took %lld ms (order=%d)\n", elapsed.as_millis(), order.with(cur => cur)));
+  assert(order.with(cur => cur) == i32(111), "both tasks must have run, fast finishing mid-sleep");
   // Wall clock is now only a hang guard, matching the sibling tests: a loaded
   // shared runner can dilate a 200ms timer several-fold without the async
   // scheduler being wrong about anything.

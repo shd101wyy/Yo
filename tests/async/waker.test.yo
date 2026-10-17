@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { yield } :: import("std/async");
 { Instant } :: import("std/time/instant");
 { sleep } :: import("std/sys/timer");
+{ RefCell } :: import("std/sync/refcell");
 
 test("Test yield_now runs every turn it is asked for", {
   // CORRECTNESS only, deliberately. `yield_now`'s reason to exist is that its
@@ -155,13 +156,13 @@ test("Test a waker is moved into a waiter list and back out", {
 //     for whoever will fire it.
 // ---------------------------------------------------------------------------
 test("Test park moves its waker into register, which keeps it", {
-  slot := Rc(Option(Waker))(Option(Waker).None);
+  slot := rc(RefCell(Option(Waker)).new(Option(Waker).None));
   // The signaller: takes the kept waker out of the slot and fires it.
   h := io.spawn(
     io.async({ slot }(io : Io) => {
       io.await(yield(io), io);
       fired := match(
-        slot.*.take(),
+        slot.with_mut(cur => cur.take()),
         .Some(w) => {
           w.wake();
           true
@@ -174,7 +175,10 @@ test("Test park moves its waker into register, which keeps it", {
   );
   io.await(
     park((w : Waker) => {
-      slot.* = Option(Waker).Some(w);
+      held := Option(Waker).Some(w);
+      slot.with_mut({ &mut held }(cur) => {
+        cur = held.take();
+      });
     }, io),
     io
   );
@@ -205,22 +209,24 @@ test("Test waking twice is a no-op", {
 test("Test a spawned task parks until the top level wakes it", {
   p := Park.new();
   w := p.waker();
-  ran := Rc(bool)(false);
+  ran := rc(RefCell(bool).new(false));
   h := io.spawn(
     io.async({ p, ran }(io : Io) => {
       io.await(p.wait(io), io);
-      ran.* = true;
+      ran.with_mut(cur => {
+        cur = true;
+      });
       return(i32(7));
     }),
     io
   );
   // Let the task reach its suspension point.
   io.await(yield(io), io);
-  assert(!(ran.*), "the task is parked, so it has not run past the park");
+  assert(!ran.with(cur => cur), "the task is parked, so it has not run past the park");
   assert(!h.is_finished(), "and it is not finished");
   w.wake();
   r := h.await(io);
-  assert(ran.*, "the wake resumed the task");
+  assert(ran.with(cur => cur), "the wake resumed the task");
   assert(match(r, .Some(v) => (v == i32(7)), .None => false), "and it produced its value");
 });
 
@@ -233,7 +239,7 @@ test("Test one signal wakes every waiter in a list", {
   n := usize(8);
   wakers := ArrayList(Waker).new();
   handles := ArrayList(JoinHandle(i32)).new();
-  woken := Rc(i32)(i32(0));
+  woken := rc(RefCell(i32).new(i32(0)));
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     p := Park.new();
@@ -242,7 +248,9 @@ test("Test one signal wakes every waiter in a list", {
       io.spawn(
         io.async({ p, woken }(io : Io) => {
           io.await(p.wait(io), io);
-          woken.* = (woken.* + i32(1));
+          woken.with_mut(cur => {
+            cur = (cur + i32(1));
+          });
           return(i32(1));
         }),
         io
@@ -250,7 +258,7 @@ test("Test one signal wakes every waiter in a list", {
     );
   });
   io.await(yield(io), io);
-  assert(woken.* == i32(0), "nobody has run past their park yet");
+  assert(woken.with(cur => cur) == i32(0), "nobody has run past their park yet");
   // One pass over the list, waking every waiter. A `Waker` is move-only
   // (§3.13 A5), so it is borrowed in place: `get` would copy it.
   (j : usize) = usize(0);
@@ -267,7 +275,7 @@ test("Test one signal wakes every waiter in a list", {
       .None => ()
     );
   });
-  assert(woken.* == i32(8), "every one of the eight waiters ran");
+  assert(woken.with(cur => cur) == i32(8), "every one of the eight waiters ran");
 });
 
 // ---------------------------------------------------------------------------
@@ -307,7 +315,7 @@ test("Test dropping a waker leaves the loop able to finish other work", {
 // ---------------------------------------------------------------------------
 test("Test a waker relay hands off without a millisecond floor", {
   n := usize(400);
-  hops := Rc(i32)(i32(0));
+  hops := rc(RefCell(i32).new(i32(0)));
   handles := ArrayList(JoinHandle(i32)).new();
   // Built from the last task back: each park moves into its task, and the
   // task before it holds its waker.
@@ -320,7 +328,9 @@ test("Test a waker relay hands off without a millisecond floor", {
       io.spawn(
         io.async({ mine, next_w, hops }(io : Io) => {
           io.await(mine.wait(io), io);
-          hops.* = (hops.* + i32(1));
+          hops.with_mut(cur => {
+            cur = (cur + i32(1));
+          });
           match(next_w, .Some(w) => w.wake(), .None => ());
           return(i32(1));
         }),
@@ -344,7 +354,7 @@ test("Test a waker relay hands off without a millisecond floor", {
     );
   });
   elapsed_ms := started.elapsed().as_millis();
-  assert(hops.* == i32(400), "every hand-off in the relay ran exactly once");
+  assert(hops.with(cur => cur) == i32(400), "every hand-off in the relay ran exactly once");
   // A LOOSE bound on purpose. The floor-removal number belongs in the plan
   // record, measured standalone (400 hand-offs: 0 ms, against 603 ms for the
   // 1 ms-timer form, at both -O0 and -O2); a tight bound here would pin this

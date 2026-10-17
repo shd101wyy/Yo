@@ -9,6 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { hash_one } :: import("std/hash");
+{ RefCell } :: import("std/sync/refcell");
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
@@ -96,7 +97,7 @@ test("Test Rc in different data structures", {
     x := rc(3);
     y := rc(x);
     z := rc(y);
-    z.* = rc(rc(10));
+    Rc.make_mut(&mut z) = rc(rc(10));
   };
   // Array containing Rc
   {
@@ -2632,4 +2633,109 @@ test("an early return after or before a consume releases the local once", {
   assert(g_consume_disposed == (before + i32(3)), "return before the consume: once");
   assert(_exit_then_consume(false) == i32(2), "fell through");
   assert(g_consume_disposed == (before + i32(4)), "consume at the end: once");
+// ---------------------------------------------------------------------------
+// Decision 46 Generation B (plans/VALUES_BY_DEFAULT.md §6 "Decision 46" step
+// 2): an `Rc`'s payload is read-only through the handle, so every write
+// through one is E0919, whose text names the doors.
+// ---------------------------------------------------------------------------
+_RoNode :: ref(struct(n : i32));
+_RoShared :: struct(n : i32, items : ArrayList(i32), node : _RoNode);
+_ro_bump :: (fn(x : &mut i32) -> unit)({
+  x = (x + i32(1));
+});
+_ro_peek :: (fn(x : &mut i32) -> i32)(x);
+_ro_read :: (fn(x : &i32) -> i32)(x);
+_ro_run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
+_ro_make :: (fn() -> Rc(_RoShared))(rc(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
+_RoHolder :: struct(h : Rc(_RoShared));
+test("a write through an Rc handle is E0919, naming the doors", {
+  h := _ro_make();
+  // An assignment to the payload, to a field under it, to an element under it.
+  comptime_expect_error({
+    h.* = _RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)));
+  }, "read-only through the handle");
+  comptime_expect_error({
+    h.n = i32(3);
+  }, "read-only through the handle");
+  comptime_expect_error({
+    h.*.n = i32(3);
+  }, "read-only through the handle");
+  comptime_expect_error({
+    h.items(usize(0)) = i32(3);
+  }, "read-only through the handle");
+  // The text names every door.
+  comptime_expect_error({
+    h.n = i32(3);
+  }, "RefCell");
+  comptime_expect_error({
+    h.n = i32(3);
+  }, "Rc.make_mut(&mut h)");
+  comptime_expect_error({
+    h.n = i32(3);
+  }, "Rc.try_unwrap(h)");
+  // A `&mut` argument, whether or not the callee writes it, as in Rust.
+  comptime_expect_error(_ro_bump(&mut h.n), "read-only through the handle");
+  comptime_expect_error(_ro_peek(&mut h.n), "read-only through the handle");
+  // A local `&mut` borrow of a place in the payload.
+  comptime_expect_error({
+    r := &mut h.n;
+    r = i32(2);
+  }, "read-only through the handle");
+  // A `self : &mut Self` receiver, spelled through the payload or auto-dereferenced.
+  comptime_expect_error(h.items.push(i32(1)), "read-only through the handle");
+  xs := rc(ArrayList(i32).new());
+  comptime_expect_error(xs.push(i32(1)), "read-only through the handle");
+  // A `ref` object reached from the payload is in the payload.
+  comptime_expect_error({
+    h.node.n = i32(5);
+  }, "read-only through the handle");
+  // Through a parameter, a struct field holding the handle, and an Rc in an Rc.
+  comptime_expect_error({
+    _ro_param_write :: (fn(p : &Rc(_RoShared)) -> unit)({
+      p.n = i32(4);
+    });
+  }, "read-only through the handle");
+  holder := _RoHolder(h : _ro_make());
+  comptime_expect_error({
+    holder.h.n = i32(4);
+  }, "read-only through the handle");
+  nested := rc(rc(i32(1)));
+  comptime_expect_error({
+    nested.*.* = i32(2);
+  }, "read-only through the handle");
+  // Inside a closure body.
+  comptime_expect_error(
+    _ro_run(() => {
+      h.n = i32(6);
+    }),
+    "read-only through the handle"
+  );
+});
+test("reads, & lends, the handle itself and the doors are not E0919", {
+  h := _ro_make();
+  assert(h.n == i32(1), "a read through the handle");
+  assert(_ro_read(&h.n) == i32(1), "a & lend of a place in the payload");
+  assert(h.items.len() == usize(0), "a &self method on the payload");
+  // The handle is the holder's own: rebinding it is not a write through it.
+  h = _ro_make();
+  holder := _RoHolder(h : h);
+  holder.h = _ro_make();
+  assert(holder.h.n == i32(1), "a field holding a handle is rebound");
+  // A `ref(struct)` handle is not an `Rc`: its own fields are written through it.
+  node := _RoNode(n : i32(0));
+  node.n = i32(7);
+  assert(node.n == i32(7), "a ref object is written through its handle");
+  // The doors.
+  p := rc(i32(1));
+  Rc.make_mut(&mut p) = i32(8);
+  assert(p.* == i32(8), "make_mut on the only handle");
+  cell := rc(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))));
+  other := cell;
+  other.with_mut(s => {
+    s.n = i32(9);
+    s.items.push(i32(1));
+  });
+  assert(cell.with(s => ((s.n == i32(9)) && (s.items.len() == usize(1)))), "a write through a RefCell door is seen through the other handle");
+  n := match(Rc.try_unwrap(rc(i32(4))), .Ok(v) => v, .Err(_) => i32(0));
+  assert(n == i32(4), "try_unwrap moves the payload out of the only handle");
 });

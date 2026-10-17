@@ -3209,19 +3209,21 @@ test_capture :: (fn() -> unit)({
   counter := i32(0);
 
   // Reference-semantics type - captured by reference
-  data := Rc(i32)(i32(42));
+  data := rc(RefCell(i32).new(i32(42))); // `std/sync/refcell`
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
       counter = (counter + increment); // Modifies local copy
-      data.* = (data.* + increment); // Modifies shared object
+      data.with_mut(v => {
+        v = (v + increment);
+      }); // Modifies shared object
       return(counter);
     }
   );
 
   closure(5);
   // counter is still 0 (closure has its own copy)
-  // data.* is now 47 (shared reference)
+  // data.with(v => v) is now 47 (shared reference)
 });
 ```
 
@@ -3470,8 +3472,7 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > ```yo
 > a := rc(i32(42));
 > b := a;                    // a second handle, NOT a copy of the value
-> consume(b.* = i32(7));
-> assert((a.* == i32(7)), "a and b name the SAME value");
+> assert(ref_count(a) == usize(2), "a and b name the SAME value");
 > ```
 >
 > Reference counting is Yo's *universal* object model, not one container's
@@ -3517,9 +3518,9 @@ assert(p.*.x == 3);
 
 // Rc with explicit type
 b := Rc(i32)(100); // Same as rc(100)
-// Modify the wrapped value
-m := rc(10);
-m.* = 20;
+// The payload is read-only through the handle (E0919); a door writes it
+m := rc(i32(10));
+Rc.make_mut(&mut m) = i32(20); // in place: m is the only handle
 assert(m.* == 20);
 ```
 
@@ -3585,9 +3586,8 @@ test("Rc reference counting", {
   another := copy; // RC increment
   // All three point to the same Rc
   assert(original.* == 42);
-  original.* = 100;
-  assert(copy.* == 100); // Shared!
-  assert(another.* == 100);
+  assert(copy.* == 42); // Shared!
+  assert(ref_count(another) == usize(3));
 
   // RC decrements when variables go out of scope
 });
@@ -3597,12 +3597,9 @@ test("Rc reference counting", {
 
 An `Rc`'s payload is shared, so it is **read-only through the handle**, as
 in Rust ([decision 46 of the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)).
-The compiler still admits a write through an `Rc` today (`h.n = v`,
-`original.* = 100` above, `h.items.push(v)`); the write becomes an error in
-a later release, once std and the compiler have moved to the doors below.
-`YO_AUDIT_RC_WRITE=1 yo compile <file> --skip-c-compiler` lists every such
-write (`kind=assign|mut-arg|mut-recv`, with `proved=yes` when the cell is
-fresh in its function). Write new code with the doors:
+A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
+`h.items.push(v)`) is error E0919, which names the doors below
+(`yo explain E0919`):
 
 - **`RefCell(T)`** (`std/sync/refcell`) is the payload for shared mutation:
   `Rc(RefCell(T))`. Access is scoped to a closure, as `Mutex(T)`'s is:
