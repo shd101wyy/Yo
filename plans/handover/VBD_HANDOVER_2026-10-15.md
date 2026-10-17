@@ -766,7 +766,7 @@ x :: 12;                           // a true constant
 
 ### 6.2 Filed this cycle and still open (S2/S3)
 
-- `issues/2026-10-16-consume-of-an-owned-local-as-a-statement-leaks-it.md` (S2): found by §4 step 10's Tier 1 (`tests/std_export_coverage.test.yo` leaked its `stdin()` handle through `consume(s)`; the test no longer uses it).
+- `issues/fixed/2026-10-16-consume-of-an-owned-local-as-a-statement-leaks-it.md` (S2): found by §4 step 10's Tier 1 (`tests/std_export_coverage.test.yo` leaked its `stdin()` handle through `consume(s)`; the test no longer uses it). **Fixed** by #1416: `consume(x)` of an owned value releases it, as `drop(x)` does.
 - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 - `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed by #1402 (E0918).

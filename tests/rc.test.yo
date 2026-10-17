@@ -2511,3 +2511,114 @@ test("Rc.make_mut needs a Clone payload, as Rust's does", {
   h := rc(_DoorToken(tag : i32(0)));
   comptime_expect_error(Rc.make_mut(&mut h));
 });
+// `consume(x)` of an owned value moves it into the builtin, which returns
+// `unit`: nothing else owns the value, so the consume releases it, as
+// `drop(x)` does. It used to mark `x` moved (suppressing the scope-end drop)
+// and emit `x;`, so the value leaked
+// (issues/fixed/2026-10-16-consume-of-an-owned-local-as-a-statement-leaks-it.md).
+// Drop deltas pin "exactly once, at the consume": a missing release counts 0,
+// a release on top of a surviving scope-end drop counts 2.
+(mut(g_consume_disposed) : i32) = i32(0);
+_ConsumeBox :: ref(struct(tag : i32));
+impl(
+  _ConsumeBox,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_consume_disposed = (g_consume_disposed + i32(1));
+    })
+  )
+);
+_consume_make :: (fn(t : i32) -> _ConsumeBox)(_ConsumeBox(tag : t));
+_consume_param :: (fn(b : _ConsumeBox) -> unit)({
+  consume(b);
+});
+_consume_borrow :: (fn(b : &_ConsumeBox) -> unit)({
+  consume(b);
+});
+test("consume of an owned local releases it at the consume", {
+  before := g_consume_disposed;
+  {
+    s := _ConsumeBox(tag : i32(1));
+    assert(s.tag == i32(1), "the local is live before the consume");
+    consume(s);
+    assert(g_consume_disposed == (before + i32(1)), "released at the consume, not at scope end");
+  };
+  assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+});
+test("consume of a call result releases the result", {
+  before := g_consume_disposed;
+  {
+    consume(_consume_make(i32(2)));
+  };
+  assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+});
+test("consume of an alias releases only the alias's count", {
+  before := g_consume_disposed;
+  {
+    a := _ConsumeBox(tag : i32(3));
+    b := a;
+    consume(b);
+    assert(g_consume_disposed == before, "the original still holds the object");
+    assert(a.tag == i32(3), "and still reads it");
+  };
+  assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+});
+test("consume in one cond arm releases the local once on either path", {
+  (i : i32) = i32(0);
+  while(i < i32(2), {
+    before := g_consume_disposed;
+    {
+      s := _ConsumeBox(tag : i);
+      cond(
+        (s.tag == i32(0)) => consume(s),
+        true => ()
+      );
+    };
+    assert(g_consume_disposed == (before + i32(1)), `path ${i.to_string()}: released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+    i = (i + i32(1));
+  });
+});
+test("consume of an owned parameter releases only the callee's count", {
+  before := g_consume_disposed;
+  {
+    s := _ConsumeBox(tag : i32(4));
+    _consume_param(s);
+    assert(s.tag == i32(4), "the caller's value survives the callee's consume");
+  };
+  assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+});
+test("consume of a borrow releases nothing", {
+  before := g_consume_disposed;
+  {
+    s := _ConsumeBox(tag : i32(5));
+    _consume_borrow(&s);
+    assert(g_consume_disposed == before, "the borrow's consume left the value alone");
+    assert(s.tag == i32(5), "and the owner still reads it");
+  };
+  assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+});
+// An exit after the consume must not release the value again, and an exit
+// before it must still release it: exactly one release on every path.
+_consume_then_exit :: (fn(flag : bool) -> i32)({
+  s := _ConsumeBox(tag : i32(6));
+  consume(s);
+  cond(flag => return(i32(1)), true => ());
+  i32(2)
+});
+_exit_then_consume :: (fn(flag : bool) -> i32)({
+  s := _ConsumeBox(tag : i32(7));
+  cond(flag => return(i32(1)), true => ());
+  consume(s);
+  i32(2)
+});
+test("an early return after or before a consume releases the local once", {
+  before := g_consume_disposed;
+  assert(_consume_then_exit(true) == i32(1), "returned early");
+  assert(g_consume_disposed == (before + i32(1)), "consume then return: once");
+  assert(_consume_then_exit(false) == i32(2), "fell through");
+  assert(g_consume_disposed == (before + i32(2)), "consume then fall through: once");
+  assert(_exit_then_consume(true) == i32(1), "returned early");
+  assert(g_consume_disposed == (before + i32(3)), "return before the consume: once");
+  assert(_exit_then_consume(false) == i32(2), "fell through");
+  assert(g_consume_disposed == (before + i32(4)), "consume at the end: once");
+});

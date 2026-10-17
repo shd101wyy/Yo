@@ -1333,6 +1333,8 @@ ptr.* = some_value; // 危险！
 consume(ptr.* = some_value);
 ```
 
+对其他任何参数，`consume(x)` 会移动 `x`（之后再使用会报 "use of moved value"）；由于它返回 `unit`，它就是该值的最后一个所有者：被拥有的值在 consume 处释放，与 `drop(x)` 的释放完全相同。不拥有其值的绑定（`&T` 借用）只会被标记为已移动。
+
 更多指针示例请参阅 [ptr.test.yo](../tests/ptr.test.yo)。
 
 ### 可空指针

@@ -4,14 +4,15 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Token } :: import("../../token.yo");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call_of, BK_ASSIGN, BF_UNSAFE } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
   expr_info_table_set,
   expr_info_table_get,
   expr_info_adopt_env,
-  record_branch_consume
+  record_branch_consume,
+  record_consume_release
 } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 {
@@ -24,6 +25,7 @@
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 {
   TokenAndError,
   format_error_messages,
@@ -107,6 +109,40 @@ set_variable_as_consumed :: (
     }
   );
 });
+/// `consume(p.* = v)` (also spelled inside `unsafe(...)`): initialization
+/// through a raw pointer. The assignment's value is the slot's OLD content,
+/// which is uninitialized memory, so the consume's whole point is that nothing
+/// releases it.
+_is_init_assignment :: (fn(arg : &AstExpr) -> bool)(
+  cond(
+    ast_expr_is_fn_call_of(arg, BK_ASSIGN, Option(usize).None) => true,
+    ast_expr_is_fn_call_of(arg, BF_UNSAFE, Option(usize).Some(usize(1))) => match(
+      arg,
+      .FnCall(_, _, uargs, _, _) => match(uargs.get(usize(0)), .Some(inner) => recur(&inner), .None => false),
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+);
+/// `consume(x)` moves `x`, and the builtin returns `unit`, so it is the
+/// value's last owner: an owned value is released at the consume, as
+/// `drop(x)` releases it, instead of leaking
+/// (issues/fixed/2026-10-16-consume-of-an-owned-local-as-a-statement-leaks-it.md).
+/// The test mirrors the scope-end drop scheduler's eligibility
+/// (`_schedule_scope_end_drops`, evaluator/exprs/begin.yo): the consume's mark
+/// suppresses exactly that drop. A capture of the current closure belongs to
+/// the closure's capture struct, which releases it.
+_consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &EvalContext) -> bool)({
+  vars := get_variables_from_env(env, name);
+  v := match(vars.last(), .Some(v) => v, .None => return(false));
+  some_undroppable := match(
+    v.ty,
+    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    _ => false
+  );
+  captured := match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false);
+  v.is_owning_the_rc_value && (type_contains_rc_type(&v.ty) && (!v.is_module_level && (!v.is_ref && (!some_undroppable && (v.consumed_at_token.is_none() && !captured)))))
+});
 evaluate_consume :: (
   fn(
     expr : &AstExpr,
@@ -165,6 +201,11 @@ evaluate_consume :: (
   match(
     variable_name_opt,
     .Some(vname) => {
+      // Decided before the mark: the value is released here exactly when the
+      // scope-end drop the mark suppresses would have released it.
+      if(!is_tv && !_is_init_assignment(&arg_expr) && _consume_releases_variable(&vname, &cur_env, ctx), {
+        record_consume_release(ast_expr_id(expr));
+      });
       set_variable_as_consumed(&vname, ast_expr_token(&arg_expr), &cur_env, false, is_tv, exn);
     },
     .None => ()

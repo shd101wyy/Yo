@@ -1366,6 +1366,8 @@ ptr.* = some_value; // Danger!
 consume(ptr.* = some_value);
 ```
 
+On any other argument, `consume(x)` moves `x` (a later use is "use of moved value") and, since it returns `unit`, it is the value's last owner: an owned value is released at the consume, exactly as `drop(x)` releases it. A binding that does not own its value (a `&T` borrow) is only marked moved.
+
 For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
 
 ### Nullable Pointers
