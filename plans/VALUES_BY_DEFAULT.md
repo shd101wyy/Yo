@@ -127,6 +127,9 @@ Progress:
     hashed (feat/vbd-v4-typevalue-rc-handle; decision 21's "As built"
     note). The value-enum conversion was built and measured first, and
     lost.
+  - V4's `Z3Sexpr` as a value enum (feat/vbd-v4-z3sexpr-box; V4's "as
+    built"). `VcSort` and `VcTerm` wait on a decision (`Box` or `Rc`
+    children, `issues/questions/`).
   - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
     the cycle, reach and `Acyclic` walks through its buffer, not a raw view
     in safe code, and value-rooted borrow flags lower to nothing (#1384).
@@ -6961,7 +6964,26 @@ stage-2 RSS):
     `initialization_assignment.yo`, `assignment.yo`) go through
     `ExprInfo.macro_expansion`, or `args` becomes `Rc(ArrayList(Self))`.
   - `FuncValData` stays behind `Rc`.
-- **`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`:** `Box` children.
+- **`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`:** `Box` children. As built:
+  - **`Z3Sexpr`** (2026-10-17): a value enum,
+    `enum(Atom(text : String), List(items : ArrayList(Self)))`. It has no
+    direct `Self` child, so it needs no `Box`; a `List` owns its items
+    through the `ArrayList`. Measured against develop's binary, both built
+    from `5425cd7bf` with seed v0.2.63: the C that `src/main.yo` compiles
+    to is byte-identical, and `check src/main.yo` makes 1,822,496,689
+    allocation calls against 1,823,309,567 (−0.045%; the ratchet baseline
+    is 1,799,052,684). The timing A/B (`check ./src` time and stage-2 RSS,
+    exclusive) is measured after merge, because the heavy queue was 35 deep.
+  - **`VcSort`, `VcTerm`:** not converted. They live in
+    `HashMap(String, VcTerm)` / `HashMap(String, VcSort)`, which cannot hold
+    a move-only value and whose `get` copies (49 sites in `vc.yo`). The
+    symbolic walk snapshots the environment at every branch and merges with
+    `ite` terms, so `Box` children would deep-copy on every snapshot (the
+    pattern that made the value `TypeValue` 2.3× slower). The decision is
+    open in
+    `issues/questions/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
+    which recommends `Rc` for `VcTerm` and `Box` for `VcSort` once maps can
+    hold move-only values. Both stay `ref(enum)` until then.
 - **`EvalValue`:** last. The comptime-place model aliases on purpose, so its
   place fields stay `Rc(ArrayList(Self))`. Its children are `Rc` or a
   unique `Box`, decided by measurement.
