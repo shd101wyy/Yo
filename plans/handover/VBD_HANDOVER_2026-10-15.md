@@ -423,7 +423,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 >   - **Generation A exemption** (`is_global_mut_rule_exempt`): std, `<std>/../src/`, store dependencies and `auto-generated://` code.
 >   - `YO_AUDIT_GLOBAL_LEND=1` is the census, and `yo fix --migrate mutable-globals` inserts the markers (it skips `comptime_expect_error` bodies).
 > - **Also fixed:** a `thread_local` passed as a call argument emitted an undeclared C identifier (S2; the branch's `fixed/` doc `2026-10-15-a-thread-local-passed-as-a-call-argument-emits-an-undeclared-c-identifier.md`).
-> - **Filed:** S3 `2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`. A multi-file `yo fix` mixed generic impls across files. **Fixed** on `fix/yo-fix-multi-file-generic-impls` (`issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`): the generic coherence keys carry the declaring module, so a directory run evaluates each file beside the others.
+> - **Filed:** S3 `2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`. A multi-file `yo fix` mixed generic impls across files. **Fixed** on `fix/yo-fix-multi-file-generic-impls` (#1430, `issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`): the generic coherence keys carry the declaring module, so a directory run evaluates each file beside the others.
 > - **Tests and records:**
 >   - `tests/global_lend.test.yo` (10 tests);
 >   - 82 test globals marked by the migration, 4 rewritten by hand;
