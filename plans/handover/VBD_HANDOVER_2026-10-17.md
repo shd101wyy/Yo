@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 00:40 CST):** develop is at `b1a3d6712` (#1435). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 01:00 CST):** develop is at `fc7b02a02` (#1412). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -47,6 +47,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1425 | `yo check` reports errors in any closure with an `io : Io` parameter (S3; it was not specific to D3) |
 | #1426 | A recursive enum's self-shell lowers like its nullable-pointer final (derive Clone S2) |
 | #1423 | Handover status notes |
+| #1412 | V3 A5: `Waker` implements `Clone` over `__yo_waker_clone` (Generation B on the v0.2.64 seed); `cross_thread_wake` uses `w.clone()` again |
 | #1435 | V4: the verifier's `Z3Sexpr` is a value enum (no `Box` needed: its children live in an `ArrayList`). `VcSort`/`VcTerm` wait on `issues/questions/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md` (recommends `Rc` for `VcTerm`, `Box` for `VcSort`, once maps hold move-only values). Its exclusive timing A/B runs once the heavy queue drains. |
 
 ### 2.3 The v0.2.65 release gate
@@ -72,8 +73,7 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 | `feat/vbd-v4-pattern-box` (no PR) head `a103189f6` | V4: the `Pattern` tree with `Box` children | Stacked on the unwind fix; it crashed (SIGSEGV in `_bridge_expr_info`) only because of that S1. Allocations +0.27%; 23/29 Tier 1 files green, 4 internal files fail on leak verdicts only (develop comparison queued). The `check ./src` A/B timing is deferred until the heavy queue holds 3 or fewer tickets. |
 | #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Built on the official v0.2.64 seed. The full Tier 1 (internal in-process, cli-diff, `yo test ./std`, site build) passed with a develop-built compiler and is re-running on the seed build. Mark ready, then merge. |
 | `feat/v2b-genb-b1-migration` (no PR) head `73da377dc` | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Restacked on its head `8db9c7b6a`; the sweeps run after the build. Opens as a draft until #1414 merges. |
-| #1421 `feat/vbd-d46-genb` (draft) head `657fb0d68` | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | Official-seed build; check src/std green; cli-diff goldens reviewed and re-recorded. **Open item:** its in-process internal run with verdicts on shows 576 leak-only failures. Report the CI-mode result (`YO_TEST_LEAK_VERDICT=0`, which should be 0 failures) and a per-file leak comparison against develop for the top 5 files before merging. It worked around two pre-existing S2s in `std/async/channel.yo` (filed on its branch); the fix for those should remove the workarounds. |
-| #1412 `feat/vbd-waker-clone-genb` (draft) head `8833a80c2` | A5 `Waker.clone` Generation B | Every gate is green on the v0.2.64 seed except cli-diff, which is queued. |
+| #1421 `feat/vbd-d46-genb` (draft) head `af4506896` | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | In-process `tests/internal` run found one E0919 site the census missed (it excludes `tests/internal`): `suspension_analysis`, fixed in `af4506896`. Every census-excluded directory was then checked: no other E0919. Remaining: the `suspension_analysis` rerun, the leak comparison against develop's binary on the top-5 leak files, the ratchet and the census. |
 | #1409 `fix/downcast-receiver-leak` head `8811cd342` | A downcast/upcast result declares its owning temp; `Iso(T)(v)` shares the same fix (S2) | All 9 feature files green, and the new Iso test fails on develop. Only the emit-diff is left. |
 | #1424 `fix/send-closure-and-fn-value` head `3bd849953` | A closure capture struct is Send/Sync by its captures (S2s) | Tier 1 green except the in-process internal run, which had reached file 63 of 108 with no failures. |
 | `fix/not-runtime-bool-comptime-fn` (no PR) head `64127047a` | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
