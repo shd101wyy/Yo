@@ -5,6 +5,7 @@
 // (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
 _In :: struct(m : i32);
 derive(_In, Copy, Clone);
 _P :: struct(n : i32, inner : _In, arr : Array(i32, 3), pair : Tuple(i32, i32));
@@ -71,6 +72,23 @@ _mut_local_borrow_of_field :: (fn(p : &_P) -> unit)({
 _write_box_payload_field :: (fn(b : &Box(_P)) -> unit)({
   comptime_expect_error(b.n = i32(1), "is a `&T` parameter, a read-only borrow");
 });
+_call_mut_method_on_box :: (fn(b : &Box(_P)) -> unit)({
+  comptime_expect_error(b.inc(), "Cannot");
+});
+_pass_whole_param_mut :: (fn(n : &i32) -> unit)({
+  comptime_expect_error(_set_i32(&mut n, i32(1)), "Cannot");
+});
+// A value struct holding RC data keeps the borrowed-copy E0908.
+_S :: struct(s : String, n : i32);
+impl(
+  _S,
+  bump_n : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_call_mut_method_on_rc_struct :: (fn(s : &_S) -> unit)({
+  comptime_expect_error(s.bump_n(), "Cannot");
+});
 impl(
   _P,
   set_through_shared_self : (fn(self : &Self) -> unit)({
@@ -95,6 +113,13 @@ test("a field write through a `&T` parameter is E0908", {
   _write_array_param(&a);
   b := box(_mk());
   _write_box_payload_field(&b);
+  _call_mut_method_on_box(&b);
+  n := i32(0);
+  _pass_whole_param_mut(&n);
+  s := _S(s : String.from("a"), n : i32(0));
+  _call_mut_method_on_rc_struct(&s);
+  assert(n == i32(0), "unchanged");
+  assert(s.n == i32(0), "unchanged");
   assert(x.n == i32(0), "unchanged");
   assert(x.inner.m == i32(0), "unchanged");
   assert(x.arr(usize(0)) == i32(0), "unchanged");
