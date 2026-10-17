@@ -384,17 +384,17 @@ println(p1.to_string());
 - Works for both structs and enums
 - Custom derives can be registered with `derive_rule`; see [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)
 
-### Recursive enum with `ArrayList(Self)`: derive `Eq`, not `Clone`
+### Recursive enum with `ArrayList(Self)`: derive `Eq` and `Clone`
 
-`derive(Node, Eq(Node))` works on a recursive enum; the derived `==` recurses
-through the list:
+`derive(Node, Eq(Node), Clone)` works on a recursive enum; the derived `==`
+recurses through the list, and the clone gets its own list:
 
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
 
 Node :: enum(Leaf, Branch(children : ArrayList(Self)));
-derive(Node, Eq(Node));
+derive(Node, Eq(Node), Clone);
 
 main :: (fn() -> unit)({
   xs := ArrayList(Node).new();
@@ -403,13 +403,13 @@ main :: (fn() -> unit)({
   ys.push(Node.Leaf);
   assert(Node.Branch(xs) == Node.Branch(ys), "same shape");
   assert(Node.Branch(xs) != Node.Branch(ArrayList(Node).new()), "different shape");
+  assert(Node.Branch(xs).clone() == Node.Branch(ys), "the clone has the same shape");
 });
 export(main);
 ```
 
-`derive(Node, Clone)` on the same enum currently passes `yo check` but fails at
-C compile (`unknown type name`), an open compiler bug. Reference counting
-already shares such values by handle, so most code needs no `Clone` impl.
+A plain copy of a `Node` shares its `children` list by handle; `.clone()` is
+the independent copy.
 
 ### Comparing complex enum types
 
