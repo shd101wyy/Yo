@@ -131,3 +131,51 @@ test("Test a captured generic callback at T = unit", {
   assert(hits.len() == usize(1), "the captured unit callback ran exactly once");
   assert(match(hits.get(usize(0)), .Some(v) => v, .None => i32(0)) == i32(7), "it ran with the forwarded argument");
 });
+// Regression (issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md):
+// a generic function's by-value closure parameter whose type mentions its
+// type parameter takes a closure literal typed as a bare `fn(...)`, which is
+// bitwise-copyable. The caller kept the closure and the callee bound the
+// parameter non-owning, so a closure holding a `Drop` value could not be
+// moved on (E0901, "Take it `sink(...)`" on a parameter already `sink`).
+// The callee owns it now, and each closure's `Drop` value is dropped once.
+_CpfDrops :: ref(struct(n : i32));
+_CpfTok :: struct(v : i32, drops : _CpfDrops);
+impl(
+  _CpfTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.drops.n = (self.drops.n + i32(1));
+    })
+  )
+);
+_cpf_take :: (fn(generic(U : Type), sink(f) : Impl(Fn() -> U)) -> U)(f());
+_cpf_sink_relay :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(_cpf_take(() => cb()));
+_cpf_plain_relay :: (fn(generic(T : Type), cb : Impl(Fn() -> T)) -> T)(_cpf_take(() => cb()));
+_cpf_direct :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(cb());
+test("a generic function's closure parameter owns a closure literal holding a Drop value", {
+  drops := _CpfDrops(n : i32(0));
+  {
+    t := _CpfTok(v : i32(3), drops : drops);
+    assert(_cpf_sink_relay(() => t.v) == i32(3), "the sink relay ran the moved closure");
+  };
+  assert(drops.n == i32(1), "the sink relay's closure is dropped once");
+  {
+    t := _CpfTok(v : i32(4), drops : drops);
+    assert(_cpf_plain_relay(() => t.v) == i32(4), "the by-value relay ran the moved closure");
+  };
+  assert(drops.n == i32(2), "the by-value relay's closure is dropped once");
+  {
+    t := _CpfTok(v : i32(5), drops : drops);
+    assert(_cpf_direct(() => t.v) == i32(5), "the callee ran the closure it owns");
+  };
+  assert(drops.n == i32(3), "the closure the callee owns is dropped once");
+});
+// The counted-capture shape the stopgap took its own references for: the
+// relay now moves the closure on instead, and the caller's `String` is
+// released once (a second release is a use-after-free under ASan).
+test("a generic function's closure parameter owns a closure literal holding a counted value", {
+  s := String.from("counted");
+  assert(_cpf_sink_relay(() => s.len()) == usize(7), "the sink relay ran the closure over a String");
+  assert(_cpf_plain_relay(() => s.len()) == usize(7), "the by-value relay ran the closure over a String");
+  assert(s.len() == usize(7), "the caller's String is still alive");
+});

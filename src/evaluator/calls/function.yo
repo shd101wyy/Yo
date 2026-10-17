@@ -4449,6 +4449,32 @@ _fv_refine_closure_expected :: (
     true => param_ty
   )
 });
+/// The type that decides who owns a closure-literal argument of a by-value
+/// `Impl(Fn(...))` parameter, when the argument's own type does not.
+///
+/// A parameter whose type mentions the function's type parameter defers its
+/// closure-literal argument (`fn_literal_arg_is_deferred`), which is then
+/// typed as a bare `fn(...)` with its capture struct on the side
+/// (`expr_info_capture_type`). A `fn(...)` type is bitwise-copyable, so the
+/// caller kept and released the closure while the callee's by-value
+/// parameter was bound non-owning: a move-only closure could not be moved on
+/// inside the callee (E0901). Every other closure argument is typed by its
+/// `Impl(Fn)` wrapper resolved to the capture struct, which is not
+/// bitwise-copyable, so the callee owns it
+/// (issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md).
+///
+/// Returns that capture struct when it carries something to own (it is not
+/// bitwise-copyable), `.None` when the argument's own type decides.
+_fv_closure_argument_owned_type :: (fn(arg_info : &ExprInfo, decl_pt : &TypeValue, by_value : bool) -> Option(TypeValue))({
+  if(!by_value || !is_function_type(&arg_info.ty) || extract_fn_trait_from_type(decl_pt).is_none(), {
+    return(Option(TypeValue).None);
+  });
+  match(
+    expr_info_capture_type(arg_info),
+    .Some(cap) => if(type_is_bitwise_copy(cap.clone()), Option(TypeValue).None, Option(TypeValue).Some(cap)),
+    .None => Option(TypeValue).None
+  )
+});
 /// Put per-argument infos evaluated out of order (`idx[i]` is the argument
 /// index of `list[i]`; every argument appears once) back in source order.
 _fv_restore_order_infos :: (fn(list : &ArrayList(ExprInfo), idx : &ArrayList(usize)) -> ArrayList(ExprInfo))({
@@ -8717,6 +8743,9 @@ Fix: wrap the call:
         fv_s0_marked_args := ArrayList(AstExpr).new();
         // D3: `inout` arguments rooted in an atomic object, decided post-call.
         fv_d3_pending := ArrayList(D3PendingInout).new();
+        // The arguments (by index) that moved in as their capture struct
+        // (`_fv_closure_argument_owned_type`), bound owning below.
+        fv_closure_moved_args := ArrayList(usize).new();
         fv_param_is_owning := match(
           callee_info_opt,
           .Some(ci) => match(
@@ -9341,6 +9370,22 @@ Fix: wrap the call:
                   exn
                 );
               });
+              // A deferred closure literal is judged by its capture struct,
+              // not by the bitwise `fn(...)` type it was given, so it moves
+              // into a by-value `Impl(Fn)` parameter as every other closure
+              // does (`_fv_closure_argument_owned_type`). The rule reads the
+              // type from the argument's recorded ExprInfo, so it is retyped
+              // for the transfer only: generic inference below still reads
+              // the `fn(...)` type.
+              fv_arg_ty_as_written := arg_info.ty;
+              match(
+                _fv_closure_argument_owned_type(&arg_info, match(fv_param_types.get(ai), .Some(t) => t, .None => t_unit()), fv_p_owning && !fv_p_is_ct && !fv_p_is_ref),
+                .Some(fv_cap_ty) => {
+                  arg_info.ty = fv_cap_ty;
+                  fv_closure_moved_args.push(ai);
+                },
+                .None => ()
+              );
               match(
                 consume_argument_for_parameter(
                   &evaled_arg,
@@ -9363,6 +9408,7 @@ Fix: wrap the call:
                 },
                 .None => ()
               );
+              arg_info.ty = fv_arg_ty_as_written;
             });
           };
           ai = (ai + usize(1));
@@ -9891,6 +9937,18 @@ Fix: wrap the call:
           // String/struct/enum leaked
           // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
           p_is_own := match(fv_param_is_owning.get(pi), .Some(o) => o, .None => false);
+          // The caller moved a deferred closure literal in as its capture
+          // struct (the argument loop above): the callee owns it, so the
+          // parameter binds at that type and keeps the owning flag.
+          if(fv_closure_moved_args.contains(&pi), {
+            match(
+              expr_info_capture_type(&arg_info),
+              .Some(fv_cap_bind_ty) => {
+                bind_ty = fv_cap_bind_ty;
+              },
+              .None => ()
+            );
+          });
           var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path), match(callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty, pi), .None => false));
           match(
             var_opt,
