@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
   BK_COMPTIME,
   BF_DOT
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -2015,7 +2015,9 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   if(!variable.is_reassignable && !variable.is_parameter && !variable.is_implicit, {
     binding_require_mut(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), ctx, exn);
   });
-  if(!variable.is_reassignable, {
+  // `yo fix --migrate mut-bindings` recorded such a binding above and goes
+  // on evaluating; the marker it inserts makes the binding reassignable.
+  if(!variable.is_reassignable && !(migrate_mut_bindings_on() && !variable.is_parameter && !variable.is_implicit), {
     exn.throw(
       dyn(
         format_error_message_with_help(

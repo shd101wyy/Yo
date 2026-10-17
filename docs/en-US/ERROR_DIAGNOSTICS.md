@@ -215,6 +215,26 @@ anywhere, and a lend of a field written through it (`&h.name` after
 migrated files and rewrite each E0916 it reports. In this release both errors
 apply outside `std` and the compiler's own sources.
 
+`yo fix <path> --migrate mut-bindings` is the migration for decision 47's
+second step, which applies the same rule below module level: a local, a
+pattern or destructuring binding and a compile-time binding (`x :: v`,
+`comptime(x) := v`) are immutable unless the name is wrapped in `mut(...)`.
+Writing an unmarked one is E0917, for the same four writes (a reassignment, a
+field or element write of its value, a `&mut` lend of a place of it, including
+`y := &mut x`, a `&mut` match scrutinee and a `&mut` capture, and a `&mut self`
+call on it). The migration evaluates each file and wraps the declared name of
+every binding written this way: `x := v` becomes `mut(x) := v`, `(x : T) = v`
+becomes `(mut(x) : T) = v`, `x :: v` becomes `mut(x) :: v`, `comptime(x)`
+becomes `comptime(mut(x))`, `.Some(v)` becomes `.Some(mut(v))`, and
+`{ a, b }` becomes `{ a, mut(b) }`. A local's writes are all inside its
+function, so the inference is sound. A parameter takes no marker: each write
+of one is listed with its position, to rebind by hand (`mut(p_m) := p;`).
+Writes inside a `comptime_expect_error` argument are the error that case
+expects and are left alone. `YO_AUDIT_MUT_BINDINGS=1` prints every write of a
+binding below module level (`[mut-binding] how=… kind=… marked=yes|no`)
+without rejecting it. In this release E0917 for these bindings applies outside
+`std` and the compiler's own sources.
+
 `yo fix <path> --migrate explicit-copy` prepares the values-by-default plan's
 unique buffers (V2b). Once `String` and the std collections own their buffers
 uniquely, an implicit copy whose source is used again is E0901. The migration

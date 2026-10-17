@@ -87,7 +87,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, strip_mut_marker } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, strip_mut_marker, place_require_mut } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -360,6 +360,11 @@ _evaluate_inout_local_binding :: (
   env.input_string = rhs_info.env.input_string;
   prohibit_void_type(&rhs_info.ty, ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
+  // Decision 47 step 2: `y := &mut place` lends the place exclusively, so the
+  // binding at its root needs `mut(name)`.
+  if(is_mut && !place_has_deref, {
+    place_require_mut(&evaluated_rhs, ast_expr_token(rhs), &String.from("lend `&mut` (a local `&mut` borrow)"), true, env, ctx, exn);
+  });
   // `Type.member` is a namespace access, not storage.
   root_is_type := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&root_atom)),

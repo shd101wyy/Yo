@@ -515,16 +515,12 @@ y :: 5; // y: comptime_int, compile-time variable
 // or
 comptime(y) := 5;
 
-// All variables are mutable by default
-x := 1;
-x = 2; // OK: reassignment is allowed
 // (:) function is used to denote a type
 // (=) function is used to update a variable with a new value, or initialize a variable with a value
 // (:=) function is used to denote a runtime variable with type inferred
 // (::) function is used to denote a comptime variable with type inferred
 x : i32; // Define a runtime variable
 comptime(x) : i32; // Define a compile-time variable
-// All variables are mutable by default. There is no immutable variable, for simplicity.
 // Initialize variables
 (comptime(x) : comptime_int) = 12;
 (y : i32) = 14;
@@ -541,9 +537,55 @@ y := 14;
 z := 16;
 ```
 
-All variables are mutable by default.
+#### Bindings are immutable unless declared `mut(name)`
 
-> `mut` is a reserved word that appears only after `&` (`&mut T` in a slot, `&mut x` at a call site); a binding or parameter named `mut` is an error. `imm` is no longer a keyword.
+A binding cannot be written after its definition unless its name is wrapped
+in `mut(...)`, as Rust's `let mut` (plans/VALUES_BY_DEFAULT.md decision 47).
+The marker wraps the name in every binding position:
+
+```yo
+x := 0; // immutable
+mut(n) := 0; // mutable
+n = (n + 1); // OK
+(mut(t) : i32) = 0;
+mut(c) :: 12; // mutable at compile time
+comptime(mut(d)) := 12; // a mutable compile-time variable
+r := match(opt, .Some(mut(v)) => {
+  v = (v + 1);
+  v
+}, .None => 0);
+{ a, mut(b) } := pair; // per name in a destructuring
+```
+
+`mut` gates four writes of the binding and of every place under it:
+
+- reassignment (`x = v`);
+- a field or element write (`p.x = v`, `a(i) = v`);
+- a `&mut` lend (`f(&mut x)`, `y := &mut x.f`, `match(&mut x, …)`, a `&mut x` capture);
+- a `&mut self` method call (`s.push_str("!")` on a `String`).
+
+Each is error E0917 on a binding declared without the marker. A `ref` handle
+the binding holds (today's collections, a `ref(struct(...))` object) is a
+pointer: a field write or a `&mut self` call through it writes the object, not
+the binding, and needs no marker; reassigning the binding does. A borrow
+(`x : &mut T`, `y := &mut place`) is written through, not written. The first
+assignment of a binding declared without a value (`(x : T);`) initializes it.
+
+Parameters take no `mut`: they stay immutable, and `mut(x) : T` on a
+parameter is the deleted borrow spelling (E0009). A body that changes a
+by-value argument rebinds it, `mut(y) := x;`, which moves an owning value; one
+that should change the caller's value takes `x : &mut T`. A module-level
+binding follows the same rule: an unmarked one is Rust's `static`,
+`mut(G) := v` is `static mut` (and is never lent to a call, E0916). A
+mutable compile-time binding lives in a block; `mut(x) ::` at module level is
+an error, because module-level `::` bindings are forced lazily and in no fixed
+order.
+
+`yo fix <path> --migrate mut-bindings` inserts the markers in older code. In
+this release the rule is enforced outside `std/` and the compiler's own
+sources, which the released seed still builds.
+
+> `mut` is a reserved word: it wraps a binding's name (`mut(x) := v`) and follows `&` (`&mut T` in a slot, `&mut x` at a call site); a binding or parameter named `mut` is an error. `imm` is no longer a keyword.
 
 #### No variable shadowing
 
