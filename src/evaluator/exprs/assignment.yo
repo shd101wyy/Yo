@@ -618,12 +618,15 @@ require_no_inout_write_through_borrow :: (
         );
       });
       (is_judged : bool) = (type_contains_rc_type(&arg_ty) && _is_value_aggregate_type(&arg_ty));
-      // Any other place inside a `&T` parameter's borrowed value: the borrow
-      // is read-only, whatever the place holds (plans/VALUES_BY_DEFAULT.md
-      // §3.1). A judged place gets the borrowed-copy error below instead.
+      // A plain-data place inside a `&T` parameter's borrowed value: the
+      // borrow is read-only (plans/VALUES_BY_DEFAULT.md §3.1). A judged place
+      // gets the borrowed-copy error below instead; a handle place (a `ref`
+      // object, an `Rc`, a std collection: `h.xs.push(v)`) is lent to a
+      // callee that writes the storage the handle shares, which the caller
+      // sees, until the V2b flip makes the collections values.
       (is_auto_generated : bool) = ast_expr_token(&arg).module_path.starts_with(String.from("auto-generated://"));
       (is_shared_param_write : bool) = false;
-      if(!is_auto_generated && !is_judged, {
+      if(!is_auto_generated && !type_contains_rc_type(&arg_ty), {
         match(
           shared_borrow_param_root_of_place(&arg, env, ctx),
           .Some(sbv) => {

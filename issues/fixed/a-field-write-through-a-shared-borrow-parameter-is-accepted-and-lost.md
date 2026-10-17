@@ -64,8 +64,11 @@ read-only borrow of the caller's value.`):
 - a `&mut` local borrow of such a place (`q := &mut p.inner.m`).
 
 A step through a handle (a `ref` object, an `Rc`, a std collection) still
-reaches storage the handle shares, so `h.xs.push(v)` on `h : &H` stays
-legal until the V2b flip makes the collections values.
+reaches storage the handle shares, and so does lending a handle place to a
+`&mut` parameter or receiver: `h.xs.push(v)` on `h : &H` stays legal until
+the V2b flip makes the collections values. (The `&mut` argument check
+applies to places of plain-data type; a value aggregate holding RC data
+already gets the borrowed-copy E0908.)
 
 The E0908 explanation (`yo explain E0908`, en and zh-CN) no longer says
 that plain-data fields of a `&T` parameter can be written.
