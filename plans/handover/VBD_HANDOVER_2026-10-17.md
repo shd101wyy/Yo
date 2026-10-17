@@ -2,7 +2,9 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-17 23:40 CST):** develop is at `72f87565b` (#1426). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-17 22:50 CST):** develop is at `72f87565b` (#1426). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+>
+> **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
 This handover continues `plans/handover/VBD_HANDOVER_2026-10-15.md`. That document's §7 (how to work here), §8 (process recipes) and §9 (inlined scripts) are still valid; this one only records what changed after it. The plan itself is `plans/VALUES_BY_DEFAULT.md`.
 
@@ -59,28 +61,28 @@ Items 1 and 2 add syntax and semantics that their Generation B sweeps need a see
 
 ### 2.4 Open PRs and pushed branches
 
-Every branch below is pushed to `origin`. Each row says what is left. "Tier 1 green" means the AGENTS.md Tier 1 set passed on the stated head. Unless a row says otherwise, the next step is to rebase, apply the overlap rule (§1.1), run fmt and refs, then merge.
+Every branch below is pushed to `origin` at the head shown, as of the live-status timestamp. Each row says what is left. Gate logs do not travel: a new machine re-runs each branch's Tier 1 before merging it, whatever this table says. "Tier 1 green" means the AGENTS.md Tier 1 set passed on the stated head. Unless a row says otherwise, the next step is to rebase, apply the overlap rule (§1.1), run fmt and refs, then merge.
 
 | PR / branch | Piece | State and what is left |
 | --- | --- | --- |
-| #1429 `feat/vbd-decision39-gen-a` | Decision 39 iterators, Generation A: the borrowed `for` walks a cursor over a local borrow, and a push to the list being walked is E0911 | Pre-rebase Tier 1 green except 4 ASan leak reports in `tests/internal/compile.test.yo`. **Before merging, run that file with develop's binary at the same base and compare the reports.** Gates v0.2.65. |
-| `feat/vbd-d47-locals-gena` (no PR) | Decision 47 step 2 Generation A: every `mut(...)` binding form, `yo fix --migrate mut-bindings` | `check ./src` 278/278 and build green pre-rebase. Remaining jobs: regenerate the tests sweep, build, `check ./std`, the full suite with cli-diff, in-process internal, and the src/std census. Open it as a ready PR. It also accepts module-level `mut(x) ::`, which the PR must flag for the maintainer. Gates v0.2.65. |
-| `fix/unwind-destructor-clears-escape-flag` (no PR) | S1 fix (§5.1): `return.yo` re-raises `__yo_effect_escaped` after the escape-path drops | A regression test that fails on the v0.2.64 seed is on the branch, with an issue doc. Build and gate are pending. Gates v0.2.65. |
-| `feat/vbd-v4-z3sexpr-box` (no PR) | V4: the verifier's `Z3Sexpr` tree with `Box` children | Emit-diff byte-identical, allocations −0.045%, check src/std and verifier/spec tests green. Rebuild on the v0.2.64 seed is pending. |
-| `feat/vbd-v4-pattern-box` (no PR) | V4: the `Pattern` tree with `Box` children | Stacked on the unwind fix; it crashed (SIGSEGV in `_bridge_expr_info`) only because of that S1. Allocations +0.27%; 23/29 Tier 1 files green, 4 internal files fail on leak verdicts only (develop comparison queued). The `check ./src` A/B timing is deferred until the heavy queue holds 3 or fewer tickets. |
-| #1414 `feat/d47-globals-genb` (draft) | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Built on the official v0.2.64 seed. The full Tier 1 (internal in-process, cli-diff, `yo test ./std`, site build) passed with a develop-built compiler and is re-running on the seed build. Mark ready, then merge. |
-| `feat/v2b-genb-b1-migration` (no PR) | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Restacked on its head `8db9c7b6a`; the sweeps run after the build. Opens as a draft until #1414 merges. |
-| #1421 `feat/vbd-d46-genb` (draft) | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | Official-seed build; check src/std green; cli-diff goldens reviewed and re-recorded. **Open item:** its in-process internal run with verdicts on shows 576 leak-only failures. Report the CI-mode result (`YO_TEST_LEAK_VERDICT=0`, which should be 0 failures) and a per-file leak comparison against develop for the top 5 files before merging. It worked around two pre-existing S2s in `std/async/channel.yo` (filed on its branch); the fix for those should remove the workarounds. |
-| #1412 `feat/vbd-waker-clone-genb` (draft) | A5 `Waker.clone` Generation B | Every gate is green on the v0.2.64 seed except cli-diff, which is queued. |
-| #1409 `fix/downcast-receiver-leak` | A downcast/upcast result declares its owning temp; `Iso(T)(v)` shares the same fix (S2) | All 9 feature files green, and the new Iso test fails on develop. Only the emit-diff is left. |
-| #1424 `fix/send-closure-and-fn-value` | A closure capture struct is Send/Sync by its captures (S2s) | Tier 1 green except the in-process internal run, which had reached file 63 of 108 with no failures. |
-| `fix/not-runtime-bool-comptime-fn` (no PR) | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
-| `fix/async-mutex-strict-fifo` (no PR) | The async `Mutex` is FIFO across event loops (S3) | async/mutex 11/11; the 3 new tests fail before the fix. `sm_protocol`, both checks and cli-diff are left. |
-| `fix/trial-specialization-drops-store` (no PR) | S1 fix (§5.2); lands after the E1101 PR | Root-cause hypothesis written; its build is pending. |
-| `feat/vbd-v3-a4-future-operands` (no PR) | V3 A4 compiler half: `timeout`/`select` accept a borrowing future | Rebased-head gates were green so far (check src/std, combinators 56, `async_await` 281); the last internal and fusion files were running. The std half is parked on `wip/vbd-a4-std-half` behind an S2. A `void*` issue was re-graded to S1 on that branch. |
-| `fix/generic-derive-where-container-field` (no PR) | Derive Clone PR B: a derive's generated body in a generic definition-time trial | It was stacked on #1426, which has since merged: restack onto develop. Its in-process internal run is in progress. |
-| #1419, #1420, #1422; `fix/field-write-through-shared-borrow`; `fix/yo-fix-multi-file-generic-impls` | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
-| #1162 `tss/phase6-step4` (draft) | Type-soundness phase 6 step 4 | Unchanged; blocked as described in the 2026-10-15 handover. |
+| #1429 `feat/vbd-decision39-gen-a` head `0c2f78962` | Decision 39 iterators, Generation A: the borrowed `for` walks a cursor over a local borrow, and a push to the list being walked is E0911 | Pre-rebase Tier 1 green except 4 ASan leak reports in `tests/internal/compile.test.yo`. **Before merging, run that file with develop's binary at the same base and compare the reports.** Gates v0.2.65. |
+| `feat/vbd-d47-locals-gena` (no PR) head `d226e05ae` | Decision 47 step 2 Generation A: every `mut(...)` binding form, `yo fix --migrate mut-bindings` | `check ./src` 278/278 and build green pre-rebase. Remaining jobs: regenerate the tests sweep, build, `check ./std`, the full suite with cli-diff, in-process internal, and the src/std census. Open it as a ready PR. It also accepts module-level `mut(x) ::`, which the PR must flag for the maintainer. Gates v0.2.65. |
+| `fix/unwind-destructor-clears-escape-flag` (no PR) head `63a43b8f8` | S1 fix (§5.1): `return.yo` re-raises `__yo_effect_escaped` after the escape-path drops | A regression test that fails on the v0.2.64 seed is on the branch, with an issue doc. Build and gate are pending. Gates v0.2.65. |
+| `feat/vbd-v4-z3sexpr-box` (no PR) head `d2b1267f8` | V4: the verifier's `Z3Sexpr` tree with `Box` children | Emit-diff byte-identical, allocations −0.045%, check src/std and verifier/spec tests green. Rebuild on the v0.2.64 seed is pending. |
+| `feat/vbd-v4-pattern-box` (no PR) head `a103189f6` | V4: the `Pattern` tree with `Box` children | Stacked on the unwind fix; it crashed (SIGSEGV in `_bridge_expr_info`) only because of that S1. Allocations +0.27%; 23/29 Tier 1 files green, 4 internal files fail on leak verdicts only (develop comparison queued). The `check ./src` A/B timing is deferred until the heavy queue holds 3 or fewer tickets. |
+| #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Built on the official v0.2.64 seed. The full Tier 1 (internal in-process, cli-diff, `yo test ./std`, site build) passed with a develop-built compiler and is re-running on the seed build. Mark ready, then merge. |
+| `feat/v2b-genb-b1-migration` (no PR) head `73da377dc` | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Restacked on its head `8db9c7b6a`; the sweeps run after the build. Opens as a draft until #1414 merges. |
+| #1421 `feat/vbd-d46-genb` (draft) head `657fb0d68` | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | Official-seed build; check src/std green; cli-diff goldens reviewed and re-recorded. **Open item:** its in-process internal run with verdicts on shows 576 leak-only failures. Report the CI-mode result (`YO_TEST_LEAK_VERDICT=0`, which should be 0 failures) and a per-file leak comparison against develop for the top 5 files before merging. It worked around two pre-existing S2s in `std/async/channel.yo` (filed on its branch); the fix for those should remove the workarounds. |
+| #1412 `feat/vbd-waker-clone-genb` (draft) head `8833a80c2` | A5 `Waker.clone` Generation B | Every gate is green on the v0.2.64 seed except cli-diff, which is queued. |
+| #1409 `fix/downcast-receiver-leak` head `8811cd342` | A downcast/upcast result declares its owning temp; `Iso(T)(v)` shares the same fix (S2) | All 9 feature files green, and the new Iso test fails on develop. Only the emit-diff is left. |
+| #1424 `fix/send-closure-and-fn-value` head `3bd849953` | A closure capture struct is Send/Sync by its captures (S2s) | Tier 1 green except the in-process internal run, which had reached file 63 of 108 with no failures. |
+| `fix/not-runtime-bool-comptime-fn` (no PR) head `64127047a` | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
+| `fix/async-mutex-strict-fifo` (no PR) head `0cf600d93` | The async `Mutex` is FIFO across event loops (S3) | async/mutex 11/11; the 3 new tests fail before the fix. `sm_protocol`, both checks and cli-diff are left. |
+| `fix/trial-specialization-drops-store` (no PR) head `7352518df` | S1 fix (§5.2); lands after the E1101 PR | Root-cause hypothesis written; its build is pending. |
+| `feat/vbd-v3-a4-future-operands` (no PR) head `5d2927f6c` | V3 A4 compiler half: `timeout`/`select` accept a borrowing future | Rebased-head gates were green so far (check src/std, combinators 56, `async_await` 281); the last internal and fusion files were running. The std half is parked on `wip/vbd-a4-std-half` (head `a83d6ac8b`) behind an S2. A `void*` issue was re-graded to S1 on that branch. |
+| `fix/generic-derive-where-container-field` (no PR) head `cd22aaa08` | Derive Clone PR B: a derive's generated body in a generic definition-time trial | It was stacked on #1426, which has since merged: restack onto develop. Its in-process internal run is in progress. |
+| #1419 (`7e5b3d66b`), #1420 (`a6ff95233`), #1422 (`843e88fd8`); `fix/field-write-through-shared-borrow` (`2f5301589`); `fix/yo-fix-multi-file-generic-impls` (`ce043660e`) | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
+| #1162 `tss/phase6-step4` (draft) head `7e6024532` | Type-soundness phase 6 step 4 | Unchanged; blocked as described in the 2026-10-15 handover. |
 
 ## 3. Decisions recorded this cycle
 
@@ -128,9 +130,9 @@ The doc and its repro (`issues/repros/`) arrive with the E1101 PR. The suspected
 
 On develop:
 
-- `issues/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md` (fixed by #1409)
-- `issues/2026-10-16-not-on-a-runtime-bool-in-a-comptime-type-parameterized-fn-is-e1101.md` (fixed by the E1101 branch)
-- `issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md` (fixed by the FIFO branch)
+- "a downcast result used as a method receiver is never released" (2026-10-16; #1409 moves it to `issues/fixed/`)
+- "`!` on a runtime bool in a comptime-type-parameterized fn is E1101" (2026-10-16; the E1101 branch moves it)
+- "the async mutex is not FIFO across event loops" (2026-10-16; the FIFO branch moves it)
 - `issues/2026-10-17-a-closure-passed-into-a-comptime-expect-error-call-leaks-its-moved-capture.md`
 - `issues/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`
 - `issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`
@@ -144,7 +146,38 @@ Filed on in-flight branches; they arrive with those PRs:
 
 The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 
-## 6. Machine-specific notes (ignore on a new machine)
+## 6. When v0.2.65 is out: the stop sequence
+
+The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. The coordinator:
+
+1. Curates the v0.2.65 release notes (§7 has the draft) and checks that `SEED_VERSION` was bumped.
+2. Stops its schedulers: the 40-minute status-check cron jobs and any PR-run cancel loop.
+3. Messages every running agent: "STOP after your current tool call. Push your current head. Reply with: branch, head SHA, what passed, what did not run. Do not merge." Any agent that does not answer is stopped.
+4. Rewrites §2.4 from the replies, with head SHAs, and updates the live-status box.
+5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.
+
+A new agent starting from this document re-runs Tier 1 for any branch before merging it (§2.4).
+
+## 7. Draft of v0.2.65's curated release notes
+
+Paste this over the generated `## Changes` section after the release publishes. Keep line 1 and `## Native bundles` byte-for-byte, as in the 2026-10-15 handover §8.4. Add a bullet for every PR that lands before the cut, and check each bullet against the merged PR's body.
+
+- **Language:**
+  - Decision 47 locals Generation A: every `mut(...)` binding form, and `yo fix --migrate mut-bindings`.
+  - Decision 39 iterators Generation A: the borrowed `for` walks a cursor, and a push to the list being walked is E0911 (#1429).
+- **Compile and codegen:**
+  - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost.
+  - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
+  - Fixed (S2): a downcast/upcast result used as a receiver is released (#1409, if landed).
+- **Type checking:**
+  - Fixed (S2): a generic function's by-value closure parameter owns a deferred closure literal (#1428).
+  - `yo check` reports errors inside any closure with an `io : Io` parameter (#1425).
+- **Async runtime:** Fixed (S2): the epoll teardown frees its free lists at thread exit (#1417).
+- **Leaks:** Fixed (S2): `consume(x)` of an owned value releases it (#1416).
+- **Toolchain:** `YO_TEST_FORK=N` runs `yo test` over many files in forked workers (#1427).
+- **Known open issues filed this cycle:** the §5.3 paths that are still open at the tag.
+
+## 8. Machine-specific notes (ignore on a new machine)
 
 The coordinator on the Linux box kept these files under `~/Workspace/Yo-wt/vbd-logs/`; none of them travels:
 
