@@ -40,18 +40,24 @@ must lie in the borrow's range, `(decl, end]`, in the same module. A macro's
 expansion is evaluated from its `quote` template, whose tokens belong to the
 macro's own source (`std/async/stream.yo` for `for_await`). The expanded
 await's token is never inside a user borrow's range, so no borrow is ever
-live across it. An await the user spells inside a macro argument keeps its
-own token and was checked.
+live across it. For a std macro it is worse: `evaluate_function_call`
+(`src/evaluator/calls/function.yo`) runs a call whose token is in std
+without the local-borrow rules at all, so the await never reached rule 4. An
+await the user spells inside a macro argument keeps its own token and was
+checked.
 
 ## Fix
 
-The evaluator keeps the macro calls whose expansion it is evaluating
+The evaluator keeps the macro calls whose expansion it is evaluating, each
+with the ids of the `.await(…)` calls written in its expansion
 (`local_borrow_enter_macro_site` / `local_borrow_leave_macro_site` around the
 expansion in `src/evaluator/calls/function.yo`; `local_borrows_truncate`
 restores the list, as `comptime_expect_error` does after a throw). Rule 4
 judges an await at its own token and at each of those call sites: a borrow
 live at the `for_await` call is taken as live across every await the
-expansion makes, and the diagnostic points at the call. This is conservative:
+expansion makes, and the diagnostic points at the call. The std branch of
+`evaluate_function_call` runs rule 4 for a call that is one of those awaits
+(`local_borrow_is_macro_await`) and still skips every other std call. This is conservative:
 a borrow last used in an argument evaluated before the expansion's first
 await (`for_await(cur.stream, …)` with no later use) is rejected too.
 

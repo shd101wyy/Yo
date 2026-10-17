@@ -629,35 +629,40 @@ test("a mut place and a local borrow take an awaited value", {
 // The old value an awaited one replaces is released: through a `mut` place
 // and through a local borrow, each a store through a slot pointer
 // (`(*sm->…) = io.await(…)`), whose save had gone into a C local before the
-// RHS while the drop read the temp's slot, so the old value leaked.
-_place_fresh_rc :: (fn(io : Io) -> Impl(Future(Rc(i32), Io)))(
+// RHS while the drop read the temp's slot, so the old value leaked. The task
+// shares each old value with a handle outside it; once the task is gone, the
+// handle is the only owner left.
+_PlCell :: ref(struct(v : i32));
+_place_fresh_cell :: (fn(io : Io) -> Impl(Future(_PlCell, Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
-    Rc(i32)(7)
+    _PlCell(v : i32(7))
   })
 );
 test("a mut place and a local borrow release the old value an awaited one replaces", {
+  old_p := _PlCell(v : i32(1));
+  old_y := _PlCell(v : i32(2));
   result := Rc(i32)(0);
-  task := io.async((io : Io) => {
-    old_p := Rc(i32)(1);
-    (op : Option(Rc(i32))) = .Some(old_p.clone());
-    match(
-      &mut op,
-      .Some(s) => {
-        s = io.await(_place_fresh_rc(io), io);
-      },
-      .None => ()
-    );
-    assert(ref_count(old_p) == usize(1), "the place's old value was released");
-    old_y := Rc(i32)(2);
-    (t : Rc(i32)) = old_y.clone();
-    y := &mut t;
-    y = io.await(_place_fresh_rc(io), io);
-    assert(ref_count(old_y) == usize(1), "the borrow's old value was released");
-    result.* = (match(&op, .Some(s) => s.*, .None => i32(0)) + t.*);
-  });
-  io.await(task, io);
+  {
+    task := io.async((io : Io) => {
+      (op : Option(_PlCell)) = .Some(old_p);
+      match(
+        &mut op,
+        .Some(s) => {
+          s = io.await(_place_fresh_cell(io), io);
+        },
+        .None => ()
+      );
+      (t : _PlCell) = old_y;
+      y := &mut t;
+      y = io.await(_place_fresh_cell(io), io);
+      result.* = (match(&op, .Some(s) => s.v, .None => i32(0)) + t.v);
+    });
+    io.await(task, io);
+  };
   assert(result.* == i32(14), "the awaited values were stored");
+  assert(ref_count(old_p) == usize(1), "the place's old value was released");
+  assert(ref_count(old_y) == usize(1), "the borrow's old value was released");
 });
 // A `mut` place lives across the awaits a macro expands to (`for_await`); each
 // `next` yields first, so every await really suspends.

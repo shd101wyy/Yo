@@ -107,6 +107,8 @@ statement, which ends after the arm. So the work was:
   the same place written inside a `for_await` loop is E0911.
 - `tests/match_async_arms.test.yo`, "a mut place and a local borrow release
   the old value an awaited one replaces": the leak above, pinned with
-  `ref_count` of each old value right after its store. "a mut place lives
+  `ref_count` of each old value, a `ref` object the task shared with a handle
+  outside it, once the task is gone. The local-borrow half fails on develop
+  (`5425cd7bf`, count 2); the `mut` place half could not compile there. "a mut place lives
   across the awaits of a for_await loop": a place over a task-owned local
   written after each real suspension of a macro's await.
