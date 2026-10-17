@@ -2461,8 +2461,10 @@ _append_inout :: (fn(out : &mut String) -> unit)({
   out.push_str("!");
 });
 _append_own :: (fn(sink(out) : String) -> String)({
-  out.push_str("!");
-  out
+  // A parameter is immutable (decision 47): the body rebinds it, a move.
+  mut(o) := out;
+  o.push_str("!");
+  o
 });
 _append_local :: (fn(out : &String) -> String)({
   mut(q) := out;
@@ -2482,8 +2484,9 @@ impl(
   })
 );
 _bumped :: (fn(c : _Counter) -> i32)({
-  c.bump();
-  c.n
+  mut(c2) := c;
+  c2.bump();
+  c2.n
 });
 test("Writing a String through inout, own or a local copy is accepted (E0908 extension)", {
   mut(c) := String.new();

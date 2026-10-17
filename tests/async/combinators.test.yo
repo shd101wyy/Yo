@@ -474,10 +474,12 @@ _count_items :: (
   fn(generic(S : Type), s : S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
 )(
   io.async({ s }(io : Io) => {
+    // A capture-list entry takes no `mut` (decision 47): the body rebinds it.
+    mut(st) := s;
     (mut(n) : usize) = usize(0);
     (mut(draining) : bool) = true;
     while(draining, {
-      nx := io.await(s.next(io), io);
+      nx := io.await(st.next(io), io);
       match(
         nx,
         .Some(_) => {
@@ -502,10 +504,12 @@ _sum_i32 :: (
   fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> Impl(Future(i32, Io))
 )(
   io.async({ s }(io : Io) => {
+    // A capture-list entry takes no `mut` (decision 47): the body rebinds it.
+    mut(st) := s;
     (mut(total) : i32) = i32(0);
     (mut(draining) : bool) = true;
     while(draining, {
-      nx := io.await(s.next(io), io);
+      nx := io.await(st.next(io), io);
       match(
         nx,
         .Some(v) => {
@@ -681,9 +685,10 @@ test("Test a hand-written consumer loop inside a spawned task", {
   seen := ArrayList(i32).new();
   c := Countdown(_n : i32(3));
   task := io.async({ c, seen }(io : Io) => {
+    mut(cs) := c;
     (mut(done) : bool) = false;
     while(done == false, {
-      nx := io.await(c.next(io), io);
+      nx := io.await(cs.next(io), io);
       match(
         nx,
         .Some(v) => {

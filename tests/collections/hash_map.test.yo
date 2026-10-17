@@ -565,8 +565,10 @@ test("HashMap value-form bucket is a copy — writes do not reach the map", {
   // mutation goes through `insert` (or `iter` in privileged code).
   map := HashMap(i32, i32).new();
   map.insert(i32(1), i32(10));
+  // A `for` element takes no `mut` (decision 47): the body rebinds it.
   for(map, b => {
-    b.value = (b.value * i32(10));
+    mut(bc) := b;
+    bc.value = (bc.value * i32(10));
   });
   assert(map(i32(1)) == i32(10), "map unchanged — bucket was a copy");
   map.insert(i32(1), map(i32(1)) * i32(10));
