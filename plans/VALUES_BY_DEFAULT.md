@@ -6385,6 +6385,11 @@ heavy run, the command is given in item 2.
    files and `scripts/check-issue-refs.sh`, which are not repeated below.
    - **B0. `RefCell(T)`, Generation A** (§3.10, decision 41, decision 46
      step 1's `RefCell` bullet, pulled forward; open question 1).
+     - **Status 2026-10-17: the cell landed as #1415** (decision 46
+       Generation A, in v0.2.64): `std/sync/refcell` with `with` and
+       `with_mut`. The expression-scoped `get()`/`get_mut()` projections
+       and the binding ban are still pending. B5 does not wait for them
+       (open question 1's verdict); they are a later ergonomic pass.
      - Scope: `std/sync` gains `RefCell(T)` with `with`, `with_mut` and the
        expression-scoped `get()`/`get_mut()` projections; the compiler
        learns the expression-scoped mark and the binding ban.
@@ -6647,8 +6652,39 @@ heavy run, the command is given in item 2.
         but re-creates the hidden sharing V2b removes and is deleted again
         at V5. Keep the box only as a fallback if B0 misses the release
         before B8.
-      - Ask the maintainer before B0: it moves part of the handover's §4
-        step 13 (decision 46) ahead of step 8.
+      - **Decided 2026-10-17: an unmarked module-level `RefCell(T)` global,
+        `G := RefCell(T).new(...)`, used through `with`/`with_mut`.**
+        - B5's spelling is `G.with_mut(g => g.push(x))` and
+          `G.with(g => g.len())`; `RefCell` has no `get_mut()` yet (see B0's
+          status). B5 does not wait for the projections.
+        - Probe on develop `5425cd7bf` (`yo check`, then an ASan run):
+          - an unmarked `G := RefCell(ArrayList(i32)).new(...)` global
+            written through `with_mut` and read through `with` checks and
+            runs clean;
+          - the same global reached from a `Thread.spawn` closure is a
+            compile error ("references the module-level global 'G' …
+            which is not Sync"), so a module-level cell cannot be shared
+            across threads by accident;
+          - `thread_local(G) := RefCell(...)` is rejected ("A thread-local
+            cannot hold a reference-counted type"), so the
+            `thread_local!` form is not available today.
+        - A global that several threads write is a `Mutex(T)` global, as
+          that diagnostic says. Whether any of the 353 counted in B5 is
+          reached from a spawned thread is not measured. N6's census
+          answers it, and the compiler rejects such a use regardless.
+        - The reordering this needed already happened: `RefCell` landed
+          with decision 46 Generation A (#1415) ahead of step 8.
+        - A reassigned explicit-copy global is a different shape: a
+          `mut(G) : String` set once per command and read by copy (nine
+          in src after decision 47 globals Generation B, #1414). Its read
+          `v := G.clone()` stays legal: a structural `clone()` receiver is
+          exempt from E0916. The exemption is recursive: every `Clone`
+          impl the clone reaches must be derived or std-structural, so no
+          user code can reach `G` during the borrow, and a user
+          `impl(T, Clone)` anywhere inside stays E0916. The rule is
+          decided with #1414's question doc. It is a compiler change that
+          is not seed-gated, and it lands before or with B1, whose sweep
+          writes those clones.
    2. **Escaping copies**
       (`issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`).
       - **Recommendation: the doc's own** (option 1, with option 3's split
@@ -6660,6 +6696,8 @@ heavy run, the command is given in item 2.
         shared on purpose (the blockers above) is reviewed by hand in B4.
       - The safety net is behavioral, not E0901: the language suite, the
         fixpoint and the self-hosted tests on the B1, B4 and B8 heads.
+      - **Decided 2026-10-17: as recommended.** B1 is not ready without the
+        `return` split as its first commit.
    3. **`Option(String)`/`Option(ArrayList)` fields grow from one word to
       four** (359 field lines in `src/`, 14 in `std/`, 167 in `tests/`;
       every plain `String`/`ArrayList` field grows from one word to three).
@@ -6673,6 +6711,7 @@ heavy run, the command is given in item 2.
         That needs a codegen niche for a struct whose field is a non-null
         pointer (a compiler Generation A, then std on the next seed), so it
         is a follow-up pair, not part of B8.
+      - **Decided 2026-10-17: as recommended.**
    4. **`get`'s gate (decision 20).** `where(T <: Copy)` would reject
       `ArrayList(AstExpr).get` and every other `ref` element, which no
       `ref` type can satisfy; those are most of `src/`'s 6,974 `.get(`
@@ -6681,6 +6720,7 @@ heavy run, the command is given in item 2.
         the check (the same predicate as E0901), and B6 reports it at the
         caller with decision 20's text. Decision 43 later reshapes `get` to
         `-> Option(&T)`, as Rust's, and `get_cloned` becomes a convenience.
+      - **Decided 2026-10-17: as recommended.**
    5. **Cursors for maps and `LinkedList` in the borrowed `for`.** An index
       walk needs an index.
       - **Recommendation:** a std-internal cursor (`usize` bucket or slot
@@ -6690,12 +6730,14 @@ heavy run, the command is given in item 2.
         `pragma(Pragma.AllowUnsafe)` (Rust's `LinkedList` uses `NonNull`),
         which gives it a cursor and removes its `ref` nodes before V5.
         Record each as an "as built" note in B7/B11.
+      - **Decided 2026-10-17: as recommended.**
    6. **Decision 27's lint timing.** Decision 27 puts the lint in "the
       first `yo fix` sweep". A2 inserts `.clone()` only where the source is
       used again, so the lint has nothing to find in B1's output; the clones
       it should catch come from hand edits.
       - **Recommendation:** land it in B14 with the elision, and amend
         decision 27's phase line to say so when B14 lands.
+      - **Decided 2026-10-17: as recommended.**
 
 5. **Agent briefs, one per PR.** Read AGENTS.md, the current handover and
    this section first. Work in a worktree under `~/Workspace/Yo-wt/`, take
@@ -6703,9 +6745,9 @@ heavy run, the command is given in item 2.
    while a build or migration reads it, and run `yo test` with one path per
    call.
    - **B0 — `RefCell(T)` Generation A.** Purpose: the cell B4 and B5 need.
-     Spec: §3.10's `RefCell` bullet, decision 41, decision 46 step 1. Steps:
-     confirm open question 1 with the maintainer; std type with `with`,
-     `with_mut`, `get`, `get_mut`; the compiler's expression-scoped mark and
+     The type, `with` and `with_mut` landed as #1415; what remains is the
+     projections, which B5 does not wait for. Spec: §3.10's `RefCell`
+     bullet, decision 41, decision 46 step 1. Steps: `get`, `get_mut`; the compiler's expression-scoped mark and
      the binding ban; `Send` iff `T <: Send`, never `Sync`; tests for
      re-entry panics and the binding error. Tier 1: B0's. Pitfall: the
      projections are seed-gated for src; land before the next release cut.
