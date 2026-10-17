@@ -24,41 +24,15 @@
 { is_dyn_type, is_enum_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ type_key, get_type_string, get_variable_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
+{ type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
+{ bind_owning_result_temp } :: import("./other_fn_call.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-/// Declare the result temp the evaluator attached to a `downcast`/`upcast`
-/// (`attach_temp_variable_to_expr`, `evaluator/builtins/downcast.yo`) and hand
-/// back its name. Both results own a reference to the payload, and their
-/// scope-end release is a deferred drop of that temp, which
-/// `generate_deferred_drop_expressions` skips for a name never declared. Every
-/// other producer of an owning temp (a call, a tuple, `dyn()`, `match`/`cond`)
-/// declares its own, so its consumers rely on that: a binding, an argument or
-/// `&` re-declared these two, but a method receiver (`downcast(d, T).is_some()`)
-/// or a discarded statement did not, and the reference leaked
-/// (issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md).
-_bind_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)(
-  match(
-    context.base.get_expr_info(expr),
-    .Some(ei) => match(
-      ei.variable_name,
-      .Some(tv) => {
-        em := context.base.emitter;
-        em.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &context.base)} = ${code};`);
-        _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
-        tv
-      },
-      .None => code
-    ),
-    .None => code
-  )
-);
 /// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
-  _bind_result_temp(expr, _downcast_value(expr, indent, context), indent, context)
+  bind_owning_result_temp(expr, _downcast_value(expr, indent, context), indent, context)
 );
 /// The `Option(T)` value of a downcast, as one C expression.
 _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
@@ -314,7 +288,7 @@ _is_plain_c_identifier :: (fn(s : &String) -> bool)({
 /// downcast's), behind the payload's vtable for the target, which the source
 /// vtable carries as `__yo_up_<Tgt>`.
 generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
-  _bind_result_temp(expr, _upcast_value(expr, indent, context), indent, context)
+  bind_owning_result_temp(expr, _upcast_value(expr, indent, context), indent, context)
 );
 /// The target Dyn of an upcast, as one C expression.
 _upcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({

@@ -1,6 +1,6 @@
 # The warnings stash test leaks under leak verdicts
 
-**Severity:** S3: a test-only leak verdict. The compiler's warning stash (`emit_warning` / `take_warnings`, `src/diagnostics.yo`) leaves an allocation live at exit after a dedupe/take cycle. This does not grow per compile in any measured run, but it keeps `tests/internal/error.test.yo` red with leak verdicts on.
+**Severity:** S3: a test-only leak verdict. The compiler's warning stash (`emit_warning` / `take_warnings`, `src/diagnostics.yo`) leaves an allocation live at exit after a dedupe/take cycle. It keeps `tests/internal/error.test.yo` red with leak verdicts on. Whether it grows per compile has not been measured.
 
 **Found:** 2026-10-16, during the Tier 1 gate of `fix/downcast-receiver-leak`. `tests/internal/error.test.yo` "warnings: the stash dedupes, takes clean, and honors the enabled flag" fails with `Memory leak detected:`, and the other 34 tests pass. The failure is identical on develop `982b4a685`, built from the tree, and the test uses no `downcast`.
 

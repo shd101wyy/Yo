@@ -177,3 +177,29 @@ test("^ isolates a value whose Box payload is uniquely owned", {
     .None => assert(false, "a uniquely owned graph isolates")
   );
 });
+// issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md:
+// the `Iso(T)(v)` constructor owns `v`, released by its result temp's
+// scope-end drop. The emitter never declared that temp, so a constructor used
+// as a method receiver or discarded as a statement leaked the Iso and the
+// value inside it.
+(mut(g_iso_disposed) : i32) = i32(0);
+_IsoRes :: ref(struct(n : i32));
+impl(
+  _IsoRes,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_iso_disposed = (g_iso_disposed + i32(1));
+    })
+  )
+);
+test("an Iso constructor used as a receiver or discarded releases its value", {
+  before := g_iso_disposed;
+  {
+    a := _IsoRes(n : i32(1));
+    v := Iso(_IsoRes)(a).extract();
+    assert(v.n == i32(1), "the receiver's value");
+    b := _IsoRes(n : i32(2));
+    Iso(_IsoRes)(b);
+  };
+  assert((g_iso_disposed - before) == i32(2), "both values are released");
+});

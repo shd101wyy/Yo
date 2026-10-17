@@ -1,6 +1,6 @@
 # A fetch that times out leaks an 8 KiB buffer
 
-**Severity:** S2: each `fetch` that ends in `Timeout` while the server holds the connection open leaks one 8192-byte allocation. A client that retries against a hung server grows without bound.
+**Severity:** S2: each `fetch` that ends in `Timeout` while the server holds the connection open leaks one 8192-byte allocation. Inferred from one test, not measured: a client that retries against a hung server would grow without bound.
 
 **Found:** 2026-10-16, during the Tier 1 gate of `fix/downcast-receiver-leak`. With leak verdicts on (the local default), `tests/http/http.test.yo` "fetch throws Timeout when the server never answers" fails, and its other 50 tests pass:
 
