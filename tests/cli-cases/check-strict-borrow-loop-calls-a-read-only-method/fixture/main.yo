@@ -6,7 +6,7 @@ impl(
   Bag,
   iter : (fn(self : &Self) -> ArrayListIterPtr(i32))(self.items.iter()),
   total : (fn(self : &Self) -> i32)({
-    t := i32(0);
+    mut(t) := i32(0);
     for(self.items, x => {
       t = (t + x);
     });
@@ -17,7 +17,7 @@ main :: (fn() -> unit)({
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   bag := Bag(items : xs);
-  (seen : i32) = i32(0);
+  (mut(seen) : i32) = i32(0);
   for(&mut bag, x => {
     seen = (seen + bag.total());
   });

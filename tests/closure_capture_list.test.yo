@@ -576,6 +576,8 @@ test("borrow places: no module-level place", {
   comptime_expect_error(_cl_call0({ &g_cl_total }() => g_cl_total), "module-level binding");
 });
 test("borrow places: a `mut` capture's place must be writable", {
+  // A by-value parameter is an immutable binding (decision 47), so the
+  // `&mut` lend is E0917 before the capture-list check sees it.
   comptime_expect_error(
     (fn(x : i32) -> i32)(
       _cl_call0({ &mut x }() => {
@@ -583,7 +585,7 @@ test("borrow places: a `mut` capture's place must be writable", {
         x
       })
     ),
-    "needs a writable place"
+    "Cannot lend `&mut` (a `&mut` capture) `x`: it is a parameter"
   );
 });
 test("borrow places: an `io.async` body's capture list may borrow, and its future is second-class (§3.13 A2)", {

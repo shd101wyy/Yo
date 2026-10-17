@@ -38,7 +38,7 @@ pass_borrowed :: (fn(s : &String) -> usize)(take(s));
 loop_store :: (fn() -> usize)({
   s := String.from("x");
   out := ArrayList(Holder).new();
-  (i : i32) = 0;
+  (mut(i) : i32) = 0;
   while(i < 3, {
     out.push(Holder(name : s, items : ArrayList(i32).new()));
     i = (i + 1);
@@ -46,9 +46,9 @@ loop_store :: (fn() -> usize)({
   out.len()
 });
 loop_reassign :: (fn() -> usize)({
-  s := String.from("x");
+  mut(s) := String.from("x");
   out := ArrayList(Holder).new();
-  (i : i32) = 0;
+  (mut(i) : i32) = 0;
   while(i < 3, {
     out.push(Holder(name : s, items : ArrayList(i32).new()));
     s = String.from("y");

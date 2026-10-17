@@ -41,23 +41,23 @@ _spawn_and_abort :: (fn(io : Io) -> unit)({
   _r := h.await(io);
 });
 main :: (fn(io : Io) -> unit)({
-  (sum : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(sum) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(1000), {
     sum = (sum + io.await(_child(String.from("ab"), i32(1), io), io));
     i = (i + i32(1));
   });
   disposed := g_disposed;
   println(`result: children ${sum} disposed ${disposed}`);
-  (leaves : i32) = i32(0);
-  (j : i32) = i32(0);
+  (mut(leaves) : i32) = i32(0);
+  (mut(j) : i32) = i32(0);
   while(j < i32(1000), {
     leaves = (leaves + io.await(_leaf(j, io), io));
     j = (j + i32(1));
   });
   println(`result: leaves ${leaves}`);
   g_disposed = i32(0);
-  (k : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
   while(k < i32(50), {
     _spawn_and_abort(io);
     k = (k + i32(1));
@@ -65,8 +65,8 @@ main :: (fn(io : Io) -> unit)({
   aborted := g_disposed;
   println(`result: aborted ${aborted}`);
   t := Thread(i32).spawn((tio : Io) => {
-    (n : i32) = i32(0);
-    (m : i32) = i32(0);
+    (mut(n) : i32) = i32(0);
+    (mut(m) : i32) = i32(0);
     while(m < i32(200), {
       n = (n + tio.await(_leaf(m, tio), tio));
       m = (m + i32(1));
