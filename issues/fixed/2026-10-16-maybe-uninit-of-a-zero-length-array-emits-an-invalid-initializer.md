@@ -5,7 +5,7 @@
 and so does every `clone` of an `Array(T, 0)` once the `Array` `Clone` impl
 builds its result through `MaybeUninit`.
 
-**Status: FIXED** 2026-10-16 (`fix/collection-clone-through-borrow`). Found
+**Status: FIXED** 2026-10-16 (#1422, `fix/collection-clone-through-borrow`). Found
 while fixing `issues/fixed/array-clone-copies-self-out-of-the-borrow.md`:
 `tests/derive.test.yo`'s "derive over an Array of length 0" clones a
 `struct(cells : Array(i32, 0), tag : i32)`, and its batch stopped compiling.

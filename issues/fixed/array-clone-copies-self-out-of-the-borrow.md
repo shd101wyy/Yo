@@ -2,7 +2,7 @@
 
 **Severity:** S2: a valid program is rejected. `Array(Q, 2).clone()` fails although `Array(T, N) <: Clone` holds under `where(T <: Clone)`.
 
-**Status: FIXED** 2026-10-16 (`fix/collection-clone-through-borrow`). Found 2026-10-14 by the v0.2.62 batch review. **Measured on:** develop a89b8356c (the v0.2.62 candidate) and v0.2.61; both fail the same way.
+**Status: FIXED** 2026-10-16 (#1422, `fix/collection-clone-through-borrow`). Found 2026-10-14 by the v0.2.62 batch review. **Measured on:** develop a89b8356c (the v0.2.62 candidate) and v0.2.61; both fail the same way.
 
 ## Symptom
 
