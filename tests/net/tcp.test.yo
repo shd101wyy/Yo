@@ -265,7 +265,7 @@ test("IPv6 loopback connect round-trip", {
   // and then answers WSAEINVAL, breaking every v6 connect with nothing here to
   // notice: issues/fixed/windows-blocking-connect-parks-the-event-loop.md.
   // On a host with no IPv6 loopback the bind throws and the test skips.
-  v6_loopback := Array(u16, usize(8)).fill(u16(0));
+  mut(v6_loopback) := Array(u16, usize(8)).fill(u16(0));
   v6_loopback(usize(7)) = u16(1);
   // ::1
   skip_exn := Exception(
@@ -313,7 +313,7 @@ test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)",
   // the loopback instead). Post-fix the real address reaches bind(2), which
   // refuses a non-local address (EADDRNOTAVAIL) — and on a host with no IPv6
   // stack it fails as well, so this holds either way.
-  segs := Array(u16, usize(8)).fill(u16(0));
+  mut(segs) := Array(u16, usize(8)).fill(u16(0));
   segs(usize(0)) = u16(8193);
   // 0x2001
   segs(usize(1)) = u16(3512);
@@ -387,7 +387,7 @@ test("one listener accepts three sequential connections", {
   );
   addr := SocketAddr.loopback(u16(19911));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  round := 0;
+  mut(round) := 0;
   while(round < 3, {
     unsafe(printf("  round %d: connect\n", round));
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
@@ -420,7 +420,7 @@ test("client reads to EOF after the server closes, twice on one listener", {
   );
   addr := SocketAddr.loopback(u16(19912));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  round := 0;
+  mut(round) := 0;
   while(round < 2, {
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
     server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
@@ -457,7 +457,7 @@ _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoE
   io.async(e => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
-    eof := false;
+    mut(eof) := false;
     while(runtime(!eof && !_d6_ends_headers(&bytes)), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
       cond(
@@ -465,7 +465,7 @@ _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoE
           eof = true;
         },
         true => {
-          i := usize(0);
+          mut(i) := usize(0);
           while(runtime(i < n), {
             bytes.push((buf.add(i)).*);
             i = (i + usize(1));
@@ -481,7 +481,7 @@ _d6_scripted_server :: (
   fn(listener : &TcpListener, rounds : usize, seen : &Rc(ArrayList(String)), io : Io) -> Impl(Future(unit, IoExn))
 )(
   io.async(e => {
-    k := usize(0);
+    mut(k) := usize(0);
     while(runtime(k < rounds), {
       eprintln(`  server: accept ${k} pending`);
       s := e.io.await(listener.accept(e.io), e);
@@ -535,7 +535,7 @@ test("three request/response rounds against a spawned scripted server", {
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   seen := rc(ArrayList(String).new());
   server := io.spawn(_d6_scripted_server(&listener, usize(3), &seen, io), IoExn(io : io, exn : exn));
-  round := 0;
+  mut(round) := 0;
   while(round < 3, {
     eprintln(`  client: round ${round} connect`);
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
@@ -650,14 +650,14 @@ test("a consumer loop over incoming serves each connection in turn", {
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   bound := listener.local_addr();
   fds := ArrayList(i32).new();
-  conns := listener.incoming().take(usize(2));
+  mut(conns) := listener.incoming().take(usize(2));
   // The accepted streams are dropped by the loop body; `TcpStream`'s Drop
   // closes the descriptor, so nothing leaks while the fd is recorded. The
   // loop is hand-written because a macro that expands to an `io.await` is
   // emitted as a BLOCKING await inside a task and deadlocks
   // (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
   server_task := io.async((io : Io) => {
-    (serving : bool) = true;
+    (mut(serving) : bool) = true;
     while(serving, {
       nx := io.await(conns.next(io), io);
       match(
@@ -755,7 +755,7 @@ _tcp_write_until_error :: (fn(s : &TcpStream, io : Io) -> bool)({
     )
   );
   e := IoExn(io : io, exn : exn);
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     io.await(s.write_str("x", io), e);
     io.await(sleep(u64(2)), e);

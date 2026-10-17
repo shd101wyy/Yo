@@ -161,7 +161,7 @@ test("two stdin() handles read a redirected stdin sequentially", {
   w := io.await(file.write(fd, (*u8)("abcdef"), u32(6), u64(0)), io);
   assert(w == i32(6), "seeding the stdin file should write 6 bytes");
   saved := _redirect(fd, i32(0));
-  buf_uninit := MaybeUninit(Array(u8, usize(8))).new();
+  mut(buf_uninit) := MaybeUninit(Array(u8, usize(8))).new();
   buf := (*u8)(buf_uninit.as_ptr());
   i1 := stdin();
   r1 := io.await(i1.read(buf, usize(3), io), t_e);

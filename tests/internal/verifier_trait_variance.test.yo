@@ -83,7 +83,7 @@ _load_reports :: (
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -95,7 +95,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     i = (i + usize(1));
   });
   sb := StringBuilder.new();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < ids.len(), {
     if(j > usize(0), {
       sb.write_string(String.from(", "));
@@ -106,8 +106,8 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   sb.to_string()
 });
 _variance_report :: (fn(reports : &ArrayList(VerifyFnReport)) -> Option(VerifyFnReport))({
-  out := Option(VerifyFnReport).None;
-  (i : usize) = usize(0);
+  mut(out) := Option(VerifyFnReport).None;
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -133,7 +133,7 @@ test("trait variance: weakened requires + strengthened ensures PROVE", {
     true
   );
   assert(reports.len() == usize(2), `the method's own task + the variance task, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -178,7 +178,7 @@ test("trait contract INHERITANCE: the impl's own proof needs the trait's require
     true
   );
   assert(reports.len() == usize(2), `the inherited-contract own task + the reflexive variance task, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -211,9 +211,9 @@ test("trait variance: the INLINE clause spelling loads and proves (was the claus
     true
   );
   assert(reports.len() == usize(3), `the method task + the impl-variance task + main, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  (ok_n : usize) = usize(0);
-  (variance_ok : bool) = false;
-  (i : usize) = usize(0);
+  (mut(ok_n) : usize) = usize(0);
+  (mut(variance_ok) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),

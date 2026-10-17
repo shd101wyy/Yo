@@ -26,8 +26,8 @@ new_cinfo :: (fn(label : &String) -> CInfo)(
 CKind :: enum(Quoted(tag : String), Plain(tag : String));
 
 test("continue in while drops Rc locals exactly once", {
-  acc := ArrayList(String).new();
-  iter := i32(0);
+  mut(acc) := ArrayList(String).new();
+  mut(iter) := i32(0);
   while(iter < i32(30000), {
     payload := String.from("iteration-payload-with-heap-data");
     parts := ArrayList(u8).with_capacity(usize(32));
@@ -50,13 +50,13 @@ test("continue in while drops Rc locals exactly once", {
 
 test("continue inside match arm with extracted Option payload", {
   items := ArrayList(String).new();
-  k := i32(0);
+  mut(k) := i32(0);
   while(k < i32(8), {
     items.push(String.from("seed-payload-with-heap-data"));
     k = (k + i32(1));
   });
-  acc := ArrayList(String).new();
-  iter := i32(0);
+  mut(acc) := ArrayList(String).new();
+  mut(iter) := i32(0);
   while(iter < i32(30000), {
     idx := usize(iter % i32(8));
     // match-extracted binding from an expression temp (the Option's drop is

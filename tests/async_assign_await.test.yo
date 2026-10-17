@@ -22,8 +22,8 @@ give_b :: (fn(x : usize, io : Io) -> Impl(Future(usize, IoExn)))(
 // RE-assigning `out` from an await; every pick() returned 999 before.
 pick :: (fn(which : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    (out : usize) = usize(0);
-    (done : bool) = false;
+    (mut(out) : usize) = usize(0);
+    (mut(done) : bool) = false;
     cond(
       (which == usize(1)) => {
         out = e.io.await(give_a(io), e);
@@ -50,7 +50,7 @@ pick :: (fn(which : usize, io : Io) -> Impl(Future(usize, IoExn)))(
 // Linear (no cond) re-assignment of an await result.
 lin :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    (out : usize) = usize(0);
+    (mut(out) : usize) = usize(0);
     out = e.io.await(give_a(io), e);
     out = (out + usize(1));
     out

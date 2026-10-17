@@ -35,18 +35,18 @@ test("specialized inout param reads correctly with a comptime-known arg", {
   assert(show(Option(i32).Some(i32(4))) == `Some(4)`, "inline Some");
   assert(show(Option(i32).None) == `None`, "inline None");
   // Named local — the shape that already worked; must stay working.
-  o := Option(i32).Some(i32(7));
+  mut(o) := Option(i32).Some(i32(7));
   assert(show(&mut o) == `Some(7)`, "named local Some");
 });
 
 test("specialized inout param forwarded to another inout callee", {
   assert(forward(Option(i32).Some(i32(4))) == `Some(4)`, "forwarded inline Some");
-  b := Option(bool).Some(true);
+  mut(b) := Option(bool).Some(true);
   assert(forward(&mut b) == `Some(true)`, "forwarded named local");
 });
 
 test("specialized inout param stays writable with a comptime-known arg", {
-  n := i32(41);
+  mut(n) := i32(41);
   assert(bump(&mut n, i32(0)) == i32(42), "returns incremented");
   assert(n == i32(42), "wrote through to the caller");
 });

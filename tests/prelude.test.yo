@@ -262,11 +262,11 @@ test("unsigned integer negation is a compile error", {
 });
 test("Test 'MaybeUninit'", {
   {
-    uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
+    mut(uninit_arr) := MaybeUninit(Array(i32, usize(2))).new();
     p := uninit_arr.as_ptr();
     (p.*)(0) = 1;
     // initialize the array
-    arr := uninit_arr.assume_init(p);
+    mut(arr) := uninit_arr.assume_init(p);
     // `MaybeUninit(Array(i32, 2))` is `Copy` (its payload is), so
     // `assume_init` takes a copy and `uninit_arr` stays usable (decision 36:
     // a `Copy` value is copied at every copy point, a by-value argument too).
@@ -279,11 +279,11 @@ test("Test 'MaybeUninit'", {
   };
   {
     Point :: struct(x : i32, y : i32);
-    uninit_point := MaybeUninit(Point).new();
+    mut(uninit_point) := MaybeUninit(Point).new();
     p := uninit_point.as_ptr();
     p.x = 1;
     // initialize the point
-    point := uninit_point.assume_init(p);
+    mut(point) := uninit_point.assume_init(p);
     // uninit_point should be consumed after assume_init, so this should be an error:
     comptime_expect_error(point2 := uninit_point.assume_init(p));
     point.x = (point.x + 1);
@@ -386,7 +386,7 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
   });
   assert((seen.len() == usize(1)) && (seen.get(usize(0)).unwrap() == i32(7)), "inspect ran the callback");
   assert(echoed.unwrap() == i32(7), "inspect returns the option");
-  (slot : Option(i32)) = Option(i32).Some(i32(1));
+  (mut(slot) : Option(i32)) = Option(i32).Some(i32(1));
   taken := slot.take();
   assert(taken.unwrap() == i32(1), "take returns the old value");
   assert(slot.is_none(), "take leaves None behind");

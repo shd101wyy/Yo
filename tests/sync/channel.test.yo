@@ -196,14 +196,14 @@ test("Channel single producer single consumer with Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
   producer := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(5)), {
       _ := ch.send(i);
       i = (i + i32(1));
     });
   });
-  sum := i32(0);
-  count := i32(0);
+  mut(sum) := i32(0);
+  mut(count) := i32(0);
   while(runtime(count < i32(5)), {
     val := ch.recv();
     cond(
@@ -223,14 +223,14 @@ test("Channel thread producer sends many values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
   t := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(10)), {
       _ := ch.send(i);
       i = (i + i32(1));
     });
   });
-  sum := i32(0);
-  count := i32(0);
+  mut(sum) := i32(0);
+  mut(count) := i32(0);
   while(runtime(count < i32(10)), {
     val := ch.recv();
     cond(
@@ -345,9 +345,9 @@ test("Channel pool task sends multiple values", {
     wg.done();
   });
   wg.wait();
-  sum := i32(0);
-  count := i32(0);
-  val := ch.try_recv();
+  mut(sum) := i32(0);
+  mut(count) := i32(0);
+  mut(val) := ch.try_recv();
   while(runtime(val.is_ok()), {
     sum = (sum + val.unwrap());
     count = (count + i32(1));
@@ -387,8 +387,8 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
 // report their assertion in ~2 s instead of hanging.
 _recv_within :: (fn(ch : &Channel(i32), budget_ms : i64) -> Option(i32))({
   start := Instant.now();
-  (found : Option(i32)) = .None;
-  (waiting : bool) = true;
+  (mut(found) : Option(i32)) = .None;
+  (mut(waiting) : bool) = true;
   while(runtime(waiting), {
     match(
       ch.try_recv(),
@@ -537,7 +537,7 @@ test("buffered values reach a blocked Receiver before the disconnect", {
   rx := Channel(i32).receiver(usize(4));
   verdict := Channel(i32).new(usize(4));
   consumer := Thread(unit).spawn(io => {
-    (going : bool) = true;
+    (mut(going) : bool) = true;
     while(going, {
       match(
         rx.recv(),
@@ -589,9 +589,9 @@ test("cloned Senders in several threads all fan in to one Receiver", {
   // Drained with try_recv, never recv: every value is already buffered once
   // the threads have joined, so a lost value fails an assertion instead of
   // parking the test.
-  (total : i32) = i32(0);
-  (count : i32) = i32(0);
-  v := rx.try_recv();
+  (mut(total) : i32) = i32(0);
+  (mut(count) : i32) = i32(0);
+  mut(v) := rx.try_recv();
   while(runtime(v.is_ok()), {
     total = (total + v.unwrap());
     count = (count + i32(1));
@@ -635,8 +635,8 @@ test("a sender per thread: the last one to finish closes the channel", {
   };
   // The workers' senders and the keeper are all gone now.
   assert(rx.is_closed(), "the last sender to go closed the channel");
-  (sum : i32) = i32(0);
-  v := rx.try_recv();
+  (mut(sum) : i32) = i32(0);
+  mut(v) := rx.try_recv();
   while(runtime(v.is_ok()), {
     sum = (sum + v.unwrap());
     v = rx.try_recv();

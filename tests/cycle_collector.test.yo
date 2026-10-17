@@ -44,7 +44,7 @@ test("Test freeing many objects", {
     x := List(1, .Some(y));
   });
   // Run 100 times to accumulate leaks
-  i := 0;
+  mut(i) := 0;
   while(i < 100, {
     test_leak();
     i = (i + 1);
@@ -195,7 +195,7 @@ test("Multiple GC passes don't corrupt state", {
   do_test :: (fn() -> unit)({
     root := Node(1, .None);
     // Create and abandon multiple cycles
-    i := 0;
+    mut(i) := 0;
     while(i < 10, {
       a := Node((i * 2) + 100, .None);
       b := Node((i * 2) + 101, .Some(a));
@@ -203,7 +203,7 @@ test("Multiple GC passes don't corrupt state", {
       i = (i + 1);
     });
     // Multiple GC passes
-    j := 0;
+    mut(j) := 0;
     while(j < 5, {
       Gc.collect();
       j = (j + 1);

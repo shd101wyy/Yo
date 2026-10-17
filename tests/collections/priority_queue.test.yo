@@ -167,8 +167,8 @@ test("PriorityQueue with many elements", {
   pq.push(i32(10));
   assert(pq.len() == usize(20), "len should be 20");
   // Pop all and verify DESCENDING order
-  prev := i32(100);
-  remaining := usize(20);
+  mut(prev) := i32(100);
+  mut(remaining) := usize(20);
   while(remaining > usize(0), remaining = (remaining - usize(1)), {
     v := pq.pop().unwrap();
     assert(v < prev, "elements should come out in descending order");
@@ -226,7 +226,7 @@ test("Reverse works on unsigned types, where negating keys cannot", {
 // ---- Iterator Tests ----
 test("PriorityQueue into_iter - empty queue", {
   pq := PriorityQueue(i32).new();
-  count := i32(0);
+  mut(count) := i32(0);
   for(pq.into_iter(), x => {
     count = (count + i32(1));
   });
@@ -237,8 +237,8 @@ test("PriorityQueue into_iter - visits all elements", {
   pq.push(i32(30));
   pq.push(i32(10));
   pq.push(i32(20));
-  sum := i32(0);
-  count := i32(0);
+  mut(sum) := i32(0);
+  mut(count) := i32(0);
   for(pq.into_iter(), x => {
     sum = (sum + x);
     count = (count + i32(1));
@@ -250,7 +250,7 @@ test("PriorityQueue iter - yields pointers", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(20));
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(pq.iter(), ptr => {
     sum = (sum + ptr.*);
   });
@@ -264,7 +264,7 @@ test("PriorityQueue iter - mutate through pointer", {
     ptr.* = (ptr.* * i32(100));
   });
   // Elements are multiplied but in heap order
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(pq.into_iter(), x => {
     sum = (sum + x);
   });

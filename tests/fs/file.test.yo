@@ -679,7 +679,7 @@ test("a path with an interior NUL never reaches the file at its prefix", {
   real := path_join(&tmp, `yo_fs_nul_decoy.txt`);
   rpath := Path.new(real.clone());
   io.await(fs_file.write_string(&rpath, String.from("DECOY"), io), IoExn(io : io, exn : exn));
-  bad := real.clone();
+  mut(bad) := real.clone();
   bad.push_byte(u8(0));
   bad.push_str("/garbage");
   bpath := Path.new(&bad);

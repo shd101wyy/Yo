@@ -114,8 +114,8 @@ test("unwind argument built by a may-unwind call", {
     (raise : Raise2) = (msg -> unwind(make_err_node()));
     try_eval(n, raise)
   });
-  (acc : usize) = usize(0);
-  (i : i32) = i32(0);
+  (mut(acc) : usize) = usize(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(30), {
     r := eval_wrapper(i);
     match(
@@ -172,8 +172,8 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
     step(n, raise)
   });
   before := g_ue_disposed;
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(10), {
     acc = (acc + run(i));
     i = (i + i32(1));
@@ -218,8 +218,8 @@ test("may-unwind call in an if condition releases an Option-typed argument temp 
   });
   before := g_ue_disposed;
   kept_before := g_ue_keep.len();
-  (acc : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(10), {
     acc = (acc + run(i));
     i = (i + i32(1));
@@ -943,7 +943,7 @@ test("Effect row polymorphism with E : Type.Struct spread", {
       e : E
     ) -> unit
   )({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < S, i = (i + 1), {
       callback(arr(i), e);
     });
@@ -983,7 +983,7 @@ test("Effect row inline typed declaration name : Type", {
       e : E
     ) -> unit
   )({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < S, i = (i + 1), {
       callback(arr(i), e);
     });
@@ -1024,7 +1024,7 @@ test("Mixed unwind and return in effect handler", {
       e : &E
     ) -> unit
   )({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < S, i = (i + 1), {
       callback(arr(i), e);
     });
@@ -1255,7 +1255,7 @@ test("Struct-record effect with generic handler — unwind in while loop", {
       e : E
     ) -> unit
   )({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < S, i = (i + 1), {
       safe_divide(i32(42), arr(i), exn);
     });

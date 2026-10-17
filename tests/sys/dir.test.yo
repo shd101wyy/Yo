@@ -231,9 +231,9 @@ test("async getdents lists directory entries", {
   unsafe(printf("  open dir = %d\n", dir_fd));
   assert(dir_fd >= i32(0));
   buf := (*u8)(malloc(usize(4096)).unwrap());
-  entry_count := i32(0);
-  dir_count := i32(0);
-  file_count := i32(0);
+  mut(entry_count) := i32(0);
+  mut(dir_count) := i32(0);
+  mut(file_count) := i32(0);
   while(runtime(true), {
     n := io.await(dir.getdents(dir_fd, buf, u32(4096)), io);
     unsafe(printf("  getdents = %d\n", n));
@@ -242,7 +242,7 @@ test("async getdents lists directory entries", {
         break;
       },
       true => {
-        offset := u32(0);
+        mut(offset) := u32(0);
         while(runtime(true), {
           cond(
             (offset >= u32(n)) => {

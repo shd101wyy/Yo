@@ -71,11 +71,11 @@ _one_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 _many_sleeps_in_one_tick :: (fn(io : Io) -> unit)({
   hs := ArrayList(JoinHandle(i32)).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(1500), i = (i + usize(1)), {
     hs.push(io.spawn(_one_sleep(io), io));
   });
-  (ok : usize) = usize(0);
+  (mut(ok) : usize) = usize(0);
   // Awaiting a handle consumes it: pop each one off the list.
   while(hs.len() > usize(0), {
     r := match(hs.pop(), .Some(h) => match(h.await(io), .Some(v) => v, .None => i32(-1)), .None => i32(-1));
@@ -146,7 +146,7 @@ _drop_an_armed_sleep :: (fn(io : Io) -> bool)({
   s == FutureState.Completed
 });
 test("a sleep future dropped before it fires does not fire into freed memory", {
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     _b := _drop_an_armed_sleep(io);
   });

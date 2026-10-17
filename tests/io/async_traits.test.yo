@@ -75,7 +75,7 @@ test("read_to_end default loops chunks; write_all default delivers everything", 
   path := Path.new(path_join(temp_dir(), `yo_d5s2_defaults.bin`.to_string()));
   // 10000 bytes so read_to_end must loop three 4096-byte chunks.
   payload := ArrayList(u8).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(10000), i = (i + usize(1)), {
     payload.push(u8(usize(65) + (i % usize(26))));
   });
@@ -130,7 +130,7 @@ test("copy drains a Reader into a Writer and counts bytes", {
   pa := Path.new(path_join(temp_dir(), `yo_d5s2_copy_a.bin`.to_string()));
   pb := Path.new(path_join(temp_dir(), `yo_d5s2_copy_b.bin`.to_string()));
   payload := ArrayList(u8).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(5000), i = (i + usize(1)), {
     payload.push(u8(i % usize(251)));
   });
@@ -209,7 +209,7 @@ test("File implements Reader and Writer — trait-dispatched round trip", {
   // Read back through the GENERIC Reader bound (one await).
   f2 := io.await(File.open(&path, OpenMode.Read, io), t_e);
   buf := ArrayList(u8).with_capacity(usize(8));
-  (bi : usize) = usize(0);
+  (mut(bi) : usize) = usize(0);
   while(bi < usize(8), bi = (bi + usize(1)), {
     buf.push(u8(0));
   });

@@ -361,7 +361,7 @@ test("read_dir survives directories larger than one getdents buffer", {
   dname := path_join(&tmp, `yo_fs_read_dir_large`);
   dpath := Path.new(dname.clone());
   io.await(fs_dir.create_dir_all(&dpath, io), IoExn(io : io, exn : exn));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(runtime(i < usize(200)), {
     io.await(fs_file.write_string(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${i}.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
     i = (i + usize(1));
@@ -370,7 +370,7 @@ test("read_dir survives directories larger than one getdents buffer", {
   unsafe(printf("  large-dir entries count = %lld\n", i64(entries.len())));
   assert(entries.len() == usize(200), "expected all 200 entries (truncation regression)");
   // Cleanup
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(runtime(j < usize(200)), {
     io.await(fs_dir.remove_file(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${j}.txt`)), io), IoExn(io : io, exn : exn));
     j = (j + usize(1));
@@ -398,10 +398,10 @@ test("read_dir lists directory entries", {
   unsafe(printf("  entries count = %lld\n", i64(entries.len())));
   assert(entries.len() == usize(3), "expected 3 entries");
   // Check that we find the expected names
-  found_a := false;
-  found_b := false;
-  found_sub := false;
-  i := usize(0);
+  mut(found_a) := false;
+  mut(found_b) := false;
+  mut(found_sub) := false;
+  mut(i) := usize(0);
   while(runtime(i < entries.len()), {
     entry := entries(i);
     unsafe(printf("  entry: %s\n", entry.name.to_cstr().ptr().unwrap()));

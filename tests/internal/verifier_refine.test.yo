@@ -117,7 +117,7 @@ _load_reports_bogus_solver :: (
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -129,7 +129,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     i = (i + usize(1));
   });
   sb := StringBuilder.new();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < ids.len(), {
     if(j > usize(0), {
       sb.write_string(String.from(", "));
@@ -140,8 +140,8 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   sb.to_string()
 });
 _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> usize)({
-  (n : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(n) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -224,13 +224,13 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
     `safe_div itself must stay ok (modular: one bad caller does not poison the callee), got: [${_reports_dump(&reports)}]`
   );
   // The counter-example names the argument: d = 0.
-  (names_d : bool) = false;
-  (i : usize) = usize(0);
+  (mut(names_d) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
       .Some(rp) => {
-        (j : usize) = usize(0);
+        (mut(j) : usize) = usize(0);
         while(j < rp.obligations.len(), {
           match(
             rp.obligations.get(j),
@@ -239,7 +239,7 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
                 obl.verdict,
                 .Refuted(ce) => {
                   if(obl.name.contains(String.from("refine#")), {
-                    (k : usize) = usize(0);
+                    (mut(k) : usize) = usize(0);
                     while(k < ce.len(), {
                       match(
                         ce.get(k),
@@ -283,8 +283,8 @@ test("worked example: a refinement-typed index proves an array read in bounds", 
     io,
     true
   );
-  (ok_n : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(ok_n) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -345,9 +345,9 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   // fn_ids carry path:line (no fn names) — the literal callers sit at
   // :12 (lit_caller, must PROVE from the folded 5 != 0) and :14
   // (lit_caller_bad, must REFUTE from the folded 0 != 0).
-  (lit_proved : bool) = false;
-  (lit_refuted : bool) = false;
-  (i : usize) = usize(0);
+  (mut(lit_proved) : bool) = false;
+  (mut(lit_refuted) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -377,13 +377,13 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
     (sum.queries == usize(0)) && (sum.folded == usize(2)),
     `summary must count the two folded refine#N obligations as folded, not queries: queries=${sum.queries.to_string()} folded=${sum.folded.to_string()}`
   );
-  (goal_ok : bool) = true;
-  (gi : usize) = usize(0);
+  (mut(goal_ok) : bool) = true;
+  (mut(gi) : usize) = usize(0);
   while(gi < reports.len(), {
     match(
       reports.get(gi),
       .Some(rp) => {
-        (oi : usize) = usize(0);
+        (mut(oi) : usize) = usize(0);
         while(oi < rp.obligations.len(), {
           match(
             rp.obligations.get(oi),

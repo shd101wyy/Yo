@@ -120,7 +120,7 @@ test("overload gate: other Windows std files are not", {
 fs_file :: import("std/fs/file");
 { scan_class1_extractions, Class1Extraction } :: import("../../src/public_safe_report.yo");
 _class1_status :: (fn(found : &ArrayList(Class1Extraction), receiver : str, method : str) -> String)({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < found.len(), {
     c := found(i);
     if((c.receiver == receiver) && (c.method == method), {
@@ -182,8 +182,8 @@ test("class-1 scan: every trapping Option/Result extraction in the prelude is ga
   src := io.await(fs_file.read_to_string(Path.new(String.from("std/prelude.yo")), io), IoExn(io : io, exn : exn));
   found := ArrayList(Class1Extraction).new();
   scan_class1_extractions(String.from("std/prelude.yo"), &src, &mut found);
-  (ungated : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(ungated) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < found.len(), {
     c := found(i);
     if(c.status == "UNGATED", {

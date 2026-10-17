@@ -92,7 +92,7 @@ test("Test abort after completion is a no-op", {
   // granularity, so both timers fired in ONE wake batch and the awaiting test
   // body exited before the ready queue drained (macos-26-intel lost the same
   // race stochastically on slow VMs).
-  (spins : usize) = usize(0);
+  (mut(spins) : usize) = usize(0);
   while(runtime(!h.is_finished() && (spins < usize(2000))), {
     io.await(sleep(u64(1)), io);
     spins = (spins + usize(1));
@@ -342,7 +342,7 @@ test("a handle list: borrow elements in place, pop to own one", {
   assert(hs.len() == usize(0), "both handles moved out");
 });
 test("Option.take moves a handle out of an optional slot", {
-  (slot : Option(JoinHandle(i32))) = .Some(io.spawn(io.async((io : Io) => i32(9)), io));
+  (mut(slot) : Option(JoinHandle(i32))) = .Some(io.spawn(io.async((io : Io) => i32(9)), io));
   match(
     slot.take(),
     .Some(h) => assert(match(h.await(io), .Some(v) => (v == i32(9)), .None => false), "the taken handle is owned"),

@@ -129,7 +129,7 @@ test("abandon stops tracking and makes deinit a no-op", {
   Allocator.free(p);
 });
 test("Dead arena states are reused by later arenas", {
-  i := usize(0);
+  mut(i) := usize(0);
   while(runtime(i < usize(200)), {
     arena := Arena.new(usize(128));
     p := arena.allocator().alloc(usize(16));
@@ -144,7 +144,7 @@ test("Dead arena states are reused by later arenas", {
 // Allocate and free 500 blocks through `a`.
 _churn :: (fn(a : Allocator) -> unit)({
   blocks := ArrayList(*void).new();
-  k := usize(0);
+  mut(k) := usize(0);
   while(runtime(k < usize(500)), {
     blocks.push(a.alloc(usize(24)).unwrap());
     k = (k + usize(1));
@@ -225,14 +225,14 @@ test("Many arenas alive at once each keep their own state", {
   // 100 states span the table's first three chunks (16 + 32 + 64).
   arenas := ArrayList(Arena).new();
   blocks := ArrayList(*void).new();
-  i := usize(0);
+  mut(i) := usize(0);
   while(runtime(i < usize(100)), {
     arena := Arena.new(usize(64) + (i * usize(16)));
     blocks.push(arena.allocator().alloc(usize(8)).unwrap());
     arenas.push(arena);
     i = (i + usize(1));
   });
-  j := usize(0);
+  mut(j) := usize(0);
   while(runtime(j < usize(100)), {
     arena := arenas.get(j).unwrap();
     assert(arena.capacity() == (usize(64) + (j * usize(16))), `arena ${j}: capacity ${arena.capacity()}`);

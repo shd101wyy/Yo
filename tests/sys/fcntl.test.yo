@@ -22,7 +22,7 @@ test("fcntl invalid fd returns -EBADF", {
   assert(ret_setfd == (i32(0) - i32(EBADF)));
 });
 test("fcntl setfl toggles O_NONBLOCK on pipe", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0));
@@ -65,7 +65,7 @@ test("fcntl getfd/setfd toggles FD_CLOEXEC", {
     unsafe(printf("  skipped on wasm32\n"));
     return(());
   });
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0));

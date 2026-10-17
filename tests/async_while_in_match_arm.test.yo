@@ -19,8 +19,8 @@ _Choice :: enum(Skip, Spin);
 derive(_Choice, Copy, Clone);
 _match_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
   io.async(e => {
-    (n : i64) = i64(0);
-    (trail : i64) = i64(0);
+    (mut(n) : i64) = i64(0);
+    (mut(trail) : i64) = i64(0);
     match(
       c,
       .Skip => {
@@ -40,8 +40,8 @@ _match_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
 );
 _cond_branch :: (fn(skip : bool, io : Io) -> Impl(Future(i64, Io)))(
   io.async(e => {
-    (n : i64) = i64(0);
-    (trail : i64) = i64(0);
+    (mut(n) : i64) = i64(0);
+    (mut(trail) : i64) = i64(0);
     cond(
       skip => {
         n = i64(-1);
@@ -84,7 +84,7 @@ test("the sibling arm is unaffected", {
 //! missing it.
 _spawn_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
   io.async(e => {
-    (turns : i64) = i64(0);
+    (mut(turns) : i64) = i64(0);
     match(
       c,
       .Skip => {

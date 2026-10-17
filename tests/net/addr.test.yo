@@ -28,7 +28,7 @@ test("IpAddr.loopback_v6 returns ::1", {
 });
 /// Build a V6 address from eight segment values.
 _v6 :: (fn(a : u16, b : u16, c : u16, d : u16, e : u16, f : u16, g : u16, h : u16) -> IpAddr)({
-  segs := Array(u16, usize(8)).fill(u16(0));
+  mut(segs) := Array(u16, usize(8)).fill(u16(0));
   segs(usize(0)) = a;
   segs(usize(1)) = b;
   segs(usize(2)) = c;
@@ -369,7 +369,7 @@ test("IpAddr.parse_v6 accepts :: compression in every position", {
   match(
     unspec,
     .V6(segs) => {
-      i := usize(0);
+      mut(i) := usize(0);
       while(runtime(i < usize(8)), {
         assert(segs(i) == u16(0), "every group of :: is zero");
         i = (i + usize(1));

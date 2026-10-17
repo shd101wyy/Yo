@@ -745,7 +745,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
       n = (n + i32(1));
     })
   );
-  (x : i32) = i32(41);
+  (mut(x) : i32) = i32(41);
   h.cb(&mut x);
   assert(x == i32(42), "a local i32 is incremented in place");
   _dio_bump_twice(&mut x, &h);
@@ -778,7 +778,7 @@ _dio_trait_bump :: (fn(y : &mut i32, d : &Dyn(_DioBump)) -> unit)({
 });
 test("Dyn(trait) method with an inout parameter writes through to the caller's place", {
   (d : Dyn(_DioBump)) = dyn(_DioStep(k : i32(2)));
-  (x : i32) = i32(40);
+  (mut(x) : i32) = i32(40);
   d.bump(&mut x);
   assert(x == i32(42), "a local i32 is updated in place");
   _dio_trait_bump(&mut x, &d);
@@ -835,7 +835,7 @@ test("dyn of a named function calls the function", {
   assert(b(&s) == usize(8), "a second fn of the same signature calls its own code");
   assert(_dnf_call(&a, &s) == usize(4), "a Dyn of a named fn passed by reference");
   (c : Dyn(Fn(x : &mut i32) -> unit)) = dyn(_dnf_bump);
-  (x : i32) = i32(40);
+  (mut(x) : i32) = i32(40);
   c(&mut x);
   c(&mut x);
   assert(x == i32(42), "a &mut parameter writes through to the caller's place");
@@ -855,7 +855,7 @@ _dnf_noop :: (fn() -> unit)(());
 test("a unit-returning Dyn(FnOnce) of a named fn and of a closure", {
   (n : Dyn(FnOnce() -> unit)) = dyn(_dnf_noop);
   n();
-  (x : i32) = i32(1);
+  (mut(x) : i32) = i32(1);
   (b : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(_dnf_bump);
   b(&mut x);
   assert(x == i32(2), "a unit-returning named fn called once through a Dyn");

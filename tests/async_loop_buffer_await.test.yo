@@ -21,18 +21,18 @@ Reader :: trait(
         io.async(e => {
           out := ArrayList(u8).new();
           chunk := ArrayList(u8).with_capacity(usize(4));
-          (ci : usize) = usize(0);
+          (mut(ci) : usize) = usize(0);
           while(ci < usize(4), ci = (ci + usize(1)), {
             chunk.push(u8(0));
           });
-          (done : bool) = false;
+          (mut(done) : bool) = false;
           p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
           while(!done, {
             n := e.io.await(Self.read(self, p, usize(4), io), e);
             if(n == usize(0), {
               done = true;
             }, {
-              (i : usize) = usize(0);
+              (mut(i) : usize) = usize(0);
               while(i < n, i = (i + usize(1)), {
                 out.push(chunk(i));
               });
@@ -48,7 +48,7 @@ impl(
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        (n : usize) = usize(0);
+        (mut(n) : usize) = usize(0);
         while((n < size) && (self.pos < u8(10)), {
           self.pos = (self.pos + u8(1));
           (buf.add(n)).* = self.pos;
@@ -66,18 +66,18 @@ read_to_end_free :: (
   io.async(e => {
     out := ArrayList(u8).new();
     chunk := ArrayList(u8).with_capacity(usize(4));
-    (ci : usize) = usize(0);
+    (mut(ci) : usize) = usize(0);
     while(ci < usize(4), ci = (ci + usize(1)), {
       chunk.push(u8(0));
     });
     p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
-    (done : bool) = false;
+    (mut(done) : bool) = false;
     while(!done, {
       n := e.io.await(the_r.read(p, usize(4), e.io), e);
       if(n == usize(0), {
         done = true;
       }, {
-        (i : usize) = usize(0);
+        (mut(i) : usize) = usize(0);
         while(i < n, i = (i + usize(1)), {
           out.push(chunk(i));
         });
@@ -112,18 +112,18 @@ impl(
     io.async(e => {
       out := ArrayList(u8).new();
       chunk := ArrayList(u8).with_capacity(usize(4));
-      (ci : usize) = usize(0);
+      (mut(ci) : usize) = usize(0);
       while(ci < usize(4), ci = (ci + usize(1)), {
         chunk.push(u8(0));
       });
       p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
-      (done : bool) = false;
+      (mut(done) : bool) = false;
       while(!done, {
         n := e.io.await(self._inner.read(p, usize(4), io), e);
         if(n == usize(0), {
           done = true;
         }, {
-          (i : usize) = usize(0);
+          (mut(i) : usize) = usize(0);
           while(i < n, i = (i + usize(1)), {
             out.push(chunk(i));
           });
@@ -221,7 +221,7 @@ sm_arg_step :: (fn(i : i32, io : Io) -> Impl(Future(i32, IoExn)))(
 sm_arg_collect :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
     raw := ArrayList(struct(p : SmArgProbe, k : i32)).new();
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(runtime(i < i32(3)), {
       nxt := e.io.await(sm_arg_step(i, e.io), e);
       p := SmArgProbe(n : i);

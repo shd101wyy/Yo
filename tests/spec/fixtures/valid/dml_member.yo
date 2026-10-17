@@ -14,8 +14,8 @@ member :: ghost_fn(
 );
 
 contains :: (fn(xs : &ArrayList(i32), v : i32, ensures(r == member(xs, xs.len(), v))) -> (r : bool))({
-  (i : usize) = usize(0);
-  (found : bool) = false;
+  (mut(i) : usize) = usize(0);
+  (mut(found) : bool) = false;
   while(i < xs.len(), {
     invariant(i <= xs.len(), found == member(xs, i, v));
     if(xs(i) == v, {

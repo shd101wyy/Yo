@@ -38,7 +38,7 @@ PointS :: struct(x : i32, y : i32);
 derive(PointS, Copy, Clone);
 
 test("value-struct field place", {
-  p := PointS(x : i32(1), y : i32(2));
+  mut(p) := PointS(x : i32(1), y : i32(2));
   bump(&mut p.x);
   assert(p.x == i32(2), "stack-struct field write through the ref param");
 });
@@ -92,7 +92,7 @@ comptime_expect_error(
 mut(g_counter) := i32(0);
 test("a mut module-level variable is copied out for a ref param", {
   comptime_expect_error(bump(&mut g_counter), "is declared `mut(g_counter)`");
-  v := g_counter;
+  mut(v) := g_counter;
   bump(&mut v);
   g_counter = v;
   assert(g_counter == i32(1), "global slot written back from the local");
@@ -289,7 +289,7 @@ test("copy the element out to combine with container use", {
   });
   xs := ArrayList(i32).new();
   xs.push(i32(7));
-  copied := match(xs.get(usize(0)), .Some(v) => v, .None => i32(0));
+  mut(copied) := match(xs.get(usize(0)), .Some(v) => v, .None => i32(0));
   use_both(&mut copied, &xs);
   assert(xs.len() == usize(2), "pushed the copy");
   assert(xs(usize(0)) == i32(7), "original element untouched (v=0 wrote the copy)");
@@ -350,7 +350,7 @@ bump_static :: (fn(v : &mut i32) -> unit)({
 });
 test("a module-level struct's i32 field is copied out for a &mut param", {
   comptime_expect_error(bump_static(&mut g_static_val.n), "is declared `mut(g_static_val)`");
-  n := g_static_val.n;
+  mut(n) := g_static_val.n;
   bump_static(&mut n);
   g_static_val.n = n;
   assert(g_static_val.n == i32(43), "the field is written back from the local");

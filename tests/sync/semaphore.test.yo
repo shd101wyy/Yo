@@ -58,7 +58,7 @@ test("Semaphore with a negative initial count needs the deficit released first",
 });
 test("Semaphore of one permit acquires and releases repeatedly", {
   sem := Semaphore.new(i32(1));
-  i := i32(0);
+  mut(i) := i32(0);
   while(runtime(i < i32(10)), {
     sem.acquire();
     assert(sem.available_permits() == i32(0), "the single permit is held");
@@ -86,7 +86,7 @@ test("Semaphore never admits more holders than it has permits", {
   saw_full := AtomicI32(i32(0));
   completed := AtomicI32(i32(0));
   t1 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
@@ -107,7 +107,7 @@ test("Semaphore never admits more holders than it has permits", {
     });
   });
   t2 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
@@ -128,7 +128,7 @@ test("Semaphore never admits more holders than it has permits", {
     });
   });
   t3 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
@@ -149,7 +149,7 @@ test("Semaphore never admits more holders than it has permits", {
     });
   });
   t4 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
@@ -220,7 +220,7 @@ test("Semaphore blocked acquirers are woken one per released permit", {
   assert(passed.load(MemoryOrder.Acquire) == i32(0), "no acquirer may pass an exhausted semaphore");
   // One permit back — exactly one waiter may take it.
   sem.release();
-  waited := i32(0);
+  mut(waited) := i32(0);
   while(runtime((passed.load(MemoryOrder.Acquire) < i32(1)) && (waited < i32(30000))), {
     sleep_blocking(Duration.from_millis(i64(1)));
     waited = (waited + i32(1));
@@ -263,7 +263,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
   sem := Semaphore.new(i32(1));
   counter := AtomicI32(i32(0));
   t1 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       v := counter.load(MemoryOrder.Relaxed);
@@ -274,7 +274,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
     });
   });
   t2 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       v := counter.load(MemoryOrder.Relaxed);
@@ -285,7 +285,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
     });
   });
   t3 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       v := counter.load(MemoryOrder.Relaxed);
@@ -296,7 +296,7 @@ test("Semaphore of one permit serializes a read-modify-write", {
     });
   });
   t4 := Thread(unit).spawn(io => {
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(25)), {
       sem.acquire();
       v := counter.load(MemoryOrder.Relaxed);

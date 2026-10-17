@@ -43,8 +43,8 @@ nest_sum :: (fn(t : &Nest) -> i32)(
     .Tip(n) => n,
     .One(inner) => recur(&inner),
     .Many(items) => {
-      (acc : i32) = i32(0);
-      (i : usize) = usize(0);
+      (mut(acc) : i32) = i32(0);
+      (mut(i) : usize) = usize(0);
       while(i < items.len(), {
         match(
           items.get(i),
@@ -68,7 +68,7 @@ nest_rebuild :: (fn(t : &Nest) -> Nest)(
     .One(inner) => Nest.One(inner : recur(&inner)),
     .Many(items) => {
       out := ArrayList(Nest).new();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < items.len(), {
         match(
           items.get(i),
@@ -98,7 +98,7 @@ test("ref(enum) is a shared handle (reference semantics)", {
 });
 
 test("ref(enum) re-match (handle borrowed, not consumed) + variant reassign", {
-  s := Shape.Circle(r : i32(5));
+  mut(s) := Shape.Circle(r : i32(5));
   assert(area(&s) == i32(75), "first match");
   assert(area(&s) == i32(75), "re-match works — match borrows the handle");
   s = Shape.Square(s : i32(4));

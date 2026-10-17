@@ -390,7 +390,7 @@ test("String at() sequential access", {
   bytes.push(u8(68));
   bytes.push(u8(69));
   s := String.from_bytes(bytes);
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     ch := s.at(i);
     assert(ch.is_some());
@@ -502,7 +502,7 @@ test("String.from with emoji literal", {
 // ===== Large String Tests =====
 test("String with many ASCII characters", {
   bytes := ArrayList(u8).new();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
     bytes.push(u8(65));
   });
@@ -869,7 +869,7 @@ test("String + and == operators combined", {
 // ===== Performance and Stress Tests =====
 test("String with_capacity and repeated push", {
   bytes := ArrayList(u8).with_capacity(usize(50));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(50), i = (i + usize(1)), {
     bytes.push(u8((i % usize(26)) + usize(65)));
   });
@@ -1801,7 +1801,7 @@ test("String ends_with end_position single character", {
 // --- chars() tests ---
 test("String chars - empty string yields nothing", {
   s := String.new();
-  count := usize(0);
+  mut(count) := usize(0);
   for(s.chars(), ch => {
     consume(ch);
     count = (count + usize(1));
@@ -1810,8 +1810,8 @@ test("String chars - empty string yields nothing", {
 });
 test("String chars - ASCII string yields correct runes", {
   s := `ABC`;
-  count := usize(0);
-  sum := u32(0);
+  mut(count) := usize(0);
+  mut(sum) := u32(0);
   for(s.chars(), ch => {
     sum = (sum + ch.to_u32());
     count = (count + usize(1));
@@ -1823,7 +1823,7 @@ test("String chars - ASCII string yields correct runes", {
 test("String chars - multi-byte UTF-8 yields correct runes", {
   // "你好" - two 3-byte CJK characters
   s := `你好`;
-  count := usize(0);
+  mut(count) := usize(0);
   runes := ArrayList(u32).new();
   for(s.chars(), ch => {
     runes.push(ch.to_u32());
@@ -1836,7 +1836,7 @@ test("String chars - multi-byte UTF-8 yields correct runes", {
 test("String chars - 4-byte emoji characters", {
   // "😀😎" - two 4-byte emoji
   s := `😀😎`;
-  count := usize(0);
+  mut(count) := usize(0);
   runes := ArrayList(u32).new();
   for(s.chars(), ch => {
     runes.push(ch.to_u32());
@@ -1848,7 +1848,7 @@ test("String chars - 4-byte emoji characters", {
 });
 test("String chars - mixed ASCII and UTF-8", {
   s := `Hi世界`;
-  count := usize(0);
+  mut(count) := usize(0);
   for(s.chars(), ch => {
     consume(ch);
     count = (count + usize(1));
@@ -1858,7 +1858,7 @@ test("String chars - mixed ASCII and UTF-8", {
 // --- bytes_iter() tests ---
 test("String bytes - empty string yields nothing", {
   s := String.new();
-  count := usize(0);
+  mut(count) := usize(0);
   for(s.bytes(), b => {
     consume(b);
     count = (count + usize(1));
@@ -1867,7 +1867,7 @@ test("String bytes - empty string yields nothing", {
 });
 test("String bytes - ASCII string yields raw bytes", {
   s := `ABC`;
-  count := usize(0);
+  mut(count) := usize(0);
   bytes := ArrayList(u8).new();
   for(s.bytes(), b => {
     bytes.push(b);
@@ -1881,7 +1881,7 @@ test("String bytes - ASCII string yields raw bytes", {
 test("String bytes - UTF-8 string yields all bytes", {
   // "你" is 3 bytes in UTF-8: 0xE4, 0xBD, 0xA0
   s := `你`;
-  count := usize(0);
+  mut(count) := usize(0);
   bytes := ArrayList(u8).new();
   for(s.bytes(), b => {
     bytes.push(b);
@@ -1895,8 +1895,8 @@ test("String bytes - UTF-8 string yields all bytes", {
 // --- into_iter() tests ---
 test("String into_iter - yields runes like chars", {
   s := `Hello`;
-  count := usize(0);
-  first := u32(0);
+  mut(count) := usize(0);
+  mut(first) := u32(0);
   for(s.into_iter(), ch => {
     cond(
       (count == usize(0)) => {
@@ -1911,7 +1911,7 @@ test("String into_iter - yields runes like chars", {
 });
 test("String into_iter - empty string", {
   s := String.new();
-  count := usize(0);
+  mut(count) := usize(0);
   for(s.into_iter(), ch => {
     consume(ch);
     count = (count + usize(1));
@@ -1924,7 +1924,7 @@ test("Test String.with_capacity", {
   assert(s.chars().count() == usize(0), "with_capacity rune count should be 0");
 });
 test("Test String.push_str", {
-  s := String.new();
+  mut(s) := String.new();
   s.push_str("hello");
   s.push_str(" ");
   s.push_str("world");
@@ -1932,14 +1932,14 @@ test("Test String.push_str", {
   assert(s.len() == usize(11), "len should be 11 bytes");
 });
 test("Test String.push_string", {
-  s := String.new();
+  mut(s) := String.new();
   s.push_string(`hello`);
   s.push_string(` `);
   s.push_string(`world`);
   assert(s == `hello world`, "push_string should append correctly");
 });
 test("Test String.push_byte", {
-  s := String.new();
+  mut(s) := String.new();
   s.push_byte(u8(65)); // 'A'
   s.push_byte(u8(66)); // 'B'
   s.push_byte(u8(67)); // 'C'
@@ -1947,7 +1947,7 @@ test("Test String.push_byte", {
   assert(s.len() == usize(3), "len should be 3 bytes");
 });
 test("Test String.reserve", {
-  s := String.from("hi");
+  mut(s) := String.from("hi");
   s.reserve(usize(100));
   assert(s == `hi`, "reserve should not change content");
   assert(s.len() == usize(2), "len should still be 2 after reserve");
@@ -2347,7 +2347,7 @@ test("rsplit over edge cases", {
 });
 // ===== push_rune / insert / remove / pop =====
 test("push_rune appends a UTF-8 encoded rune", {
-  s := String.new();
+  mut(s) := String.new();
   s.push_rune(rune(65));
   s.push_rune(rune(0x00E9));
   assert(s.len() == usize(3), "one ASCII byte plus a two-byte rune");
@@ -2355,40 +2355,40 @@ test("push_rune appends a UTF-8 encoded rune", {
   assert(s.starts_with(`A`), "the ASCII rune came first");
 });
 test("insert_str shifts the tail right", {
-  s := String.from("hello");
+  mut(s) := String.from("hello");
   s.insert_str(usize(0), `>>`);
   assert(s == `>>hello`, "at the front");
-  s2 := String.from("hello");
+  mut(s2) := String.from("hello");
   s2.insert_str(usize(5), `!`);
   assert(s2 == `hello!`, "at the end");
-  s3 := String.from("ho");
+  mut(s3) := String.from("ho");
   s3.insert_str(usize(1), `ell`);
   assert(s3 == `hello`, "in the middle");
 });
 test("insert places a single rune", {
-  s := String.from("ac");
+  mut(s) := String.from("ac");
   s.insert(usize(1), rune(98));
   assert(s == `abc`, "an ASCII rune");
-  m := String.from("ab");
+  mut(m) := String.from("ab");
   m.insert(usize(1), rune(0x00E9));
   assert(m.len() == usize(4), "a two-byte rune grows the string by two bytes");
   assert(m.chars().count() == usize(3), "and by one rune");
 });
 test("remove takes the rune at a byte index and returns it", {
-  s := String.from("abc");
+  mut(s) := String.from("abc");
   assert(s.remove(usize(1)) == rune(98), "returns the removed rune");
   assert(s == `ac`, "and closes the gap");
-  m := String.from("aéb");
+  mut(m) := String.from("aéb");
   assert(m.len() == usize(4), "é is two bytes");
   assert(m.remove(usize(1)) == rune(0x00E9), "removing a multi-byte rune");
   assert(m == `ab`, "removes ALL of its bytes");
   assert(m.len() == usize(2), "so the byte length drops by two");
 });
 test("pop takes the last rune", {
-  s := String.from("abc");
+  mut(s) := String.from("abc");
   assert(match(s.pop(), .Some(r) => (r == rune(99)), .None => false), "the last rune");
   assert(s == `ab`, "and shortens the string");
-  m := String.from("aé");
+  mut(m) := String.from("aé");
   assert(match(m.pop(), .Some(r) => (r == rune(0x00E9)), .None => false), "a multi-byte last rune");
   assert(m == `a`, "removing both of its bytes");
   assert(match(m.pop(), .Some(r) => (r == rune(97)), .None => false), "then the first");
@@ -2396,7 +2396,7 @@ test("pop takes the last rune", {
   assert(match(m.pop(), .Some(_) => false, .None => true), "popping an empty string is None");
 });
 test("insert/remove/pop round-trip", {
-  s := String.from("bd");
+  mut(s) := String.from("bd");
   s.insert(usize(0), rune(97));
   s.insert(usize(2), rune(99));
   assert(s == `abcd`, "built up by insertion");
@@ -2465,7 +2465,7 @@ _append_own :: (fn(sink(out) : String) -> String)({
   out
 });
 _append_local :: (fn(out : &String) -> String)({
-  q := out;
+  mut(q) := out;
   q.push_str("!");
   q
 });
@@ -2486,7 +2486,7 @@ _bumped :: (fn(c : _Counter) -> i32)({
   c.n
 });
 test("Writing a String through inout, own or a local copy is accepted (E0908 extension)", {
-  c := String.new();
+  mut(c) := String.new();
   _append_inout(&mut c);
   assert(c == "!", "inout reaches the caller's string, empty or not");
   assert(_append_own(String.from("x")) == "x!", "own moves the string in");
@@ -2510,7 +2510,7 @@ test("collect(String) builds the string through an owned accumulator", {
 });
 // ===== Independent copies by clone (plans/STRING_VALUE_SEMANTICS.md §0, S3a) =====
 _clone_append_local :: (fn(out : &String) -> String)({
-  q := out.clone();
+  mut(q) := out.clone();
   q.push_str("!");
   q
 });
@@ -2521,8 +2521,8 @@ test("A String clone is independent, empty or not", {
   assert(_clone_append_local(&b) == "hi!", "the callee's clone is written");
   assert(a == "", "an empty caller string is untouched");
   assert(b == "hi", "a non-empty caller string is untouched");
-  s := String.from("abc");
-  t := s.clone();
+  mut(s) := String.from("abc");
+  mut(t) := s.clone();
   t.push_str("d");
   assert((s == "abc") && (t == "abcd"), "a write to a clone stays in the clone");
   s.push_str("x");
@@ -2538,7 +2538,7 @@ test("clone copies the bytes into a buffer of its own", {
   e := String.new();
   f := e.clone();
   assert((e.ptr() == f.ptr()) && (f.len() == usize(0)), "an empty clone allocates nothing");
-  u := String.from("solo");
+  mut(u) := String.from("solo");
   u.reserve(usize(64));
   before := u.ptr();
   u.push_str("!");
@@ -2554,7 +2554,7 @@ test("clone of an arena string stays in the arena", {
   {
     s := with_allocator(arena.allocator(), () => String.from("arena text"));
     before := arena.live_blocks();
-    t := s.clone();
+    mut(t) := s.clone();
     assert(arena.live_blocks() == (before + usize(1)), `the clone's buffer is an arena block: ${arena.live_blocks()}`);
     t.push_str(" grown past its first buffer so the growth goes through the arena too");
     assert(t.to_bytes().allocator().unwrap().same(arena.allocator()), "the clone's buffer is owned by the arena");
@@ -2566,19 +2566,19 @@ test("clone of an arena string stays in the arena", {
 });
 test("every mutator writes only its own clone", {
   base := String.from("héllo");
-  c1 := base.clone();
+  mut(c1) := base.clone();
   c1.truncate(usize(1));
-  c2 := base.clone();
+  mut(c2) := base.clone();
   c2.insert_str(usize(0), String.from(">"));
-  c3 := base.clone();
+  mut(c3) := base.clone();
   c3.insert(usize(0), rune(u32(0x3C)));
-  c4 := base.clone();
+  mut(c4) := base.clone();
   _ := c4.remove(usize(0));
-  c5 := base.clone();
+  mut(c5) := base.clone();
   _ := c5.pop();
-  c6 := base.clone();
+  mut(c6) := base.clone();
   c6.clear();
-  c7 := base.clone();
+  mut(c7) := base.clone();
   c7.reserve(usize(64));
   c7.push_rune(rune(u32(0x21)));
   assert(base == "héllo", "the original is untouched by all seven");
@@ -2586,7 +2586,7 @@ test("every mutator writes only its own clone", {
   assert((c4 == "éllo") && (c5 == "héll") && (c6 == "") && (c7 == "héllo!"), "remove / pop / clear / reserve+push_rune");
 });
 test("s.push_string(s) appends a copy of itself", {
-  s := String.from("ab");
+  mut(s) := String.from("ab");
   s.push_string(&s);
   assert(s == "abab", "the argument is read before the write");
 });
@@ -2627,7 +2627,7 @@ test("to_cstr_checked rejects an interior NUL and terminates a clean string", {
     },
     .Err(_) => assert(false, "a clean string converts")
   );
-  bad := String.from("/tmp/a");
+  mut(bad) := String.from("/tmp/a");
   bad.push_byte(u8(0));
   bad.push_str("/etc");
   match(

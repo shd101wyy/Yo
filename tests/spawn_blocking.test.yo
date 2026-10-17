@@ -57,7 +57,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   // The sibling: an ordinary async task doing 40 turns of the loop.
   sib := io.spawn(
     io.async((io : Io) => {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(runtime(i < i32(40)), {
         io.await(yield(io), io);
         progress.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -72,7 +72,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   // zero reading instead of hanging the suite.
   observed := io.await(
     spawn_blocking(() => {
-      (spins : i32) = i32(0);
+      (mut(spins) : i32) = i32(0);
       while(runtime((progress.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200))), {
         sleep_blocking(Duration.from_millis(i64(5)));
         spins = (spins + i32(1));
@@ -143,8 +143,8 @@ test("repeated pairs of spawn_blocking do not corrupt the wake inbox", {
   // `spawn_blocking` runs inline and costs no stacks.)
   rounds := if(platform == Platform.Emscripten, i32(24), i32(200));
   expected := (rounds * i32(3));
-  (round : i32) = i32(0);
-  (total : i32) = i32(0);
+  (mut(round) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
   while(runtime(round < rounds), {
     a := io.spawn(
       spawn_blocking(() => {

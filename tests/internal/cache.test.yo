@@ -46,14 +46,14 @@ test("store_tree_dir: a short hash is an error", {
   );
 });
 test("store_tree_dir: uppercase or non-hex digits are an error (no path escape)", {
-  bad := String.from("sha256-");
+  mut(bad) := String.from("sha256-");
   bad.push_str("../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../////////");
   match(
     store_tree_dir(String.from("/c"), &bad),
     .Ok(_) => panic("accepted a path-escaping value"),
     .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), &m)
   );
-  upper := String.from("sha256-");
+  mut(upper) := String.from("sha256-");
   upper.push_str("0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef");
   match(
     store_tree_dir(String.from("/c"), &upper),

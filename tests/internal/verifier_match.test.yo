@@ -80,7 +80,7 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
 /// The reports' ids/outcomes rendered for assert messages.
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -92,7 +92,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     i = (i + usize(1));
   });
   sb := StringBuilder.new();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < ids.len(), {
     if(j > usize(0), {
       sb.write_string(String.from(", "));
@@ -109,7 +109,7 @@ test("match + enum datatypes verify (binding, bare-variant, construction)", {
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/match_enum.yo"), io);
   assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     rp := match(
       reports.get(i),
@@ -171,13 +171,13 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   );
   assert(res.error.is_none(), `no subset error expected for the match fixture`);
   assert(res.obligations.len() > usize(0), "the ensures obligation exists");
-  (dt_count : usize) = usize(0);
-  (oi : usize) = usize(0);
+  (mut(dt_count) : usize) = usize(0);
+  (mut(oi) : usize) = usize(0);
   while(oi < res.obligations.len(), {
     match(
       res.obligations.get(oi),
       .Some(obl) => {
-        (di : usize) = usize(0);
+        (mut(di) : usize) = usize(0);
         while(di < obl.query.datatypes.len(), {
           dt_count = (dt_count + usize(1));
           di = (di + usize(1));

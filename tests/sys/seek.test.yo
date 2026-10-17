@@ -85,7 +85,7 @@ test("offset u64.MAX reads and writes at the descriptor's own position", {
   assert(w4 == i32(2), "a synchronous write at the current position should write 2 bytes");
   assert(seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR) == i64(10), "the synchronous write should advance the position to 10");
   assert(seek_io.lseek(fd, i64(0), seek_io.SEEK_SET) == i64(0), "rewinding to 0 should succeed");
-  buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+  mut(buf_uninit) := MaybeUninit(Array(u8, usize(16))).new();
   buf := (*u8)(buf_uninit.as_ptr());
   r1 := io.await(file.read(fd, buf, u32(4), u64.MAX), io);
   assert(r1 == i32(4), "a read at the current position should read 4 bytes");
@@ -99,7 +99,7 @@ test("offset u64.MAX reads and writes at the descriptor's own position", {
   assert(rm == i32(0), "unlinking temp file after the current-position test should succeed");
 });
 test("lseek on pipe returns non-seekable error", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation for seek-on-pipe test should succeed");

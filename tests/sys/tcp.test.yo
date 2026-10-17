@@ -227,7 +227,7 @@ _stream_pair :: (fn(port : u16, io : Io) -> _StreamPair)({
 _drain :: (fn(fd : i32, want : i64, io : Io) -> Impl(Future(i64, Io)))(
   io.async((io : Io) => {
     buf := (*u8)(malloc(usize(65536)).unwrap());
-    (got : i64) = i64(0);
+    (mut(got) : i64) = i64(0);
     while(runtime(got < want), {
       n := io.await(tcp.recv(fd, buf, usize(65536), i32(0)), io);
       if(n <= i32(0), {
@@ -248,7 +248,7 @@ test("the stream-write op delivers every byte, parking when the send buffer is f
   // The reader starts late, so the 4 MiB cannot all fit in the socket buffers
   // and some writes must park.
   reader := io.spawn(_drain(accepted_fd, total, io), io);
-  (sent : i64) = i64(0);
+  (mut(sent) : i64) = i64(0);
   while(runtime(sent < total), {
     rest := (total - sent);
     want := cond((rest < i64(65536)) => usize(rest), true => usize(65536));
@@ -271,8 +271,8 @@ test("the stream-write op to a closed peer fails with an error instead of SIGPIP
   buf := (*u8)(malloc(usize(1024)).unwrap());
   // The first writes after the peer closes can still be accepted (the RST has
   // not arrived yet): retry a bounded number of times, 2 ms apart.
-  (err : i32) = i32(0);
-  (i : i32) = i32(0);
+  (mut(err) : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime((i < i32(50)) && (err == i32(0))), {
     r := io.await(tcp.stream_write(client_fd, buf, usize(1024)), io);
     if(r < i32(0), {

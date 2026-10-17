@@ -164,7 +164,7 @@ test("Copy: derive(T, Copy, Clone) and impl(T, Copy()) opt a struct, an enum and
 });
 test("Copy: a derive(T, Copy, Clone) value copies, and the copy is independent", {
   p := _CtPoint(x : i32(1), y : i32(2));
-  q := p;
+  mut(q) := p;
   q.x = i32(10);
   assert((p.x == i32(1)) && (q.x == i32(10)), "q is a copy of p");
   assert((p.y + q.y) == i32(4), "both stay usable");
@@ -240,7 +240,7 @@ test("Copy: a tuple, an array, a fn pointer and an anonymous record are Copy and
   w := t.clone();
   assert(w.0 == i32(1), "a tuple's clone, element-wise");
   ts := (String.from("a"), i32(2));
-  tc := ts.clone();
+  mut(tc) := ts.clone();
   tc.0.push_str("b");
   assert((ts.0 == String.from("a")) && (tc.0 == String.from("ab")), "a tuple of a String clones its String");
   one := (i32(7),);
@@ -335,11 +335,11 @@ test("Copy: derive(T, Clone) is accepted beside Copy, in either order", {
 });
 test("Copy: a type Copy only under a bound copies at i32 and clones at String", {
   pi := _CtPair(i32)(a : i32(1), b : i32(2));
-  qi := pi;
+  mut(qi) := pi;
   qi.a = i32(5);
   assert((pi.a == i32(1)) && (qi.a == i32(5)), "_CtPair(i32) is Copy: an implicit, independent copy");
   ps := _CtPair(String)(a : String.from("x"), b : String.from("y"));
-  qs := ps.clone();
+  mut(qs) := ps.clone();
   qs.a.push_str("z");
   assert((ps.a == String.from("x")) && (qs.a == String.from("xz")), "_CtPair(String) is not Copy: an explicit .clone() through the derived Clone");
   comptime_assert(!Type.impls(_CtPair(String), Copy) && Type.impls(_CtPair(String), Clone), "_CtPair(String) is Clone only");
@@ -458,7 +458,7 @@ test("Copy: where(T <: Copy) rejects a closure that owns a String", {
   assert((k2() + k3()) == i32(10), "a closure of Copy captures passes, through a generic parameter too");
 });
 test("Copy: a &mut capture makes a closure neither Copy nor Clone", {
-  n := i32(0);
+  mut(n) := i32(0);
   {
     (t : Impl(Fn() -> i32)) = ({ &mut n }() => {
       n = (n + i32(1));
@@ -484,7 +484,7 @@ test("Clone: a closure that owns a String clones each by-value capture", {
 test("Clone: an anonymous record of a String clones field-wise", {
   r := _(a : String.from("x"), b : i32(1));
   comptime_assert(!Type.impls(type_of(r), Copy) && Type.impls(type_of(r), Clone), "Clone, not Copy");
-  r2 := r.clone();
+  mut(r2) := r.clone();
   r2.a.push_str("y");
   assert((r.a == String.from("x")) && (r2.a == String.from("xy")) && (r2.b == i32(1)), "the clone owns its own String");
   r3 := _ct_sclone(&r);

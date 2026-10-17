@@ -123,7 +123,7 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
 test("cancelling a task blocked on a channel releases it", {
   before := g_disposed;
   ch := Channel(i32).new(usize(1));
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(3)), {
     f := io.async((io : Io) => {
       t := Thing(n : i);
@@ -224,7 +224,7 @@ test("an unwind to a synchronous installer passes through the tasks", {
 // issues/fixed/join-handle-ownership-waits-for-the-seed.md
 test("a statement-level spawn detaches the task, which frees itself", {
   before := g_disposed;
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(20)), {
     io.spawn(
       io.async((io : Io) => {
@@ -235,7 +235,7 @@ test("a statement-level spawn detaches the task, which frees itself", {
     );
     i = (i + i32(1));
   });
-  (spins : i32) = i32(0);
+  (mut(spins) : i32) = i32(0);
   while(runtime(((g_disposed - before) < i32(20)) && (spins < i32(100))), {
     io.await(yield(io), io);
     spins = (spins + i32(1));
@@ -292,10 +292,10 @@ _sm_make :: (fn(n : i32, io : Io) -> Impl(Future(_SmWrap, IoExn)))(
 );
 _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    (i : i32) = i32(0);
-    (sum : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    (mut(sum) : i32) = i32(0);
     while(runtime(i < i32(3)), {
-      (opt : Option(_SmWrap)) = Option(_SmWrap).None;
+      (mut(opt) : Option(_SmWrap)) = Option(_SmWrap).None;
       cond(
         opt.is_none() => {
           fresh := e.io.await(_sm_make(i, e.io), e);
@@ -320,7 +320,7 @@ _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 test("an escape after a closed branch drops each value-enum local once", {
   stop_exn := Exception(throw : (err -> unwind(())));
   before := g_disposed;
-  (escaped : bool) = false;
+  (mut(escaped) : bool) = false;
   // The block owns the future's initial reference (the call's temp), so the
   // escaped task is freed, and its locals dropped, when the block ends.
   {
@@ -345,7 +345,7 @@ _sm_throws_thing :: (fn(io : Io) -> Impl(Future(Thing, IoExn)))(
 );
 _sm_reassign_across_escape :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    (t : Thing) = Thing(n : i32(1));
+    (mut(t) : Thing) = Thing(n : i32(1));
     t = e.io.await(_sm_throws_thing(e.io), e);
     t.n
   })
@@ -353,7 +353,7 @@ _sm_reassign_across_escape :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 test("an escape inside a reassignment's await releases the old value once", {
   stop_exn := Exception(throw : (err -> unwind(())));
   before := g_disposed;
-  (escaped : bool) = false;
+  (mut(escaped) : bool) = false;
   {
     h := io.spawn(_sm_reassign_across_escape(io), IoExn(io : io, exn : stop_exn));
     escaped = h.await(io).is_none();
@@ -374,8 +374,8 @@ _sm_hold :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
 );
 _sm_pass_indexed :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    (i : usize) = usize(0);
-    (sum : i32) = i32(0);
+    (mut(i) : usize) = usize(0);
+    (mut(sum) : i32) = i32(0);
     while(runtime(i < keep.len()), {
       cond(
         (i < keep.len()) => {

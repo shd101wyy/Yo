@@ -16,7 +16,7 @@ log :: import("std/log");
 /// renderer's alignment concern; a sink is free to ignore it, which is the
 /// point of handing the sink a `Level` rather than a formatted line.
 _row :: (fn(l : log.Level, target : &String, msg : &String) -> String)({
-  out := l.to_string();
+  mut(out) := l.to_string();
   out.push_str("|");
   out.push_string(target);
   out.push_str("|");
@@ -39,7 +39,7 @@ impl(
   Recorder,
   log.Sink(
     write_line : (fn(self : &mut Self, level : log.Level, target : &String, msg : &String) -> unit)({
-      row := level.to_string();
+      mut(row) := level.to_string();
       row.push_str("|");
       row.push_string(target);
       row.push_str("|");
