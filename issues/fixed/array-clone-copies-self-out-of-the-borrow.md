@@ -52,8 +52,10 @@ observed it.
 
 **Test:** `tests/collection_clone_through_borrow.test.yo`: a `derive(Q, Clone)`
 element, a move-only `Box(String)` element, a `Drop` element (one `clone` per
-slot, one drop per owner) and a `Copy` element. Against develop's std the file
-fails to compile with this doc's E0901; with the fix every test passes. The
+slot, one drop per owner) and a `Copy` element. Those four tests alone, run
+by develop ed733408c's compiler with its std, fail to compile with this doc's
+E0901 (`cannot copy self, whose type Array(_CbQ, 2) is copied only
+explicitly`); with the fix all four pass. The
 same PR fixes the `ArrayList.clone` sibling
 (`issues/fixed/arraylist-clone-copies-elements-out-through-get.md`) and the
 `Path.clone` instance of its shape.
