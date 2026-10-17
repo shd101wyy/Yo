@@ -63,6 +63,18 @@ read-only borrow of the caller's value.`):
   mask, as the RC case already did;
 - a `&mut` local borrow of such a place (`q := &mut p.inner.m`).
 
+A callee with no body to read counts as writing every `&mut` parameter, as
+an unresolvable mutation mask already did: `cb(&mut p.n)` with
+`cb : &Dyn(Fn(n : &mut i32) -> unit)` is E0908, and so is lending a borrowed
+value that holds RC data (`cb(&mut s)`, `s : &S`). Two gaps hid it, found in
+review. The call path read the parameter modes off the callee's
+un-normalized type, which for a closure-trait callee (`Dyn(Fn(...))`,
+`Impl(Fn(...))`) is no `Func`, so no entry was queued; it now reads them off
+the normalized signature (`src/evaluator/calls/helper.yo`). And a queued
+entry was judged only when the callee was a `FuncVal`;
+`d3_check_pending_unresolved_callee` now judges the borrowed-value entries
+of any other callee with an `all` mask.
+
 A step through a handle (a `ref` object, an `Rc`, a std collection) still
 reaches storage the handle shares, and so does lending a handle place to a
 `&mut` parameter or receiver: `h.xs.push(v)` on `h : &H` stays legal until
