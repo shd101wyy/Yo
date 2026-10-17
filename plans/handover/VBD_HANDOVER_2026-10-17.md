@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 04:30 CST):** develop is at `dcd0c7671` (#1433). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 05:00 CST):** develop is at `6e70e36bc` (#1437). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -53,6 +53,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1420 | Collections hold move-only keys and values (`HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue`); unit pointer moves and a moved `Index` argument lower (3 S2s; bug-fix workflow) |
 | #1432 | V3 A4 compiler half: a generic combinator's by-value future operand accepts a borrowing future (re-rooted at the parameter, so the combinator's future is second-class); decision 38 B overlap is E0910. Only a generic function is a combinator slot (a non-generic one would let two `&mut` operands of one place pass). The std half (`timeout`/`select` over futures) stays parked on `wip/vbd-a4-std-half` behind an S2 |
 | #1409 | A `downcast`/`upcast` result (and `Iso(T)(v)`) declares its owning temp, so a receiver or discarded result is released (S2); the rule is in `c-codegen.instructions.md` |
+| #1437 | A generic `derive(Clone)` over a container field of its parameter (`Option(A)`) works: the deferred generic trials swallow the auto-generated-code miss, while a miss on a concrete receiver still fails at the `derive` line (S2). `IterPeekable`'s conditional `Clone` derive waits for a seed carrying #1437 (`plans/backlog/SEED_VERSION_AUTOMATION.md`) |
 | #1433 | A false E1101 is gone (S2; mtxfollow); the strict-FIFO async mutex (#1434) follows |
 | #1438 | S1: an `unwind` through a frame whose destructor makes a call is no longer lost (v0.2.65 gate item 3) |
 | #1412 | V3 A5: `Waker` implements `Clone` over `__yo_waker_clone` (Generation B on the v0.2.64 seed); `cross_thread_wake` uses `w.clone()` again |
@@ -84,7 +85,6 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 | `fix/not-runtime-bool-comptime-fn` (no PR) head `64127047a` | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
 | `fix/async-mutex-strict-fifo` (no PR) head `0cf600d93` | The async `Mutex` is FIFO across event loops (S3) | async/mutex 11/11; the 3 new tests fail before the fix. `sm_protocol`, both checks and cli-diff are left. |
 | `fix/trial-specialization-drops-store` (no PR) head `7352518df` | S1 fix (§5.2); lands after the E1101 PR | Root-cause hypothesis written; its build is pending. |
-| #1437 `fix/generic-derive-where-container-field` head `f4e6514cc` | Derive Clone PR B: a derive's generated body in a generic definition-time trial | Post-rebase gate on `9f7a958b4` all green (build, check src/std, derive 66, derive_clone_complex 21, copy_trait 29, impl 12, type_soundness 71, for_macro_borrow 27). #1432 then touched `calls/function.yo` again, so it rebased to `f4e6514cc` and re-queued the same gate. Merge on that gate without another rebase. |
 | #1419 (`7e5b3d66b`), #1422 (`843e88fd8`) (#1420 landed); `fix/field-write-through-shared-borrow` (`2f5301589`); `fix/yo-fix-multi-file-generic-impls` (`ce043660e`) | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
 | #1162 `tss/phase6-step4` (draft) head `7e6024532` | Type-soundness phase 6 step 4 | Unchanged; blocked as described in the 2026-10-15 handover. |
 
@@ -150,7 +150,6 @@ On develop:
 Filed on in-flight branches; they arrive with those PRs:
 
 - two S2s in the async `Channel` once it sits behind `RefCell` (#1421);
-- a generic `Copy` impl over an `Option(A)` field is rejected even when hand-written (S2, derive Clone PR B);
 - `std/time` getters and `Array.len` now take `&Self` (S2, decision 47 locals);
 
 The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
@@ -177,6 +176,7 @@ Paste this over the generated `## Changes` section after the release publishes. 
 - **Compile and codegen:**
   - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost (#1438).
   - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
+  - Fixed (S2): a generic `derive(Clone)` over a container field of its parameter (#1437).
   - Fixed (S2): a `downcast`/`upcast` result used as a method receiver or discarded is released, and so is an `Iso(T)(v)` constructor result (#1409).
 - **Type checking:**
   - A closure capture struct is `Send`/`Sync` by what it captures, so `arc` of a closure over a closure crosses threads (#1424).
