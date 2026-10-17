@@ -19,7 +19,7 @@ export(main);
 
 ## Cause
 
-The C type collector emits the struct before the typedef of the field's `Option(Box(X))` type. This is the same ordering family as `issues/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`, in a non-recursive shape. It blocks every derived `Clone`, `Hash` or `Eq` on such a struct.
+The C type collector emits the struct before the typedef of the field's `Option(Box(X))` type. This is the same ordering family as `issues/fixed/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`, in a non-recursive shape. It blocks every derived `Clone`, `Hash` or `Eq` on such a struct.
 
 ## Re-check on develop 2132f8fb4 (2026-10-16)
 

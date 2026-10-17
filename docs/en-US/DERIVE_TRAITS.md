@@ -211,7 +211,7 @@ export(main);
 
 The requirement above applies to the container as well. `ArrayList` implements `Eq`, `Clone` and `ToString` but not `Hash`, `Ord` or `Debug`, so those three cannot be derived for `Node`: `Ord` and `Debug` fail at the `derive` line, while `Hash` is accepted there and fails at the first `hash` call (`No method "hash" on ArrayList(Self)`).
 
-`Clone` on this shape is an open bug. For a value `enum` with a payload-less variant and an `ArrayList(Self)` field, `derive(Node, Clone)` passes `yo check` and then fails in the C compiler with `unknown type name` (`issues/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`). The same derive works on a `ref(enum(...))`, on an enum whose every variant carries a payload, and through `Rc(Self)`. Copying a `Node` already shares its `children` list by handle, so most code needs no `Clone` here.
+`Clone` can be derived on this shape too: `derive(Node, Clone)` gives the clone its own `children` list, while a plain copy of a `Node` shares the list by handle.
 
 ## `derive_rule` — User-Registrable Derive Rules
 

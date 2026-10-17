@@ -232,3 +232,73 @@ test("derive Clone for struct with multiple RC fields", {
   t0 := c.tags.get(usize(0));
   match(t0, .Some(v) => assert(v == `alpha`, "first tag"), .None => assert(false, "missing tag"));
 });
+// ===== 12. Recursive enum folded to a nullable pointer =====
+// `enum(Leaf, Branch(children : ArrayList(Self)))` has the nullable-pointer
+// shape (one unit variant, one pointer payload), so it lowers to the bare
+// `ArrayList(Self)*`. The `Self` inside the payload is a fieldless self-shell,
+// and the types built from it (`ArrayList(Self)._ptr`, the `Option(T)` its
+// `get` returns) named the fold's typedef, which is emitted after every struct
+// and union: `unknown type name`
+// (issues/fixed/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md).
+FoldTree :: enum(Leaf, Branch(children : ArrayList(Self)));
+derive(FoldTree, Clone);
+_fold_tree_len :: (fn(t : &FoldTree) -> usize)(match(t, .Branch(cs) => cs.len(), .Leaf => usize(0)));
+test("derive Clone for a nullable-pointer recursive enum over ArrayList(Self)", {
+  xs := ArrayList(FoldTree).new();
+  xs.push(FoldTree.Leaf);
+  (orig : FoldTree) = FoldTree.Branch(xs);
+  c := orig.clone();
+  assert(_fold_tree_len(&c) == usize(1), "the clone holds the child");
+  match(
+    &mut orig,
+    .Branch(cs) => {
+      cs.push(FoldTree.Leaf);
+    },
+    .Leaf => ()
+  );
+  assert(_fold_tree_len(&orig) == usize(2), "the original grew");
+  assert(_fold_tree_len(&c) == usize(1), "the clone has its own list");
+});
+test("Option of a nullable-pointer recursive enum, read out of its ArrayList", {
+  xs := ArrayList(FoldTree).new();
+  xs.push(FoldTree.Leaf);
+  r := match(xs.get(usize(0)), .Some(_) => i32(1), .None => i32(-1));
+  assert(r == i32(1), "get found the element");
+  assert(xs.get(usize(1)).is_none(), "past the end is None");
+});
+FoldObj :: enum(Null, Obj(m : HashMap(String, Self)));
+derive(FoldObj, Clone);
+test("derive Clone for a nullable-pointer recursive enum over HashMap(String, Self)", {
+  m := HashMap(String, FoldObj).new();
+  m.insert(`a`, FoldObj.Null);
+  orig := FoldObj.Obj(m);
+  c := orig.clone();
+  r := match(
+    c,
+    .Obj(mm) => match(mm.get(`a`), .Some(_) => i32(1), .None => i32(-1)),
+    .Null => i32(0)
+  );
+  assert(r == i32(1), "the clone's map holds the key");
+});
+FoldOpt :: enum(Null, Opt(o : ArrayList(Option(Self))));
+derive(FoldOpt, Clone);
+test("derive Clone for a nullable-pointer recursive enum over ArrayList(Option(Self))", {
+  xs := ArrayList(Option(FoldOpt)).new();
+  xs.push(.Some(FoldOpt.Null));
+  xs.push(.None);
+  c := FoldOpt.Opt(xs).clone();
+  assert(match(c, .Opt(v) => v.len(), .Null => usize(0)) == usize(2), "the clone holds both slots");
+});
+// ===== 13. Recursive enum whose only payload is Box(Self) =====
+// Folding `enum(Leaf, Node(b : Box(Self)))` into its payload pointer would
+// make the C type its own pointee (`typedef B* B`), so it keeps the tagged
+// layout (issues/fixed/2026-10-17-a-nullable-shaped-enum-over-box-of-self-emits-a-self-referential-typedef.md).
+BoxChain :: enum(Leaf, Node(b : Box(Self)));
+derive(BoxChain, Clone);
+_box_chain_depth :: (fn(t : &BoxChain) -> i32)(match(t, .Node(b) => (i32(1) + _box_chain_depth(&b.*)), .Leaf => i32(0)));
+test("derive Clone for a recursive enum whose only payload is Box(Self)", {
+  orig := BoxChain.Node(box(BoxChain.Node(box(BoxChain.Leaf))));
+  c := orig.clone();
+  assert(_box_chain_depth(&orig) == i32(2), "the original is two deep");
+  assert(_box_chain_depth(&c) == i32(2), "the clone is two deep");
+});

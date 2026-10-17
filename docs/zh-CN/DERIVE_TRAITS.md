@@ -211,7 +211,7 @@ export(main);
 
 上面的要求对容器同样适用。`ArrayList` 实现了 `Eq`、`Clone` 和 `ToString`，但没有实现 `Hash`、`Ord` 和 `Debug`，所以这三个特征无法为 `Node` 派生：`Ord` 和 `Debug` 在 `derive` 这一行就会报错，而 `Hash` 在这一行会被接受，直到第一次调用 `hash` 时才报错（`No method "hash" on ArrayList(Self)`）。
 
-在这种形态上派生 `Clone` 目前是一个未修复的 bug。对于一个带有无载荷变体、又带有 `ArrayList(Self)` 字段的值 `enum`，`derive(Node, Clone)` 能通过 `yo check`，随后却在 C 编译器中以 `unknown type name` 失败（`issues/derive-clone-on-a-recursive-enum-over-an-arraylist-of-self-emits-invalid-c.md`）。同样的派生在 `ref(enum(...))` 上、在每个变体都带载荷的枚举上、以及通过 `Rc(Self)` 时都能正常工作。复制 `Node` 本来就会通过句柄共享它的 `children` 列表，所以大多数代码在这里并不需要 `Clone`。
+在这种形态上同样可以派生 `Clone`：`derive(Node, Clone)` 让克隆得到自己的 `children` 列表，而直接复制一个 `Node` 则通过句柄共享这个列表。
 
 ## `derive_rule` — 用户注册的派生规则
 
