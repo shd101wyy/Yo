@@ -321,8 +321,8 @@ of their imports.
 
      The subset shows the floor: the first file runs alone as the warm-up,
      and five files leave four workers little to overlap. On the whole
-     directory the in-process mode reached about 10–12 GB in one process
-     and kept growing, while the fork mode's footprint is bounded by N
+     directory the in-process mode reaches about 10–12 GB in one process
+     and keeps growing (earlier measurements, not re-taken here), while the fork mode's footprint is bounded by N
      workers over a shared image.
    - **Next.** Two measurements would size N: the per-worker private memory
      on the whole directory at N = 2, 4 and 8 on an idle box, and how much a
