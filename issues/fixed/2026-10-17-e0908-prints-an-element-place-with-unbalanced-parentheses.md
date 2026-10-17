@@ -34,5 +34,6 @@ which prints a field path as written and strips only a pair of parentheses that
 encloses the whole text: the message now names `(q.ss)(usize(0))`.
 
 Test: `tests/shared_borrow_write.test.yo`, "E0908 names an element place with
-balanced parentheses". It fails on develop at `1a4cf8df6`: the message does not
-contain ``Cannot write `(q.ss)(usize(0))` ``.
+balanced parentheses" (a `&T` parameter's and a `&` local borrow's element
+write). It fails on develop at `1a4cf8df6`: the local borrow's message reads
+``Cannot write `y.arr)(usize(0)` ``, not ``Cannot write `(y.arr)(usize(0))` ``.

@@ -5,7 +5,6 @@
 // (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ String } :: import("std/string");
 _In :: struct(m : i32);
 derive(_In, Copy, Clone);
 _P :: struct(n : i32, inner : _In, arr : Array(i32, 3), pair : Tuple(i32, i32));
@@ -143,16 +142,23 @@ test("a field write through a closure's `&T` parameter is E0908", {
   f(&x);
   assert(x.n == i32(0), "unchanged");
 });
-// The place an E0908 names is printed as written: an element place kept its
-// printer's parentheses balanced (`p.ss)(usize(0)` before the fix).
-_Q :: struct(ss : [String ; 2]);
-_write_string_element :: (fn(q : &_Q) -> unit)({
-  comptime_expect_error(q.ss(usize(0)) = String.from("x"), "Cannot write `(q.ss)(usize(0))`");
+// The place an E0908 names is printed as written: an element place keeps
+// its printer's parentheses balanced (`y.arr)(usize(0)` before the fix,
+// issues/fixed/2026-10-17-e0908-prints-an-element-place-with-unbalanced-parentheses.md).
+_write_element_text :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(p.arr(usize(0)) = i32(1), "Cannot write `(p.arr)(usize(0))`");
+});
+_write_element_text_through_local_borrow :: (fn() -> i32)({
+  x := _mk();
+  y := &x;
+  comptime_expect_error(y.arr(usize(0)) = i32(1), "Cannot write `(y.arr)(usize(0))`");
+  x.arr(usize(0))
 });
 test("E0908 names an element place with balanced parentheses", {
-  q := _Q(ss : [String.from("a"), String.from("b")]);
-  _write_string_element(&q);
-  assert(q.ss(usize(0)) == String.from("a"), "unchanged");
+  x := _mk();
+  _write_element_text(&x);
+  assert(x.arr(usize(0)) == i32(0), "unchanged");
+  assert(_write_element_text_through_local_borrow() == i32(0), "unchanged");
 });
 // A `comptime_expect_error` evaluated inside another's argument hands the
 // outer one back its propagate mode: the element place `y.arr(i)` looks
