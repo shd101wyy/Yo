@@ -2,7 +2,7 @@
 
 **Severity:** S2. On Linux's epoll fallback, every thread that parked an fd operation leaks its recycled op records when it exits (248 bytes for one parked `recv`). The amount per thread is bounded, but a program that keeps spawning threads grows without bound.
 
-**Status:** OPEN. Found 2026-10-17 by the `Waker.clone` Generation B gate (#1412). It is not caused by #1412: develop at `1a4cf8df6` and at `ed733408c` fail the same way.
+**Status:** FIXED 2026-10-17 (PR #1417). Found 2026-10-17 by the `Waker.clone` Generation B gate (#1412). It is not caused by #1412: develop at `1a4cf8df6` and at `ed733408c` fail the same way.
 
 ## Symptom
 
@@ -76,8 +76,8 @@ S2, not S1. The leak is bounded per thread, by the peak number of operations tha
 
 ## Fix
 
-Drain both free lists at the end of `__yo_epoll_teardown`, mirroring the macOS backend.
+`__yo_epoll_teardown` now drains both free lists after it frees the slot table, the same way the kqueue teardown drains `__yo_io_pending_free_list` and `__yo_io_registration_free_list` and the ring teardown drains `__yo_ring_fd_node_free`. Its header comment no longer says the free lists stay. Every other piece of per-thread epoll state was already released: the slot table, the parked pendings and their registrations, the pending count and the epoll descriptor in the teardown itself, and the watch descriptor, the notify eventfd and the close hook in `__yo_io_cleanup`. The timer heap is `__yo_timer_teardown`'s and is shared with the ring backend.
 
 ## Test
 
-The 8 epoll-fallback tests in `tests/sys/socketpair.test.yo` fail before the fix with the leak verdict on, and should pass after it. To keep CI from regressing, add `tests/sys/socketpair.test.yo` to the verdict-on allowlist in `.github/workflows/leak-verdict.yml`. First confirm that its 9 io_uring tests are leak-clean on the CI runner; they are on this box.
+The 8 epoll-fallback tests in `tests/sys/socketpair.test.yo` are the regression test. With the leak verdict on, they fail before the fix and pass after it (VERIFICATION_PLACEHOLDER). `tests/sys/socketpair.test.yo` is now on the verdict-on allowlist in `.github/workflows/leak-verdict.yml`, so CI runs it with the verdict on.
