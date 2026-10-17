@@ -1376,4 +1376,22 @@ test("Index: a generic impl takes a move-only named local by value", {
   m.insert(box(i32(5)), i32(50));
   key := box(i32(5));
   assert(m(key) == i32(50), "a HashMap(Box(K), V) looked up by a named box");
+  // A write re-dispatches to `index_mut`, specialized the same way.
+  wkey := box(i32(5));
+  m(wkey) = i32(60);
+  rkey := box(i32(5));
+  assert(m(rkey) == i32(60), "written through index_mut with a named box");
+});
+// The argument is a temporary that moves a named local: the trial re-ran
+// the inner move too.
+_IxWrap :: struct(k : _IxKey);
+_ix_wrap :: (fn(k : _IxKey) -> _IxWrap)(_IxWrap(k : k));
+test("Index: a temporary argument that moves a named local", {
+  b := _IxBag(_IxWrap)(v : i32(79));
+  k1 := _IxKey(n : i32(1));
+  assert(b(_IxWrap(k : k1)) == i32(79), "a constructor that moves the local");
+  comptime_expect_error(k1.n, "moved");
+  k2 := _IxKey(n : i32(2));
+  assert(b(_ix_wrap(k2)) == i32(79), "a call that moves the local");
+  comptime_expect_error(k2.n, "moved");
 });

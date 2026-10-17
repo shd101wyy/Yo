@@ -996,6 +996,80 @@ _try_comptime_string_index :: (
     comptime_ref : Option(ComptimeRef).None
   )
 });
+/// A named local that `e` moved, and the token it moved at.
+_MovedLocal :: struct(variable : Variable, at : Token);
+/// Every identifier token in `e`.
+_atom_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
+  match(
+    e,
+    .Atom(_, t) => out.push(t),
+    .FnCall(_, callee, args, _, _) => {
+      recur(&callee, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(&a, out), .None => ());
+      });
+    }
+  )
+);
+/// The locals of `env` that `e` names and has already moved: each one's move
+/// site lies inside `e`'s own source.
+_locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_MovedLocal))({
+  toks := ArrayList(Token).new();
+  _atom_tokens_of(e, &mut toks);
+  out := ArrayList(_MovedLocal).new();
+  module := ast_expr_token(e).module_path;
+  (lo : u32) = ast_expr_token(e).character;
+  (hi : u32) = lo;
+  (i : usize) = usize(0);
+  while(i < toks.len(), i = (i + usize(1)), {
+    match(
+      toks.get(i),
+      .Some(t) => if(t.module_path == module, {
+        if(t.character < lo, {
+          lo = t.character;
+        });
+        if(t.character > hi, {
+          hi = t.character;
+        });
+      }),
+      .None => ()
+    );
+  });
+  i = usize(0);
+  while(i < toks.len(), i = (i + usize(1)), {
+    match(
+      toks.get(i),
+      .Some(t) => match(
+        find_variable_in_env(env, &t.value),
+        .Some(v) => match(
+          v.consumed_at_token,
+          .Some(c) => {
+            inside := ((c.module_path == module) && (c.character >= lo) && (c.character <= hi));
+            (seen : bool) = false;
+            (j : usize) = usize(0);
+            while(j < out.len(), j = (j + usize(1)), {
+              match(
+                out.get(j),
+                .Some(o) => if(o.variable.id == v.id, {
+                  seen = true;
+                }),
+                .None => ()
+              );
+            });
+            if(inside && !seen, {
+              out.push(_MovedLocal(variable : v, at : c));
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  out
+});
 // ---------------------------------------------------------------------------
 // _specialize_index_method
 // ---------------------------------------------------------------------------
@@ -1036,7 +1110,37 @@ _specialize_index_method :: (
   saved_enclosing := ctx.enclosing_function_return_type;
   saved_spec := ctx.currently_specializing_function;
   saved_spec_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
+  // The trial re-evaluates the receiver and the index argument inside a
+  // whole call, whose argument rules move a move-only named local again.
+  // The dispatch already moved it (`b(k)`, `b(Wrap(k : k))`, `b(take(k))`,
+  // and again for the write's `index_mut` and the unchecked twin), so the
+  // second move threw a swallowed E0901 and codegen called the unspecialized
+  // method, which is never emitted (an undeclared C function). The trial sees
+  // each such local as it was before the call moved it, and the moves are
+  // put back after it
+  // (issues/fixed/2026-10-17-an-index-call-that-moves-a-named-local-calls-an-unemitted-method.md).
+  moved := _locals_moved_inside(expr, caller_env);
+  (mi : usize) = usize(0);
+  while(mi < moved.len(), mi = (mi + usize(1)), {
+    match(
+      moved.get(mi),
+      .Some(m) => {
+        m.variable.consumed_at_token = Option(Token).None;
+      },
+      .None => ()
+    );
+  });
   _specialize_index_method_trial(mv, mty, expr, caller_env, ctx, idx_expr, out);
+  mi = usize(0);
+  while(mi < moved.len(), mi = (mi + usize(1)), {
+    match(
+      moved.get(mi),
+      .Some(m) => {
+        m.variable.consumed_at_token = Option(Token).Some(m.at);
+      },
+      .None => ()
+    );
+  });
   ctx.is_evaluating_function_body_or_async_block = saved_fb;
   ctx.captured_variables = saved_caps;
   ctx.is_evaluating_loop_body = saved_loop;
@@ -1449,28 +1553,6 @@ _try_comptime_custom_type_index :: (
     )
   )
 });
-/// The variable that the by-value index argument `arg` names, when this
-/// call's own argument rule has just moved it (a move-only named local is
-/// consumed at `arg`'s token), else `.None`.
-_index_arg_moved_here :: (fn(arg : &AstExpr, arg_info : &ExprInfo) -> Option(Variable))(
-  match(
-    arg_info.variable_name,
-    .Some(name) => match(
-      find_variable_in_env(&arg_info.env, &name),
-      .Some(v) => match(
-        v.consumed_at_token,
-        .Some(t) => if(
-          (t.row == ast_expr_token(arg).row) && (t.column == ast_expr_token(arg).column) && (t.module_path == ast_expr_token(arg).module_path),
-          Option(Variable).Some(v),
-          Option(Variable).None
-        ),
-        .None => Option(Variable).None
-      ),
-      .None => Option(Variable).None
-    ),
-    .None => Option(Variable).None
-  )
-);
 // ---------------------------------------------------------------------------
 // try_to_call_with_index_trait
 // ---------------------------------------------------------------------------
@@ -1711,30 +1793,9 @@ try_to_call_with_index_trait :: (
   spec_out := ArrayList(EvalValue).new();
   saved_idx_exp := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
-  // The trial re-evaluates the index argument inside a whole call, whose own
-  // argument rule moves a move-only named argument again. The rule above has
-  // already moved it at this very token, so that second move threw a
-  // swallowed E0901 and codegen called the unspecialized method, which is
-  // never emitted (an undeclared C function). The trial sees the variable as
-  // it was before this call's move, and the move is put back after it.
-  moved_here := _index_arg_moved_here(&evaluated_arg, &arg_info);
-  match(
-    moved_here,
-    .Some(mv) => {
-      mv.consumed_at_token = Option(Token).None;
-    },
-    .None => ()
-  );
   match(
     method.method_value,
     .Some(_) => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
-    .None => ()
-  );
-  match(
-    moved_here,
-    .Some(mv) => {
-      mv.consumed_at_token = Option(Token).Some(ast_expr_token(&evaluated_arg));
-    },
     .None => ()
   );
   _record_index_unchecked_twin(value_type, &arg_type, &output_ty, expr, caller_env, ctx, &arg_expr);
