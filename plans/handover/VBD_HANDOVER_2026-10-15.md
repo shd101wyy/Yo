@@ -780,8 +780,8 @@ x :: 12;                           // a true constant
 - `issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`.
 - `issues/fixed/a-struct-field-of-type-option-box-emits-invalid-c.md`: fixed by #1411.
 - `issues/arc-of-a-named-function-value-fails-its-send-bound.md`.
-- `issues/array-clone-copies-self-out-of-the-borrow.md`.
-- `issues/arraylist-clone-copies-elements-out-through-get.md`.
+- `issues/fixed/array-clone-copies-self-out-of-the-borrow.md` (**Fixed** by #1422).
+- `issues/fixed/arraylist-clone-copies-elements-out-through-get.md` (**Fixed** by #1422).
 - `issues/e0908-calls-an-untyped-self-receiver-a-match-or-for-binding.md`.
 - `issues/option-of-self-inside-a-payload-gives-option-of-a-recursive-enum-two-c-types.md`.
 - New questions: `issues/questions/2026-10-14-effect-operation-contracts.md`, `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`.
