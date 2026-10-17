@@ -2,7 +2,7 @@
 
 **Severity:** S3 — `yo check` passes (thread) or reports an unrelated E0610 (task) for a write through an `Arc` that `yo compile` rejects only as a hollow closure body.
 
-**Status:** FIXED 2026-10-17 (branch `fix/check-reports-d3-in-spawn-and-async-bodies`). Found 2026-10-15 while fixing
+**Status:** FIXED 2026-10-17 (#1425). Found 2026-10-15 while fixing
 `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`.
 
 ## Symptom
@@ -88,16 +88,18 @@ io.async's `e : E`, is judged by its resolution). `should_defer_body` is
 unchanged, so no body is evaluated that was not before; only the re-raise of
 an already-swallowed error reaches more closures.
 
-Tests: three cli-cases running `yo check`, each a GOLDEN-DIFF on develop:
+Tests: three cli-cases running `yo check`, each failing under develop's
+binary (`yo-dev-5425cd7bf`, measured with the harness):
 `check-thread-spawn-body-d3-error-is-reported` (D3 field write in a
-`Thread.spawn` body; develop: rc 0), `check-io-async-body-d3-error-is-reported`
-(D3 `take()` in an annotated `io.async` block; develop: the cascaded E0610),
-and `check-io-parameter-closure-body-error-is-reported` (an E0610 in a closure
-with an `Io` parameter, the general case).
+`Thread.spawn` body; develop: NO-GOLDEN, rc 0 and no match),
+`check-io-async-body-d3-error-is-reported` (D3 `take()` in an annotated
+`io.async` block; develop: GOLDEN-DIFF, the cascaded E0610), and
+`check-io-parameter-closure-body-error-is-reported` (an E0610 in a closure
+with an `Io` parameter, the general case; develop: NO-GOLDEN, rc 0).
 
-`compile` agrees: `compile --skip-c-compiler` on the thread repro now stops in
-the evaluator with the D3 message instead of reaching the C compiler's
-error-attribute stub. `compile-io-async-body-swallowed-error` was re-recorded:
+`compile` agrees: `compile --skip-c-compiler` on all three repros now stops in
+the evaluator with the body's own message (the thread repro used to reach the
+C compiler's error-attribute stub). `compile-io-async-body-swallowed-error` was re-recorded:
 the same E0601 and span, now raised by the evaluator before main's
 unused-variable warning is printed.
 
