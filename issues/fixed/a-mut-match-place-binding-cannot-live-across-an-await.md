@@ -71,6 +71,13 @@ statement, which ends after the arm. So the work was:
   (`local_borrow_extend_to_match_place`, `src/evaluator/utils.yo`), and rule 4
   rejects it (E0911). A direct `match(&mut h.o, …)` was already registered and
   rejected; a module-level root is rejected by rule 3 at the first call.
+  Whether the arm awaits is decided by spelling before the arm is evaluated
+  (`_lb_contains_await_call`): any `<recv>.await(…)` call counts. The removed
+  rejection used `expr_contains_await`, whose pre-evaluation fallback sees
+  only `io.await`, so an arm awaiting through another name of the task's
+  `Io` (`e.await(f, e)`) was never rejected: develop compiled such arms,
+  the cell cursor above included, with no E0911. The CLI case below uses
+  that spelling.
 
 ## Verification
 
@@ -82,4 +89,5 @@ statement, which ends after the arm. So the work was:
   (the leak above). Before the fix the file failed to compile with this
   doc's error; after it all pass under the test runner's ASan build.
 - `tests/cli-cases/mut-match-place-across-an-await-through-a-cell-is-e0911`:
-  the cursor-through-a-cell form is E0911.
+  the cursor-through-a-cell form, awaiting as `e.await(…)`, is E0911. The
+  develop binary (`ed733408c`) checks it clean.
