@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 06:50 CST):** develop is at `3b013e4cf` (#1419). **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** only #1429, then #1440 (decision 47 locals, which rebases once onto #1429), may merge until v0.2.65 is published. v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 07:50 CST):** develop is at `29ceb209d` (#1429). v0.2.65 gate: items 2 and 3 done; item 1 (#1440) is re-gating. **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** only #1440 (decision 47 locals, rebasing once onto #1429) may merge until v0.2.65 is published. v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -53,6 +53,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1420 | Collections hold move-only keys and values (`HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue`); unit pointer moves and a moved `Index` argument lower (3 S2s; bug-fix workflow) |
 | #1432 | V3 A4 compiler half: a generic combinator's by-value future operand accepts a borrowing future (re-rooted at the parameter, so the combinator's future is second-class); decision 38 B overlap is E0910. Only a generic function is a combinator slot (a non-generic one would let two `&mut` operands of one place pass). The std half (`timeout`/`select` over futures) stays parked on `wip/vbd-a4-std-half` behind an S2 |
 | #1409 | A `downcast`/`upcast` result (and `Iso(T)(v)`) declares its owning temp, so a receiver or discarded result is released (S2); the rule is in `c-codegen.instructions.md` |
+| #1429 | Decision 39 Generation A: the borrowed `for` walks a cursor over a local borrow, and a push to the list being walked is E0911 (v0.2.65 gate item 2). Its end token sits in #1419's `LocalBorrowMacroSite` |
 | #1419 | A `mut` match place binding lives across an `await` (S2), a `mut` match on a field writes a copy (S1), and a nullable-pointer binding's slot (S2) (bug-fix workflow) |
 | #1437 | A generic `derive(Clone)` over a container field of its parameter (`Option(A)`) works: the deferred generic trials swallow the auto-generated-code miss, while a miss on a concrete receiver still fails at the `derive` line (S2). `IterPeekable`'s conditional `Clone` derive waits for a seed carrying #1437 (`plans/backlog/SEED_VERSION_AUTOMATION.md`) |
 | #1433 | A false E1101 is gone (S2; mtxfollow); the strict-FIFO async mutex (#1434) follows |
@@ -65,7 +66,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 Cut v0.2.65 (2026-10-15 handover §8.4, then curate the notes as for v0.2.64) only when all of these hold:
 
 1. **Decision 47 locals, Generation A** has merged: #1440, branch `feat/vbd-d47-locals-gena`.
-2. **Decision 39 iterators, Generation A** has merged: #1429, branch `feat/vbd-decision39-gen-a`.
+2. ~~**Decision 39 iterators, Generation A** has merged.~~ **Done:** #1429, `29ceb209d`.
 3. ~~**The unwind S1 fix** has merged.~~ **Done:** #1438, `fbd79fc90` (§5.1).
 4. **Develop's battery is green on the exact tip**, and `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` is empty.
 
@@ -77,7 +78,6 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 
 | PR / branch | Piece | State and what is left |
 | --- | --- | --- |
-| #1429 `feat/vbd-decision39-gen-a` head `0c2f78962` | Decision 39 iterators, Generation A: the borrowed `for` walks a cursor over a local borrow, and a push to the list being walked is E0911 | Pre-rebase Tier 1 green except 4 ASan leak reports in `tests/internal/compile.test.yo`. **Before merging, run that file with develop's binary at the same base and compare the reports.** Gates v0.2.65. |
 | #1440 `feat/vbd-d47-locals-gena` head `41118ff44` | Decision 47 step 2 Generation A: every `mut(...)` binding form; a write to an unmarked binding is E0917 outside src/std; `yo fix --migrate mut-bindings` | Full gate green on `41118ff44`: build, check src/std, suite (only environment-dependent failures, identical on develop), internal 108 pass / 0 non-leak, solo leak table identical to develop on 8 files, cli-diff 399/0 with every golden explained. Develop then moved 15 commits overlapping 6 of its files, so it rebases once onto #1429 and re-runs build, check src, develop's new tests (migrated) and cli-diff. Gates v0.2.65. Flags for the maintainer: module-level `mut(x) ::` is accepted; E0917 now fires before "needs a writable place" for a `&mut` capture of a parameter. |
 | #1439 `feat/vbd-v4-pattern-box` (draft) head `44d9ec526` | V4: the `Pattern` tree with `Box` children (hand-written `Clone`: `derive(Clone)` refuses an enum mixing `Box(Self)` with `ArrayList(Self)`) | **Generation B: merge only after `SEED_VERSION` carries #1438 (v0.2.65).** A stage 1 built by the v0.2.64 seed crashes on `move_only` (the #1438 bug in its own code). Stage 2 (built with #1438) is green: `move_only` 55, `match_nested` 25, `match_at_binding` 4, `algebraic_effects` 79. `verifier_match`'s one leak is identical on develop (22,805 B / 340 allocations). Emit-diff 0 lines, allocations +0.27%. Steps after the seed bump: rebase in `~/Workspace/Yo-wt/v4vc-esc`, rebuild stage 1 with the new seed, check src/std, `move_only` and the match tests, compare `verifier_quantifiers`/`module_invalidation`/`verifier_loops` leaks against develop (never done), fmt, refs, ready, merge. Timing A/B never ran (needs a fresh pair from one base; the Z3Sexpr pair is ready: `bash ~/Workspace/Yo-wt/vbd-logs/v4vc/measure.sh 3 dev z3`, exclusive). |
 | #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Tier 1 on the official v0.2.64 seed fully green: build, check src/std, 14 feature/std files, internal 1419/1419, cli-diff 398/0, site build, fmt and refs. Held by MERGE_FREEZE: after v0.2.65, rebase (overlap rule), refs/fmt, ready, merge. |
