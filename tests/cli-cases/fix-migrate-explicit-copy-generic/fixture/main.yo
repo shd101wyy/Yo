@@ -1,9 +1,18 @@
 //! `yo fix --migrate explicit-copy` leaves a copy inside a generic body alone:
-//! `twice` is instantiated at `String` and at a `ref` struct without `Clone`.
+//! `twice` is instantiated at `String` and at a `ref` struct without `Clone`,
+//! and `Bag.snapshot` is never called (only its definition-time trial copies).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
 Node :: ref(struct(id : i32));
+Bag :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(items : ArrayList(T), n : i32)
+);
+impl(
+  generic(T : Type),
+  Bag(T),
+  snapshot : (fn(self : &Self) -> Bag(T))(Bag(T)(items : self.items, n : self.n))
+);
 twice :: (fn(comptime(T) : Type, x : &T) -> ArrayList(T))({
   out := ArrayList(T).new();
   out.push(x);

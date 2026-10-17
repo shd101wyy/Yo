@@ -58,9 +58,20 @@ instantiation that records nothing. The fix marks each site with whether it
 was evaluated inside a generic specialization
 (`ctx.currently_specializing_function`, the state a `comptime`/`generic`
 function or a generic impl method is specialized under):
-`ExplicitCopySite.in_generic`, in `src/evaluator/utils.yo`. The driver
-(`_run_migrate_explicit_copy`, `src/main.yo`) lists such a position and leaves
-it as written. These sites are B3's hand edits.
+`ExplicitCopySite.in_generic`, in `src/evaluator/utils.yo`. A generic body
+that no call instantiates is evaluated only in its definition-time trial, at
+an open type parameter (`PriorityQueue.iter` copies an `ArrayList(T)` there),
+so a copied type that still mentions one (`type_contains_some_type_deep`)
+sets the flag too. The driver (`_run_migrate_explicit_copy`, `src/main.yo`)
+lists such a position and leaves it as written. These sites are B3's hand
+edits.
+
+The guard is deliberately conservative: a copy of a concrete-typed value
+inside a generic body (a `String` field of a generic struct) would take a
+plain `.clone()` safely, and is listed anyway. Most listed generic sites are
+that shape, so B3's edit there is usually the `.clone()` itself, not a
+projection.
 
 Regression test: `tests/cli-cases/fix-migrate-explicit-copy-generic` (the
-reproducer above; its `check` step fails before the fix).
+reproducer above plus an uncalled generic impl method; its `check` step and
+its pinned tree fail before the fix).
