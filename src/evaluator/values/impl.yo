@@ -6142,12 +6142,12 @@ _check_copy_clone_exclusion :: (
 ///
 /// - At a hand-written generic `Clone` impl, the pattern is tested against
 ///   the `Copy` impls registered so far.
-/// - At a generic `Copy` impl, every hand-written generic `Clone` impl whose
+/// - At a generic `Copy` impl, every hand-written generic `Clone` impl over
+///   the same receiver shape is tested again, since the new `Copy` impl may
+///   make it serve only `Copy` instantiations. It is rejected only when its
 ///   receiver can be the same type (`_receiver_patterns_could_overlap`: the
-///   same declaration, or a type-variable root) is tested again, since the
-///   new `Copy` impl may make it serve only `Copy` instantiations. Another
-///   declaration's `Clone` is not: a `Copy` impl for `GenBox(T)` says nothing
-///   about `_CtTag(T)`.
+///   same declaration, or a type-variable root): a `Copy` impl for
+///   `GenBox(T)` says nothing about another declaration's `_CtTag(T)`.
 ///
 /// A conditional `Clone` that also serves types that are not `Copy`
 /// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
@@ -6170,10 +6170,10 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            // The `Copy` question still runs for every root-shape match, as
-            // it did before the declaration test: it can force pending impls,
-            // and moving that forcing elsewhere changes evaluation order.
-            // Only the rejection requires the same declaration.
+            // The `Copy` question still runs for every root-shape match; only
+            // the rejection requires the same declaration. Asking it for the
+            // same declaration only exposed a latent Token leak
+            // (issues/2026-10-17-skipping-the-generic-copy-recheck-hook-leaks-prelude-tokens.md).
             .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
