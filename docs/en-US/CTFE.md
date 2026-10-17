@@ -263,7 +263,7 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    value to its own `::` local, is rejected, because every use of the binding
    was already folded to its value. Declare such a binding with `:=` (at
    module level, `mut(G) := v`: a written global needs `mut`, decision 47); a
-   body's own `a :: 1; a = 2;` with a compile-time value still works
+   body's own `mut(a) :: 1; a = 2;` with a compile-time value still works (decision 47: a compile-time binding that is written is declared `mut(a) ::` or `comptime(mut(a)) :=`; an unmarked one is E0917)
    ([`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only

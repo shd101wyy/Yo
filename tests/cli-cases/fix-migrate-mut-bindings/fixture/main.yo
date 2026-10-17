@@ -1,0 +1,49 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+Gauge :: struct(n : i64);
+derive(Gauge, Copy, Clone);
+impl(
+  Gauge,
+  inc : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i64(1));
+  })
+);
+bump :: (fn(g : &mut Gauge) -> unit)({
+  g.n = (g.n + i64(1));
+});
+reset :: (fn(p : Gauge) -> i64)({
+  p.n = i64(0);
+  p.n
+});
+main :: (fn() -> unit)({
+  count := i64(0);
+  count = (count + i64(1));
+  (total : i64) = i64(0);
+  total = (total + count);
+  gauge := Gauge(n : i64(0));
+  gauge.inc();
+  field_gauge := Gauge(n : i64(0));
+  field_gauge.n = i64(2);
+  lent_gauge := Gauge(n : i64(0));
+  bump(&mut lent_gauge);
+  text := String.from("a");
+  text.push_str("b");
+  slots := Array(i64, 2)(i64(0), i64(0));
+  slots(usize(0)) = i64(1);
+  names := ArrayList(i64).new();
+  names.push(i64(4));
+  fixed := i64(7);
+  { n : first } := gauge;
+  { n } := field_gauge;
+  n = (n + first);
+  r := match(
+    Option(i64).Some(fixed),
+    .Some(v) => {
+      v = (v + i64(1));
+      v
+    },
+    .None => i64(0)
+  );
+  _sum := (((total + n) + r) + reset(lent_gauge));
+});
+export(main);
