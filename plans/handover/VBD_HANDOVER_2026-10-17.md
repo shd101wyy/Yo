@@ -15,7 +15,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 - **Admin merge:** "I allow you to admin merge any PRs" (2026-10-17). Merge on Tier 1, as AGENTS.md describes. In auto mode the classifier sometimes denies `gh pr merge --admin` or `git push -f` from a sub-agent ("Merge Without Review"). A sub-agent must not retry or route around a denial. It reports its head SHA and gate summary, and the coordinator merges.
 - **Releases:** patch releases of Yo and `markdown_yo` are pre-authorized. For v0.2.65: "no rush. include necessary generation A PRs" (§2.3).
 - **Agents:** run at most 7 sub-agents at once, and spawn no large Workflow runs ("Let's not spawn large workflow"). Each piece of work gets one agent.
-- **Status checks:** the coordinator messages every running sub-agent every 40 minutes for its step, gate result, PR state, blockers and ETA. Workflow agents are never messaged, because a message resumes a duplicate copy.
+- **Status checks:** the coordinator messages every running sub-agent every 50 minutes (40 until late on 2026-10-17) for its step, gate result, PR state, blockers and ETA. Workflow agents are never messaged, because a message resumes a duplicate copy.
 - **Don't idle on CI:** "keep working and dont wait for CI". Start the next piece as a draft PR, stacked when it depends on unmerged work.
 
 ### 1.1 Process rules learned this cycle (portable)
@@ -151,7 +151,7 @@ The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. The coordinator:
 
 1. Curates the v0.2.65 release notes (§7 has the draft) and checks that `SEED_VERSION` was bumped.
-2. Stops its schedulers: the 40-minute status-check cron jobs and any PR-run cancel loop.
+2. Stops its schedulers: the 50-minute status-check cron jobs (six session-only jobs) and any PR-run cancel loop.
 3. Messages every running agent: "STOP after your current tool call. Push your current head. Reply with: branch, head SHA, what passed, what did not run. Do not merge." Any agent that does not answer is stopped.
 4. Rewrites §2.4 from the replies, with head SHAs, and updates the live-status box.
 5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.
