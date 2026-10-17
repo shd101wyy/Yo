@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 03:00 CST):** develop is at `b95a982f4` (#1432). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 03:40 CST):** develop is at `8fbe8ffed` (#1424). v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -49,6 +49,8 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1425 | `yo check` reports errors in any closure with an `io : Io` parameter (S3; it was not specific to D3) |
 | #1426 | A recursive enum's self-shell lowers like its nullable-pointer final (derive Clone S2) |
 | #1423 | Handover status notes |
+| #1424 | A closure capture struct is `Send`/`Sync` by its per-variable capture verdicts (D4 at the type level), so `arc` of a closure over a closure crosses threads (S2). `arc(named fn)` stays open: its root cause is the `Arc(V)` constructor's where clause, and the fix waits on `issues/questions/2026-10-17-how-a-named-function-value-carries-send.md`. Two new S2s filed |
+| #1420 | Collections hold move-only keys and values (`HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue`); unit pointer moves and a moved `Index` argument lower (3 S2s; bug-fix workflow) |
 | #1432 | V3 A4 compiler half: a generic combinator's by-value future operand accepts a borrowing future (re-rooted at the parameter, so the combinator's future is second-class); decision 38 B overlap is E0910. Only a generic function is a combinator slot (a non-generic one would let two `&mut` operands of one place pass). The std half (`timeout`/`select` over futures) stays parked on `wip/vbd-a4-std-half` behind an S2 |
 | #1409 | A `downcast`/`upcast` result (and `Iso(T)(v)`) declares its owning temp, so a receiver or discarded result is released (S2); the rule is in `c-codegen.instructions.md` |
 | #1438 | S1: an `unwind` through a frame whose destructor makes a call is no longer lost (v0.2.65 gate item 3) |
@@ -78,12 +80,11 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 | #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Built on the official v0.2.64 seed. The full Tier 1 (internal in-process, cli-diff, `yo test ./std`, site build) passed with a develop-built compiler and is re-running on the seed build. Mark ready, then merge. |
 | `feat/v2b-genb-b1-migration` (no PR) head `73da377dc` | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Restacked on its head `8db9c7b6a`; the sweeps run after the build. Opens as a draft until #1414 merges. |
 | #1421 `feat/vbd-d46-genb` (draft) head `ab95b2321` | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | In-process `tests/internal` run found one E0919 site the census missed (it excludes `tests/internal`): `suspension_analysis`, fixed in `af4506896`. Every census-excluded directory was then checked: no other E0919. Remaining: the `suspension_analysis` rerun, the leak comparison against develop's binary on the top-5 leak files, the ratchet and the census. |
-| #1424 `fix/send-closure-and-fn-value` head `3bd849953` | A closure capture struct is Send/Sync by its captures (S2s) | Tier 1 green except the in-process internal run, which had reached file 63 of 108 with no failures. |
 | `fix/not-runtime-bool-comptime-fn` (no PR) head `64127047a` | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
 | `fix/async-mutex-strict-fifo` (no PR) head `0cf600d93` | The async `Mutex` is FIFO across event loops (S3) | async/mutex 11/11; the 3 new tests fail before the fix. `sm_protocol`, both checks and cli-diff are left. |
 | `fix/trial-specialization-drops-store` (no PR) head `7352518df` | S1 fix (§5.2); lands after the E1101 PR | Root-cause hypothesis written; its build is pending. |
 | #1437 `fix/generic-derive-where-container-field` head `f4e6514cc` | Derive Clone PR B: a derive's generated body in a generic definition-time trial | Post-rebase gate on `9f7a958b4` all green (build, check src/std, derive 66, derive_clone_complex 21, copy_trait 29, impl 12, type_soundness 71, for_macro_borrow 27). #1432 then touched `calls/function.yo` again, so it rebased to `f4e6514cc` and re-queued the same gate. Merge on that gate without another rebase. |
-| #1419 (`7e5b3d66b`), #1420 (`a6ff95233`), #1422 (`843e88fd8`); `fix/field-write-through-shared-borrow` (`2f5301589`); `fix/yo-fix-multi-file-generic-impls` (`ce043660e`) | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
+| #1419 (`7e5b3d66b`), #1422 (`843e88fd8`) (#1420 landed); `fix/field-write-through-shared-borrow` (`2f5301589`); `fix/yo-fix-multi-file-generic-impls` (`ce043660e`) | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
 | #1162 `tss/phase6-step4` (draft) head `7e6024532` | Type-soundness phase 6 step 4 | Unchanged; blocked as described in the 2026-10-15 handover. |
 
 ## 3. Decisions recorded this cycle
@@ -133,6 +134,8 @@ The doc and its repro (`issues/repros/`) arrive with the E1101 PR. The suspected
 On develop:
 
 - `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (**S1**, landed with #1432; pre-existing, seed v0.2.63 does the same): a generic function awaiting an `Impl(Future(T, E))` parameter emits a `void*` result or `T v = ;`, and the tail form `io.async({ op }(io : Io) => io.await(op, io))` silently returns a wrong value. Not a v0.2.65 gate item (it is not a regression), but list it under the release's known issues.
+- `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` (S2, from #1424: D9's documented workaround is E0601)
+- `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2, from #1424: passes `check`, fails in the C compiler; also a `Send` bypass)
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
 - `issues/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
@@ -174,12 +177,14 @@ Paste this over the generated `## Changes` section after the release publishes. 
   - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
   - Fixed (S2): a `downcast`/`upcast` result used as a method receiver or discarded is released, and so is an `Iso(T)(v)` constructor result (#1409).
 - **Type checking:**
+  - A closure capture struct is `Send`/`Sync` by what it captures, so `arc` of a closure over a closure crosses threads (#1424).
   - V3 A4: a generic future combinator accepts a borrowing future as its by-value operand, and two operands lending overlapping places are E0910 (#1432).
   - Fixed (S2): a generic function's by-value closure parameter owns a deferred closure literal (#1428).
   - `yo check` reports errors inside any closure with an `io : Io` parameter (#1425).
 - **Async runtime:**
   - `Waker` implements `Clone` (#1412).
   - Fixed (S2): the epoll teardown frees its free lists at thread exit (#1417).
+- **Std:** collections hold move-only keys and values (`HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue`) (#1420).
 - **Leaks:** Fixed (S2): `consume(x)` of an owned value releases it (#1416).
 - **Verifier internals:** `Z3Sexpr` is a value enum (V4, #1435); omit from the notes unless something user-visible changed.
 - **Toolchain:** `YO_TEST_FORK=N` runs `yo test` over many files in forked workers (#1427).
