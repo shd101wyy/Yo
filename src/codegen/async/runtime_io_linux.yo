@@ -2863,8 +2863,7 @@ static __yo_io_future_t* __yo_epoll_recvfrom_park(int32_t sockfd, void* buf, siz
 // -ECANCELED (a closed epoll fd would silently drop their interests), then
 // release the epoll descriptor (the timers are __yo_timer_teardown's). The
 // pending count is zeroed so a re-init does not inherit a permanently-pending
-// number. The free lists stay: their nodes are rc-allocated and pooled like
-// every other runtime node. The task parked on each operation is released
+// number. The task parked on each operation is released
 // first, through its ordinary abort path, while the future's cancel hook can
 // still deregister the operation (__yo_io_teardown_abort_waiters); the abort
 // unlinks and frees pendings (and can release their registrations), so the
@@ -2922,9 +2921,24 @@ static void __yo_epoll_teardown(void) {
       __yo_epoll_free_reg(reg);
     }
   }
+  // The per-thread tables and free lists go too, as in the kqueue and ring
+  // teardowns. This is also the thread-exit path
+  // (__yo_async_arm_thread_exit), where anything left here is unreachable, and
+  // a later __yo_io_init on this thread starts them again from empty
+  // (issues/fixed/2026-10-17-the-epoll-backend-leaks-its-recycled-pendings-and-registrations-at-thread-exit.md).
   __yo_free(__yo_epoll_slots);
   __yo_epoll_slots = NULL;
   __yo_epoll_slot_cap = 0;
+  while (__yo_epoll_pending_free) {
+    __yo_epoll_pending_t* p = __yo_epoll_pending_free;
+    __yo_epoll_pending_free = *(__yo_epoll_pending_t**)p;
+    __yo_free(p);
+  }
+  while (__yo_epoll_reg_free) {
+    __yo_epoll_reg_t* r = __yo_epoll_reg_free;
+    __yo_epoll_reg_free = r->next_free;
+    __yo_free(r);
+  }
   __yo_pending_io_count = 0;
   close(__yo_epoll_fd);
   __yo_epoll_fd = -1;
