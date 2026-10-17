@@ -129,15 +129,31 @@ not a printed-name one, and it reproduces in one file:
   declared, in print order: a struct's, enum's or union's declaring module
   (`type_decl_module`, the registry the member-visibility check already
   keeps, which every declaration and CTFE instance registers), a trait's
-  base key. Both coherence keys append it for the receiver pattern, and the
-  trait key appends `entry.trait_key`. Two declarations that print alike now
-  key apart; the same declaration still keys alike from any module, so a
+  base key followed by its method signatures' types (a function type
+  contributes its parameters and result). A trait instance's arguments live
+  only there: `From(Meters)` is `from : fn(value : Meters) -> Self`, and its
+  `TraitT` keeps no argument list. Both coherence keys append it for the
+  receiver pattern, and the trait key also appends it for the trait and
+  `entry.trait_key`. Two declarations that print alike now key apart (two
+  files' `Wrap(T)`, and two files' `From(Meters)` over the prelude's
+  `Option(T)`); the same declaration still keys alike from any module, so a
   duplicate impl in an importing module is still E0612
   (`tests/cli-cases/check-coherence-cross-module-duplicate`).
 - `_receiver_patterns_could_overlap` replaces the root-shape prefilter in the
   generic `Copy` recheck: two nominal roots overlap only when they are the
-  same declaration (printed base name and declaring module); a type-variable
-  or structural root still defers to `_root_shapes_could_match`.
+  same declaration (`_nominal_root_identity`: the generic constructor's func
+  id, else the declaration-stable `struct_decl_…`/`enum_decl_…` id). A
+  printed name is not an identity: `GB(T)` after `GB :: GenBox` prints
+  differently from `GenBox(T)`, and a first version that compared printed
+  base names skipped the recheck for an alias. A root whose id is minted per
+  instantiation with no recorded constructor, a union, a type-variable root
+  or a structural root still defers to `_root_shapes_could_match` and the
+  `Copy` hook.
+
+The coherence key itself still prints the receiver, so a duplicate generic
+impl spelled through an alias is accepted. That predates this fix and is
+filed as
+`issues/2026-10-17-a-duplicate-generic-trait-impl-spelled-through-an-alias-is-accepted.md`.
 
 ## Regression test
 
@@ -145,4 +161,8 @@ not a printed-name one, and it reproduces in one file:
 files each declaring `Wrap(T)` (inherent `add`, trait `Show`), one with
 `_CtTag`'s rejected `Copy` and one deriving `GenBox(T)`'s `Copy`; runs
 `yo fix . --migrate mutable-globals` (marks one global in each file) and
-`yo check .` (both files pass).
+`yo check .` (both files pass). Each file also implements `From(Meters)` for
+the prelude's `Option(T)` over its own `Meters` (a printed-alike trait
+instance). `tests/copy_trait.test.yo` pins the alias half: a `Copy` impl over
+`_CtTaggedAlias(T)` is still rejected by `_CtTagged(T)`'s hand-written
+`Clone`.

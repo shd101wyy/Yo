@@ -2080,7 +2080,10 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     });
     return(());
   });
-  shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${type_to_string(substitute(&canon, &entry.trait_type))}|${entry.trait_key}`;
+  // The declaring modules of the receiver's and the trait's nominal types
+  // tell two modules' same-named types apart (`From(Meters)` over each
+  // file's own `Meters`; `_decl_modules_of`).
+  shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${type_to_string(substitute(&canon, &entry.trait_type))}${_decl_modules_of(&entry.trait_type, usize(0))}|${entry.trait_key}`;
   match(
     note_trait_impl_site(String.from("generic"), &shape, &entry.site),
     .Some(prev) => {
