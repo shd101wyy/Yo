@@ -156,19 +156,20 @@ Progress:
   - V3 async A5's `Waker.clone` Generation B: `impl(Waker, Clone)` over
     `__yo_waker_clone`, and the cross-thread tests back on `Park` and
     `w.clone()` (#1412).
-- **In progress:**
-  - Decision 47's locals step, Generation A (`feat/vbd-d47-locals-gena`,
-    a draft opened ahead of V2b Generation B): `mut(x)` in every binding
-    position, E0917 for a write to an unmarked local outside src/std,
-    `YO_AUDIT_MUT_BINDINGS` and `yo fix --migrate mut-bindings` (§6
+  - Decision 47's locals step, Generation A (ahead of V2b Generation B,
+    which its src/std sweep follows): `mut(x)` in every binding position,
+    E0917 for a write to an unmarked local, pattern or compile-time binding
+    outside src/std, `YO_AUDIT_MUT_BINDINGS` and
+    `yo fix --migrate mut-bindings`, with the tests/ sweep (§6
     "Decision 47" step 2's "as built").
+- **In progress:**
   - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
     over futures, blocked on `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`)
     and A6's `Rc`-field half (V2c).
 - **Next:** decision 47's globals step, Generation B (on the next seed),
   the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
-  carrying A1), decision 47's locals step, the allocator interface version 2
+  carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
   (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
@@ -7555,22 +7556,26 @@ once `SEED_VERSION` parses it.
      everywhere.
    - Order: after V2b Generation B and before decision 43, so that
      decision 43's `&mut` rules can assume `mut`.
-   - **Census (2026-10-16, `YO_AUDIT_MUT_BINDINGS=1` on the census branch,
-     `check ./src`, `check ./std` and each language test file).** Unique
-     write sites of a binding below module level, with today's `ref`-handle
-     collections written through (not counted) and first assignments of a
-     `(x : T);` declaration excluded:
+   - **Census (2026-10-18, `YO_AUDIT_MUT_BINDINGS=1` with the Generation A
+     binary on `feat/vbd-d47-locals-gena`, `check ./src` and `check ./std`;
+     the tests row is the migration's own count).** Unique write sites of a
+     binding below module level. Today's `ref`-handle collections are written
+     through and not counted; a `(x : T);` declaration's first assignment is
+     not a write:
 
-     | Tree | Write sites | Bindings to mark | Reassign | `&mut` lend / `&mut self` | Field / element | Parameter writes | Handle writes (not counted) |
+     | Tree | Write sites | Bindings to mark | Reassign | `&mut` lend / `&mut self` | Field / element | Parameter writes | Handle writes (not counted; 2026-10-16 census branch) |
      | --- | --- | --- | --- | --- | --- | --- | --- |
-     | src | 12,797 | 8,051 | 8,938 | 3,779 | 80 | 0 | 5,773 |
-     | std | 1,517 | 1,077 | 1,281 | 155 (10 `y := &mut x`) | 65 | 16 sites in 9 params | 480 |
-     | tests | 1,990 | 1,535 | 1,717 (14 comptime) | 244 (17 `y := &mut x`) | 26 (7 comptime) | 3 | 2,136 |
+     | src | 15,229 | 9,547 | 11,216 | 3,875 | 138 | 1 | 5,773 |
+     | std | 1,484 | 1,068 | 1,281 | 138 | 65 | 1 | 480 |
+     | tests | — | 2,370 marked by `yo fix --migrate mut-bindings` (2,117 language tests, 243 `tests/internal`, 10 fixtures) | — | — | — | 9, rebound by hand | 2,136 |
 
      The handle column is what V2b Generation B adds once the collections
      are values (5,773 more sites in src alone), which is why the src/std
-     sweep follows V2b Generation B.
-   - **As built (Generation A, draft PR on `feat/vbd-d47-locals-gena`).**
+     sweep follows V2b Generation B. The 2026-10-16 census-branch run counted
+     12,797 src and 1,517 std sites with an earlier rule (no capture-list or
+     `for`-element classification, std/time's read-only receivers still
+     `&mut Self`).
+   - **As built (Generation A, `feat/vbd-d47-locals-gena`).**
      - `mut(name)` is stripped in place wherever a binding is evaluated
        (`strip_mut_marker`; `strip_pattern_mut_markers` for `match` arms) and
        recorded by the declared name's token (`register_mut_binding`), which
