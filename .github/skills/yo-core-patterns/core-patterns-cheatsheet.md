@@ -517,7 +517,7 @@ while(i < list.len(), {
 | Form                          | Expansion                                 | When to use                                                                 |
 | ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
 | `for(coll, (x) => …)`         | `coll.into_iter()`, yields `T` by value   | All iteration; `ref` elements are handles and mutate in place; a value element (`String`, …) is borrowed, so writing it is E0908 |
-| `for(&mut coll, x => …)`      | borrows each element's storage            | In-place element mutation (`s.push_str(…)` on a `String` element); growing/shrinking `coll` in the body panics |
+| `for(&mut coll, x => …)`      | borrows each element's storage            | In-place element mutation (`s.push_str(…)` on a `String` element); naming `coll` in the body is E0911 (walk `coll.indices()` instead) |
 | index loop + `coll(i) = v`    | Index trait read/write                    | In-place struct/scalar element mutation                                     |
 | `for(chain.map(f), (x) => …)` | Treats chain as the iterator (value form) | Computed values                                                             |
 

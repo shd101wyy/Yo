@@ -3222,6 +3222,126 @@ and in git, not a silent edit.
       after.
     - **Rejected outright:** `rc(xs.clone()).iter()` as the read-only walk,
       a clone per walk being the hidden copy this plan removes.
+    - **The shape, settled 2026-10-17 (V2b B7, before decision 43's
+      reference types exist).** The open S2
+      `issues/collection-iterators-have-no-sound-post-v2b-shape.md` asked
+      which iterator survives a uniquely owned buffer when no borrow can sit
+      in a struct. The position:
+      - **Three forms, one per need, and no iterator value holds the
+        container:**
+
+        | Need | Form | What holds what |
+        | --- | --- | --- |
+        | walk and write the elements in place | `for(&mut xs, x => …)` | the loop holds a local borrow `c := &mut xs` (decision 18); the cursor is a position |
+        | a cursor that survives a mutation of its container | `for(xs.indices(), i => …)` with `xs(i)` | a `Range(usize)`, `Copy`, holds nothing |
+        | a lazy chain, or a walk that must own its source | `xs.into_iter().map(…)` | the chain owns `xs` (moved; `xs.clone().into_iter()` when `xs` lives on) |
+
+      - **The borrowed `for` is a cursor walk over a local borrow.** The
+        prelude's `for` lowers `for(&mut xs, x => body)` to
+
+        ```yo ignore
+        {
+          c := &mut xs;           // a source that is not a place is bound to a hidden owning local first
+          g := __borrow_guard(c); // the run-time flag, needed only while collections are `ref`
+          cur := c.walk_start();
+          while(c.walk_valid(&cur), cur = c.walk_next(&cur), {
+            x := c.walk_elem(&cur); // a projection: `x` is a `&mut` local borrow of the element
+            body
+          });
+        }
+        ```
+
+        through the prelude trait `BorrowedWalk` (`WalkCursor`, `WalkElem`,
+        `walk_start`, `walk_valid`, `walk_elem`, `walk_next`). The cursor is
+        a `usize` for `ArrayList`, `Deque`, `HashMap` (the next occupied
+        bucket), `BTreeMap` (its entry array) and `OrderedMap` (its order
+        list), and the current node for `LinkedList` (a `ref` graph until
+        B11 gives it raw-pointer nodes). A map's element is its
+        `MapEntry(K, V)`: the map form copies the key and borrows the value.
+        No copy of the container is made, and every step re-derives the
+        element from the container, so a step past a shrink is the bounds
+        panic, never a read of a freed buffer.
+      - **What the body may do follows decision 18, not the old run-time
+        flag.** `c` is live for the whole loop, so the body naming `xs` at
+        all is E0911: `xs.push(x)`, but also `xs.len()`, `xs.clone()` or a
+        nested loop over `xs`. This is Rust's rule for `iter_mut`. The
+        element binding is a local borrow, so it cannot be returned (E0912;
+        write `v := x; return(v)`) or captured by an escaping closure. A
+        container reached through another handle (a `ref` alias, a global)
+        is invisible to the static rule. While collections are `ref`, the
+        guard's flag still panics on growth through such a handle; after B8
+        a value container has no other handle. A body that must read or
+        grow its container walks `indices()` instead.
+      - **E0911 across the macro boundary needs one compiler rule.** A
+        local borrow that a macro expansion declares in its own template
+        code (its name token is in the macro's module, not the caller's) is
+        live across the whole macro call, in the caller's coordinates
+        (`local_borrow_push_macro_site`, `src/evaluator/utils.yo`). Without
+        it every token of the body lies in another module than `c`'s, and no
+        access is ever in `c`'s live range
+        (`issues/fixed/2026-10-17-a-local-borrow-a-macro-expansion-declares-is-never-live-in-the-callers-code.md`).
+        It is the only protection a value-rooted `for` has once B8 drops the
+        flag. A macro defined in the module that calls it is not covered,
+        because its template tokens share the caller's module.
+      - **Element spelling.** The B7 sketch's `x := &mut c(i)` is still
+        rejected: decision 18's "once projections land" so far covers named
+        projection calls only (#1368). The lowering spells the element as the
+        named projection `c.walk_elem(&cur)`, which needs #1368's direct
+        projection calls. The v0.2.63 seed lacks them, but neither `src/`
+        nor `std/` writes a borrowed `for`, so stage 1 never expands one.
+      - **Rejected, with reasons:**
+        - *A borrowing iterator struct* (`Cursor { xs : &ArrayList(T), i }`):
+          decision 38 A forbids a borrow in a field until decision 43's R1.
+          It is decision 39's later form, not this one.
+        - *`iter(self : &Self)` storing a copy of the receiver* (today's
+          shape): after B8 that copy is E0901, or a hidden clone per walk.
+        - *A per-type fallback to `iter()` in the macro* for types without
+          `BorrowedWalk`: compatibility scaffolding, kept alive by a pointer
+          iterator that B7 moves under `pragma(Pragma.AllowUnsafe)`.
+        - *A closure-based walk* (`xs.walk_mut(x => …)`): `break`,
+          `continue` and `return` in the body would have to cross a closure
+          boundary. The macro keeps them plain loop control.
+        - *A read borrow `c := &xs` with `&mut` elements*: each element
+          write would be a write through a read borrow.
+        - *Keeping "read-only methods on the iterated collection are fine"*
+          (the `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` feature):
+          reading `xs(i)` while `x` is a live `&mut` to it aliases the
+          `&mut`. Decision 18 has no read-only carve-out, and `indices()`
+          covers the need.
+      - **Generation A** lands before the flip and is valid on today's `ref`
+        collections:
+        - `BorrowedWalk` and its six std impls, and `indices()` on
+          `ArrayList` and `Deque`;
+        - the cursor lowering of both `&mut` forms (element and map);
+        - the macro-site rule;
+        - the tests and goldens that move. A same-variable push or pop in
+          the body is now E0911 at compile time
+          (`inout-for-push-same-variable-panics`,
+          `inout-for-pop-under-borrow-panics`); the alias, global and
+          stored-into cases keep their run-time panic.
+      - **Generation B** is B7 proper, after B6:
+        - `for(&xs, x => …)` becomes the read walk over `c := &xs` with a
+          `walk_ref` projection (`x : &T`). Today `src/expr.yo` rewrites it
+          to the value form, which copies through `into_iter`;
+        - `into_iter(self : Self)` consumes, with decision 42's sweep of the
+          `for(xs, …)` sources used afterwards;
+        - `iter()` and the `*Ptr` iterators move under
+          `pragma(Pragma.AllowUnsafe)`;
+        - `HashMapEntry` stops holding the map (decision 20's `with` shape).
+
+        The S2 closes there.
+      - **User collections.** `BorrowedWalk` is option 2 of
+        `issues/questions/borrowed-for-over-user-defined-collections.md`,
+        generalized from an index to a cursor, so std and user types share
+        one lowering. A user type can implement it today only under
+        `pragma(Pragma.AllowUnsafe)`: `walk_elem` must yield a pointer, and
+        a projection body may not yet return another projection rooted at
+        `self` (`self.items.walk_elem(cur)` is a type error). That question
+        doc carries the open point.
+      - **`HashSet` and `PriorityQueue` have no `BorrowedWalk`.** Writing a
+        hashed or heap-ordered element in place breaks the container, so
+        `for(&mut set, …)` is now an error. Before, it compiled through
+        their pointer `iter()`.
 
 40. **No `Pin`: live values never relocate, and borrows stay
     second-class.** Confirmed 2026-10-07 by the maintainer, from the

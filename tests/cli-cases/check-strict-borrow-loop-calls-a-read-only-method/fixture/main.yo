@@ -1,10 +1,23 @@
 pragma(Pragma.StrictBorrow);
-{ ArrayList, ArrayListIterPtr } :: import("std/collections/array_list");
+// A user collection implements `BorrowedWalk` with a raw pointer into its
+// list (plans/VALUES_BY_DEFAULT.md decision 39), so the file is unsafe-capable.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
 Bag :: ref(struct(items : ArrayList(i32)));
 impl(
   Bag,
-  iter : (fn(self : &Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
   total : (fn(self : &Self) -> i32)({
     t := i32(0);
     for(self.items, x => {
@@ -17,9 +30,10 @@ main :: (fn() -> unit)({
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   bag := Bag(items : xs);
+  other := bag; // the body cannot name `bag` (E0911); the call goes through an alias
   (seen : i32) = i32(0);
   for(&mut bag, x => {
-    seen = (seen + bag.total());
+    seen = (seen + other.total());
   });
   println(&seen);
 });
