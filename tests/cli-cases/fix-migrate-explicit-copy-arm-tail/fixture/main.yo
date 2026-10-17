@@ -1,0 +1,25 @@
+//! `yo fix --migrate explicit-copy` lists a `match` arm's copy of a payload it
+//! borrows through `&mut self`: the copy flows into a binding that is written
+//! and stored back, and `cur`, a copy of `t`, shares both lists with `t`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Tbl :: enum(Table(keys : ArrayList(String), vals : ArrayList(i32)), Empty);
+impl(
+  Tbl,
+  insert : (fn(self : &mut Self, key : String, v : i32) -> unit)({
+    keys := match(self, .Table(k, _) => k, _ => ArrayList(String).new());
+    vals := match(self, .Table(_, vs) => vs, _ => ArrayList(i32).new());
+    keys.push(key);
+    vals.push(v);
+    self = Self.Table(keys, vals);
+  }),
+  size : (fn(self : &Self) -> usize)(match(self, .Table(k, _) => k.len(), _ => usize(0)))
+);
+main :: (fn() -> unit)({
+  t := Tbl.Table(ArrayList(String).new(), ArrayList(i32).new());
+  cur := t;
+  cur.insert(String.from("a"), i32(1));
+  println(&`${t.size().to_string()} ${cur.size().to_string()}`);
+});
+export(main);

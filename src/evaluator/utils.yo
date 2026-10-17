@@ -2495,13 +2495,16 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// with the site's own position (`at_module`, `at_offset`). A site one of
 /// them is written after (`record_copy_write`) is listed, not rewritten.
 ///
-/// `src_borrow` names the borrowed parameter the copied place is rooted in
-/// (`&` for a `name : &T` parameter, `&mut` for a `name : &mut T` one, empty
-/// otherwise). A `return` of such a place is a copy that leaves the
-/// function, out of the written-after guard's sight, and usually a classic
-/// accessor whose hand edit is a projection (`-> &T`, decision 24), not a
-/// clone: it is listed, not rewritten
-/// (issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md).
+/// `src_borrow` describes the root the copied place borrows from
+/// (`_ic_place_root_borrow`: a `&`/`&mut` parameter, a `&mut` borrow, a
+/// module-level binding or a borrowed binding; empty for an owned root). A
+/// `return` of such a place leaves its block with a value that shares the
+/// root's buffer: out of a function, where a caller may write through it
+/// (usually a classic accessor whose hand edit is a projection, `-> &T`,
+/// decision 24), or out of a `match`/`cond` arm or inner block into a
+/// binding the written-after guard cannot see. It is listed, not rewritten
+/// (issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md,
+/// issues/fixed/2026-10-18-explicit-copy-migration-rewrites-an-arm-tail-copy-of-a-borrowed-binding.md).
 ///
 /// `in_generic` is set when the copy was evaluated inside a generic
 /// specialization (`ctx.currently_specializing_function`: a function with
@@ -2588,15 +2591,25 @@ _ic_place_root_var :: (fn(place : &AstExpr, env : &Environment) -> Option(Variab
 _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
   match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
 );
-/// How `place` borrows from a parameter it is rooted in: `&` for a
-/// `name : &T` parameter, `&mut` for a `name : &mut T` one, or empty.
+/// What `place` is rooted in when that root is not owned by the copy's
+/// frame, for the `return` split: a `&` or `&mut` parameter, a `&mut` borrow
+/// (a `&mut` local, or a `match` binding through one), a module-level binding,
+/// or a borrowed binding (a `match`/`for` binding of a borrowed place). Empty
+/// for an owning local, an owned parameter, a temporary, or a `match` binding
+/// of either.
 _ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
   match(
     _ic_place_root_var(place, env),
     .Some(v) => cond(
-      v.is_imm_borrow => String.from("&"),
-      (v.is_ref && v.is_parameter) => String.from("&mut"),
-      true => String.new()
+      v.is_imm_borrow => String.from("a `&` parameter"),
+      (v.is_ref && v.is_parameter) => String.from("a `&mut` parameter"),
+      v.is_ref => String.from("a `&mut` borrow"),
+      v.is_module_level => `the module-level binding \`${v.name}\``,
+      (v.is_owning_the_rc_value || is_any_temp_variable_name(v.name.clone())) => String.new(),
+      // A `match` binding owns what it binds out of a temporary, or is a
+      // part of an owning local judged at that local's frame end.
+      match(g_implicit_copy_match_roots.get(&v.id), .Some(r) => ((r.kind == "temp") || (r.kind == "local")), .None => false) => String.new(),
+      true => String.from("a borrowed binding")
     ),
     .None => String.new()
   )
