@@ -2,7 +2,7 @@
 
 **Severity:** S3 — a task waiting on another thread's loop can lose the lock to a later same-loop waiter, so the documented FIFO order holds only among one loop's tasks.
 
-**Status:** fixed 2026-10-17 (#PRNUM2) with the strict hand-off below. Found
+**Status:** fixed 2026-10-17 (#1434) with the strict hand-off below. Found
 2026-10-16 by the pre-merge review of #1380, which documented the weaker
 guarantee until this fix.
 
