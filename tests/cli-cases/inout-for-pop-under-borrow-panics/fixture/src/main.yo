@@ -5,8 +5,9 @@ main :: (fn() -> unit)({
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3)); // capacity has room: no realloc will happen below
+  other := list; // a second handle: the loop's static borrow cannot see it
   for(&mut list, x => {
-    list.pop(); // panics: a length decrease while `x` borrows an element
+    other.pop(); // panics: a length decrease while `x` borrows an element
     x = i32(9);
   });
   assert(false, "unreachable: pop must panic first");

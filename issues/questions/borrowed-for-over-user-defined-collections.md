@@ -50,3 +50,46 @@ them, and the iterator they return is a second-class value rooted in `xs`
 (`NON_ESCAPABLE_TYPES.md` R3, R4). Option 2's `Collection` trait remains
 available as a fallback for a container that only wants a plain index
 walk. Lands with the design note's phase N2.
+
+## Update 2026-10-17: Generation A ships option 2 as a cursor protocol
+
+Decision 39's Generation A (the "shape, settled 2026-10-17" bullet in
+`plans/VALUES_BY_DEFAULT.md`) lowers `for(&mut xs, x => …)` to a cursor
+walk over a local borrow `c := &mut xs`, through the prelude trait
+`BorrowedWalk`:
+
+```yo ignore
+BorrowedWalk :: trait(
+  WalkCursor : Type,
+  WalkElem : Type,
+  walk_start : (fn(self : &Self) -> Self.WalkCursor),
+  walk_valid : (fn(self : &Self, cur : &Self.WalkCursor) -> bool),
+  walk_elem : (fn(self : &mut Self, cur : &Self.WalkCursor) -> &mut Self.WalkElem),
+  walk_next : (fn(self : &Self, cur : &Self.WalkCursor) -> Self.WalkCursor)
+);
+```
+
+This is option 2, with the index generalized to a cursor so that maps
+(a bucket index) and `LinkedList` (a node) fit too. Any type that
+implements it is a borrowed-`for` source, so std and user types share one
+spelling and one lowering.
+
+**The gap that remains.** A user type cannot implement `walk_elem` in safe
+code yet. Its body must yield the element's place, and the only way a
+user container can name that place is through its inner collection's
+projection, `self.items.walk_elem(cur)`. A projection body that returns
+another projection rooted at `self` is a type error today ("Cannot unify
+incompatible types: "i32" and "*(i32)""). So a user collection needs
+`pragma(Pragma.AllowUnsafe)` and a raw pointer (`self.items.ptr()`), as
+`tests/for_macro_borrow.test.yo`'s `Bag` does. Before this change, any type
+with a pointer-yielding `iter()` was a source. That `iter()` is headed under
+the same pragma (decision 39), so the requirement is the same either way.
+
+**Recommendation for the gap:** let a projection body forward a projection
+whose root is `self` or one of its own `&`/`&mut` parameters (decision 24's
+result positions, the single-root rule `NON_ESCAPABLE_TYPES.md` R3 states
+for decision 43's phase). That lowers to returning the inner call's pointer
+instead of dereferencing it. It is a small compiler Generation A and does
+not wait for reference types. Until it lands, user collections implement
+`BorrowedWalk` under the pragma. Decision 43's
+`impl(&C, IntoIterator(…))` remains the final shape.

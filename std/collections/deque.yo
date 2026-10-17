@@ -374,6 +374,31 @@ impl(
   /// leaves the deque intact (D14).
   iter : (fn(self : &Self) -> DequeIterPtr(T))(
     DequeIterPtr(T)(_deque : self, _pos : usize(0), _remaining : self._len)
+  ),
+  /// The logical positions `0 .. len()` (front first), a `Range(usize)` that
+  /// holds no handle to the deque: decision 39's index cursor
+  /// (plans/VALUES_BY_DEFAULT.md). Read each element as `dq(i)`, which
+  /// re-derives it from the current ring.
+  indices : (fn(self : &Self) -> Range(usize))(
+    usize(0) .. self._len
+  )
+);
+/// The borrowed `for`'s cursor (decision 39): a logical `usize` index from
+/// the front, re-checked against the live length at each step.
+impl(
+  generic(T : Type),
+  Deque(T),
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : T,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._len),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut T)({
+      assert(cur < self._len, "Deque: walk cursor out of bounds");
+      buf := self._buf.unwrap();
+      buf.add((self._head + cur) % self._cap())
+    }),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
   )
 );
 impl(

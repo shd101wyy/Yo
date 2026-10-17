@@ -10336,6 +10336,40 @@ IntoIterator :: trait(
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
+/// BorrowedWalk trait — the cursor the borrowed `for(&mut coll, x => body)`
+/// walks (plans/VALUES_BY_DEFAULT.md decision 39, "the cursor protocol").
+///
+/// The cursor holds NO handle to the collection: it is a position (a `usize`
+/// index for the array-backed collections and the hash maps), and every step
+/// re-derives the element from the collection through `walk_elem`, a mutable
+/// projection. The `for` macro takes a local borrow `c := &mut coll` for the
+/// whole loop, so the body cannot reach `coll` by name (decision 18, E0911),
+/// and no copy of the collection is made.
+///
+/// `walk_start` returns the first position, `walk_valid` says whether a
+/// position names an element, and `walk_next` returns the position after one.
+/// A map's element is its `MapEntry(K, V)`; the map form
+/// `for(&mut map, (k, v) => body)` copies the key and borrows the value.
+///
+/// The associated types are named `WalkCursor` and `WalkElem`, not `Cursor`
+/// and `Item`: the associated-type registry is keyed by (type, label), so an
+/// `Item` here would collide with the collection's `IntoIterator.Item`.
+BorrowedWalk :: trait(
+  /// The position type. It must not hold the collection.
+  WalkCursor : Type,
+  /// The element type `walk_elem` projects to.
+  WalkElem : Type,
+  /// The first position (equal to the end for an empty collection).
+  walk_start : (fn(self : &Self) -> Self.WalkCursor),
+  /// Whether `cur` names an element.
+  walk_valid : (fn(self : &Self, cur : &Self.WalkCursor) -> bool),
+  /// The element at `cur`, written in place (a mutable projection). Panics
+  /// if `cur` names no element.
+  walk_elem : (fn(self : &mut Self, cur : &Self.WalkCursor) -> &mut Self.WalkElem),
+  /// The position after `cur`.
+  walk_next : (fn(self : &Self, cur : &Self.WalkCursor) -> Self.WalkCursor)
+);
+export(BorrowedWalk);
 /// FromIterator trait — build `Self` from a sequence of `Self.Elem` values.
 ///
 /// The iteration loop lives in the blanket `collect` below, not here, so this
@@ -10542,6 +10576,23 @@ __borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
   __yo_borrow_acquire(c);
   __BorrowGuard(C)(_c : c)
 });
+/// Whether the borrowed `for`'s source is a place the macro can borrow where
+/// it stands: a variable, or a field path rooted at one (`xs`, `self.items`,
+/// `a.b.c`). Anything else (`make()`, `xs.into_iter()`) is first bound to a
+/// hidden owning local.
+__for_source_is_place :: (fn(comptime(e) : Expr) -> comptime(bool))(
+  cond(
+    e.is_atom() => true,
+    e.is_fn_call() => {
+      callee :: e.get_callee();
+      cond(
+        (callee.is_atom() && (callee == quote(a.b).get_callee())) => __for_source_is_place(e.get_args().car()),
+        true => false
+      )
+    },
+    true => false
+  )
+);
 /// `for` macro — iterate over a collection.
 ///
 ///   `for(coll, x => body)` — calls `coll.into_iter()` and binds `x`
@@ -10550,17 +10601,21 @@ __borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
 ///     body mutates the element in place.
 ///
 ///   `for(&mut coll, x => body)` — the borrowed form
-///     (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is
-///     pinned by a hidden local, its runtime borrow flag is held for the
-///     whole loop, and each element is bound in place as a `mut` local
-///     through the pointer iterator `iter()` (no per-element dup; struct
-///     elements mutate in place). Any container operation that could
-///     invalidate an element (growth, shrink, removal) — reached through ANY
-///     handle — panics deterministically instead of leaving `x` dangling.
+///     (plans/VALUES_BY_DEFAULT.md decision 39): the loop takes a local
+///     borrow `c := &mut coll` for its whole extent and walks a cursor that
+///     holds no handle to the collection (`BorrowedWalk`); each element is
+///     bound in place as a `&mut` local through the `walk_elem` projection
+///     (no per-element dup; struct elements mutate in place). The body
+///     reaches the collection only through `x`: naming `coll` in it is
+///     decision 18's E0911. A collection reached through ANOTHER handle is
+///     still guarded by its runtime borrow flag, so growing, shrinking or
+///     removing from it that way panics instead of leaving `x` dangling.
+///     To read or grow the collection inside the loop, walk its positions:
+///     `for(coll.indices(), i => ...)` with `coll(i)`.
 ///     Maps take `for(&mut map, (k, v) => body)`: the key by value, only
 ///     the value borrowed, so a body can never rewrite a key in place.
 ///     Value-type collections (`Array(T, N)`) and combinator chains have no
-///     `iter()`; use the value form.
+///     `BorrowedWalk`; use the value form.
 ///
 /// Combinator chains (`coll.into_iter().map(f)`, etc.) work
 /// transparently: a blanket `into_iter` impl on `Iterator` (below)
@@ -10648,77 +10703,73 @@ for :: (
             );
             cond(
               is_ref_form => {
-                // Borrowed form (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7
-                // decision 2): the collection is bound to a hidden local (the
-                // PIN — it cannot be freed while the loop runs), the runtime
-                // borrow flag is held for the whole loop by a guard whose
-                // Drop releases it on every exit (fall-through, `break`,
-                // `return`, effect `unwind`), and each element is bound as an
-                // `mut` local through the pointer iterator `iter()`. A
-                // container operation that could invalidate the element
-                // (growth, shrink, removal) reached through ANY handle panics
-                // deterministically instead of leaving `x` dangling.
+                // Borrowed form (plans/VALUES_BY_DEFAULT.md decision 39, the
+                // cursor protocol): a local borrow `c := &mut coll` is live for
+                // the whole loop, so the body reaching `coll` by name is
+                // decision 18's static error (E0911), and no copy of the
+                // collection is made. The cursor is a position with no handle
+                // to the collection; each step re-derives the element through
+                // the `walk_elem` projection (`BorrowedWalk`). A source that is
+                // not a place is first bound to a hidden owning local, which
+                // keeps the temporary alive for the loop. The runtime borrow
+                // flag is still held by a guard whose Drop releases it on every
+                // exit (fall-through, `break`, `return`, effect `unwind`): a
+                // `ref` collection can be reached through another handle the
+                // static rule cannot see, and growing it that way panics.
                 elem_args :: variable.get_args();
                 comptime_assert(elem_args.len() == 1, "'for(&mut coll, x => ...)' binds exactly one name");
                 elem :: elem_args.car();
-                coll_var :: gensym("for_coll");
+                src_var :: gensym("for_src");
+                c_var :: gensym("for_coll");
                 guard_var :: gensym("for_guard");
-                iter_var :: gensym("for_iter_var");
-                temp_var :: gensym("for_temp_var");
-                ptr_var :: gensym("for_ptr");
+                cur_var :: gensym("for_cur");
+                src_is_place :: __for_source_is_place(coll);
+                src_stmt :: cond(src_is_place => quote(()), true => quote(unquote(src_var) := unquote(coll)));
+                src_place :: cond(src_is_place => coll, true => src_var);
                 quote({
-                  unquote(coll_var) := unquote(coll);
-                  unquote(guard_var) := __borrow_guard(&unquote(coll_var));
-                  unquote(iter_var) := unquote(coll_var).iter();
+                  unquote(src_stmt);
+                  unquote(c_var) := &mut unquote(src_place);
+                  unquote(guard_var) := __borrow_guard(unquote(c_var));
+                  unquote(cur_var) := unquote(c_var).walk_start();
                   __yo_borrow_check(
-                    unquote(coll_var),
-                    while(runtime(true), {
-                      unquote(temp_var) := unquote(iter_var).next();
-                      match(
-                        unquote(temp_var),
-                        .Some(unquote(ptr_var)) => {
-                          unquote(elem) := &mut unquote(ptr_var).*;
-                          unquote(body)
-                        },
-                        .None => {
-                          break;
-                        }
-                      )
+                    unquote(c_var),
+                    while(unquote(c_var).walk_valid(&unquote(cur_var)), unquote(cur_var) = unquote(c_var).walk_next(&unquote(cur_var)), {
+                      unquote(elem) := unquote(c_var).walk_elem(&unquote(cur_var));
+                      unquote(body)
                     })
                   );
                 })
               },
               is_map_ref_form => {
+                // The map form walks the same cursor; the element is the
+                // map's `MapEntry(K, V)`, whose key is copied and whose value
+                // is borrowed, so a body can never rewrite a key in place.
                 mv_args2 :: variable.get_args();
                 key_name :: mv_args2.car();
                 val_inout :: mv_args2.cdr().car();
                 val_args :: val_inout.get_args();
                 comptime_assert(val_args.len() == 1, "'for(&mut map, (k, v) => ...)' binds exactly one value name");
                 val_name :: val_args.car();
-                coll_var :: gensym("for_coll");
+                src_var :: gensym("for_src");
+                c_var :: gensym("for_coll");
                 guard_var :: gensym("for_guard");
-                iter_var :: gensym("for_iter_var");
-                temp_var :: gensym("for_temp_var");
-                ptr_var :: gensym("for_ptr");
+                cur_var :: gensym("for_cur");
+                entry_var :: gensym("for_entry");
+                src_is_place :: __for_source_is_place(coll);
+                src_stmt :: cond(src_is_place => quote(()), true => quote(unquote(src_var) := unquote(coll)));
+                src_place :: cond(src_is_place => coll, true => src_var);
                 quote({
-                  unquote(coll_var) := unquote(coll);
-                  unquote(guard_var) := __borrow_guard(&unquote(coll_var));
-                  unquote(iter_var) := unquote(coll_var).iter();
+                  unquote(src_stmt);
+                  unquote(c_var) := &mut unquote(src_place);
+                  unquote(guard_var) := __borrow_guard(unquote(c_var));
+                  unquote(cur_var) := unquote(c_var).walk_start();
                   __yo_borrow_check(
-                    unquote(coll_var),
-                    while(runtime(true), {
-                      unquote(temp_var) := unquote(iter_var).next();
-                      match(
-                        unquote(temp_var),
-                        .Some(unquote(ptr_var)) => {
-                          unquote(key_name) := (unquote(ptr_var).*).key;
-                          unquote(val_name) := &mut (unquote(ptr_var).*).value;
-                          unquote(body)
-                        },
-                        .None => {
-                          break;
-                        }
-                      )
+                    unquote(c_var),
+                    while(unquote(c_var).walk_valid(&unquote(cur_var)), unquote(cur_var) = unquote(c_var).walk_next(&unquote(cur_var)), {
+                      unquote(entry_var) := unquote(c_var).walk_elem(&unquote(cur_var));
+                      unquote(key_name) := unquote(entry_var).key;
+                      unquote(val_name) := &mut unquote(entry_var).value;
+                      unquote(body)
                     })
                   );
                 })

@@ -1814,7 +1814,7 @@ while(i < usize(3), {
 
 组合器链（`coll.into_iter().map(f)`、`.filter(p)`、`.fold(init, f)` 等）保持值产出的 `Iterator` 形状；一个全覆盖的 `into_iter` 实现 `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)`（恒等函数）使得 `for(combinator_chain, (x) => body)` 与 `for(coll, (x) => body)` 一致。
 
-借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。借用符号写在来源上，元素的模式随之而定；`for(&coll, x => body)` 以只读方式借用每个元素。对映射，`for(&mut m, (k, v) => body)` 借出每个值。循环会固定（pin）集合并持有它的运行时借用标志，因此在元素被借用期间，循环体不能让集合增长或缩短（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
+借用形式 `for(&mut coll, x => body)` 把每个元素原地交给循环体：给 `x` 赋值即写入该元素。借用符号写在来源上，元素的模式随之而定；`for(&coll, x => body)` 以只读方式借用每个元素。对映射，`for(&mut m, (k, v) => body)` 借出每个值。循环在整个过程中持有集合的一个局部借用，并在其上走一个游标（`BorrowedWalk`，`plans/VALUES_BY_DEFAULT.md` 决策 39），因此循环体只能通过 `x` 触及集合：在循环体中提到集合本身是 E0911。若要在遍历列表时读取或扩充它，请遍历它的位置：`for(xs.indices(), i => …)` 配合 `xs(i)`。同一集合的其他句柄由其运行时借用标志守护，经由它们让集合增长或缩短会 panic（见 [FLOWABILITY.md](./FLOWABILITY.md)）。
 
 ```yo
 xs := ArrayList(i32).new();
