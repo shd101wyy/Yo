@@ -88,9 +88,13 @@
 /// The state a `Channel(T)` and its `Sender`/`Receiver` halves share, in an
 /// `Rc(RefCell(...))`. Every access is one short `with`/`with_mut` body that
 /// never suspends and never wakes a task, so no access overlaps another.
-_ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
+// The binder is spelled `Msg`, not `T`: a generic impl that instantiates
+// `RefCell(_ChannelState(T))` over an `ArrayList(T)` with RefCell's own
+// spelling emits an instance C cannot compile
+// (issues/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md).
+_ChannelState :: (fn(comptime(Msg) : Type) -> comptime(Type))(
   struct(
-    _buf : ArrayList(T),
+    _buf : ArrayList(Msg),
     _capacity : usize,
     _closed : bool,
     /// How many live `Sender(T)` handles share this channel. Zero for a
@@ -120,8 +124,8 @@ _ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 impl(
-  generic(T : Type),
-  _ChannelState(T),
+  generic(Msg : Type),
+  _ChannelState(Msg),
   /// A fresh park whose waker is queued (moved) behind the blocked senders.
   _park_sender : (fn(self : &mut Self) -> Park)({
     p := Park.new();
@@ -141,20 +145,20 @@ impl(
 /// the channel (the fused MPMC handle, §3.13 A5). Its `send`/`recv` futures
 /// hold their own copy of the handle, so they borrow nothing and a task may
 /// own them.
-Channel :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(_st : Rc(RefCell(_ChannelState(T))))
+Channel :: (fn(comptime(Msg) : Type) -> comptime(Type))(
+  struct(_st : Rc(RefCell(_ChannelState(Msg))))
 );
 impl(
-  generic(T : Type),
-  Channel(T),
+  generic(Msg : Type),
+  Channel(Msg),
   /// A channel holding at most `capacity` buffered values (must be > 0).
   new : (fn(capacity : usize) -> Self)({
     assert(capacity > usize(0), "Channel.new: capacity must be > 0");
     Self(
       _st : rc(
-        RefCell(_ChannelState(T)).new(
-          _ChannelState(T)(
-            _buf : ArrayList(T).new(),
+        RefCell(_ChannelState(Msg)).new(
+          _ChannelState(Msg)(
+            _buf : ArrayList(Msg).new(),
             _capacity : capacity,
             _closed : false,
             _senders : usize(0),
@@ -170,7 +174,7 @@ impl(
   /// `.Ok(())` once buffered, or `.Err(value)` if the channel is (or
   /// becomes) closed, or its `Receiver` has been dropped — the failed value
   /// is handed back.
-  send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(self : &Self, value : Msg, io : Io) -> Impl(Future(Result(unit, Msg))))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
@@ -187,20 +191,20 @@ impl(
         });
       });
       cond(
-        self._st.with(s => (s._closed || s._recv_dropped)) => return(Result(unit, T).Err(value)),
+        self._st.with(s => (s._closed || s._recv_dropped)) => return(Result(unit, Msg).Err(value)),
         true => {
           // No suspension between the capacity check and this push, so no
           // other task can interleave (single-threaded cooperative loop).
           self._push(value);
           self._wake_one_receiver();
-          return(Result(unit, T).Ok(()));
+          return(Result(unit, Msg).Ok(()));
         }
       );
     })
   ),
   /// Receive the oldest value, suspending while the channel is empty.
   /// Resolves to `.None` once the channel is closed AND drained.
-  recv : (fn(self : &Self, io : Io) -> Impl(Future(Option(T))))(
+  recv : (fn(self : &Self, io : Io) -> Impl(Future(Option(Msg))))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
@@ -216,21 +220,21 @@ impl(
         (self.len() > usize(0)) => {
           v := self._st.with_mut(s => s._buf.remove(usize(0)));
           self._wake_one_sender();
-          return(Option(T).Some(v));
+          return(Option(Msg).Some(v));
         },
-        true => return(Option(T).None)
+        true => return(Option(Msg).None)
       );
     })
   ),
   /// Try to send without suspending: `.Ok(())` if buffered, `.Err(value)`
   /// if the channel is full, closed, or has no `Receiver` any more.
-  try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
+  try_send : (fn(self : &Self, value : Msg) -> Result(unit, Msg))(
     cond(
-      self._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() >= s._capacity)))) => Result(unit, T).Err(value),
+      self._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() >= s._capacity)))) => Result(unit, Msg).Err(value),
       true => {
         self._push(value);
         self._wake_one_receiver();
-        Result(unit, T).Ok(())
+        Result(unit, Msg).Ok(())
       }
     )
   ),
@@ -246,15 +250,15 @@ impl(
   ///
   /// A closed channel with buffered values still yields them: `Disconnected`
   /// means closed AND drained.
-  try_recv : (fn(self : &Self) -> Result(T, TryRecvError))(
+  try_recv : (fn(self : &Self) -> Result(Msg, TryRecvError))(
     cond(
       (self.len() > usize(0)) => {
         v := self._st.with_mut(s => s._buf.remove(usize(0)));
         self._wake_one_sender();
-        Result(T, TryRecvError).Ok(v)
+        Result(Msg, TryRecvError).Ok(v)
       },
-      self.is_closed() => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
-      true => Result(T, TryRecvError).Err(TryRecvError.Empty)
+      self.is_closed() => Result(Msg, TryRecvError).Err(TryRecvError.Disconnected),
+      true => Result(Msg, TryRecvError).Err(TryRecvError.Empty)
     )
   ),
   /// Close the channel: pending and future `send`s fail with `.Err`;
@@ -328,8 +332,8 @@ impl(
     self._st.with(s => s._buf.len())
   ),
   /// Buffer `value` (moved in). Internal: the callers check the capacity.
-  _push : (fn(self : &Self, value : T) -> unit)({
-    slot := Option(T).Some(value);
+  _push : (fn(self : &Self, value : Msg) -> unit)({
+    slot := Option(Msg).Some(value);
     self._st.with_mut({ &mut slot }(s) => {
       match(slot.take(), .Some(v) => s._buf.push(v), .None => ());
     });
@@ -359,8 +363,8 @@ impl(
 /// `recv` that would otherwise suspend forever resolves to `Disconnected`
 /// instead. A task takes its producer by move (`io.async({ tx }(io : Io) =>
 /// …)`), or a `clone()` of one.
-Sender :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(_ch : Channel(T))
+Sender :: (fn(comptime(Msg) : Type) -> comptime(Type))(
+  struct(_ch : Channel(Msg))
 );
 export(Sender);
 /// The receiving half of an async channel pair.
@@ -368,27 +372,27 @@ export(Sender);
 /// A move-only value, deliberately NOT cloneable, so that "the receiver is
 /// gone" is a fact a sender can act on; `Channel(T).receiver` mints exactly
 /// one per channel.
-Receiver :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(_ch : Channel(T))
+Receiver :: (fn(comptime(Msg) : Type) -> comptime(Type))(
+  struct(_ch : Channel(Msg))
 );
 export(Receiver);
 impl(
-  generic(T : Type),
-  Sender(T),
+  generic(Msg : Type),
+  Sender(Msg),
   /// Attach a new producer to `ch` and count it. Internal: `Channel.receiver`,
   /// `Channel.pair`, `Receiver.sender` and `clone` are the callers.
-  _attach : (fn(ch : &Channel(T)) -> Self)({
+  _attach : (fn(ch : &Channel(Msg)) -> Self)({
     ch._add_sender();
     Self(_ch : ch)
   }),
   /// Send a value, suspending while the buffer is full. `.Err(value)` once
   /// the channel is closed or the `Receiver` is gone (Rust's `SendError(T)`).
-  send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+  send : (fn(self : &Self, value : Msg, io : Io) -> Impl(Future(Result(unit, Msg))))(
     self._ch.send(value, io)
   ),
   /// Send without suspending: `.Err(value)` if the buffer is full, the
   /// channel is closed, or the `Receiver` is gone.
-  try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
+  try_send : (fn(self : &Self, value : Msg) -> Result(unit, Msg))(
     self._ch.try_send(value)
   ),
   /// True once the channel is closed — by an explicit `close()`, or by the
@@ -406,8 +410,8 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
-  Sender(T),
+  generic(Msg : Type),
+  Sender(Msg),
   /// Another producer over the same channel, counted.
   Clone(
     clone : (fn(self : &Self) -> Self)({
@@ -417,8 +421,8 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
-  Sender(T),
+  generic(Msg : Type),
+  Sender(Msg),
   /// Dropping a `Sender` gives up its stake in the channel; dropping the LAST
   /// one closes it, which is what lets a suspended `recv` resolve.
   ///
@@ -435,11 +439,11 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
-  Receiver(T),
+  generic(Msg : Type),
+  Receiver(Msg),
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
-  _attach : (fn(ch : &Channel(T)) -> Self)(
+  _attach : (fn(ch : &Channel(Msg)) -> Self)(
     Self(_ch : ch)
   ),
   /// Mint a producer for this channel, counted like every other `Sender`.
@@ -447,8 +451,8 @@ impl(
   /// This is how the first sender is created after `Channel(T).receiver(...)`
   /// and how a fan-in of producer tasks is set up. A sender minted after the
   /// channel has already closed does not reopen it — its sends fail.
-  sender : (fn(self : &Self) -> Sender(T))(
-    Sender(T)._attach(&self._ch)
+  sender : (fn(self : &Self) -> Sender(Msg))(
+    Sender(Msg)._attach(&self._ch)
   ),
   /// Receive the oldest value, suspending while the channel is empty.
   ///
@@ -463,22 +467,22 @@ impl(
   ///
   /// The future holds its own copy of the channel handle, so it borrows
   /// nothing from the `Receiver`.
-  recv : (fn(self : &Self, io : Io) -> Impl(Future(Result(T, TryRecvError))))(
+  recv : (fn(self : &Self, io : Io) -> Impl(Future(Result(Msg, TryRecvError))))(
     io.async({ ch : self._ch }(io : Io) => {
       // Bound first, matched second: an `io.await` in a match SCRUTINEE is one
       // of the async-body shapes that miscompiles to an empty value.
       got := io.await(ch.recv(io), io);
       match(
         got,
-        .Some(v) => Result(T, TryRecvError).Ok(v),
-        .None => Result(T, TryRecvError).Err(TryRecvError.Disconnected)
+        .Some(v) => Result(Msg, TryRecvError).Ok(v),
+        .None => Result(Msg, TryRecvError).Err(TryRecvError.Disconnected)
       )
     })
   ),
   /// Receive without suspending: `.Ok(value)`, `Empty` while the channel is
   /// open but has nothing buffered, `Disconnected` once it is closed and
   /// drained.
-  try_recv : (fn(self : &Self) -> Result(T, TryRecvError))(
+  try_recv : (fn(self : &Self) -> Result(Msg, TryRecvError))(
     self._ch.try_recv()
   ),
   /// True once the channel is closed — including by the last `Sender` being
@@ -498,8 +502,8 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
-  Receiver(T),
+  generic(Msg : Type),
+  Receiver(Msg),
   /// Dropping the consumer disconnects the channel from the sending side:
   /// there is nobody left to drain it, so a `send` that would suspend on a
   /// full buffer fails instead.
@@ -515,8 +519,8 @@ impl(
   )
 );
 impl(
-  generic(T : Type),
-  Channel(T),
+  generic(Msg : Type),
+  Channel(Msg),
   /// Create a channel and its single consumer — the tuple-free half of the
   /// `Sender`/`Receiver` split. Mint producers with `Receiver.sender()` and
   /// `Sender.clone()`.
@@ -535,8 +539,8 @@ impl(
   ///
   /// A `Receiver` with no `Sender` yet is not closed, so `recv` on it
   /// suspends; mint the senders before receiving.
-  receiver : (fn(capacity : usize) -> Receiver(T))(
-    Receiver(T)._attach(Self.new(capacity))
+  receiver : (fn(capacity : usize) -> Receiver(Msg))(
+    Receiver(Msg)._attach(Self.new(capacity))
   ),
   /// Create a channel and hand back both halves at once — the shape of Rust's
   /// `mpsc::sync_channel(capacity)` (this channel is bounded, like the
@@ -557,9 +561,9 @@ impl(
   ///
   /// Each binding then has its own lifetime, as with `receiver()` +
   /// `sender()`: dropping `tx` drops the last sender and closes the channel.
-  pair : (fn(capacity : usize) -> Tuple(Sender(T), Receiver(T)))({
+  pair : (fn(capacity : usize) -> Tuple(Sender(Msg), Receiver(Msg)))({
     ch := Self.new(capacity);
-    (Sender(T)._attach(&ch), Receiver(T)._attach(&ch))
+    (Sender(Msg)._attach(&ch), Receiver(Msg)._attach(&ch))
   })
 );
 /// A channel IS an async stream of the values sent to it: `next` is `recv`,
@@ -568,11 +572,11 @@ impl(
 /// chain — `ch.map(f).take(n)`, `io.await(ch.for_each(f, io), io)` — instead
 /// of a `recv`/`try_recv` dance.
 impl(
-  generic(T : Type),
-  Channel(T),
+  generic(Msg : Type),
+  Channel(Msg),
   Stream(
-    Item : T,
-    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(T), Io)))(
+    Item : Msg,
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(Msg), Io)))(
       self.recv(io)
     )
   )

@@ -1087,6 +1087,8 @@ instead.
       rejected, as does a path that also crosses an `Rc`, a `ref` object, a
       pointer or an index (`rc(arc(m))`). `Rc` joins when `Rc` becomes
       read-only (decision 46): that flips the predicate and nothing else.
+      Decision 46 Generation B flipped it (#1421): `rc(arc(m))` is accepted,
+      and a `&mut` lend through an `Rc` is E0919.
   - **Precedent.** This is the second-class rule `&mut` already follows,
     extended to the future that carries the borrow. It is Swift's
     `mutating func next() async`.
@@ -1384,7 +1386,8 @@ instead.
     rust does it?"; it said `Rc(Mutex(T))`). `lock(self : &Self, io)` and
     `with_lock` return a future that borrows the mutex, which A2's amended
     rule accepts through an `Arc`. `Rc(Mutex(T))`, the single-thread
-    sharing, works once `Rc` is read-only (decision 46).
+    sharing, works since `Rc` became read-only (decision 46 Generation B,
+    #1421).
   - **The five stream adapters** become plain values with
     `next(self : &mut Self, io)`.
   - **As built (2026-10-14, feat/vbd-v3-async-a5).**
