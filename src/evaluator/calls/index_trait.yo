@@ -15,7 +15,8 @@ pragma(Pragma.AllowUnsafe);
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
-{ Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
+{ Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
@@ -1448,6 +1449,28 @@ _try_comptime_custom_type_index :: (
     )
   )
 });
+/// The variable that the by-value index argument `arg` names, when this
+/// call's own argument rule has just moved it (a move-only named local is
+/// consumed at `arg`'s token), else `.None`.
+_index_arg_moved_here :: (fn(arg : &AstExpr, arg_info : &ExprInfo) -> Option(Variable))(
+  match(
+    arg_info.variable_name,
+    .Some(name) => match(
+      find_variable_in_env(&arg_info.env, &name),
+      .Some(v) => match(
+        v.consumed_at_token,
+        .Some(t) => if(
+          (t.row == ast_expr_token(arg).row) && (t.column == ast_expr_token(arg).column) && (t.module_path == ast_expr_token(arg).module_path),
+          Option(Variable).Some(v),
+          Option(Variable).None
+        ),
+        .None => Option(Variable).None
+      ),
+      .None => Option(Variable).None
+    ),
+    .None => Option(Variable).None
+  )
+);
 // ---------------------------------------------------------------------------
 // try_to_call_with_index_trait
 // ---------------------------------------------------------------------------
@@ -1688,9 +1711,30 @@ try_to_call_with_index_trait :: (
   spec_out := ArrayList(EvalValue).new();
   saved_idx_exp := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
+  // The trial re-evaluates the index argument inside a whole call, whose own
+  // argument rule moves a move-only named argument again. The rule above has
+  // already moved it at this very token, so that second move threw a
+  // swallowed E0901 and codegen called the unspecialized method, which is
+  // never emitted (an undeclared C function). The trial sees the variable as
+  // it was before this call's move, and the move is put back after it.
+  moved_here := _index_arg_moved_here(&evaluated_arg, &arg_info);
+  match(
+    moved_here,
+    .Some(mv) => {
+      mv.consumed_at_token = Option(Token).None;
+    },
+    .None => ()
+  );
   match(
     method.method_value,
     .Some(_) => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
+    .None => ()
+  );
+  match(
+    moved_here,
+    .Some(mv) => {
+      mv.consumed_at_token = Option(Token).Some(ast_expr_token(&evaluated_arg));
+    },
     .None => ()
   );
   _record_index_unchecked_twin(value_type, &arg_type, &output_ty, expr, caller_env, ctx, &arg_expr);

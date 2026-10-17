@@ -1358,3 +1358,22 @@ test("V2b: a projection that drops a local before yielding its place", {
   assert(c(usize(1)) == i32(6), "c(1) through the loop's return(&...)");
   assert(c(usize(0)) == i32(5), "c(0)");
 });
+// A generic `Index(K)` impl called with a move-only NAMED local: the call
+// moves `k` once, and the impl is specialized and emitted. The
+// specialization trial re-ran the argument's move, threw a swallowed E0901,
+// and codegen called the unspecialized method, an undeclared C function
+// (issues/fixed/2026-10-17-an-index-call-that-moves-a-named-local-calls-an-unemitted-method.md).
+_IxKey :: struct(n : i32);
+_IxBag :: (fn(comptime(K) : Type) -> comptime(Type))(struct(v : i32));
+impl(generic(K : Type), _IxBag(K), Index(K)(Output : i32, index : (fn(self : &Self, idx : K) -> &Self.Output)(&self.v)));
+test("Index: a generic impl takes a move-only named local by value", {
+  comptime_assert(!Type.impls(_IxKey, Copy) && !Type.impls(_IxKey, Clone), "the key is move-only");
+  b := _IxBag(_IxKey)(v : i32(78));
+  k := _IxKey(n : i32(1));
+  assert(b(k) == i32(78), "the projection reads through the specialized impl");
+  comptime_expect_error(k.n, "moved");
+  m := HashMap(Box(i32), i32).new();
+  m.insert(box(i32(5)), i32(50));
+  key := box(i32(5));
+  assert(m(key) == i32(50), "a HashMap(Box(K), V) looked up by a named box");
+});
