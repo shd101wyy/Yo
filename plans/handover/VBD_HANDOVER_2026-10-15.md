@@ -187,15 +187,15 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 | Order | Branch | State |
 | --- | --- | --- |
-| 0 | (a new fix branch) | §4 step 0a: the `Rc(.A(xs))` second-payload-hop regression, with a test |
+| 0 | (a new fix branch) | §4 step 0a: the `Rc(.A(xs))` second-payload-hop regression; **landed** 2026-10-16 as #1396 |
 | 1 | #1378 from `vbd-d45-genb-rebased` | **landed** 2026-10-15 |
 | 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | **landed** 2026-10-15 (`std/hash.yo` reverted) |
-| 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
+| 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | **landed** 2026-10-16 |
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
 | 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-17 as #1397; #1380 **landed** 2026-10-17, restacked on it |
 | 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
-| 7a | release v0.2.64 | §4 step 7a |
+| 7a | release v0.2.64 | **published** 2026-10-17. The tag is on `398a18e93` and the `SEED_VERSION` bump is `583115085`. Develop's battery 38999661126 was green on `4d7c15caa` after one infrastructure rerun, and the notes are curated. The Generation B drafts now rebuild on the official seed and merge: decision 47 globals (#1414), A5 (#1412), decision 46 and V2b B1 |
 | 8 | #1385 | **landed** 2026-10-16 (restacked, Tier 1 incl. the full in-process `tests/internal` and full cli-diff) |
 
 **When a branch moves an issue doc to `issues/fixed/`,** this handover (and possibly the plan) still cites the open path. After the move, run `bash scripts/check-issue-refs.sh` and repoint every citation it lists to the `fixed/` path. That applies to #1368, the global-lend, E0918 and D3 branches. Each entry below names its docs.
@@ -580,7 +580,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3). **Landed as #1402 (2026-10-16).**
 6. **DONE (#1397)** `fix/d3-trust-by-mutation-mask` (§2.3); then **#1380** (§2.3).
 7. **DONE (#1398).** **`perf/type-key-memo-identity`** (§2.3): the ratchet baseline is now a measured count, 1,799,052,684.
-7a. **Cut v0.2.64** (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
+7a. **Cut v0.2.64** (**done 2026-10-17**, §2 row 7a) (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
 8. **#1385 — LANDED 2026-10-16**, then **V2b unique buffers Generation B** (§2.3; the PR sequence B0–B14 is proposed in #1408). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
 9. **Decision 47, step 2: locals, patterns and comptime** (§5.11; the plan's §6 phase), after V2b Generation B and before decision 43:
     - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
