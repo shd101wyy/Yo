@@ -2502,6 +2502,13 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// accessor whose hand edit is a projection (`-> &T`, decision 24), not a
 /// clone: it is listed, not rewritten
 /// (issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md).
+///
+/// `in_generic` is set when the copy was evaluated inside a generic
+/// specialization (`ctx.currently_specializing_function`: a function with
+/// `comptime`/`generic` parameters or a generic impl's method). One
+/// `.clone()` there would demand `Clone` of every instantiation, while the
+/// run may have seen only one of them, so the site is listed, not rewritten
+/// (issues/fixed/2026-10-17-explicit-copy-migration-rewrites-a-generic-body-seen-at-one-type.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2513,7 +2520,8 @@ ExplicitCopySite :: struct(
   dst_decl : String,
   at_module : String,
   at_offset : u32,
-  src_borrow : String
+  src_borrow : String,
+  in_generic : bool
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -2715,7 +2723,7 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// token is the `.`), where the rewrite finds it in the source, and the
 /// declaration keys of its source and destination variables (`_ic_decl_key`,
 /// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String);
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool);
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
@@ -2736,7 +2744,8 @@ _ic_migrate_site :: (
         dst_decl : m.dst_decl.clone(),
         at_module : canonical_module_path(m.leftmost.module_path.clone()),
         at_offset : m.leftmost.byte_offset,
-        src_borrow : m.src_borrow.clone()
+        src_borrow : m.src_borrow.clone(),
+        in_generic : m.in_generic
       )
     )
   )
@@ -3263,7 +3272,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env)))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env), in_generic : ctx.currently_specializing_function.is_some()))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);

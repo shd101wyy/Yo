@@ -1,0 +1,10 @@
+# `yo fix <path> --migrate explicit-copy` leaves a copy made inside a generic
+# specialization alone: `twice` copies its `&T` argument, and one `.clone()`
+# there would demand `Clone` of every instantiation. The run sees the
+# `String` instantiation only (a `ref` struct records no site), so before the
+# fix it rewrote both pushes and `twice(Node, &n)` stopped evaluating
+# (issues/fixed/2026-10-17-explicit-copy-migration-rewrites-a-generic-body-seen-at-one-type.md).
+# The expected_tree pins main.yo unchanged, and the trailing `check` proves it
+# still evaluates.
+stdout_keep=^fix:
+timeout=240

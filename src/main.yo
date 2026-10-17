@@ -2862,7 +2862,9 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// and gets `.clone()`, or `(…).clone()` when the expression is not a
 /// postfix operand. A position copied at two types is a generic body, and a
 /// site whose source text no longer prints as the evaluated expression is a
-/// macro's; both are listed and left as written. So is a `return` of a place
+/// macro's; both are listed and left as written, and so is a copy made inside
+/// a generic specialization (`ExplicitCopySite.in_generic`), where the run may
+/// have seen one instantiation of many. So is a `return` of a place
 /// rooted in a `&T` or `&mut T` parameter (`ExplicitCopySite.src_borrow`): it
 /// leaves the function, so a caller's write through it is out of sight, and
 /// the hand edit is usually a projection.
@@ -2912,11 +2914,15 @@ _run_migrate_explicit_copy :: (
     mine := ArrayList(ExplicitCopySite).new();
     pos_type := HashMap(String, String).new();
     generic := HashSet(String).new();
+    in_generic := HashSet(String).new();
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
         st := sites(si);
         key := `${st.row.to_string()}:${st.col.to_string()}`;
+        if(st.in_generic, {
+          in_generic.insert(key.clone());
+        });
         match(
           pos_type.get(key.clone()),
           .Some(t) => if(t != st.ty, {
@@ -2966,6 +2972,11 @@ _run_migrate_explicit_copy :: (
       if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied at more than one type (a generic body); left as written`);
+        continue;
+      });
+      if(in_generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where \`.clone()\` would demand \`Clone\` of every instantiation; left as written`);
         continue;
       });
       // A `return` of a place rooted in a borrowed parameter leaves the

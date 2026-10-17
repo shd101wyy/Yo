@@ -1,0 +1,20 @@
+//! `yo fix --migrate explicit-copy` leaves a copy inside a generic body alone:
+//! `twice` is instantiated at `String` and at a `ref` struct without `Clone`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Node :: ref(struct(id : i32));
+twice :: (fn(comptime(T) : Type, x : &T) -> ArrayList(T))({
+  out := ArrayList(T).new();
+  out.push(x);
+  out.push(x);
+  out
+});
+main :: (fn() -> unit)({
+  s := String.from("a");
+  xs := twice(String, &s);
+  n := Node(id : i32(1));
+  ns := twice(Node, &n);
+  println(`${xs.len().to_string()} ${ns.len().to_string()} ${s}`);
+});
+export(main);
