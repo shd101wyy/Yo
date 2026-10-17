@@ -436,6 +436,33 @@ impl(
     OrderedMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );
+/// The borrowed `for`'s cursor (decision 39, plans/VALUES_BY_DEFAULT.md): a
+/// position in the insertion order, re-checked against its live length at
+/// each step. The element is the entry in the backing `HashMap`, found from
+/// the key at that position.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  OrderedMap(K, V),
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : MapEntry(K, V),
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._order.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
+      k := self._order(cur);
+      // Through a local of the map object: a `&mut` receiver may not borrow
+      // two object hops deep when an argument is refcounted.
+      m := self._map;
+      match(
+        m.get_entry_ptr(&k),
+        .Some(p) => p,
+        .None => __yo_panic("OrderedMap: walk cursor names no entry")
+      )
+    }),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
 /// `Default` — the empty map.
 impl(
   generic(K : Type, V : Type),

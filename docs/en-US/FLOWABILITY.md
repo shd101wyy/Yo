@@ -181,39 +181,58 @@ for(&mut scores, (k, v) => {
 }); // maps: key by value, value borrowed
 ```
 
-The macro binds the collection to a hidden local (it cannot be freed while
-the loop runs), holds the collection's **runtime borrow flag** for the whole
-loop, and binds each element as a `&mut` local into the collection's own
-storage through the pointer iterator `iter()` — which is why `iter()` exists
-and why it yields `*(T)`: it is the protocol `for` consumes, not an API for
-user code. `break`, `continue`, `return` and effect `unwind` all release the
-flag. While it is held, any operation that could invalidate an element —
-growth, shrink, removal, on the collection itself or through any alias —
-**panics deterministically** (`container operation while an interior
+The macro takes a local borrow `c := &mut coll` for the whole loop and walks
+a cursor over it (the `BorrowedWalk` trait: a position that holds no handle
+to the collection, plus a `walk_elem` projection), binding each element as a
+`&mut` local into the collection's own storage
+(`plans/VALUES_BY_DEFAULT.md` decision 39). No copy of the collection is
+made, and every step re-derives the element from the collection. Because `c`
+is live for the whole loop, the body cannot name `coll` at all: `coll.push(x)`,
+but also `coll.len()`, `coll.clone()` or a nested loop over `coll`, is a
+compile error (E0911, the rule for any `&mut` local borrow and Rust's rule
+for `iter_mut`). The element itself is a local borrow, so it cannot be
+returned (copy it out first, `v := x; return(v)`) or captured by an escaping
+closure. To read or grow a collection while walking it, walk its positions
+instead: `for(xs.indices(), i => …)` with `xs(i)` (`ArrayList`, `Deque`),
+where each `xs(i)` reads the current buffer.
+
+A collection reached through *another* handle (a second `ref` handle, a
+global) is invisible to that static rule, so the loop also holds the
+collection's **runtime borrow flag**; `break`, `continue`, `return` and
+effect `unwind` all release it. While it is held, any operation that could
+invalidate an element — growth, shrink, removal — made through another
+handle **panics deterministically** (`container operation while an interior
 reference … borrows from it`) instead of leaving the element reference
-dangling. This is the one place where Yo's safety guarantee is a runtime
-check rather than a compile-time rejection (Swift's model for shared
-storage); the compiler emits the assert at the entry of every method of an RC object
-whose body may mutate the object (decided from the body, not from the
-receiver's mode), so any collection — std or third-party — is covered without
-annotations. The decision is per parameter and tracks where each mutated
-value's storage lives: a method that mutates only storage it allocated itself
-(`clone` pushing into its result, `collect`), or walks the collection with
-`for`, carries no assert; a method that stores fresh storage into `self` and
-then mutates it does. Read-only methods (`len`, `get`, `contains`,
-`index_of`, `==`, `clone`, iteration) cost nothing; a mutating method pays one
+dangling. The compiler emits that assert at the entry of every method of an
+RC object whose body may mutate the object (decided from the body, not from
+the receiver's mode), so any collection is covered without annotations. The
+decision is per parameter and tracks where each mutated value's storage
+lives: a method that mutates only storage it allocated itself (`clone`
+pushing into its result, `collect`), or walks the collection with `for`,
+carries no assert; a method that stores fresh storage into `self` and then
+mutates it does. Read-only methods (`len`, `get`, `contains`, `index_of`,
+`==`, `clone`, iteration) cost nothing; a mutating method pays one
 load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
-microbenchmark, unmeasurable elsewhere). A plain
-`e` in `for(&mut m, e => …)` yields the whole entry; prefer `(k, v)`, which
-keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
-or an index loop. The borrowed `for` works inside an `io.async` body, with
+microbenchmark, unmeasurable elsewhere). Once the collections are values
+(V2b), a collection has no other handle and the flag goes.
+
+A plain `e` in `for(&mut m, e => …)` yields the whole entry; prefer
+`(k, v)`, which keeps keys immutable. The sources are the std collections
+that implement `BorrowedWalk` (`ArrayList`, `Deque`, `LinkedList`,
+`HashMap`, `BTreeMap`, `OrderedMap`); `HashSet` and `PriorityQueue` have
+none, because writing a hashed or heap-ordered element in place would break
+the container. A user type becomes a source by implementing `BorrowedWalk`
+(for now only in a `pragma(Pragma.AllowUnsafe)` file, since `walk_elem`
+yields a pointer). `Array(T, N)` takes the value form or an index loop. A
+source that is not a place (`for(&mut make(), x => …)`) is held by a hidden
+local for the loop. The borrowed `for` works inside an `io.async` body, with
 awaits in the loop body.
 
 Two opt-in tightenings close the remaining runtime cases at compile time.
 `pragma(Pragma.StrictBorrow);` makes every call inside a borrowed loop body
 of that file a compile error unless the compiler can prove it leaves the
-element valid: a mutating method on the borrowed collection (or a same-frame
-alias of it) is rejected, and so is any callee whose effects are unknown — a
+element valid: a mutating method on a same-frame alias of the borrowed
+collection is rejected, and so is any callee whose effects are unknown — a
 closure or `dyn` call, a function pointer, an effect handler, an extern with
 a callback, or a body that reaches storage through a global or raw pointer.
 Read-only methods, `clone`, `collect`, element writes through `x`, and calls

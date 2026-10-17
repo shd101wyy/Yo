@@ -1,12 +1,10 @@
 { ArrayList } :: import("std/collections/array_list");
-{ assert } :: import("std/assert");
 main :: (fn() -> unit)({
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   for(&mut list, x => {
-    list.push(x); // panics: `list` is borrowed by this loop
+    list.push(x); // E0911: the loop's `&mut list` borrow is live for the whole loop
   });
-  assert(false, "unreachable: push must panic first");
 });
 export(main);

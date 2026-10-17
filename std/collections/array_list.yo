@@ -1252,6 +1252,34 @@ impl(
   /// yielded.
   iter : (fn(self : &Self) -> ArrayListIterPtr(T))(
     ArrayListIterPtr(T)(_list : self, _index : usize(0), _back_taken : usize(0))
+  ),
+  /// The positions `0 .. len()`, a `Range(usize)` that holds no handle to the
+  /// list: the index cursor of decision 39 (plans/VALUES_BY_DEFAULT.md).
+  /// Read each element through the list, `xs(i)`, so every step re-derives
+  /// it from the current buffer: a push during the walk is seen at the next
+  /// step, and an index past a shrink is the out-of-bounds panic, never a read
+  /// of a freed buffer. The range is fixed when it is made.
+  indices : (fn(self : &Self) -> Range(usize))(
+    usize(0) .. self._length
+  )
+);
+/// The borrowed `for`'s cursor (decision 39): a `usize` index, re-checked
+/// against the live length at each step.
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : T,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._length),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut T)({
+      if(cur >= self._length, {
+        __yo_panic("ArrayList: walk cursor out of bounds");
+      });
+      self._ptr.unwrap().add(cur)
+    }),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
   )
 );
 impl(

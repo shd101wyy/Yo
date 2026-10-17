@@ -1871,7 +1871,7 @@ while(i < usize(3), {
 
 Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The borrow form `for(&mut coll, x => body)` hands the body each element in place: assigning to `x` writes the element. The sigil goes on the source and the element mode follows it; `for(&coll, x => body)` borrows each element read-only. For a map, `for(&mut m, (k, v) => body)` lends each value. The loop pins the collection and holds its runtime borrow flag, so the body cannot grow or shrink it while an element is borrowed (see [FLOWABILITY.md](./FLOWABILITY.md)).
+The borrow form `for(&mut coll, x => body)` hands the body each element in place: assigning to `x` writes the element. The sigil goes on the source and the element mode follows it; `for(&coll, x => body)` borrows each element read-only. For a map, `for(&mut m, (k, v) => body)` lends each value. The loop holds a local borrow of the collection for its whole extent and walks a cursor over it (`BorrowedWalk`, decision 39 of `plans/VALUES_BY_DEFAULT.md`), so the body reaches the collection only through `x`: naming it in the body is E0911. To read or grow a list while walking it, walk its positions, `for(xs.indices(), i => …)` with `xs(i)`. Another handle of the same collection is guarded by its runtime borrow flag, so growing or shrinking it that way panics (see [FLOWABILITY.md](./FLOWABILITY.md)).
 
 ```yo
 xs := ArrayList(i32).new();
