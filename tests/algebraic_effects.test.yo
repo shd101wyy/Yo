@@ -2201,3 +2201,74 @@ test("a plain Exception handler cannot resume the throw with a value", {
   _unwinds := Exception(throw : (err -> unwind(())));
   _falls := Exception(throw : (err -> ()));
 });
+// Regression (issues/fixed/an-unwind-through-a-frame-whose-destructor-calls-a-function-is-lost.md):
+// an unwind passing through a frame drops that frame's locals, and a
+// destructor that makes a call cleared the escape flag on the way (the
+// caller-side `__yo_effect_escaped = 0; <call>; if (...)` protocol). The
+// frame then returned its dummy result as if it had returned normally.
+_EscGuard :: struct(n : i32);
+_EscRefGuard :: ref(struct(n : i32));
+(mut(g_esc_drops) : i32) = i32(0);
+_esc_count :: (fn(n : i32) -> i32)(n + i32(1));
+impl(
+  _EscGuard,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_esc_drops = _esc_count(g_esc_drops);
+    })
+  )
+);
+impl(
+  _EscRefGuard,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_esc_drops = _esc_count(g_esc_drops);
+    })
+  )
+);
+test("an unwind passes through a frame whose destructors make calls", {
+  Raise :: (ctl(msg : &String) -> i32);
+  through_box :: (fn(n : i32, raise : Raise) -> i32)({
+    held := box(n);
+    r := cond(
+      (n == i32(0)) => raise(String.from("boom")),
+      true => (n + i32(1))
+    );
+    r
+  });
+  through_guard :: (fn(n : i32, raise : Raise) -> i32)({
+    g := _EscGuard(n : n);
+    r := cond(
+      (n == i32(0)) => raise(String.from("boom")),
+      true => (n + i32(1))
+    );
+    r
+  });
+  through_ref_guard :: (fn(n : i32, raise : Raise) -> i32)({
+    g := _EscRefGuard(n : n);
+    r := cond(
+      (n == i32(0)) => raise(String.from("boom")),
+      true => (n + i32(1))
+    );
+    r
+  });
+  run_box :: (fn(n : i32) -> i32)({
+    (raise : Raise) = (msg -> unwind(i32(-7)));
+    through_box(n, raise)
+  });
+  run_guard :: (fn(n : i32) -> i32)({
+    (raise : Raise) = (msg -> unwind(i32(-7)));
+    through_guard(n, raise)
+  });
+  run_ref_guard :: (fn(n : i32) -> i32)({
+    (raise : Raise) = (msg -> unwind(i32(-7)));
+    through_ref_guard(n, raise)
+  });
+  assert(run_box(i32(0)) == i32(-7), "the unwind passes a frame that drops a Box");
+  assert(run_box(i32(2)) == i32(3), "the normal return still works");
+  before := g_esc_drops;
+  assert(run_guard(i32(0)) == i32(-7), "the unwind passes a frame whose Drop makes a call");
+  assert(g_esc_drops == (before + i32(1)), "the destructor ran once on the escape path");
+  assert(run_ref_guard(i32(0)) == i32(-7), "the unwind passes a frame whose ref Drop makes a call");
+  assert(g_esc_drops == (before + i32(2)), "the ref destructor ran once on the escape path");
+});
