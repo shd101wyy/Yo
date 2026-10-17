@@ -37,51 +37,51 @@
 /// `subject` holding the value at this position, then emit the test through
 /// the ordinary expression emitter) reuse the language's own `==`/`<=`.
 Pattern :: enum(
-    /// `_` — matches anything, binds nothing.
-    Wildcard,
-    /// `name` — matches anything, binds the value at this position. `atom`
-    /// is the binding's source identifier (the async emitter resolves the
-    /// binding's state-machine field through its ExprInfo).
-    Bind(name : String, token : Token, atom : AstExpr),
-    /// A compile-time constant compared with `==` (literal, `::` constant,
-    /// typed literal call, string literal, …).
-    Const(value : EvalValue, ty : TypeValue, src : AstExpr, subject : String, test : AstExpr),
-    /// `(lo..hi)` / `(lo..=hi)` with compile-time bounds (`lo`/`hi` are their
-    /// values, for the interval reasoning in `_useful`).
-    Range(src : AstExpr, subject : String, test : AstExpr, ty : TypeValue, lo : Option(EvalValue), hi : Option(EvalValue), inclusive : bool),
-    /// `.V`, `.V(p…)`, `.V(label : p)`, `.V({…})`. `subs` is PARTIAL: `field_idx`
-    /// names the field each sub-pattern is for; fields not listed match
-    /// anything. `arity` is the variant's field count. `through_ptr` says the
-    /// position's type was a pointer to the enum (one implicit deref).
-    Variant(
-      name : String,
-      idx : usize,
-      field_idx : ArrayList(usize),
-      subs : ArrayList(Self),
-      enum_ty : TypeValue,
-      through_ptr : bool,
-      arity : usize
-    ),
-    /// `(p | q)` — every alternative binds the same names.
-    Or(alts : ArrayList(Self)),
-    /// `(name := p)` — bind the whole value AND match `p` against it.
-    At(name : String, token : Token, atom : AstExpr, sub : Box(Self)),
-    /// A pattern that looks through the cell at an `Rc(T)`/`Arc(T)` position:
-    /// `sub` matches `T`, and the access path dereferences the cell
-    /// (`path-><first field>`). A wrapper pattern `Rc(p)`/`Arc(p)`
-    /// (plans/VALUES_BY_DEFAULT.md decision 31) compiles to one, so any form
-    /// may sit under it (`Rc(x)` binds the payload, a borrow). The implicit
-    /// look-through of a structural pattern at an `Rc` position builds one
-    /// too, until decision 31's Generation B deletes it; there `_`, a plain
-    /// binding and `:=` bind or ignore the cell itself and never sit under one.
-    ThroughBox(box_ty : TypeValue, inner_ty : TypeValue, sub : Box(Self)),
-    /// `(p, q)` — a tuple pattern, exact arity, one sub-pattern per element.
-    Tuple(subs : ArrayList(Self), elem_tys : ArrayList(TypeValue)),
-    /// `S(x : p, y)` / `{x : p, y}` — a struct pattern. Like `Variant`,
-    /// `subs` is PARTIAL: `field_idx` names the field each sub-pattern is
-    /// for; fields not listed match anything. `arity` is the struct's field
-    /// count.
-    Struct(struct_ty : TypeValue, field_idx : ArrayList(usize), subs : ArrayList(Self), arity : usize)
+  /// `_` — matches anything, binds nothing.
+  Wildcard,
+  /// `name` — matches anything, binds the value at this position. `atom`
+  /// is the binding's source identifier (the async emitter resolves the
+  /// binding's state-machine field through its ExprInfo).
+  Bind(name : String, token : Token, atom : AstExpr),
+  /// A compile-time constant compared with `==` (literal, `::` constant,
+  /// typed literal call, string literal, …).
+  Const(value : EvalValue, ty : TypeValue, src : AstExpr, subject : String, test : AstExpr),
+  /// `(lo..hi)` / `(lo..=hi)` with compile-time bounds (`lo`/`hi` are their
+  /// values, for the interval reasoning in `_useful`).
+  Range(src : AstExpr, subject : String, test : AstExpr, ty : TypeValue, lo : Option(EvalValue), hi : Option(EvalValue), inclusive : bool),
+  /// `.V`, `.V(p…)`, `.V(label : p)`, `.V({…})`. `subs` is PARTIAL: `field_idx`
+  /// names the field each sub-pattern is for; fields not listed match
+  /// anything. `arity` is the variant's field count. `through_ptr` says the
+  /// position's type was a pointer to the enum (one implicit deref).
+  Variant(
+    name : String,
+    idx : usize,
+    field_idx : ArrayList(usize),
+    subs : ArrayList(Self),
+    enum_ty : TypeValue,
+    through_ptr : bool,
+    arity : usize
+  ),
+  /// `(p | q)` — every alternative binds the same names.
+  Or(alts : ArrayList(Self)),
+  /// `(name := p)` — bind the whole value AND match `p` against it.
+  At(name : String, token : Token, atom : AstExpr, sub : Box(Self)),
+  /// A pattern that looks through the cell at an `Rc(T)`/`Arc(T)` position:
+  /// `sub` matches `T`, and the access path dereferences the cell
+  /// (`path-><first field>`). A wrapper pattern `Rc(p)`/`Arc(p)`
+  /// (plans/VALUES_BY_DEFAULT.md decision 31) compiles to one, so any form
+  /// may sit under it (`Rc(x)` binds the payload, a borrow). The implicit
+  /// look-through of a structural pattern at an `Rc` position builds one
+  /// too, until decision 31's Generation B deletes it; there `_`, a plain
+  /// binding and `:=` bind or ignore the cell itself and never sit under one.
+  ThroughBox(box_ty : TypeValue, inner_ty : TypeValue, sub : Box(Self)),
+  /// `(p, q)` — a tuple pattern, exact arity, one sub-pattern per element.
+  Tuple(subs : ArrayList(Self), elem_tys : ArrayList(TypeValue)),
+  /// `S(x : p, y)` / `{x : p, y}` — a struct pattern. Like `Variant`,
+  /// `subs` is PARTIAL: `field_idx` names the field each sub-pattern is
+  /// for; fields not listed match anything. `arity` is the struct's field
+  /// count.
+  Struct(struct_ty : TypeValue, field_idx : ArrayList(usize), subs : ArrayList(Self), arity : usize)
 );
 /// A deep copy: a pattern owns its sub-patterns (`Box` and list children,
 /// plans/VALUES_BY_DEFAULT.md §6 V4), so a copy into another row or arm

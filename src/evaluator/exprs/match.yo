@@ -663,23 +663,21 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_alts := ArrayList(Pattern).new();
       (ai : usize) = usize(0);
       while(ai < alts.len(), {
-        {
-            before_u := own.unbound.len();
-            before_k := own.keeps.len();
-            na := recur(&alts(ai), ty, in_cell, own, env, exn);
-            if((own.unbound.len() > before_u) || (own.keeps.len() > before_k), {
-              exn.throw(
-                dyn(
-                  format_error_message_with_help(
-                    &own.tok,
-                    `An or-pattern alternative of a consuming \`match\` leaves a part with a drop unbound (\`${pattern_to_string(&alts(ai))}\`): the alternatives would leave different parts to drop when the arm is entered (plans/VALUES_BY_DEFAULT.md decision 26).`,
-                    Option(String).Some(`split the alternatives into arms of their own, bind the part, or match through a borrow (\`match(&x, …)\`)`)
-                  )
-                )
-              );
-            });
-            new_alts.push(na);
-        };
+        before_u := own.unbound.len();
+        before_k := own.keeps.len();
+        na := recur(&alts(ai), ty, in_cell, own, env, exn);
+        if((own.unbound.len() > before_u) || (own.keeps.len() > before_k), {
+          exn.throw(
+            dyn(
+              format_error_message_with_help(
+                &own.tok,
+                `An or-pattern alternative of a consuming \`match\` leaves a part with a drop unbound (\`${pattern_to_string(&alts(ai))}\`): the alternatives would leave different parts to drop when the arm is entered (plans/VALUES_BY_DEFAULT.md decision 26).`,
+                Option(String).Some(`split the alternatives into arms of their own, bind the part, or match through a borrow (\`match(&x, …)\`)`)
+              )
+            )
+          );
+        });
+        new_alts.push(na);
         ai = (ai + usize(1));
       });
       Pattern.Or(alts : new_alts)
