@@ -33,6 +33,7 @@ import("std/fmt");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
+{ local_borrow_info_of_variable } :: import("../utils.yo");
 { expr_info_adopt_env } :: import("../../expr_info.yo");
 /// Evaluate `runtime(expr)`. Side-effects only: writes an `ExprInfo` for the
 /// outer call into `ctx.expr_info_table` with `value = .None` (runtime value)
@@ -183,7 +184,29 @@ evaluate_borrow_check :: (
         vars := get_variables_from_env(&ci.env, &vn);
         match(
           vars.last(),
-          .Some(v) => {
+          .Some(v0) => {
+            // The borrowed `for` passes its local borrow `c := &mut coll`
+            // (plans/VALUES_BY_DEFAULT.md decision 39): the borrowed
+            // collection is the variable `c` borrows, and the aliases are
+            // that variable's.
+            (v : Variable) = v0;
+            match(
+              local_borrow_info_of_variable(&v0),
+              .Some(info) => match(
+                info.places.get(usize(0)),
+                .Some(pl) => if(pl.steps.len() == usize(0), {
+                  match(
+                    get_variables_from_env(&ci.env, &pl.root_name).last(),
+                    .Some(rv) => {
+                      v = rv;
+                    },
+                    .None => ()
+                  );
+                }),
+                .None => ()
+              ),
+              .None => ()
+            );
             borrowed_ids.push(v.id);
             (cur : Option(Variable)) = v.is_owning_the_same_rc_value_as;
             (hops : usize) = usize(0);

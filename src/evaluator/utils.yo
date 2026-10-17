@@ -5344,7 +5344,7 @@ _lb_raise_conflict :: (
     }
   );
   help := cond(
-    info.macro_site.is_some() => `inside a borrowed \`for(&mut coll, x => ...)\` reach the collection only through the element binding; to read or grow the collection in the body, walk its positions instead: \`for(coll.indices(), i => ...)\` with \`coll(i)\``,
+    info.macro_site.is_some() => `the borrow lasts for the whole macro call: make the access after the call, or through the bindings the macro gives you (in a borrowed \`for(&mut coll, x => ...)\`, the element \`x\`; to read or grow an \`ArrayList\` or a \`Deque\` in the body, walk \`for(coll.indices(), i => ...)\` with \`coll(i)\` instead)`,
     info.is_mut => `make the access after \`${info.name}\`'s last use, or make it through \`${info.name}\``,
     true => `make the access after \`${info.name}\`'s last use, or borrow with \`${info.name} := &mut ...\` to write through the borrow`
   );
