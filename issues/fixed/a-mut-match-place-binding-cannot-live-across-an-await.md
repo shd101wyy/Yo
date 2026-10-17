@@ -66,22 +66,29 @@ statement, which ends after the arm. So the work was:
 - **Rule 4 covers a place bound over a local borrow.** `match(cur, .Some(n) =>
   { await; n = … })` with `cur := &mut h.o` (`h` a `ref` object) does not
   register `n` as a borrow of its own (a cursor re-point must not conflict
-  with it), so nothing held a borrow through the cell across the await. An arm
-  that awaits now keeps such a `cur` live to `n`'s last mention
-  (`local_borrow_extend_to_match_place`, `src/evaluator/utils.yo`), and rule 4
-  rejects it (E0911). A direct `match(&mut h.o, …)` was already registered and
-  rejected; a module-level root is rejected by rule 3 at the first call.
-  Whether the arm awaits is decided by spelling before the arm is evaluated
-  (`_lb_contains_await_call`): any `<recv>.await(…)` call counts. The removed
-  rejection used `expr_contains_await`, whose pre-evaluation fallback sees
-  only `io.await`, so an arm awaiting through another name of the task's
-  `Io` (`e.await(f, e)`) was never rejected: develop compiled such arms,
-  the cell cursor above included, with no E0911. The CLI case below uses
-  that spelling.
+  with it), so nothing held a borrow through the cell across the await. Each
+  such place is now recorded with its live range, binding to last mention in
+  the arm, beside the borrow it is reached through
+  (`local_borrow_note_match_place`, `src/evaluator/utils.yo`). Rule 4 checks
+  those places at every evaluated await (`local_borrow_note_await`) and
+  rejects one whose borrow passes through a reference cell or a module-level
+  place (E0911, naming the place). The cursor's own range is unchanged. A
+  direct `match(&mut h.o, …)` was already registered and rejected; a
+  module-level root is rejected by rule 3 at the first call.
+  The removed rejection used `expr_contains_await`, whose pre-evaluation
+  fallback sees only `io.await`, so an arm awaiting through another name of
+  the task's `Io` (`e.await(f, e)`) was never rejected: develop compiled such
+  arms, the cell cursor above included, with no E0911. The CLI case below
+  uses that spelling. An await a macro expands to (`for_await`) is judged at
+  the macro call, a fix of an older hole in rule 4 that the review of #1419
+  found:
+  `issues/fixed/2026-10-17-a-local-borrow-is-not-checked-across-an-await-a-macro-expands-to.md`.
+  An earlier head of #1419 decided by the arm's spelling whether it awaits and
+  then extended `cur`'s range, which missed a `for_await` arm.
 
 ## Verification
 
-- `tests/match_async_arms.test.yo`: seven tests. A place written after one and
+- `tests/match_async_arms.test.yo`: seven tests, plus the two below. A place written after one and
   two resumes; a counted payload replaced and an `ArrayList` payload pushed
   after an await; two places of one arm and a local-borrow scrutinee; two
   spawned tasks interleaving five yields each, so each resume reads its own
@@ -96,3 +103,10 @@ statement, which ends after the arm. So the work was:
 - `tests/cli-cases/mut-match-place-across-an-await-through-a-cell-is-e0911`:
   the cursor-through-a-cell form, awaiting as `e.await(…)`, is E0911. The
   develop binary (`ed733408c`) checks it clean.
+- `tests/cli-cases/mut-match-place-across-a-for-await-through-a-cell-is-e0911`:
+  the same place written inside a `for_await` loop is E0911.
+- `tests/match_async_arms.test.yo`, "a mut place and a local borrow release
+  the old value an awaited one replaces": the leak above, pinned with
+  `ref_count` of each old value right after its store. "a mut place lives
+  across the awaits of a for_await loop": a place over a task-owned local
+  written after each real suspension of a macro's await.

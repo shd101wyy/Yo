@@ -80,11 +80,16 @@ stays for a body outside that lowering.
 
 ## Verification
 
-`tests/match_async_arms.test.yo`, "same-named nullable-pointer bindings of one
-task each use their own slot", is the symptom above. The develop binary
-(`ed733408c`) fails to compile its body as a standalone program, with the
-error above. Inside the test batch the bug may not show, since whether it
-shows depends on what else was evaluated; the batch-level evidence is the
-`mut` place test that first showed it ("a mut place of a counted payload is
-replaced after an await"), whose batch failed with this C error before the
-fix and passes after.
+- `tests/cli-cases/same-named-nullable-pointer-bindings-in-one-task-compile`:
+  the symptom above as a standalone program, compiled and linked
+  (`compile main.yo --optimize 2 -o out`, rc 0). The develop binary
+  (`5425cd7bf`) fails it with the C error above, twice out of two runs; the
+  fixed binary compiles it and the program exits 0. This is the reliable
+  regression test.
+- `tests/match_async_arms.test.yo`, "same-named nullable-pointer bindings of
+  one task each use their own slot", is the same body inside the language
+  batch. There the bug may not show, since whether it shows depends on what
+  else was evaluated; the batch-level evidence is the `mut` place test that
+  first showed it ("a mut place of a counted payload is replaced after an
+  await"), whose batch failed with this C error before the fix and passes
+  after.

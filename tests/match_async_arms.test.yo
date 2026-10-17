@@ -8,6 +8,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { args } :: import("std/env");
 { yield } :: import("std/async");
+{ Stream, for_await } :: import("std/async/stream");
 runtime_int :: (fn() -> i32)(i32(args().len()));
 Shape :: enum(Circle(radius : i32), Rect(width : i32, height : i32));
 derive(Shape, Copy, Clone);
@@ -624,6 +625,79 @@ test("a mut place and a local borrow take an awaited value", {
   });
   io.await(task, io);
   assert(result.* == usize(12), "the old values were released and the awaited ones stored");
+});
+// The old value an awaited one replaces is released: through a `mut` place
+// and through a local borrow, each a store through a slot pointer
+// (`(*sm->…) = io.await(…)`), whose save had gone into a C local before the
+// RHS while the drop read the temp's slot, so the old value leaked.
+_place_fresh_rc :: (fn(io : Io) -> Impl(Future(Rc(i32), Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    Rc(i32)(7)
+  })
+);
+test("a mut place and a local borrow release the old value an awaited one replaces", {
+  result := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    old_p := Rc(i32)(1);
+    (op : Option(Rc(i32))) = .Some(old_p.clone());
+    match(
+      &mut op,
+      .Some(s) => {
+        s = io.await(_place_fresh_rc(io), io);
+      },
+      .None => ()
+    );
+    assert(ref_count(old_p) == usize(1), "the place's old value was released");
+    old_y := Rc(i32)(2);
+    (t : Rc(i32)) = old_y.clone();
+    y := &mut t;
+    y = io.await(_place_fresh_rc(io), io);
+    assert(ref_count(old_y) == usize(1), "the borrow's old value was released");
+    result.* = (match(&op, .Some(s) => s.*, .None => i32(0)) + t.*);
+  });
+  io.await(task, io);
+  assert(result.* == i32(14), "the awaited values were stored");
+});
+// A `mut` place lives across the awaits a macro expands to (`for_await`); each
+// `next` yields first, so every await really suspends.
+_Countdown :: struct(_n : i32);
+impl(
+  _Countdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) => {
+        io.await(yield(io), io);
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        )
+      })
+    )
+  )
+);
+test("a mut place lives across the awaits of a for_await loop", {
+  result := Rc(i32)(0);
+  task := io.async((e : Io) => {
+    (o : Option(i32)) = .Some(i32(100));
+    match(
+      &mut o,
+      .Some(n) => {
+        for_await(_Countdown(_n : i32(3)), e, x => {
+          n = (n + x);
+        });
+      },
+      .None => ()
+    );
+    result.* = match(o, .Some(v) => v, .None => i32(0));
+  });
+  io.await(task, io);
+  assert(result.* == i32(106), "each item was added through the place after its resume");
 });
 // Two same-named nullable-pointer bindings in one task, the first in an
 // awaiting arm: each is stored into its own slot (the second had been stored

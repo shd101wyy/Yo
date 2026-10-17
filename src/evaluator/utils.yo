@@ -127,6 +127,13 @@ pragma(Pragma.AllowUnsafe);
 /// restores the length a thrown-through body left.
 (g_local_borrows : ArrayList(LocalBorrowInfo)) = ArrayList(LocalBorrowInfo).new();
 (g_local_borrow_patterns : ArrayList(LocalBorrowPatternBinding)) = ArrayList(LocalBorrowPatternBinding).new();
+/// The `mut` places `match` arms bind over a local borrow (decision 25's
+/// cursor), with their live ranges: rule 4 checks them at an `await`.
+(g_local_borrow_match_places : ArrayList(LocalBorrowMatchPlace)) = ArrayList(LocalBorrowMatchPlace).new();
+/// The macro calls whose expansion is being evaluated, outermost first. An
+/// expansion's `await` carries a token of the macro's own source, so rule 4
+/// judges it at these call sites too.
+(g_lb_macro_sites : ArrayList(Token)) = ArrayList(Token).new();
 /// The receiver node a `.` access is about to evaluate as part of a place
 /// chain: its own evaluator reports no access (the chain's outermost node
 /// reports the whole place).
@@ -4924,14 +4931,25 @@ LocalBorrowInfo :: ref(
 /// A `match` binding over a local borrow: a place reached from it, which a
 /// re-point may go through (decision 25).
 LocalBorrowPatternBinding :: struct(name : String, decl : Token, borrow : LocalBorrowInfo);
+/// A `mut` place a `match` arm binds over the local borrow `borrow`
+/// (`match(cur, .Some(n) => …)`): it points into `borrow`'s place from its
+/// binding `decl` to `end` (its last mention `last_use`).
+LocalBorrowMatchPlace :: struct(name : String, decl : Token, last_use : Token, end : Token, borrow : LocalBorrowInfo);
 /// How an access touches a place.
 LocalBorrowAccess :: enum(Read, Write, Move, Exclusive);
 /// Any local borrow in scope: the fast gate every access hook checks first.
 local_borrows_active :: (fn() -> bool)(g_local_borrows.len() > usize(0));
 /// The lengths a begin block restores when it ends (`local_borrows_truncate`).
-LocalBorrowMark :: struct(borrows : usize, patterns : usize);
+LocalBorrowMark :: struct(borrows : usize, patterns : usize, match_places : usize, macro_sites : usize);
 derive(LocalBorrowMark, Copy, Clone);
-local_borrows_mark :: (fn() -> LocalBorrowMark)(LocalBorrowMark(borrows : g_local_borrows.len(), patterns : g_local_borrow_patterns.len()));
+local_borrows_mark :: (fn() -> LocalBorrowMark)(
+  LocalBorrowMark(
+    borrows : g_local_borrows.len(),
+    patterns : g_local_borrow_patterns.len(),
+    match_places : g_local_borrow_match_places.len(),
+    macro_sites : g_lb_macro_sites.len()
+  )
+);
 local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   while(g_local_borrows.len() > mark.borrows, {
     g_local_borrows.pop();
@@ -4939,6 +4957,14 @@ local_borrows_truncate :: (fn(mark : LocalBorrowMark) -> unit)({
   });
   while(g_local_borrow_patterns.len() > mark.patterns, {
     g_local_borrow_patterns.pop();
+    ()
+  });
+  while(g_local_borrow_match_places.len() > mark.match_places, {
+    g_local_borrow_match_places.pop();
+    ()
+  });
+  while(g_lb_macro_sites.len() > mark.macro_sites, {
+    g_lb_macro_sites.pop();
     ()
   });
   g_lb_receiver_armed = false;
@@ -5478,36 +5504,100 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
 /// Rule 4 (decision 18): a borrow whose declaration or a re-point passes
 /// through a reference cell or a module-level place may not be live across
 /// an `await`: another task could write the place while this one is
-/// suspended. `tok` is the await.
+/// suspended. `tok` is the await. Neither may a `mut` place a `match` arm
+/// binds over such a borrow (`match(cur, .Some(n) => …)`, which points into
+/// the borrow's place while it lives).
+///
+/// An `await` a macro expansion evaluates (`for_await`) carries a token of
+/// the macro's own source, so it is also judged at each macro call being
+/// expanded: a borrow live at the call is taken as live across every await
+/// the expansion makes
+/// (issues/fixed/2026-10-17-a-local-borrow-is-not-checked-across-an-await-a-macro-expands-to.md).
 local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  sites := ArrayList(Token).new();
+  sites.push(tok);
+  (si : usize) = usize(0);
+  while(si < g_lb_macro_sites.len(), si = (si + usize(1)), {
+    match(g_lb_macro_sites.get(si), .Some(st) => sites.push(st), .None => ());
+  });
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
     match(
       g_local_borrows.get(i),
-      .Some(info) => if((info.crosses_cell || info.module_root) && _lb_live_at(&info, tok), {
-        why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
-        entries := ArrayList(TokenAndError).new();
-        entries.push(
-          TokenAndError(
-            token : tok,
-            error_message : `\`${info.name}\` is live across this \`await\`, and its place passes through ${why}: another task can reach that place while this one is suspended.`
-          )
-        );
-        entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` is declared here:`));
-        entries.push(TokenAndError(token : info.last_use, error_message : String.from("and is used again here:")));
-        raise_flow_violation(
-          with_code(
-            format_error_messages_with_help(&entries, Option(String).Some(String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)"))),
-            E_LOCAL_BORROW_CONFLICT
-          ),
-          ctx,
-          exn
+      .Some(info) => if(info.crosses_cell || info.module_root, {
+        match(
+          _lb_first_site_in(&sites, &info.decl, &info.end),
+          .Some(at) => _lb_raise_across_await(info.name.clone(), &info, &info.decl, &info.last_use, String.from("is declared here:"), &at, ctx, exn),
+          .None => ()
         );
       }),
       .None => ()
     );
   });
+  (pi : usize) = g_local_borrow_match_places.len();
+  while(pi > usize(0), {
+    pi = (pi - usize(1));
+    match(
+      g_local_borrow_match_places.get(pi),
+      .Some(mp) => if(mp.borrow.crosses_cell || mp.borrow.module_root, {
+        match(
+          _lb_first_site_in(&sites, &mp.decl, &mp.end),
+          .Some(at) => _lb_raise_across_await(mp.name.clone(), &mp.borrow, &mp.decl, &mp.last_use, `is a place bound through \`${mp.borrow.name}\` here:`, &at, ctx, exn),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+  });
+});
+/// The first of `sites` in the live range `(decl, end]`.
+_lb_first_site_in :: (fn(sites : &ArrayList(Token), decl : &Token, end : &Token) -> Option(Token))({
+  (i : usize) = usize(0);
+  while(i < sites.len(), i = (i + usize(1)), {
+    match(
+      sites.get(i),
+      .Some(st) => if((st.module_path == decl.module_path) && ((st.character > decl.character) && (st.character <= end.character)), {
+        return(Option(Token).Some(st));
+      }),
+      .None => ()
+    );
+  });
+  Option(Token).None
+});
+/// E0911 for rule 4: `name` (declared at `decl`, used again at `last_use`)
+/// is live across the await at `at`, and its place passes through `info`'s
+/// reference cell or module-level place. `decl_note` follows the name in
+/// the declaration note.
+_lb_raise_across_await :: (fn(name : String, info : &LocalBorrowInfo, decl : &Token, last_use : &Token, decl_note : String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  why := cond(info.module_root => "a module-level place", true => "a reference cell (`Rc`, `Arc` or a `ref` object)");
+  entries := ArrayList(TokenAndError).new();
+  entries.push(
+    TokenAndError(
+      token : at,
+      error_message : `\`${name}\` is live across this \`await\`, and its place passes through ${why}: another task can reach that place while this one is suspended.`
+    )
+  );
+  entries.push(TokenAndError(token : decl, error_message : `\`${name}\` ${decl_note}`));
+  entries.push(TokenAndError(token : last_use, error_message : String.from("and is used again here:")));
+  raise_flow_violation(
+    with_code(
+      format_error_messages_with_help(&entries, Option(String).Some(String.from("end the borrow before the `await` and borrow again after it, or borrow a place the task owns (a local value)"))),
+      E_LOCAL_BORROW_CONFLICT
+    ),
+    ctx,
+    exn
+  );
+});
+/// A macro call at `tok` is about to evaluate its expansion
+/// (`local_borrow_note_await`).
+local_borrow_enter_macro_site :: (fn(tok : &Token) -> unit)({
+  g_lb_macro_sites.push(tok);
+});
+/// The expansion `local_borrow_enter_macro_site` announced is evaluated.
+local_borrow_leave_macro_site :: (fn() -> unit)({
+  g_lb_macro_sites.pop();
+  ()
 });
 // --- Live ranges -------------------------------------------------------------
 /// `e` mentions the identifier `name` (a field name after `.` does not count).
@@ -5804,82 +5894,18 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
   end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
   _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
 });
-/// `e` contains a `<recv>.await(...)` call: `io.await(f, io)`, the same call
-/// through any other name of the task's `Io` (`e.await(f, e)`), or
-/// `handle.await(io)`. Matched by spelling: a `match` arm is scanned before
-/// it is evaluated, so the evaluator's io-builtin markers are not recorded
-/// yet, and `expr_contains_await`'s spelling fallback sees only `io.await`.
-/// A call that only looks like an await keeps a borrow live longer, nothing
-/// more.
-_lb_contains_await_call :: (fn(e : &AstExpr) -> bool)({
-  is_await := match(
-    e,
-    .FnCall(_, .FnCall(_, dot, dargs, is_infix, _), _, _, _) => (
-      is_infix && (dargs.len() == usize(2)) &&
-        match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
-          dargs.get(usize(1)),
-          .Some(m) => ast_expr_is_atom_of(&m, "await"),
-          .None => false
-        )
-    ),
-    _ => false
-  );
-  if(is_await, return(true));
-  match(
-    e,
-    .Atom(_, _) => false,
-    .FnCall(_, callee, args, _, _) => {
-      if(_lb_contains_await_call(&callee), return(true));
-      (i : usize) = usize(0);
-      while(i < args.len(), {
-        match(
-          args.get(i),
-          .Some(a) => if(_lb_contains_await_call(&a), {
-            return(true);
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      false
-    }
-  )
-});
-/// A `mut` place a `match` arm binds over the local borrow `borrow` (`match(cur,
-/// .Some(n) => …)`, declared at `decl`) points into `borrow`'s place for as
-/// long as it is live. When the arm `body` awaits, `borrow` (and every borrow
-/// it is rooted at) stays live to the binding's last mention in the arm, so
-/// rule 4 rejects such a place through a reference cell or a module-level
-/// place live across an `await`
-/// (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
-/// An arm that never awaits keeps the cursor's own range: a re-point inside
-/// it must not read as an access of the borrow while the place lives.
-local_borrow_extend_to_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
-  if(!_lb_contains_await_call(body), return(()));
-  if(!_lb_mentions(body, name.clone()), return(()));
+/// Record the `mut` place a `match` arm binds over the local borrow `borrow`
+/// (`match(cur, .Some(n) => …)`, `name` declared at `decl`), live to its
+/// last mention in the arm `body`: rule 4 rejects it across an `await` when
+/// `borrow` passes through a reference cell or a module-level place
+/// (`local_borrow_note_await`;
+/// issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+/// The borrow's own range stays as it is: a re-point inside the arm must not
+/// read as an access of the borrow while the place lives.
+local_borrow_note_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
   end := _lb_region_end(body, name.clone(), decl);
-  infos := ArrayList(LocalBorrowInfo).new();
-  infos.push(borrow);
-  (pi : usize) = usize(0);
-  while(pi < borrow.parents.len(), pi = (pi + usize(1)), {
-    match(borrow.parents.get(pi), .Some(p) => infos.push(p), .None => ());
-  });
-  (i : usize) = usize(0);
-  while(i < infos.len(), i = (i + usize(1)), {
-    match(
-      infos.get(i),
-      .Some(info) => {
-        if(_lb_tok_after(&end, &info.end), {
-          info.end = end;
-        });
-        if(_lb_tok_after(&last, &info.last_use), {
-          info.last_use = last;
-        });
-      },
-      .None => ()
-    );
-  });
+  g_local_borrow_match_places.push(LocalBorrowMatchPlace(name : name, decl : decl, last_use : last, end : end, borrow : borrow));
 });
 // ---------------------------------------------------------------------------
 // Direct projection calls (plans/VALUES_BY_DEFAULT.md decision 24, V2b)
@@ -5973,7 +5999,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   out
 });
 export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args);
-export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_extend_to_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
+export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,
@@ -6006,6 +6032,8 @@ export(
   local_borrow_write_expr,
   local_borrow_note_call,
   local_borrow_note_await,
+  local_borrow_enter_macro_site,
+  local_borrow_leave_macro_site,
   local_borrow_note_runtime_call,
   local_borrow_is_scalar_type,
   local_borrow_range_of,
