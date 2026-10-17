@@ -527,6 +527,79 @@ test("two interleaved tasks each write their own mut place across awaits", {
   assert(r1.* == (n + i32(5)), "task 1 wrote its own place");
   assert(r2.* == i32(95), "task 2 wrote its own place");
 });
+// The root is never mentioned after the `match`: `&mut o` alone keeps `o` in
+// its task slot, so each task's place still points into its own `o`.
+test("a mut place whose root is never mentioned again lives across awaits", {
+  n := runtime_int();
+  r1 := Rc(i32)(0);
+  r2 := Rc(i32)(0);
+  h1 := io.spawn(
+    io.async((io : Io) => {
+      (o : Option(i32)) = .Some(n);
+      match(
+        &mut o,
+        .Some(v) => {
+          (i : i32) = i32(0);
+          while(i < i32(4), {
+            io.await(yield(io), io);
+            v = (v + i32(1));
+            i = (i + i32(1));
+          });
+          r1.* = v;
+        },
+        .None => ()
+      );
+      return(());
+    }),
+    io
+  );
+  h2 := io.spawn(
+    io.async((io : Io) => {
+      (o : Option(i32)) = .Some(i32(50));
+      match(
+        &mut o,
+        .Some(v) => {
+          (i : i32) = i32(0);
+          while(i < i32(4), {
+            io.await(yield(io), io);
+            v = (v - i32(1));
+            i = (i + i32(1));
+          });
+          r2.* = v;
+        },
+        .None => ()
+      );
+      return(());
+    }),
+    io
+  );
+  h1.await(io);
+  h2.await(io);
+  assert(r1.* == (n + i32(4)), "task 1 wrote its own place");
+  assert(r2.* == i32(46), "task 2 wrote its own place");
+});
+// A field of a local value struct in a task: the place points into the
+// struct's own slot, not into a copy of the field.
+_PlaceFieldBox :: struct(o : Option(i32), k : i32);
+test("a mut place on a field of a task's local struct lives across awaits", {
+  n := runtime_int();
+  r := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    (s : _PlaceFieldBox) = _PlaceFieldBox(o : .Some(n), k : i32(7));
+    match(
+      &mut s.o,
+      .Some(t) => {
+        io.await(yield(io), io);
+        t = (t + i32(7));
+        io.await(yield(io), io);
+        r.* = t;
+      },
+      .None => ()
+    );
+  });
+  io.await(task, io);
+  assert(r.* == (n + i32(7)), "the field place was written after each resume");
+});
 _place_fresh :: (fn(io : Io) -> Impl(Future(String, Io)))(
   io.async((e : Io) => {
     e.await(yield(e), e);
