@@ -1711,7 +1711,7 @@ find_redundant_grouping_paren_indices :: (fn(tokens : &ArrayList(Token)) -> Hash
 /// the surgery counterpart of `g_fmt_elided_tokens`. `format_yo_source`
 /// gates on elided + moved so a surgery-only file (zero elided parens)
 /// still flows through the re-parse verify gate.
-(g_fmt_canonicalized_callee_parens : usize) = usize(0);
+(mut(g_fmt_canonicalized_callee_parens) : usize) = usize(0);
 /// Rewrite every `op(operand)(args)` — a prefix operator call whose result
 /// is immediately called — into the grouped spelling `(op operand)(args)`
 /// (`*(void)(x)` → `(*void)(x)`; `*(*(u8))(x)` reaches `(**u8)(x)` once the
@@ -2296,7 +2296,7 @@ raw_token_value :: (fn(input : &String, tokens : &ArrayList(Token), index : usiz
 /// fields through the dup/drop policy leaked the box (LSan flagged 40+6
 /// bytes per call in tests/internal/formatter.test.yo), while the module
 /// globals pattern (`g_loader_std_path` family) is allocation-free.
-(g_fmt_elided_tokens : usize) = usize(0);
+(mut(g_fmt_elided_tokens) : usize) = usize(0);
 /// The formatting pipeline proper. Throws via the
 /// implicit `Exception` handler on lexer/parser errors.
 ///

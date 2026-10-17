@@ -212,8 +212,8 @@ reported wherever the compiler sees the second site: a lend into the storage
 behind it (`&g(i)`) is E0916 when a `&mut self` method is called on it
 anywhere, and a lend of a field written through it (`&h.name` after
 `h.name = …`) is E0916 too. The migration marks declarations only; check the
-migrated files and rewrite each E0916 it reports. In this release both errors
-apply outside `std` and the compiler's own sources.
+migrated files and rewrite each E0916 it reports. Both errors apply
+everywhere, `std` and the compiler's own sources included.
 
 `yo fix <path> --migrate explicit-copy` prepares the values-by-default plan's
 unique buffers (V2b). Once `String` and the std collections own their buffers

@@ -48,7 +48,7 @@
 // Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
 // main.yo builds the C-compiler command AFTER compile_module returns only the
 // C source, so the flag needs an out-of-band channel.
-(g_needs_intel_asm_syntax : bool) = false;
+(mut(g_needs_intel_asm_syntax) : bool) = false;
 mark_needs_intel_asm_syntax :: (fn() -> unit)({
   g_needs_intel_asm_syntax = true;
 });
@@ -59,7 +59,7 @@ get_needs_intel_asm_syntax :: (fn() -> bool)(g_needs_intel_asm_syntax);
 // because main.yo assembles the command after compile_module has returned.
 // Like the flag above it is never reset: each `compile` is its own process
 // (the test runner spawns one per file), so no state crosses compiles.
-(g_uses_parallelism : bool) = false;
+(mut(g_uses_parallelism) : bool) = false;
 mark_uses_parallelism :: (fn() -> unit)({
   g_uses_parallelism = true;
 });
@@ -67,7 +67,7 @@ get_uses_parallelism :: (fn() -> bool)(g_uses_parallelism);
 // TLS runtime flag (D6): set when any __yo_tls_ extern is called, read by
 // generate_async_runtime to emit the TLS backend only for programs that use
 // it. Same lifetime reasoning as g_uses_parallelism above.
-(g_uses_tls : bool) = false;
+(mut(g_uses_tls) : bool) = false;
 mark_uses_tls :: (fn() -> unit)({
   g_uses_tls = true;
 });
@@ -836,7 +836,7 @@ _is_c_identifier_byte :: (fn(b : u8) -> bool)(
 /// Reset the fresh-local counters — per-EMISSION state (see
 /// ref_spill_counter_reset for the reasoning).
 fresh_local_counts_reset :: (fn() -> unit)({
-  g_fresh_local_counts = HashMap(String, usize).new();
+  g_fresh_local_counts.clear();
   ()
 });
 fresh_local_name :: (fn(prefix : &String, current_function_name : &String) -> String)({
@@ -1419,7 +1419,7 @@ can_optimize_as_simple_enum :: (fn(t : &TypeValue) -> bool)(
 // genuinely-new type into the DECLARATIONS buffer, which the three-buffer
 // emitter places before all function code).
 OnDemandDeclareFn :: (fn(t : &TypeValue, context : &CodeGenContext) -> unit);
-(g_on_demand_declare_fn : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
+(mut(g_on_demand_declare_fn) : Option(OnDemandDeclareFn)) = Option(OnDemandDeclareFn).None;
 set_on_demand_declare_fn :: (fn(f : OnDemandDeclareFn) -> unit)({
   g_on_demand_declare_fn = Option(OnDemandDeclareFn).Some(f);
   ()

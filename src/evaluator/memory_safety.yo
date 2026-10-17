@@ -74,7 +74,7 @@ register_file_pragma :: (fn(module_path : &String, kind : Pragma) -> unit)({
 });
 /// Reset the registry. Used between independent `check` runs.
 _clear_pragma_registry :: (fn() -> unit)({
-  g_privileged_files = ArrayList(PragmaEntry).new();
+  g_privileged_files.clear();
   ()
 });
 /// Drop pragma entries for a single module (LSP edit / cache invalidation).
@@ -93,7 +93,8 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_privileged_files = kept;
+  g_privileged_files.clear();
+  g_privileged_files.append(&mut kept);
   ()
 });
 /// Is the module path implicitly unsafe-capable for pointer ops?
@@ -214,34 +215,6 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     }
   )
 });
-/// Decision 47 Generation A (plans/VALUES_BY_DEFAULT.md): the module-level
-/// mutability rules (a write to an unmarked global, E0917; a lend of a
-/// `mut(...)` global, E0916) are enforced outside the trees the seed builds,
-/// because the seed cannot parse `mut(name)` yet: std, the compiler source
-/// beside it (`<std>/../src/`), a fetched dependency in the store
-/// (`.../store/sha256/...`) and macro expansions. Generation B sweeps those
-/// trees and drops this exemption.
-(g_mut_rule_exempt_memo : HashMap(String, bool)) = HashMap(String, bool).new();
-is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
-  match(
-    g_mut_rule_exempt_memo.get(mp),
-    .Some(b) => b,
-    .None => {
-      (sp : String) = std_path.clone();
-      while(sp.ends_with(`/`), {
-        sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
-      });
-      abs := _lex_abs_path(mp.clone());
-      src_root := match(Path.new(_lex_abs_path(&sp)).parent(), .Some(pp) => `${pp.to_string()}/src/`, .None => String.from("/src/"));
-      store := String.from("/store/sha256/");
-      b := (
-        mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || abs.contains(&store)))
-      );
-      g_mut_rule_exempt_memo.insert(mp.clone(), b);
-      b
-    }
-  )
-);
 is_macro_def_capable_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
   match(
     module_path,
@@ -399,7 +372,6 @@ export(
   is_implicitly_unsafe_capable_file,
   is_auto_generated_expansion,
   is_macro_def_capable_file,
-  is_global_mut_rule_exempt,
   is_pointer_value_capable_file,
   is_overload_set_capable_file,
   is_prelude_or_generated_file,

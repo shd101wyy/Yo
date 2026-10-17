@@ -109,7 +109,6 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -130,14 +129,14 @@ pragma(Pragma.AllowUnsafe);
 /// The receiver node a `.` access is about to evaluate as part of a place
 /// chain: its own evaluator reports no access (the chain's outermost node
 /// reports the whole place).
-(g_lb_receiver_id : usize) = usize(0);
-(g_lb_receiver_armed : bool) = false;
+(mut(g_lb_receiver_id) : usize) = usize(0);
+(mut(g_lb_receiver_armed) : bool) = false;
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
-(g_lb_lookahead_stmts : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-(g_lb_lookahead_index : usize) = usize(0);
-(g_lb_lookahead_id : usize) = usize(0);
-(g_lb_lookahead_armed : bool) = false;
+(mut(g_lb_lookahead_stmts) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+(mut(g_lb_lookahead_index) : usize) = usize(0);
+(mut(g_lb_lookahead_id) : usize) = usize(0);
+(mut(g_lb_lookahead_armed) : bool) = false;
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -2082,9 +2081,6 @@ _global_handle_conflict :: (fn(gv : &Variable, l : &GlobalHandleLend, what : &St
     global_lend_audit_print(&`${global_lend_location(&l.at)} [global-conflict] global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} lend=${l.text.replace(" ", String.from("_"))} at=${loc}`);
     return(());
   });
-  if(!global_mut_rule_applies(&l.at, ctx), {
-    return(());
-  });
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
@@ -2184,11 +2180,6 @@ global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &Eval
   ls.push(l);
   g_global_handle_lends.insert(key, ls);
 });
-/// Whether the module-level rules are enforced at `tok` (decision 47
-/// Generation A: not in the trees the seed builds).
-global_mut_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
-  !is_global_mut_rule_exempt(&tok.module_path, &ctx.std_path)
-);
 /// Decision 47: the module-level runtime binding `gv` is written at `tok`
 /// (`how`: "assign to", "write a field of", ...). E0917 unless it was
 /// declared `mut(name)`. `yo fix --migrate mutable-globals` records the
@@ -2209,7 +2200,7 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
     record_mutable_global_site(&gv.token, &gv.name);
     return(());
   });
-  if(g_audit_global_lend || !global_mut_rule_applies(tok, ctx), {
+  if(g_audit_global_lend, {
     return(());
   });
   entries := ArrayList(TokenAndError).new();
@@ -2305,7 +2296,7 @@ ExplicitCopySite :: struct(
 /// callee may write, a `&mut` local borrow), recorded while the migration
 /// runs: `decl` is the variable's `_ic_decl_key`.
 CopyWrite :: struct(decl : String, at_module : String, at_offset : u32);
-(g_migrate_explicit_copy : bool) = false;
+(mut(g_migrate_explicit_copy) : bool) = false;
 (g_explicit_copy_sites : ArrayList(ExplicitCopySite)) = ArrayList(ExplicitCopySite).new();
 (g_explicit_copy_site_keys : HashSet(String)) = HashSet(String).new();
 (g_copy_writes : ArrayList(CopyWrite)) = ArrayList(CopyWrite).new();
@@ -2323,9 +2314,8 @@ record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
   g_explicit_copy_sites.push(site);
 });
 take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
-  out := g_explicit_copy_sites;
-  g_explicit_copy_sites = ArrayList(ExplicitCopySite).new();
-  g_explicit_copy_site_keys = HashSet(String).new();
+  out := g_explicit_copy_sites.split_off(usize(0));
+  g_explicit_copy_site_keys.clear();
   out
 });
 /// A variable declaration's identity across the session: its token's module
@@ -2380,8 +2370,7 @@ record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
   g_copy_writes.push(CopyWrite(decl : decl, at_module : canonical_module_path(at.module_path.clone()), at_offset : at.byte_offset));
 });
 take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_writes;
-  g_copy_writes = ArrayList(CopyWrite).new();
+  out := g_copy_writes.split_off(usize(0));
   out
 });
 export(ExplicitCopySite, CopyWrite, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, _ic_decl_key, _ic_place_root_decl);
@@ -5963,4 +5952,4 @@ export(
   local_borrow_reject_result_borrow
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
-export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);
+export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_require_mut);

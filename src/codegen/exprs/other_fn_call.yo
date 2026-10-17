@@ -32,7 +32,7 @@
 /// unique per generated C function body, not per call's arg index — two
 /// separate calls in one function both spilling arg 0 would otherwise collide
 /// on `__yo_ref_spill_0`.
-(g_ref_spill_counter : usize) = usize(0);
+(mut(g_ref_spill_counter) : usize) = usize(0);
 /// Reset the ref-spill counter — per-EMISSION state (each emitted C file is
 /// self-contained), so every compile of one process must start at 0 or the
 /// second compile's names shift (issues/warm-compile-selfcheck.md).
@@ -717,8 +717,9 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
           }, {
             cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(&ra), .Some(rei) => get_type_string(&rei.ty, &context.base), .None => String.from("size_t")), .None => String.from("size_t"));
             spill := String.from("__yo_ref_spill_");
-            spill.push_string(g_ref_spill_counter.to_string());
-            g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+            spill_n := g_ref_spill_counter;
+            g_ref_spill_counter = (spill_n + usize(1));
+            spill.push_string(spill_n.to_string());
             decl := indent.clone();
             decl.push_string(&cty);
             decl.push_str(" ");
@@ -1611,8 +1612,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // path below: never a `T` temp.
             if(call_projection_mode(expr, context).is_some(), {
               if(cm_may_unwind, {
-                cm_pt := `__yo_ref_spill_${g_ref_spill_counter.to_string()}`;
-                g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+                cm_n := g_ref_spill_counter;
+                g_ref_spill_counter = (cm_n + usize(1));
+                cm_pt := `__yo_ref_spill_${cm_n.to_string()}`;
                 cm_em3 := context.base.emitter;
                 cm_em3.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 cm_em3.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&ei.ty), &context.base)} ${cm_pt.clone()} = ${cm_call};`);
@@ -2419,8 +2421,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(call_projection_mode(expr, context).is_some(), {
             proj_call := `${c_func_name}(${casted})`;
             if(ou_may_unwind, {
-              proj_tmp := `__yo_ref_spill_${g_ref_spill_counter.to_string()}`;
-              g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+              proj_n := g_ref_spill_counter;
+              g_ref_spill_counter = (proj_n + usize(1));
+              proj_tmp := `__yo_ref_spill_${proj_n.to_string()}`;
               em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               em.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&result_type), &context.base)} ${proj_tmp.clone()} = ${proj_call};`);
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);

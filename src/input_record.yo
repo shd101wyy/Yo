@@ -48,7 +48,7 @@
 /// Hashing is OFF unless a consumer of the depfile turns it on. `yo build`'s
 /// child compiles pass `--emit-deps` and enable it; `yo check`, `yo test` and
 /// the LSP never pay for it.
-(g_input_hashing : bool) = false;
+(mut(g_input_hashing) : bool) = false;
 // The module touch log (see "What a cached module's load read" below).
 /// Every record and every module hit this compile, in call order, WITHOUT
 /// dedup: one module's load is a slice of it.
@@ -58,7 +58,7 @@
 /// The modules already replayed into this compile's record.
 (g_replayed_modules : HashSet(String)) = HashSet(String).new();
 /// True while a hit is being replayed.
-(g_replaying : bool) = false;
+(mut(g_replaying) : bool) = false;
 set_input_hashing :: (fn(enabled : bool) -> unit)({
   g_input_hashing = enabled;
 });
@@ -113,10 +113,10 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
 reset_input_files :: (fn() -> unit)({
-  g_input_files = ArrayList(String).new();
-  g_input_hashes = ArrayList(String).new();
-  g_touches = ArrayList(String).new();
-  g_replayed_modules = HashSet(String).new();
+  g_input_files.clear();
+  g_input_hashes.clear();
+  g_touches.clear();
+  g_replayed_modules.clear();
 });
 // ── What a cached module's load read
 //
@@ -213,7 +213,7 @@ _replay_touch :: (fn(t : &String) -> unit)({
   );
 });
 /// The files read so far, in first-open order.
-input_files :: (fn() -> ArrayList(String))(g_input_files);
+input_files :: (fn() -> ArrayList(String))(g_input_files.clone());
 /// The inputs as `<sha256> <absolute path>` lines, in first-open order — the
 /// depfile's format. The hash comes FIRST so a path containing spaces still
 /// parses by splitting at the first space.

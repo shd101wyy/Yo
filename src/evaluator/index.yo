@@ -49,7 +49,7 @@ import("std/fmt");
 // signature, so the user-supplied `(path) -> Option(EvalValue)` loader is
 // stashed here and adapted by `_evaluator_ctx_load_module` (same pattern as
 // main.yo's `g_demand_loader`).
-(g_evaluator_load_fn : Option((fn(path : &String) -> Option(EvalValue)))) = .None;
+(mut(g_evaluator_load_fn) : Option((fn(path : &String) -> Option(EvalValue)))) = .None;
 _evaluator_ctx_load_module :: (fn(path : &String) -> LoadModuleResult)(
   match(
     g_evaluator_load_fn,
@@ -74,7 +74,7 @@ _evaluator_ctx_load_module :: (fn(path : &String) -> LoadModuleResult)(
     )
   )
 );
-(g_evaluator_ctx_loader : Option((fn(path : &String) -> LoadModuleResult))) = .None;
+(mut(g_evaluator_ctx_loader) : Option((fn(path : &String) -> LoadModuleResult))) = .None;
 // Wire the slot (mirrors main.yo's `_demand_loader_init`).
 _evaluator_loader_init := (fn() -> bool)({
   g_evaluator_ctx_loader = Option((fn(path : &String) -> LoadModuleResult)).Some(

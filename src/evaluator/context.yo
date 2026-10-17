@@ -889,7 +889,7 @@ track_variable_usage_resolved :: (
 /// Returns the first re-run that still fails once every forward declaration
 /// it waited for is filled — the caller, which has `exn`, raises it.
 RerunPendingDefEvalsFn :: (fn(env : &Environment, ctx : &EvalContext) -> Option(YoError));
-(g_rerun_pending_def_evals_fn : Option(RerunPendingDefEvalsFn)) = Option(RerunPendingDefEvalsFn).None;
+(mut(g_rerun_pending_def_evals_fn) : Option(RerunPendingDefEvalsFn)) = Option(RerunPendingDefEvalsFn).None;
 set_rerun_pending_def_evals_fn :: (fn(f : RerunPendingDefEvalsFn) -> unit)({
   g_rerun_pending_def_evals_fn = Option(RerunPendingDefEvalsFn).Some(f);
   ()
@@ -908,7 +908,7 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 // cannot import calls/index_trait.yo without a cycle, so they call through
 // this hook, installed by `register_evaluate_expression`.
 PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit);
-(g_promote_index_places_fn : Option(PromoteIndexPlacesFn)) = Option(PromoteIndexPlacesFn).None;
+(mut(g_promote_index_places_fn) : Option(PromoteIndexPlacesFn)) = Option(PromoteIndexPlacesFn).None;
 set_promote_index_places_fn :: (fn(f : PromoteIndexPlacesFn) -> unit)({
   g_promote_index_places_fn = Option(PromoteIndexPlacesFn).Some(f);
   ()
@@ -926,7 +926,7 @@ call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment,
 // exprs/begin.yo without a cycle (values/impl.yo's trait-default
 // materialization). Installed by calls/function_type.yo.
 EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr);
-(g_evaluate_fn_body_fn : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
+(mut(g_evaluate_fn_body_fn) : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
 set_evaluate_fn_body_fn :: (fn(f : EvaluateFnBodyFn) -> unit)({
   g_evaluate_fn_body_fn = Option(EvaluateFnBodyFn).Some(f);
   ()
@@ -949,8 +949,8 @@ call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalCon
 // Accessors rather than shared-state imports: module-level mutable
 // variables are written reliably only through their OWN module's functions
 // (the g_rerun_pending_def_evals_fn pattern directly above).
-(g_module_begin_exprs : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
-(g_module_begin_expr_index : usize) = usize(0);
+(mut(g_module_begin_exprs) : Option(ArrayList(AstExpr))) = Option(ArrayList(AstExpr)).None;
+(mut(g_module_begin_expr_index) : usize) = usize(0);
 set_module_walk :: (fn(exprs : &ArrayList(AstExpr)) -> unit)({
   g_module_begin_exprs = Option(ArrayList(AstExpr)).Some(exprs);
   ()
@@ -1241,7 +1241,7 @@ ModuleWalk :: ref(
 /// Whether EVERY finished walk keeps its evaluation context (see
 /// `ModuleWalk.ctx`). Off by default; `yo check --watch` / `--watch-once` turn
 /// it on before their first evaluation (a watched edit can land in any file).
-(g_retain_walk_contexts : bool) = false;
+(mut(g_retain_walk_contexts) : bool) = false;
 set_retain_walk_contexts :: (fn(v : bool) -> unit)({
   g_retain_walk_contexts = v;
 });
@@ -1501,7 +1501,7 @@ record_module_member_read :: (fn(importer : &String, target_module : &String, fi
 // ---------------------------------------------------------------------------
 /// Total `force_pending_def` invocations this process — the watch tests'
 /// oracle for "only the changed definition (+ its dependents) re-evaluated".
-(g_force_pending_count : usize) = usize(0);
+(mut(g_force_pending_count) : usize) = usize(0);
 force_pending_count :: (fn() -> usize)(g_force_pending_count);
 /// The module segment of a def key (`<module>#<index>#<name>` — module paths
 /// never contain `#`). That segment IS the walk key the definition's module
@@ -1736,7 +1736,7 @@ def_key_dependees :: (fn(key : &String) -> Option(HashSet(String)))(
 );
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String));
-(g_force_pending_def_fn : Option(ForcePendingDefFn)) = Option(ForcePendingDefFn).None;
+(mut(g_force_pending_def_fn) : Option(ForcePendingDefFn)) = Option(ForcePendingDefFn).None;
 set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
   g_force_pending_def_fn = Option(ForcePendingDefFn).Some(f);
   ()
@@ -1759,7 +1759,7 @@ set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
 FunctionValueMarkerFn :: (
   fn(ty : &TypeValue, witness : &Option(EvalValue), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(Option(String))
 );
-(g_function_value_marker_fn : Option(FunctionValueMarkerFn)) = Option(FunctionValueMarkerFn).None;
+(mut(g_function_value_marker_fn) : Option(FunctionValueMarkerFn)) = Option(FunctionValueMarkerFn).None;
 set_function_value_marker_fn :: (fn(f : FunctionValueMarkerFn) -> unit)({
   g_function_value_marker_fn = Option(FunctionValueMarkerFn).Some(f);
   ()
@@ -1888,7 +1888,7 @@ closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_ar
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
 /// copy of `ty` stays implicit (`copy_trait_blockers`).
 CopyTraitBlockersFn :: (fn(ty : &TypeValue, env : &Environment) -> ArrayList(String));
-(g_copy_trait_blockers_fn : Option(CopyTraitBlockersFn)) = Option(CopyTraitBlockersFn).None;
+(mut(g_copy_trait_blockers_fn) : Option(CopyTraitBlockersFn)) = Option(CopyTraitBlockersFn).None;
 set_copy_trait_blockers_fn :: (fn(f : CopyTraitBlockersFn) -> unit)({
   g_copy_trait_blockers_fn = Option(CopyTraitBlockersFn).Some(f);
 });
@@ -3294,7 +3294,7 @@ impl_forcible_field :: (fn(rec : &ImplInFlight, label : &String) -> Option(ImplP
 /// miss. The lookup helpers have no `exn`, so the failure is parked here and
 /// thrown by the no-method arm of `evaluate_function_call` (calls/function.yo),
 /// which otherwise would report a misleading "No matching call found".
-(g_pending_impl_force_error : Option(String)) = Option(String).None;
+(mut(g_pending_impl_force_error) : Option(String)) = Option(String).None;
 flag_pending_impl_force_error :: (fn(msg : &String) -> unit)({
   g_pending_impl_force_error = Option(String).Some(msg);
   ()

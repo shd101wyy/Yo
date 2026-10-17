@@ -73,7 +73,7 @@ j_range :: (
 /// a utf-8-only client hands it columns in units it cannot read). Absent or
 /// empty means the client takes the protocol default, utf-16. Module-level
 /// because it must survive across messages.
-(g_position_encoding : usize) = usize(0);
+(mut(g_position_encoding) : usize) = usize(0);
 set_position_encoding :: (fn(enc : usize) -> unit)({
   g_position_encoding = enc;
 });
@@ -82,7 +82,7 @@ position_encoding :: (fn() -> usize)(g_position_encoding);
 /// Whether hover replies may use markdown `MarkupContent`. `initialize`
 /// clears it when the client's `hover.contentFormat` is a nonempty list
 /// without "markdown" (absent means the protocol default — markdown).
-(g_hover_markdown : bool) = true;
+(mut(g_hover_markdown) : bool) = true;
 set_hover_markdown :: (fn(md : bool) -> unit)({
   g_hover_markdown = md;
 });

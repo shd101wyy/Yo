@@ -29,11 +29,11 @@ EvaluateExprRawFn :: (
   ) -> AstExpr
 );
 /// Module-level function pointer — set once during evaluator initialization.
-(g_evaluate_expression : Option(EvaluateExprFn)) = Option(EvaluateExprFn).None;
+(mut(g_evaluate_expression) : Option(EvaluateExprFn)) = Option(EvaluateExprFn).None;
 /// Module-level raw function pointer — stores `_evaluate_expression` directly.
 /// Unlike `g_evaluate_expression`, this bypasses the panic wrapper so callers
 /// can supply their own exception handler via `exn : Exception`.
-(g_evaluate_expression_raw : Option(EvaluateExprRawFn)) = Option(EvaluateExprRawFn).None;
+(mut(g_evaluate_expression_raw) : Option(EvaluateExprRawFn)) = Option(EvaluateExprRawFn).None;
 /// Set the global evaluate_expression function pointer.
 /// Called once during evaluator initialization before any evaluation begins.
 set_evaluate_expression_fn :: (fn(f : EvaluateExprFn) -> unit)({
