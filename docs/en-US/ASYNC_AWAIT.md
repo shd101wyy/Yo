@@ -449,24 +449,24 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-A place lent to a borrowing Future may not pass through an `Rc`
-dereference, a `ref` object, a pointer or an index into a collection
-(`io.await(count(&r.*.items, io), io)` and `io.await(bump(&mut xs(i), io), io)`
-are E0909): the borrow lasts across the suspension, and nothing would notice
-another task writing or reallocating through its own handle meanwhile. Lend
-the handle instead (`h : &Rc(S)`) and read `h.*.items` inside the Future at
-each use, or own the value in the task. An element of a fixed-size array is
+A place lent to a borrowing Future may not pass through a `ref` object, a
+pointer or an index into a collection (`io.await(count(&h.items, io), io)`
+with `h` a `ref` object, and `io.await(bump(&mut xs(i), io), io)`, are E0909):
+the borrow lasts across the suspension, and nothing would notice another task
+writing or reallocating through its own handle meanwhile. Lend the handle
+instead and read `h.items` inside the Future at each use, or own the value in
+the task. An element of a fixed-size array is
 part of the array's own storage and may be lent.
 
-An `Arc` dereference is the exception for a shared borrow: no handle writes
-an `Arc`'s payload in safe code (its state changes only through a `Mutex` or
+An `Rc` or `Arc` dereference is the exception for a shared borrow: no handle
+writes an `Rc`'s payload (E0919, decision 46) or an `Arc`'s in safe code (its state changes only through a `Mutex` or
 an atomic inside it, as in Rust; a std mutator such as `a.*.o.take()` is
 rejected like a direct write, since D3 judges every callee by what it writes),
 and the task's own handle keeps the payload alive, so `io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))` is
-accepted, as is a path that crosses only `Arc` dereferences. A `&mut` borrow
-through an `Arc` is still E0909, and so is any path that also crosses an `Rc`
-(`rc(arc(m))`). An `Rc` joins `Arc` once its payload is read-only through the
-handle too (plans/VALUES_BY_DEFAULT.md decision 46).
+accepted, as are `io.await(count(&r.*.items, io), io)` with `r : Rc(S)` and a
+path that crosses only `Rc` and `Arc` dereferences (`rc(arc(m))`). A `&mut`
+borrow through either is still rejected: E0919 for an `Rc`, E0909 for an
+`Arc`.
 
 Nor may a lent place be rooted in a mutable module-level binding, `mut(G)`,
 or a `thread_local(mut(x))`, `Arc` dereferences included
@@ -1581,9 +1581,9 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-`Rc(Mutex(T))`, the single-thread sharing (Rust's `Rc<Mutex<T>>`), works once
-an `Rc` is read-only through its handle (decision 46); until then a `lock`
-through an `Rc` is E0909.
+`Rc(Mutex(T))`, the single-thread sharing (Rust's `Rc<Mutex<T>>`), works the
+same way: an `Rc`'s payload is read-only through its handle (decision 46), so
+`io.await(r.*.lock(io), io)` with `r : Rc(Mutex(T))` is accepted.
 
 ### `yield_now`: a fairness yield with no timer
 
