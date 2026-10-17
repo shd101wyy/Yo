@@ -70,6 +70,9 @@ first and a main-loop task second, gated on `waiter_count` rather than on
 timing; right after `unlock` the lock must still be held and `try_lock`
 must refuse, which failed before, and the foreign waiter must run first); "a
 waiter cancelled on another thread's loop leaves the queue" (before: the dead
-waiter stayed queued until the next `unlock`); and "a waiter cancelled after
+waiter's waker stayed in the queue until the next `unlock`, and the thread
+never finished: `t.join()` hung until the pre-fix run was killed after
+2 h 17 min, most likely because the queued waker keeps the thread's loop
+counted live); and "a waiter cancelled after
 the lock was handed to it passes the lock on" (before: the second waiter
 stayed parked on a free lock and timed out).
