@@ -110,6 +110,13 @@ A reassigned explicit-copy global (`mut(G) : String`; nine in src after #1414) i
 
 See §2.3. The maintainer chose to keep the release open for them rather than ship the fixes early.
 
+### 3.x Maintainer questions from #1429 (decision 39)
+
+1. A user-defined collection needs `pragma(Pragma.AllowUnsafe)` to implement `walk_elem`, because a projection body cannot return another projection. Recommendation: make that forwarding work (`issues/questions/borrowed-for-over-user-defined-collections.md`).
+2. `HashSet`/`PriorityQueue` refuse `for(&mut …)` by design.
+3. Reading the collection inside a borrowed `for` body is E0911; code that reads or grows it must use `indices()`.
+4. The macro-site liveness rule applies only to a macro defined in another module (the prelude's `for`); a same-module macro keeps token-based liveness.
+
 ## 4. The next steps, in order
 
 1. Land the v0.2.65 gate pieces (§2.3) and the other ready PRs in §2.4.
@@ -173,7 +180,7 @@ Paste this over the generated `## Changes` section after the release publishes. 
 
 - **Language:**
   - Decision 47 locals Generation A: every `mut(...)` binding form, and `yo fix --migrate mut-bindings`.
-  - Decision 39 iterators Generation A: the borrowed `for` walks a cursor, and a push to the list being walked is E0911 (#1429).
+  - Decision 39 iterators Generation A (#1429): the borrowed `for(&mut coll, x => …)` walks a cursor (`BorrowedWalk`). Touching the collection inside the body, even a read, is now a compile-time E0911 with a hint to use `coll.indices()`; `HashSet` and `PriorityQueue` no longer accept `for(&mut …)` (a `&mut` element could corrupt their order or hashing); `return(x)` of the loop element is E0912 (copy it first).
 - **Compile and codegen:**
   - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost (#1438).
   - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
