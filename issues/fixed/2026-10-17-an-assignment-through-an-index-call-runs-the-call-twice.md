@@ -2,8 +2,8 @@
 
 **Severity:** S1 — memory unsafety in generated code: `m(s) = v` on a `HashMap(String, V)` is a heap-use-after-free on develop, because the C calls `index_mut` twice and each call drops its by-value key.
 
-**Status:** fixed 2026-10-18 by `fix(codegen): an assignment through an index
-call evaluates the place once`. Found 2026-10-17 while landing #1420 (the
+**Status:** fixed 2026-10-18 by #1452 (`fix(codegen): an assignment through
+an index call evaluates the place once`). Found 2026-10-17 while landing #1420 (the
 review's write through a move-only key,
 `issues/fixed/2026-10-17-an-index-call-that-moves-a-named-local-calls-an-unemitted-method.md`).
 It reproduced with the develop-built `yo-dev-5425cd7bf` and develop's own std,
