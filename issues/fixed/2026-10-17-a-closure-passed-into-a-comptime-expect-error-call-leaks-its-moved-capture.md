@@ -46,3 +46,5 @@ The regression coverage: `tests/copy_trait.test.yo`'s existing test now CALLS
 new test drops a `Drop`-counted capture through both the `comptime(T)` and
 the `generic(...)` rejections (`g_ct_cee_disposed == 2`), which is visible
 in CI without a leak verdict.
+
+Fixed by PR #1459 (fix/cee-move-marks).
