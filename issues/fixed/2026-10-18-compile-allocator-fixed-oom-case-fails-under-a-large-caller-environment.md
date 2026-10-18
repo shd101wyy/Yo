@@ -2,7 +2,22 @@
 
 **Severity:** S3. A cli-diff run from a shell with a large environment (about 35 KB on the box below) scores `compile-allocator-fixed-oom` as a vacuous NO-GOLDEN although nothing in the tree changed. The verdict depends on the host shell, not the code.
 
-**Status:** OPEN. Found 2026-10-18 while gating PR #1440 (decision 47 locals) on the Linux (WSL) box.
+**Status:** fixed. Found 2026-10-18 while gating PR #1440 (decision 47 locals) on the Linux (WSL) box.
+
+**Fix (PR #1468):** option (a). The parent's environment-proportional
+allocation was `Command._build_env_storage` — called UNCONDITIONALLY by
+`_spawn_with_fds`, which used its result only when the child needs a
+constructed `envp` (`env_clear()` or `env()` overrides); a plain inherited
+spawn passed `envp = NULL` and threw the copy away. The walk had copied every
+`environ` entry into heap-owned `String`s, `ArrayList(u8)` buffers and key
+substrings through the Yo allocator — which for the probe parent IS the 64 KiB
+fixed heap, so an inherited environment a little past ~27 KB exhausted it
+before the child ever ran. `_spawn_with_fds` now builds the env storage only
+when it will pass an `envp`, so an inherited spawn costs nothing proportional
+to the environment (also a small win for every `Command` spawn without
+overrides). The fixture and both goldens are unchanged: the case still pins
+only the CHILD's panic, which the kernel hands the child regardless of the
+caller's environment size.
 
 ## Symptom
 
