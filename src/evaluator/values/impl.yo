@@ -2533,8 +2533,9 @@ find_methods_from_generic_impls :: (
   });
   // Iterate all key buckets.
   n_keys := g_impl_registry_keys.len();
-  if(method_name == "index", {
-  });
+  // An empty no-op guard (was `if(method_name == "index", { });`, an empty
+  // record where unit is expected — an arm/body is `()`, never `{}`).
+  if(method_name == "index", ());
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     // No `continue` in these registry loops — see
