@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 07:50 CST):** develop is at `29ceb209d` (#1429). v0.2.65 gate: items 2 and 3 done; item 1 (#1440) is re-gating. **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** only #1440 (decision 47 locals, rebasing once onto #1429) may merge until v0.2.65 is published. v0.2.65 gate: item 3 done; items 1 (decision 47 locals) and 2 (#1429) are gating. v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 10:30 CST):** develop is at `29ceb209d` (#1429). v0.2.64 is the published seed; v0.2.65 is not cut. v0.2.65 gate (§2.3): items 2 and 3 are done, and item 1 (#1440) is in its last cli-diff before merging. **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** only #1440 may merge until v0.2.65 is published. Every open design question was decided on 2026-10-18 (§3.4); §4 is the roadmap from v0.2.65 to the end of VBD.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -65,7 +65,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 
 Cut v0.2.65 (2026-10-15 handover §8.4, then curate the notes as for v0.2.64) only when all of these hold:
 
-1. **Decision 47 locals, Generation A** has merged: #1440, branch `feat/vbd-d47-locals-gena`.
+1. **Decision 47 locals, Generation A** has merged: #1440, branch `feat/vbd-d47-locals-gena`. It is being finished now (§2.4).
 2. ~~**Decision 39 iterators, Generation A** has merged.~~ **Done:** #1429, `29ceb209d`.
 3. ~~**The unwind S1 fix** has merged.~~ **Done:** #1438, `fbd79fc90` (§5.1).
 4. **Develop's battery is green on the exact tip**, and `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` is empty.
@@ -78,16 +78,16 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 
 | PR / branch | Piece | State and what is left |
 | --- | --- | --- |
-| #1440 `feat/vbd-d47-locals-gena` head `41118ff44` | Decision 47 step 2 Generation A: every `mut(...)` binding form; a write to an unmarked binding is E0917 outside src/std; `yo fix --migrate mut-bindings` | Full gate green on `41118ff44`: build, check src/std, suite (only environment-dependent failures, identical on develop), internal 108 pass / 0 non-leak, solo leak table identical to develop on 8 files, cli-diff 399/0 with every golden explained. Develop then moved 15 commits overlapping 6 of its files, so it rebases once onto #1429 and re-runs build, check src, develop's new tests (migrated) and cli-diff. Gates v0.2.65. Flags for the maintainer: module-level `mut(x) ::` is accepted; E0917 now fires before "needs a writable place" for a `&mut` capture of a parameter. |
-| #1439 `feat/vbd-v4-pattern-box` (draft) head `44d9ec526` | V4: the `Pattern` tree with `Box` children (hand-written `Clone`: `derive(Clone)` refuses an enum mixing `Box(Self)` with `ArrayList(Self)`) | **Generation B: merge only after `SEED_VERSION` carries #1438 (v0.2.65).** A stage 1 built by the v0.2.64 seed crashes on `move_only` (the #1438 bug in its own code). Stage 2 (built with #1438) is green: `move_only` 55, `match_nested` 25, `match_at_binding` 4, `algebraic_effects` 79. `verifier_match`'s one leak is identical on develop (22,805 B / 340 allocations). Emit-diff 0 lines, allocations +0.27%. Steps after the seed bump: rebase in `~/Workspace/Yo-wt/v4vc-esc`, rebuild stage 1 with the new seed, check src/std, `move_only` and the match tests, compare `verifier_quantifiers`/`module_invalidation`/`verifier_loops` leaks against develop (never done), fmt, refs, ready, merge. Timing A/B never ran (needs a fresh pair from one base; the Z3Sexpr pair is ready: `bash ~/Workspace/Yo-wt/vbd-logs/v4vc/measure.sh 3 dev z3`, exclusive). |
-| #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals Generation B: std/src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Tier 1 on the official v0.2.64 seed fully green: build, check src/std, 14 feature/std files, internal 1419/1419, cli-diff 398/0, site build, fmt and refs. Held by MERGE_FREEZE: after v0.2.65, rebase (overlap rule), refs/fmt, ready, merge. |
-| `feat/v2b-genb-b1-migration` (no PR) head `73da377dc` | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Restacked on its head `8db9c7b6a`; the sweeps run after the build. Opens as a draft until #1414 merges. |
-| #1421 `feat/vbd-d46-genb` (draft) head `ab95b2321` | Decision 46 Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | In-process `tests/internal` run found one E0919 site the census missed (it excludes `tests/internal`): `suspension_analysis`, fixed in `af4506896`. Every census-excluded directory was then checked: no other E0919. Remaining: the `suspension_analysis` rerun, the leak comparison against develop's binary on the top-5 leak files, the ratchet and the census. |
-| `fix/not-runtime-bool-comptime-fn` (no PR) head `64127047a` | E1101: `!` on a runtime bool in a comptime-parameterized fn (S2) | Build, checks, cli-diff and `prefix_operators` 7/7 green; 3 test files left. It introduces the S1 doc in §5.2. |
-| `fix/async-mutex-strict-fifo` (no PR) head `0cf600d93` | The async `Mutex` is FIFO across event loops (S3) | async/mutex 11/11; the 3 new tests fail before the fix. `sm_protocol`, both checks and cli-diff are left. |
-| `fix/trial-specialization-drops-store` (no PR) head `7352518df` | S1 fix (§5.2); lands after the E1101 PR | Root-cause hypothesis written; its build is pending. |
-| #1422 (`843e88fd8`) (#1419 and #1420 landed); `fix/field-write-through-shared-borrow` (`2f5301589`); `fix/yo-fix-multi-file-generic-impls` (`ce043660e`) | The 5-bug Workflow run (`match` binding across `await`, move-only collection keys and values, collection clone through a borrow, field write through a shared borrow, `yo fix` over several files) | Each was implemented and then adversarially reviewed; the review fixes are being gated. Check each PR's latest comment and head before merging. |
-| #1162 `tss/phase6-step4` (draft) head `7e6024532` | Type-soundness phase 6 step 4 | Unchanged; blocked as described in the 2026-10-15 handover. |
+| #1440 `feat/vbd-d47-locals-gena` head `f5a3c7d62` | Decision 47 step 2, Generation A: every `mut(...)` binding form; a write to an unmarked binding is E0917 outside src/std; `yo fix --migrate mut-bindings` | **Gates v0.2.65.** Rebased onto #1429. The 12 develop test files that needed markers were migrated (108 bindings), and every test file passed on the rebased build. The finisher is running a cli-diff under `priority`, recording the explained goldens, and running fmt and refs. After that it pushes and admin-merges without another rebase. Both of its departures were accepted (§3.4). |
+| #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals, Generation B: std and src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Tier 1 fully green on the v0.2.64 seed: build, check src/std, 14 feature/std files, internal 1419/1419, cli-diff 398/0, site build, fmt, refs. MERGE_FREEZE holds it. After v0.2.65 (§4.1 step 1). |
+| #1434 `fix/async-mutex-strict-fifo` head `40dc96b0b` | The async `Mutex` is FIFO across event loops (S3) | Tier 1 fully green. MERGE_FREEZE holds it. After v0.2.65 (§4.1 step 2). |
+| #1421 `feat/vbd-d46-genb` (draft) head `d43e9bc8b` | Decision 46, Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | The rebased Tier 1 passed except the CI-mode `tests/internal` run, which stopped at 932/1419 with 0 failures when WSL crashed. Re-run that run (`--parallel 1`, one file per call, or the in-process run under `exclusive`), then ready and merge. |
+| `fix/trial-specialization-drops-store` (no PR) head `8c65f8fb4` | The S1 fix in §5.2 | Build, check and 19 tests passed. Two things are left: the CI-mode `tests/internal` run, and a `module_invalidation` leak baseline taken against develop's binary. Then open the PR, cut from `.github/pull_request_template.md`. |
+| `feat/v2b-genb-b1-migration` (no PR) head `6016c121c` | V2b B1: the explicit-copy sweep over std and src, plus the recursive E0916 structural-clone exemption (§3.2) and a generic-body guard fix for #1385's migration (S2) | Stacked on #1414. Its Tier 1 had only reached the build (green) when WSL crashed. Re-run check src/std and the sweep's tests, then open it as a draft on #1414 (§4.2 step 8). |
+| #1439 `feat/vbd-v4-pattern-box` (draft) head `44d9ec526` | V4: the `Pattern` tree with `Box` children (a hand-written `Clone`, because `derive(Clone)` refuses an enum that mixes `Box(Self)` with `ArrayList(Self)`) | **Generation B. Merge only after `SEED_VERSION` carries #1438 (v0.2.65).** A stage 1 built by the v0.2.64 seed crashes on `move_only`, which is the #1438 bug in its own code. Stage 2, built with #1438, is green: `move_only` 55, `match_nested` 25, `match_at_binding` 4, `algebraic_effects` 79. Emit-diff 0 lines; allocations +0.27%. **After the seed bump**, in `~/Workspace/Yo-wt/v4vc-esc`:<br>1. Rebase and rebuild stage 1 with the new seed.<br>2. Run check src/std, `move_only` and the match tests.<br>3. Compare the leaks of `verifier_quantifiers`, `module_invalidation` and `verifier_loops` against develop's binary (never done).<br>4. Run fmt and refs, mark it ready, and merge. |
+| #1422 `fix/collection-clone-through-borrow` head `843e88fd8`; #1436 `fix/field-write-through-shared-borrow` head `7fc559d68`; #1430 `fix/yo-fix-multi-file-generic-impls` head `02919b3cf` | The bug-fix workflow's remaining three: a collection clone through a borrow; a field write through a shared borrow (E0908); `yo fix` over several files (generic impl coherence keys carry the module) | Implemented and adversarially reviewed. Their gates died with the workflow when WSL crashed. Read each PR's latest comment, then run its own Tier 1 again and merge (§4.1 step 5). |
+| `wip/vbd-a4-std-half` (no PR) head `a83d6ac8b` | A4's std half: `timeout`/`select` over futures | Parked behind two bugs (§4.2 step 10). |
+| #1162 `tss/phase6-step4` (draft) head `7e6024532` | Type-soundness phase 6, step 4 | Unchanged. It is blocked as the 2026-10-15 handover describes. |
 
 ## 3. Decisions recorded this cycle
 
@@ -110,23 +110,135 @@ A reassigned explicit-copy global (`mut(G) : String`; nine in src after #1414) i
 
 See §2.3. The maintainer chose to keep the release open for them rather than ship the fixes early.
 
-### 3.x Maintainer questions from #1429 (decision 39)
+### 3.3a Maintainer questions from #1429 (decision 39)
 
-1. A user-defined collection needs `pragma(Pragma.AllowUnsafe)` to implement `walk_elem`, because a projection body cannot return another projection. Recommendation: make that forwarding work (`issues/retired/borrowed-for-over-user-defined-collections.md`).
-2. `HashSet`/`PriorityQueue` refuse `for(&mut …)` by design.
-3. Reading the collection inside a borrowed `for` body is E0911; code that reads or grows it must use `indices()`.
-4. The macro-site liveness rule applies only to a macro defined in another module (the prelude's `for`); a same-module macro keeps token-based liveness.
+Decided; see §3.4. The record is `issues/retired/borrowed-for-over-user-defined-collections.md`.
 
-## 4. The next steps, in order
+### 3.4 The open questions, decided 2026-10-18 (the maintainer took the advisor's recommendations)
 
-1. Land the v0.2.65 gate pieces (§2.3) and the other ready PRs in §2.4.
-2. Cut v0.2.65, curate its notes, and let the pipeline bump `SEED_VERSION`.
-3. On the v0.2.65 seed: Generation B for decision 47 locals (the sweep over src, std, tests, docs and markdown_yo, then enforcement) and for decision 39 iterators.
-4. V2b Generation B as #1408's sequence. B1 (on #1414) is first; B5 converts the collection globals to `RefCell`.
-5. Decision 46 Generation B (#1421) and the decision 47 globals Generation B (#1414), if they haven't landed by then.
-6. The rest of the 2026-10-15 handover §4 step 14: A6's `Rc`-field half with V2c, the allocator interface version 2, V2c, decision 43, V4's remaining trees (`AstExpr`, `EvalValue`; `Z3Sexpr` landed as #1435, `Pattern` is in §2.4, `VcSort`/`VcTerm` wait on the #1435 design question), V5, then the post-V5 items.
-7. The issue-date rename (2026-10-15 handover §4 step 15, script in its §9.1), once in-flight branches have drained.
-8. Secondary: PARALLEL_COMPILATION P4 step 2 (a forked `check <dir>`), and sizing `YO_TEST_FORK`'s N on an idle machine. The AGENTS.md note that the `tests/cli-cases` exclude avoids "~4 false failures" is slightly stale: #1427 added two fixtures that fail on purpose.
+- **The verifier terms' children** (`issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`). `VcTerm` takes `Rc` now; `VcSort` takes `Box` after V2b B6. Decision 21 is amended to choose by sharing, not by size:
+  - a tree whose subtrees are shared or substituted takes `Rc` children;
+  - a tree built once and consumed takes `Box`;
+  - a type with no direct `Self` child is a plain value.
+- **How a named function value carries `Send`** (`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`).
+  - First, fix the structural-compat rule: `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2).
+  - After decision 43, give each named function its own item type (§4 step 16).
+  - Until then, PARALLELISM_RULES D9 recommends a capture-free closure, `dyn(() => f())` or `arc(() => f())`.
+- **The borrowed `for` over user collections** (`issues/retired/borrowed-for-over-user-defined-collections.md`).
+  - `BorrowedWalk` stands until decision 43 step 3.
+  - `HashSet` and `PriorityQueue` refuse `for(&mut …)` by design.
+  - A read of the collection in the body is E0911 by design; use `indices()`.
+  - A macro from another file keeps its template borrow live for the whole call. This is accepted.
+  - The forwarding gap was narrower than the question said. A value collection forwards `&mut self.items(cur)` safely. Two bugs were filed:
+    - the `ref`-receiver runtime panic (S2);
+    - the bare-tail E0601 (S3).
+- **#1440's two departures** are accepted, and the plan's decision 47 step 2 records them as built:
+  - module-level `mut(x) ::`;
+  - E0917 before "needs a writable place".
+- **Neither the `void*` S1 nor the explicit-copy migration S2 gates v0.2.65.** Both go under the known issues in the release notes.
+- **Keep six heavy slots.** The two WSL crashes came from the WSL update, not from the load; the user then updated to WSL 3.
+
+## 4. After v0.2.65: what is left to finish VBD, in order
+
+Every step names its spec. Where this list and `plans/VALUES_BY_DEFAULT.md` §6 disagree, the plan is authoritative. Each step is its own PR with the AGENTS.md Tier 1 gate. A Generation B half is built and gated as a stacked draft on a develop-built compiler while its Generation A waits for a release, and it merges after the pipeline bumps `SEED_VERSION`.
+
+### 4.1 Right after the release: land what the freeze held
+
+None of these needs anything new. Remove `~/Workspace/Yo-wt/MERGE_FREEZE`, then merge them one at a time. For each one, rebase, apply the overlap rule (§1.1), and run fmt and refs. Merge without another rebase unless GitHub reports a conflict. The resume point for each branch is its row in §2.4.
+
+1. #1414: decision 47 globals, Generation B.
+2. #1434: the strict-FIFO async mutex.
+3. #1421: decision 46, Generation B (a write through a plain `Rc` is E0919).
+4. `fix/trial-specialization-drops-store`: the S1 in §5.2.
+5. The bug-fix workflow's PRs, #1422, #1430 and #1436, plus `fix/field-write-through-shared-borrow` if it is still separate.
+6. Once `SEED_VERSION` is v0.2.65:
+   - #1439 (`Pattern`);
+   - `IterPeekable`'s conditional `Clone` derive, which is parked in `plans/backlog/SEED_VERSION_AUTOMATION.md` because it needs #1437 in the seed.
+
+### 4.2 On the v0.2.65 seed: the Generation B halves and V2b
+
+7. **Decision 47 locals, Generation B** (plan §6 "Decision 47", step 2).
+   - Run `yo fix --migrate mut-bindings` over `src/`, `std/`, `docs/` (both languages) and `markdown_yo`.
+   - Then enforce everywhere by dropping the src/std exemption.
+   - It must land before decision 43 (step 14), whose `&mut` rules assume `mut`.
+8. **V2b unique buffers, Generation B** (plan §6 V2, "B0–B14", in #1408's sequence). This is the largest phase left. Do the B steps in order.
+   - **B1:** the explicit-copy sweep over std and src. The `v2bb1` draft is stacked on #1414 at head `6016c121c` or newer.
+     - std: 165 copies inserted, 138 sites listed.
+     - src: 3,106 copies inserted, 1,338 sites listed.
+     - It also carries two migration S2 fixes.
+   - **B2:** the same sweep over `tests/`, the build scripts and `markdown_yo`.
+   - **B3:** hand edits in std, at the 138 listed sites.
+   - **B4:** hand edits in src at the 1,338 listed sites, one PR per directory. It may use `RefCell`, since v0.2.65 carries #1415.
+   - **B5:** the collection globals become `RefCell` globals. It needs #1414.
+   - **B6:** decision 20's accessors. After B6, `VcSort` takes `Box` children (decision 21, as amended 2026-10-18).
+   - **B7:** decision 39, Generation B (iteration and entries). Its plan is in `issues/collection-iterators-have-no-sound-post-v2b-shape.md`. If a read-only walk that yields `&T` is added here, `HashSet` and `PriorityQueue` implement it.
+   - **B8:** the flip for `ArrayList` and `String`. It needs B1–B7.
+   - **B9–B11:** the other collections.
+   - **B12:** `Dyn`, Generation A. **A release is needed before B13.**
+   - **B13:** `Dyn`, Generation B.
+   - **B14:** follow-ups.
+   - B0's `RefCell` projections (`get()`/`get_mut()`) and the binding ban are an ergonomic pass; B5 does not wait for them.
+9. **Decision 46's follow-up** (plan §6 "Decision 46", step 3). The cycle collector's predicate narrows to cells that reach a `RefCell`, `Mutex` or `RwLock`. Measure on the collector's own benchmarks.
+10. **A4's std half**, parked on `wip/vbd-a4-std-half`: `timeout`/`select` over futures.
+    - First fix its S2: a generic `io.async` body shares one capture struct across futures.
+    - Also fix the S1 in §5.3: awaiting a future parameter emits a `void*` result.
+11. **`VcTerm` takes `Rc` children** (decision 21, as amended 2026-10-18). It is independent of V2b, so it can go any time.
+
+### 4.3 After V2b
+
+12. **The allocator interface, version 2** (plan §3.11, and §6 "After V2b: the allocator interface, version 2"). `alloc` and `realloc` take an alignment, and `free` receives the size and the alignment, so Zig-style allocators fit.
+13. **V2c: decision 17** (plan §6 V2, "V2c"). Generation A, then a release, then Generation B.
+    - An implicit `Rc`/`Arc` handle copy becomes E0901, and `yo fix` inserts `Rc.clone(x)` / `Arc.clone(x)`.
+    - Size: 63 sites in src, 136 in std, 640 in tests.
+    - It also settles A6's `Rc` bundle fields.
+14. **V4's remaining trees** (plan §6 V4). For each conversion, measure `check ./src` time and stage-2 RSS against develop. The value-enum `TypeValue` lost on time, so expect the handle approach to win.
+    - `AstExpr` gets `Rc(Self)` children.
+    - `EvalValue` comes last, because its comptime-place model aliases on purpose.
+15. **Decision 43: references as types** (plan §6 "Decision 43"; `plans/backlog/NON_ESCAPABLE_TYPES.md` R1–R7). It needs V2b, V4's `TypeValue` work and step 7. It takes four PRs.
+    1. **`TypeValue.Reference(T, mutable)`** replaces the slot flags, with no change to the language. It is the largest refactor in the plan. It is gated on identical behavior: every test, the fixpoint, and an emit-diff of the self-build that shows no C change.
+    2. **Generation A:** `&T`/`&mut T` as types in user code, `.*`, and `yo fix --migrate deref`. This step breaks user code.
+    3. **Root-joining containers** (R7, N2). This step also decides whether `impl(&mut C, IntoIterator(…))` replaces `BorrowedWalk`. If it does, the implementors migrate and the trait is deleted.
+    4. **Generation B**, after a release: std and src adopt it.
+16. **Function-item types** (decided 2026-10-18; `issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`). This comes after step 15, because both rework `TypeValue` and `type_key`.
+    - Each named function gets its own item type, as in Rust.
+    - This closes `issues/arc-of-a-named-function-value-fails-its-send-bound.md` and `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`.
+    - It is not on the critical path.
+17. **V5: remove `ref(...)` and `atomic(...)`** (plan §6 V5). Generation A, then a release, then Generation B.
+    - **Generation A:**
+      - std and src stop using them: about 60 context objects become `Rc(struct(...))`, and about 135 result records become plain structs.
+      - The wrappers move onto `__yo_cell`/`__yo_atomic_cell`.
+      - About 150 test declarations in 68 files migrate.
+      - #1421's two cursor-walk tests need a redesign, not a rewrite. They keep `ref(struct)` because a `RefCell` cannot hand a `&mut` out of `with_mut`.
+      - With `ref` gone, the S2 `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` either closes or moves to `Rc(RefCell)`.
+    - **Generation B:**
+      - The parser drops the constructors.
+      - The 527 sites in 73 files that test `is_reference_semantics`/`is_atomic_rc` are reread against the new meaning.
+      - The docs change in both languages, and so do the skills (re-record the seven skill goldens) and the pack.
+18. **After V5: retire the `yo fix` migrations** (plan §6 "After V5").
+    - The gate: each of the six README example projects builds and passes its tests on the last release that ships every migration, with `.yo-version` pinned there.
+    - Then delete each migration's record mode, its `ExprInfo` state, its CLI handling, its cli-cases and its docs.
+
+### 4.4 Releases still needed
+
+After v0.2.65, at least five releases are on the critical path, one at each boundary between a Generation A and its Generation B:
+1. B12 → B13 (`Dyn`);
+2. V2c;
+3. decision 43, step 2 → step 4;
+4. V5;
+5. the final release that ships every migration, before step 18 retires them.
+
+Cut a patch release whenever a Generation A that something waits on has landed, provided the develop battery is green on the exact tip and the battery-head diff is empty. Releases are pre-authorized.
+
+### 4.5 Decided 2026-10-18 (the maintainer took the advisor's recommendations)
+
+Nothing is waiting on the maintainer. The verdicts are in §3.4 and in the retired docs. For later decisions, follow the same practice: write the question up in `issues/questions/` with a recommendation, then retire it into the plan once it is decided.
+
+### 4.6 Queued for after VBD (not part of the campaign)
+
+- Evaluator performance steps 1–2 (plan §6 "Evaluator performance"). The maintainer deferred them until after VBD.
+- The issue-date rename (2026-10-15 handover §4 step 15; its script is in that handover's §9.1).
+- PARALLEL_COMPILATION P4 step 2, a forked `check <dir>`, and sizing `YO_TEST_FORK`'s N on an idle machine.
+- The AGENTS.md note that the `tests/cli-cases` exclude avoids "~4 false failures" is slightly stale: #1427 added two fixtures that fail on purpose.
 
 ## 5. Open bugs to know about
 
@@ -149,11 +261,12 @@ On develop:
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
 - `issues/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
-- "`!` on a runtime bool in a comptime-type-parameterized fn is E1101" (2026-10-16; the E1101 branch moves it)
 - "the async mutex is not FIFO across event loops" (2026-10-16; the FIFO branch moves it)
 - `issues/2026-10-17-a-closure-passed-into-a-comptime-expect-error-call-leaks-its-moved-capture.md`
 - `issues/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`
 - `issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`
+- `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2, found while deciding #1429's questions: a `ref(struct)` collection whose `walk_elem` forwards `&mut self.items(cur)` panics at the next container call; arrives with #1431)
+- `issues/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md` (S3: a bare tail `self.items.walk_elem(cur)` reports an internal pointer type instead of naming `&mut`; arrives with #1431)
 
 Filed on in-flight branches; they arrive with those PRs:
 
@@ -167,7 +280,7 @@ The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. The coordinator:
 
 1. Curates the v0.2.65 release notes (§7 has the draft) and checks that `SEED_VERSION` was bumped.
-2. Stops its schedulers: the 40-minute status-ping cron jobs (three session-only jobs) and any PR-run cancel loop.
+2. Stops its schedulers: the status-ping cron job (session-only; one job since the 2026-10-18 restart) and any PR-run cancel loop.
 3. Messages every running agent: "STOP after your current tool call. Push your current head. Reply with: branch, head SHA, what passed, what did not run. Do not merge." Any agent that does not answer is stopped.
 4. Rewrites §2.4 from the replies, with head SHAs, and updates the live-status box.
 5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.

@@ -1701,6 +1701,13 @@ and in git, not a silent edit.
     immutable after construction, so `Rc` shares them honestly. The small
     trees (`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`) take `Box`. `EvalValue`
     is decided and measured in its own V4 PR.
+    - **Amended 2026-10-18 (maintainer, on the advisor's recommendation;
+      `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`):
+      the rule is by sharing, not by size.** A tree whose subtrees are shared
+      or substituted takes `Rc` children; a tree built once and consumed
+      takes `Box`; a type with no direct `Self` child is a plain value. So
+      `VcTerm` takes `Rc` now (the verifier substitutes and shares
+      subterms), and `VcSort` takes `Box` after V2b B6.
     - **Amended 2026-10-13 (maintainer verdict: "Rc handle when the
       measurements favor it"): `TypeValue` stays an `Rc` handle.** The value
       enum with `Rc(Self)` children was built and measured, and lost. A
@@ -7597,12 +7604,15 @@ once `SEED_VERSION` parses it.
      - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals step.
      - E0918 is unchanged and checked first, so a runtime write of a
        `mut(x) ::` is still E0918.
+     - A parameter is an immutable binding, so a `&mut` capture of a
+       by-value parameter reports E0917 before the older "a `&mut` capture
+       needs a writable place" message. Accepted on 2026-10-18.
      - Module-level `mut(x) ::` is ACCEPTED, against the open point's
        recommendation: tests/comptime.test.yo already reassigns a
        module-level `::` binding at module level (`_RW_M = i32(2);`), so
        rejecting it would delete a working feature, which is beyond a
-       Generation A. Generation A only asks for the marker. Whether module
-       level keeps `mut(x) ::` is still the maintainer's call.
+       Generation A. Generation A only asks for the marker. Accepted by the
+       maintainer on 2026-10-18.
      - A capture-list entry and a pattern binding a macro expansion
        introduces around a caller's name (the element of
        `for(coll, x => ...)`) are treated as parameters: no `mut`, and a
@@ -7814,6 +7824,16 @@ audit, finding 4) so that the iterator holds no handle: index cursors and
 the borrowed `for`. Decision 40 (2026-10-07) rules out
 `Pin`; its invariant was corrected the same day (second audit #1264, finding 1).
 Decision 18 was also amended to place-based exclusivity.
+
+**Decided 2026-10-18** (maintainer, taking the advisor's recommendations):
+- `VcTerm`/`VcSort` children: decision 21's 2026-10-18 amendment.
+- How a named function value carries `Send`: function-item types after
+  decision 43, the structural-compat fix first; until then
+  `plans/reference/PARALLELISM_RULES.md` D9 recommends a capture-free
+  closure (`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`).
+- The borrowed `for` over user collections: `BorrowedWalk` stands until
+  decision 43 step 3 (`issues/retired/borrowed-for-over-user-defined-collections.md`).
+- Decision 47 step 2's two as-built departures are accepted (below).
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:
