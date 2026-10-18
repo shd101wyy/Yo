@@ -6,11 +6,12 @@ the same day as a feasibility note in `backlog/`; it was promoted when the
 decision was made). It is a selling point only if the claim behind it is
 true at every stage, so the campaign is a **ladder of claims**, each
 checked in CI the day it is made, each strictly stronger than the last.
-The 2026-10-18 amendment adds three honesty mechanisms before the
+The 2026-10-18 amendment adds honesty mechanisms before the
 annotation milestones scale up: the **vacuity gate** (a contract that
 proves nothing must not count — new section below), **pinned known-answer
-rows** behind the M1/M3 consistency proofs, and the **re-derived-numbers
-rule** for every published claim sentence. Companion plans:
+rows** behind the M1/M3 consistency proofs, the **re-derived-numbers
+rule** for every published claim sentence, and a **mutation gate** over
+the verifier's own soundness core (Trust section). Companion plans:
 [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md) (the
 verifier), [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 (B0 `--strict`, B1 `law`, B2 lemmas — this campaign consumes them),
@@ -179,7 +180,7 @@ and whether matching logic is related. The answer, per alternative:
 | **Abstract interpretation** (Astrée, Frama-C EVA, Infer) | Absence of runtime errors on unannotated code, whole-program, no invariants written | **Adopt as a lever, not a foundation** (L7): an interval/octagon pass generates candidate loop invariants that the SMT verifier then *proves*, so the claim stays "verified", not "analyzed". This is how the 3,382 loops get done; it is the industry answer to AoRTE at scale |
 | **Translation validation** (Alive2 for LLVM; per-compilation equivalence checks) | Check each compilation's output instead of the compiler | Out of scope: needs C11 semantics and an equivalence checker; D2 dropped external model checkers. Differential testing (CTFE vs compiled output over the corpus) already plays the pragmatic version of this role |
 | **Ownership-based framing** (Prusti/Viper permissions from Rust ownership) | Framing for mutable heap without separation-logic annotations | Partially applicable: Yo's `inout` exclusivity and `own` give Prusti-style framing for parameters; shared RC refs do not. L6 chooses between this and Burstall-Bornat flat heaps for the mutable remainder |
-| **Proof certificates** (Z3 proof logs + a small checker) | Remove Z3 from the trusted base | Parked (`MATCHING_LOGIC_RESEARCH.md` §8); relevant to M3's "the verifier is verified" sentence — the checker would be the thing to verify in Yo. V8+ at the earliest |
+| **Proof certificates** (Z3 proof logs + a small checker) | Remove Z3 from the trusted base | Parked (`MATCHING_LOGIC_RESEARCH.md` §8); relevant to M3's "the verifier is verified" sentence — the checker would be the thing to verify in Yo. V8+ at the earliest. A working existence proof of the shape now exists in the wild (compiled artifacts shipping a sidecar certificate checked by a small independent proof kernel), and its transferable rules if this is ever un-parked: bind the certificate to the **emitted artifact's bytes**, not the source; carry the compiler's plan as data and lower meaning→bytes inside the checker (never decode bytes back to meaning); ship checker and compiler as separately versioned binaries, the compiler linking no verifier; split a fast CI `check` from the release-grade `verify` replay |
 
 So: the backend stays SMT; the *front* grows two things the current
 verifier plan does not have — invariant inference and a mutable-heap
@@ -199,6 +200,17 @@ compiler difference, never solver noise. Uncovered: a bug shared by seed
 and tree, and the encoding itself (mitigated by the bugged-twin
 discipline: every positive fixture has a deliberately broken sibling that
 must refute, and M3's consistency laws check the encoding against CTFE).
+
+The third leg is a **mutation gate over `src/verifier/` itself**
+([`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)
+"Mutation testing the verifier"): the corpus that catches
+deliberately-bugged user programs must also catch a deliberately bugged
+verifier — flip an encoding operator or a verdict mapping, rebuild, and
+the tests must go RED. A surviving mutant is a hole in the twin corpus.
+The gate runs PR-scoped (a PR touching `src/verifier/` mutates the
+functions it changes), its committed score is a regenerated artifact
+under the re-derived-numbers rule, and it is the systematic answer to
+"the twins only cover the bugs someone already thought of".
 
 ## The vacuity gate — contracts that prove nothing
 

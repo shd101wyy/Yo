@@ -1740,12 +1740,36 @@ usage before continuing.
 | Negative verification | `tests/spec/fixtures/negative/*.yo` driven by `tests/internal/verifier_negative.test.yo` | Each fixture must fail `yo check` with the expected diagnostic (subprocess harness asserting error text; the same scoring shape as `scripts/cli-diff-test.sh`) |
 | Bugged twins | alongside each positive test | Every positive fixture has a deliberately-broken twin whose Refute message and counter-example are asserted — guards against a verifier that "proves" by encoding wrongly |
 | Vacuity fixtures | `tests/spec/fixtures/` + the negative harness | A contradictory-`requires` function warns `vacuous: hypotheses` while its `ensures` still reports Proved; a hypothesis-free `ensures` warns `vacuous: conclusion`; twins assert the probes never flip a verdict |
+| Mutation gate (planned) | tree-built binary + the `tests/spec` corpus | Each mutant of a PR-touched `src/verifier` function must redden the corpus; survivors are triaged — weak twin, equivalent mutant (annotated), or coverage gap |
 | Runtime parity | existing `tests/spec/*` | Phase-0 behavior must not regress: `runtime` mode still lowers to asserts |
 | CI | new `verify` workflow job | Installs pinned Z3; `yo verify ./std/spec ./tests/spec`; uploads JSON report |
 
 Every bug the verifier finds in `std/` during dogfooding gets an
 `issues/` entry + reproducer per repo convention, and its regression
 test joins `tests/spec/`.
+
+### Mutation testing the verifier (planned)
+
+The bugged-twin discipline checks that *specific* encodings can fail; it
+is manual and per-fixture. Its systematic version is a **mutation
+gate**: deliberately break the verifier's soundness core — flip an
+operator in `encode.yo` (`bvult`↔`bvule`), swap a verdict mapping in the
+runner, perturb name mangling — rebuild, and require the test corpus to
+go RED. A surviving mutant is a test gap: a weak twin to strengthen, an
+equivalent mutant to annotate in a committed survivors list with a
+one-line rationale, or a coverage gap. Scope it to the **PR diff** (only
+the functions a PR touching `src/verifier/` changes): a full sweep pays
+a compiler rebuild per mutant, which is the same cost class as the
+`tests/internal` suite; a nightly measure-all sweep over the soundness
+core can follow once the diff lane exists. Two oracle rules: the mutant
+must be exercised through the **tree-built** binary or an in-process
+run — a subprocess suite that drives the installed seed cannot kill
+mutants — and a mutant that pushes a query past its rlimit flips `Proved`
+to `Unproven` without changing the class of the failure, so a survivor
+is re-run before it is believed. The committed score is a regenerated,
+diffable artifact (per-module counts + survivors), never hand-edited,
+under the same re-derived-numbers rule as every other published count
+([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md)).
 
 ## Design for LLM authorship
 
@@ -1822,6 +1846,11 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 - **Solver dependence.** Z3 is a large external dependency — mitigated
   by pinning, caching, the `YO_Z3_PATH` escape hatch, and `verify+`'s
   never-blocked-by-solver fallback.
+- **Verifier bugs are trusted by default.** A proved contract strips its
+  assert, so if the verifier is ever wrong the shipped program is wrong
+  with no tripwire. The documented recovery mode (not built): a paranoid
+  profile that keeps proved contract asserts as runtime traps — the
+  escape hatch if a soundness bug is ever found in the wild.
 - **Quantifier flakiness.** E-matching instantiation can exhaust budgets
   unpredictably. Mitigations: deterministic budgets make failures
   *stable*, guidance-level diagnostics suggest instantiation, and V3–V4
