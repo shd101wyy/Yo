@@ -2,7 +2,7 @@
 
 **Severity:** S1 — silently wrong code: a store through a pointer inside the function body is not emitted, so the program reads stale memory.
 
-**Status:** fixed 2026-10-18 (#PRNUM3). Found 2026-10-17 while gating the fix for
+**Status:** fixed 2026-10-18 (#1445). Found 2026-10-17 while gating the fix for
 `issues/fixed/2026-10-16-not-on-a-runtime-bool-in-a-comptime-type-parameterized-fn-is-e1101.md`.
 Reproduces on develop at #1380 (`5425cd7bf`) and with that fix applied.
 
