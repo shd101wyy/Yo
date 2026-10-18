@@ -13,10 +13,16 @@ one.
 ```yo
 Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T, n : i32));
 M :: trait(m : (fn(self : &Self) -> i32));
-impl(generic(T : Type), Wrap(T), M(m : (fn(self : &mut Self) -> i32)({
-  self.n = (self.n + i32(1));
-  self.n
-})));
+impl(
+  generic(T : Type),
+  Wrap(T),
+  M(
+    m : (fn(self : &mut Self) -> i32)({
+      self.n = (self.n + i32(1));
+      self.n
+    })
+  )
+);
 main :: (fn() -> unit)({
   a := Wrap(i32)(v : i32(1), n : i32(0));
   (d : Dyn(M)) = dyn(a);

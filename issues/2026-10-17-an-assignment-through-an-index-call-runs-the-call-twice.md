@@ -51,7 +51,14 @@ pragma(Pragma.AllowUnsafe);
 (mut(g_d) : i32) = i32(0);
 Dk :: struct(n : i32);
 derive(Dk, Eq(Dk), Hash);
-impl(Dk, Drop(drop : (fn(self : &mut Self) -> unit)({ g_d = (g_d + i32(1)); })));
+impl(
+  Dk,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_d = (g_d + i32(1));
+    })
+  )
+);
 main :: (fn() -> unit)({
   m := HashMap(Dk, i32).new();
   m.insert(Dk(n : i32(5)), i32(50));

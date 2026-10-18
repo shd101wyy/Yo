@@ -8,8 +8,23 @@
 
 ```yo
 Big :: struct(n : i32);
-impl(Big, bump : (fn(self : &mut Self) -> unit)({ self.n = (self.n + i32(1)); }));
-impl(Big, Clone(clone : (self -> { self.bump(); Big(n : self.n) })));
+impl(
+  Big,
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+impl(
+  Big,
+  Clone(
+    clone : (
+      self -> {
+        self.bump();
+        Big(n : self.n)
+      }
+    )
+  )
+);
 ```
 
 `error[E0908]: Cannot pass self as the self : &mut Self receiver: self is a match or for binding ... to write a for element in place, loop with for(&mut xs, self => ...)`.

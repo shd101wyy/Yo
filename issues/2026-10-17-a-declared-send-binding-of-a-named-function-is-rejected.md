@@ -12,8 +12,8 @@
 nine :: (fn() -> i32)(i32(9));
 main :: (fn() -> unit)({
   (f : Impl(Fn() -> i32, Send)) = nine; // E0601
-  (g : Impl(Fn() -> i32)) = nine;       // accepted; g's type is fn() -> i32
-  (h : Impl(Fn() -> i32, Send)) = g;    // E0601
+  (g : Impl(Fn() -> i32)) = nine; // accepted; g's type is fn() -> i32
+  (h : Impl(Fn() -> i32, Send)) = g; // E0601
   f;
   h;
 });

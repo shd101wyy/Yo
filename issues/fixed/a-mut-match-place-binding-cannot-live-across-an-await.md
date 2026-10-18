@@ -7,10 +7,14 @@
 ```yo
 task := io.async((io : Io) => {
   (o : Option(i32)) = .Some(i32(1));
-  match(&mut o, .Some(n) => {
-    io.await(yield(io), io);
-    n = (n + i32(1));
-  }, .None => ());
+  match(
+    &mut o,
+    .Some(n) => {
+      io.await(yield(io), io);
+      n = (n + i32(1));
+    },
+    .None => ()
+  );
 });
 ```
 

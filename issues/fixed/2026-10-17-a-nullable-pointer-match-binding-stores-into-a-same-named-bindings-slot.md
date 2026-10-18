@@ -21,16 +21,22 @@ _same_name_slots :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
     (os : Option(String)) = .Some(String.from("old"));
     (ol : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
-    match(&os, .Some(xs) => {
-      io.await(yield(io), io);
-      assert(xs.len() == usize(3), "first");
-    }, .None => ());
+    match(
+      &os,
+      .Some(xs) => {
+        io.await(yield(io), io);
+        assert(xs.len() == usize(3), "first");
+      },
+      .None => ()
+    );
     n := (usize(1) + match(&ol, .Some(xs) => xs.len(), .None => usize(0)));
     assert(n == usize(1), "second");
   });
   io.await(task, io);
 });
-main :: (fn(io : Io) -> unit)({ _same_name_slots(io); });
+main :: (fn(io : Io) -> unit)({
+  _same_name_slots(io);
+});
 export(main);
 ```
 
