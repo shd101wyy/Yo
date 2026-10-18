@@ -1,0 +1,18 @@
+// Reproducer for issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md
+f1 :: (fn(n_opt : Option(usize)) -> Option(usize))({
+  match(
+    n_opt,
+    .Some(k) => {
+      return(.Some(k));
+    },
+    .None => {
+      return(.None);
+    }
+  );
+});
+
+export(main);
+main :: (fn() -> unit)({
+  r1 := f1(Option(usize).Some(usize(9)));
+  unit;
+});

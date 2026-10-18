@@ -457,12 +457,39 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                   line.push_string(&expr_code);
                   line.push_str(";");
                   em.emit_string_line(&line);
+                }, {
+                  // The tail rendered NO code — every path through it diverges
+                  // (an all-arms-return statement match or cond as the tail).
+                  // The scope-end drops above land after the construct, so a
+                  // trap emitted by the construct's own emitter is not the
+                  // function's last statement either: close the function HERE,
+                  // after the drops. `__yo_abort` is `_Noreturn`, so gcc and
+                  // clang both treat the fall-through as unreachable and
+                  // -Werror=return-type cannot fire
+                  // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
+                  trap := indent.clone();
+                  trap.push_str("__yo_abort();  // unreachable: every path through the tail diverges");
+                  em.emit_string_line(&trap);
                 });
               }
             );
           },
           .None => ()
         );
+      }, {
+        // find_return: a statement carried control flow, so the tail (and
+        // every statement after it) was dropped as unreachable — but the C
+        // construct that diverged is not PROVABLY closed to the C compiler (a
+        // switch over a struct's tag member, or arms whose own closers are
+        // buried under later epilogue lines). Close the function here, or
+        // gcc's -Werror=return-type fires on the fall-off
+        // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md);
+        // the trap is dead in every valid program.
+        if(!result_is_unit, {
+          fr_trap := indent.clone();
+          fr_trap.push_str("__yo_abort();  // unreachable: a statement before the tail diverges on every path");
+          em.emit_string_line(&fr_trap);
+        });
       });
     });
   }, {

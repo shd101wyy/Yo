@@ -319,6 +319,13 @@ impl(
     );
   }),
   /// Get the file extension (without the dot), or `.None` if there is none.
+  // The outer match's `.None` arm produces its value instead of returning, so
+  // the match has a value arm and the emitters close the function with a
+  // trailing return of the result temp: an all-arms-return statement match in
+  // a non-void function leaves the switch as the C function's last statement,
+  // which gcc rejects under -Werror=return-type
+  // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
+  // Keep this spelling until SEED_VERSION carries the emitter fix.
   extension : (fn(self : &Self) -> Option(String))({
     name_opt := self.file_name();
     match(
@@ -347,10 +354,8 @@ impl(
           }
         );
       },
-      .None => {
-        return(.None);
-      }
-    );
+      .None => .None
+    )
   }),
   /// Return a new path with the extension replaced by `ext`.
   with_extension : (fn(self : &Self, ext : &String) -> Self)({

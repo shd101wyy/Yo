@@ -1417,7 +1417,11 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
       // every path already returned (e.g. a tail `match` with returning arms)
       // — a bare `return ;` here is a C constraint violation in a non-void fn
       // ("non-void function should return a value", the install_command
-      // batch). Emit nothing: control cannot reach past the statement form.
+      // batch). Emit nothing for the value — but close a NON-VOID function
+      // with a trap: the statement form is not PROVABLY closed to the C
+      // compiler (a switch over a struct's tag member), so gcc's
+      // -Werror=return-type otherwise fires on the fall-off
+      // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
       if(final_code.trim().len() > usize(0), {
         // Scope-end drops of the shared-id body node, before the return: the
         // own-param releases (the expression-level flushes skip param
@@ -1443,6 +1447,14 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
           line.push_string(&final_code);
           line.push_str(";");
           em.emit_string_line(&line);
+        });
+      }, {
+        // The empty-render closer: dead in every valid program.
+        eret_ty := match(context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : er })) => er, _ => t_unit()), .None => t_unit());
+        if(!is_unit_type(&eret_ty), {
+          etrap := indent.clone();
+          etrap.push_str("__yo_abort();  // unreachable: every path through the tail diverges");
+          em.emit_string_line(&etrap);
         });
       });
     })
