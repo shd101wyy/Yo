@@ -446,3 +446,57 @@ test("a missing case is printed through the Rc wrapper", {
     bad8(rc(Tree.Leaf(1)))
   }, "Missing case: Rc(.Leaf(_))");
 });
+// A match in statement position whose every arm returns, inside a non-void
+// function: the emitted switch is the C function's last statement, which gcc
+// rejects under -Werror=return-type unless the construct is closed with the
+// unreachable trap (clang accepted the bare switch, so CI's clang builds never
+// saw it). The match-as-function-tail, the match-before-a-tail, and a nested
+// statement match are the three shapes that hit it
+// (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
+test("an all-arms-return statement match over an Option ends a non-void function", {
+  f :: (fn(n_opt : Option(usize)) -> Option(usize))({
+    match(
+      n_opt,
+      .Some(k) => {
+        return(Option(usize).Some((k + usize(1))));
+      },
+      .None => {
+        return(Option(usize).None);
+      }
+    );
+  });
+  assert(f(Option(usize).Some(usize(9))) == Option(usize).Some(usize(10)));
+  assert(f(Option(usize).None).is_none());
+});
+test("an all-arms-return statement match over a payload enum ends a non-void function", {
+  g :: (fn(o : Outer) -> i32)({
+    match(
+      o,
+      .Ok(v) => {
+        return(match(v, .A(x) => x, .B => i32(-1)));
+      },
+      .Err(code) => {
+        return((code * i32(100)));
+      }
+    );
+  });
+  assert(g(Outer.Ok(Inner.A(41))) == i32(41));
+  assert(g(Outer.Ok(Inner.B)) == i32(-1));
+  assert(g(Outer.Err(2)) == i32(200));
+});
+test("an all-arms-return statement match before a tail leaves the tail emitted", {
+  h :: (fn(o : Outer) -> i32)({
+    match(
+      o,
+      .Ok(v) => {
+        return(match(v, .A(x) => x, .B => i32(-5)));
+      },
+      .Err(code) => {
+        return((code - i32(1)));
+      }
+    );
+    i32(-99);
+  });
+  assert(h(Outer.Ok(Inner.A(3))) == i32(3));
+  assert(h(Outer.Err(4)) == i32(3));
+});

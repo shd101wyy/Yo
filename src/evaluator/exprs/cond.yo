@@ -883,7 +883,14 @@ evaluate_cond :: (
           // Should never be reached.
           true => ()
         );
-        return(expr);
+        // The arm's tail value instead of `return(expr)`: an all-arms-return
+        // match statement in a non-void function leaves the emitted switch as
+        // the C function's last statement, which gcc rejects under
+        // -Werror=return-type — a value arm makes the match carry a result
+        // temp and the function's own tail `expr` return closes it
+        // (issues/fixed/2026-10-18-a-match-in-statement-position-falls-off-the-end-of-a-non-void-function.md).
+        // Keep this spelling until SEED_VERSION carries the emitter fix.
+        expr
       });
     }
   );

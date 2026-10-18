@@ -2480,14 +2480,33 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &F
   code := _generate_match_expression_body(expr, indent, context);
   match(
     context.base.get_expr_info(expr),
-    .Some(ei) => match(
-      ei.variable_name,
-      .Some(tv) => if(!is_unit_type(&ei.ty) && (code == tv), {
+    .Some(ei) => {
+      // Every arm of this match diverges (the evaluator stamps the node's
+      // control_flow only then), so control never falls past the construct —
+      // but the C cannot say so: a switch over a struct's tag member (or the
+      // general lowering's end label) is not PROVABLY exhaustive to the C
+      // compiler, and when nothing follows the construct the function simply
+      // ends. clang accepts that; gcc rejects `control reaches end of
+      // non-void function` under the driver's -Werror=return-type, so any
+      // gcc-built program with the shape failed to compile. Close the
+      // construct with a trap: `__yo_abort` is `_Noreturn`, so both compilers
+      // treat the fall-through as unreachable and the C function stays
+      // well-formed (the trap is dead in every valid program).
+      if(has_any_control_flow(ei.control_flow), {
         em := context.base.emitter;
-        em.mark_declared_in_scope(&tv);
-      }),
-      .None => ()
-    ),
+        trap := indent.clone();
+        trap.push_str("__yo_abort();  // unreachable: every arm of this match diverges");
+        em.emit_string_line(&trap);
+      });
+      match(
+        ei.variable_name,
+        .Some(tv) => if(!is_unit_type(&ei.ty) && (code == tv), {
+          em := context.base.emitter;
+          em.mark_declared_in_scope(&tv);
+        }),
+        .None => ()
+      );
+    },
     .None => ()
   );
   code
