@@ -87,7 +87,7 @@ pragma(Pragma.AllowUnsafe);
 { FuncMeta, TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, type_decl_module } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -1989,47 +1989,53 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
   g_concrete_trait_impls.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site));
   g_concrete_trait_impl_owners.push(registration_owner());
 });
-/// Where the nominal types `t` mentions are declared, in the order
-/// `type_to_string` prints them: each struct, enum and union contributes its
-/// declaring module (`type_decl_module`), each trait its base key (the
-/// constructor's fid, else its id, which carries the module) followed by its
-/// method signatures' types, which is where a trait instance's arguments
-/// live (`From(Meters)` is `from : fn(value : Meters) -> Self`). Two
-/// declarations can print alike (two files' `Wrap(T)`), so a key built from
-/// `type_to_string` alone merges them, and one file's impls are then checked
-/// against the other's
-/// (issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md).
-_decl_modules_of :: (fn(t : &TypeValue, depth : usize) -> String)(
+/// A canonical DECLARATION-IDENTITY render of `t`, for the generic-impl
+/// coherence keys: every nominal type contributes the identity
+/// `_nominal_root_identity` computes for a root — the generic constructor's
+/// func id for an instantiation (`Wrap(T)` and `WA(T)` after `WA :: Wrap`
+/// share it), else the declaration-stable id — instead of its printed name,
+/// and every type argument, method signature and payload recurses the same
+/// way. A printed name is not an identity: an alias prints differently
+/// (`WA(T)` vs `Wrap(T)`), two files' `Wrap` print alike, and a binder rename
+/// prints differently (`Option(U)` vs `Option(T)`) — all three pairs are ONE
+/// declaration and must collide in the coherence key
+/// (issues/2026-10-17-a-duplicate-generic-trait-impl-spelled-differently-is-accepted.md).
+/// The caller substitutes the impl's forall binders canonically first, so a
+/// SomeT renders by its positional `$k` name. Anything non-nominal and
+/// non-structural (a builtin leaf) renders through `type_to_string`, which is
+/// stable for it.
+_decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
   cond(
     (depth > usize(16)) => String.new(),
     true => match(
       t,
-      Rc(.Struct({ id : dm_sid, type_arguments : dm_stas, is_source_namespace : dm_sns })) => cond(
-        dm_sns => String.new(),
-        true => `|${_decl_module_or_empty(&dm_sid)}${_decl_modules_of_list(&dm_stas, depth + usize(1))}`
+      Rc(.Struct({ id : di_sid, type_arguments : di_tas, is_source_namespace : di_sns })) => cond(
+        di_sns => `|ns:${di_sid.clone()}`,
+        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas, depth + usize(1))}`
       ),
-      Rc(.EnumT(id : dm_eid, type_arguments : dm_etas)) => `|${_decl_module_or_empty(&dm_eid)}${_decl_modules_of_list(&dm_etas, depth + usize(1))}`,
-      Rc(.Union(name : dm_uname)) => `|${_decl_module_or_empty(&dm_uname)}`,
-      Rc(.TraitT(field_types : dm_trfts)) => `|${get_base_trait_key(t)}${_decl_modules_of_list(&dm_trfts, depth + usize(1))}`,
-      Rc(.Func({ param_types : dm_fpts, implicit_types : dm_fits, result : dm_fres, variadic_types : dm_fvts })) => `${_decl_modules_of_list(&dm_fpts, depth + usize(1))}${_decl_modules_of_list(&dm_fits, depth + usize(1))}${_decl_modules_of_list(&dm_fvts, depth + usize(1))}${_decl_modules_of(&dm_fres, depth + usize(1))}`,
-      Rc(.Pointer(dm_pointee)) => _decl_modules_of(&dm_pointee, depth + usize(1)),
-      Rc(.Array(dm_elem, _, _)) => _decl_modules_of(&dm_elem, depth + usize(1)),
-      Rc(.Tuple(_, dm_tfts)) => _decl_modules_of_list(&dm_tfts, depth + usize(1)),
-      _ => String.new()
+      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas, depth + usize(1))}`,
+      Rc(.Union(name : di_uname)) => `|u:${di_uname.clone()}`,
+      // A trait contributes its own base key plus its method signatures'
+      // types, where a trait instance's arguments live (`From(Meters)` is
+      // `from : fn(value : Meters) -> Self`).
+      Rc(.TraitT(field_types : di_trfts)) => `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`,
+      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts, depth + usize(1))};${_decl_identity_key_of_list(&di_fits, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
+      Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
+      Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem, depth + usize(1))}]`,
+      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts, depth + usize(1))})`,
+      Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
+      _ => type_to_string(t)
     )
   )
 );
-_decl_modules_of_list :: (fn(ts : &ArrayList(TypeValue), depth : usize) -> String)({
+_decl_identity_key_of_list :: (fn(ts : &ArrayList(TypeValue), depth : usize) -> String)({
   out := String.new();
-  (dl_i : usize) = usize(0);
-  while(dl_i < ts.len(), dl_i = (dl_i + usize(1)), {
-    match(ts.get(dl_i), .Some(dl_t) => out.push_string(_decl_modules_of(&dl_t, depth)), .None => ());
+  (di_i : usize) = usize(0);
+  while(di_i < ts.len(), di_i = (di_i + usize(1)), {
+    match(ts.get(di_i), .Some(di_t) => out.push_string(_decl_identity_key_of(&di_t, depth)), .None => ());
   });
   out
 });
-_decl_module_or_empty :: (fn(type_id : &String) -> String)(
-  match(type_decl_module(type_id), .Some(m) => m, .None => String.new())
-);
 /// Could the receiver patterns `a` and `b` name one type? Never when both
 /// roots are nominal types from different declarations
 /// (`_nominal_root_identity`). Otherwise the root-shape prefilter decides (a
@@ -2102,9 +2108,15 @@ _canon_shown_substs :: (fn(entry : &GenericImplEntry) -> Tuple(Substitution, Sub
 /// generic TRAIT impl (`type_id` is `"generic"`): the canonically-substituted
 /// receiver and trait, each with its nominal declarations' modules, plus the
 /// trait key. Rebuilt verbatim by `_undo_generic_impl_registration`.
+/// The receiver and the trait key by DECLARATION IDENTITY
+/// (`_decl_identity_key_of`): the printed shape split one declaration's
+/// spellings apart — an alias receiver (`WA(T)` vs `Wrap(T)`), a binder
+/// rename (`Option(U)` vs `Option(T)`) — so a duplicate generic impl was
+/// accepted with two impls of one trait for one type, and the unregistration
+/// rollback (`_undo_generic_impl_registration`) must rebuild the SAME key.
 _generic_impl_trait_site_shape :: (fn(entry : &GenericImplEntry) -> String)({
   (canon, _shown_unused) := _canon_shown_substs(entry);
-  `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${type_to_string(substitute(&canon, &entry.trait_type))}${_decl_modules_of(&entry.trait_type, usize(0))}|${entry.trait_key}`
+  `${_decl_identity_key_of(substitute(&canon, &entry.receiver_type_pattern), usize(0))}\n${_decl_identity_key_of(substitute(&canon, &entry.trait_type), usize(0))}|${entry.trait_key}`
 });
 /// Coherence at a GENERIC trait impl: an identical impl (same receiver
 /// pattern and trait, binders renamed by position) from another site is a
@@ -2136,9 +2148,10 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
       bw_i = (bw_i + usize(1));
     });
     bounds.sort();
-    // The printed shape names the receiver; its declaring modules tell two
-    // modules' same-named types apart (`_decl_modules_of`).
-    inh_shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${String.from(", ").join(&bounds)}`;
+    // The receiver keys by declaration identity (`_decl_identity_key_of`): a
+    // printed name splits one declaration's spellings apart (an alias, a
+    // binder rename) and merges two modules' same-named types.
+    inh_shape := `${_decl_identity_key_of(substitute(&canon, &entry.receiver_type_pattern), usize(0))}\n${String.from(", ").join(&bounds)}`;
     (fi : usize) = usize(0);
     while(fi < entry.field_names.len(), {
       f_name := match(entry.field_names.get(fi), .Some(n) => n, .None => String.new());
@@ -2160,9 +2173,13 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     });
     return(());
   });
-  // The declaring modules of the receiver's and the trait's nominal types
-  // tell two modules' same-named types apart (`From(Meters)` over each
-  // file's own `Meters`; `_decl_modules_of`).
+  // The receiver and the trait key by DECLARATION IDENTITY
+  // (`_generic_impl_trait_site_shape` → `_decl_identity_key_of`): the
+  // printed shape split one declaration's spellings apart — an alias
+  // receiver (`WA(T)` vs `Wrap(T)`), a binder rename (`Option(U)` vs
+  // `Option(T)`) — so a duplicate generic impl was accepted with two impls
+  // of one trait for one type
+  // (issues/fixed/2026-10-17-a-duplicate-generic-trait-impl-spelled-differently-is-accepted.md).
   shape := _generic_impl_trait_site_shape(entry);
   match(
     note_trait_impl_site(String.from("generic"), &shape, &entry.site),
