@@ -289,6 +289,11 @@ The maintainer asked for all work to stop once v0.2.65 is published, with this d
 2. Stops its schedulers: the status-ping cron jobs (session-only; all deleted 2026-10-18 once no subagent was live) and any PR-run cancel loop.
 3. Messages every running agent: "STOP after your current tool call. Push your current head. Reply with: branch, head SHA, what passed, what did not run. Do not merge." Any agent that does not answer is stopped.
 4. Rewrites §2.4 from the replies, with head SHAs, and updates the live-status box.
+4a. Merges #1442 (`plans/self-verification-honesty-pass`, plans-only plus one `AGENTS.md` line; the maintainer asked for it to merge once v0.2.65 is out). The steps:
+   - Rebase onto develop. It was trial-rebased cleanly onto `53995438d` as `rg/1442` in `~/Workspace/Yo-wt/pr1442`. Leave the `~/Workspace/Yo-wt/honesty` worktree alone: it belongs to the session that wrote the PR.
+   - Run refs. All 7 ` ```yo ` blocks parse with the tree compiler.
+   - `git push -f origin rg/1442:plans/self-verification-honesty-pass`, then `gh pr ready 1442` and `gh pr merge 1442 --squash --admin`.
+   - Delete the remote branch by hand if `--delete-branch` refuses.
 5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.
 
 A new agent starting from this document re-runs Tier 1 for any branch before merging it (§2.4).
