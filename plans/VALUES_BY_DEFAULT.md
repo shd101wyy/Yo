@@ -6480,8 +6480,9 @@ heavy run, the command is given in item 2.
    - v0.2.64 is the seed (`SEED_VERSION`). It carries A1 (#1384, already in
      v0.2.63), decision 47's `mut(` parser and A5's `__yo_waker_clone`.
    - Decision 47 globals Generation B has landed (handover §2.3, "Generation
-     B"): `is_global_mut_rule_exempt` is gone, so std and src are judged by
-     E0916/E0917 like user code. Every count below assumes it.
+     B"): `is_global_mut_rule_exempt` no longer covers globals (it stays
+     for decision 47's locals step until its Generation B), so std and src
+     are judged by E0916/E0917 on globals like user code. Every count below assumes it.
    - #1385 (A2, `yo fix --migrate explicit-copy`) has landed (handover §4
      step 8). The tree-built compiler runs the migration; the seed does not
      need it, because `.clone()` is valid in every seed.
@@ -7608,9 +7609,10 @@ once `SEED_VERSION` parses it.
        into a local (or read through its existing getter, which returns the
        global by value), `std/rand.yo` steps a local copy of the
        thread-local state and writes it back.
-     - `is_global_mut_rule_exempt` and `global_mut_rule_applies` are gone:
-       E0916 and E0917 apply everywhere, macro expansions and fetched
-       dependencies included. `markdown_yo` marks its four globals in the
+     - `is_global_mut_rule_exempt` and `global_mut_rule_applies` no longer
+       guard the globals rules (the locals step, #1440, keeps them for its
+       Generation A): E0916 and E0917 on a global apply everywhere, macro
+       expansions and fetched dependencies included. `markdown_yo` marks its four globals in the
        companion (shd101wyy/markdown_yo#19, released as 0.0.18, which
        `yo.toml` now requires).
      - E0909 for a place lent to a borrowing future fires only when its root
@@ -7671,7 +7673,9 @@ once `SEED_VERSION` parses it.
        `match(&mut x, …)` and a `&mut x` capture. A borrow is written through,
        not written. A parameter's write names the rebind; reassigning one
        stays E0902 (its "You can mutate fields" hint is gone).
-     - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals step.
+     - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals
+       step's Generation A; the globals step's Generation B (#1414) took the
+       globals rules off the exemption and left it to this step.
      - E0918 is unchanged and checked first, so a runtime write of a
        `mut(x) ::` is still E0918.
      - A parameter is an immutable binding, so a `&mut` capture of a
