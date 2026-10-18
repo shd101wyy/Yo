@@ -36,6 +36,17 @@ _CtPair :: (fn(comptime(T) : Type) -> comptime(Type))(
 // are not Copy (`_CtPair(String)`): the amended decision 36's spelling.
 derive(generic(T : Type), where(T <: Clone), _CtPair(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _CtPair(T), Copy);
+// A field that is a conditional-`Copy` CONTAINER of the parameter
+// (`p : Option(A)` under `where(A <: Copy)`): `Option`'s conditional `Copy`
+// impl discharges its bound through `A`'s own, so the impl is valid —
+// whether written by hand or derived
+// (issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md).
+_CtOptHolder :: (fn(comptime(A) : Type) -> comptime(Type))(struct(n : i32, p : Option(A)));
+derive(generic(A : Type), where(A <: Clone), _CtOptHolder(A), Clone);
+impl(generic(A : Type), where(A <: Copy), _CtOptHolder(A), Copy());
+_CtOptDerived :: (fn(comptime(A) : Type) -> comptime(Type))(struct(n : i32, p : Option(A)));
+derive(generic(A : Type), where(A <: Clone), _CtOptDerived(A), Clone);
+derive(generic(A : Type), where(A <: Copy), _CtOptDerived(A), Copy);
 // A generic operator impl over a `Copy` bound: the by-value operand shape
 // decision 34 allows for a `Copy` type.
 impl(
@@ -285,6 +296,14 @@ test("Copy: an impl over a part that is not Copy names that part", {
   comptime_expect_error(impl(_CtLabel, Copy()), "its field `name` has type `String`");
   comptime_expect_error(impl(_CtPlainHolder, Copy()), "its field `inner` has type `_CtPlain`");
   comptime_expect_error(impl(generic(T : Type), _CtOpen(T), Copy()), "its field `item` has type `T`");
+});
+test("Copy: a field that is a conditional-Copy container of the parameter is Copy under the bound", {
+  comptime_assert(Type.impls(_CtOptHolder(i32), Copy), "the hand-written impl: Option(i32) is Copy through A <: Copy");
+  comptime_assert(!Type.impls(_CtOptHolder(String), Copy), "a non-Copy A keeps the instantiation non-Copy");
+  comptime_assert(Type.impls(_CtOptDerived(i32), Copy), "the derived impl agrees");
+  a := _CtOptHolder(i32)(n : i32(1), p : .Some(i32(2)));
+  b := a;
+  assert(((a.n + b.n) == i32(2)) && match(b.p, .Some(v) => (v == i32(2)), .None => false), "a copy of the holder copies its Option payload");
 });
 _CtPlainHolder :: struct(inner : _CtPlain);
 test("Copy: Copy and Drop exclude each other, in either order", {

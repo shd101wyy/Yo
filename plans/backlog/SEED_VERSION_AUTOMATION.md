@@ -374,10 +374,14 @@ Generation A, #1437):
   compiles + runs a Clone-of-a-peekable probe (element Clone-but-not-Copy,
   inner Clone-but-not-Copy).
 - **Still parked:** its matching `where(I <: Copy, A <: Copy)` `Copy` derive.
-  It needs
-  `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
-  (open — `_first_non_copy_part` rejects the `Option(A)` field while `A` is
-  abstract), and then the same seed verification once a fix lands.
+  The tree-side blocker is FIXED
+  (`issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`:
+  `_first_non_copy_part` now discharges a conditional-Copy container field
+  through the open-pattern coverage query), but the v0.2.65 seed still
+  REJECTS the derive — measured 2026-10-18, seed `check` on a prelude with
+  the derive errors before the tree fix can matter (the seed's evaluator
+  lacks it). Unpark only after a seed carrying the fix: add the derive,
+  then the same seed verification as the Clone entry above.
 
 ## Seed-gated follow-up (2026-10-14): the standard streams stop tracking an offset
 

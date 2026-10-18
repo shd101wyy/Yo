@@ -1,5 +1,7 @@
 # A generic `Copy` impl rejects a field that is a conditional-`Copy` container of its parameter
 
+**Status:** fixed 2026-10-18 (the `_first_non_copy_part` conditional-container discharge; PR pending).
+
 **Severity:** S2. A valid conditional `Copy` impl is rejected, so the type cannot be `Copy` at all, whether derived or written by hand.
 
 **Status: OPEN.** Found 2026-10-17 while fixing `issues/fixed/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md`. **Measured on:** that branch's tree build (develop 4d7c15caa plus the fix).
