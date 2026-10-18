@@ -1,8 +1,8 @@
 # VALUES_BY_DEFAULT handover — 2026-10-17
 
-> **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
+> **Status: FINAL (2026-10-18).** v0.2.65 is published and all in-flight work has stopped. The next agent starts at §4.1.
 >
-> **Live status (last update 2026-10-18 15:05 CST):** develop is at `e34b6b0f3` (#1441). Develop battery `39099399553` on that tip is green (58/58), and the battery-head diff is empty. **The v0.2.65 Release run `39106358669` was dispatched at 15:05 CST (`bump=patch`). Never cancel it.** If it dies after its version-bump commit, resume with `bump=none` and fix the draft's `target_commitish` (AGENTS.md). **`~/Workspace/Yo-wt/MERGE_FREEZE` is up** until the release publishes. All four held branches are re-gated on #1440 (§2.4). Every open design question was decided on 2026-10-18 (§3.4); §4 is the roadmap from v0.2.65 to the end of VBD.
+> **Final status (2026-10-18 16:47 CST):** **v0.2.65 is published** (tag on `53995438d`) and `SEED_VERSION` is v0.2.65 (`29329cdea`). After the release, #1442 (`a0bac44ea`) and #1443 (`47607baf5`, CI fmt-checks `plans/`) merged; this handover merges last. `MERGE_FREEZE` is removed. No agent or cron is running. Four held branches are re-gated on #1440 and wait in §2.4; §4 is the ordered path to the end of VBD.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -37,7 +37,12 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 ### 2.1 Releases
 
 - **v0.2.64** was published on 2026-10-17. Tag on `398a18e93`, `SEED_VERSION` bump `583115085`, built from develop `4d7c15caa` after battery 38999661126 went green (one infrastructure rerun). It carries decision 47 globals Generation A, decision 46 Generation A (`RefCell`, `make_mut`, `try_unwrap`), decision 45 (`Drop` only), A5 (move-only wakers), the async `Mutex` (#1380), D3 (#1397), the async leak fixes (#1405), stdio Generation B (#1399), `--migrate explicit-copy` (#1385) and release-mode mimalloc (#1406). Its release notes are curated.
-- **markdown_yo v0.0.18** was published the same day. It marks markdown_yo's written globals `mut(...)`, for decision 47 globals Generation B (#1414).
+- **v0.2.65** was published on 2026-10-18.
+  - Tag on `53995438d`; `SEED_VERSION` bump `29329cdea`.
+  - Release run `39106358669`, 15/15. It was cut after develop battery `39099399553` went green (58/58) on `e34b6b0f3`, with an empty battery-head diff.
+  - It carries decision 47 locals Generation A (#1440), decision 39 Generation A (#1429), the unwind S1 fix (#1438), V3 A4's compiler half (#1432), move-only collection values (#1420), and the #1441 CI fix.
+  - Its release notes are curated from §7; the generated body is saved at `~/Workspace/Yo-wt/vbd-logs/v0.2.65-generated-body.md`.
+- **markdown_yo v0.0.18** was published the same day as v0.2.64. It marks markdown_yo's written globals `mut(...)`, for decision 47 globals Generation B (#1414).
 
 ### 2.2 Landed on develop since v0.2.64
 
@@ -64,10 +69,12 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1435 | V4: the verifier's `Z3Sexpr` is a value enum (no `Box` needed: its children live in an `ArrayList`). `VcSort`/`VcTerm` wait on `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md` (recommends `Rc` for `VcTerm`, `Box` for `VcSort`, once maps hold move-only values). Its exclusive timing A/B runs once the heavy queue drains. |
 | #1440 | Decision 47 locals, Generation A: bindings are immutable unless `mut(...)`; E0917 for the four writes; `yo fix --migrate mut-bindings`; `std/time` read-only methods take `&Self` (merged as `00eddd3e4`, v0.2.65 gate item 1) |
 | #1441 | fix(develop): #1440's locals rule broke four CI jobs. The FV job runs its `tests/internal` verifier files on stage 1 instead of the seed; the musl stack probe, the Docker epoll probe and `compile.test.yo`'s embedded fixture mark their written locals; AGENTS.md's Tier 1 names the three blind spots (merged as `e34b6b0f3`) |
+| #1442 | plans: self-verification honesty pass (vacuity gate, pinned known-answer rows, claim-number rule). Merged after the release on the maintainer's request, with its re-fenced FORMAL_VERIFICATION blocks tree-formatted (`a0bac44ea`) |
+| #1443 | ci: `yo fmt --check` covers `plans/`. 317 Yo blocks fenced ` ```rust ` became formatted ` ```yo `, 233 became ` ```yo ignore `, and 22 genuine Rust blocks kept ` ```rust ` (`47607baf5`) |
 
 ### 2.3 The v0.2.65 release gate
 
-Cut v0.2.65 (2026-10-15 handover §8.4, then curate the notes as for v0.2.64) only when all of these hold:
+**Met on 2026-10-18; v0.2.65 is published (§2.1).** The gate was:
 
 1. ~~**Decision 47 locals, Generation A** has merged.~~ **Done:** #1440, `00eddd3e4`.
 2. ~~**Decision 39 iterators, Generation A** has merged.~~ **Done:** #1429, `29ceb209d`.
@@ -281,9 +288,9 @@ Filed on in-flight branches; they arrive with those PRs:
 
 The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 
-## 6. When v0.2.65 is out: the stop sequence
+## 6. When v0.2.65 is out: the stop sequence (done 2026-10-18)
 
-The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. The coordinator:
+The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. Every step below was carried out on 2026-10-18; it is kept as the record. The coordinator:
 
 1. Curates the v0.2.65 release notes (§7 has the draft) and checks that `SEED_VERSION` was bumped.
 2. Stops its schedulers: the status-ping cron jobs (session-only; all deleted 2026-10-18 once no subagent was live) and any PR-run cancel loop.
