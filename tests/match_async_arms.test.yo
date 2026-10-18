@@ -450,7 +450,7 @@ test("a wrapper pattern Rc(p) with an await (decision 31)", {
 _PlacePair :: enum(Both(a : i32, b : String), Neither);
 test("a mut match place binding lives across an await", {
   n := runtime_int();
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     (mut(o) : Option(i32)) = .Some(n);
     match(
@@ -464,13 +464,16 @@ test("a mut match place binding lives across an await", {
       },
       .None => ()
     );
-    result.* = match(o, .Some(v) => v, .None => i32(-1));
+    result_value := match(o, .Some(v) => v, .None => i32(-1));
+    result.with_mut(cur => {
+      cur = result_value;
+    });
   });
   io.await(task, io);
-  assert(result.* == (i32(10) + (n + n)), "the arm wrote the scrutinee through the place after each resume");
+  assert(result.with(cur => cur) == (i32(10) + (n + n)), "the arm wrote the scrutinee through the place after each resume");
 });
 test("a mut place of a counted payload is replaced after an await", {
-  result := Rc(usize)(0);
+  result := rc(RefCell(usize).new(usize(0)));
   task := io.async((io : Io) => {
     (mut(os) : Option(String)) = .Some(String.from("old"));
     (mut(ol) : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
@@ -491,14 +494,17 @@ test("a mut place of a counted payload is replaced after an await", {
       },
       .None => ()
     );
-    result.* = (match(&os, .Some(s) => s.len(), .None => usize(0)) + match(&ol, .Some(xs) => xs.len(), .None => usize(0)));
+    result_value := (match(&os, .Some(s) => s.len(), .None => usize(0)) + match(&ol, .Some(xs) => xs.len(), .None => usize(0)));
+    result.with_mut(cur => {
+      cur = result_value;
+    });
   });
   io.await(task, io);
-  assert(result.* == usize(9), "the payloads were replaced and pushed in place");
+  assert(result.with(cur => cur) == usize(9), "the payloads were replaced and pushed in place");
 });
 test("several mut places of one arm, and a local borrow scrutinee, across an await", {
   n := runtime_int();
-  result := Rc(usize)(0);
+  result := rc(RefCell(usize).new(usize(0)));
   task := io.async((io : Io) => {
     (mut(p) : _PlacePair) = .Both(a : n, b : String.from("ab"));
     match(
@@ -521,15 +527,18 @@ test("several mut places of one arm, and a local borrow scrutinee, across an awa
       .None => ()
     );
     pa := match(&p, .Both(a, b) => (usize(a) + b.len()), .Neither => usize(0));
-    result.* = (pa + usize(match(o, .Some(v) => v, .None => i32(0))));
+    result_value := (pa + usize(match(o, .Some(v) => v, .None => i32(0))));
+    result.with_mut(cur => {
+      cur = result_value;
+    });
   });
   io.await(task, io);
-  assert(result.* == (usize(n) + usize(14)), "every place was written after the resume");
+  assert(result.with(cur => cur) == (usize(n) + usize(14)), "every place was written after the resume");
 });
 test("two interleaved tasks each write their own mut place across awaits", {
   n := runtime_int();
-  r1 := Rc(i32)(0);
-  r2 := Rc(i32)(0);
+  r1 := rc(RefCell(i32).new(0));
+  r2 := rc(RefCell(i32).new(0));
   h1 := io.spawn(
     io.async((io : Io) => {
       (mut(o) : Option(i32)) = .Some(n);
@@ -545,7 +554,10 @@ test("two interleaved tasks each write their own mut place across awaits", {
         },
         .None => ()
       );
-      r1.* = match(o, .Some(v) => v, .None => i32(-1));
+      r1_value := match(o, .Some(v) => v, .None => i32(-1));
+      r1.with_mut(cur => {
+        cur = r1_value;
+      });
       return(());
     }),
     io
@@ -565,22 +577,25 @@ test("two interleaved tasks each write their own mut place across awaits", {
         },
         .None => ()
       );
-      r2.* = match(o, .Some(v) => v, .None => i32(-1));
+      r2_value := match(o, .Some(v) => v, .None => i32(-1));
+      r2.with_mut(cur => {
+        cur = r2_value;
+      });
       return(());
     }),
     io
   );
   h1.await(io);
   h2.await(io);
-  assert(r1.* == (n + i32(5)), "task 1 wrote its own place");
-  assert(r2.* == i32(95), "task 2 wrote its own place");
+  assert(r1.with(cur => cur) == (n + i32(5)), "task 1 wrote its own place");
+  assert(r2.with(cur => cur) == i32(95), "task 2 wrote its own place");
 });
 // The root is never mentioned after the `match`: `&mut o` alone keeps `o` in
 // its task slot, so each task's place still points into its own `o`.
 test("a mut place whose root is never mentioned again lives across awaits", {
   n := runtime_int();
-  r1 := Rc(i32)(0);
-  r2 := Rc(i32)(0);
+  r1 := rc(RefCell(i32).new(0));
+  r2 := rc(RefCell(i32).new(0));
   h1 := io.spawn(
     io.async((io : Io) => {
       (mut(o) : Option(i32)) = .Some(n);
@@ -593,7 +608,10 @@ test("a mut place whose root is never mentioned again lives across awaits", {
             v = (v + i32(1));
             i = (i + i32(1));
           });
-          r1.* = v;
+          r1_value := v;
+          r1.with_mut(cur => {
+            cur = r1_value;
+          });
         },
         .None => ()
       );
@@ -613,7 +631,10 @@ test("a mut place whose root is never mentioned again lives across awaits", {
             v = (v - i32(1));
             i = (i + i32(1));
           });
-          r2.* = v;
+          r2_value := v;
+          r2.with_mut(cur => {
+            cur = r2_value;
+          });
         },
         .None => ()
       );
@@ -623,15 +644,15 @@ test("a mut place whose root is never mentioned again lives across awaits", {
   );
   h1.await(io);
   h2.await(io);
-  assert(r1.* == (n + i32(4)), "task 1 wrote its own place");
-  assert(r2.* == i32(46), "task 2 wrote its own place");
+  assert(r1.with(cur => cur) == (n + i32(4)), "task 1 wrote its own place");
+  assert(r2.with(cur => cur) == i32(46), "task 2 wrote its own place");
 });
 // A field of a local value struct in a task: the place points into the
 // struct's own slot, not into a copy of the field.
 _PlaceFieldBox :: struct(o : Option(i32), k : i32);
 test("a mut place on a field of a task's local struct lives across awaits", {
   n := runtime_int();
-  r := Rc(i32)(0);
+  r := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     (mut(s) : _PlaceFieldBox) = _PlaceFieldBox(o : .Some(n), k : i32(7));
     match(
@@ -640,13 +661,16 @@ test("a mut place on a field of a task's local struct lives across awaits", {
         io.await(yield(io), io);
         t = (t + i32(7));
         io.await(yield(io), io);
-        r.* = t;
+        r_value := t;
+        r.with_mut(cur => {
+          cur = r_value;
+        });
       },
       .None => ()
     );
   });
   io.await(task, io);
-  assert(r.* == (n + i32(7)), "the field place was written after each resume");
+  assert(r.with(cur => cur) == (n + i32(7)), "the field place was written after each resume");
 });
 _place_fresh :: (fn(io : Io) -> Impl(Future(String, Io)))(
   io.async((e : Io) => {
@@ -655,7 +679,7 @@ _place_fresh :: (fn(io : Io) -> Impl(Future(String, Io)))(
   })
 );
 test("a mut place and a local borrow take an awaited value", {
-  result := Rc(usize)(0);
+  result := rc(RefCell(usize).new(usize(0)));
   task := io.async((io : Io) => {
     (mut(os) : Option(String)) = .Some(String.from("old"));
     match(
@@ -668,10 +692,13 @@ test("a mut place and a local borrow take an awaited value", {
     (mut(t) : String) = String.from("before");
     y := &mut t;
     y = io.await(_place_fresh(io), io);
-    result.* = (match(&os, .Some(s) => s.len(), .None => usize(0)) + t.len());
+    result_value := (match(&os, .Some(s) => s.len(), .None => usize(0)) + t.len());
+    result.with_mut(cur => {
+      cur = result_value;
+    });
   });
   io.await(task, io);
-  assert(result.* == usize(12), "the old values were released and the awaited ones stored");
+  assert(result.with(cur => cur) == usize(12), "the old values were released and the awaited ones stored");
 });
 // The old value an awaited one replaces is released: through a `mut` place
 // and through a local borrow, each a store through a slot pointer
@@ -689,7 +716,7 @@ _place_fresh_cell :: (fn(io : Io) -> Impl(Future(_PlCell, Io)))(
 test("a mut place and a local borrow release the old value an awaited one replaces", {
   old_p := _PlCell(v : i32(1));
   old_y := _PlCell(v : i32(2));
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   {
     task := io.async((io : Io) => {
       (mut(op) : Option(_PlCell)) = .Some(old_p);
@@ -703,11 +730,14 @@ test("a mut place and a local borrow release the old value an awaited one replac
       (t : _PlCell) = old_y;
       y := &mut t;
       y = io.await(_place_fresh_cell(io), io);
-      result.* = (match(&op, .Some(s) => s.v, .None => i32(0)) + t.v);
+      result_value := (match(&op, .Some(s) => s.v, .None => i32(0)) + t.v);
+      result.with_mut(cur => {
+        cur = result_value;
+      });
     });
     io.await(task, io);
   };
-  assert(result.* == i32(14), "the awaited values were stored");
+  assert(result.with(cur => cur) == i32(14), "the awaited values were stored");
   assert(ref_count(old_p) == usize(1), "the place's old value was released");
   assert(ref_count(old_y) == usize(1), "the borrow's old value was released");
 });
@@ -734,7 +764,7 @@ impl(
   )
 );
 test("a mut place lives across the awaits of a for_await loop", {
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((e : Io) => {
     (mut(o) : Option(i32)) = .Some(i32(100));
     match(
@@ -746,10 +776,13 @@ test("a mut place lives across the awaits of a for_await loop", {
       },
       .None => ()
     );
-    result.* = match(o, .Some(v) => v, .None => i32(0));
+    result_value := match(o, .Some(v) => v, .None => i32(0));
+    result.with_mut(cur => {
+      cur = result_value;
+    });
   });
   io.await(task, io);
-  assert(result.* == i32(106), "each item was added through the place after its resume");
+  assert(result.with(cur => cur) == i32(106), "each item was added through the place after its resume");
 });
 // Two same-named nullable-pointer bindings in one task, the first in an
 // awaiting arm: each is stored into its own slot (the second had been stored
