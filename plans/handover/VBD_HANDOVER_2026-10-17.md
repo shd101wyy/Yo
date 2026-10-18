@@ -368,7 +368,7 @@ Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-o
 ### Known open issues filed this cycle
 - `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (S1, not a regression; v0.2.63 does the same)
 - `issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md` (S1)
-- `issues/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md` (S1)
+- `issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md` (S1)
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`
 - `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`

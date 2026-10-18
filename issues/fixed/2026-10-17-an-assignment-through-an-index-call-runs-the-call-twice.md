@@ -2,9 +2,11 @@
 
 **Severity:** S1 — memory unsafety in generated code: `m(s) = v` on a `HashMap(String, V)` is a heap-use-after-free on develop, because the C calls `index_mut` twice and each call drops its by-value key.
 
-**Status:** open. Found 2026-10-17 while landing #1420 (the review's write
-through a move-only key, `issues/fixed/2026-10-17-an-index-call-that-moves-a-named-local-calls-an-unemitted-method.md`).
-It reproduces with the develop-built `yo-dev-5425cd7bf` and develop's own std,
+**Status:** fixed 2026-10-18 by #1452 (`fix(codegen): an assignment through
+an index call evaluates the place once`). Found 2026-10-17 while landing #1420 (the
+review's write through a move-only key,
+`issues/fixed/2026-10-17-an-index-call-that-moves-a-named-local-calls-an-unemitted-method.md`).
+It reproduced with the develop-built `yo-dev-5425cd7bf` and develop's own std,
 with no move-only type involved.
 
 ## Symptom
@@ -96,3 +98,44 @@ the right side first, then one `index_mut` call), because a right side that
 grows the container would leave a pointer taken earlier dangling. Every
 `x(i) = v` in the tree, the std collections included, goes through this path,
 so the fix needs a wide gate.
+
+## Fix
+
+`generate_assignment` (`src/codegen/exprs/assignment.yo`) now asks
+`_place_evaluation_runs_a_call` of the LHS: does evaluating the place run a
+call? True for a by-name Index dispatch (every std collection's
+`index`/`index_mut`) and for any other call form (a method call, a direct
+projection call, an operator) in the place's base chain; the one pure
+subscript spelling — `Array`'s inline `(&((&recv)->data[idx]))` over a pure
+receiver and a pure index — stays false, so fixed-array element writes keep
+their old C byte-for-byte. For such a place the assignment materializes it
+ONCE into a pointer temp taken AFTER the right side (a right side that grows
+the container would leave a pointer taken before it dangling), and the
+old-value save, the store, the state-machine slot save and the array arm all
+read and write through `(*p)`. The save's block-scope push
+(`mark_declared_in_scope`) moves with it, so early-exit releases of an
+RC-bearing old value still fire.
+
+```c
+int32_t* __yo_place_ptr_161765 = &((*__yo_fs_4203495986500394947(&__yo_v_m, __yo_v_s))); // Evaluate the place once
+int32_t _file____home_temp_149181087348396921850; memcpy(&_file____home_temp_149181087348396921850, __yo_place_ptr_161765, sizeof(_file____home_temp_149181087348396921850)); // Save old value by bytes through the place pointer
+(*__yo_place_ptr_161765) = 5;
+```
+
+## Verification (2026-10-18, develop `e7e348c3b` as the before binary)
+
+- The issue's ASan reproducer, `yo compile repro.yo --sanitize address
+  --allocator system`: before (develop `e7e348c3b` and the installed seed
+  v0.2.65 — `src/codegen/exprs/assignment.yo` is byte-identical between
+  them) `heap-use-after-free ... READ of size 4 ... freed by ...
+  __yo_decr_rc ... __yo_fs_13950447004042778692`; after, rc 0, no report.
+- The Drop-counting variant: the write's count is 2 before, 1 after; the
+  read's is one more in both.
+- Regression tests (fail before, pass after): "IndexMut: a write through an
+  index call drops its key exactly once", "... a field write ...", "... an
+  array write ..." and "IndexMut: a String key survives the write it indexes"
+  in `tests/index.test.yo`; "HashMap of a Drop key: a write through
+  `m(k) = v` drops the key once" in `tests/move_only_collections.test.yo`.
+- The emitted C of a pure-place corpus (fixed-array writes, plain field and
+  deref writes) is unchanged: only statements whose place runs a call gain
+  the pointer temp.

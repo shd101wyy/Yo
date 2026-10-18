@@ -576,6 +576,24 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
 - **A UBSan run on macOS misses reads of uninitialized HEAP memory that Linux reports**, because a fresh macOS allocation happens to be zeroed and a zero is a valid `bool`. Run the binary (or `yo test`) with `MallocScribble=1`, which fills every allocation with 0xAA, to reproduce Linux's `load of value N, which is not a valid value for type 'bool'` deterministically. Two emission patterns read uninitialized memory this way, and both are fixed: a by-value copy of `MaybeUninit(T).new()`, and the old-value save of `consume(p.* = v)`, which now uses `memcpy` (`issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md`). A new emitter that SAVES or COPIES a value it has not written must not load it as its type.
 - Example: `yo compile tmp/fixme.yo --optimize 2 --sanitize address --allocator system -o test && ./test`
 
+### An assignment evaluates its place once
+
+`generate_assignment` splices the LHS's rendered C into up to two statements —
+the old-value save and the store. A place whose evaluation runs a call (a
+by-name Index dispatch `m(k)`, a method or projection call in its base chain)
+must not be spliced: each splice RUNS the call, and an `index_mut` takes its
+key by value and drops it, so `m(s) = v` dropped the key twice and freed it
+under the store (`_place_evaluation_runs_a_call` in
+`src/codegen/exprs/assignment.yo`,
+`issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md`).
+Such a place is materialized once into a pointer temp taken AFTER the right
+side (a right side that grows the container would leave a pointer taken
+before it dangling), and the save and the store both go through it. A
+provably pure spelling — an atom, a field/deref chain, `Array`'s inline
+`data[i]` subscript over pure parts — still splices twice, byte-identical to
+the old C. Any new emission that reuses a rendered expression twice must ask
+the same question.
+
 ## Debug flags
 
 - `--debug-gc` — debug garbage collector and reference counting

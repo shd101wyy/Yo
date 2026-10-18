@@ -16,8 +16,9 @@
 { String } :: import("std/string");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT, BF_YO_ARRAY_INDEX } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
+{ EvalValue, is_func_val } :: import("../../value.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
@@ -29,9 +30,9 @@
 // eval :388); this emits it.
 { emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { sm_local_field_name, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, get_variable_type_string, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ expr_info_is_compile_time_only_assignment, scope_variables, lookup_immediate_old_value_drop } :: import("../../expr_info.yo");
+{ expr_info_is_compile_time_only_assignment, expr_info_index_method_value, scope_variables, lookup_immediate_old_value_drop } :: import("../../expr_info.yo");
 /// The last binding for `name` (in node `key`'s recorded scope `env`) is a
 /// module-level global.
 _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
@@ -71,6 +72,49 @@ _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGener
     );
   });
   lhs
+});
+/// Does evaluating the place `e` run a call? True for a by-name Index
+/// dispatch (every std collection's `index`/`index_mut`: the callee takes
+/// its key by value and drops it) and for any other call form (a method
+/// call, a direct projection call, an operator) in the place's base chain.
+/// A place this answers true for must be evaluated exactly ONCE per
+/// assignment: the old-value save and the store each splice its rendered C,
+/// and a call spliced twice runs twice
+/// (issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md).
+_place_evaluation_runs_a_call :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)({
+  runs := match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, callee, args, _, _) => {
+      // A field or deref step (`x.f`, `x.*`) renders its base plus a C
+      // projection: only the base can call.
+      if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+        return(match(args.get(usize(0)), .Some(b) => _place_evaluation_runs_a_call(&b, context), .None => false));
+      });
+      // Anything else is a call. The one pure spelling is an Index dispatch
+      // the codegen expands inline — `Array`'s
+      // `(&((&recv)->data[idx]))`, `BF_YO_ARRAY_INDEX`, the only inline op
+      // (`_generate_index_trait_call`): it calls nothing, so it is pure
+      // exactly when its receiver and its index argument are. Every other
+      // Index dispatch is a by-name call.
+      ei := match(context.base.get_expr_info(e), .Some(i) => i, .None => return(true));
+      mv := match(expr_info_index_method_value(&ei), .Some(v) => v, .None => return(true));
+      if(!is_func_val(&mv), {
+        // A broken dispatch renders an error comment, not a call.
+        return(false);
+      });
+      match(
+        is_function_value_with_only_builtin_yo_inline_function_call(&mv),
+        .Some(op) => if(
+          op == BF_YO_ARRAY_INDEX,
+          _place_evaluation_runs_a_call(&callee, context) || match(args.get(usize(0)), .Some(ix) => _place_evaluation_runs_a_call(&ix, context), .None => false),
+          true
+        ),
+        .None => true
+      )
+    }
+  );
+  runs
 });
 /// Generate an assignment / initialization.
 generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
@@ -130,6 +174,21 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   });
   lhs_type := lhs_ei.ty;
   lhs_code := _call_generate_expr(&lhs, indent.clone(), context);
+  // A place whose evaluation runs a call (`m(k)` through a by-name Index
+  // dispatch, or a method/projection call in its base chain) must be
+  // evaluated ONCE: the old-value save and the store below each splice
+  // `lhs_code`, and a call spliced twice runs twice. Each `index_mut` takes
+  // its key by value and drops it, so `m(s) = v` dropped the key twice and
+  // freed it under the store — a heap-use-after-free for any owning key
+  // (issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md).
+  // The place is materialized once into a pointer temp taken AFTER the right
+  // side (a right side that grows the container would leave a pointer taken
+  // before it dangling), and the save and the store both go through it.
+  (place_ptr : Option(String)) = Option(String).None;
+  if(_place_evaluation_runs_a_call(&lhs, context) && !is_unit_type(&lhs_type), {
+    place_ptr = Option(String).Some(`__yo_place_ptr_${ast_expr_id(expr).to_string()}`);
+  });
+  place_read_code := match(place_ptr, .Some(p) => `(*${p})`, .None => lhs_code.clone());
   em := context.base.emitter;
   // In a state machine the save is written AFTER the RHS, right before the
   // store: the RHS may suspend, and an abort there disposes every non-null
@@ -137,6 +196,11 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   // both were released (the `fetch` UnsupportedScheme escape). A RHS that
   // moves the old value out zeroes its slot, so the late save reads NULL.
   (sm_save_line : Option(String)) = Option(String).None;
+  // A side-effecting place's by-bytes save: deferred to the pointer temp's
+  // emission point, after the RHS, together with `deferred_save_c_name` (its
+  // temp's C name, for the block-scope stack push below).
+  (deferred_save_line : Option(String)) = Option(String).None;
+  (deferred_save_c_name : String) = String.from("");
   // Save the old value into the result temp (for a deferred drop of it).
   match(
     ei.variable_name,
@@ -150,33 +214,55 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       if(
         !in_sm,
         if(!is_unit_type(&lhs_type), {
-          save := indent.clone();
-          save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
-          // Copy the bytes, never a typed load: the destination may be
-          // uninitialized (a container's next slot, an `unsafe(p.* = v)` into
-          // fresh memory), and a typed load of it is undefined behavior for a
-          // `bool` or an enum. Copying indeterminate bytes is defined, and the
-          // temp is read only by the drop of an RC-bearing old value or by a
-          // consuming parent, both of which see an initialized slot. At -O1
-          // and above the copy is the same load
-          // (issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md,
-          // issues/fixed/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md).
-          save.push_str("; memcpy(&");
-          save.push_string(temp_var_name.clone());
-          save.push_str(", &(");
-          save.push_string(lhs_code.clone());
-          save.push_str("), sizeof(");
-          save.push_string(temp_var_name.clone());
-          save.push_str(")); // Save old value by bytes");
-          em.emit_string_line(&save);
-          // Put the temp on the block-scope stack, as the typed `T temp = lhs;`
-          // did through the emitter's line scan: that scan records only
-          // `<type> <name> = …`, and the escape gate skips a pending drop whose
-          // target is not in C scope, so every early-exit (`return`, `exn`
-          // escape) release of an RC-bearing old value was silently dropped
-          // (issues/fixed/2026-10-15-an-assignments-old-value-save-by-bytes-is-never-released.md).
-          saved_c_name := sanitize_for_c_identifier(&temp_var_name, false);
-          em.mark_declared_in_scope(&saved_c_name);
+          match(
+            place_ptr,
+            .Some(pp) => {
+              // Side-effecting place: the save waits for the pointer temp
+              // (the place's ONE evaluation, taken after the RHS) and copies
+              // the old value through it — same by-bytes rationale as the
+              // `.None` arm below.
+              save := indent.clone();
+              save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
+              save.push_str("; memcpy(&");
+              save.push_string(temp_var_name.clone());
+              save.push_str(", ");
+              save.push_string(&pp);
+              save.push_str(", sizeof(");
+              save.push_string(temp_var_name.clone());
+              save.push_str(")); // Save old value by bytes through the place pointer");
+              deferred_save_line = Option(String).Some(save);
+              deferred_save_c_name = sanitize_for_c_identifier(&temp_var_name, false);
+            },
+            .None => {
+              save := indent.clone();
+              save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
+              // Copy the bytes, never a typed load: the destination may be
+              // uninitialized (a container's next slot, an `unsafe(p.* = v)` into
+              // fresh memory), and a typed load of it is undefined behavior for a
+              // `bool` or an enum. Copying indeterminate bytes is defined, and the
+              // temp is read only by the drop of an RC-bearing old value or by a
+              // consuming parent, both of which see an initialized slot. At -O1
+              // and above the copy is the same load
+              // (issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md,
+              // issues/fixed/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md).
+              save.push_str("; memcpy(&");
+              save.push_string(temp_var_name.clone());
+              save.push_str(", &(");
+              save.push_string(lhs_code.clone());
+              save.push_str("), sizeof(");
+              save.push_string(temp_var_name.clone());
+              save.push_str(")); // Save old value by bytes");
+              em.emit_string_line(&save);
+              // Put the temp on the block-scope stack, as the typed `T temp = lhs;`
+              // did through the emitter's line scan: that scan records only
+              // `<type> <name> = …`, and the escape gate skips a pending drop whose
+              // target is not in C scope, so every early-exit (`return`, `exn`
+              // escape) release of an RC-bearing old value was silently dropped
+              // (issues/fixed/2026-10-15-an-assignments-old-value-save-by-bytes-is-never-released.md).
+              saved_c_name := sanitize_for_c_identifier(&temp_var_name, false);
+              em.mark_declared_in_scope(&saved_c_name);
+            }
+          );
         }),
         // The LHS is an sm-> slot. When the old-value temp was itself lowered
         // into the
@@ -230,7 +316,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
               save_sm.push_str("sm->");
               save_sm.push_string(&fld);
               save_sm.push_str(" = ");
-              save_sm.push_string(lhs_code.clone());
+              save_sm.push_string(place_read_code.clone());
               save_sm.push_str("; // Save old value for deferred drop");
               // The slot is this temp's storage, so it is declared: the
               // scope-end drop of an undeclared minted temp is skipped, which
@@ -241,7 +327,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             .None => {
               save_sm.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
               save_sm.push_str(" = ");
-              save_sm.push_string(lhs_code.clone());
+              save_sm.push_string(place_read_code.clone());
               save_sm.push_str("; // Save old value for later use (not an sm-> slot)");
             }
           );
@@ -276,7 +362,25 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
+    // A side-effecting place is materialized ONCE here, AFTER the RHS: the
+    // pointer temp is the place's single evaluation, and the save and the
+    // store below both read and write through it.
+    match(
+      place_ptr,
+      .Some(pp) => em.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
+      .None => ()
+    );
     match(sm_save_line, .Some(sl) => em.emit_string_line(&sl), .None => ());
+    match(
+      deferred_save_line,
+      .Some(ds) => {
+        em.emit_string_line(&ds);
+        // The block-scope push of the `.None` arm above, at the deferred
+        // emission point.
+        em.mark_declared_in_scope(&deferred_save_c_name);
+      },
+      .None => ()
+    );
     if(is_init, {
       vt := get_variable_type_string(&lhs_type, _call_generate_expr(&lhs, indent.clone(), context), &context.base);
       line := indent.clone();
@@ -287,7 +391,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       em.emit_string_line(&line);
     }, {
       line := indent.clone();
-      line.push_string(lhs_code.clone());
+      line.push_string(place_read_code.clone());
       line.push_str(" = ");
       line.push_string(&rhs_code);
       line.push_str(";");
@@ -307,7 +411,25 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
+    // A side-effecting place is materialized ONCE here, AFTER the RHS: the
+    // pointer temp is the place's single evaluation, and the save and the
+    // store below both read and write through it.
+    match(
+      place_ptr,
+      .Some(pp) => em.emit_string_line(`${indent.clone()}${get_type_string(&lhs_type, &context.base)}* ${pp} = &(${lhs_code}); // Evaluate the place once`),
+      .None => ()
+    );
     match(sm_save_line, .Some(sl) => em.emit_string_line(&sl), .None => ());
+    match(
+      deferred_save_line,
+      .Some(ds) => {
+        em.emit_string_line(&ds);
+        // The block-scope push of the `.None` arm above, at the deferred
+        // emission point.
+        em.mark_declared_in_scope(&deferred_save_c_name);
+      },
+      .None => ()
+    );
     if(!is_unit_type(&lhs_type), {
       c_type_string := get_type_string(&lhs_type, &context.base);
       is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
@@ -316,7 +438,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         line.push_string(&c_type_string);
         line.push_str(" ");
       });
-      line.push_string(lhs_code.clone());
+      line.push_string(place_read_code.clone());
       line.push_str(" = ");
       // An `Impl(Future(T, E))` place is the type-erased future interface:
       // a concrete future stored into it is upcast, as at a constructor

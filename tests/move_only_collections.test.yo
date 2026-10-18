@@ -294,6 +294,24 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
   // 40 inserted, the overwriting key and the two probes.
   assert(g_mc_kdropped == (before + i32(43)), "43 keys made, 43 dropped");
 });
+// A write through `m(k) = v` evaluates its place once: the old-value save
+// and the store each ran the index call, so the by-value key was dropped
+// twice (issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md).
+test("HashMap of a Drop key: a write through `m(k) = v` drops the key once", {
+  before := g_mc_kdropped;
+  {
+    m := HashMap(_McKd, i32).new();
+    m.insert(_McKd(id : i32(5)), i32(50));
+    assert(g_mc_kdropped == before, "the insert moves its key in");
+    key := _McKd(id : i32(5));
+    m(key) = i32(60);
+    assert(g_mc_kdropped == (before + i32(1)), "the write drops its key once");
+    rk := _McKd(id : i32(5));
+    assert(m(rk) == i32(60), "the write landed");
+    assert(g_mc_kdropped == (before + i32(2)), "the read drops its key once more");
+  };
+  assert(g_mc_kdropped == (before + i32(3)), "the map's death drops its stored key");
+});
 test("HashSet and BTreeMap of a Drop key drop each key once", {
   before := g_mc_kdropped;
   {

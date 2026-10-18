@@ -85,7 +85,7 @@ local still fell back to the undeclared method.
   loop"), and so is a read of `key` after `m(key) = v`. The write itself drops
   its key twice, but that is the assignment's codegen running the
   `index_mut` call twice, on develop too and with any owning key
-  (`issues/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md`, S1).
+  (`issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md`, S1).
 - A nested access through generic impls can still fall back to an
   unspecialized method without any named move
   (`issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`).

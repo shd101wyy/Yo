@@ -1406,9 +1406,10 @@ test("Index: a temporary argument that moves a named local", {
   assert(g_ix_dropped == (before + i32(2)), "and the second one once");
 });
 // A write re-dispatches to `index_mut`, specialized the same way. The key
-// has no `Drop` and no heap: an assignment runs its place's index call twice
-// (issues/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md),
-// so this checks only that the write compiles, moves the key and lands.
+// has no `Drop` and no heap, so this checks only that the write compiles,
+// moves the key and lands; the drop-counting shapes (an assignment evaluates
+// its place once) are the tests below
+// (issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md).
 _IxHk :: struct(n : i32);
 derive(_IxHk, Eq(_IxHk), Hash);
 test("IndexMut: a write through a generic impl with a move-only named key", {
@@ -1420,4 +1421,53 @@ test("IndexMut: a write through a generic impl with a move-only named key", {
   comptime_expect_error(wk.n, "moved");
   rk := _IxHk(n : i32(5));
   assert(m(rk) == i32(60), "the write landed");
+});
+// An assignment evaluates its place ONCE: the old-value save and the store
+// each spliced the place's rendered C, so a write through an index call ran
+// the call twice and dropped its by-value key twice
+// (issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md).
+// The key counts its drops, so each shape checks the call ran exactly once.
+_IxPt :: struct(x : i32, y : i32);
+derive(_IxPt, Copy, Clone);
+test("IndexMut: a write through an index call drops its key exactly once", {
+  m := HashMap(_IxDk, i32).new();
+  m.insert(_IxDk(n : i32(5)), i32(50));
+  mid := g_ix_dropped;
+  key := _IxDk(n : i32(5));
+  m(key) = i32(60);
+  assert((g_ix_dropped - mid) == i32(1), "the write drops its key once");
+  k2 := _IxDk(n : i32(5));
+  x := m(k2);
+  assert((g_ix_dropped - mid) == i32(2), "the read drops its key once more");
+  assert(x == i32(60), "the write landed");
+});
+test("IndexMut: a field write through an index call drops its key exactly once", {
+  p := HashMap(_IxDk, _IxPt).new();
+  p.insert(_IxDk(n : i32(9)), _IxPt(x : i32(1), y : i32(2)));
+  mid := g_ix_dropped;
+  kf := _IxDk(n : i32(9));
+  p(kf).x = i32(42);
+  assert((g_ix_dropped - mid) == i32(1), "the field write drops its key once");
+  kfr := _IxDk(n : i32(9));
+  assert(p(kfr).x == i32(42), "the field write landed");
+});
+test("IndexMut: an array write through an index call drops its key exactly once", {
+  a := HashMap(_IxDk, Array(i32, 2)).new();
+  a.insert(_IxDk(n : i32(3)), Array(i32, 2)(1, 2));
+  mid := g_ix_dropped;
+  ka := _IxDk(n : i32(3));
+  a(ka) = Array(i32, 2)(3, 4);
+  assert((g_ix_dropped - mid) == i32(1), "the array write drops its key once");
+  kar := _IxDk(n : i32(3));
+  assert(a(kar)(usize(1)) == i32(4), "the array write landed");
+});
+// The issue's shape, without ASan: the write must land and the key string
+// must still be alive after it (the double call freed it before).
+test("IndexMut: a String key survives the write it indexes", {
+  ms := HashMap(String, i32).new();
+  ms.insert(String.from("key-long-enough-to-heap"), i32(1));
+  s := String.from("key-long-enough-to-heap");
+  ms(s) = i32(5);
+  assert(ms(s) == i32(5), "the write landed");
+  assert(s.len() == usize(23), "the key string is alive after the write");
 });
