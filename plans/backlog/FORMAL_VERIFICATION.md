@@ -824,6 +824,45 @@ Requirements (carried from the 2026-05 draft's LLM section, now normative):
   (`{function, clause, verdict, counterexample, hint}`) for agentic
   loops; same content as the text diagnostics.
 
+### Vacuity checking (planned)
+
+A contract that is vacuously true reads like a guarantee and provides
+none. The verifier plans two deterministic probes, both reusing the
+obligation machinery, neither ever changing a verdict:
+
+- **Hypothesis consistency** (one query per verified function): assert
+  the hypothesis set the obligations already carry — the `Φ` of
+  `Φ ⇒ P` — and check `Φ ⇒ false`. Unsat ⇒ the hypotheses are
+  contradictory; every obligation of the function is then vacuously
+  provable, and the function is dead by contract (no legal caller
+  exists). Typical cause: a single `requires` stronger than any input,
+  or two clauses that contradict. A *called* function with contradictory
+  `requires` already surfaces as refuted caller obligations; the probe
+  catches the uncalled case and explains it at the definition.
+- **Conclusion minimality** (one probe per `ensures`/`assert` clause):
+  the clause re-queried with the hypothesis set dropped. Unsat ⇒ the
+  predicate is a tautology — it holds with no assumptions and bounds
+  nothing. A cheap screening probe, not a minimality proof.
+
+Both are warnings, never errors — a vacuous contract is *sound*, and a
+tautological clause is occasionally intentional documentation. They do
+not feed `--strict` (which gates `assumed`/`outside-subset`/`unproven`);
+they feed the self-verification sweep's ratchet instead
+([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md), "The vacuity
+gate"), where per-module vacuity counts may only fall — the discipline
+that keeps "functions verified" an honest number while contracts are
+being written by an agent loop. Diagnostics carry a targeted hint (name
+the contradictory pair, or "this clause holds without any hypotheses —
+it documents rather than guarantees"); the JSON report gains
+`vacuous: { hypotheses : bool, clauses : [ids] }` per function. Lineage:
+vacuity detection is standard practice in model checking (Beer et al.,
+FOOLS 2001; Kupferman & Vardi, STTT 2003); here it applies to contract
+hypotheses and conclusions instead of temporal formulas.
+
+Cost: two extra solver queries per verified function in `verify`/
+`verify+` modes, cacheable like all verdicts; the probes are
+quantifier-shaped like their source clauses, so rlimit behavior matches.
+
 ## CLI & pipeline integration
 
 - **`yo verify [path]`** — new subcommand: evaluate + verify, no
@@ -1700,6 +1739,7 @@ usage before continuing.
 | Positive verification | `tests/spec/verify_*.test.yo` | Programs that must *prove* in `verify` mode (and still run green in `runtime` mode) |
 | Negative verification | `tests/spec/fixtures/negative/*.yo` driven by `tests/internal/verifier_negative.test.yo` | Each fixture must fail `yo check` with the expected diagnostic (subprocess harness asserting error text; the same scoring shape as `scripts/cli-diff-test.sh`) |
 | Bugged twins | alongside each positive test | Every positive fixture has a deliberately-broken twin whose Refute message and counter-example are asserted — guards against a verifier that "proves" by encoding wrongly |
+| Vacuity fixtures | `tests/spec/fixtures/` + the negative harness | A contradictory-`requires` function warns `vacuous: hypotheses` while its `ensures` still reports Proved; a hypothesis-free `ensures` warns `vacuous: conclusion`; twins assert the probes never flip a verdict |
 | Runtime parity | existing `tests/spec/*` | Phase-0 behavior must not regress: `runtime` mode still lowers to asserts |
 | CI | new `verify` workflow job | Installs pinned Z3; `yo verify ./std/spec ./tests/spec`; uploads JSON report |
 
@@ -1969,7 +2009,13 @@ What the verifier does:
   correctness defaults, counter-example reporting), SPARK/Ada (verifiable
   subset, AoRTE obligations, gradual adoption), Boogie (separate-pass
   VC architecture), Why3 (SMT-LIB over stdio, solver budgets), Z3
-  (`rlimit` deterministic budgets, unsat cores, `get-model`).
+  (`rlimit` deterministic budgets, unsat cores, `get-model`); vacuity
+  detection in model checking (Beer et al., FOOLS 2001; Kupferman &
+  Vardi, STTT 2003) — the lineage of the planned vacuity probes.
+- [`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md) — the campaign
+  that dogfoods the verifier on the compiler itself; its vacuity gate,
+  pinned known-answer rows and re-derived-claims rule consume this
+  plan's probes and reports.
 - [`reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md) —
   the assessed-and-declined alternative foundation (2026-09-09): why Yo
   does not build on Matching Logic / K, and the specific borrowings

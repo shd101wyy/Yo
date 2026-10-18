@@ -1,11 +1,16 @@
 # Yo verifies Yo — the self-verification campaign
 
-**ACTIVE 2026-09-18.** The maintainer made "the Yo compiler is verified by
-Yo's own verifier" a goal (this document started the same day as a
-feasibility note in `backlog/`; it was promoted when the decision was
-made). It is a selling point only if the claim behind it is true at every
-stage, so the campaign is a **ladder of claims**, each checked in CI the
-day it is made, each strictly stronger than the last. Companion plans:
+**ACTIVE 2026-09-18; amended 2026-10-18.** The maintainer made "the Yo
+compiler is verified by Yo's own verifier" a goal (this document started
+the same day as a feasibility note in `backlog/`; it was promoted when the
+decision was made). It is a selling point only if the claim behind it is
+true at every stage, so the campaign is a **ladder of claims**, each
+checked in CI the day it is made, each strictly stronger than the last.
+The 2026-10-18 amendment adds three honesty mechanisms before the
+annotation milestones scale up: the **vacuity gate** (a contract that
+proves nothing must not count — new section below), **pinned known-answer
+rows** behind the M1/M3 consistency proofs, and the **re-derived-numbers
+rule** for every published claim sentence. Companion plans:
 [`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md) (the
 verifier), [`backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 (B0 `--strict`, B1 `law`, B2 lemmas — this campaign consumes them),
@@ -29,6 +34,15 @@ semantics of Yo and of C11 in a proof assistant, and it stays a non-goal
 (`FORMAL_VERIFICATION.md` §Non-goals). "Verified" on this ladder means what
 it means for Dafny, SPARK and Prusti programs: no runtime errors on any
 input, and every stated contract holds. Say exactly that.
+
+One rule governs every number that ever appears in those sentences:
+**re-derived, never copied.** A claim sentence that cites a count ("the N
+functions at the FFI boundary", "M of K functions proved") cites numbers
+the sweep re-derives from `outcomes.tsv`; the sweep grows a
+`--claim-check` mode that diffs the published sentences against the
+current run, and a doc that disagrees fails CI — the golden-test
+discipline applied to claims. Until a sentence ships, the ratchet is the
+guard.
 
 Precedents, so the claim is calibrated: no SMT-contract language has
 verified its own compiler. Dafny's newer backends written in Dafny are
@@ -186,6 +200,61 @@ and tree, and the encoding itself (mitigated by the bugged-twin
 discipline: every positive fixture has a deliberately broken sibling that
 must refute, and M3's consistency laws check the encoding against CTFE).
 
+## The vacuity gate — contracts that prove nothing
+
+M0 measured the failure mode on Yo's own tree: **50 of 57 `ok` outcomes
+were vacuous** — zero obligations discharged. The ratchet already counts
+only `ok`-with-obligations, which keeps those functions out of the climb.
+But two vacuity shapes are invisible to that screen, and both get
+*likelier* the less hand-written the contracts are:
+
+1. **Vacuous hypotheses.** A `requires` set no input can satisfy (one
+   impossible clause, or two that contradict) makes every `ensures` of
+   the function trivially provable. The function is dead by contract; its
+   proofs say nothing. The zero-obligation screen cannot see this — the
+   obligations exist, and they all discharge. A *called* function with
+   contradictory `requires` already surfaces as refuted caller
+   obligations; the silent case is the function nobody calls yet.
+2. **Vacuous conclusions.** An `ensures` (or `assert`) predicate that
+   holds with the hypotheses dropped guarantees nothing — it documents
+   rather than bounds. Mixed into an otherwise real contract, it inflates
+   the clause count without adding proof content.
+
+Both are the natural output of an author working against a ratchet —
+which is exactly what M4 is (an agent loop annotating 1,341 signatures
+against `--strict`). The gate:
+
+- **The queries** ([`backlog/FORMAL_VERIFICATION.md`](backlog/FORMAL_VERIFICATION.md)
+  "Vacuity checking", planned): per verified function, one
+  hypothesis-consistency query (`Φ ⇒ false` over the same hypothesis set
+  the obligations carry; unsat ⇒ flag) and one minimality probe per
+  `ensures` clause (the clause re-queried with hypotheses dropped; unsat
+  ⇒ flag). Same rlimit/seed/cache discipline; verdicts never change —
+  the flags are warnings.
+- **The ratchet**: the sweep records, per module, hypothesis-vacuous
+  functions and vacuous-conclusion clauses alongside
+  ok-with-obligations; both may only fall. A rise fails CI exactly like
+  an ok-count drop.
+- **The counting rule**: a function counts toward the M0/M4 ratchet when
+  it has ≥1 discharged obligation AND no hypothesis-vacuity flag. A
+  tautological clause among real ones does not zero the function — it is
+  flagged and ratcheted separately (documentation clauses are sometimes
+  intentional).
+- **The interim gate**: until the queries land, the zero-obligation
+  screen is the gate (it caught M0's 50). The queries add hypothesis
+  contradiction, which no output-screening can see.
+
+A companion honesty artifact is the **`assumed()` inventory** — per
+module, the fn and clause of every `assumed()` site — so the
+FFI-boundary list in M4's sentence is generated from the tree, never
+hand-maintained in a doc.
+
+A final, softer rule for M4: when a refutation shows that a *desirable
+property is false* rather than the code being wrong, the negative fixture
+stays in the corpus as the recorded boundary — the checked statement that
+the tempting claim is false — instead of dying with the issue that filed
+it.
+
 ## The levers — verifier work the campaign needs
 
 Each lever is a slice of `FORMAL_VERIFICATION.md`'s deferred subset growth,
@@ -265,6 +334,18 @@ generation split; only `law` (B1) does.
 
 ### M0 — Measure, fix the report, ratchet (1–2 weeks)
 
+> **Status: LANDED (verified in-tree 2026-10-18; all four tasks).** The
+> sweep, census and ratchet are in the tree (`scripts/verify-src-sweep.sh`,
+> `scripts/verify_src_census.py`,
+> `scripts/bootstrap/verify-src-baseline.tsv`) and CI runs them as the
+> `verify-src` job; both report issues are in `issues/fixed/`
+> (`verify-report-fn-id-carries-file-scheme-absolute-path.md`,
+> `verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`).
+> The baseline holds one module (`src/types/utils.yo`, 2 functions);
+> M1 is next. The campaign's prerequisites also landed since the
+> drafting: B0 `--strict`, B1 `law`, B2 lemmas (#1075/#1106/#1107), so
+> L9 and every `--strict` exit criterion are unblocked.
+
 1. `scripts/verify-src-sweep.sh`: runs the whole-tree sweep, writes
    `outcomes.tsv` (fn, outcome, blocker, obligations), prints the outcome
    and blocker tables; `scripts/verify-src-census.py` produces the
@@ -302,10 +383,20 @@ generation split; only `law` (B1) does.
    `--no-cache`; `outcomes.tsv` byte-identical. Non-required CI step
    first.
 5. Docs: `docs/{en-US,zh-CN}/SELF_VERIFICATION.md` stating M1's claim and
-   exactly what it covers.
+   exactly what it covers — carrying only numbers the sweep re-derives
+   (the rule above).
+6. **Pinned known-answer rows** for tasks 1–3: comptime examples
+   asserting exact results for representative (value, width, signedness)
+   tuples — wrap at the boundaries, division and modulo rounding per
+   signedness, shift edges, narrowing truncation, widening
+   sign-extension. The `ensures` families state the general property for
+   all inputs; the pinned rows make any drift between the comptime
+   implementation and a later change a failing test the day it happens,
+   on inputs a human would pick.
 
 **Exit:** the three modules verify with zero `assumed()`; the fixpoint
-step is green; M1's sentence is true and documented.
+step is green; the pinned known-answer rows run in CI; M1's sentence is
+true and documented.
 
 ### M2 — The front end (one quarter)
 
@@ -325,7 +416,12 @@ Levers **L5, L8, L9**; annotate `src/verifier/` and `src/types/` (427
 signatures). The consistency laws: for each comptime integer op, a `law`
 stating that CTFE's result equals the encoder's bitvector term applied to
 the same operands (M1 proved each side against the model; M3 states the
-equality between the two implementations directly). `yo verify` becomes
+equality between the two implementations directly). Each law pairs with a
+**pinned twin**: concrete operands for which a test asserts that the
+compiled CTFE path AND the encoded SMT model (evaluated through the
+existing encode-golden harness) both equal the pinned constant. The law
+is the for-all-inputs theorem; the twin is the divergence tripwire that
+fails the day the two implementations drift. `yo verify` becomes
 incremental (L8) before `src/verifier/` opts in, so `yo check ./src` stays
 usable.
 
@@ -338,12 +434,16 @@ Levers **L6, L7**; then the long tail: 1,341 signatures, most of the 3,382
 loops and the 646 context writes. The annotation work is done the way the
 language is designed to be written — by an agent loop against
 `yo verify --strict` with `--explain` and the counter-examples, module by
-module, with the sweep's ratchet as the progress meter. Expect the
+module, with the sweep's ratchet as the progress meter and the vacuity
+gate as the honesty meter (a module's contracts count only when
+non-vacuous). Expect the
 verifier to find real bugs in the evaluator and codegen (the std
 dogfooding did); each is an issue + regression test.
 
 **Exit:** `yo verify --strict ./src` green; the `assumed()` list is
-exactly the FFI / raw-pointer boundary and is published; M4's sentence
+exactly the FFI / raw-pointer boundary and is published (generated by the
+sweep's `assumed()` inventory); the vacuity gate's per-module numbers are
+at zero or falling; M4's sentence
 goes on the README. Gate inside M4 (D2): after L3+L4+L5 and the singleton
 treatment, re-run the census; flat heaps are built only if more than 5%
 of signatures remain outside the subset for heap reasons.
