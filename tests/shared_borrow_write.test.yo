@@ -129,11 +129,12 @@ test("a field write through a `&T` parameter is E0908", {
 // value, a `&mut T` parameter writes the caller's place, and a `ref` handle
 // reached through a `&T` borrow is shared by design.
 _own :: (fn(p : _P) -> i32)({
-  p.n = i32(5);
-  p.inner.m = i32(6);
-  p.arr(usize(1)) = i32(7);
-  p.inc();
-  p.n + p.inner.m + p.arr(usize(1))
+  mut(q) := p;
+  q.n = i32(5);
+  q.inner.m = i32(6);
+  q.arr(usize(1)) = i32(7);
+  q.inc();
+  q.n + q.inner.m + q.arr(usize(1))
 });
 _through_mut :: (fn(p : &mut _P) -> unit)({
   p.n = i32(5);
