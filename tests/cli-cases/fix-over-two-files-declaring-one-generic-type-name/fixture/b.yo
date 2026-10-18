@@ -1,0 +1,44 @@
+// The same names as a.yo, declared again: another `Wrap(T)` with its own
+// `add` and `Show`, and a `GenBox(T)` whose Clone and Copy are derived.
+Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : T, scale : i32)
+);
+impl(
+  generic(T : Type),
+  Wrap(T),
+  add : (fn(self : &Self, delta : i32) -> i32)(self.scale + delta)
+);
+Show :: trait(
+  show : (fn(self : &Self) -> i32)
+);
+impl(
+  generic(T : Type),
+  Wrap(T),
+  Show(
+    show : (fn(self : &Self) -> i32)(self.scale)
+  )
+);
+GenBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : T)
+);
+derive(generic(T : Type), where(T <: Clone), GenBox(T), Clone);
+derive(generic(T : Type), where(T <: Copy), GenBox(T), Copy);
+// Each file's own `Meters`, with an impl of the prelude's `From` for the
+// prelude's `Option(T)`: `From(Meters)` is a different trait instance in each
+// file, although both print alike.
+Meters :: struct(m : i64);
+impl(
+  generic(T : Type),
+  Option(T),
+  From(Meters)(
+    from : (fn(value : Meters) -> Self)(Option(T).None)
+  )
+);
+count := i32(0);
+main :: (fn() -> unit)({
+  w := Wrap(bool)(v : true, scale : i32(3));
+  g := GenBox(i32)(v : i32(7));
+  h := g;
+  count = (w.add(i32(5)) + w.show() + (g.v + h.v));
+});
+export(main);

@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
   BK_FN,
   BK_COMPTIME
 } :: import("../../expr.yo");
-{ migrate_param_modes_on, record_borrow_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
+{ migrate_param_modes_on, record_borrow_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { FuncMeta, TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
-{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
+{ is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, type_decl_module } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
-{ EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
+{ EvalValue, FuncValData, create_type_value, create_unknown_val, lookup_enum_cfid } :: import("../../value.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -1928,6 +1928,87 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
   g_concrete_trait_impls.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site));
   g_concrete_trait_impl_owners.push(registration_owner());
 });
+/// Where the nominal types `t` mentions are declared, in the order
+/// `type_to_string` prints them: each struct, enum and union contributes its
+/// declaring module (`type_decl_module`), each trait its base key (the
+/// constructor's fid, else its id, which carries the module) followed by its
+/// method signatures' types, which is where a trait instance's arguments
+/// live (`From(Meters)` is `from : fn(value : Meters) -> Self`). Two
+/// declarations can print alike (two files' `Wrap(T)`), so a key built from
+/// `type_to_string` alone merges them, and one file's impls are then checked
+/// against the other's
+/// (issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md).
+_decl_modules_of :: (fn(t : &TypeValue, depth : usize) -> String)(
+  cond(
+    (depth > usize(16)) => String.new(),
+    true => match(
+      t,
+      Rc(.Struct({ id : dm_sid, type_arguments : dm_stas, is_source_namespace : dm_sns })) => cond(
+        dm_sns => String.new(),
+        true => `|${_decl_module_or_empty(&dm_sid)}${_decl_modules_of_list(&dm_stas, depth + usize(1))}`
+      ),
+      Rc(.EnumT(id : dm_eid, type_arguments : dm_etas)) => `|${_decl_module_or_empty(&dm_eid)}${_decl_modules_of_list(&dm_etas, depth + usize(1))}`,
+      Rc(.Union(name : dm_uname)) => `|${_decl_module_or_empty(&dm_uname)}`,
+      Rc(.TraitT(field_types : dm_trfts)) => `|${get_base_trait_key(t)}${_decl_modules_of_list(&dm_trfts, depth + usize(1))}`,
+      Rc(.Func({ param_types : dm_fpts, implicit_types : dm_fits, result : dm_fres, variadic_types : dm_fvts })) => `${_decl_modules_of_list(&dm_fpts, depth + usize(1))}${_decl_modules_of_list(&dm_fits, depth + usize(1))}${_decl_modules_of_list(&dm_fvts, depth + usize(1))}${_decl_modules_of(&dm_fres, depth + usize(1))}`,
+      Rc(.Pointer(dm_pointee)) => _decl_modules_of(&dm_pointee, depth + usize(1)),
+      Rc(.Array(dm_elem, _, _)) => _decl_modules_of(&dm_elem, depth + usize(1)),
+      Rc(.Tuple(_, dm_tfts)) => _decl_modules_of_list(&dm_tfts, depth + usize(1)),
+      _ => String.new()
+    )
+  )
+);
+_decl_modules_of_list :: (fn(ts : &ArrayList(TypeValue), depth : usize) -> String)({
+  out := String.new();
+  (dl_i : usize) = usize(0);
+  while(dl_i < ts.len(), dl_i = (dl_i + usize(1)), {
+    match(ts.get(dl_i), .Some(dl_t) => out.push_string(_decl_modules_of(&dl_t, depth)), .None => ());
+  });
+  out
+});
+_decl_module_or_empty :: (fn(type_id : &String) -> String)(
+  match(type_decl_module(type_id), .Some(m) => m, .None => String.new())
+);
+/// Could the receiver patterns `a` and `b` name one type? Never when both
+/// roots are nominal types from different declarations
+/// (`_nominal_root_identity`). Otherwise the root-shape prefilter decides (a
+/// type variable or a structural root may match anything of its shape).
+_receiver_patterns_could_overlap :: (fn(a : &TypeValue, b : &TypeValue) -> bool)({
+  if(!_root_shapes_could_match(a, b), {
+    return(false);
+  });
+  match(
+    _nominal_root_identity(a),
+    .Some(ro_a) => match(_nominal_root_identity(b), .Some(ro_b) => (ro_a == ro_b), .None => true),
+    .None => true
+  )
+});
+/// A nominal root's declaration identity, independent of how the type is
+/// spelled: the generic constructor's func id for an instantiation (`GenBox(T)`
+/// and `GB(T)` after `GB :: GenBox` share it), else the declaration-stable id
+/// of a module-level declaration (`struct_decl_…`, `enum_decl_…`). `.None` —
+/// "cannot tell" — for a root that is not nominal or whose id is minted per
+/// instantiation without a recorded constructor, and for unions (their ids
+/// are minted per evaluation). A printed name is not an identity: an alias
+/// prints differently, and two files' `Wrap` print alike.
+_nominal_root_identity :: (fn(t : &TypeValue) -> Option(String))(
+  match(
+    t,
+    Rc(.Struct({ id : nr_sid, is_source_namespace : nr_sns })) => cond(
+      nr_sns => Option(String).None,
+      true => _decl_identity_of(struct_effective_ctor_fid(t), &nr_sid, `struct_decl_`)
+    ),
+    Rc(.EnumT(id : nr_eid)) => _decl_identity_of(lookup_enum_cfid(&nr_eid), &nr_eid, `enum_decl_`),
+    _ => Option(String).None
+  )
+);
+_decl_identity_of :: (fn(ctor_fid : String, type_id : &String, stable_prefix : String) -> Option(String))(
+  cond(
+    (ctor_fid.len() > usize(0)) => Option(String).Some(`ctor:${ctor_fid}`),
+    type_id.starts_with(&stable_prefix) => Option(String).Some(`type:${type_id}`),
+    true => Option(String).None
+  )
+);
 /// Coherence at a GENERIC trait impl: an identical impl (same receiver
 /// pattern and trait, binders renamed by position) from another site is a
 /// duplicate (rule 1), and a registered concrete impl the new entry covers is
@@ -1975,7 +2056,9 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
       bw_i = (bw_i + usize(1));
     });
     bounds.sort();
-    inh_shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}\n${String.from(", ").join(&bounds)}`;
+    // The printed shape names the receiver; its declaring modules tell two
+    // modules' same-named types apart (`_decl_modules_of`).
+    inh_shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${String.from(", ").join(&bounds)}`;
     (fi : usize) = usize(0);
     while(fi < entry.field_names.len(), {
       f_name := match(entry.field_names.get(fi), .Some(n) => n, .None => String.new());
@@ -1997,7 +2080,10 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     });
     return(());
   });
-  shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}\n${type_to_string(substitute(&canon, &entry.trait_type))}`;
+  // The declaring modules of the receiver's and the trait's nominal types
+  // tell two modules' same-named types apart (`From(Meters)` over each
+  // file's own `Meters`; `_decl_modules_of`).
+  shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${type_to_string(substitute(&canon, &entry.trait_type))}${_decl_modules_of(&entry.trait_type, usize(0))}|${entry.trait_key}`;
   match(
     note_trait_impl_site(String.from("generic"), &shape, &entry.site),
     .Some(prev) => {
@@ -6071,9 +6157,12 @@ _check_copy_clone_exclusion :: (
 ///
 /// - At a hand-written generic `Clone` impl, the pattern is tested against
 ///   the `Copy` impls registered so far.
-/// - At a generic `Copy` impl, every hand-written generic `Clone` impl over
-///   the same receiver shape is tested again, since the new `Copy` impl may
-///   make it serve only `Copy` instantiations.
+/// - At a generic `Copy` impl, every hand-written generic `Clone` impl whose
+///   receiver can be the same type (`_receiver_patterns_could_overlap`: the
+///   same declaration, or a type-variable root) is tested again, since the
+///   new `Copy` impl may make it serve only `Copy` instantiations. Another
+///   declaration's `Clone` is not: a `Copy` impl for `GenBox(T)` says nothing
+///   about `_CtTag(T)`.
 ///
 /// A conditional `Clone` that also serves types that are not `Copy`
 /// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
@@ -6096,7 +6185,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
+            .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()
