@@ -51,4 +51,4 @@ The field is the generic parameter's own `SomeT`, resolved to a copy of the join
 
 ## Direction
 
-Instantiate a generic function's `Impl(Future(...))` result per call (substitute the call's binders into the returned wrapper), or key the closure of a generic body by the specialization that evaluates it. Either makes the capture key differ; the first also fixes `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`'s family.
+Instantiate a generic function's `Impl(Future(...))` result per call (substitute the call's binders into the returned wrapper), or key the closure of a generic body by the specialization that evaluates it. Either makes the capture key differ; the first also fixes `issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`'s family.

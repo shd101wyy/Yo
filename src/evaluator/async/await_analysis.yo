@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, ast_call_args_unmarked } :: import("../../expr.yo");
-{ ExprInfo, ExprInfoTable, expr_info_table_get, lookup_io_builtin_call, lookup_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get, lookup_io_builtin_call, lookup_macro_expansion, scope_variables, some_resolution } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { codegen_tables_enabled } :: import("../../utils.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
@@ -56,6 +56,7 @@ pragma(Pragma.AllowUnsafe);
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../trait_checking.yo");
+{ is_some_type } :: import("../../types/guards.yo");
 // ---------------------------------------------------------------------------
 // AwaitPointExtra — typed side-channel for async-specific fields
 // ---------------------------------------------------------------------------
@@ -335,6 +336,37 @@ detect_await_expr_ :: (
           return(());
         } // unreachable: we just verified FutureTraitT
       );
+      // The Future carrier may still name the DECLARING generic function's
+      // binder (`fut : Impl(Future(R, E))` awaited in a specialized body): an
+      // unresolved carrier here makes the single-pass lowering treat the
+      // result as unit — no result field, no stored value. Follow the
+      // wrapper's own resolution chain (a per-spec rebuild resolves to the
+      // ARGUMENT's wrapper, whose carriers are the call's concrete types) and
+      // re-extract there. Value-first, one hop at a time, so an unresolvable
+      // carrier keeps its occurrence.
+      if(is_some_type(&result_type) && some_resolution(&result_type).is_none(), {
+        match(
+          some_resolution(&future_type_val),
+          .Some(fut_res) => match(
+            extract_future_trait_from_type(fut_res.clone()),
+            .Some(Rc(.FutureTraitT(output : res_out))) => match(
+              res_out,
+              Rc(.SomeT({ resolution : res_out_cell })) => match(
+                res_out_cell,
+                .Some(final_out) => {
+                  result_type = final_out;
+                },
+                .None => ()
+              ),
+              _ => {
+                result_type = res_out;
+              }
+            ),
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
       // Get the variable ID of the future being awaited (for state machine fields)
       future_variable_id := get_future_variable_id_(await_arg.clone(), get_info);
       // Get the target variable ID from the parent := assignment, if any

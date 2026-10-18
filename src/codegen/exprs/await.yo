@@ -29,7 +29,7 @@
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env_by_filter } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
-{ scope_release_note_hard } :: import("../../expr_info.yo");
+{ scope_release_note_hard, some_resolution } :: import("../../expr_info.yo");
 { is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
 {
   extract_future_trait_from_type,
@@ -402,6 +402,35 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
           .None => ()
         );
       }
+    );
+  });
+  // Last fallback: the Future carrier still names the DECLARING generic
+  // function's binder (`fut : Impl(Future(R, E))` awaited in a specialized
+  // body) while the wrapper itself resolves to the argument's wrapper — hop
+  // that resolution and re-extract the output there, whose carriers are the
+  // call's concrete types. Without it the awaited result lowers `void*`
+  // (issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
+  if(is_some_type(&result_type) && some_resolution(&result_type).is_none(), {
+    match(
+      some_resolution(&future_type),
+      .Some(fut_res) => match(
+        extract_future_trait_from_type(fut_res.clone()),
+        .Some(Rc(.FutureTraitT({ output : res_out }))) => match(
+          res_out,
+          Rc(.SomeT({ resolution : res_out_cell })) => match(
+            res_out_cell,
+            .Some(final_out) => {
+              result_type = final_out;
+            },
+            .None => ()
+          ),
+          _ => {
+            result_type = res_out;
+          }
+        ),
+        _ => ()
+      ),
+      .None => ()
     );
   });
   em := context.base.emitter;

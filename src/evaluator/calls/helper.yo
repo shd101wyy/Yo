@@ -210,6 +210,7 @@ pragma(Pragma.AllowUnsafe);
   WhereConstraintEntry,
   collect_wrapper_trait_somes,
   _substitute_wrapper_carriers,
+  _resolve_wrapper_carriers_from_env,
   _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -3779,10 +3780,50 @@ create_specialized_function_inline :: (
               match(
                 decl_pt,
                 Rc(.SomeT({ id : fw_id })) => if(extract_future_trait_from_type(&decl_pt).is_some(), {
+                  // The rebuild's identity/resolution source: the RESOLVED
+                  // arg type (runtime_param_tys, a wrapper SomeT) when it is
+                  // one, else — the normal case for an `io.async`-produced
+                  // argument, whose wrapper resolves to its state-machine
+                  // struct — the RAW arg type's wrapper (`arg_values`, before
+                  // `_spec_resolve_arg_ty` collapses it), with the collapsed
+                  // CONCRETE type as the resolution. Without the second arm
+                  // the rebuild never fired for a collapsed arg, so the
+                  // param binding kept the DECLARED wrapper: every carrier
+                  // inside `Impl(Future(R, E))` stayed an unresolved binder
+                  // occurrence, and an awaiting body read its result as the
+                  // raw binder (`void*` in C, unit in the single-pass
+                  // lowering), while the capture-struct key of a generic
+                  // `io.async` body printed identically for every `T` of one
+                  // producer (one capture struct across futures)
+                  // (issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
+                  (fw_res_src : Option(TypeValue)) = Option(TypeValue).None;
+                  (fw_raw_arg : Option(TypeValue)) = Option(TypeValue).None;
                   match(
                     runtime_param_tys.get(rbp_i),
                     .Some(fw_arg) => if(is_some_type(&fw_arg) &&
                       match(fw_arg, Rc(.SomeT({ id : fw_aid })) => (fw_aid != fw_id), _ => false), {
+                      fw_res_src = Option(TypeValue).Some(fw_arg.clone());
+                    }, {
+                      // Collapsed (concrete) arg: take the Future carrier —
+                      // and the wrapper identity the key hashes — from the
+                      // RAW arg type's own wrapper.
+                      if(!is_some_type(&fw_arg), {
+                        match(
+                          arg_values.args.get(rbp_i),
+                          .Some(fw_ae_raw) => if(is_some_type(&fw_ae_raw.arg_type) &&
+                            match(fw_ae_raw.arg_type, Rc(.SomeT({ id : fw_raw_id })) => (fw_raw_id != fw_id), _ => false), {
+                            fw_res_src = Option(TypeValue).Some(fw_ae_raw.arg_type.clone());
+                            fw_raw_arg = Option(TypeValue).Some(fw_arg.clone());
+                          }),
+                          .None => ()
+                        );
+                      });
+                    }),
+                    .None => ()
+                  );
+                  match(
+                    fw_res_src,
+                    .Some(fw_src) => {
                       match(
                         decl_pt,
                         Rc(
@@ -3799,26 +3840,61 @@ create_specialized_function_inline :: (
                             _
                           )
                         ) => {
+                          // The Future carrier comes from the ARG wrapper when
+                          // it has one (its carriers are the call's concrete
+                          // types — also what the capture-struct key prints),
+                          // else stays the declared carrier for the env-based
+                          // carrier resolution below to resolve by name.
+                          (fw_new_rtt : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+                          fw_arg_trait := extract_future_trait_from_type(&fw_src);
+                          (fw_ri : usize) = usize(0);
+                          while(fw_ri < fw_rtt.len(), {
+                            match(
+                              fw_rtt.get(fw_ri),
+                              .Some(fw_t) => match(
+                                fw_t,
+                                Rc(.FutureTraitT(base_name : _)) => match(
+                                  fw_arg_trait,
+                                  .Some(fw_ft) => {
+                                    fw_new_rtt.push(fw_ft.clone());
+                                  },
+                                  .None => {
+                                    fw_new_rtt.push(fw_t.clone());
+                                  }
+                                ),
+                                _ => {
+                                  fw_new_rtt.push(fw_t.clone());
+                                }
+                              ),
+                              .None => ()
+                            );
+                            fw_ri = (fw_ri + usize(1));
+                          });
+                          fw_res := match(
+                            fw_raw_arg,
+                            .Some(fw_conc2) => fw_conc2.clone(),
+                            .None => fw_src.clone()
+                          );
                           fw_rebind = Option(TypeValue).Some(
                             rc(
                               TypeValueNode.SomeT(
-                                `${fw_id}_fwbind_${type_key(&fw_arg)}`,
+                                `${fw_id}_fwbind_${type_key(&fw_src)}`,
                                 fw_nm,
                                 fw_fl,
                                 fw_pt,
-                                fw_rtt,
+                                fw_new_rtt,
                                 fw_rtl,
                                 fw_ntt,
                                 fw_ntl,
                                 fw_kft,
-                                Option(TypeValue).Some(fw_arg.clone())
+                                Option(TypeValue).Some(fw_res.clone())
                               )
                             )
                           );
                         },
                         _ => ()
                       );
-                    }),
+                    },
                     .None => ()
                   );
                 }),
@@ -3828,11 +3904,22 @@ create_specialized_function_inline :: (
             match(
               fw_rebind,
               .Some(fw_bt) => {
+                // The rebuild takes its Future carrier from the ARGUMENT's
+                // wrapper when one exists; a binder the arg's wrapper could
+                // not supply (no wrapper at all, or a still-generic forwarded
+                // operand) is resolved here against the mint env, which holds
+                // the call's forall bindings by NAME (`R := i32`): the
+                // occurrence inside `Impl(Future(R, E))` is a type value, not
+                // a lookup, so without this pass the body's
+                // `io.await(fut, io)` reads its result as the raw binder —
+                // `void*` in C, unit in the single-pass lowering. The wrapper
+                // keeps its per-spec id and its resolution.
+                fw_bound := _resolve_wrapper_carriers_from_env(&fw_bt, callee_env);
                 _fw := bind_parameter(
                   callee_env,
                   &p_label,
-                  fw_bt.clone(),
-                  Option(EvalValue).Some(create_unknown_val(&fw_bt)),
+                  fw_bound.clone(),
+                  Option(EvalValue).Some(create_unknown_val(&fw_bound)),
                   false,
                   match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                   false,

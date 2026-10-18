@@ -383,10 +383,11 @@ that borrows:
   are fine. A by-value Future parameter of a function whose result is not a
   Future, or of a non-generic function (checked once, at its definition, so
   its Future could not carry the operand's borrows), still rejects one
-  (E0909). A generic combinator cannot yet return its operand's value: the
-  awaited result of a `T` bound only through the operand miscompiles
-  (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`),
-  so await the operand for its effect and resolve to `unit`;
+  (E0909). A generic combinator CAN return its operand's value: a `T` bound
+  only through the `Impl(Future(T, E))` parameter resolves at the call's
+  specialization, so `io.async({ op }(io : Io) => io.await(op, io))` hands
+  the operand's result back at its own `T`
+  (`issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`);
 - a function may return it when everything it borrows is one of that
   function's own `&`/`&mut` parameters, so the caller's lent places outlive
   it. A `&T` parameter is borrowed through the body's own capture list

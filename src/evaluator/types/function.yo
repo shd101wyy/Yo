@@ -11,7 +11,7 @@
 //! spread spelling was removed (2026-10-03) and is reported as an error.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-import("std/fmt");
+{ eprintln } :: import("std/fmt");
 {
   AstExpr,
   ast_expr_token,
@@ -78,6 +78,7 @@ import("std/fmt");
 { E_COMPTIME_PARAM_DEFAULT } :: import("../../diagnostics.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
+{ debug_knob } :: import("../../utils.yo");
 { type_implements_trait, TraitCheckResult, resolve_assoc_type_for_target } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -4878,6 +4879,74 @@ _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) ->
     _ => substitute(ns, wrapper)
   )
 );
+/// A wrapper SomeT (`Impl(Future(T, E))`, `Impl(Fn(e : E) -> R)`) whose trait
+/// carriers still name the DECLARING generic function's binders, resolved
+/// against `env` — the specialization-side analog of `_resolve_some_types_deep`
+/// for a value the caller deliberately keeps a wrapper: the per-spec rebuilds
+/// (`fw_rebind` for a future parameter, `capbind` for a closure parameter) copy
+/// the DECLARED wrapper's carrier occurrences, so the binder `T` inside
+/// `Impl(Future(T, E))` stays unresolved in the specialized body even though
+/// the mint bound `T := i32` in the env (by NAME — the carrier is a TYPE
+/// OCCURRENCE, not a name lookup). A body's `io.await(fut, io)` then reads its
+/// result type as the raw binder: codegen lowers it `void*`, the single-pass
+/// lowering treats it as unit and stores no result
+/// (issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
+/// The wrapper keeps its OWN id and resolution — only the carriers that the
+/// env binds to a concrete type move (`_substitute_wrapper_carriers`), so the
+/// async registrations keyed on the wrapper's identity are untouched.
+_resolve_wrapper_carriers_from_env :: (fn(wrapper : &TypeValue, env : &Environment) -> TypeValue)({
+  carriers := collect_wrapper_trait_somes(wrapper);
+  if(debug_knob(`YO_DEBUG_FWCARRIER`).is_some(), {
+    eprintln(`[fwcarrier] wrapper=${type_to_string(wrapper)} carriers=${carriers.len().to_string()}`);
+  });
+  if(carriers.len() == usize(0), {
+    return(wrapper.clone());
+  });
+  ns := subst_new();
+  (any : bool) = false;
+  (i : usize) = usize(0);
+  while(i < carriers.len(), {
+    match(
+      carriers.get(i),
+      .Some(c) => match(
+        c,
+        Rc(.SomeT(_, c_name, c_lvl, _, _, _, _, _, _, _)) => {
+          r := get_value_of_some_type_from_env(env, &c);
+          if(debug_knob(`YO_DEBUG_FWCARRIER`).is_some(), {
+            eprintln(`[fwcarrier] carrier=${c_name} lvl=${c_lvl.to_string()} resolved=${type_to_string(&r)}`);
+          });
+          // The env may bind the slot to ANOTHER SomeT (a per-spec rebuild or
+          // a per-call output): read the resolution that VALUE carries — the
+          // `_env_rebound_to_another_some` rule in `_resolve_some_types_deep`.
+          if(_env_rebound_to_another_some(&c, &r), {
+            match(
+              some_resolution(&r),
+              .Some(r_res) => {
+                r = r_res;
+              },
+              .None => ()
+            );
+          });
+          // A carrier that stays a SomeT (unbound at this call — the async
+          // pipeline's unresolved-SomeT registrations) or soft-failed to unit
+          // keeps its occurrence: substituting it would clobber the identity
+          // async codegen registered.
+          if(!is_some_type(&r) && !is_unit_type(&r), {
+            subst_add(&ns, &c_name, c_lvl, &r);
+            any = true;
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(any, {
+    return(_substitute_wrapper_carriers(&ns, wrapper));
+  });
+  wrapper.clone()
+});
 _resolve_some_types_deep :: (
   fn(ty : &TypeValue, env : &Environment) -> TypeValue
 )({
@@ -5356,7 +5425,7 @@ export(apply_where_clause_constraints);
 export(evaluate_function_parameter_type_again);
 export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
-export(collect_wrapper_trait_somes, _substitute_wrapper_carriers);
+export(collect_wrapper_trait_somes, _substitute_wrapper_carriers, _resolve_wrapper_carriers_from_env);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
 export(_add_where_clause_constraint, _trait_has_receiver);
 export(

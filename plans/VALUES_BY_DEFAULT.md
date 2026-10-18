@@ -1326,13 +1326,16 @@ instead.
       `_check_awaited_future` ignores a borrow whose root is not in scope.
       Such a root is the caller's place, lent for the call and checked at the
       call site, and the body cannot name it.
-    - **A combinator cannot yet return its operand's value.** The awaited
-      result of a `T` bound only through the operand lowers as unit or as
-      a wrong value (S1)
-      (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`),
-      so the tests' combinators (`_a4_done`, `_a4_both` in
-      `tests/async/combinators.test.yo`) await their operands for their
-      effect and resolve to `unit`.
+    - **A combinator CAN return its operand's value.** A `T` bound only
+      through the `Impl(Future(T, E))` parameter resolves at the call's
+      specialization (the per-spec future-wrapper rebuild carries the
+      argument wrapper's Future carriers; fixed S1,
+      `issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`),
+      so `io.async({ op }(io : Io) => io.await(op, io))` hands the operand's
+      result back at its own `T` — the `_a4_id` family in
+      `tests/async/combinators.test.yo`. The operands' effect type can be
+      generic the same way (`generic(E : Type.Struct)` through the
+      parameter's `E`).
     - **Decision 38 B's overlap** (`_check_future_operand_lends`,
       `src/evaluator/calls/function.yo`). A call's future carries borrows
       rooted at its callee's parameters, so the places an operand lends are
@@ -1354,12 +1357,14 @@ instead.
       generic producer at different `T` (`h1.join(io)` and `h2.join(io)`,
       `rx.recv(io)` over two channel item types) give a generic body's
       `io.async` one capture struct and one closure, so the second
-      `timeout` in a program fails to compile (`issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`), and the
-      operands' effect type cannot be generic
-      (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`).
+      `timeout` in a program fails to compile
+      (`issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`;
+      still open — the S1 fix resolves a future PARAMETER's carriers per
+      call, but a generic PRODUCER's returned wrapper still shares one
+      identity across its own `T`s).
       The reference implementation is `std/async/index.yo` and
       `std/http/client.yo` on the branch `wip/vbd-a4-std-half` (commit
-      `a83d6ac8b`). `timeout(handle, …)` stays until those are fixed.
+      `a83d6ac8b`). `timeout(handle, …)` stays until that is fixed.
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell

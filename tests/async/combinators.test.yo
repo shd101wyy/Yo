@@ -10,6 +10,7 @@ pragma(Pragma.AllowUnsafe);
 { Stream, for_await } :: import("std/async/stream");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
+{ IoExn, Exception } :: import("std/error");
 
 /// A task that sleeps `ms` then returns `value`.
 sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
@@ -932,10 +933,10 @@ _a4_read_after :: (fn(c : &_A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io
     c.n
   })
 );
-/// A combinator over one operand: awaits it, for its effect. The A4
-/// combinators resolve to `unit`: a generic body cannot yet return the
-/// operand's `T` (issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-
-/// generic-binder-emits-a-void-pointer-result.md).
+/// A combinator over one operand: awaits it, for its effect. A generic body
+/// CAN return the operand's `T` (the binder resolves through the future
+/// parameter — see the `_a4_id` family below); this one resolves to `unit`
+/// because it has no value to hand back.
 _a4_done :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(unit, Io)))(
   io.async({ op }(io : Io) => {
     io.await(op, io);
@@ -1062,4 +1063,63 @@ _a4_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 test("A4: combinators over borrowing futures inside a task", {
   r := io.await(_a4_in_task(io), io);
   assert(r == i32(52), "the counter ends at 2, the read-only one at 50");
+});
+/// A combinator that RETURNS its operand's value — the tail form. A binder
+/// that lives only through the `Impl(Future(T, Io))` parameter resolves at
+/// the specialization, so the awaited result is the call's concrete `T`
+/// (issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
+_a4_id :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(T, Io)))(
+  io.async({ op }(io : Io) => io.await(op, io))
+);
+/// The block form: the awaited result is bound under an annotation built
+/// from the binder, then returned.
+_a4_id_block :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(T, Io)))(
+  io.async({ op }(io : Io) => {
+    (v : T) = io.await(op, io);
+    v
+  })
+);
+/// A type BUILT from the binder inside the body: `Option(T)` around the
+/// awaited result.
+_a4_some :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(Option(T), Io)))(
+  io.async({ op }(io : Io) => {
+    r := io.await(op, io);
+    Option(T).Some(r)
+  })
+);
+/// The sync form: a plain function (no `io.async` body) awaits its future
+/// parameter. Its result is not a future, so it is not a combinator slot:
+/// the operand must be first-class.
+_a4_sync :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> T)({
+  r := io.await(op, io);
+  r
+});
+test("A4: a combinator returns its operand's value (the binder resolves through the future parameter)", {
+  mut(c) := _A4Counter(n : i32(9));
+  assert(io.await(_a4_id(_a4_read_after(&c, u64(0), io), io), io) == i32(9), "the tail form");
+  assert(io.await(_a4_id_block(_a4_read_after(&c, u64(0), io), io), io) == i32(9), "the block form");
+  got := io.await(_a4_some(_a4_read_after(&c, u64(0), io), io), io);
+  assert(got == .Some(i32(9)), "a type built from the binder");
+  assert(_a4_sync(sleepy(i32(7), u64(1), io), io) == i32(7), "a plain fn awaiting its future parameter");
+});
+/// An effect-binder operand: the bundle is generic, so the same combinator
+/// works over any bundle (`IoExn` here). The bundle type travels through the
+/// `Impl(Future(T, E))` parameter's `E`, the result through its `T`.
+_a4_id_exn :: (fn(generic(T : Type, E : Type.Struct), op : Impl(Future(T, E)), e : E, io : Io) -> Impl(Future(T, E)))(
+  io.async({ op, io }(e : E) => io.await(op, e))
+);
+_a4_exn_int :: (fn(io : Io, exn : Exception) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => i32(5))
+);
+test("A4: an effect-binder operand resolves through the future parameter", {
+  throw_exn := Exception(
+    throw : (
+      _err -> {
+        unwind(());
+      }
+    )
+  );
+  bundle := IoExn(io : io, exn : throw_exn);
+  got := io.await(_a4_id_exn(_a4_exn_int(io, throw_exn), bundle, io), bundle);
+  assert(got == i32(5), "the bundle and the result resolve");
 });
