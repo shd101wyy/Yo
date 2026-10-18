@@ -11,11 +11,15 @@
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
 W :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_b : isize, _value : T));
-impl(generic(T : Type), W(T),
+impl(
+  generic(T : Type),
+  W(T),
   new : (fn(value : T) -> Self)(Self(_b : isize(0), _value : value))
 );
 Ch :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_st : W(ArrayList(T))));
-impl(generic(T : Type), Ch(T),
+impl(
+  generic(T : Type),
+  Ch(T),
   new : (fn() -> Self)(Self(_st : W(ArrayList(T)).new(ArrayList(T).new())))
 );
 main :: (fn() -> unit)({

@@ -12,7 +12,9 @@
 { assert } :: import("std/assert");
 St :: (fn(comptime(Item) : Type) -> comptime(Type))(struct(n : usize, x : Option(Item)));
 Ch :: (fn(comptime(Item) : Type) -> comptime(Type))(struct(_st : Rc(RefCell(St(Item)))));
-impl(generic(Item : Type), Ch(Item),
+impl(
+  generic(Item : Type),
+  Ch(Item),
   new : (fn() -> Self)(Self(_st : rc(RefCell(St(Item)).new(St(Item)(n : usize(0), x : Option(Item).None))))),
   _add : (fn(self : &Self) -> unit)(
     self._st.with_mut(s => {
@@ -22,7 +24,9 @@ impl(generic(Item : Type), Ch(Item),
   count : (fn(self : &Self) -> usize)(self._st.with(s => s.n))
 );
 Tx :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_ch : Ch(T)));
-impl(generic(T : Type), Tx(T),
+impl(
+  generic(T : Type),
+  Tx(T),
   _attach : (fn(ch : &Ch(T)) -> Self)({
     ch._add();
     Self(_ch : ch)
