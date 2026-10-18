@@ -40,7 +40,7 @@ f1 :: (fn(n_opt : Option(usize)) -> Option(usize))({
 export(main);
 main :: (fn() -> unit)({
   r1 := f1(Option(usize).Some(usize(9)));
-  unit;
+  ();
 });
 ```
 
