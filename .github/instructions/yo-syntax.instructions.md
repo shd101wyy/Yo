@@ -822,7 +822,7 @@ A value type (`struct`/`enum`/`newtype`) that implements `Drop`, or a plain one 
 
 A recursive value enum with `Box(Self)` children (`Pattern`, `UBoxTree`) is move-only even with a `Clone` impl: `Box` implements `Drop`. Its pitfalls, measured on v0.2.63 and develop (2026-10-17):
 - `derive(T, Clone)` and `derive(T, Eq(T))` fail when the enum ALSO has an `ArrayList(Self)` child: the list's `clone`/`==` copy elements out through `get`. Write `impl(T, Clone(...))` by hand, cloning each `Box` with `Box.clone(b)` and each list with an index loop (`out.push(xs(i).clone())`).
-- `ArrayList(T)`'s `get`, `clone` and the read form `for(&xs, x => …)` copy the element and are E0901 (`issues/arraylist-clone-copies-elements-out-through-get.md`); a `HashMap` cannot hold such a value at all (`issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`).
+- `ArrayList(T)`'s `get`, `clone` and the read form `for(&xs, x => …)` copy the element and are E0901 (`issues/arraylist-clone-copies-elements-out-through-get.md`); a `HashMap` cannot hold such a value at all (`issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`).
 - What works: lend an element to a parameter (`f(&xs(i))`, `recur(&subs(i), out)`), clone it in place (`xs(i).clone()`), borrow-iterate with `for(&mut xs, x => …)`, and own it with `pop`/`remove`.
 - What does not: `match(&xs(i), …)` (`issues/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md`) and a local element borrow `e := &xs(i)`. Match an element inside a helper that takes `p : &T`.
 
