@@ -76,6 +76,21 @@ checks — positive test), `{ }` with whitespace (same record, same rule), and e
   about compact array/tuple literals and stay valid — the rejection is a check-time rule, and
   formatter fixtures never run the evaluator.
 
+A second census pass (empty brace group as a CALL ARGUMENT, `git grep -P '\(\s*\{\s*\}\s*\)'`)
+found the same hole in three more spellings the first pattern cannot see, all migrated in the fix
+PR: a dead `if(method_name == "index", { });` no-op guard in `src/evaluator/values/impl.yo`
+(became `if(method_name == "index", ());` — an `if` arm is a cond arm after the parse-time
+desugar), the empty-main fixtures `tests/codegen-bootstrap/empty_main.yo` and
+`tests/cli-cases/ptr-type-safe-code/fixture/main.yo` (`main :: (fn() -> unit)({});` became
+`(());`), and the same program embedded as a string in `tests/internal/compile.test.yo` (the
+#1440 embedded-string blind spot). NOT migrated and still legal: the `Rc(.Struct({}))`-style TYPE
+patterns and `.Variant({})` bind-nothing payload patterns (pattern position, not arm bodies), and
+`traverse(arr, exn, {})` / `loop_with_effect(..., {})` in `tests/algebraic_effects.test.yo`, whose
+`{}` binds a generic `E : Type.Struct` parameter — a genuine struct-expected position. The
+`get :: (fn(self : Self, k : K) -> ?V)({});` in `tests/internal/formatter_fixtures/39_*` is also
+left alone: its `{}` is an fn body against `?V` — never a unit position, so no rule ever accepted
+it — and a parse-level fixture besides. `issues/repros/*` are historical records and stay as filed.
+
 Every site was audited: all are no-op arms whose sibling arms are `;`-terminated unit blocks, so
 `=> ()` preserves the join type exactly. Re-grepped the whole tree plus `.github/workflows/`, shell
 heredocs and docs after migrating: no further sites.
