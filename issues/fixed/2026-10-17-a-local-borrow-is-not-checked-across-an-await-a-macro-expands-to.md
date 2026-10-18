@@ -63,7 +63,7 @@ await (`for_await(cur.stream, …)` with no later use) is rejected too.
 
 Rule 3 (a borrow of a module-level place across any call) has the same hole
 for the calls an expansion makes; it is filed separately as
-`issues/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`.
+`issues/fixed/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`.
 
 ## Verification
 
