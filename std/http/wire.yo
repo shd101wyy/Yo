@@ -29,7 +29,6 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { GlobalAllocator } :: import("../allocator");
-{ malloc, free } :: GlobalAllocator;
 { IoExn } :: import("../error");
 { Reader } :: import("../io");
 { HttpError } :: import("./http.yo");
@@ -579,6 +578,16 @@ _frame_status :: (fn(data : &ArrayList(u8), kind : MessageKind) -> _FrameStatus)
 /// belonging to two pipelined messages, and framing the second one by
 /// "whatever arrived next" is request/response smuggling (RFC 9112 §11.2) —
 /// and a heisenbug, because it only shows up when the peer's writes coalesce.
+/// The raw write target of `read_http_message_buffered`'s pre-reserved buffer:
+/// the list stays empty for the whole read (its capacity is the payload), so
+/// this pointer is stable — the list never grows and never reallocates.
+_read_buf_ptr :: (fn(b : &ArrayList(u8)) -> *u8)(
+  match(
+    b.ptr(),
+    .Some(p) => p,
+    .None => (*u8)("")
+  )
+);
 read_http_message_buffered :: (
   fn(
     generic(R : Type),
@@ -592,7 +601,19 @@ read_http_message_buffered :: (
 )(
   io.async(e => {
     buf_size := usize(8192);
-    buf := (*u8)(malloc(buf_size).unwrap());
+    // An OWNED buffer, not a raw malloc. The future can be ABORTED mid-read
+    // (a `fetch` deadline wins `timeout`'s race and aborts the exchange parked
+    // in the read below), and an aborted state machine never resumes its body,
+    // so the `free` that used to follow the read loop was unreachable on that
+    // path: every `fetch` that ended in `HttpError.Timeout` while the server
+    // held the connection open leaked the 8 KiB buffer
+    // (issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md).
+    // The list stays EMPTY — its capacity is the whole payload — and it is
+    // re-read at every `read` call below, so it is live across every
+    // suspension: the state machine owns it, and its dispose — which the
+    // aborted-entry guard reaches through the task's final reference release —
+    // frees the allocation on every exit path, abort included.
+    buf_store := ArrayList(u8).with_capacity(buf_size);
     // Seed from what the previous message left behind — those bytes are
     // already this message's, and there may be enough of them that no read is
     // needed at all.
@@ -627,7 +648,10 @@ read_http_message_buffered :: (
       .NeedMore => ()
     );
     while(runtime(!done), {
-      n := e.io.await(stream.read(buf, buf_size, e.io), e);
+      // The pointer is re-read from the OWNER at every read, so `buf_store`
+      // is live across this suspension and the state machine keeps it (see
+      // the comment at its declaration).
+      n := e.io.await(stream.read(_read_buf_ptr(&buf_store), buf_size, e.io), e);
       cond(
         // 0 bytes means the peer closed the connection. A negative count is
         // no longer representable: NetError.check throws on error, so read()
@@ -645,6 +669,9 @@ read_http_message_buffered :: (
             },
             true => ()
           );
+          // Hoisted per read: between two suspensions the pointer is stable
+          // (the list never grows, so it never reallocates).
+          buf := _read_buf_ptr(&buf_store);
           i := usize(0);
           while(runtime(!done && (i < n)), {
             result.push((buf.add(i)).*);
@@ -669,7 +696,6 @@ read_http_message_buffered :: (
         }
       );
     });
-    free(.Some((*void)(buf)));
     // A chunked body is handed on DECODED: the raw bytes are rewritten as
     // `headers CRLFCRLF data`, so `parse_response` sees the payload and the
     // Transfer-Encoding header stays visible on the response.

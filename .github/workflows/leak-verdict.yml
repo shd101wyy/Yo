@@ -122,3 +122,9 @@ jobs:
           "$S1" test ./tests/async/exit_release.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/cross_thread_wake.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/sys/socketpair.test.yo --c-compiler clang --verbose
+          # http.test.yo joined when the aborted-read 8 KiB buffer leak was
+          # fixed (issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md):
+          # its only leak-verdict failure was that one, and the fix has no
+          # in-language oracle (an internal read buffer), so this leg is its
+          # regression run.
+          "$S1" test ./tests/http/http.test.yo --c-compiler clang --verbose
