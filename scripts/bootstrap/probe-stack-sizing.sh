@@ -46,7 +46,7 @@ deep :: (fn(n : i64) -> i64)(
   cond(
     (n <= i64(0)) => i64(0),
     true => {
-      local := n;
+      mut(local) := n;
       r := recur((n - i64(1)));
       bump(&mut local);
       (r + local)

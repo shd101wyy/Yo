@@ -532,7 +532,7 @@ jobs:
   # is a solver-harness regression, not a language regression.
   verify:
     name: Formal verification (pinned Z3)
-    needs: [changes, tree-hygiene]
+    needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
     # Five tests/internal files, each compiling the compiler. The "~45 min
@@ -598,11 +598,27 @@ jobs:
       - name: Fetch the project's Yo dependencies
         uses: ./.github/actions/install-deps
 
+      # The five `yo test` steps run STAGE 1, not the seed. Their files are
+      # tests/internal sources in the tree's syntax: a Generation A that
+      # changes the language migrates them (E0917 applies outside src/std),
+      # and the seed cannot parse the result. #1440's `mut(x) :=` turned
+      # this job red on develop (`Invalid binding to "mut"`). The
+      # `yo verify` steps below stay on the seed: std/spec, std/collections
+      # and tests/spec are inputs it can still read.
+      - name: "Stage 1: download the self-hosted compiler (built once by the `stage1` job)"
+        uses: actions/download-artifact@v8
+        with:
+          name: yo-stage1
+      - name: "Stage 1: install"
+        run: |
+          chmod +x yo-stage1
+          mv yo-stage1 /tmp/yo-stage1
+
       - name: Verifier unit tests (real solver)
-        run: yo test ./tests/internal/verifier.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier.test.yo --bail -v
 
       # V3: the per-function pass over the negative fixtures (subset
-      # errors run solver-free; refutations need the Z3 above). The seed
+      # errors run solver-free; refutations need the Z3 above). Stage 1
       # compiles the PR's verifier code — the same model as
       # verifier.test.yo. Leak verdicts staged off for the same reason as
       # the differential shards below: the harness evaluates modules
@@ -613,7 +629,7 @@ jobs:
       - name: Verifier negative-path tests (subset + refutations)
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: yo test ./tests/internal/verifier_negative.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier_negative.test.yo --bail -v
 
       # V6 task 5 (plans/backlog/FORMAL_VERIFICATION.md): the `assumed()`
       # marker — contracts gate callers, subset-external bodies are not
@@ -621,7 +637,7 @@ jobs:
       - name: Verifier assumed-contract tests
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: yo test ./tests/internal/verifier_assumed.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier_assumed.test.yo --bail -v
 
       # V6 task 3 slice 1 (plans/backlog/FORMAL_VERIFICATION.md §7): the
       # refine(T, p) refinement annotations — modular VCs (callee assumes,
@@ -629,7 +645,7 @@ jobs:
       - name: Verifier refinement tests
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: yo test ./tests/internal/verifier_refine.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier_refine.test.yo --bail -v
 
       # The ArrayList list model (R1 slice 1 of ATS_STYLE_INDEXED_TYPES.md):
       # len/is_empty/index reads over a runtime collection, modular length
@@ -637,7 +653,7 @@ jobs:
       - name: Verifier list-model tests
         env:
           YO_TEST_LEAK_VERDICT: "0"
-        run: yo test ./tests/internal/verifier_list_len.test.yo --bail -v
+        run: /tmp/yo-stage1 test ./tests/internal/verifier_list_len.test.yo --bail -v
 
       - name: yo verify harness report (JSON)
         run: |
@@ -744,7 +760,7 @@ jobs:
   # check — add it to branch protection only after it has been green for a week
   # (the required-check list is maintained by hand).
   #
-  # It runs the SEED compiler, like every other step in the verify job: the
+  # It runs the SEED compiler, like the verify job's `yo verify` steps: the
   # numbers therefore reflect the seed's verifier reading the PR's source. A
   # verifier improvement (a subset lever) only moves them after the next seed
   # bump; a SOURCE annotation moves them immediately, which is what the ratchet
@@ -1890,13 +1906,13 @@ jobs:
             io.await(sleep(u64(20)), e);
             // A socket op that PARKS on the fallback: the recv is issued before
             // the peer sends, so it must wait for readiness and be woken.
-            sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+            mut(sv_uninit) := MaybeUninit(Array(i32, usize(2))).new();
             sv := (*i32)(sv_uninit.as_ptr());
             assert(socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv) == i32(0), "socketpair");
             fd0 := (sv.add(usize(0))).*;
             fd1 := (sv.add(usize(1))).*;
             assert(fcntl.setfl(fd0, (fcntl.getfl(fd0) | O_NONBLOCK)) == i32(0), "nonblocking");
-            b_uninit := MaybeUninit(Array(u8, usize(16))).new();
+            mut(b_uninit) := MaybeUninit(Array(u8, usize(16))).new();
             b := (*u8)(b_uninit.as_ptr());
             r := tcp.recv(fd0, b, usize(16), i32(0));
             io.await(yield(io), io);
