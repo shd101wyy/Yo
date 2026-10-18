@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `Arc(type_of(k))(f)` / `Holder(type_of(k))(f : f)` with `k` a closure and `f` a named function of the same signature type-check, then die in the C compiler; through `Arc` it also seats a function that `Send` never judged inside a `Send` type.
 
-**Status:** FIXED 2026-10-18. **Found:** 2026-10-17, probing the
+**Status:** FIXED 2026-10-18 (PR #1460). **Found:** 2026-10-17, probing the
 soundness of `issues/arc-of-a-named-function-value-fails-its-send-bound.md`,
 on develop 5425cd7bf.
 
