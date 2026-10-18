@@ -1457,7 +1457,7 @@ Fixes, in order of preference:
 1. **Hoist the statement out of the `match` entirely** — put the `eprintln`
    before or after, on a value the arms have already written. Usually the
    instrumentation did not need to be inside the arm at all.
-2. Give every sibling arm the same shape (add a matching statement to `_ => {}`).
+2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`, never `{}`).
 
 The error names a frame _level_, not a file or line, so it does not point at the
 arm you edited. If it appears right after you touched a `match`, assume this

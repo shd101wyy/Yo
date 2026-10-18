@@ -265,18 +265,18 @@ resolve_std_path :: (fn() -> String)({
     .Some(p) => {
       return(_std_canonicalize(p.clone()));
     },
-    .None => {}
+    .None => ()
   );
   match(
     _yo_std_env_value(),
     .Some(v) => {
       return(_std_canonicalize(&v));
     },
-    .None => {}
+    .None => ()
   );
   match(
     current_exe(),
-    .Err(_) => {},
+    .Err(_) => (),
     .Ok(exe_path) => {
       dir := exe_path.parent();
       while(dir.is_some(), {
@@ -355,14 +355,14 @@ prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
     .Some(_) => {
       return(());
     },
-    .None => {}
+    .None => ()
   );
   match(
     _yo_std_env_value(),
     .Some(_) => {
       return(());
     },
-    .None => {}
+    .None => ()
   );
   if(entries.len() == usize(0), {
     return(());

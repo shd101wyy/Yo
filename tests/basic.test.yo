@@ -29,6 +29,57 @@ test("Test zero-arg return", {
   });
   returns_unit();
 });
+test("an empty struct literal {} is not the unit value", {
+  // `{}` is a zero-field RECORD; `()` is the unit value. Where unit is
+  // expected the brace form is rejected with an error naming the parens
+  // form (issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
+  comptime_expect_error({
+    bad_cond :: (fn(b : bool) -> unit)(
+      cond(
+        b => {},
+        true => ()
+      )
+    );
+    bad_cond(true)
+  }, "is an empty struct literal");
+  comptime_expect_error({
+    bad_match :: (fn(x : i32) -> unit)(
+      match(
+        x,
+        1 => {},
+        _ => ()
+      )
+    );
+    bad_match(1)
+  }, "is an empty struct literal");
+  comptime_expect_error({
+    bad_body :: (fn() -> unit)({});
+    bad_body()
+  }, "is an empty struct literal");
+  // The parens spellings still check and run.
+  good :: (fn(b : bool) -> unit)(
+    cond(
+      b => (),
+      true => ()
+    )
+  );
+  good(true);
+  good(false);
+  good_match :: (fn(x : i32) -> unit)(
+    match(
+      x,
+      1 => (),
+      _ => ()
+    )
+  );
+  good_match(1);
+  // A genuine zero-field struct literal is still legal where a struct is
+  // expected: `{}` as the body of a `-> Z` fn, and `{}` in a Z-annotated
+  // initialization.
+  Z :: struct();
+  mkz :: (fn() -> Z)({});
+  (z : Z) = mkz();
+});
 test("Test assignments", {
   {
     mut(x) := 1;
