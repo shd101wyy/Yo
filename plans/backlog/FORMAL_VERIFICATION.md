@@ -207,11 +207,13 @@ Lives in the function-type signature clause-list, after parameters and
 `where(...)` (zone order is enforced today):
 
 ```yo
-divide :: (fn(
-  x : i32,
-  y : i32,
-  requires((y != i32(0)))
-) -> i32)((x / y));
+divide :: (
+  fn(
+    x : i32,
+    y : i32,
+    requires(y != i32(0))
+  ) -> i32
+)(x / y);
 ```
 
 One `requires(...)` call takes one or more predicates as arguments; they
@@ -229,13 +231,15 @@ callee may use it); at each **call site**, every predicate must be
 Same signature clause-list, after `requires(...)`:
 
 ```yo
-abs :: (fn(
-  x : i32,
-  ensures(
-    ((result >= i32(0)) && ((result == x) || (result == -(x))))
-  )
-) -> (result : i32))(
-  cond((x >= i32(0)) => x, true => -(x))
+abs :: (
+  fn(
+    x : i32,
+    ensures(
+      (result >= i32(0)) && ((result == x) || (result == -x))
+    )
+  ) -> (result : i32)
+)(
+  cond((x >= i32(0)) => x, true => -x)
 );
 ```
 
@@ -313,15 +317,17 @@ Lives as the **first statement of a `while` body** (placement enforced
 today). Multiple predicates are conjoined arguments of one call:
 
 ```yo
-sum_to :: (fn(
-  n : i32,
-  requires((n >= i32(0))),
-  ensures((result == ((n * (n + i32(1))) / i32(2))))
-) -> (result : i32))({
+sum_to :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0)),
+    ensures(result == ((n * (n + i32(1))) / i32(2)))
+  ) -> (result : i32)
+)({
   i := i32(0);
   acc := i32(0);
   while(i < n, {
-    invariant((i >= i32(0)), (i <= n), (acc == ((i * (i + i32(1))) / i32(2))));
+    invariant(i >= i32(0), i <= n, acc == ((i * (i + i32(1))) / i32(2)));
     i = (i + i32(1));
     acc = (acc + i);
   });
@@ -349,12 +355,16 @@ Two distinct builtins (split resolved old audit §A3):
   return ordinary `bool`.
 
 ```yo
-permutation :: ghost_fn((fn(
-  a : Slice(i32),
-  b : Slice(i32)
-) -> bool)(
-  (Multiset.from_slice(a) == Multiset.from_slice(b))
-));
+permutation :: ghost_fn(
+  (
+    fn(
+      a : Slice(i32),
+      b : Slice(i32)
+    ) -> bool
+  )(
+    Multiset.from_slice(a) == Multiset.from_slice(b)
+  )
+);
 ```
 
 ### 5. `decreases(...)` — termination measure (new builtin, Phase V4)
@@ -388,11 +398,15 @@ ordinary runtime code is a compile error, mirroring how `unwind(...)`
 is only well-formed inside `ctl(...) -> R`:
 
 ```yo
-sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
-  forall((i : usize), (j : usize),
-    (((i < j) && (j < s.len())) ==> ((s(i)) <= (s(j))))
+sorted_quantified :: ghost_fn(
+  (fn(s : Slice(i32)) -> bool)(
+    forall(
+      i : usize,
+      j : usize,
+      ((i < j) && (j < s.len())) ==> (s(i) <= s(j))
+    )
   )
-));
+);
 ```
 
 ASCII spellings on purpose — LLM training data and copy-paste safety
@@ -406,10 +420,10 @@ construction sites generating proof obligations:
 
 ```yo
 NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(
-  Refine(T, (x) => ((x != T(0))))
+  Refine(T, x => (x != T(0)))
 );
 
-safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)((num / denom));
+safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)(num / denom);
 ```
 
 - `Refine(T, p) <: T` freely (erasure); `T → Refine(T, p)` requires
@@ -2042,15 +2056,17 @@ pragma(Pragma.VerifyOrAssert);
 { Refine } :: import("std/spec/refine");
 
 NonEmpty :: (fn(comptime(T) : Type) -> comptime(Type))(
-  Refine(Slice(T), (s) => ((s.len() > usize(0))))
+  Refine(Slice(T), s => (s.len() > usize(0)))
 );
 
-head :: (fn(
-  forall(T : Type),
-  s : NonEmpty(Slice(T)),
-  // requires((s.len() > usize(0))) — implied by the refinement on `s`
-  ensures((result == (s(usize(0)))))
-) -> (result : T))((s(usize(0))));
+head :: (
+  fn(
+    forall(T : Type),
+    s : NonEmpty(Slice(T)),
+    // requires((s.len() > usize(0))) — implied by the refinement on `s`
+    ensures(result == s(usize(0)))
+  ) -> (result : T)
+)(s(usize(0)));
 
 main :: (fn() -> i32)({
   arr := Array(i32, usize(3))(i32(1), i32(2), i32(3));
@@ -2060,11 +2076,14 @@ main :: (fn() -> i32)({
   // by CTFE (the array literal's length is a compile-time 3) — no SMT call.
   ne := NonEmpty(Slice(i32))(slice);
   first := head(forall(i32), ne);
-  assert((first == i32(1)), "first should be 1");
+  assert(first == i32(1), "first should be 1");
 
   // From dynamic data — the runtime gate:
-  match(NonEmpty(Slice(i32)).check(some_runtime_slice()),
-    .Some(ne2) => { println(head(forall(i32), ne2)); },
+  match(
+    NonEmpty(Slice(i32)).check(some_runtime_slice()),
+    .Some(ne2) => {
+      println(head(forall(i32), ne2));
+    },
     .None => println(`empty`)
   );
   i32(0)
