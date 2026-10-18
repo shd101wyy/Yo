@@ -16,7 +16,7 @@ When creating or updating a doc, always update both versions.
 
 ## Code block language tag
 
-Use ` ```yo ` for Yo code blocks, in Markdown files and in `///` / `//!` doc comments alike. `yo fmt` formats every ` ```yo ` block (`yo fmt docs`, and a `.yo` file's doc comments with the file), and CI runs `yo fmt --check` over `docs/`, `.github/` and `README.md`, so a ` ```yo ` block must parse and be written the way `yo fmt` writes code. A snippet that is not a complete, parseable piece of Yo (a fragment, an intentionally invalid "WRONG:" example, an error demo such as `a + b * c`) is fenced ` ```yo ignore `, which keeps the language tag and skips the check. Never use ` ```rust ` for Yo code. `yo doc --format markdown` still emits ` ```rust ` in its generated pages (GitHub has no Yo highlighting); that is the renderer's translation, not a convention for hand-written docs.
+Use ` ```yo ` for Yo code blocks, in Markdown files and in `///` / `//!` doc comments alike. `yo fmt` formats every ` ```yo ` block (`yo fmt docs`, and a `.yo` file's doc comments with the file), and CI runs `yo fmt --check` over `docs/`, `plans/`, `.github/` and `README.md`, so a ` ```yo ` block must parse and be written the way `yo fmt` writes code. A snippet that is not a complete, parseable piece of Yo (a fragment, an intentionally invalid "WRONG:" example, an error demo such as `a + b * c`) is fenced ` ```yo ignore `, which keeps the language tag and skips the check. Never use ` ```rust ` for Yo code. `yo doc --format markdown` still emits ` ```rust ` in its generated pages (GitHub has no Yo highlighting); that is the renderer's translation, not a convention for hand-written docs.
 
 ## API Documentation Generation
 
