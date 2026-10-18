@@ -2,6 +2,14 @@
 
 **Severity:** S1 — self-hosted-emitted binaries leak on 50 corpus files — unbounded in long-running programs
 
+**2026-10-18:** a measured in-process sub-case:
+`issues/2026-10-18-four-compile-test-cases-fail-the-local-leak-verdict-on-develop.md`
+symbolized the four `tests/internal/compile.test.yo` leak-verdict failures —
+hundreds of 64-byte `Token` cells per in-process compile through the lexer
+chain, unreachable but alive, growing ~59 KB per compile (plus two 40-byte
+module-init `String` cells). Resident-compiler relevance: watch mode and the
+LSP accumulate per recompile.
+
 **2026-10-14:** the S1 triage isolated one class that is still live and fully general: a block result that is not moved was never released. It is fixed in `issues/fixed/2026-10-14-a-block-result-that-is-not-moved-is-never-released.md`. The 50-file list needs a Linux LSan re-measure before this umbrella can shrink further. The async part is tracked in `issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`.
 
 **Status: OPEN — the map for the next RC campaign.** Measured 2026-08-14 on
