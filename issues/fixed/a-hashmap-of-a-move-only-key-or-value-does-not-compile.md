@@ -94,7 +94,7 @@ need a copyable element, as decision 20 specifies; the same E0901 names them
 at the call. Two collections do not share this cause and stay open:
 `issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`
 (the value sits in a shared node) and
-`issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md` (the
+`issues/fixed/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md` (the
 key is stored three times).
 
 ## Verification
