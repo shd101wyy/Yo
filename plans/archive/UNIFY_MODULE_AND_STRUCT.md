@@ -227,10 +227,10 @@ Tests pinning this baseline live in
 
 The runtime case
 
-```rust
+```yo
 make_counter :: (fn(use_a : bool) -> Counter)(...);
 (given(c) : Counter) = make_counter(true);
-step();   // step :: (fn(using(c : Counter)) -> i32)
+step(); // step :: (fn(using(c : Counter)) -> i32)
 ```
 
 now compiles to:

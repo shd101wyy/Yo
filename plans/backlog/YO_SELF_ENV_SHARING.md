@@ -154,18 +154,21 @@ return {
 };
 ```
 
-```rust
+```yo
 // yo-self/env.yo:1710-1715 — same four fields, new list, SAME Frame refs
-Environment(frames : fr, module_path : env.module_path,
-            function_declaration_frame_level : env.function_declaration_frame_level,
-            input_string : env.input_string)
+Environment(
+  frames : fr,
+  module_path : env.module_path,
+  function_declaration_frame_level : env.function_declaration_frame_level,
+  input_string : env.input_string
+)
 ```
 
 So the ~55-line copy loop at `function_type.yo:317-370` becomes:
 
-```rust
+```yo
 fresh_env := cond(
-  !(strip_outer_runtime) => snapshot_env(caller_env),
+  !strip_outer_runtime => snapshot_env(caller_env),
   true => _keep_top_level_frame_and_comptime_variables(caller_env)
 );
 ___fr := fresh_env.push_frame(false);

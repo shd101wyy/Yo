@@ -50,9 +50,9 @@ rule).
 
 Can Yo support a **local reference binding**
 
-```rust
+```yo
 x := i32(1);
-inout(y) := x;   // y aliases x's storage
+inout(y) := x; // y aliases x's storage
 y = i32(2);
 assert(x == i32(2));
 ```
@@ -144,9 +144,11 @@ it is the exact mechanism any interior-borrow design below would extend.
 
 ### 1.4 FINDING F2 — closure captures are by value
 
-```rust
+```yo
 sum := i32(0);
-run(() => { sum = (sum + i32(5)); });   // sum is still 0 afterwards
+run(() => {
+  sum = (sum + i32(5));
+}); // sum is still 0 afterwards
 ```
 
 (verified 2026-09-07). Therefore a callback-style borrowed loop
@@ -352,16 +354,20 @@ release after the binding form.
 With R0–R5 in place, the prelude can add the borrowed form (privileged
 expansion, F3), sketched:
 
-```rust
+```yo
 // for(coll, inout(x) => body)
 {
-  __c := coll;                       // hidden local: pins the collection (P4/P5 owner)
-  __it := __c.iter();                // pointer iterator (D14)
+  __c := coll; // hidden local: pins the collection (P4/P5 owner)
+  __it := __c.iter(); // pointer iterator (D14)
   // acquire(__c) — emitted by the compiler for the P5 binding below, or once
   // for the whole loop if the macro binds `inout(__elems) := __c` (see note)
   while(runtime(true), {
-    match(__it.next(),
-      .Some(__p) => { inout(x) := unsafe(__p.*); body },   // P5 binding, per element
+    match(
+      __it.next(),
+      .Some(__p) => {
+        inout(x) := unsafe(__p.*);
+        body
+      }, // P5 binding, per element
       .None => break
     );
   });
@@ -522,23 +528,42 @@ representation of collections.
 
 What the borrowed form accepts and rejects (the reference examples):
 
-```rust
-for(list, x => { total = (total + x); });                          // value form, unchanged
-for(list.into_iter().map(v => (v * i32(2))), x => { … });          // chains: value form only
+```yo
+for(list, x => {
+  total = (total + x);
+}); // value form, unchanged
+for(list.into_iter().map(v => (v * i32(2))), x => { … }); // chains: value form only
 
-for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); if(e.hp <= i32(0), { break; }); });
-for(names, inout(s) => { s.push_str("!"); });                      // RC elements: no dup per element
-for(counts, inout(c) => { bump(c); });                             // element to an inout param
-for(scores, (k, inout(v)) => { v = (v + i32(10)); });              // maps: key by value, value borrowed
+for(enemies, inout(e) => {
+  e.hp = (e.hp - i32(1));
+  if(e.hp <= i32(0), {
+    break;
+  });
+});
+for(names, inout(s) => {
+  s.push_str("!");
+}); // RC elements: no dup per element
+for(counts, inout(c) => {
+  bump(c);
+}); // element to an inout param
+for(scores, (k, inout(v)) => {
+  v = (v + i32(10));
+}); // maps: key by value, value borrowed
 
-for(list, inout(x) => { list.push(x); });        // COMPILE error: `list` is borrowed by this loop
+for(list, inout(x) => {
+  list.push(x);
+}); // COMPILE error: `list` is borrowed by this loop
 other := list;
-for(list, inout(x) => { other.push(x); });       // RUNTIME panic: alias the compiler cannot see
-for(list.into_iter().filter(…), inout(x) => …);  // COMPILE error: borrowed form needs a collection
+for(list, inout(x) => {
+  other.push(x);
+}); // RUNTIME panic: alias the compiler cannot see
+for(list.into_iter().filter(…), inout(x) => …); // COMPILE error: borrowed form needs a collection
 
-inout(y) := x;          y = i32(2);              // variable: static, free
-inout(n) := holder.n;   n = (n + i32(1));        // object field: holder pinned for the scope
-inout(e) := list(usize(0));                      // COMPILE error: use for(list, inout(e) => …)
+inout(y) := x;
+y = i32(2); // variable: static, free
+inout(n) := holder.n;
+n = (n + i32(1)); // object field: holder pinned for the scope
+inout(e) := list(usize(0)); // COMPILE error: use for(list, inout(e) => …)
 ```
 
 ## 8. Implementation steps
@@ -753,15 +778,21 @@ feature-carrying binary before that.
   the one place P5 enters the language, and it is std-only.
 - **C3 Prelude `for` borrowed arm** (`std/prelude.yo:8484-8502`, replacing
   the `comptime_assert`):
-  ```rust
+  ```yo
   {
-    __c := coll;                       // hidden local: pins the collection
-    __g := __BorrowGuard(__c);         // acquire now; Dispose releases at scope end
+    __c := coll; // hidden local: pins the collection
+    __g := __BorrowGuard(__c); // acquire now; Dispose releases at scope end
     __it := __c.iter();
     while(runtime(true), {
-      match(__it.next(),
-        .Some(__p) => { inout(x) := unsafe(__p.*); body },
-        .None => { break; }
+      match(
+        __it.next(),
+        .Some(__p) => {
+          inout(x) := unsafe(__p.*);
+          body
+        },
+        .None => {
+          break;
+        }
       );
     });
   }

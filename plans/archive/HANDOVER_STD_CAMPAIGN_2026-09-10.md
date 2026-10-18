@@ -158,11 +158,15 @@ wrong. **Landed in #548.**
 `docs/en-US/DESIGN.md` specifies `Iterator`/`IntoIterator` with `Item : Type`,
 `Self.Item`, `Trait(Item := X)`. A probe confirmed the exact shape needed:
 
-```rust
+```yo
 Unsig :: trait(Unsigned : Type);
 impl(i8, Unsig(Unsigned : u8));
-impl(generic(T : Type), where(T <: Unsig), T,
-  mag : (fn(self : T) -> T.Unsigned)(T.Unsigned(self)));
+impl(
+  generic(T : Type),
+  where(T <: Unsig),
+  T,
+  mag : (fn(self : T) -> T.Unsigned)(T.Unsigned(self))
+);
 ```
 
 Compiles, runs, correct. An associated type in a RETURN position, supplied

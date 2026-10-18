@@ -82,7 +82,7 @@ str)` (static → heap copy) stays; heap → `str` is impossible by design.
 Safe code that wants a sub-range view uses an **alias view** that holds the
 Rc'd backing and indexes through the LIVE handle:
 
-```rust
+```yo
 // std/collections (sketch) — value semantics, no new machinery:
 ListView :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(backing : ArrayList(T), offset : usize, len : usize)

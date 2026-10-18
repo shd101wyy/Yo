@@ -176,7 +176,7 @@ escape check fails during an unwind, the panic wins (it is the earlier bug).
 
 A std collection, no compiler change, sound by construction:
 
-```rust
+```yo
 // std/collections/arena.yo (sketch)
 Handle :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(index : u32, generation : u32)
@@ -219,9 +219,9 @@ none; `ensures` result is `.None` when generation differs) with `yo verify`.
 
 **Surface (std):**
 
-```rust
+```yo
 // std/mem/arena.yo (sketch)
-Arena :: ref(struct(_id : usize));   // opaque; !Send by construction (non-atomic ref)
+Arena :: ref(struct(_id : usize)); // opaque; !Send by construction (non-atomic ref)
 // Arena.scope(f) : run `f` with a fresh arena as the innermost allocation
 // policy for REFERENCE-COUNTED OBJECT CELLS constructed during f; when f
 // returns, every cell still referenced from outside the arena is a panic,

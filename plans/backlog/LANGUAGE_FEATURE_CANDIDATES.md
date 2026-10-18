@@ -44,9 +44,9 @@ runtime exists (`src/codegen/parallelism/`), and `ThreadPool` is in
 `std/thread.yo`. What does not exist anywhere: `par_map`/`par_for`/a scoped
 fork (verified by grep; `std/thread.yo` has no scoped spawn).
 
-```rust
+```yo
 // sketches; nothing is adopted
-totals := xs.par_map(v => v.score);     // body slot: Impl(Fn(imm(v) : T) -> R, Sync)
+totals := xs.par_map(v => v.score); // body slot: Impl(Fn(imm(v) : T) -> R, Sync)
 (a, b) := par_join(() => crunch(&left), () => crunch(&right));
 ```
 
@@ -76,7 +76,7 @@ support `__attribute__((vector_size))`, and emscripten lowers it to wasm
 SIMD). The existing escape hatches (inline asm, `ptr()` under the pragma)
 cover the corners this would not.
 
-```rust
+```yo
 // sketch; the emitted C is float __attribute__((vector_size(16)))
 { f32x4 } :: import("std/simd");
 dot :: (fn(imm(a) : f32x4, imm(b) : f32x4) -> f32)((a * b).sum()));
@@ -128,7 +128,7 @@ guard, `:=`, tuple/struct and `Box` patterns
 Fixed `Array(T, N)` makes array rest patterns exact — Rust needed const
 generics for this; Yo's comptime value parameters already have it.
 
-```rust
+```yo ignore
 // sketch; array rest is exact on Array(T, N), and `rest` binds as imm
 match(&xs, .Some([first, ...rest]) => f(&first, &rest), .None => ());
 // a str prefix pattern ("GET " then the remainder) — the spelling is the
@@ -177,13 +177,15 @@ for comptime codegen over fields — the container is writable today with no
 language change. The place machinery its row access needs arrives with V2b
 (below).
 
-```rust
+```yo
 // sketch
 Particle :: struct(x : f32, y : f32, vx : f32, vy : f32, alive : bool);
-parts : Soa(Particle);                              // one column ArrayList per field
-parts.push(Particle(...));                          // scatters into the columns
-parts.with(i, mut(p) => { p.vx = (p.vx + ax); });   // a row: sibling element places of one root
-for(parts.vx, mut(v) => { ... });                   // the hot loop: a flat, contiguous column
+parts : Soa(Particle); // one column ArrayList per field
+parts.push(Particle(...)); // scatters into the columns
+parts.with(i, mut(p) => {
+  p.vx = (p.vx + ax);
+}); // a row: sibling element places of one root
+for(parts.vx, mut(v) => { ... }); // the hot loop: a flat, contiguous column
 ```
 
 **Why it fits — three convergences.**

@@ -16,7 +16,7 @@ Known C codegen bugs discovered during std library development. These need prope
 
 **Workaround** (in `.yo` code — should not be necessary after fix):
 
-```rust
+```yo ignore
 // BROKEN — self._scheme not properly captured inside match arm:
 origin : (fn(self: Self) -> String)(
   match(self._scheme,
@@ -58,12 +58,12 @@ error: 'state_struct_name' has no member named 'n'
 
 **Example**:
 
-```rust
+```yo
 // BROKEN — io.await in separate cond branches:
-io.async((using(io)) => {
+io.async(using(io) => {
   cond(
     condition1 => {
-      n := io.await(IO_file.read(fd, buf, len));  // 'n' not added to state struct
+      n := io.await(IO_file.read(fd, buf, len)); // 'n' not added to state struct
       // ...
     },
     true => {

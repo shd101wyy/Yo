@@ -19,7 +19,7 @@ that `std/` will call one release from now.
 
 `open(import("std/string"));` no longer compiles. Write what you use:
 
-```rust
+```yo
 { String } :: import("std/string");
 { eprintln, println } :: import("std/fmt");
 ```

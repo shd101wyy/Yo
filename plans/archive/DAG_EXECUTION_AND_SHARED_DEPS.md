@@ -55,14 +55,14 @@ This is essentially Kahn's algorithm for topological sort, but executing each "w
 
 Given this `build.yo`:
 
-```rust
-exe :: build.executable({ name: "app", root: "./src/main.yo" });
-lib_a :: build.static_library({ name: "lib-a", root: "./src/a.yo" });
-lib_b :: build.static_library({ name: "lib-b", root: "./src/b.yo" });
+```yo
+exe :: build.executable({ name : "app", root : "./src/main.yo" });
+lib_a :: build.static_library({ name : "lib-a", root : "./src/a.yo" });
+lib_b :: build.static_library({ name : "lib-b", root : "./src/b.yo" });
 exe.link(lib_a);
 exe.link(lib_b);
 
-tests :: build.test({ name: "tests", root: "./tests/" });
+tests :: build.test({ name : "tests", root : "./tests/" });
 
 install :: build.step("install", "Build everything");
 install.depend_on(exe);

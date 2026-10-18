@@ -12,12 +12,12 @@ Additionally, built-in Array and Slice types do not implement the `Index` trait 
 
 Mirrors `Index` exactly, but with `comptime` qualifiers on parameters and return type. Pointers in Yo can be comptime, so the signature keeps `*(Self)` and `*(Self.Output)`:
 
-```rust
+```yo
 // Runtime Index (existing):
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self: *(Self), idx: Idx) -> *(Self.Output))
+    index : (fn(self : *Self, idx : Idx) -> *Self.Output)
   )
 );
 
@@ -25,7 +25,7 @@ Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(self): *(Self), comptime(idx): Idx) -> comptime(*(Self.Output))),
+    index : (fn(comptime(self) : *Self, comptime(idx) : Idx) -> comptime(*Self.Output)),
     where(Self <: Comptime)
   )
 );
@@ -40,18 +40,18 @@ Key differences from `Index`:
 
 ### ComptimeRangeOp ✅ (already defined and working)
 
-```rust
+```yo
 ComptimeRangeOp :: trait(
-  (..) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(Range(Self))),
+  (..) : (fn(comptime(start) : Self, comptime(end) : Self) -> comptime(Range(Self))),
   where(Self <: Comptime)
 );
 ```
 
 ### ComptimeRangeInclusiveOp ✅ (already defined and working)
 
-```rust
+```yo
 ComptimeRangeInclusiveOp :: trait(
-  (..=) : (fn(comptime(start): Self, comptime(end): Self) -> comptime(RangeInclusive(Self))),
+  (..=) : (fn(comptime(start) : Self, comptime(end) : Self) -> comptime(RangeInclusive(Self))),
   where(Self <: Comptime)
 );
 ```
@@ -64,7 +64,7 @@ The infinite recursion problem: `impl(Array(T,N), Index(usize)(...))` body calls
 
 Note: `Slice(T)` in Yo is NOT a DST — it's a regular struct (pointer + length). So `*(Slice(T))` is a normal pointer, and Index returning `*(Slice(T))` which auto-derefs to `Slice(T)` works naturally.
 
-```rust
+```yo
 // === Element access builtins ===
 // __yo_array_index : (fn(self: *(Array(T, N)), idx: usize) -> *(T))
 // __yo_slice_index : (fn(self: *(Slice(T)), idx: usize) -> *(T))
@@ -76,56 +76,85 @@ Note: `Slice(T)` in Yo is NOT a DST — it's a regular struct (pointer + length)
 // __yo_slice_index_range_inclusive : (fn(self: *(Slice(T)), range: RangeInclusive(usize)) -> *(Slice(T)))
 
 // === Index impls for Array ===
-impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(usize)(
-  Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
-    __yo_array_index(self, idx)
+impl(
+  forall(T : Type, comptime(N) : usize),
+  Array(T, N),
+  Index(usize)(
+    Output : T,
+    index : (fn(self : *Self, idx : usize) -> *Self.Output)(
+      __yo_array_index(self, idx)
+    )
   )
-));
+);
 
-impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(Range(usize))(
-  Output : Slice(T),
-  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))(
-    __yo_array_index_range(self, idx)
+impl(
+  forall(T : Type, comptime(N) : usize),
+  Array(T, N),
+  Index(Range(usize))(
+    Output : Slice(T),
+    index : (fn(self : *Self, idx : Range(usize)) -> *Self.Output)(
+      __yo_array_index_range(self, idx)
+    )
   )
-));
+);
 
-impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(RangeInclusive(usize))(
-  Output : Slice(T),
-  index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
-    __yo_array_index_range_inclusive(self, idx)
+impl(
+  forall(T : Type, comptime(N) : usize),
+  Array(T, N),
+  Index(RangeInclusive(usize))(
+    Output : Slice(T),
+    index : (fn(self : *Self, idx : RangeInclusive(usize)) -> *Self.Output)(
+      __yo_array_index_range_inclusive(self, idx)
+    )
   )
-));
+);
 
 // === Index impls for Slice ===
-impl(forall(T : Type), Slice(T), Index(usize)(
-  Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
-    __yo_slice_index(self, idx)
+impl(
+  forall(T : Type),
+  Slice(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(self : *Self, idx : usize) -> *Self.Output)(
+      __yo_slice_index(self, idx)
+    )
   )
-));
+);
 
-impl(forall(T : Type), Slice(T), Index(Range(usize))(
-  Output : Slice(T),
-  index : (fn(self: *(Self), idx: Range(usize)) -> *(Self.Output))(
-    __yo_slice_index_range(self, idx)
+impl(
+  forall(T : Type),
+  Slice(T),
+  Index(Range(usize))(
+    Output : Slice(T),
+    index : (fn(self : *Self, idx : Range(usize)) -> *Self.Output)(
+      __yo_slice_index_range(self, idx)
+    )
   )
-));
+);
 
-impl(forall(T : Type), Slice(T), Index(RangeInclusive(usize))(
-  Output : Slice(T),
-  index : (fn(self: *(Self), idx: RangeInclusive(usize)) -> *(Self.Output))(
-    __yo_slice_index_range_inclusive(self, idx)
+impl(
+  forall(T : Type),
+  Slice(T),
+  Index(RangeInclusive(usize))(
+    Output : Slice(T),
+    index : (fn(self : *Self, idx : RangeInclusive(usize)) -> *Self.Output)(
+      __yo_slice_index_range_inclusive(self, idx)
+    )
   )
-));
+);
 
 // === ComptimeIndex for Array ===
-impl(forall(T : Type, comptime(N) : usize), where(T <: Comptime), Array(T, N), ComptimeIndex(usize)(
-  Output : T,
-  index : (fn(comptime(self): *(Self), comptime(idx): usize) -> comptime(*(Self.Output)))(
-    __yo_array_index(self, idx)
+impl(
+  forall(T : Type, comptime(N) : usize),
+  where(T <: Comptime),
+  Array(T, N),
+  ComptimeIndex(usize)(
+    Output : T,
+    index : (fn(comptime(self) : *Self, comptime(idx) : usize) -> comptime(*Self.Output))(
+      __yo_array_index(self, idx)
+    )
   )
-));
+);
 ```
 
 The builtins:

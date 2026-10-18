@@ -34,7 +34,7 @@ bites:
 
 ## Design
 
-```rust
+```yo
 Stream :: trait(
   Item : Type,
   /// Yield the next item, or `.None` once the stream is finished.

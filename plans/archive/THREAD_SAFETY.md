@@ -302,7 +302,7 @@ The user reaches for an atomic type when they want to share a counter (or flag, 
 
 They serve different purposes (one provides shared addressing, the other serializes value access) and you'd need both layers no matter how you spelled the wrapping. The single user-visible wrap level is the `atomic object` itself; the inner `atomic_int` (etc.) does the value-level atomicity.
 
-```rust
+```yo
 MemoryOrder :: enum(Relaxed, Acquire, Release, AcqRel, SeqCst);
 
 // `atomic object` gives the heap-allocated, atomically-Rc'd cell. The
@@ -344,7 +344,7 @@ impl(
 
 **Direct construction, no `Arc` wrap, no top-level builder, no `.new(...)`, no explicit `.clone()`:**
 
-```rust
+```yo
 counter := AtomicI32(i32(0));
 
 Thread.spawn((io : Io) => {
@@ -379,7 +379,7 @@ Tests: race-free counter, MPSC ring buffer using AtomicPtr + AtomicUsize, lock-f
 
 The big API rewrite. Mutex _owns_ T (matches Rust; safer than the pthread-style decoupled approach). Access is granted by a closure that receives the inner value by `ref(T)` — Yo's existing second-class `ref` already prevents the borrow from escaping the closure, so no Rust-style guard type / lifetime is needed.
 
-```rust
+```yo
 Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
   atomic object(_handle : __YO_THREAD_SYNC_TYPE, _value : T)
 );
@@ -408,14 +408,14 @@ impl(
 
 Use site:
 
-```rust
+```yo
 mutex := Mutex(Counter).new(Counter(0));
-mutex.with_lock((v) => {
+mutex.with_lock(v => {
   v.count = (v.count + 1);
 });
 
 // With a return value:
-new_count := mutex.with_lock((v) => {
+new_count := mutex.with_lock(v => {
   v.count = (v.count + 1);
   v.count
 });
@@ -429,7 +429,7 @@ Why this fits Yo:
 
 Same shape for the other primitives:
 
-```rust
+```yo
 impl(
   forall(T : Type),
   RwLock(T),
@@ -589,7 +589,7 @@ Error: Arc(Iso(T)) is not allowed.
 
 Yo already supports comma-separated trait lists in `Dyn` (e.g. `Dyn(Speak, Run)` in `tests/dyn.test.yo:130`). Add `Send` to the list for cross-thread use:
 
-```rust
+```yo
 worker :: (fn(work : Dyn(Job, Send)) -> unit)(...);
 ```
 
@@ -630,9 +630,9 @@ The structural-auto-derive workarounds (make it an `object`, add a phantom non-S
 
 **Syntax:**
 
-```rust
-impl(forall(T : Type), JoinHandle(T), !(Send));
-impl(Io, !(Send));
+```yo
+impl(forall(T : Type), JoinHandle(T), !Send);
+impl(Io, !Send);
 ```
 
 `!(Trait)` in the trait position of an `impl(...)` declaration declares that the type explicitly does **not** implement Trait. Reads naturally as "not Send".
@@ -731,9 +731,9 @@ The rule looks at the _textual root_ of the LHS / ref-argument expression and as
 
 This is what makes `Arc(Mutex(T))` + `with_lock` work cleanly:
 
-```rust
-arc_mutex.with_lock((v) => {
-  v.field = i32(5);   // LHS root is `v` (type ref(T)), NOT an atomic object → ALLOWED
+```yo
+arc_mutex.with_lock(v => {
+  v.field = i32(5); // LHS root is `v` (type ref(T)), NOT an atomic object → ALLOWED
 });
 ```
 
@@ -850,7 +850,7 @@ Same model as Rust. User-defined `MyArc(V) :: atomic(object(_inner : V))` falls 
 
 Channel error reporting matches the rest of Yo's std: only logical/communication errors flow through the return `Result`; OOM is a panic, same as `ArrayList.push`, `HashMap.set`, and every other allocation site in std/.
 
-```rust
+```yo ignore
 ChannelError :: enum(
   Closed,        // both forms
   Full           // try_send on a bounded channel only

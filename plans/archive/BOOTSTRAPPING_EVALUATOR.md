@@ -652,10 +652,10 @@ path produces fresh-id instantiations that don't match.
 
 **Clean minimal repro (isolated 2026-06-01, no HashMap):**
 
-```rust
+```yo
 M :: (fn(comptime(K) : Type) -> comptime(Type))(object(x : K));
 impl(forall(K : Type), M(K), make : (fn(v : K) -> Self)(Self(x : v)));
-(_m : M(String)) = M(String).make(String.from("hi"));   // "Cannot unify i32 and usize"
+(_m : M(String)) = M(String).make(String.from("hi")); // "Cannot unify i32 and usize"
 ```
 
 `M(i32)` works, `M(String)` fails; returning `i32` works, returning `Self`

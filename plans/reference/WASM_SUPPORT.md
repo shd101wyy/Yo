@@ -90,7 +90,7 @@ The codegen conditionally emits the WASI or Emscripten variant based on the targ
 
 A file can have one or both target-specific pragmas, or the generic one. The test runner scans the file for the matching pragma call and skips the file before compilation. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos are caught at compile time.
 
-```rust
+```yo
 pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 open import "std/libc/stdio";
@@ -102,7 +102,7 @@ open import "std/libc/stdio";
 For files where only some tests need skipping, use an `if` early-return at the start of the test body.
 Since `process.arch` is comptime, the guard is resolved at compile time — no runtime overhead on non-WASM targets.
 
-```rust
+```yo ignore
 { arch, Arch } :: import "std/process";
 
 test "my test", using(io : Io), {

@@ -111,20 +111,22 @@ reached that file.
 The ingredient five earlier attempts missed is that **the move is conditional**. Gate on
 `rc()`, not on `leaks` (macOS `leaks` reports 0 for real leaks at `-O2`) :
 
-```rust
+```yo
 Holder :: struct(items : ArrayList(i32));
-g_seen := ArrayList(ArrayList(i32)).new();   // keeps an outside reference
+g_seen := ArrayList(ArrayList(i32)).new(); // keeps an outside reference
 
-make_fresh :: (fn() -> ArrayList(i32))({     // mirrors get_func_where_constraints
+make_fresh :: (fn() -> ArrayList(i32))({
+  // mirrors get_func_where_constraints
   l := ArrayList(i32).new();
   g_seen.push(l);
   l
 });
 
-work :: (fn(flag : bool) -> unit)({          // mirrors try_to_implement_…
+work :: (fn(flag : bool) -> unit)({
+  // mirrors try_to_implement_…
   entries := make_fresh();
   if(flag, {
-    h := Holder(items : entries);            // CONDITIONAL move
+    h := Holder(items : entries); // CONDITIONAL move
     println(`held ${h.items.len()}`);
   });
 });
@@ -168,8 +170,8 @@ else {
 3. **`mergeAndCheckEnvs` "case 1"** (`src/expr.ts`, the single-case branch). A probe that
    threw on every single-case consumption never fired, because **`if` is a prelude macro**
    (`std/prelude.yo:7655`) expanding to
-   ```rust
-   cond(unquote(condition) => unquote(then), true => unquote(else))   // else defaults to ()
+   ```yo
+   cond(unquote(condition) => unquote(then), true => unquote(else)) // else defaults to ()
    ```
    so there are always **two** arms, never one.
 

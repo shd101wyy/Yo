@@ -8,7 +8,7 @@ Support `impl(forall(T : Type), Data(T), Copy())` syntax to enable generic modul
 
 Also support `where` clause for constrained generic impls:
 
-```rust
+```yo
 impl(forall(T : Type), where(T <: Copy), Array(T, Size), Copy());
 ```
 

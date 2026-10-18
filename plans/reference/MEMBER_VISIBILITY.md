@@ -119,7 +119,7 @@ handles the `_raw_*` case: private to callers outside `std/`, visible within.
 Members stay public by default; a `priv` marker restricts a member to the
 module that declares it.
 
-```rust
+```yo
 Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(struct(priv _handle : __YO_THREAD_SYNC_TYPE, priv _value : T))
 );

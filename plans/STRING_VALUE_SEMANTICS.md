@@ -59,7 +59,7 @@ V2b lands.
 `String :: newtype(_bytes : Option(ArrayList(u8)))`. A copy of a `String`
 copies the handle, so its semantics today depend on hidden state:
 
-```rust
+```yo
 append_copy :: (fn(out : String) -> unit)({
   out.push_str("!");
 });
@@ -310,12 +310,12 @@ which its O(1) `clone()` relied on. S1 is a `src/` change.
 
 The same half-value surprise exists one level up today:
 
-```rust
+```yo
 Bag :: struct(n : i32, items : ArrayList(i32));
 p := Bag(n : i32(1), items : ArrayList(i32).new());
 q := p;
-q.n = i32(2);           // p.n stays 1: the struct is a value
-q.items.push(i32(7));   // p.items has 1 element: its list field is shared
+q.n = i32(2); // p.n stays 1: the struct is a value
+q.items.push(i32(7)); // p.items has 1 element: its list field is shared
 ```
 
 **Recommended end state:** every std data type is a value with copy-on-write

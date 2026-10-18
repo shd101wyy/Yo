@@ -18,12 +18,12 @@ every user `Hash` impl; the redesign is the last breaking edit to that trait.
 
 ## The shape
 
-```rust
+```yo
 Hasher :: trait(
-  write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit),   // required
-  finish : (fn(inout(self) : Self) -> u64),                             // required
-  write_u8 / write_u16 / write_u32 / write_u64 / write_usize,            // ?= native-endian bytes via write
-  write_i8 / write_i16 / write_i32 / write_i64 / write_isize             // ?= the unsigned twin
+  write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit), // required
+  finish : (fn(inout(self) : Self) -> u64), // required
+  write_u8 / write_u16 / write_u32 / write_u64 / write_usize, // ?= native-endian bytes via write
+  write_i8 / write_i16 / write_i32 / write_i64 / write_isize // ?= the unsigned twin
 );
 Hash :: trait(
   hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)

@@ -55,7 +55,7 @@ When a circular import is encountered:
 
 ### Circular type references
 
-```rust
+```yo ignore
 // a.yo
 { ArrayList } :: import "std/collections/array_list";
 
@@ -77,7 +77,7 @@ export Tree;
 
 ### Circular function references
 
-```rust
+```yo ignore
 // parser.yo
 { ArrayList } :: import "std/collections/array_list";
 
@@ -101,7 +101,7 @@ export parse;
 
 ### Circular value dependencies
 
-```rust
+```yo
 // a.yo — ERROR: "Field 'y' is not yet available from module 'b.yo' (circular import)"
 { y } :: import "./b.yo";
 x :: (y + 1);
@@ -115,7 +115,7 @@ export y;
 
 ### Accessing a field exported after the cycle point
 
-```rust
+```yo ignore
 // a.yo
 { late_field } :: import "./b.yo";  // ERROR: late_field not yet exported when a.yo is imported by b.yo
 

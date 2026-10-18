@@ -165,7 +165,7 @@ another task, a completion callback, a worker thread — can hold and fire.
 
 ### The primitive
 
-```rust
+```yo
 /// A token that makes one suspended task runnable again. Cheap to copy,
 /// safe to fire more than once (extra wakes are no-ops), and safe to fire
 /// from a task that is not the sleeper.

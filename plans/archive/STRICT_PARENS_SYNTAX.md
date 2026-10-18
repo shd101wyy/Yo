@@ -7,7 +7,7 @@
 
 Yo currently allows function calls without parentheses:
 
-```rust
+```yo ignore
 add 3, 4         // same as add(3, 4)
 return x         // same as return(x)
 escape x         // same as escape(x)
@@ -49,7 +49,7 @@ with parentheses around its argument list. This includes:
 their visual structure (`a OP b`, `expr OP`) is inherently unambiguous
 even without precedence.
 
-```rust
+```yo ignore
 // Before                       // After
 add 3, 4                        add(3, 4)
 return x                        return(x)
@@ -84,7 +84,7 @@ _parser_, but it does **not** disambiguate the _human reader_, because Yo
 has no operator precedence to fall back on. Without precedence, expressions
 like:
 
-```rust
+```yo ignore
 !ok && ready    // is this !(ok && ready) or (!ok) && ready ?
 -x + y          // is this -(x + y) or (-x) + y ?
 !a == b         // is this !(a == b) or (!a) == b ?
@@ -204,7 +204,7 @@ both `return;` (bare statement, already supported today) and `return()`
 (new: zero-argument call) as equivalent to `return(())`. Same for
 `escape`.
 
-```rust
+```yo ignore
 return();      // == return(())   ← NEW
 return;        // == return(())   ← already works today
 escape();      // == escape(())   ← NEW

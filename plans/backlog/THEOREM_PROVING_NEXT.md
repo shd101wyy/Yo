@@ -106,7 +106,7 @@ lines of spec at the hard end, 5 of 7 person-weeks at the proof level.
 family per measure, every lemma a unit `ghost_fn` with `ensures` (+
 `decreases` where recursive), used as `ghost(Lemma(args))`:
 
-```rust
+```yo
 // Schematic — exact signatures follow the R1 std contracts; the shape is
 // the landed lemma_member_frame pattern. Frame fact for a count measure:
 //

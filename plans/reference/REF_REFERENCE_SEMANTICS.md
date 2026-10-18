@@ -71,9 +71,9 @@ today).
 Self-recursive positions use `Self` (Yo has no forward references — the binding
 name is not in scope yet while its own definition is being evaluated):
 
-```rust
-Node :: ref(struct(value : i32, next : Option(Self)));   // was: object(...)
-Tree :: ref(enum(Leaf(i32), Branch(Self, Self)));        // new capability
+```yo
+Node :: ref(struct(value : i32, next : Option(Self))); // was: object(...)
+Tree :: ref(enum(Leaf(i32), Branch(Self, Self))); // new capability
 ```
 
 ### 2.2 `atomic(…)` — atomic reference counting (inline `ref(…)` only)
@@ -81,17 +81,17 @@ Tree :: ref(enum(Leaf(i32), Branch(Self, Self)));        // new capability
 `atomic(Y)` is legal **only** when `Y` is an inline `ref(struct(…))` /
 `ref(enum(…))`. It sets `isAtomicRc: true` (thread-safe RC).
 
-```rust
-String :: atomic(ref(struct(_ptr : ?*(u8), _len : usize, _capacity : usize)));
-SharedTree :: atomic(ref(enum(Leaf(i32), Branch(Self, Self))));   // Self, not the binding name
+```yo
+String :: atomic(ref(struct(_ptr : ?*u8, _len : usize, _capacity : usize)));
+SharedTree :: atomic(ref(enum(Leaf(i32), Branch(Self, Self)))); // Self, not the binding name
 ```
 
 ### 2.3 `inout(name) : T` — the (renamed) parameter convention
 
 `ref` as a *parameter / reference binding* is renamed to `inout`:
 
-```rust
-push :: (fn(inout(self) : ArrayList(T), x : T) -> unit)({ … });   // was ref(self)
+```yo
+push :: (fn(inout(self) : ArrayList(T), x : T) -> unit)({ … }); // was ref(self)
 ```
 
 - The only supported form is the **parameter** `inout(name) : T`.

@@ -16,20 +16,20 @@ bounds in general and has been latent for as long as they have existed.
 Inside an `impl(...)` a bound may name the associated type and bind it to one
 of the impl's own generics — the prelude does it in a dozen places:
 
-```rust
+```yo
 impl(
   generic(I : Type, A : Type),
   where(I <: DoubleEndedIterator(Item := A)),
   IterRev(I),
-  Iterator(Item : A, next : … )
+  Iterator(Item : A, next : …)
 );
 ```
 
 The same spelling on a **free function** rejects every argument:
 
-```rust
+```yo
 // error[E0602]: Type ArrayListIter(i32) does not implement required trait Iterator.
-count :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> usize)( … );
+count :: (fn(generic(I : Type, A : Type), it : I, where(I <: Iterator(Item := A))) -> usize)(…);
 count(list.into_iter());
 ```
 
@@ -44,7 +44,7 @@ Measured, with `Stream` and with `Iterator`, same result:
 A related failure, same root: a blanket-impl METHOD cannot be called on a
 generic parameter even when the bound is concrete —
 
-```rust
+```yo
 // error: No matching call found with arguments: (s.collect)(io)
 drain :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))(
   … s.collect(io) …

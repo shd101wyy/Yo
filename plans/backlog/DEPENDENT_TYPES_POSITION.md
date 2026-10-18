@@ -32,14 +32,14 @@ explicit permanent non-goal.**
 Types in Yo are first-class **comptime values**. This is a Π-type system
 whose dependency is staged to compile time (the Zig model):
 
-```rust
+```yo
 // A type constructor IS a comptime function returning a Type.
 MyPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(first : A, second : B)
 );
 
 // Types depending on VALUES — as long as the value is comptime-known.
-Buf :: Array(u8, 24);          // length-indexed array
+Buf :: Array(u8, 24); // length-indexed array
 Matrix :: (fn(comptime(R) : usize, comptime(C) : usize) -> comptime(Type))(
   struct(data : Array(Array(f64, C), R))
 );
@@ -57,7 +57,7 @@ The remaining demand — "this index is in bounds", "these two lengths are
 equal", "this list is sorted", "this handle is not closed" — is
 **refinement**, not dependency. The planned Dafny-style clauses cover it:
 
-```rust
+```yo
 // Sketch (final syntax belongs to plans/VERIFICATION.md, not this doc):
 get :: (fn(generic(T), self : Vec(T), i : usize) -> T)(
   requires(i < self.len()),

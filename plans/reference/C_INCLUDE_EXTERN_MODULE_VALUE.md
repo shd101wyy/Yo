@@ -48,12 +48,13 @@ source-namespace struct an `import(...)` produces (`EvalValue.StructVal` with a
 true)`). Names enter scope only through the binding forms the language already
 has, which brings selection, qualification and renaming for free:
 
-```rust
+```yo
 c :: c_include("<stdio.h>", printf : (fn(fmt : *char) -> int), stdout : *FILE);
-unsafe(c.printf(...)); c.stdout;                       // qualified
+unsafe(c.printf(...));
+c.stdout; // qualified
 { printf, stdout : out } :: c_include("<stdio.h>", ...); // selective + rename
-{ ... } :: c_include("<stdio.h>", ...);                 // glob
-rt :: extern("Yo", __yo_errno : (fn() -> i32));         // same for extern
+{ ... } :: c_include("<stdio.h>", ...); // glob
+rt :: extern("Yo", __yo_errno : (fn() -> i32)); // same for extern
 ```
 
 No dedicated rename syntax is added: `{ stat : stat_fn } :: ...` is the

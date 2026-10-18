@@ -57,7 +57,7 @@ There is **no precedence layering and no per-operator grammar production.** When
 the right-hand side of an operator is itself an unparenthesized infix expression
 (a chain), the parser disambiguates using the newline layout:
 
-```rust
+```yo ignore
 // RIGHT associativity — operator at END of line:
 1 +
   2 + 3        // ⇒ 1 + (2 + 3)
@@ -139,7 +139,7 @@ same-operator chains. The breaking part is removing the newline rule. Audit:
 1. **Multi-line same-operator chains of a *non-associative* operator** (`-`,
    `/`, and `->` if used in curried position). These flip from right- to
    left-assoc and change meaning:
-   ```rust
+   ```yo ignore
    a -      //  was a - (b - c)
      b - c  //  now (a - b) - c  ← different result, add parens to preserve
    ```

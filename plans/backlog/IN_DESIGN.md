@@ -26,7 +26,7 @@
 
 ### Variadic functions
 
-```rust
+```yo ignore
 // c11 style variadic function
 add_va_c11 :: ((count : c_int, ...) -> c_int) {
   args := va_start(count); // args : c_va_list Free
@@ -85,7 +85,7 @@ add_va_yo :: (fn(forall(count: usize), ...(args) : Array(c_int, count)) -> c_int
 
 Existential types allow constructors to introduce type variables that are hidden from the outside — the consumer only knows the type satisfies certain constraints, not its concrete identity.
 
-```rust
+```yo
 // Hypothetical syntax — a constructor with forall introduces an existential
 Showable :: enum(
   Wrap(forall(T : Type), value : T, show : (fn(v : T) -> String), where(T <: ToString))
@@ -95,8 +95,9 @@ Showable :: enum(
 s := Showable.Wrap(i32(42), ToString(i32).to_string);
 
 // Consumption: T is hidden — can only use the provided show function
-match(s,
-  .Wrap(value, show) => show(value)  // returns String, T is skolemized
+match(
+  s,
+  .Wrap(value, show) => show(value) // returns String, T is skolemized
 );
 ```
 
@@ -104,8 +105,8 @@ match(s,
 
 1. **`Dyn`/`dyn` already covers the primary use case.** Type erasure behind a trait interface — the main motivation for existentials — is handled by Yo's existing dynamic dispatch:
 
-   ```rust
-   (s : Dyn(ToString)) = dyn(i32(42));  // type erased, only trait interface remains
+   ```yo
+   (s : Dyn(ToString)) = dyn(i32(42)); // type erased, only trait interface remains
    ```
 
 2. **High implementation complexity.** Existential types require skolemization in the type checker (preventing the hidden type variable from "escaping" its scope), which significantly complicates the evaluator and type inference.

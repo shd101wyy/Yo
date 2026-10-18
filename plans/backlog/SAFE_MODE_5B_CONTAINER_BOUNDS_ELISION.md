@@ -36,13 +36,13 @@ pays off before Phase 3 too, because a verified ENTRY file's `xs(i)` on an
 **A. An unchecked twin, selected by codegen at a proved site (recommended).**
 A second prelude trait, sketched:
 
-```rust
+```yo
 IndexUnchecked :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
     /// The element at `idx` WITHOUT the bounds check. Only codegen calls
     /// this, at a site the verifier proved in bounds.
-    index_unchecked : (fn(inout(self) : Self, idx : Idx) -> *(Self.Output))
+    index_unchecked : (fn(inout(self) : Self, idx : Idx) -> *Self.Output)
   )
 );
 ```

@@ -92,9 +92,9 @@ mechanism is in the tree and proven. What is missing is a Yo-level spelling.
 
 A module-level binding marked thread-local, initialized lazily per thread:
 
-```rust
+```yo
 (thread_local(rng) : Rng) = Rng.from_entropy();
-thread_local(counter) := i32(0);          // inferred form
+thread_local(counter) := i32(0); // inferred form
 ```
 
 `thread_local` is a **modifier on the variable NAME**, the way `comptime(v) : i32`
@@ -257,9 +257,9 @@ accident.~~
    `evaluate_assignment`, ~line 313). That function already branches three
    ways on the LHS shape:
 
-   ```rust
-   is_atom_lhs           := ast_expr_is_atom(lhs);                                   // x = rhs
-   is_typed_binding_lhs  := ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2)));   // (x : T) = rhs
+   ```yo
+   is_atom_lhs := ast_expr_is_atom(lhs); // x = rhs
+   is_typed_binding_lhs := ast_expr_is_fn_call_of(lhs, BK_COLON, .Some(usize(2))); // (x : T) = rhs
    // else -> property/index LHS: x.a = rhs, arr(0) = rhs
    ```
 

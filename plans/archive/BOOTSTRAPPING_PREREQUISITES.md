@@ -127,7 +127,7 @@ Verified by new `tests/string/repeat_join_lines.test.yo` (12 tests, all passing)
 
 **Subcommand API**:
 
-```rust
+```yo ignore
 parser := ArgParser.new(`git`, `Distributed VCS`);
 commit_sub := parser.add_subcommand(`commit`, `Record changes`);
 commit_sub.add_flag(`--amend`, `-a`, `Amend previous commit`);
@@ -153,12 +153,12 @@ Implemented in `std/fs/temp.yo` with RAII-managed `TempDir` and `TempFile` types
 
 Element/key/value type is inferred from the first argument via `typeof`. Empty literals are not allowed (no type to infer from) and produce a `comptime_assert` error.
 
-```rust
-xs := array_list(i32(1), i32(2), i32(3));            // ArrayList(i32)
+```yo
+xs := array_list(i32(1), i32(2), i32(3)); // ArrayList(i32)
 
-m := hash_map(`a` => i32(1), `b` => i32(2));         // HashMap(String, i32)
+m := hash_map(`a` => i32(1), `b` => i32(2)); // HashMap(String, i32)
 
-s := hash_set(i32(1), i32(2), i32(3));               // HashSet(i32)
+s := hash_set(i32(1), i32(2), i32(3)); // HashSet(i32)
 ```
 
 #### Bug discovered + fixed during implementation
@@ -175,7 +175,7 @@ Tests: `tests/collection_literals.test.yo` (11 tests, all passing).
 
 Verified working: `std/prelude.yo` (lines ~6037+) successfully defines
 
-```rust
+```yo
 impl(forall(I : Type), where(I <: Iterator), I, ...)
 ```
 
@@ -208,7 +208,7 @@ Verified by `tests/bootstrap_verification.test.yo`:
 
 ### 2.4 ✅ Recursive Enum Types
 
-```rust
+```yo
 Expr :: enum(
   Atom(id : ExprId, token : Token),
   FnCall(id : ExprId, func : Box(Self), args : ArrayList(Self), token : Token)

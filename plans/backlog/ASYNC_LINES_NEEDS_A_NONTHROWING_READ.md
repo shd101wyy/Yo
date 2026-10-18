@@ -7,7 +7,7 @@ found it is not a stream problem but an error-style one.
 
 ## What was wanted
 
-```rust
+```yo
 lines := BufReader(File).new(f).lines();
 io.await(lines.for_each(l => println(l), io), io);
 ```

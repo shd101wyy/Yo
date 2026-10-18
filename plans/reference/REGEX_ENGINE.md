@@ -40,86 +40,86 @@ regex.exec(`abc123def`)
 
 ### Core Types
 
-```rust
+```yo
 // Compiled regex pattern
 Regex :: object(
-  _bytecode : ArrayList(u8),     // Compiled NFA bytecode
-  _flags    : RegexFlags,        // Flags (global, ignoreCase, etc.)
-  _pattern  : String,            // Original pattern string
-  _n_groups : usize              // Number of capturing groups
+  _bytecode : ArrayList(u8), // Compiled NFA bytecode
+  _flags : RegexFlags, // Flags (global, ignoreCase, etc.)
+  _pattern : String, // Original pattern string
+  _n_groups : usize // Number of capturing groups
 );
 
 // Match result from exec()
 Match :: struct(
-  value     : String,            // Matched text
-  index     : usize,             // Start position (BYTE offset — char index before D4 PR 6, 2026-08-26)
-  groups    : ArrayList(Option(String)),  // Captured groups (index 0 = full match)
-  input     : String             // Original input string
+  value : String, // Matched text
+  index : usize, // Start position (BYTE offset — char index before D4 PR 6, 2026-08-26)
+  groups : ArrayList(Option(String)), // Captured groups (index 0 = full match)
+  input : String // Original input string
 );
 
 // Flags
 RegexFlags :: struct(
-  global      : bool,   // g - match all occurrences
-  ignore_case : bool,   // i - case-insensitive
-  multiline   : bool,   // m - ^ and $ match line boundaries
-  dot_all     : bool,   // s - . matches newline
-  unicode     : bool,   // u - full Unicode matching
-  sticky      : bool    // y - match from lastIndex only
+  global : bool, // g - match all occurrences
+  ignore_case : bool, // i - case-insensitive
+  multiline : bool, // m - ^ and $ match line boundaries
+  dot_all : bool, // s - . matches newline
+  unicode : bool, // u - full Unicode matching
+  sticky : bool // y - match from lastIndex only
 );
 
 // Error type
 RegexError :: enum(
-  InvalidPattern(message: String, position: usize),
-  InvalidFlags(message: String),
-  InvalidEscape(message: String, position: usize),
-  InvalidQuantifier(message: String, position: usize),
-  UnbalancedParenthesis(position: usize),
-  InvalidCharacterClass(message: String, position: usize)
+  InvalidPattern(message : String, position : usize),
+  InvalidFlags(message : String),
+  InvalidEscape(message : String, position : usize),
+  InvalidQuantifier(message : String, position : usize),
+  UnbalancedParenthesis(position : usize),
+  InvalidCharacterClass(message : String, position : usize)
 );
 ```
 
 ### Internal Types (Pattern AST)
 
-```rust
+```yo
 RegexNode :: enum(
-  Literal(codepoint: rune),
-  Dot,                                       // . (any char)
-  CharClass(ranges: ArrayList(CharRange), negated: bool),
-  Anchor(kind: AnchorKind),                  // ^, $, \b, \B
-  Group(body: *(RegexNode), index: usize, name: Option(String)),
-  NonCapturingGroup(body: *(RegexNode)),
-  Alternation(left: *(RegexNode), right: *(RegexNode)),
-  Sequence(nodes: ArrayList(*(RegexNode))),
-  Quantifier(body: *(RegexNode), min: usize, max: Option(usize), greedy: bool),
-  Backreference(index: usize),
-  NamedBackreference(name: String),
-  Lookahead(body: *(RegexNode), positive: bool),
-  Lookbehind(body: *(RegexNode), positive: bool)
+  Literal(codepoint : rune),
+  Dot, // . (any char)
+  CharClass(ranges : ArrayList(CharRange), negated : bool),
+  Anchor(kind : AnchorKind), // ^, $, \b, \B
+  Group(body : *RegexNode, index : usize, name : Option(String)),
+  NonCapturingGroup(body : *RegexNode),
+  Alternation(left : *RegexNode, right : *RegexNode),
+  Sequence(nodes : ArrayList(*RegexNode)),
+  Quantifier(body : *RegexNode, min : usize, max : Option(usize), greedy : bool),
+  Backreference(index : usize),
+  NamedBackreference(name : String),
+  Lookahead(body : *RegexNode, positive : bool),
+  Lookbehind(body : *RegexNode, positive : bool)
 );
 
 AnchorKind :: enum(Start, End, WordBoundary, NonWordBoundary);
-CharRange :: struct(low: rune, high: rune);
+CharRange :: struct(low : rune, high : rune);
 ```
 
 ### NFA Bytecode Instructions
 
-```rust
+```yo
 OpCode :: enum(
-  Char(codepoint: rune),         // Match single character
-  CharClass(index: usize),       // Match character class (lookup table)
-  AnyChar,                       // Match any character (. or dotAll .)
-  Split(a: usize, b: usize),    // Non-deterministic branch (NFA fork)
-  Jump(target: usize),           // Unconditional jump
-  Save(slot: usize),            // Save capture position
-  Match,                         // Accept state
-  AssertStart,                   // ^ anchor
-  AssertEnd,                     // $ anchor
-  AssertWordBoundary,            // \b
-  AssertNonWordBoundary,         // \B
-  Backreference(index: usize),   // \1, \2, etc.
-  LookaheadStart(positive: bool),
+  Char(codepoint : rune), // Match single character
+  CharClass(index : usize), // Match character class (lookup table)
+  AnyChar, // Match any character (. or dotAll .)
+  Split(a : usize, b : usize), // Non-deterministic branch (NFA fork)
+  Jump(target : usize), // Unconditional jump
+  Save(slot : usize), // Save capture position
+  Match, // Accept state
+  AssertStart, // ^ anchor
+  AssertEnd, // $ anchor
+  AssertWordBoundary, // \b
+  AssertNonWordBoundary, // \B
+  Backreference(index : usize), // \1, \2, etc.
+  LookaheadStart(positive : bool),
   LookaheadEnd,
-  LookbehindStart(positive: bool),
+  LookbehindStart(positive : bool),
   LookbehindEnd
 );
 ```
@@ -130,7 +130,7 @@ OpCode :: enum(
 
 ### Regex Methods
 
-```rust
+```yo ignore
 // Constructor
 Regex.new : (fn(pattern: String, (flags: String) ?= ``) -> Result(Regex, RegexError))
 
@@ -152,7 +152,7 @@ Regex.flags_str : (fn(self: Self) -> String)
 
 ### String Integration Methods
 
-```rust
+```yo ignore
 // These extend the existing String type
 
 // Match against regex, return first match
@@ -174,7 +174,7 @@ String.split : (fn(self: Self, regex: Regex) -> ArrayList(Self))
 
 ### Match Methods
 
-```rust
+```yo ignore
 // Get the full matched text
 Match.text : (fn(self: Self) -> String)
 

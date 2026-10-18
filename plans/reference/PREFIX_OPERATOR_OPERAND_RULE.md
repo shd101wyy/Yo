@@ -64,7 +64,7 @@ operand, any binary operator applies to the result. This is the rule C, Rust,
 Python, Java, and JS use — it is stated here as an operand-width rule, not as
 operator ranking, so Yo's no-precedence philosophy is untouched.
 
-```rust
+```yo ignore
 -1 + 2        // ⇒ (-1) + 2          — the `-` binds the primary `1`, then `+` applies
 -(1 + 2)      // ⇒ explicit wide operand
 -f(x)         // ⇒ -(f(x))           — a call is one postfix expression
@@ -104,7 +104,7 @@ those parens.
 Whitespace around the dot carries no meaning, exactly as in Go, JS, Rust, and
 Python:
 
-```rust
+```yo ignore
 a.b          // member access
 a .b         // same
 a. b         // same — already works today via the infix branch, same AST

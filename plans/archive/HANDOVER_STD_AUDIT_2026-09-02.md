@@ -69,15 +69,19 @@ INSIDE an `io.async` body (deferred-generic trial) is swallowed by the dg
 site (`function_type.yo:~1543`, TS ts:112 catch parity) and the test passes
 VACUOUSLY. Red repro (as `tests/tmp_fwdref.test.yo`, passes 1/1 today):
 
-```rust
+```yo
 open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 do_it :: (fn(io : Io) -> Impl(Future(unit, Io)))(
-  io.async((io : Io) => { later(); })
+  io.async((io : Io) => {
+    later();
+  })
 );
 later :: (fn() -> unit)(println(String.from("later")));
-test("forward ref inside async body", { io.await(do_it(io), io); });
+test("forward ref inside async body", {
+  io.await(do_it(io), io);
+});
 ```
 
 Implementation shape (per plan §4.6): the swallow already lands in
@@ -155,11 +159,16 @@ exprs/async.yo (and/or an entry check on `get_expr_info(body_expr)`).
 The `_sync_fut_t` stub's own resume is what "runs nothing and completes"
 — start there. Repro (passes vacuously today):
 
-```rust
+```yo
 do_bad :: (fn(io : Io) -> Impl(Future(unit, Io)))(
-  io.async((io : Io) => { b := (i32(1) && i32(2)); println(b.to_string()); })
+  io.async((io : Io) => {
+    b := (i32(1) && i32(2));
+    println(b.to_string());
+  })
 );
-test("type error inside async body", { io.await(do_bad(io), io); });
+test("type error inside async body", {
+  io.await(do_bad(io), io);
+});
 ```
 
 ## 0d. POISON GATE LANDED (2026-09-02 late)

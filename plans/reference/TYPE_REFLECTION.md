@@ -21,26 +21,42 @@ All compound variants implemented and tested. 54 tests passing (48 derive + 6 co
 
 ### TypeInfo enum
 
-```rust
+```yo
 TypeInfo :: enum(
   // === Primitives (fieldless) ===
-  Unit, Bool,
-  Usize, Isize,
-  U8, I8, U16, I16, U32, I32, U64, I64,
-  F32, F64,
-
+  Unit,
+  Bool,
+  Usize,
+  Isize,
+  U8,
+  I8,
+  U16,
+  I16,
+  U32,
+  I32,
+  U64,
+  I64,
+  F32,
+  F64,
   // === C compatible primitives (fieldless) ===
-  Char, Short, UShort, Int, UInt,
-  Long, ULong, LongLong, ULongLong, LongDouble,
+  Char,
+  Short,
+  UShort,
+  Int,
+  UInt,
+  Long,
+  ULong,
+  LongLong,
+  ULongLong,
+  LongDouble,
   Void,
-
   // === Compound types (with metadata) ===
   Array(element : Type, length : comptime_int),
   Slice(element : Type),
   Tuple(fields : ComptimeList(TypeFieldInfo)),
   Struct(
     fields : ComptimeList(TypeFieldInfo),
-    kind : StructKind     // Struct, Object, or NewType
+    kind : StructKind // Struct, Object, or NewType
   ),
   Enum(
     variants : ComptimeList(VariantInfo)
@@ -55,7 +71,6 @@ TypeInfo :: enum(
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo)
   ),
-
   // === Meta types ===
   Module(
     fields : ComptimeList(TypeFieldInfo)
@@ -69,12 +84,13 @@ TypeInfo :: enum(
     name : comptime_string,
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo),
-    resolved_type : Type    // unit if unresolved
+    resolved_type : Type // unit if unresolved
   ),
-
   // === Comptime Only ===
-  ComptimeInt, ComptimeFloat, ComptimeString,
-  ComptimeList(element : Type),  // ComptimeList(T) carries element type
+  ComptimeInt,
+  ComptimeFloat,
+  ComptimeString,
+  ComptimeList(element : Type), // ComptimeList(T) carries element type
 
   // === Metaprogramming (fieldless) ===
   Expr,
@@ -84,31 +100,31 @@ TypeInfo :: enum(
 
 ### StructKind — Discriminant for struct flavors
 
-```rust
+```yo
 StructKind :: enum(Struct, Object, AtomicObject, NewType);
 ```
 
 ### TraitInfo — Lightweight trait reference
 
-```rust
+```yo
 TraitInfo :: struct(
-  trait_type : Type       // The trait type (e.g., Copy, Display, Eq(i32))
+  trait_type : Type // The trait type (e.g., Copy, Display, Eq(i32))
 );
 ```
 
 ### TraitFieldInfo — Trait field metadata
 
-```rust
+```yo
 TraitFieldInfo :: struct(
   name : comptime_string,
   field_type : Type,
-  is_associated_type : bool   // true when `unassignedSomeType` exists (e.g., `X : Type`)
+  is_associated_type : bool // true when `unassignedSomeType` exists (e.g., `X : Type`)
 );
 ```
 
 ### FunctionInfo — Shared function type metadata
 
-```rust
+```yo
 FunctionInfo :: struct(
   params : ComptimeList(ParamInfo),
   return_type : Type,
@@ -122,7 +138,7 @@ Used by both the `TypeInfo.Function(info)` variant and `TraitKind.Fn(call)`.
 
 ### TraitKind — Discriminant for trait flavors
 
-```rust
+```yo
 TraitKind :: enum(
   Future(child : Type, effects : ComptimeList(TraitInfo)),
   Fn(call : FunctionInfo),
@@ -132,7 +148,7 @@ TraitKind :: enum(
 
 ### TypeFieldInfo — Yo representation of TypeField
 
-```rust
+```yo
 TypeFieldInfo :: struct(
   name : comptime_string,
   field_type : Type
@@ -143,28 +159,28 @@ This replaces the existing `FieldInfo` struct (which has the same fields). `Fiel
 
 ### ParamInfo — Function parameter metadata
 
-```rust
+```yo
 ParamInfo :: struct(
   name : comptime_string,
   param_type : Type,
   is_comptime : bool,
   is_quote : bool,
-  is_variadic : bool     // ...(comptime(name) : ComptimeList(T)) variadic params
+  is_variadic : bool // ...(comptime(name) : ComptimeList(T)) variadic params
 );
 ```
 
 ### ForallParamInfo — Forall type parameter
 
-```rust
+```yo
 ForallParamInfo :: struct(
   name : comptime_string,
-  param_type : Type   // The constraint type (usually Type)
+  param_type : Type // The constraint type (usually Type)
 );
 ```
 
 ### ImplicitParamInfo — Using/effect parameter
 
-```rust
+```yo
 ImplicitParamInfo :: struct(
   name : comptime_string,
   param_type : Type
@@ -173,7 +189,7 @@ ImplicitParamInfo :: struct(
 
 ### VariantInfo (existing, may extend)
 
-```rust
+```yo
 VariantInfo :: struct(
   name : comptime_string,
   fields : ComptimeList(TypeFieldInfo),
@@ -186,7 +202,7 @@ VariantInfo :: struct(
 
 ### Type.get_info(T)
 
-```rust
+```yo ignore
 impl(Type,
   get_info : (fn(comptime(self) : Type) -> comptime(TypeInfo))({
     return __yo_type_get_info(self);
@@ -196,33 +212,35 @@ impl(Type,
 
 ### Guard methods (preserved from TypeTag)
 
-```rust
-impl(TypeInfo,
-  is_struct : ...,    // matches .Struct(...) => true
+```yo
+impl(
+  TypeInfo,
+  is_struct : ..., // matches .Struct(...) => true
   is_enum : ...,
   is_union : ...,
   is_tuple : ...,
   is_array : ...,
   is_slice : ...,
   is_function : ...,
-  is_pointer : ...,    // matches .Ptr(...) => true
+  is_pointer : ..., // matches .Ptr(...) => true
   is_trait : ...,
   is_module : ...,
   is_void : ...,
-  is_primitive : ...,  // matches all primitive variants
+  is_primitive : ..., // matches all primitive variants
   is_integer : ...,
   is_float : ...,
   is_numeric : ...,
-  is_comptime : ...    // ComptimeInt, ComptimeFloat, ComptimeString, ComptimeList, Expr
+  is_comptime : ... // ComptimeInt, ComptimeFloat, ComptimeString, ComptimeList, Expr
 );
 ```
 
 ### Usage examples
 
-```rust
+```yo
 // Get struct field info directly from TypeInfo
 info :: Type.get_info(Point);
-match(info,
+match(
+  info,
   .Struct(fields, kind) => {
     // fields is ComptimeList(TypeFieldInfo) with x:i32, y:i32
     // kind is StructKind.Struct
@@ -231,8 +249,9 @@ match(info,
 );
 
 // Get array element type
-arr_info :: Type.get_info([i32; 3]);
-match(arr_info,
+arr_info :: Type.get_info([i32 ; 3]);
+match(
+  arr_info,
   .Array(elem, len) => {
     // elem == i32 (requires ComptimeEq for Type)
     // len == 3
@@ -241,8 +260,9 @@ match(arr_info,
 );
 
 // Function type introspection
-fn_info :: Type.get_info(fn(x: i32, y: i32) -> bool);
-match(fn_info,
+fn_info :: Type.get_info(fn(x : i32, y : i32) -> bool);
+match(
+  fn_info,
   .Function(info) => {
     // info.params has 2 entries
     // info.return_type == bool
@@ -255,18 +275,21 @@ match(fn_info,
 
 Implement `ComptimeEq` for `Type` using `areTypesCompatible` internally:
 
-```rust
-impl(Type, ComptimeEq(Type)(
-  eq : (fn(comptime(self) : Type, comptime(other) : Type) -> comptime(bool))(
-    __yo_are_types_compatible(self, other)
+```yo
+impl(
+  Type,
+  ComptimeEq(Type)(
+    eq : (fn(comptime(self) : Type, comptime(other) : Type) -> comptime(bool))(
+      __yo_are_types_compatible(self, other)
+    )
   )
-));
+);
 ```
 
 This enables:
 
-```rust
-comptime_assert((i32 == i32), "same type");
+```yo
+comptime_assert(i32 == i32, "same type");
 comptime_assert(!(i32 == f64), "different types");
 ```
 

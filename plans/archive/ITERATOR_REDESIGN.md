@@ -15,17 +15,21 @@ as phases A–E, deferred from `plans/reference/MEMORY_SAFETY.md` Phase D.)
 
 The current `Iterator` trait yields raw pointers:
 
-```rust
+```yo
 Iterator :: trait(
   Item : Type,
   next : (fn(ref(self) : Self) -> Option(Self.Item))
 );
 
 // In practice every collection iterator binds `Item := *(T)`:
-impl(forall(T : Type), ArrayIterPtr(T), Iterator(
-  Item : *(T),
-  next : (fn(ref(self) : Self) -> Option(*(T)))( ... )
-));
+impl(
+  forall(T : Type),
+  ArrayIterPtr(T),
+  Iterator(
+    Item : *T,
+    next : (fn(ref(self) : Self) -> Option(*T))(...)
+  )
+);
 ```
 
 With Phase C's structural gates, `*(T)` is no longer reachable from safe code. That makes every collection iterator (Array, Slice, ArrayList, HashMap, …) **uncallable from safe code as currently shaped**, even though `for(list.iter(), x => body)` is the most basic user-facing operation in the language. We need an iteration protocol that:
@@ -64,10 +68,10 @@ The structural restriction means: any path that would smuggle `ref(T)` into a st
 
 ### The new binding form: `ref(name) := projection_call(...);`
 
-```rust
+```yo
 ref(x) := list.project(pos);
-x = (x + i32(1));  // writes through the projection
-print(x);          // reads through the projection
+x = (x + i32(1)); // writes through the projection
+print(x); // reads through the projection
 ```
 
 Semantics are exactly those of an `inout` parameter binding:
@@ -84,7 +88,7 @@ The `ref(name) :=` form is new syntax — added to the parser alongside the exis
 
 A collection exposes a single projection method:
 
-```rust
+```yo
 project : (fn(ref(self) : Self, pos : Position) -> ref(Element));
 ```
 
@@ -101,7 +105,7 @@ The `Iterator` trait stays unchanged from today (yields `Item` by value via `nex
 
 The borrow side is the **`Indexable(Position)` impl** already landed in Phase C — `project(pos) -> ref(Element)`. The for-macro is what stitches `iter()` and `project(pos)` together so the user never has to call `project` by hand.
 
-```rust
+```yo
 // Trait stays exactly as today.
 Iterator :: trait(
   Item : Type,
@@ -121,7 +125,7 @@ This shape decouples _what positions exist_ (the iterator's job) from _how to re
 
 The `for` macro lowers `for(coll, ref(x) => body)` to:
 
-```rust
+```yo ignore
 {
   __for_coll := coll;
   __for_iter := __for_coll.iter();
@@ -141,7 +145,7 @@ The `for` macro lowers `for(coll, ref(x) => body)` to:
 
 The value form `for(coll, (x) => body)` lowers identically except it calls `coll.into_iter()` and binds `x` directly from the `.Some` arm (no `project` call):
 
-```rust
+```yo ignore
 {
   __for_iter := coll.into_iter();
   while(runtime(true), {
@@ -159,7 +163,7 @@ The lambda's binding shape (`ref(x)` vs `(x)`) is what tells the macro which exp
 
 Privileged stdlib file (`pragma(Pragma.AllowUnsafe);`):
 
-```rust
+```yo ignore
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _coll : ArrayList(T),
@@ -203,7 +207,7 @@ impl(
 
 User-side safe code:
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 main :: (fn() -> unit)({
   list := ArrayList(i32).new();
@@ -237,7 +241,7 @@ The C ABI of `ref(T)`-return is identical to a raw-pointer return. The evaluator
 
 At the call site:
 
-```rust
+```yo
 ref(x) := coll.project(pos);
 //   ^^^ stored as Variable { isInout: true, ... }
 //
@@ -255,7 +259,7 @@ ref(x) := coll.project(pos);
 
 The danger case is a function that returns a borrow into its own local storage:
 
-```rust
+```yo ignore
 (fn() -> ref(i32))({
   x := i32(12);
   return x;         // ← would point into the dead call frame
@@ -273,7 +277,7 @@ The evaluator runs this check on the return expression of every `ref(T)`-returni
 
 Worked verdicts on the four canonical cases:
 
-```rust
+```yo ignore
 // (1) Local return — reject.
 (fn() -> ref(i32))({
   x := i32(12);
@@ -299,7 +303,7 @@ Worked verdicts on the four canonical cases:
 
 Mixed / chained cases the same rule handles without further machinery:
 
-```rust
+```yo ignore
 // Local copy breaks the chain.
 (fn(ref(p) : Point) -> ref(i32))({
   q := p;          // q : Point — auto-deref-copy; q.isInout = false
@@ -482,7 +486,7 @@ Possible cleanup:
 
 **For-macro dispatch by lambda binding shape:**
 
-```rust
+```yo ignore
 // Borrow iteration — lambda is `ref(x) => body`. Calls `coll.iter()`.
 for(coll, ref(x) => body)
   // expands to:
@@ -556,7 +560,7 @@ Considered. Make `&(T)` a real type but enforce that any value whose type transi
 
 Considered (Hylo-style). Make `next()` itself yield a borrow inline:
 
-```rust
+```yo
 next : (fn(ref(self) : Self) yields ref(Item))
 ```
 

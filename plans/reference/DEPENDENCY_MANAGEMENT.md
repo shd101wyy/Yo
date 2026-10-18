@@ -41,7 +41,7 @@ Yo projects currently have no way to depend on external libraries — neither ot
 
 ### 1.1 API in `build.yo`
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.project({ name: "my-app", root: "./src/lib.yo" });
@@ -65,7 +65,7 @@ build.executable({
 
 ### 1.2 Config Struct
 
-```rust
+```yo ignore
 GitDependency :: struct(
   name : comptime_string,                          // Import name
   url : comptime_string,                           // Git repository URL
@@ -164,7 +164,7 @@ The `.yo-cache/` directory is gitignored. The lock file (`yo.lock`) is committed
 
 ### 3.1 API in `build.yo`
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 // Link against a system C library discovered via pkg-config
@@ -188,7 +188,7 @@ build.executable({
 
 ### 3.2 Config Struct
 
-```rust
+```yo ignore
 SystemLibrary :: struct(
   name : comptime_string,                                // Identifier and pkg-config package name
   (fallback_include : comptime_string) ?= "",             // Manual include path
@@ -337,7 +337,7 @@ Path dependencies allow depending on a local package by filesystem path, without
 
 ### 8.1 API in `build.yo`
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.path_dependency({
@@ -348,7 +348,7 @@ build.path_dependency({
 
 ### 8.2 Config Struct
 
-```rust
+```yo
 PathDependency :: struct(
   name : comptime_string,
   path : comptime_string
@@ -368,7 +368,7 @@ PathDependency :: struct(
 
 The `Project` struct has a `root` field that specifies the library entry point:
 
-```rust
+```yo
 Project :: struct(
   name : comptime_string,
   (root : comptime_string) ?= "./src/lib.yo"
@@ -387,7 +387,7 @@ When a dependency has its own `build.yo` that defines artifacts (e.g., a static 
 
 ### 9.1 API
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.project({ name: "demo" });
@@ -408,15 +408,16 @@ install.depend_on(exe);
 
 ### 9.2 Dependency Struct
 
-```rust
+```yo
 Dependency :: struct(
   name : comptime_string
 );
 
-impl(Dependency,
+impl(
+  Dependency,
   artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_string) -> comptime(Step))({
     __yo_build_dep_artifact(self.name, artifact_name);
-    Step(name: artifact_name, kind: StepKind.StaticLibrary)
+    Step(name : artifact_name, kind : StepKind.StaticLibrary)
   })
 );
 ```
@@ -492,7 +493,7 @@ When dep A's source does `import "dep_b"`, import resolution falls back to the r
 
 ### File Structure
 
-```rust
+```yo ignore
 // Dependencies for this project.
 // Managed by `yo install`. Manual edits are preserved.
 
@@ -512,7 +513,7 @@ export imports;
 
 ### Usage in `build.yo`
 
-```rust
+```yo ignore
 build :: import "std/build";
 { imports } :: import "./deps.yo";
 

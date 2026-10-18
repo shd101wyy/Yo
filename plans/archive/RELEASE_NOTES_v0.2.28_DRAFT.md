@@ -80,17 +80,27 @@ it panics like Rust's; a bad key or a malformed string still returns `Result`.
 `plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md` §7–§8. No borrow checker, no lifetimes; the
 keyword stays `inout`.
 
-```rust
+```yo
 x := i32(1);
-inout(y) := x;   y = i32(2);   assert(x == i32(2));   // any scope
-inout(n) := holder.n;          // field of an RC object: pinned for the scope
-inout(px) := p.x;              // field of a value struct
-inout(e) := xs(usize(0));      // ERROR: borrow elements with `for`
+inout(y) := x;
+y = i32(2);
+assert(x == i32(2)); // any scope
+inout(n) := holder.n; // field of an RC object: pinned for the scope
+inout(px) := p.x; // field of a value struct
+inout(e) := xs(usize(0)); // ERROR: borrow elements with `for`
 
-for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); });   // struct elements in place
-for(names, inout(s) => { s.push_str("!"); });            // RC elements, no per-element dup
-for(scores, (k, inout(v)) => { v = (v + i32(10)); });    // maps: key by value, value borrowed
-for(list, inout(x) => { list.push(x); });                // PANICS — see below
+for(enemies, inout(e) => {
+  e.hp = (e.hp - i32(1));
+}); // struct elements in place
+for(names, inout(s) => {
+  s.push_str("!");
+}); // RC elements, no per-element dup
+for(scores, (k, inout(v)) => {
+  v = (v + i32(10));
+}); // maps: key by value, value borrowed
+for(list, inout(x) => {
+  list.push(x);
+}); // PANICS — see below
 ```
 
 Static guarantees where the compiler can see: slot lifetimes by scoping, escape

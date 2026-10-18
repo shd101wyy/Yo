@@ -30,7 +30,7 @@ Builds on [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md). Raw pointers (`*(
 
 Yo already has comptime parameter kinds: `Type`, `usize`, etc. Origin is a new one:
 
-```rust
+```yo
 foo :: (fn(forall(T : Type, R : Origin), x : &(T, R)) -> &(T, R))(x);
 ```
 
@@ -66,7 +66,7 @@ These appear in `where(...)` clauses, parallel to trait constraints.
 
 ### Construction and Dereference
 
-```rust
+```yo ignore
 x := i32(42);
 r := &(x);              // r : &(i32, _) — origin inferred to be the enclosing scope
 r.*                     // read; safe (no unsafe wrap)
@@ -160,10 +160,10 @@ This is single-threaded UAF safety, achieved with Origins instead of lifetime an
 
 Current (`*(T)`-based) iterator:
 
-```rust
+```yo
 ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _list : ArrayList(T),        // RC handle keeps storage alive
+    _list : ArrayList(T), // RC handle keeps storage alive
     _index : usize
   )
 );
@@ -171,10 +171,10 @@ ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 After migration. The iterator becomes generic over Origin:
 
-```rust
+```yo
 ArrayListIterPtr :: (fn(comptime(T) : Type, comptime(R) : Origin) -> comptime(Type))(
   struct(
-    _list : &(ArrayList(T), R),  // borrowed view at origin R
+    _list : &(ArrayList(T), R), // borrowed view at origin R
     _index : usize
   )
 );
@@ -184,7 +184,7 @@ impl(
   ArrayListIterPtr(T, R),
   Iterator(
     Item : &(T, R),
-    next : (fn(self : &(Self)) -> Option(&(T, R)))(
+    next : (fn(self : &Self) -> Option(&(T, R)))(
       cond(
         (self._index >= self._list._length) => .None,
         true => {
@@ -208,13 +208,13 @@ impl(
 
 Caller side stays clean — origins are elided:
 
-```rust
+```yo
 main :: (fn() -> unit)({
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
-  for(list.iter(), (r) => {
-    printf("%d\n", r.*);          // r : &(i32, R); R is list's origin (elided)
+  for(list.iter(), r => {
+    printf("%d\n", r.*); // r : &(i32, R); R is list's origin (elided)
   });
 });
 ```
@@ -324,13 +324,13 @@ Scope unchanged from the earlier draft: ~50–80 method signatures, mostly mecha
 
 ### Single-ref input/output (elision)
 
-```rust
-identity :: (fn(x : &(i32)) -> &(i32))(x);
+```yo
+identity :: (fn(x : &i32) -> &i32)(x);
 
 main :: (fn() -> unit)({
   v := i32(42);
-  r := identity(&(v));
-  assert((r.* == i32(42)), "identity");
+  r := identity(&v);
+  assert(r.* == i32(42), "identity");
 });
 ```
 
@@ -338,12 +338,14 @@ Elided to `(fn(forall(R : Origin), x : &(i32, R)) -> &(i32, R))`.
 
 ### Multi-ref input, return borrows from one (explicit)
 
-```rust
-longest :: (fn(
-  forall(R : Origin),
-  a : &(str, R),
-  b : &(str, R)
-) -> &(str, R))(
+```yo
+longest :: (
+  fn(
+    forall(R : Origin),
+    a : &(str, R),
+    b : &(str, R)
+  ) -> &(str, R)
+)(
   cond(
     (a.length() >= b.length()) => a,
     true => b
@@ -353,14 +355,14 @@ longest :: (fn(
 main :: (fn() -> unit)({
   s1 := `hello`;
   s2 := `world!`;
-  r := longest(&(s1), &(s2));     // both s1, s2 share enclosing scope
+  r := longest(&s1, &s2); // both s1, s2 share enclosing scope
   printf("%s\n", r);
 });
 ```
 
 ### Iterator that borrows the source
 
-```rust
+```yo
 impl(
   forall(T : Type),
   ArrayList(T),
@@ -374,79 +376,81 @@ main :: (fn() -> unit)({
   list := ArrayList(i32).new();
   list.push(i32(1));
   total := i32(0);
-  for(list.iter(), (r) => {
+  for(list.iter(), r => {
     total = (total + r.*);
   });
-  assert((total == i32(1)), "sum");
+  assert(total == i32(1), "sum");
 });
 ```
 
 ### Returning a ref to a local (rejected)
 
-```rust
+```yo
 // error: origin of return type cannot be the anonymous origin of begin-block at file.yo:N.
 //        Return an owned value, or accept the source as a parameter.
-bad :: (fn() -> &(i32))({
+bad :: (fn() -> &i32)({
   local_x := i32(42);
-  &(local_x)
+  &local_x
 });
 ```
 
 ### Object cannot hold a ref (rejected at type-definition time)
 
-```rust
+```yo
 // error: object types cannot contain second-class fields.
 //        Field 'parent : &(TreeNode, R)' makes 'object TreeNode' second-class,
 //        which is incompatible with heap allocation.
 TreeNode :: object(
   count : i32,
-  parent : &(TreeNode)
+  parent : &TreeNode
 );
 ```
 
 Use the RC pattern instead:
 
-```rust
+```yo
 TreeNode :: object(
   count : i32,
-  parent : Option(TreeNode)         // RC handle, cycles handled by cycle removal
+  parent : Option(TreeNode) // RC handle, cycles handled by cycle removal
 );
 ```
 
 ### Static origin for global data
 
-```rust
+```yo
 GLOBAL_NAME :: "yo";
 
 get_name :: (fn() -> &(str, Origin.Static))(
-  &(GLOBAL_NAME)
+  &GLOBAL_NAME
 );
 ```
 
 ### Object + borrow composition
 
-```rust
+```yo
 process :: (fn(forall(R : Origin), node : &(TreeNode, R)) -> i32)(
-  (node.count + i32(1))
+  node.count + i32(1)
 );
 
 main :: (fn() -> unit)({
   root := TreeNode(count : i32(10), parent : .None);
-  result := process(&(root));        // borrow the RC handle, no dup/drop
+  result := process(&root); // borrow the RC handle, no dup/drop
   printf("%d\n", result);
 });
 ```
 
 ### Multi-input method, explicit output origin
 
-```rust
+```yo
 impl(
   Config,
-  pick_section : (fn(
-    forall(Rself : Origin, Rname : Origin),
-    self : &(Self, Rself),
-    name : &(str, Rname)
-  ) -> &(Section, Rself))(
+  pick_section : (
+    fn(
+      forall(Rself : Origin, Rname : Origin),
+      self : &(Self, Rself),
+      name : &(str, Rname)
+    ) -> &(Section, Rself)
+  )(
     self.sections.find(name).unwrap()
   )
 );

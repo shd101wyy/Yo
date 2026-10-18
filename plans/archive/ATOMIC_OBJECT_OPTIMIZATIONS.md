@@ -45,8 +45,8 @@ Location: `src/codegen/exprs/rc-fns.ts`.
 Inspired by Swift's `isKnownUniquelyReferenced` + `mutating` pattern. The
 equivalent in Yo is `own(self)`:
 
-```rust
-push : (fn(own(self): Self, val: T) -> Self)
+```yo
+push : (fn(own(self) : Self, val : T) -> Self)
 ```
 
 With `own(self)`:
@@ -58,13 +58,13 @@ With `own(self)`:
 
 If the caller wants to preserve old versions, they explicitly clone:
 
-```rust
+```yo
 v := Vec(i32).new();
-v = v.push(i32(1));     // rc=1 -> mutate in place, O(1)
-v = v.push(i32(2));     // rc=1 -> mutate in place, O(1)
+v = v.push(i32(1)); // rc=1 -> mutate in place, O(1)
+v = v.push(i32(2)); // rc=1 -> mutate in place, O(1)
 
-old := v;               // dup, rc=2
-v = v.push(i32(3));     // rc=2 -> copy path, O(n)
+old := v; // dup, rc=2
+v = v.push(i32(3)); // rc=2 -> copy path, O(n)
 // old still has [1, 2], v has [1, 2, 3]
 ```
 
@@ -106,7 +106,7 @@ sharing (O(log n) path-copies per mutation), which is efficient enough.
 
 Read-only methods (`len`, `get`, `contains`, `iter`, etc.) remain borrowed:
 
-```rust
+```yo ignore
 len : (fn(self: Self) -> usize)                  // borrow, no mutation
 get : (fn(self: Self, idx: usize) -> Option(T))  // borrow, no mutation
 ```

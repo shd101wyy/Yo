@@ -17,7 +17,7 @@ Yo today bans overloading on **inherent** methods (see the comment at
 `std/string/string.yo:1554`), but the `StrPattern` trait reintroduces overloading by
 **argument type**:
 
-```rust
+```yo ignore
 // std/string/string.yo
 impl(String, /* ... */ starts_with : (fn(self : Self, prefix : Self, (position : usize) ?= 0) -> bool)( /* String-prefix */ ));   // inherent, prefix : String
 StrPattern :: trait(starts_with : (fn(self : Self, prefix : str, (position : usize) ?= 0) -> bool), /* ... */);                     // trait,    prefix : str
@@ -119,22 +119,23 @@ This also means the redesign _supersedes_ part of the slice-rework's chosen mech
 A `StrPattern` trait whose implementors (`str`, `String`, later `char`) know how to
 match themselves against a `String` haystack — no `as_str()`:
 
-```rust
+```yo
 StrPattern :: trait(
-  is_prefix_of    : (fn(self : Self, haystack : String, position : usize) -> bool),
-  is_suffix_of    : (fn(self : Self, haystack : String, end_position : usize) -> bool),
+  is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool),
+  is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool),
   is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool),
-  index_in        : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
-  last_index_in   : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))
+  index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize)),
+  last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))
 );
-impl(str,    StrPattern( /* match a str literal against a String haystack */ ));
-impl(String, StrPattern( /* match a String pattern against a String haystack */ ));
+impl(str, StrPattern( /* match a str literal against a String haystack */));
+impl(String, StrPattern( /* match a String pattern against a String haystack */));
 ```
 
 The inherent `String` methods become **single generic methods** over the pattern:
 
-```rust
-impl(String,
+```yo
+impl(
+  String,
   starts_with : (fn(forall(P : Type), self : Self, prefix : P, (position : usize) ?= 0, where(P <: StrPattern)) -> bool)(
     prefix.is_prefix_of(self, position)
   ),

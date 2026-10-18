@@ -116,20 +116,28 @@ struct fn-ptr fields into separate C parameters at specialization. See
 
 ### Before
 
-```rust
-run :: (fn(forall(T : Type, ...(E)),
+```yo
+run :: (
+  fn(
+    forall(T : Type, ...(E)),
     f : (fn(using(...(E))) -> T),
-    using(...(E))) -> T)(f());
+    using(...(E))
+  ) -> T
+)(f());
 
-result := run(might_fail);   // E inferred from might_fail's signature
+result := run(might_fail); // E inferred from might_fail's signature
 ```
 
 ### After
 
-```rust
-run :: (fn(forall(T : Type, E : Type.Struct),
+```yo
+run :: (
+  fn(
+    forall(T : Type, E : Type.Struct),
     f : (fn(e : E) -> T),
-    e : E) -> T)(f(e));
+    e : E
+  ) -> T
+)(f(e));
 
 effects := { yield : my_yield, log : my_log };
 result := run(might_fail, effects);
@@ -154,7 +162,7 @@ result := run(might_fail, effects);
 
 - Effect records are constructed with ordinary anonymous struct syntax:
 
-  ```rust
+  ```yo
   effects := { raise : my_raise, log : my_log };
   // Shorthand (existing Yo syntax): { raise, log } ≡ { raise : raise, log : log }
   ```
@@ -162,13 +170,13 @@ result := run(might_fail, effects);
 - **No effects = empty struct**: `E` can bind to `{ }` (anonymous struct
   with zero fields). No special "empty row" concept. At the call site:
 
-  ```rust
-  result := io.await(fut, {});  // or: result := run(f, {});
+  ```yo
+  result := io.await(fut, {}); // or: result := run(f, {});
   ```
 
 - Combining rows (today's `using(...(E1), ...(E2))`) becomes record spread:
 
-  ```rust
+  ```yo
   // Before: using(...(E1), ...(E2))
   // After:  e := { ...e1, ...e2 }
   //         f(e)
@@ -182,13 +190,16 @@ result := run(might_fail, effects);
 
 ### Closures with effect rows
 
-```rust
+```yo
 // Before (two styles — inline declaration or call-site resolution)
 traverse(arr, (v, using(yield : Yield, log : Log)) => { ... });
 traverse(arr, (v, using(_yield, _log)) => { ... }, using(yield, log));
 
 // After — effects are an explicit parameter, one consistent pattern
-traverse(arr, (v, e) => { e.log(v); e.yield(v); }, effects);
+traverse(arr, (v, e) => {
+  e.log(v);
+  e.yield(v);
+}, effects);
 ```
 
 ### Io / Future signatures (prelude redesign)
@@ -201,7 +212,7 @@ Two shape changes happen together here:
    The type-level shape of an effect bundle is the same struct that
    `e : E` carries at the value level. One mental model, one syntax.
 
-```rust
+```yo ignore
 // ── BEFORE ──
 async : (fn(forall(T : Type, ...(E)),
     action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E))))
@@ -225,19 +236,23 @@ variadic spelling; combined effects use an explicit struct type.
 
 Repeated bundles get a named alias so signatures stay readable:
 
-```rust
+```yo
 IoExn :: struct(io : Io, exn : Exception);
 
-create_dir :: (fn(path : Path, io : Io, exn : Exception)
-  -> Impl(Future(unit, IoExn)))(
-  io.async((e) => { e.exn.throw(...); }, { io, exn })
+create_dir :: (
+  fn(path : Path, io : Io, exn : Exception)
+  -> Impl(Future(unit, IoExn))
+)(
+  io.async(e => {
+    e.exn.throw(...);
+  }, { io, exn })
 );
 ```
 
 At call sites the bundle's _type_ and the bundle's _value_ mirror each
 other:
 
-```rust
+```yo
 // Single effect — Future(T, Io), E = Io, e = io
 fut1 : Impl(Future(i32, Io));
 x := io.await(fut1, io);
@@ -247,7 +262,9 @@ fut2 : Impl(Future(i32, IoExn));
 y := io.await(fut2, { io, exn });
 
 // No effects — Future(T, struct()), e = {}
-fut3 := io.async((e) => { return(42); });
+fut3 := io.async(e => {
+  return(42);
+});
 result := io.await(fut3, {});
 ```
 
@@ -257,9 +274,9 @@ Today both shapes are supported and **both remain supported under this
 plan** (the original intent to wrap everything was Phase 1, which was
 skipped — see §7):
 
-```rust
-Raise :: (fn(msg : str) -> i32);                              // bare fn-typed
-Exception :: struct(throw : (fn(forall(T : Type), …) -> T));  // struct record
+```yo
+Raise :: (fn(msg : str) -> i32); // bare fn-typed
+Exception :: struct(throw : (fn(forall(T : Type), …) -> T)); // struct record
 ```
 
 With implicit lookup gone, the original argument for forced wrapping
@@ -375,7 +392,7 @@ unwind your caller."
 
 #### Surface syntax
 
-```rust
+```yo
 // Regular function type — must not contain `unwind` in its body
 processor :: (fn(x : i32) -> i32);
 
@@ -470,11 +487,15 @@ raise))` is plain `fn`, even though `safe_divide` may unwind.
     `typeIsControlBound(T)`. This prevents escape via
     pointer-write:
 
-    ```rust
+    ```yo
     // REJECTED — &Raise is forbidden
     write_handler :: (fn(slot : &Raise) -> unit)({
-      (local_cf : Raise) = ((msg) -> { unwind(...); });
-      slot.* = local_cf;  // would let local_cf outlive its frame
+      (local_cf : Raise) = (
+        msg -> {
+          unwind(...);
+        }
+      );
+      slot.* = local_cf; // would let local_cf outlive its frame
     });
     ```
 
@@ -554,14 +575,22 @@ ret` today; the type-level distinction is compile-time only.
 Every place that today binds `(name : SomeFnType) = ((msg) -> { unwind(...)
 })` needs `SomeFnType` to be `(ctl(...) -> ret)`. Concretely:
 
-```rust
+```yo
 // Before
 Raise :: (fn(msg : String) -> i32);
-(raise : Raise) = ((msg) -> { unwind(...); });
+(raise : Raise) = (
+  msg -> {
+    unwind(...);
+  }
+);
 
 // After
 Raise :: (ctl(msg : String) -> i32);
-(raise : Raise) = ((msg) -> { unwind(...); });  // unchanged at the binding
+(raise : Raise) = (
+  msg -> {
+    unwind(...);
+  }
+); // unchanged at the binding
 ```
 
 (Note: the RHS lambda is parenthesised — Yo has no operator
@@ -680,15 +709,15 @@ matching is **strict**: Yo structs are nominal, so a caller whose `e`
 has a wider type than the callee expects must **project** to the
 callee's exact bundle type, not rely on structural subtyping.
 
-```rust
+```yo
 // e : IoExn, but inner future only needs Io
-io.await(IO_dir.mkdir(...), e.io);    // ✓ project to Io
+io.await(IO_dir.mkdir(...), e.io); // ✓ project to Io
 
 // e : IoExn, inner future needs IoExn
-io.await(some_combined_fut, e);       // ✓ exact match
+io.await(some_combined_fut, e); // ✓ exact match
 
 // e : IoExn, inner future needs Io — passing e directly is an error
-io.await(IO_dir.mkdir(...), e);       // ✗ type mismatch
+io.await(IO_dir.mkdir(...), e); // ✗ type mismatch
 ```
 
 The std/ migration is a mechanical pass over four patterns:
@@ -1033,7 +1062,7 @@ Listed in the original numbering for cross-reference continuity.
    Future is **single-arg** at the type level: `Future(T, E)`. The
    bundle type and the bundle value mirror each other:
 
-   ```rust
+   ```yo
    // Future carries only Io — E = Io (itself a struct)
    fut1 : Impl(Future(i32, Io));
    x := io.await(fut1, io);
@@ -1072,7 +1101,7 @@ Listed in the original numbering for cross-reference continuity.
    `(name : Type) ?= default` shape (required parens because Yo has no
    operator precedence):
 
-   ```rust
+   ```yo
    safe_divide :: (fn(x : i32, y : i32, (raise : Raise) ?= panic_raise) -> i32)
    ```
 
@@ -1107,10 +1136,14 @@ Listed in the original numbering for cross-reference continuity.
 
    Concretely:
 
-   ```rust
+   ```yo
    // E ranges over struct types; auto-flattening applies.
-   io.async :: (fn(forall(T : Type, E : Type.Struct),
-     action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E)))
+   io.async :: (
+     fn(
+       forall(T : Type, E : Type.Struct),
+       action : Impl(Fn(e : E) -> T)
+     ) -> Impl(Future(T, E))
+   )
    ```
 
    Implementation: the evaluator recognises `Type.<KindName>` as a

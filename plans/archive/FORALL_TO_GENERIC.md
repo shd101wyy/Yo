@@ -10,13 +10,13 @@ reserve `forall` (and `∀`) exclusively for future Dafny-style verification
 quantifiers. (`exists` / `∃` were in the original design but could not be
 reserved — see "Deviation from the plan".)
 
-```rust
+```yo
 // Before
-sum :: (fn(forall(T), a : T, b : T) -> T)((a + b));
+sum :: (fn(forall(T), a : T, b : T) -> T)(a + b);
 impl(forall(T), List(T), ...);
 
 // After
-sum :: (fn(generic(T), a : T, b : T) -> T)((a + b));
+sum :: (fn(generic(T), a : T, b : T) -> T)(a + b);
 impl(generic(T), List(T), ...);
 
 // Future (reserved, verification):

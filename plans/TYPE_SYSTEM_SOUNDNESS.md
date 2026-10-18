@@ -616,7 +616,7 @@ overlapped every numeric impl) became a defaulted trait member with per-type imp
    *Representation.* A new enum in `types/definitions.yo`. It holds no `TypeValue`, so
    `TypeValue` does not become mutually recursive with it:
 
-   ```rust
+   ```yo
    ArrayLen :: enum(
      Count(n : usize),
      // A const binder (`generic(N : usize)`, `comptime(n) : usize`), by identity.

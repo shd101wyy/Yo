@@ -1,6 +1,6 @@
 Type reflection
 
-```rust,f#
+```yo ignore
 // Type reflection
 
 TypeField :: struct(
@@ -37,7 +37,7 @@ I32Info :: TypeInfo.I32(
 );
 ```
 
-```rust,f#
+```yo ignore
 swap ::
   (fn(forall(R1 : Region, comptime(R2) : Region),
     a : &!(i32, using(R1)),
@@ -209,7 +209,7 @@ does_nothing :: (ref: &(i32), container: &mut(Vec<&i32>)) -> unit {
 
 Runtime memory safety check inspired by [Inko language](https://docs.inko-lang.org/manual/latest/getting-started/memory-management/)
 
-```rust
+```yo ignore
 Point :: struct
   x : i32,
   y : i32
@@ -240,7 +240,7 @@ So we still keep our current way of second-class reference.
 However, if we use `borrow`, then we attach a `region` to the reference.
 The `region` is optional.
 
-```rust
+```yo ignore
 x := 1;
 
 ref := &(x); // not allowed due to second-class reference
@@ -269,14 +269,14 @@ The point is we only need `region` when we want to store references in the data 
 
 Let me simplify this:
 
-```rust
+```yo
 x := 1;
 
 // region keeps track of the borrowed path collections like we did.
 
 r1 :: region();
 x_ref := &(x, r1); // borrow x at region r1.
-                   // x_ref: &(i32, r1) // Free type.
+// x_ref: &(i32, r1) // Free type.
 x_ref2 := x_ref; // allowed, because x_ref has region information.
 
 x_ref3 := &(x, r1); // not allowed, because `x` is already borrowed.
@@ -284,7 +284,7 @@ r1.end(); // end the region.
 
 r2 :: region();
 x_ref := &!(x, r2); // borrow x at region r2.
-                    // x_ref: &!(i32, r2) // Linear type.
+// x_ref: &!(i32, r2) // Linear type.
 x_ref2 := x_ref; // x_ref is moved to x_ref2, so x_ref is no longer valid.
 
 x_ref3 := &(x, r2); // not allowed, because `x` is already borrowed.
@@ -295,7 +295,7 @@ Let's simplify futher by automaticaly inserting `region`.
 `region` keeps track of the borrowed path collections like we did.
 Reference types that without `region` information are considered as 2nd-class references.
 
-```rust
+```yo ignore
 // ==> r1
 x := 1;
 
@@ -330,7 +330,7 @@ x4_ref := &!(x); // not allowed, because `x` is already borrowed in r1.
 
 1. Function boundaries
 
-```rust
+```yo ignore
 process :: (fn(forall(SomeRegion: Region), data: &(i32, SomeRegion)) -> unit) { ... }
 process2 :: (fn(data: &(i32)) -> unit) { ... }
 
@@ -345,13 +345,13 @@ process2 :: (fn(data: &(i32)) -> unit) { ... }
 
 2. Return Values: Can functions return region-tagged references?
 
-```rust
+```yo ignore
 get_ref :: (fn(forall(SomeRegion: Region)) -> &(i32, SomeRegion)) { ... } // This is not allowed
 ```
 
 3. Data Structure Storage: This is where explicit regions might still be needed:
 
-```rust
+```yo ignore
 Container :: (fn(using(ExplicitRegion: Region))-> comptime(Type))
   struct(
     data_ref: &(i32, ExplicitRegion) // Still need explicit regions here?
@@ -360,7 +360,7 @@ Container :: (fn(using(ExplicitRegion: Region))-> comptime(Type))
 
 4. Cross-Block Dependencies: What happens here?
 
-```rust
+```yo ignore
 // r1
 x := 12;
 mut(container) := Container::new();
@@ -370,7 +370,7 @@ mut(container) := Container::new();
 }
 ```
 
-```rust
+```yo ignore
 // r1
 x := 12;
 { // r2
@@ -387,7 +387,7 @@ x := 12;
 
 We say a 1st-class reference is used when it is passed to a function or stored in a data structure.
 
-```rust
+```yo ignore
 Point :: struct
   x : i32,
   y : i32
@@ -448,7 +448,7 @@ p := Point(3, 4);
 };
 ```
 
-```rust
+```yo ignore
 // Ref type
 List :: struct
   data : i32,
@@ -463,7 +463,7 @@ p.try_mut_ref();
 p.try_ref();
 ```
 
-```rust
+```yo ignore
 // "ref" only works with "struct" and "enum" types.
 List :: ref struct // reference counted
   data : i32,
@@ -501,7 +501,7 @@ p2 == Point(7, 6); // true
 // It introduces new pointer type ^(T), which is reference counted.
 ```
 
-```rust
+```yo ignore
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
   ref struct
     (*) : V
@@ -527,7 +527,7 @@ Let's keep it simple for now:
   - `fn(...) => ... { ... }` closure which is esssentially a struct containing context pointer and call function pointer.
 - Make dynamic dispatch support only `ref` types.
 
-  ```rust
+  ```yo ignore
   Bark :: module
     Self : Type,
     bark : (fn(self: Self) -> String);
@@ -552,7 +552,7 @@ Use ^(x) to move a value. By moving we consume the variable. This could be usefu
 
 ---
 
-```rust
+```yo ignore
 impl(bool, Comptime, {});
 impl(bool, LogicalNot, {
   (!) :: (fn(value : bool) -> bool) {
