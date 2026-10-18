@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 13:07 CST):** develop is at `e34b6b0f3` (#1441). v0.2.64 is the published seed; v0.2.65 is not cut. v0.2.65 gate (§2.3): items 1–3 are done, and item 4 waits on develop battery run `39099399553` on `e34b6b0f3`. #1441 fixed the four jobs #1440 turned red: the FV job now runs stage 1, and two probes and one test fixture mark their locals. **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** nothing merges until v0.2.65 is published. Every open design question was decided on 2026-10-18 (§3.4); §4 is the roadmap from v0.2.65 to the end of VBD.
+> **Live status (last update 2026-10-18 15:05 CST):** develop is at `e34b6b0f3` (#1441). Develop battery `39099399553` on that tip is green (58/58), and the battery-head diff is empty. **The v0.2.65 Release run `39106358669` was dispatched at 15:05 CST (`bump=patch`). Never cancel it.** If it dies after its version-bump commit, resume with `bump=none` and fix the draft's `target_commitish` (AGENTS.md). **`~/Workspace/Yo-wt/MERGE_FREEZE` is up** until the release publishes. All four held branches are re-gated on #1440 (§2.4). Every open design question was decided on 2026-10-18 (§3.4); §4 is the roadmap from v0.2.65 to the end of VBD.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -72,7 +72,7 @@ Cut v0.2.65 (2026-10-15 handover §8.4, then curate the notes as for v0.2.64) on
 1. ~~**Decision 47 locals, Generation A** has merged.~~ **Done:** #1440, `00eddd3e4`.
 2. ~~**Decision 39 iterators, Generation A** has merged.~~ **Done:** #1429, `29ceb209d`.
 3. ~~**The unwind S1 fix** has merged.~~ **Done:** #1438, `fbd79fc90` (§5.1).
-4. **Develop's battery is green on the exact tip**, and `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` is empty.
+4. ~~**Develop's battery is green on the exact tip**~~ **Done:** run `39099399553` on `e34b6b0f3`, 58/58, and `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` is empty.
 
 Items 1 and 2 add syntax and semantics that their Generation B sweeps need a seed to parse; that is why they gate the release. The other open PRs (§2.4) land whenever they are ready and do not gate it. Never cancel a `Release` run.
 
