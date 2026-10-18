@@ -54,5 +54,3 @@ back.
 Test: `tests/shared_borrow_write.test.yo`, "a nested comptime_expect_error keeps
 the outer one's propagate mode". It fails on develop at `1a4cf8df6` with the
 E0908 above.
-
-Fixed by PR #1459 (fix/cee-move-marks).
