@@ -45,8 +45,9 @@ through `self._segments(i)` too. `Array(T, N).clone` was the sibling bug
 (clones through the bucket pointer), `JsonValue`'s `_json_clone` (already
 `&items(i)`), `Option`, `Result`, the tuples, `Box`, `Rc` and `derive(Clone)`
 already clone in place; a probe with move-only and `Clone`-only payloads checks
-clean for each. The `HashMap` probe stops earlier, at `insert`, which is the
-open `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`.
+clean for each. The `HashMap` probe stopped earlier, at `insert`, which was
+the open `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`
+(fixed by #1420 after this branch was written).
 
 The `check-derive-clone-container-non-clone-elem` CLI golden moves back to the
 verdict its fixture documents: a `derive(S, Clone)` over an `ArrayList(R)`

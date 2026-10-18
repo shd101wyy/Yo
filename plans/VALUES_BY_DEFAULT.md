@@ -6533,7 +6533,7 @@ heavy run, the command is given in item 2.
    - `ArrayList.get` copies the element out of `&Self`
      (`std/collections/array_list.yo:440`), and `ArrayList.clone` calls it.
      That is already E0901 for a move-only element
-     (`issues/arraylist-clone-copies-elements-out-through-get.md`, S2), and
+     (`issues/fixed/arraylist-clone-copies-elements-out-through-get.md`, S2), and
      after the flip it is E0901 for `ArrayList(String).clone()`. It must be
      fixed before the flip.
    - The value iterators hold a copy of their container
@@ -6719,8 +6719,8 @@ heavy run, the command is given in item 2.
        `first`, `last`, `front`, `back`, `peek`, `get_key_value`,
        `get_index`, `first_entry`, `last_entry`); std's own 246 calls read
        in place (`xs(i)`) or clone; `ArrayList.clone`/`Array.clone` clone
-       through the slot, closing `issues/arraylist-clone-copies-elements-out-through-get.md`
-       and `issues/array-clone-copies-self-out-of-the-borrow.md`.
+       through the slot, closing `issues/fixed/arraylist-clone-copies-elements-out-through-get.md`
+       and `issues/fixed/array-clone-copies-self-out-of-the-borrow.md`.
      - Scope, compiler: E0901 raised inside a specialized std accessor body
        is reported at the caller outside std, with decision 20's text
        (`xs(i)`, `get_cloned(i)`, `with`); the census knob N7; and
