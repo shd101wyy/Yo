@@ -367,11 +367,12 @@ class out (`hard_swallow_diagnostic_in_generic_trial`), and
 Generation A, #1437):
 - `IterPeekable(I, A)` (`std/prelude.yo`) takes its conditional `Clone`:
   `derive(generic(I : Type, A : Type), where(I <: Clone, A <: Clone), IterPeekable(I, A), Clone)`.
-  The seed evaluates the derive (`yo check ./std --std-path ./std`, rc=0) and
+  Gate verified with the actual v0.2.65 seed bundle: `yo build --std-path ./std
+  --cc zig`, rc=0 (`--cc zig` because this box's default GCC 15 errors on an
+  exhaustive-enum-switch fallthrough under `-Werror=return-type`; CI's clang
+  does not — a separate hardening item, not a seed defect). The seed also
   compiles + runs a Clone-of-a-peekable probe (element Clone-but-not-Copy,
-  inner Clone-but-not-Copy). The `yo build --std-path ./std` gate ran behind
-  the pre-existing v0.2.65-seed S1 (a match-in-statement falls off the end of
-  a non-void function) once that fix reached develop.
+  inner Clone-but-not-Copy).
 - **Still parked:** its matching `where(I <: Copy, A <: Copy)` `Copy` derive.
   It needs
   `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
