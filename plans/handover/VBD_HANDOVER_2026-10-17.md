@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-18 10:30 CST):** develop is at `29ceb209d` (#1429). v0.2.64 is the published seed; v0.2.65 is not cut. v0.2.65 gate (§2.3): items 2 and 3 are done, and item 1 (#1440) is in its last cli-diff before merging. **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** only #1440 may merge until v0.2.65 is published. Every open design question was decided on 2026-10-18 (§3.4); §4 is the roadmap from v0.2.65 to the end of VBD.
+> **Live status (last update 2026-10-18 09:54 CST):** develop is at `00eddd3e4` (#1440). v0.2.64 is the published seed; v0.2.65 is not cut. v0.2.65 gate (§2.3): items 1–3 are done, and item 4 waits on develop battery run `39087983359` on that tip. **`~/Workspace/Yo-wt/MERGE_FREEZE` is up:** nothing merges until v0.2.65 is published. Every open design question was decided on 2026-10-18 (§3.4); §4 is the roadmap from v0.2.65 to the end of VBD.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -60,12 +60,13 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1438 | S1: an `unwind` through a frame whose destructor makes a call is no longer lost (v0.2.65 gate item 3) |
 | #1412 | V3 A5: `Waker` implements `Clone` over `__yo_waker_clone` (Generation B on the v0.2.64 seed); `cross_thread_wake` uses `w.clone()` again |
 | #1435 | V4: the verifier's `Z3Sexpr` is a value enum (no `Box` needed: its children live in an `ArrayList`). `VcSort`/`VcTerm` wait on `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md` (recommends `Rc` for `VcTerm`, `Box` for `VcSort`, once maps hold move-only values). Its exclusive timing A/B runs once the heavy queue drains. |
+| #1440 | Decision 47 locals, Generation A: bindings are immutable unless `mut(...)`; E0917 for the four writes; `yo fix --migrate mut-bindings`; `std/time` read-only methods take `&Self` (merged as `00eddd3e4`, v0.2.65 gate item 1) |
 
 ### 2.3 The v0.2.65 release gate
 
 Cut v0.2.65 (2026-10-15 handover §8.4, then curate the notes as for v0.2.64) only when all of these hold:
 
-1. **Decision 47 locals, Generation A** has merged: #1440, branch `feat/vbd-d47-locals-gena`. It is being finished now (§2.4).
+1. ~~**Decision 47 locals, Generation A** has merged.~~ **Done:** #1440, `00eddd3e4`.
 2. ~~**Decision 39 iterators, Generation A** has merged.~~ **Done:** #1429, `29ceb209d`.
 3. ~~**The unwind S1 fix** has merged.~~ **Done:** #1438, `fbd79fc90` (§5.1).
 4. **Develop's battery is green on the exact tip**, and `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/ build.yo` is empty.
@@ -78,7 +79,6 @@ Every branch below is pushed to `origin` at the head shown, as of the live-statu
 
 | PR / branch | Piece | State and what is left |
 | --- | --- | --- |
-| #1440 `feat/vbd-d47-locals-gena` head `f5a3c7d62` | Decision 47 step 2, Generation A: every `mut(...)` binding form; a write to an unmarked binding is E0917 outside src/std; `yo fix --migrate mut-bindings` | **Gates v0.2.65.** Rebased onto #1429. The 12 develop test files that needed markers were migrated (108 bindings), and every test file passed on the rebased build. The finisher is running a cli-diff under `priority`, recording the explained goldens, and running fmt and refs. After that it pushes and admin-merges without another rebase. Both of its departures were accepted (§3.4). |
 | #1414 `feat/d47-globals-genb` (draft) head `8db9c7b6a` | Decision 47 globals, Generation B: std and src mark `mut(G)`, the exemption is removed, markdown_yo `^0.0.18` | Tier 1 fully green on the v0.2.64 seed: build, check src/std, 14 feature/std files, internal 1419/1419, cli-diff 398/0, site build, fmt, refs. MERGE_FREEZE holds it. After v0.2.65 (§4.1 step 1). |
 | #1434 `fix/async-mutex-strict-fifo` head `40dc96b0b` | The async `Mutex` is FIFO across event loops (S3) | Tier 1 fully green. MERGE_FREEZE holds it. After v0.2.65 (§4.1 step 2). |
 | #1421 `feat/vbd-d46-genb` (draft) head `d43e9bc8b` | Decision 46, Generation B: a write through a plain `Rc` is E0919, and E0909 accepts `&` through an `Rc` | The rebased Tier 1 passed except the CI-mode `tests/internal` run, which stopped at 932/1419 with 0 failures when WSL crashed. Re-run that run (`--parallel 1`, one file per call, or the in-process run under `exclusive`), then ready and merge. |
@@ -265,6 +265,7 @@ On develop:
 - `issues/2026-10-17-a-closure-passed-into-a-comptime-expect-error-call-leaks-its-moved-capture.md`
 - `issues/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`
 - `issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`
+- `issues/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md` (S3, from #1440's cli-diff: from a shell whose environment is about 2 KB larger than 34 KB, the probe's parent runs out of its 64 KiB fixed heap and the case scores a vacuous NO-GOLDEN; develop behaves the same)
 - `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2, found while deciding #1429's questions: a `ref(struct)` collection whose `walk_elem` forwards `&mut self.items(cur)` panics at the next container call; arrives with #1431)
 - `issues/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md` (S3: a bare tail `self.items.walk_elem(cur)` reports an internal pointer type instead of naming `&mut`; arrives with #1431)
 
@@ -280,7 +281,7 @@ The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. The coordinator:
 
 1. Curates the v0.2.65 release notes (§7 has the draft) and checks that `SEED_VERSION` was bumped.
-2. Stops its schedulers: the status-ping cron job (session-only; one job since the 2026-10-18 restart) and any PR-run cancel loop.
+2. Stops its schedulers: the status-ping cron jobs (session-only; all deleted 2026-10-18 once no subagent was live) and any PR-run cancel loop.
 3. Messages every running agent: "STOP after your current tool call. Push your current head. Reply with: branch, head SHA, what passed, what did not run. Do not merge." Any agent that does not answer is stopped.
 4. Rewrites §2.4 from the replies, with head SHAs, and updates the live-status box.
 5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.
