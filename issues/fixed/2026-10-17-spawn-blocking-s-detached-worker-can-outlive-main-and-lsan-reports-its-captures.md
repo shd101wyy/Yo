@@ -57,4 +57,4 @@ verdicts ON, plus a 15-run loop green with verdicts on. The file joins the
 `leak-verdict.yml` allowlist (the flake has no in-language oracle: it is a
 timing window between the wake and the thread's teardown).
 
-Fixed by PR (fix/spawn-blocking-join-worker).
+Fixed by PR #1454 (fix/spawn-blocking-join-worker).
