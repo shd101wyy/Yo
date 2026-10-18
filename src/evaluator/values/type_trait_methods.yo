@@ -704,6 +704,23 @@ note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &Stri
 trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
   _trait_impl_sites.get(`${type_id}\n${trait_key}`)
 );
+/// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
+/// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
+/// registration a later check rejected (a `comptime_expect_error` catch must
+/// not leave the rejected impl answering `trait_impl_site_of`). A site
+/// recorded from another impl stays: it is not this registration's to undo.
+forget_trait_impl_site_if_from :: (fn(type_id : &String, trait_key : &String, site : &String) -> unit)({
+  key := `${type_id}\n${trait_key}`;
+  match(
+    _trait_impl_sites.get(key.clone()),
+    .Some(prev) => if(prev == site, {
+      _trait_impl_sites.remove(key.clone());
+      _trait_impl_site_owners.remove(&key);
+    }),
+    .None => ()
+  );
+  ()
+});
 /// Drop every trait-impl site registered by `owner` (LSP invalidation).
 purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
@@ -1035,6 +1052,7 @@ export(
   note_inherent_method_site,
   note_trait_impl_site,
   trait_impl_site_of,
+  forget_trait_impl_site_if_from,
   purge_trait_impl_sites_owned_by,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,

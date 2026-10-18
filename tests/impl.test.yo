@@ -314,6 +314,36 @@ test("Test generic impl instantiated twice registers cleanly", {
   assert(b.first() == true, "GenBox(bool) instantiation");
 });
 // ============================================================
+// A generic impl rejected under `comptime_expect_error` does not stay
+// registered
+// ============================================================
+// The Copy/Clone exclusion check runs AFTER the impl is registered (it
+// re-asks whether a hand-written generic Clone's receiver is now Copy, which
+// needs the new impl visible). Its throw used to leave the rejected impl in
+// the registry, so later checks in the same compile saw a trait the program
+// does not have.
+// issues/fixed/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md
+_RejTag :: (fn(comptime(T) : Type) -> comptime(Type))(struct(id : i32));
+impl(
+  generic(T : Type),
+  _RejTag(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(Self(id : self.id))
+  )
+);
+test("a generic impl rejected under comptime_expect_error is not registered", {
+  comptime_expect_error(
+    impl(
+      generic(T : Type),
+      _RejTag(T),
+      Copy()
+    ),
+    "a hand-written Clone impl can only repeat it or contradict it"
+  );
+  comptime_assert(!Type.impls(_RejTag(i32), Copy), "the rejected Copy impl is not registered");
+  comptime_assert(Type.impls(_RejTag(i32), Clone), "the hand-written Clone impl stays registered");
+});
+// ============================================================
 // `(T <: Trait).static_method()` binds Self to T, not to the trait
 // ============================================================
 // A generic impl's STATIC (no-`self`) trait method whose body constructs via

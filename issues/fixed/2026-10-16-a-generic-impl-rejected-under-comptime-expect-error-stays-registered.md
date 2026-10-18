@@ -1,5 +1,7 @@
 # A generic impl rejected under `comptime_expect_error` stays registered
 
+**Status:** FIXED 2026-10-18 (#1457).
+
 **Severity:** S3 — only `comptime_expect_error` (a test construct) can observe it in one compile: after the expected rejection, the rejected impl still answers `Type.impls` and dispatch, so later checks in the same file (or in another file of the same `yo check <dir>` / `yo fix` session) see a trait the program does not have.
 
 > Found 2026-10-16 while fixing
