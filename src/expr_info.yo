@@ -3232,7 +3232,7 @@ export(MutableGlobalSite, set_migrate_mutable_globals, migrate_mutable_globals_o
 /// 47 step 2): the same shape as `MutableGlobalSite`. A written parameter
 /// cannot take the marker (decision 47: parameters stay immutable); it is
 /// recorded in `g_mut_param_sites` at the write, for the report.
-(g_migrate_mut_bindings : bool) = false;
+(mut(g_migrate_mut_bindings) : bool) = false;
 (g_mut_binding_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
 (g_mut_binding_site_keys : HashSet(String)) = HashSet(String).new();
 (g_mut_param_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
@@ -3304,15 +3304,13 @@ _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   g_mut_param_sites.push(site);
 });
 take_mut_binding_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_binding_sites;
-  g_mut_binding_sites = ArrayList(MutableGlobalSite).new();
-  g_mut_binding_site_keys = HashSet(String).new();
+  out := g_mut_binding_sites.split_off(usize(0));
+  g_mut_binding_site_keys.clear();
   out
 });
 take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_param_sites;
-  g_mut_param_sites = ArrayList(MutableGlobalSite).new();
-  g_mut_param_site_keys = HashSet(String).new();
+  out := g_mut_param_sites.split_off(usize(0));
+  g_mut_param_site_keys.clear();
   out
 });
 export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);
