@@ -15,7 +15,7 @@ Holder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(f : T));
 main :: (fn() -> unit)({
   n := i32(3);
   (k : Impl(Fn() -> i32)) = (() => n);
-  a := Arc(type_of(k))(seven);       // check: OK
+  a := Arc(type_of(k))(seven); // check: OK
   h := Holder(type_of(k))(f : seven); // check: OK
   g := h.f;
   println(g());

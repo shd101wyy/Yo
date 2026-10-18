@@ -9,7 +9,8 @@
 ```yo
 S :: struct(x : i32);
 Ch :: struct(_st : Rc(S));
-impl(Ch,
+impl(
+  Ch,
   get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
     io.async((io : Io) => {
       y := self._st.x;
@@ -18,7 +19,8 @@ impl(Ch,
   )
 );
 Rx :: struct(_ch : Ch);
-impl(Rx,
+impl(
+  Rx,
   get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
     io.async({ ch : self._ch }(io : Io) => {
       got := io.await(ch.get(io), io);

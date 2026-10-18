@@ -59,7 +59,7 @@ caller's frames, or by a "specializing" scope all fail open.
 
 ```yo
 _wrap :: (fn(generic(F : Type), f : F, where(F <: (Send, Sync, Acyclic))) -> Arc(F))(
-  Arc(F)(_d9_fill)      // F was proved by `f`'s value; `_d9_fill` has the same type
+  Arc(F)(_d9_fill) // F was proved by `f`'s value; `_d9_fill` has the same type
 );
 ```
 

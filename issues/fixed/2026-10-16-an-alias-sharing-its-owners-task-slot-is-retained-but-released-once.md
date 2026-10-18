@@ -14,7 +14,7 @@ main :: (fn(io : Io) -> unit)({
     s := String.from("hello");
     sb := s;
     io.await(yield(io), io);
-    (s.len() + sb.len())
+    s.len() + sb.len()
   });
   _n := io.await(f, io);
 });

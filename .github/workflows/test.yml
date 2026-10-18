@@ -1144,11 +1144,14 @@ jobs:
       # one tree-built-formatter verdict settles it for every leg. The docs
       # paths check the ```yo blocks in Markdown (a .yo file's doc-comment
       # blocks are checked with the file); ```yo ignore opts a fragment out.
+      # issues/ contributes its Markdown only: a repro under issues/repros/
+      # may be unformatted on purpose (a formatter bug's input), so the
+      # tracked issues/**/*.md files are listed instead of the directory.
       - name: Check the formatted code
         if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
-          "$S1" fmt --check ./std ./tests ./src ./docs ./plans ./.github ./README.md
+          "$S1" fmt --check ./std ./tests ./src ./docs ./plans ./.github ./README.md $(git ls-files 'issues/*.md')
 
       # Also ubuntu-only and also plain text: doc examples must not teach the
       # paren-less `:: import "path"` spelling — the parser rejects it (E0008),

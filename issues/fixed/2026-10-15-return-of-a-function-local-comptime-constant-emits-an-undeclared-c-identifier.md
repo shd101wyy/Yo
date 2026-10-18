@@ -10,8 +10,13 @@ Seed v0.2.62, `yo compile q.yo -o q && ./q; echo $?`:
 
 ```yo
 { exit } :: import("std/process");
-f :: (fn(x : i32) -> i32)({ a :: i32(1); return(a); });
-main :: (fn() -> unit)({ exit(usize(f(i32(5)))); });
+f :: (fn(x : i32) -> i32)({
+  a :: i32(1);
+  return(a);
+});
+main :: (fn() -> unit)({
+  exit(usize(f(i32(5))));
+});
 export(main);
 ```
 

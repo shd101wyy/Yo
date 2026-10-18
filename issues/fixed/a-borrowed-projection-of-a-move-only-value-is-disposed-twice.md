@@ -12,11 +12,23 @@ every inner cell. It reproduces on the v0.2.59 seed through an `Rc`.
 { eprintln } :: import("std/fmt");
 (g : i32) = i32(0);
 Fd :: struct(n : i32);
-impl(Fd, Dispose(dispose : (fn(self : &Self) -> unit)({ g = (g + i32(1)); })));
-rec :: (fn(x : &Fd, n : i32) -> i32)(cond((n == i32(0)) => x.n, true => {
-  r := rc(Fd(n : x.n));
-  rec(&r.*, n - i32(1))
-}));
+impl(
+  Fd,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g = (g + i32(1));
+    })
+  )
+);
+rec :: (fn(x : &Fd, n : i32) -> i32)(
+  cond(
+    (n == i32(0)) => x.n,
+    true => {
+      r := rc(Fd(n : x.n));
+      rec(&r.*, n - i32(1))
+    }
+  )
+);
 main :: (fn() -> unit)({
   {
     a := Fd(n : i32(1));

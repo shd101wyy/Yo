@@ -14,7 +14,13 @@ whose field-path case rides on this.
 S :: struct(o : Option(String), k : i32);
 main :: (fn() -> unit)({
   (s : S) = S(o : .Some(String.from("a")), k : i32(0));
-  match(&mut s.o, .Some(t) => { t = String.from("bbb"); }, .None => ());
+  match(
+    &mut s.o,
+    .Some(t) => {
+      t = String.from("bbb");
+    },
+    .None => ()
+  );
   println(&match(&s.o, .Some(v) => v.len(), .None => usize(0)));
 });
 ```

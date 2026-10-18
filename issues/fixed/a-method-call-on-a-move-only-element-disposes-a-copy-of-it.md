@@ -15,7 +15,13 @@ seed and no async code at all:
 { ArrayList } :: import("std/collections/array_list");
 Tok :: struct(id : i32);
 impl(Tok, Dispose(dispose : (fn(self : &Self) -> unit)(println(`dispose ${self.id}`))));
-impl(Tok, get : (fn(self : &Self) -> i32)({ println(`get`); self.id }));
+impl(
+  Tok,
+  get : (fn(self : &Self) -> i32)({
+    println(`get`);
+    self.id
+  })
+);
 main :: (fn() -> unit)({
   l := ArrayList(Tok).new();
   l.push(Tok(id : i32(1)));
