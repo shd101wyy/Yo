@@ -271,7 +271,7 @@ On develop:
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` (S2, from #1424: D9's documented workaround is E0601)
 - `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2, from #1424: passes `check`, fails in the C compiler; also a `Send` bypass)
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
-- `issues/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
+- `issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
 - "the async mutex is not FIFO across event loops" (2026-10-16; the FIFO branch moves it)
 - `issues/2026-10-17-a-closure-passed-into-a-comptime-expect-error-call-leaks-its-moved-capture.md`
