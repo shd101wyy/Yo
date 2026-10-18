@@ -150,7 +150,7 @@ today — **drops it**: nothing downstream binds or reads the label.
 
 Measured behavior (this audit, `tmp/fixme.yo`):
 
-```rust
+```yo ignore
 f :: (fn(x : i32, ensures(retval >= i32(0))) -> (retval : i32))( ... );
 // → Error: Variable "retval" not found.
 ```
@@ -206,11 +206,11 @@ parse.
 Lives in the function-type signature clause-list, after parameters and
 `where(...)` (zone order is enforced today):
 
-```rust
+```yo
 divide :: (fn(
   x : i32,
   y : i32,
-  requires((y != i32(0))),
+  requires((y != i32(0)))
 ) -> i32)((x / y));
 ```
 
@@ -228,12 +228,12 @@ callee may use it); at each **call site**, every predicate must be
 
 Same signature clause-list, after `requires(...)`:
 
-```rust
+```yo
 abs :: (fn(
   x : i32,
   ensures(
-    ((result >= i32(0)) && ((result == x) || (result == -(x)))),
-  ),
+    ((result >= i32(0)) && ((result == x) || (result == -(x))))
+  )
 ) -> (result : i32))(
   cond((x >= i32(0)) => x, true => -(x))
 );
@@ -249,7 +249,7 @@ value; call sites *assume* the predicates after a proved call.
 value with Yo's **existing labeled-return syntax**; the label is an
 ordinary binding whose scope is the contract clauses:
 
-```rust
+```yo ignore
 // Any label works — it is the user's name, declared in the signature:
 fn(ensures((answer < i32(0)))) -> (answer : i32)
 
@@ -312,16 +312,16 @@ cheatsheet example are the known in-repo migration set (Phase V1 task).
 Lives as the **first statement of a `while` body** (placement enforced
 today). Multiple predicates are conjoined arguments of one call:
 
-```rust
+```yo
 sum_to :: (fn(
   n : i32,
   requires((n >= i32(0))),
-  ensures((result == ((n * (n + i32(1))) / i32(2)))),
+  ensures((result == ((n * (n + i32(1))) / i32(2))))
 ) -> (result : i32))({
   i := i32(0);
   acc := i32(0);
   while(i < n, {
-    invariant((i >= i32(0)), (i <= n), (acc == ((i * (i + i32(1))) / i32(2)))));
+    invariant((i >= i32(0)), (i <= n), (acc == ((i * (i + i32(1))) / i32(2))));
     i = (i + i32(1));
     acc = (acc + i);
   });
@@ -348,10 +348,10 @@ Two distinct builtins (split resolved old audit §A3):
   only from contract context, erased at codegen. Ghost spec functions
   return ordinary `bool`.
 
-```rust
+```yo
 permutation :: ghost_fn((fn(
   a : Slice(i32),
-  b : Slice(i32),
+  b : Slice(i32)
 ) -> bool)(
   (Multiset.from_slice(a) == Multiset.from_slice(b))
 ));
@@ -362,7 +362,7 @@ permutation :: ghost_fn((fn(
 A signature clause after `ensures(...)` (zone 5) for recursive functions,
 and a loop-body statement immediately after `invariant(...)` for loops:
 
-```rust
+```yo ignore
 factorial :: (fn(
   n : u32,
   requires((n <= u32(12))),
@@ -387,7 +387,7 @@ the evaluation context (resolves old audit §A5). Calling them from
 ordinary runtime code is a compile error, mirroring how `unwind(...)`
 is only well-formed inside `ctl(...) -> R`:
 
-```rust
+```yo
 sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
   forall((i : usize), (j : usize),
     (((i < j) && (j < s.len())) ==> ((s(i)) <= (s(j))))
@@ -404,7 +404,7 @@ ASCII spellings on purpose — LLM training data and copy-paste safety
 `T` at codegen (zero runtime cost), distinct at the type level, with
 construction sites generating proof obligations:
 
-```rust
+```yo
 NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(
   Refine(T, (x) => ((x != T(0))))
 );
@@ -431,9 +431,14 @@ safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)((num / denom));
 | `pragma(Pragma.Verify);` | `verify` | Contracts and auto-obligations (AoRTE, below) are proof obligations. Refuted ⇒ compile error with counter-example. Unprovable-within-budget ⇒ compile error. Runtime asserts are **not** emitted (the proof replaces them) |
 | `pragma(Pragma.VerifyOrAssert);` | `verify+` | Try to prove. Proved ⇒ erased (no runtime cost). Refuted ⇒ compile error (a refutation is a bug, never assert-worthy). Budget-exhausted ⇒ fall back to today's runtime assert. **Flagship mode** |
 | `pragma(Pragma.NoContracts);` | `ignore` | Contracts erased entirely (works today) |
+| (no pragma; CLI only) | `paranoid` | `verify+` minus the erasure: every obligation is proved (Refuted ⇒ compile error), and every contract assert is emitted as in `runtime`, Proved ones included. The distrust lane's mode (`../SELF_VERIFICATION.md` "Trust") and the recovery mode if a verifier soundness bug ever ships: a program keeps its proofs AND its tripwires. It also disables CP2g's side table (`../CODEGEN_PERFORMANCE.md`), which is its exact inverse |
 
-A CLI global override `--verify-mode {runtime,verify,verify+,ignore}`
-selects per invocation; the pragma is source-of-truth when present.
+A CLI global override `--verify-mode {runtime,verify,verify+,ignore,paranoid}`
+selects per invocation; the pragma is source-of-truth when present, with
+one exception: `paranoid` beats a module's `Pragma.Verify`/`VerifyOrAssert`
+(today `resolve_verify_mode` lets the pragma win unconditionally — that
+one branch is the change), because a lane that distrusts the verifier
+must be able to re-arm the asserts the module's author told it to erase.
 
 ## Verification semantics
 
@@ -827,44 +832,71 @@ Requirements (carried from the 2026-05 draft's LLM section, now normative):
 ### Vacuity checking (planned)
 
 A contract that is vacuously true reads like a guarantee and provides
-none. The verifier plans two deterministic probes, both reusing the
-obligation machinery, neither ever changing a verdict:
+none. The verifier plans deterministic probes that reuse the obligation
+machinery and never change a proof verdict:
 
-- **Hypothesis consistency** (one query per verified function): assert
-  the hypothesis set the obligations already carry — the `Φ` of
-  `Φ ⇒ P` — and check `Φ ⇒ false`. Unsat ⇒ the hypotheses are
-  contradictory; every obligation of the function is then vacuously
-  provable, and the function is dead by contract (no legal caller
-  exists). Typical cause: a single `requires` stronger than any input,
-  or two clauses that contradict. A *called* function with contradictory
-  `requires` already surfaces as refuted caller obligations; the probe
-  catches the uncalled case and explains it at the definition.
-- **Conclusion minimality** (one probe per `ensures`/`assert` clause):
-  the clause re-queried with the hypothesis set dropped. Unsat ⇒ the
-  predicate is a tautology — it holds with no assumptions and bounds
-  nothing. A cheap screening probe, not a minimality proof.
+- **Hypothesis consistency** (one query per verified function, per
+  generic instantiation): assert the function's **entry premise set** —
+  the `Φ` every obligation of the function carries at entry: `requires`,
+  parameter refinements, the callee facts the verifier injects, the
+  pre-state frame — and discharge the obligation `false` under it. Unsat
+  ⇒ the premises are contradictory; every obligation of the function is
+  then vacuously provable, and the function is dead by contract (no
+  legal caller exists). Typical cause: a single `requires` stronger than
+  any input, or two clauses that contradict. The set is the full one the
+  obligations use, not the `requires` list: a refinement on a parameter
+  type or an injected fact contradicts a `requires` just as silently.
+  Per function, never per path: a contradictory path condition is
+  unreachable code, a different diagnostic. A *called* function with
+  contradictory `requires` already surfaces as refuted caller
+  obligations; the probe catches the uncalled case and explains it at
+  the definition.
+- **Conclusion probes** (two per `ensures`/`assert` clause): the clause
+  with every premise dropped (unsat ⇒ a tautology, bounds nothing), and
+  the clause with the body's symbolic state dropped but the entry
+  premises kept (unsat ⇒ the clause follows from `requires` alone, so
+  the code never mattered: `requires(x >= 0)` … `ensures(r >= 0)` where
+  the body never constrains `r`). The second is the model-checking
+  analogue and the one an agent loop produces. Screening probes, not
+  minimality proofs.
 
-Both are warnings, never errors — a vacuous contract is *sound*, and a
-tautological clause is occasionally intentional documentation. They do
-not feed `--strict` (which gates `assumed`/`outside-subset`/`unproven`);
-they feed the self-verification sweep's ratchet instead
-([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md), "The vacuity
-gate"), where per-module vacuity counts may only fall — the discipline
-that keeps "functions verified" an honest number while contracts are
-being written by an agent loop. Diagnostics carry a targeted hint (name
-the contradictory pair, or "this clause holds without any hypotheses —
-it documents rather than guarantees"); the JSON report gains
-`vacuous: { hypotheses : bool, clauses : [ids] }` per function. Lineage:
-vacuity detection is standard practice in model checking (Beer et al.,
-FOOLS 2001; Kupferman & Vardi, STTT 2003); here it applies to contract
-hypotheses and conclusions instead of temporal formulas.
+Severity differs. A hypothesis-vacuous function is an **error under
+`--strict`**, the fourth failing class beside `assumed` /
+`outside-subset` / `unproven`: it is never intentional, every proof in it
+is void, and a function dead by contract must not pass a gate whose
+sentence is "every stated contract holds". Outside `--strict` it is a
+warning. A vacuous conclusion is a **warning** everywhere — the proof is
+sound — with a hint that says to delete the clause (an author optimizing
+a count has no reason to keep it). Both feed the self-verification
+sweep's ratchet ([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md),
+"The vacuity gate"), where per-module vacuity counts may only fall — the
+discipline that keeps "functions verified" an honest number while
+contracts are being written by an agent loop. Diagnostics carry a
+targeted hint (name the contradictory pair from the unsat core, or "this
+clause holds without the body — it documents rather than guarantees").
 
-Cost: two extra solver queries per verified function in `verify`/
-`verify+` modes, cacheable like all verdicts; the probes are
-quantifier-shaped like their source clauses, so rlimit behavior matches.
+The JSON report keeps the existing per-function `vacuous : bool` (zero
+obligations discharged, which the sweep already reads) and adds
+`vacuity : { hypotheses : bool, conclusions : [clause ids] }` beside it;
+the summary adds `vacuous_hypotheses` and `vacuous_conclusions` counts.
+Lineage: vacuity detection is standard practice in model checking (Beer
+et al., FOOLS 2001; Kupferman & Vardi, STTT 2003); here it applies to
+contract hypotheses and conclusions instead of temporal formulas.
+
+Cost: one query per verified function plus two per `ensures`/`assert`
+clause in `verify`/`verify+`/`paranoid` modes, cacheable like all
+verdicts; the probes are quantifier-shaped like their source clauses, so
+rlimit behavior matches.
 
 ## CLI & pipeline integration
 
+- **`yo verify --blame <prev-report.json>`** (planned; needs the stable
+  obligation ids of `K_FRAMEWORK_ENGINEERING_LESSONS.md` L1): for every
+  obligation whose verdict is worse than in the previous report, say
+  whether its own query changed, else which callee contracts in its cone
+  changed, else "solver/rlimit drift — same query, same pin". The M4
+  agent loop's first question after a red run is "did I break it or did
+  the solver", and the sweep's `outcomes.tsv` cannot answer it.
 - **`yo verify [path]`** — new subcommand: evaluate + verify, no
   codegen. Flags: `--verify-mode`, `--solver-path`, `--rlimit`,
   `--format {text,json}`, `--explain <fn>` (show the VC set and each
@@ -1739,8 +1771,10 @@ usage before continuing.
 | Positive verification | `tests/spec/verify_*.test.yo` | Programs that must *prove* in `verify` mode (and still run green in `runtime` mode) |
 | Negative verification | `tests/spec/fixtures/negative/*.yo` driven by `tests/internal/verifier_negative.test.yo` | Each fixture must fail `yo check` with the expected diagnostic (subprocess harness asserting error text; the same scoring shape as `scripts/cli-diff-test.sh`) |
 | Bugged twins | alongside each positive test | Every positive fixture has a deliberately-broken twin whose Refute message and counter-example are asserted — guards against a verifier that "proves" by encoding wrongly |
-| Vacuity fixtures | `tests/spec/fixtures/` + the negative harness | A contradictory-`requires` function warns `vacuous: hypotheses` while its `ensures` still reports Proved; a hypothesis-free `ensures` warns `vacuous: conclusion`; twins assert the probes never flip a verdict |
-| Mutation gate (planned) | tree-built binary + the `tests/spec` corpus | Each mutant of a PR-touched `src/verifier` function must redden the corpus; survivors are triaged — weak twin, equivalent mutant (annotated), or coverage gap |
+| Vacuity fixtures | `tests/spec/fixtures/` read back through `--format json` (a warning does not fail `yo check`, so the negative harness cannot see it); the hypothesis case also as a negative fixture under `--strict` | A contradictory-`requires` function reports `vacuity.hypotheses` while its `ensures` still reports Proved (and fails `--strict`); a clause that follows from `requires` alone reports in `vacuity.conclusions`; twins assert the probes never flip a verdict |
+| Mutation gate (planned) | in-process: `tests/internal/verifier_*.test.yo` (they import the tree's `src/verifier`); end-to-end: the tree-built binary over `tests/spec` | Each mutant of a PR-touched `src/verifier` function must redden the corpus; survivors are triaged — weak twin, equivalent mutant (annotated), or coverage gap |
+| Distrust lane (planned) | a CI job: `tests/spec` + the contracted std compiled with `--verify-mode paranoid`, then run | An assert that fires at a site the same run recorded as Proved is a verifier soundness bug by construction; the obligation id in the assert message is the join |
+| Adversarial naming fixtures | `tests/internal/verifier.test.yo` | The bugged twins cover wrong encodings, not hostile inputs: mangling collisions (`a_b`/`a` + `b_…`), a user binding named like a mangled prefix, the two module-path spellings (`../AGENTS.md` Common Pitfalls), a `result` label shadowing a local — each must either verify correctly or fail loudly, never prove the wrong obligation |
 | Runtime parity | existing `tests/spec/*` | Phase-0 behavior must not regress: `runtime` mode still lowers to asserts |
 | CI | new `verify` workflow job | Installs pinned Z3; `yo verify ./std/spec ./tests/spec`; uploads JSON report |
 
@@ -1770,6 +1804,28 @@ is re-run before it is believed. The committed score is a regenerated,
 diffable artifact (per-module counts + survivors), never hand-edited,
 under the same re-derived-numbers rule as every other published count
 ([`../SELF_VERIFICATION.md`](../SELF_VERIFICATION.md)).
+
+Rules the diff lane follows from day one:
+
+- **Undecided outranks survived.** A run that left a mutant undecided
+  (budget, crash, a test that could not run under the mutant) has not
+  measured the diff: its exit code ranks above "a mutant survived", and
+  the lane fails on it rather than reporting a score.
+- **A timeout is never a kill.** A mutant whose only effect is pushing a
+  query past its rlimit is re-run once; if it still times out it is
+  recorded `undecided`, never `caught`. Counting timeouts as kills
+  inflates the score with exactly the mutants that say the least.
+- **"Changed function" is the fn-literal diff** the `--watch` checker
+  already computes against the merge base, not a line range.
+- **A clean object cache per mutant.** `--emit-chunks` keeps `.o` files
+  keyed by unit; a mutant built over a warm cache can run the previous
+  build's code. The lane builds with a fresh cache directory.
+- **Oracle exclusions are printed.** A test the lane drops because it
+  cannot pass with no mutant active is listed in the run's output,
+  never only in a config file.
+- **Not required until green for a week**, the rule `verify-src`
+  followed; the committed score moves only through `--record` with the
+  diff in the PR.
 
 ## Design for LLM authorship
 
@@ -1848,9 +1904,11 @@ verifier design choices (kept from the 2026-05 draft, now normative):
   never-blocked-by-solver fallback.
 - **Verifier bugs are trusted by default.** A proved contract strips its
   assert, so if the verifier is ever wrong the shipped program is wrong
-  with no tripwire. The documented recovery mode (not built): a paranoid
-  profile that keeps proved contract asserts as runtime traps — the
-  escape hatch if a soundness bug is ever found in the wild.
+  with no tripwire. Two answers: `--verify-mode paranoid` ("Verification
+  modes" above) keeps every contract assert behind its proof — the
+  recovery mode if a soundness bug is ever found in the wild — and the
+  distrust lane runs the corpus that way on every merge so the bug is
+  found here first.
 - **Quantifier flakiness.** E-matching instantiation can exhaust budgets
   unpredictably. Mitigations: deterministic budgets make failures
   *stable*, guidance-level diagnostics suggest instantiation, and V3–V4
@@ -1978,7 +2036,7 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 
 Target state after V6 (updated from the old draft to named returns):
 
-```rust
+```yo
 pragma(Pragma.VerifyOrAssert);
 
 { Refine } :: import("std/spec/refine");
@@ -1991,7 +2049,7 @@ head :: (fn(
   forall(T : Type),
   s : NonEmpty(Slice(T)),
   // requires((s.len() > usize(0))) — implied by the refinement on `s`
-  ensures((result == (s(usize(0))))),
+  ensures((result == (s(usize(0)))))
 ) -> (result : T))((s(usize(0))));
 
 main :: (fn() -> i32)({

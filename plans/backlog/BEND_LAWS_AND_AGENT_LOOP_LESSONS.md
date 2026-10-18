@@ -684,7 +684,12 @@ Tasks:
 3. `scripts/evals/run.sh <agent-command>`: for each task, copy to a sandbox,
    run the agent command with the task path, then the oracle; write a
    `results.tsv` (task, grade, closed, seconds, assumed-count). Resumable
-   (the sweep-script pattern in `scripts/bootstrap/`).
+   (the sweep-script pattern in `scripts/bootstrap/`). Three scoring
+   rules (added 2026-10-18, shared with SELF_VERIFICATION's M4 loop):
+   the oracle runs with a fresh verify cache; a helper lemma the agent
+   added counts only if the task was red without it (the runner re-runs
+   the oracle with the helper removed — the base-still-open check); and
+   the agent sees diagnostics and counter-examples, never raw SMT-LIB.
 4. Exclude `evals/` from `yo test ./tests` and from the fmt gate the way
    `tests/cli-cases` fixtures are handled; include it in `yo fmt --check`
    only for the checked-in (unsolved) files.
