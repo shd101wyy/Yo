@@ -344,7 +344,7 @@ test("verify_cache_key: stable for identical input, sensitive to options and con
   k2 := verify_cache_key(_golden_query(u64(2)), &cfg);
   assert(k1 == k2, "same query + options ⇒ same key");
   assert(k1.len() == usize(64), "sha256 hex length");
-  cfg2 := default_verify_run_config();
+  mut(cfg2) := default_verify_run_config();
   cfg2.encode_opts.rlimit = usize(1000);
   k3 := verify_cache_key(_golden_query(u64(2)), &cfg2);
   assert(k1 != k3, "budget bump ⇒ different key");
@@ -423,7 +423,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
   if(!enabled, {
     println(String.from("  (skipped: set YO_TEST_Z3=1 to run the real-solver tests)"));
   }, {
-    cfg := default_verify_run_config();
+    mut(cfg) := default_verify_run_config();
     cfg.no_cache = true;
     binary := match(
       resolve_solver_sync(&cfg),
@@ -534,7 +534,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
 // ---------------------------------------------------------------------------
 _rp :: (fn(outcome : &String, mode : &String, obligations : usize) -> VerifyFnReport)({
   obls := ArrayList(VerifyFnObligation).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < obligations, {
     obls.push(
       VerifyFnObligation(
@@ -648,7 +648,7 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
       String.new()
     }
   );
-  cfg := default_verify_run_config();
+  mut(cfg) := default_verify_run_config();
   cfg.encode_opts.rlimit = usize(7777777);
   q := _budget_query();
   r := run_vc_query(&q, &cfg, &binary);

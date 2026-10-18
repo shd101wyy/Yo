@@ -82,7 +82,7 @@ test("Test Rc in different data structures", {
   // Anonymous struct
   {
     x := Rc(i32)(3);
-    y := { x };
+    mut(y) := { x };
     z := { y };
     assert(x.* == 3, "x.* == 3");
     assert(y.x.* == 3, "y.x.* == 3");
@@ -115,7 +115,7 @@ test("Test Rc in different data structures", {
   {
     x := Rc(i32)(3);
     y := (x,);
-    z := (y,);
+    mut(z) := (y,);
     m := (z,);
     n := (m,);
     z.0 = (rc(10),);
@@ -390,8 +390,8 @@ test("Test early return of reassigned RC variable does not leak", {
   // it for the return value.
   // (ArrayList is already imported at the top of this file)
   build_string :: (fn(parts : &ArrayList(str)) -> String)({
-    result := String.new();
-    i := usize(0);
+    mut(result) := String.new();
+    mut(i) := usize(0);
     while(i < parts.len(), {
       match(
         parts.get(i),
@@ -570,7 +570,7 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
   match(Val.UnitVal, .UnitVal => (), .IntVal(v) => ());
   // Condition and short-circuit operand positions, inside a loop so a
   // per-iteration leak accumulates instead of costing one object.
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(3), {
     c := cond(is_unit(Val.UnitVal) => true, true => false);
     assert(c, "cond condition");
@@ -625,9 +625,9 @@ test("Conditional move into a struct field balances both paths", {
 // read freed memory and visited garbage (use-after-free, found 2026-08-06).
 TraversalNode :: ref(struct(value : i32, next : Option(Self)));
 traversal_walk_with_sever :: (fn(head : &TraversalNode) -> i32)({
-  (current_opt : Option(TraversalNode)) = head.next;
-  (first : bool) = true;
-  (total : i32) = 0;
+  (mut(current_opt) : Option(TraversalNode)) = head.next;
+  (mut(first) : bool) = true;
+  (mut(total) : i32) = 0;
   while(runtime(true), {
     match(
       current_opt,
@@ -693,7 +693,7 @@ test("Bare discard-statement fn body compiles and drops the discarded value", {
 // read a RECYCLED allocation (printed 101, the newest box, instead of 42).
 AliasWrap :: ref(struct(b : Rc(i32)));
 alias_poke_loop :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> unit)({
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(2)), {
     w.b = rc(i32(100) + i);
     i = (i + i32(1));
@@ -761,7 +761,7 @@ stage1_poke :: (fn(w : &AliasWrap, seed : i32) -> i32)({
 });
 // The mutating call sits on the RHS of a REASSIGNMENT statement.
 stage1_sneaky :: (fn(w : &AliasWrap, borrowed : &Rc(i32), seed : i32) -> i32)({
-  (t : i32) = i32(0);
+  (mut(t) : i32) = i32(0);
   t = stage1_poke(w, seed);
   borrowed.* + (t - t)
 });
@@ -805,7 +805,7 @@ test("arrays of RC elements build at runtime, constructor and literal alike", {
 // an OWNING temp, so they were already safe at +0.
 Stage0Arr :: ref(struct(a : Array(Rc(i32), 2)));
 stage0_poke_index :: (fn(h : &Stage0Arr, borrowed : &Rc(i32)) -> i32)({
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(runtime(i < i32(2)), {
     h.a(0) = rc(i32(100) + i);
     i = (i + i32(1));
@@ -1027,7 +1027,7 @@ test("aliasing a ref local disposes the object exactly once", {
 });
 test("reassigning after aliasing disposes both objects exactly once", {
   {
-    a := AliasHandle(tag : i32(1));
+    mut(a) := AliasHandle(tag : i32(1));
     b := a;
     a = AliasHandle(tag : i32(2));
     assert(b.tag == i32(1), "b keeps the original object alive");
@@ -1110,7 +1110,7 @@ test("an own parameter of a generic function releases its value exactly once", {
 // keeps the dup whenever the base is reassigned anywhere in the block.
 AliasHolder :: ref(struct(n : i32));
 test("alias survives a reassignment of its base inside a nested block", {
-  h := AliasHolder(n : i32(1));
+  mut(h) := AliasHolder(n : i32(1));
   h2 := h;
   {
     h.n = i32(7);
@@ -1122,7 +1122,7 @@ test("alias survives a reassignment of its base inside a nested block", {
   assert(ref_count(h) == 1, "the replacement is owned by the base alone");
 });
 test("alias made inside a nested block, base reassigned there, base used after", {
-  h := AliasHolder(n : i32(1));
+  mut(h) := AliasHolder(n : i32(1));
   {
     h2 := h;
     h2.n = i32(9);
@@ -1140,7 +1140,7 @@ test("reassigning the alias itself disposes both objects exactly once", {
   before := g_alias_disposed;
   {
     a := AliasHandle(tag : i32(1));
-    b := a;
+    mut(b) := a;
     b = AliasHandle(tag : i32(3));
     assert(a.tag == i32(1), "a keeps the original");
     assert(b.tag == i32(3), "b names the replacement");
@@ -1150,7 +1150,7 @@ test("reassigning the alias itself disposes both objects exactly once", {
 test("chained aliases with the base reassigned in a nested block", {
   before := g_alias_disposed;
   {
-    a := AliasHandle(tag : i32(1));
+    mut(a) := AliasHandle(tag : i32(1));
     b := a;
     c := b;
     {
@@ -1164,7 +1164,7 @@ test("chained aliases with the base reassigned in a nested block", {
 test("alias made in an inner block, base reassigned there, base used after", {
   before := g_alias_disposed;
   {
-    a := AliasHandle(tag : i32(1));
+    mut(a) := AliasHandle(tag : i32(1));
     {
       b := a;
       b.tag = i32(9);
@@ -1333,7 +1333,7 @@ test("a container in a cond arm and in a while body behave the same way", {
       true => ()
     );
     assert(sink.tag == i32(7), "readable after the arm");
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(3), i = (i + i32(1)), {
       w := NestedHolder(label : i, sink : sink);
       assert(w.label == i, "the loop body's container sees its field");
@@ -1591,7 +1591,7 @@ test("a HashMap that rehashes releases every value once when it dies", {
   before := g_at_disposed;
   {
     m := HashMap(i32, ArgTemp).new();
-    (i : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
     while(i < i32(100), i = (i + i32(1)), {
       node := ArgTemp(n : i);
       _old := m.insert(i, node);
@@ -1613,7 +1613,7 @@ test("a call argument inside a struct-literal tail is released", {
 at_ok :: (fn(a : &ArgTemp) -> bool)(a.n > i32(0));
 test("a call argument under ! or == in an if condition is released", {
   before := g_at_disposed;
-  (y : i32) = i32(0);
+  (mut(y) : i32) = i32(0);
   {
     if(!at_ok(ArgTemp(n : i32(1))), {
       y = i32(1);
@@ -1695,7 +1695,7 @@ test("a match or cond call argument is released on an explicit return", {
 // may still be written in the borrowed copy itself.
 FwbNamed :: struct(s : String, n : i32);
 fwb_rename :: (fn(p : &FwbNamed) -> FwbNamed)({
-  q := p;
+  mut(q) := p;
   q.s = String.from("renamed-string-long-enough-for-the-heap");
   q
 });
@@ -1714,7 +1714,7 @@ test("a borrowed value is changed through an owned copy", {
   from_arm := match(
     o,
     .Some(d) => {
-      q := d;
+      mut(q) := d;
       q.s = String.from("from-an-arm-long-enough-for-the-heap");
       q.s
     },
@@ -1981,7 +1981,7 @@ _nt_from_holder :: (fn(h : &_NtHolder) -> _NtV)(_NtV(b : h.v.b));
 test("a newtype built from a field or a live local retains its payload", {
   before := g_nt_disposed;
   {
-    s := _NtV(b : _NtBox(tag : i32(1)));
+    mut(s) := _NtV(b : _NtBox(tag : i32(1)));
     t := s.from_field();
     assert(ref_count(s.b) == usize(2), `field projection (inout self): got ${ref_count(s.b).to_string()}`);
     u := s.from_field_val();
@@ -2020,13 +2020,13 @@ test("a newtype that takes over its payload adds no reference", {
 test("a newtype over an Option, a newtype or a tuple retains a field payload", {
   before := g_nt_disposed;
   {
-    o := _NtOpt(b : .Some(_NtBox(tag : i32(7))));
+    mut(o) := _NtOpt(b : .Some(_NtBox(tag : i32(7))));
     o2 := o.from_field();
     assert(match(o.b, .Some(x) => (ref_count(x) == usize(2)), .None => false), "Option payload shared by both");
-    n := _NtW(v : _NtV(b : _NtBox(tag : i32(8))));
+    mut(n) := _NtW(v : _NtV(b : _NtBox(tag : i32(8))));
     n2 := n.from_field();
     assert(ref_count(n.v.b) == usize(2), `nested newtype: got ${ref_count(n.v.b).to_string()}`);
-    p := _NtPair(p : (_NtBox(tag : i32(9)), i32(0)));
+    mut(p) := _NtPair(p : (_NtBox(tag : i32(9)), i32(0)));
     p2 := p.from_field();
     assert(ref_count(p.p.0) == usize(2), `tuple payload: got ${ref_count(p.p.0).to_string()}`);
     o2_tag := match(o2.b, .Some(x) => x.tag, .None => i32(0));
@@ -2172,7 +2172,7 @@ impl(
   )
 );
 test("unique Box: box(v) holds the payload, and b.* is its place", {
-  b := box(UBoxPoint(x : i32(1), y : i32(2)));
+  mut(b) := box(UBoxPoint(x : i32(1), y : i32(2)));
   assert(b.*.x == i32(1), "b.* is the payload");
   assert(b.y == i32(2), "auto-dereference reads a field");
   b.* = UBoxPoint(x : i32(5), y : i32(6));
@@ -2182,7 +2182,7 @@ test("unique Box: box(v) holds the payload, and b.* is its place", {
 });
 test("unique Box: Box.clone is an independent, deep copy", {
   a := box(UBoxPoint(x : i32(1), y : i32(2)));
-  c := Box.clone(a);
+  mut(c) := Box.clone(a);
   c.x = i32(100);
   assert(a.x == i32(1), "the source is untouched");
   assert(c.x == i32(100), "the clone has its own cell");
@@ -2191,7 +2191,7 @@ test("unique Box: Box.clone is an independent, deep copy", {
 test("unique Box: a tree copied with clone and edited on one side", {
   t := UBoxTree.Node(box(UBoxTree.Leaf(i32(1))), box(UBoxTree.Node(box(UBoxTree.Leaf(i32(2))), box(UBoxTree.Leaf(i32(3))))));
   assert(ubox_sum(&t) == i32(6), "the tree sums its leaves");
-  u := t.clone();
+  mut(u) := t.clone();
   match(
     &mut u,
     .Node(l, _) => {
@@ -2231,7 +2231,7 @@ test("unique Box: Box(T) is explicit-copy, and move-only when T is", {
 _UBoxToken :: struct(id : i32);
 test("unique Box: Eq, Hash and Default by payload; no count", {
   a := box(UBoxPoint(x : i32(1), y : i32(2)));
-  b := Box.clone(a);
+  mut(b) := Box.clone(a);
   assert(a == b, "equal payloads");
   b.x = i32(3);
   assert(!(a == b), "compared by payload");
@@ -2347,7 +2347,7 @@ UBoxChoice :: enum(A(b : Box(i32)), B);
 derive(UBoxChoice, Clone);
 test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
   x := UBoxHolder(b : box(UBoxPoint(x : i32(1), y : i32(2))), k : i32(3));
-  y := x.clone();
+  mut(y) := x.clone();
   assert(x == y, "the derived Eq compares the payloads");
   y.b.x = i32(9);
   assert(x.b.x == i32(1), "the derived clone made a new cell");
@@ -2355,7 +2355,7 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
   z := x.clone();
   assert(hash_one(&x) == hash_one(&z), "the derived Hash hashes the payload");
   e := UBoxChoice.A(b : box(i32(6)));
-  f := e.clone();
+  mut(f) := e.clone();
   match(
     &mut f,
     .A(b) => {
@@ -2416,7 +2416,7 @@ test("a binding of runtime(call) releases the result once", {
     assert(b.tag == i32(4), "the value came through");
   };
   assert(g_rt_disposed == (before + i32(1)), `released once, got ${(g_rt_disposed - before).to_string()}`);
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(100), {
     (s : String) = runtime(String.from("hello"));
     assert(s == "hello", "the string came through");
@@ -2575,7 +2575,7 @@ test("consume of an alias releases only the alias's count", {
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
 });
 test("consume in one cond arm releases the local once on either path", {
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(2), {
     before := g_consume_disposed;
     {

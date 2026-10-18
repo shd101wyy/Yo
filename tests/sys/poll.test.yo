@@ -21,14 +21,14 @@ on_poll_record :: (fn(events_mask : i32, status : i32, user_data : *u8) -> unit)
   status;
 });
 test("poll init/start/stop", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   handle := events.poll_init(read_fd);
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, (*u8)(result_ptr));
@@ -42,7 +42,7 @@ test("poll init/start/stop", {
   assert(cr2 == i32(0), "close write_fd failed");
 });
 test("poll detects readable pipe", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
@@ -52,7 +52,7 @@ test("poll detects readable pipe", {
   data := (*u8)("hello");
   wr := io.await(file.write(write_fd, data, u32(5), u64(0)), io);
   assert(wr == i32(5), "write failed");
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.poll_init(read_fd);
@@ -72,13 +72,13 @@ test("poll detects readable pipe", {
   assert(cr2 == i32(0), "close write_fd failed");
 });
 test("poll detects writable pipe", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   // Poll write end for writability (pipe is empty, so should be immediately writable)
@@ -99,13 +99,13 @@ test("poll detects writable pipe", {
   assert(cr2 == i32(0), "close write_fd failed");
 });
 test("poll detects disconnect", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   // Close write end first to trigger HUP on read end
@@ -126,13 +126,13 @@ test("poll detects disconnect", {
   assert(cr1 == i32(0), "close read_fd failed");
 });
 test("poll stop prevents further callbacks", {
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.poll_init(read_fd);
@@ -163,8 +163,8 @@ test("poll stop prevents further callbacks", {
 // (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
 // A thread makes the pipe readable 50 ms in; the callback stamps the time.
 _mono_ms :: (fn() -> i64)({
-  sec_buf := MaybeUninit(i64).new();
-  nsec_buf := MaybeUninit(i64).new();
+  mut(sec_buf) := MaybeUninit(i64).new();
+  mut(nsec_buf) := MaybeUninit(i64).new();
   sec := (*i64)(sec_buf.as_ptr());
   nsec := (*i64)(nsec_buf.as_ptr());
   _rc := clock_gettime(CLOCK_MONOTONIC, sec, nsec);
@@ -182,12 +182,12 @@ on_poll_stamp :: (fn(events_mask : i32, status : i32, user_data : *u8) -> unit)(
   status;
 });
 _poll_wakes_a_blocked_loop :: (fn(io : Io) -> unit)({
-  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
   assert(pipe_io.pipe(pipefd) == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
-  slots_buf := MaybeUninit(Array(i64, usize(2))).new();
+  mut(slots_buf) := MaybeUninit(Array(i64, usize(2))).new();
   slots := (*i64)(slots_buf.as_ptr());
   slots.* = _mono_ms();
   stamp := slots.add(usize(1));

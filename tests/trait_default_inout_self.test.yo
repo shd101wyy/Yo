@@ -45,14 +45,14 @@ impl(
   )
 );
 test("inout(self) default calling sibling inout methods mutates the receiver", {
-  c := Counter(state : u64(0));
+  mut(c) := Counter(state : u64(0));
   c.twice(u64(1));
   assert(c.state == u64(2), "twice bumped twice");
   c.thrice(u64(5));
   assert(c.state == u64(17), "thrice = bump + twice");
 });
 test("inout(self) default writing a field through self", {
-  c := Counter(state : u64(1));
+  mut(c) := Counter(state : u64(1));
   c.direct(u64(10));
   assert(c.state == u64(11), "direct wrote through self");
   assert(c.ro() == u64(11), "ro reads through a sibling");

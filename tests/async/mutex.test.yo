@@ -129,7 +129,7 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   // FIFO: the queue is drained from the front, so the arrival order is the
   // acquisition order. A stack would give 5,4,3,2,1 and would starve worker 1
   // under sustained contention.
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(5), i = (i + usize(1)), {
     assert(
       order.*(i) == i64(i + usize(1)),
@@ -146,7 +146,7 @@ test("Test an uncontended lock still costs no suspension", {
   m := arc(Mutex(i64).new(i64(0)));
   m2 := m;
   body := io.async({ m2 }(io : Io) => {
-    (n : i64) = i64(0);
+    (mut(n) : i64) = i64(0);
     while(n < i64(100), n = (n + i64(1)), {
       io.await(m2.*.lock(io), io);
       m2.*.set(m2.*.get() + i64(1));

@@ -1,0 +1,12 @@
+# `yo fix <path> --migrate mut-bindings` (plans/VALUES_BY_DEFAULT.md
+# decision 47, step 2): a binding below module level is immutable unless
+# declared `mut(name)`, so every local, typed, pattern, destructuring and
+# compile-time binding written after its definition (reassigned, a field or
+# element write, a `&mut` lend, a `&mut self` call) gets the marker (E0917
+# otherwise). A collection handle mutated through its methods (`names`) and a
+# binding only read (`fixed`) stay unmarked; the write of the by-value
+# parameter `p` is listed, to rebind by hand. The dry run writes nothing; the
+# expected_tree pins the rewritten main.yo, and the trailing `check` proves
+# the result evaluates.
+stdout_keep=^fix:|^error|E0917
+timeout=240

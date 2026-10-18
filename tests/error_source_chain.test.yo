@@ -26,11 +26,11 @@ derive(_Inner, Error(.Boom => `boom`));
 test("an Error.source() result re-erases as AnyError, so a chain can be walked", {
   (base : AnyError) = dyn(_Inner.Boom);
   (top : AnyError) = dyn(Context.new(`while loading`, &base));
-  (cur : AnyError) = top;
-  (links : usize) = usize(1);
+  (mut(cur) : AnyError) = top;
+  (mut(links) : usize) = usize(1);
   // The assignment `cur = next` is what failed to type-check: `source()` is
   // declared to return `Option(Dyn(SelfTrait))` and this stores it back.
-  (walking : bool) = true;
+  (mut(walking) : bool) = true;
   while(runtime(walking), {
     match(
       cur.source(),
@@ -109,9 +109,9 @@ test("error_chain yields every link, outermost first", {
   (base : AnyError) = dyn(_Inner.Boom);
   (top : AnyError) = dyn(Context.new(`while loading`, &base));
   it := error_chain(&top);
-  (links : usize) = usize(0);
-  (last : String) = String.new();
-  (going : bool) = true;
+  (mut(links) : usize) = usize(0);
+  (mut(last) : String) = String.new();
+  (mut(going) : bool) = true;
   while(runtime(going), {
     match(
       it.next(),
@@ -129,8 +129,8 @@ test("error_chain yields every link, outermost first", {
 });
 test("error_chain of a lone error yields exactly one link", {
   it := error_chain(dyn(_Inner.Boom));
-  (links : usize) = usize(0);
-  (going : bool) = true;
+  (mut(links) : usize) = usize(0);
+  (mut(going) : bool) = true;
   while(runtime(going), {
     match(
       it.next(),

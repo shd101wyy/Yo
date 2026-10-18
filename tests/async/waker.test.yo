@@ -35,7 +35,7 @@ test("Test yield_now runs every turn it is asked for", {
   started := Instant.now();
   h := io.spawn(
     io.async((io : Io) => {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < n.*, i = (i + i32(1)), {
         io.await(yield_now(io), io);
       });
@@ -73,7 +73,7 @@ test("Test std/async yield is the timer-free mechanism", {
   started := Instant.now();
   h := io.spawn(
     io.async((io : Io) => {
-      (i : i32) = i32(0);
+      (mut(i) : i32) = i32(0);
       while(i < n.*, i = (i + i32(1)), {
         io.await(yield(io), io);
       });
@@ -234,7 +234,7 @@ test("Test one signal wakes every waiter in a list", {
   wakers := ArrayList(Waker).new();
   handles := ArrayList(JoinHandle(i32)).new();
   woken := Rc(i32)(i32(0));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     p := Park.new();
     wakers.push(p.waker());
@@ -253,7 +253,7 @@ test("Test one signal wakes every waiter in a list", {
   assert(woken.* == i32(0), "nobody has run past their park yet");
   // One pass over the list, waking every waiter. A `Waker` is move-only
   // (§3.13 A5), so it is borrowed in place: `get` would copy it.
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < n, j = (j + usize(1)), {
     wakers(j).wake();
   });
@@ -311,8 +311,8 @@ test("Test a waker relay hands off without a millisecond floor", {
   handles := ArrayList(JoinHandle(i32)).new();
   // Built from the last task back: each park moves into its task, and the
   // task before it holds its waker.
-  (next_w : Option(Waker)) = Option(Waker).None;
-  (t : usize) = usize(0);
+  (mut(next_w) : Option(Waker)) = Option(Waker).None;
+  (mut(t) : usize) = usize(0);
   while(t < n, t = (t + usize(1)), {
     mine := Park.new();
     mine_w := mine.waker();
@@ -382,7 +382,7 @@ test("Test a poll-until-finished loop over yield_now still polls I/O", {
   );
   // If yield does not give the loop a turn that polls I/O, the timer never
   // fires and this never terminates — so the spin bound is the assertion.
-  (spins : i32) = i32(0);
+  (mut(spins) : i32) = i32(0);
   while(!h.is_finished(), {
     io.await(yield_now(io), io);
     spins = (spins + i32(1));

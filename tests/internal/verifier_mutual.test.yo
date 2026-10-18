@@ -79,7 +79,7 @@ _load_reports :: (
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -91,7 +91,7 @@ _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
     i = (i + usize(1));
   });
   sb := StringBuilder.new();
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < ids.len(), {
     if(j > usize(0), {
       sb.write_string(String.from(", "));
@@ -112,7 +112,7 @@ test("a mutually recursive clique with decreases on every member PROVES", {
     true
   );
   assert(reports.len() == usize(2), `both clique members verify, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -135,8 +135,8 @@ test("a clique edge WITHOUT a decrease REFUTES", {
     true
   );
   assert(reports.len() == usize(2), `both functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
-  (refuted : bool) = false;
-  (i : usize) = usize(0);
+  (mut(refuted) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),

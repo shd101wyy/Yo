@@ -22,7 +22,7 @@ test("fs_event init/start/stop", {
   dir_str := temp_dir();
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, (*u8)(result_ptr));
@@ -40,7 +40,7 @@ test("fs_event detects file creation", {
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)), io);
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
@@ -84,7 +84,7 @@ test("fs_event detects file modification", {
   io.await(sleep(u64(100)), io);
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
@@ -117,7 +117,7 @@ test("fs_event stop prevents further callbacks", {
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)), io);
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
@@ -155,7 +155,7 @@ test("fs_event detects file deletion", {
   io.await(sleep(u64(100)), io);
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
-  result_buf := MaybeUninit(i32).new();
+  mut(result_buf) := MaybeUninit(i32).new();
   result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
@@ -196,7 +196,7 @@ test("a deleted watch directory reports the deletion once, not on every tick", {
       io.await(dir.unlink(AT_FDCWD, watch_path, AT_REMOVEDIR), io);
       mk := io.await(dir.mkdir(AT_FDCWD, watch_path, i32(0o755)), io);
       assert(mk == i32(0));
-      count_buf := MaybeUninit(i32).new();
+      mut(count_buf) := MaybeUninit(i32).new();
       count_ptr := (*i32)(count_buf.as_ptr());
       count_ptr.* = i32(0);
       handle := events.fs_event_init();

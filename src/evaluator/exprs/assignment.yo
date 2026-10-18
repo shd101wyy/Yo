@@ -22,9 +22,10 @@ pragma(Pragma.AllowUnsafe);
   BK_COND,
   BK_MATCH,
   BK_BEGIN,
+  BK_COMPTIME,
   BF_DOT
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution, migrate_mut_bindings_on } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -111,6 +112,9 @@ pragma(Pragma.AllowUnsafe);
   global_place_path,
   global_note_handle_write,
   global_require_mut,
+  binding_require_mut,
+  place_require_mut,
+  strip_mut_marker,
   in_compile_time_fn_body,
   migrate_explicit_copy_on,
   record_copy_write,
@@ -347,8 +351,10 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
 /// (`force_compile_time_bindings`, `ctfe_depth`). There it is rejected when
 /// the binding is declared outside that body (module level, or an enclosing
 /// function), or when the value written is a runtime one (`rhs_is_runtime`).
-/// A body's own `a :: 1; a = 2;` stays a compile-time reassignment; decision
-/// 47 decides its spelling (`mut(a) ::`).
+/// A body's own `mut(a) :: 1; a = 2;` stays a compile-time reassignment
+/// (decision 47: a compile-time binding written at all is declared
+/// `mut(a) ::` or `comptime(mut(a)) :=`, E0917 otherwise), and so does the
+/// same write of a runtime value: still E0918.
 _reject_runtime_write_of_comptime_binding :: (
   fn(v : &Variable, write_tok : &Token, rhs_is_runtime : bool, ctx : &EvalContext, exn : Exception) -> unit
 )({
@@ -371,7 +377,7 @@ _reject_runtime_write_of_comptime_binding :: (
     outside => `Cannot assign "${name}" when the program runs: it is a compile-time constant (a \`::\` binding) declared outside this body. Every use of it was folded to its value while compiling, so a runtime write would leave the folded uses reading the old value.`,
     true => `Cannot assign a runtime value to "${name}": it is a compile-time constant (a \`::\` binding), whose value must be known while compiling.`
   );
-  help := `declare it with \`:=\` instead (\`${name} := ...;\`, at module level for a global): a runtime binding, which the program can write`;
+  help := `declare it as a mutable runtime binding instead (\`mut(${name}) := ...;\`, at module level for a global), which the program can write`;
   entries := ArrayList(TokenAndError).new();
   entries.push(TokenAndError(token : write_tok, error_message : first));
   entries.push(TokenAndError(token : v.token, error_message : `"${name}" is defined here:`));
@@ -1215,31 +1221,16 @@ evaluate_assignment :: (
   // declaring them, and clang reported "indirection requires pointer operand
   // ('int' invalid)". Rebinding one variable is not the same as rewriting the
   // tree.
-  // Decision 47 (Generation A): `(mut(name) : T) = init` and
-  // `(thread_local(mut(name)) : T) = init` declare a MUTABLE module-level
-  // runtime binding. The marker is stripped exactly like `thread_local`
-  // below, and `register_mut_global` carries it.
+  // Decision 47: `(mut(name) : T) = init`, `(thread_local(mut(name)) : T) =
+  // init` and `(comptime(mut(name)) : T) = init` declare a MUTABLE binding
+  // (a module-level runtime one is Rust's `static mut`). The marker is
+  // stripped exactly like `thread_local` below (`strip_mut_marker`, which
+  // records the declared name), and `register_mut_global` carries a global's.
   (is_mut_lhs : bool) = false;
-  if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))) && !ctx.is_evaluating_function_body_or_async_block.is_some(), {
+  if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
     mut_name_pos := match(lhs, .FnCall(_, _, mn_cargs, _, _) => match(mn_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-    mut_holder := if(ast_expr_is_fn_call_of(&mut_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), mut_name_pos.clone(), lhs.clone());
-    mut_pos := match(mut_holder, .FnCall(_, _, mh_args, _, _) => match(mh_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-    if(ast_expr_is_fn_call_of(&mut_pos, "mut", .Some(usize(1))), {
-      mut_name := match(mut_pos, .FnCall(_, _, mp_args, _, _) => match(mp_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      if(!ast_expr_is_atom(&mut_name), {
-        exn.throw(dyn(format_error_message(ast_expr_token(&mut_pos), String.from("\"mut\" takes the variable NAME: write \"(mut(name) : T) = init;\" or \"mut(name) := init;\" (plans/VALUES_BY_DEFAULT.md decision 47)."))));
-      });
-      is_mut_lhs = true;
-      match(
-        mut_holder,
-        .FnCall(_, _, mh_args2, _, _) => {
-          // Rewrite the tree in place (the argument list is shared with it).
-          mh_list := mh_args2;
-          mh_list(usize(0)) = mut_name;
-        },
-        .Atom(_, _) => ()
-      );
-    });
+    mut_holder := if(ast_expr_is_fn_call_of(&mut_name_pos, BK_THREAD_LOCAL, .Some(usize(1))) || ast_expr_is_fn_call_of(&mut_name_pos, BK_COMPTIME, .Some(usize(1))), mut_name_pos.clone(), lhs.clone());
+    is_mut_lhs = strip_mut_marker(&mut_holder, usize(0), exn).is_some();
   });
   (is_thread_local_lhs : bool) = false;
   if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
@@ -1323,6 +1314,7 @@ evaluate_assignment :: (
         .None => ()
       );
     });
+
     ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
     lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
@@ -1397,6 +1389,12 @@ evaluate_assignment :: (
       .Some(ct_root) => _reject_runtime_write_of_comptime_binding(&ct_root, ast_expr_token(&get_root_expr_of_place(&lhs)), prop_rhs_info.value.is_none(), ctx, exn),
       .None => ()
     );
+    // Decision 47 step 2: a write of a binding below module level, of the
+    // binding's own storage (a field of a value, an element of an `Array`),
+    // needs `mut(name)` (after E0918, which answers a runtime write of a
+    // compile-time binding).
+    pw_how := if(ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))), String.from("write a field of"), String.from("write an element of"));
+    place_require_mut(&evaluated_lhs, &ast_expr_token(&lhs), &pw_how, false, &env, ctx, exn);
     // A write of the place: E0908 through an `imm` local borrow, E0911 while a
     // borrow of an overlapping place is live (plans/VALUES_BY_DEFAULT.md
     // decision 18).
@@ -1938,11 +1936,10 @@ evaluate_assignment :: (
     mut_tok := ast_expr_token(&lhs_resolved);
     match(
       get_variables_from_env(&env, variable_name.clone()).last(),
-      .Some(mut_v) => if(mut_v.is_module_level && !mut_v.is_compile_time_only, {
-        register_mut_global(mut_tok.module_path.clone(), variable_name.clone());
-      }, {
-        exn.throw(dyn(format_error_message(&mut_tok, `"mut(${variable_name})" marks a module-level runtime binding mutable; a local or compile-time binding cannot take it yet (plans/VALUES_BY_DEFAULT.md decision 47).`)));
-      }),
+      .Some(mut_v) => cond(
+        (mut_v.is_module_level && !mut_v.is_compile_time_only) => register_mut_global(mut_tok.module_path.clone(), variable_name.clone()),
+        true => ()
+      ),
       .None => ()
     );
   });
@@ -2010,13 +2007,26 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
     ctx
   );
   check_capture_freeze_access(&variable, true, ast_expr_token(&lhs_resolved), &env, ctx, exn);
-  // Check reassignability.
-  if(!variable.is_reassignable, {
+  // Check reassignability. A pattern or destructuring binding is immutable
+  // unless declared `mut(name)` there (decision 47): E0917 names the marker.
+  if(!variable.is_reassignable && !variable.is_parameter && !variable.is_implicit, {
+    binding_require_mut(&variable, ast_expr_token(&lhs_resolved), &String.from("assign to"), ctx, exn);
+  });
+  // `yo fix --migrate mut-bindings` recorded such a binding above and goes
+  // on evaluating; the marker it inserts makes the binding reassignable.
+  if(!variable.is_reassignable && !(migrate_mut_bindings_on() && !variable.is_parameter && !variable.is_implicit), {
     exn.throw(
       dyn(
-        format_error_message(
+        format_error_message_with_help(
           ast_expr_token(&lhs_resolved),
-          `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`
+          `Cannot reassign "${variable_name}": it is ${if(variable.is_parameter, "a parameter", "an immutable binding")}, which cannot be reassigned.`,
+          Option(String).Some(
+            if(
+              variable.is_parameter,
+              `rebind it to a mutable local and assign that (\`mut(${variable_name}_m) := ${variable_name};\`, plans/VALUES_BY_DEFAULT.md decision 47), or take \`${variable_name} : &mut T\` and write through it if the caller's value should change`,
+              String.from("bind a new name instead")
+            )
+          )
         )
       )
     );
@@ -2060,6 +2070,22 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   // E0918: a compile-time binding reassigned by code that runs at runtime.
   if(is_atom_lhs, {
     _reject_runtime_write_of_comptime_binding(&variable, ast_expr_token(&lhs_resolved), rhs_info.value.is_none(), ctx, exn);
+  });
+  // Decision 47 step 2: reassigning a binding below module level needs
+  // `mut(name)` (after E0918, which answers a runtime write of a compile-time
+  // binding). The first assignment of a binding declared without a value
+  // (`(x : T);`) is its initialization, not a write, on each branch that
+  // makes it (`has_dominating_branch_init`).
+  if(!variable.is_module_level && !d1_is_decl_init, {
+    rb_inited_at_decl := match(variable.initialized_at_token, .Some(it) => ((it.row == variable.token.row) && ((it.column == variable.token.column) && (it.module_path == variable.token.module_path))), .None => false);
+    rb_is_write := cond(
+      rb_inited_at_decl => true,
+      variable.initialized_at_token.is_none() => false,
+      true => has_dominating_branch_init(variable.id)
+    );
+    if(rb_is_write, {
+      binding_require_mut(&variable, &d1_lhs_tok, &String.from("assign to"), ctx, exn);
+    });
   });
   // Deferred generic-fn-type check: reject a
   // runtime variable with a GENERIC function type unless the bound lambda's

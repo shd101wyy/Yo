@@ -44,7 +44,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> Buil
   )
 );
 _dag_find :: (fn(dag : &ArrayList(DAGNode), name : &String) -> Option(DAGNode))({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < dag.len(), {
     node := dag(i);
     if(node.name == name, {
@@ -55,7 +55,7 @@ _dag_find :: (fn(dag : &ArrayList(DAGNode), name : &String) -> Option(DAGNode))(
   Option(DAGNode).None
 });
 _deps_contain :: (fn(node : &DAGNode, dep : &String) -> bool)({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < node.depends_on.len(), {
     if(node.depends_on(i) == dep, {
       return(true);
@@ -233,8 +233,8 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
   );
   dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(2), "verify node plus the step");
-  (found : bool) = false;
-  (i : usize) = usize(0);
+  (mut(found) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < dag.len(), {
     node := dag(i);
     if(node.name == `proofs`, {
@@ -315,8 +315,8 @@ test("build_dag: deduplicates shared dependencies", {
   reg.add_step_dependency(String.from("install"), String.from("app-a"));
   reg.add_step_dependency(String.from("install"), String.from("app-b"));
   dag := build_dag(&reg, String.from("install"));
-  (common_count : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(common_count) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < dag.len(), {
     node := dag(i);
     if(node.name == `common`, {

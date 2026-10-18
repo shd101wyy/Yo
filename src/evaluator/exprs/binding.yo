@@ -49,7 +49,7 @@ import("std/fmt");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, strip_mut_marker } :: import("../utils.yo");
 /// Deferred-check flag for the generic-fn-type rule (see the gate below and
 /// exprs/assignment.yo). Module-global because EvalContext field additions
 /// ripple through every explicit constructor; evaluation is single-threaded.
@@ -176,6 +176,19 @@ evaluate_binding :: (
   // Strip optional `comptime(...)` wrapper from lhs.
   (is_compile_time_only : bool) = false;
   (lhs : AstExpr) = lhs_arg;
+  // Decision 47: `(mut(name) : T)` and `(comptime(mut(name)) : T)` declare a
+  // mutable binding; the marker is stripped from the tree and the declared
+  // name recorded (`strip_mut_marker`).
+  match(
+    strip_mut_marker(expr, usize(0), exn),
+    .Some(m_name) => {
+      lhs = m_name;
+    },
+    .None => ()
+  );
+  if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
+    _m_inner := strip_mut_marker(&lhs, usize(0), exn);
+  });
   if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .None), {
     is_compile_time_only = true;
     n_comptime_args := match(

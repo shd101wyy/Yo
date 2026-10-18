@@ -56,8 +56,8 @@ _TAIL :: "int main(void) {\n  return 0;\n}\n";
 _GLOBALS :: "int g_shared;\n";
 /// True iff exactly `want` of `chunks` contain `needle`.
 _count_chunks_with :: (fn(chunks : &ArrayList(String), needle : &String) -> usize)({
-  (hits : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(hits) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < chunks.len(), {
     match(
       chunks.get(i),
@@ -73,7 +73,7 @@ _count_chunks_with :: (fn(chunks : &ArrayList(String), needle : &String) -> usiz
 test("chunked emission: the linkage split assembles a header + N linkable units", {
   // Code buffer = runtime ++ borrow ++ fn_alpha ++ fn_beta ++ rc_drop ++ tail.
   // The ranges are byte offsets into exactly that concatenation.
-  code := String.new();
+  mut(code) := String.new();
   code.push_str(_RUNTIME);
   borrow_start := code.len();
   code.push_str(_BORROW);
@@ -144,7 +144,7 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   assert(chunk0.contains(String.from("int main(void) {")), "the main wrapper belongs to chunk 0 (residue)");
 });
 test("chunked emission: N=1 is degenerate — one unit holding everything", {
-  code := String.new();
+  mut(code) := String.new();
   code.push_str(_RUNTIME);
   alpha_start := code.len();
   code.push_str(_FN_ALPHA);
@@ -168,7 +168,7 @@ test("chunked emission: N=1 is degenerate — one unit holding everything", {
   assert(asm1.header_text.contains(String.from("// decls-marker")), "N=1 header should still carry the declarations");
 });
 test("chunked emission: more chunks than functions leaves the extra units empty but valid", {
-  code := String.new();
+  mut(code) := String.new();
   alpha_start := code.len();
   code.push_str(_FN_ALPHA);
   alpha_end := code.len();
@@ -193,7 +193,7 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   // the SAME module share a unit (an edit then dirties one `.o`), while the
   // by-name rule scatters them by their own C names. Header-routed ranges
   // (no module) keep the by-name rule either way.
-  code := String.new();
+  mut(code) := String.new();
   code.push_str(_RUNTIME);
   borrow_start := code.len();
   code.push_str(_BORROW);
@@ -222,9 +222,9 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   );
   chunks := by_module.chunks;
   assert(chunks.len() == usize(4), `expected 4 chunks, got ${chunks.len().to_string()}`);
-  (units_with_alpha : usize) = usize(0);
-  (units_with_both : usize) = usize(0);
-  (ci : usize) = usize(0);
+  (mut(units_with_alpha) : usize) = usize(0);
+  (mut(units_with_both) : usize) = usize(0);
+  (mut(ci) : usize) = usize(0);
   while(ci < chunks.len(), {
     c := match(chunks.get(ci), .Some(x) => x, .None => String.new());
     has_alpha := c.contains(String.from("fn_alpha"));
@@ -257,7 +257,7 @@ test("a code spill spliced before the code tail is the unspilled C", {
   spilled.code_spill_threshold = usize(1);
   plain.emit_header_line("#include <stdint.h>");
   spilled.emit_header_line("#include <stdint.h>");
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(5), {
     _spill_emit_function(&plain, i);
     _spill_emit_function(&spilled, i);
@@ -270,8 +270,8 @@ test("a code spill spliced before the code tail is the unspilled C", {
   spilled.close_code_spill();
   assert(spilled.code_spilled_bytes > usize(0), "the functions were spilled");
   parts := spilled.sections();
-  joined := String.new();
-  (pi : usize) = usize(0);
+  mut(joined) := String.new();
+  (mut(pi) : usize) = usize(0);
   while(pi < parts.len(), {
     if(pi == usize(4), {
       joined.push_string(_spill_read(path.clone()));

@@ -17,7 +17,7 @@ _b :: (fn(s : str) -> ArrayList(u8))(
 );
 _rep :: (fn(byte : u8, count : usize) -> ArrayList(u8))({
   out := ArrayList(u8).with_capacity(count);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < count, i = (i + usize(1)), {
     out.push(byte);
   });
@@ -51,7 +51,7 @@ test("streaming split updates equal the one-shot digest", {
   half := usize(37);
   first := ArrayList(u8).new();
   second := ArrayList(u8).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < wb.len(), i = (i + usize(1)), {
     b := wb.byte_at(i);
     cond(

@@ -2963,7 +2963,7 @@ test("Test mutation", {
       y : i32
     );
     derive(Point, Copy, Clone);
-    p1 :: Point(3, 4);
+    mut(p1) :: Point(3, 4);
     p2 :: p1;
     p1.x = 5;
     // comptime_print("p1 ", p1);
@@ -2973,7 +2973,7 @@ test("Test mutation", {
   };
   /// array
   {
-    arr1 :: [1, 2, 3];
+    mut(arr1) :: [1, 2, 3];
     arr2 :: arr1;
     index :: 0;
     arr1(index) = 4;
@@ -2986,7 +2986,7 @@ test("Test mutation", {
   };
   /// tuple
   {
-    t1 :: (1, 2.0);
+    mut(t1) :: (1, 2.0);
     t2 :: t1;
     t1.0 = 4;
     // comptime_print("t1 ", t1);
@@ -3627,8 +3627,8 @@ test("runtime declarations in a compile-time function body are E1104", {
 });
 test("compile-time locals in a compile-time function body stay mutable", {
   with_colon_colon :: (fn(comptime(n) : i32) -> comptime(i32))({
-    result :: i32(1);
-    i :: i32(1);
+    mut(result) :: i32(1);
+    mut(i) :: i32(1);
     while(comptime(i <= n), {
       result = (result * i);
       i = (i + i32(1));
@@ -3637,13 +3637,13 @@ test("compile-time locals in a compile-time function body stay mutable", {
   });
   comptime_assert(with_colon_colon(10) == i32(3628800));
   with_typed :: (fn(comptime(n) : i32) -> comptime(i32))({
-    (comptime(i) : i32) = i32(0);
+    (comptime(mut(i)) : i32) = i32(0);
     i = (i + n);
     i
   });
   comptime_assert(with_typed(5) == i32(5));
   with_wrapped_walrus :: (fn(comptime(n) : i32) -> comptime(i32))({
-    comptime(i) := i32(2);
+    comptime(mut(i)) := i32(2);
     i = (i * n);
     i
   });
@@ -3673,7 +3673,7 @@ _RW_G :: i32(1);
 _RW_H :: (_RW_G + i32(10));
 _RwPoint :: struct(x : i32, y : i32);
 _RW_P :: _RwPoint(x : i32(1), y : i32(2));
-_RW_M :: i32(1);
+mut(_RW_M) :: i32(1);
 _RW_M = i32(2);
 comptime_assert(_RW_M == i32(2));
 mut(_rw_runtime_counter) := i32(1);
@@ -3682,15 +3682,15 @@ _rw_bump :: (fn() -> i32)({
   _rw_runtime_counter
 });
 _rw_local_reassign :: (fn(x : i32) -> i32)({
-  a :: i32(1);
+  mut(a) :: i32(1);
   a = i32(2);
   comptime_assert(a == i32(2));
   b :: a;
   x + b
 });
 _rw_comptime_loop :: (fn(x : i32) -> i32)({
-  i :: i32(0);
-  acc := x;
+  mut(i) :: i32(0);
+  mut(acc) := x;
   while(comptime(i < i32(3)), {
     acc = (acc + i);
     i = (i + i32(1));

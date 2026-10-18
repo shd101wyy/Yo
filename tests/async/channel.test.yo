@@ -57,8 +57,8 @@ test("async try_recv separates Empty from Disconnected", {
 test("Test channel producer consumer", {
   ch := Channel(i32).new(usize(2));
   producer := io.async((io : Io) => {
-    (i : i32) = i32(0);
-    (going : bool) = true;
+    (mut(i) : i32) = i32(0);
+    (mut(going) : bool) = true;
     while(going, {
       s := io.await(ch.send(i, io), io);
       assert(match(s, .Ok(_) => true, .Err(_) => false), "send should succeed while open");
@@ -70,8 +70,8 @@ test("Test channel producer consumer", {
     return(());
   });
   h := io.spawn(producer, io);
-  (expected : i32) = i32(0);
-  (receiving : bool) = true;
+  (mut(expected) : i32) = i32(0);
+  (mut(receiving) : bool) = true;
   while(receiving, {
     r := io.await(ch.recv(io), io);
     v := match(r, .Some(x) => x, .None => i32(-1));
@@ -274,9 +274,9 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
   };
   // Both senders and both tasks' captures are gone: the channel closed itself.
   assert(rx.is_closed(), "the last of the cloned senders closed the channel");
-  (total : i32) = i32(0);
-  (count : i32) = i32(0);
-  v := rx.try_recv();
+  (mut(total) : i32) = i32(0);
+  (mut(count) : i32) = i32(0);
+  mut(v) := rx.try_recv();
   while(runtime(match(v, .Ok(_) => true, .Err(_) => false)), {
     total = (total + match(v, .Ok(x) => x, .Err(_) => i32(0)));
     count = (count + i32(1));
@@ -322,7 +322,7 @@ test("async Sender implements Clone", {
 // 5. a Channel IS a Stream (plans/reference/ASYNC_ITERATION_STREAM.md)
 // ---------------------------------------------------------------------------
 test("Test channel as a Stream: next is recv, close is the terminal .None", {
-  ch := Channel(i32).new(usize(4));
+  mut(ch) := Channel(i32).new(usize(4));
   _a := ch.try_send(i32(1));
   _b := ch.try_send(i32(2));
   ch.close();
@@ -337,7 +337,7 @@ test("Test channel as a Stream: next is recv, close is the terminal .None", {
 });
 test("Test channel Stream combinators", {
   ch := Channel(i32).new(usize(8));
-  (i : i32) = i32(1);
+  (mut(i) : i32) = i32(1);
   while(i <= i32(5), {
     _s := ch.try_send(i);
     i = (i + i32(1));
@@ -362,7 +362,7 @@ test("Test channel Stream combinators", {
 // the filter called the map closure and its body failed bool-vs-i32 (E0905).
 test("Test channel Stream map then filter keeps each closure", {
   ch := Channel(i32).new(usize(8));
-  (i : i32) = i32(1);
+  (mut(i) : i32) = i32(1);
   while(i <= i32(4), {
     _s := ch.try_send(i);
     i = (i + i32(1));
@@ -375,9 +375,9 @@ test("Test channel Stream map then filter keeps each closure", {
   assert(got(usize(1)) == i32(40), "last");
 });
 test("Test a consumer loop over a channel fed by another task", {
-  ch := Channel(i32).new(usize(2));
+  mut(ch) := Channel(i32).new(usize(2));
   producer := io.async((io : Io) => {
-    (n : i32) = i32(0);
+    (mut(n) : i32) = i32(0);
     while(n < i32(3), {
       _s := io.await(ch.send(n, io), io);
       n = (n + i32(1));
@@ -387,7 +387,7 @@ test("Test a consumer loop over a channel fed by another task", {
   });
   h := io.spawn(producer, io);
   seen := ArrayList(i32).new();
-  (draining : bool) = true;
+  (mut(draining) : bool) = true;
   while(draining, {
     nx := io.await(ch.next(io), io);
     match(

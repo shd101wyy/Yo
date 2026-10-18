@@ -10,8 +10,8 @@
 import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 _work :: (fn(n : u64) -> u64)({
-  (acc : u64) = n;
-  (i : u64) = u64(0);
+  (mut(acc) : u64) = n;
+  (mut(i) : u64) = u64(0);
   while(i < u64(2000), i = (i + u64(1)), {
     // LCG state transitions wrap by design (the multiplier uses the full
     // u64 range), so the wrapping_* surface, not the trapping `+`/`*`.
@@ -41,7 +41,7 @@ test("black_box actually stops the body being optimized away", {
   // The point of the function. `_work` is pure and its result discarded, so
   // without a barrier the whole loop is dead code.
   t0 := Instant.now();
-  (i : u64) = u64(2000);
+  (mut(i) : u64) = u64(2000);
   while(i > u64(0), i = (i - u64(1)), {
     black_box(_work(i));
   });

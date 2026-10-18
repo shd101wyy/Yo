@@ -76,6 +76,8 @@ pragma(Pragma.AllowUnsafe);
   UndoneMove,
   variable_record_undone_move,
   is_fn_capture_value_binding,
+  is_capture_list_value_binding,
+  is_macro_pattern_binding,
   is_fnonce_capture_frame,
   is_closure_param_frame,
   variable_note_arm_move,
@@ -96,19 +98,19 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_GLOBAL_WRITE } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -2214,11 +2216,231 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
           `declare it \`mut(${gv.name}) := ...\` (or \`(mut(${gv.name}) : T) = ...\`, \`thread_local(mut(${gv.name}))\`); a \`mut\` global can no longer be lent to a call (E0916), so a call reads it through a local copy. \`yo fix <path> --migrate mutable-globals\` marks every written global`
         )
       ),
-      E_IMMUTABLE_GLOBAL_WRITE
+      E_IMMUTABLE_BINDING_WRITE
     ),
     ctx,
     exn
   );
+});
+// ---------------------------------------------------------------------------
+// Decision 47 step 2 (Generation A): bindings below module level
+// ---------------------------------------------------------------------------
+/// The census knob for decision 47's locals step, `YO_AUDIT_MUT_BINDINGS=1`:
+/// each write of a binding below module level after its definition prints
+/// one stderr line, `file:line:col [mut-binding] how=<write> kind=<binding>
+/// marked=yes|no binding=<name> key=<declaration>`, once per line, and
+/// nothing is rejected. The writes are the four kinds `mut` gates: `reassign`,
+/// `field` and `element` (`exprs/assignment.yo`), and an exclusive borrow,
+/// `mut-lend-<form>` (a `&mut x` argument or a `&mut self` receiver,
+/// `calls/function.yo`; a `&mut` match scrutinee; a `&mut` capture). A write
+/// through a `ref` handle the binding holds or through a borrow it is does
+/// not write the binding and is not listed.
+(g_audit_mut_bindings : bool) = debug_knob(`YO_AUDIT_MUT_BINDINGS`).is_some();
+mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
+/// Strip the marker `mut(name)` that `holder`'s argument `idx` is, rewriting
+/// the tree in place (the argument list is shared with it), and record the
+/// binding as mutable (`register_mut_binding`). Returns the bare name, or
+/// `.None` when that argument is not a `mut(...)` call. `mut` takes the NAME
+/// only: `mut(x.f)` or `mut(1)` is an error.
+strip_mut_marker :: (fn(holder : &AstExpr, idx : usize, exn : Exception) -> Option(AstExpr))(
+  match(
+    holder,
+    .FnCall(_, _, sm_args, _, _) => {
+      arg := match(sm_args.get(idx), .Some(a) => a, .None => return(Option(AstExpr).None));
+      if(!ast_expr_is_fn_call_of(&arg, "mut", Option(usize).Some(usize(1))), {
+        return(Option(AstExpr).None);
+      });
+      name := match(arg, .FnCall(_, _, ma, _, _) => match(ma.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      if(!ast_expr_is_atom(&name) || (ast_expr_token(&name).kind != TokenKind.Identifier), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&arg), `"mut" takes the binding's NAME: write \`mut(name) := init\`, \`(mut(name) : T) = init\`, \`.Some(mut(name))\` in a pattern or \`{ a, mut(name) }\` in a destructuring; got \`${ast_expr_to_string(&arg)}\` (plans/VALUES_BY_DEFAULT.md decision 47).`)));
+      });
+      list := sm_args;
+      list(idx) = name;
+      name_tok := ast_expr_token(&name);
+      register_mut_binding(&name_tok, &name_tok.value);
+      Option(AstExpr).Some(name)
+    },
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// Strip every `mut(name)` binder in the `match` arm pattern `pat`, in place
+/// (`strip_mut_marker`): a variant payload, a tuple or struct field, an
+/// or-pattern alternative, the name of `(name := p)`. A guard
+/// (`(p && (g))`) is an expression, not a pattern, and is left alone.
+strip_pattern_mut_markers :: (fn(pat : &AstExpr, exn : Exception) -> unit)(
+  match(
+    pat,
+    .FnCall(_, pf, pargs, p_infix, _) => {
+      if(p_infix && ast_expr_is_atom_of(&pf, "&&"), {
+        match(pargs.get(usize(0)), .Some(a) => recur(&a, exn), .None => ());
+        return(());
+      });
+      (pi : usize) = usize(0);
+      while(pi < pargs.len(), pi = (pi + usize(1)), {
+        if(strip_mut_marker(pat, pi, exn).is_none(), {
+          match(pargs.get(pi), .Some(a) => recur(&a, exn), .None => ());
+        });
+      });
+    },
+    .Atom(_, _) => ()
+  )
+);
+/// The binding a write lands on, for diagnostics: `local`, `comptime`,
+/// `parameter` or `pattern` (a `match` or destructuring binding).
+_mut_binding_kind :: (fn(v : &Variable) -> str)(
+  cond(
+    v.is_compile_time_only => "comptime",
+    v.is_parameter => "parameter",
+    !v.is_reassignable => "pattern",
+    true => "local"
+  )
+);
+/// Decision 47 step 2: the binding `v` is written at `tok` (`how`: "assign
+/// to", "write a field of", "lend `&mut` (...)"). A module-level runtime
+/// binding goes to `global_require_mut`. Below module level the write is
+/// E0917 unless `v` was declared `mut(name)`; a parameter takes no marker
+/// (decision 47), so its error names the rebind. A borrow (`x : &mut T`,
+/// `y := &mut place`, a `&mut` match binding) is written THROUGH, not
+/// written: the write lands in its referent, judged where it was lent.
+/// Generation A enforces the rule outside the trees the seed builds
+/// (`global_mut_rule_applies`); `YO_AUDIT_MUT_BINDINGS` prints a census line
+/// instead, and `yo fix --migrate mut-bindings` records the declaration.
+binding_require_mut :: (fn(v : &Variable, tok : &Token, how : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(v.is_module_level && !v.is_compile_time_only, {
+    global_require_mut(v, tok, how, ctx, exn);
+    return(());
+  });
+  if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
+    return(());
+  });
+  if(v.is_ref || (v.is_imm_borrow || variable_inout_borrow_root_id(v).is_some()), {
+    return(());
+  });
+  if(is_any_temp_variable_name(&v.name) || v.name.starts_with("__"), {
+    return(());
+  });
+  marked := is_mut_binding(&v.token, &v.name);
+  if(g_audit_mut_bindings, {
+    global_lend_audit_print(&`${global_lend_location(tok)} [mut-binding] how=${how.replace(" ", String.from("-"))} kind=${_mut_binding_kind(v)} marked=${if(marked, "yes", "no")} binding=${v.name} key=${global_lend_key(&v.token, &v.name)}`);
+    return(());
+  });
+  if(marked, {
+    return(());
+  });
+  is_macro_elem := is_macro_pattern_binding(v.id);
+  is_param_like := (v.is_parameter || (is_capture_list_value_binding(v.id) || is_macro_elem));
+  if(migrate_mut_bindings_on(), {
+    cond(
+      // A write inside a `comptime_expect_error` argument is held until the
+      // case's outcome says whether it expects this error or another one
+      // (`settle_mut_binding_pending`).
+      propagate_def_time_errors() => {
+        if(is_param_like, {
+          record_mut_param_site_pending(tok, &v.name);
+        }, {
+          record_mut_binding_site_pending(&v.token, &v.name);
+        });
+      },
+      is_param_like => record_mut_param_site(tok, &v.name),
+      true => record_mut_binding_site(&v.token, &v.name)
+    );
+    return(());
+  });
+  if(!global_mut_rule_applies(tok, ctx), {
+    return(());
+  });
+  name := v.name.clone();
+  entries := ArrayList(TokenAndError).new();
+  (help : String) = String.new();
+  if(is_param_like, {
+    what_p := cond(
+      v.is_parameter => "a parameter, and a parameter",
+      is_macro_elem => "a binding a macro introduces (a `for` element), and such a binding",
+      true => "a capture-list entry, and a capture-list entry"
+    );
+    entries.push(TokenAndError(token : tok, error_message : `Cannot ${how} \`${name}\`: it is ${what_p} is immutable (plans/VALUES_BY_DEFAULT.md decision 47).`));
+    help = if(
+      is_macro_elem,
+      `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`), or loop with \`for(&mut coll, ${name} => ...)\` to write each element in place`,
+      `rebind it to a mutable local and write that (\`mut(${name}_m) := ${name};\`, a move, not a copy, for an owning value), or take \`${name} : &mut T\` if the caller's value should change`
+    );
+  }, {
+    what := cond(
+      v.is_compile_time_only => "a compile-time binding declared without `mut`",
+      !v.is_reassignable => "a pattern binding declared without `mut`",
+      true => "a binding declared without `mut`"
+    );
+    entries.push(TokenAndError(token : tok, error_message : `Cannot ${how} \`${name}\`: it is ${what}, so it is immutable (plans/VALUES_BY_DEFAULT.md decision 47).`));
+    entries.push(TokenAndError(token : v.token, error_message : `\`${name}\` is declared here; write \`mut(${name})\` to make it mutable:`));
+    help = if(
+      v.is_compile_time_only,
+      `declare it \`mut(${name}) :: ...\` (or \`comptime(mut(${name})) := ...\`); \`yo fix <path> --migrate mut-bindings\` marks every written binding`,
+      `declare it \`mut(${name}) := ...\` (or \`(mut(${name}) : T) = ...\`, \`.Some(mut(${name}))\` in a pattern, \`{ a, mut(${name}) }\` in a destructuring); \`yo fix <path> --migrate mut-bindings\` marks every written binding`
+    );
+  });
+  raise_flow_violation(
+    with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_IMMUTABLE_BINDING_WRITE),
+    ctx,
+    exn
+  );
+});
+/// The binding whose own storage the place `place` names: `x`, a field of a
+/// value struct or tuple under it (`x.f.g`), an element of an `Array` (`x(i)`)
+/// or the pointee of a `Box`-like value (`x.*`). `.None` when a step goes
+/// through a `ref` handle, a collection handle or a raw pointer (the write
+/// lands in storage the binding only points to), or the place is rooted in a
+/// call result.
+place_root_binding :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(place);
+  while(!ast_expr_is_atom(&cur), {
+    (next : AstExpr) = match(
+      cur,
+      .FnCall(_, pr_callee, pr_args, pr_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(pr_args.get(usize(0)), .Some(a) => a, .None => return(Option(Variable).None)),
+        ast_expr_is_fn_call_of(&cur, BK_COLON, Option(usize).Some(usize(2))) => match(pr_args.get(usize(1)), .Some(a) => a, .None => return(Option(Variable).None)),
+        pr_infix => return(Option(Variable).None),
+        true => pr_callee
+      ),
+      .Atom(_, _) => cur
+    );
+    if(!ast_expr_is_fn_call_of(&cur, BK_COLON, Option(usize).Some(usize(2))), {
+      obj_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&next)), .Some(oi) => oi.ty, .None => return(Option(Variable).None));
+      in_storage := if(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))),
+        (is_struct_type(&obj_ty) && !is_reference_struct_type(&obj_ty)) || is_tuple_type(&obj_ty),
+        is_array_type(&obj_ty)
+      );
+      if(!in_storage, {
+        return(Option(Variable).None);
+      });
+    });
+    cur = next;
+  });
+  get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last()
+});
+/// Decision 47 step 2: the place `place` (`x`, `x.f`, `x(i)`) is written at
+/// `tok`, by a field or element store, an exclusive lend or a `&mut self`
+/// call. The binding at its root is written unless the place reaches its
+/// storage through a `ref` handle (a `ref` object, today's collections, a
+/// dereference), or is such a handle itself and `handle_ok` (a `&mut self`
+/// call or `&mut` lend of the handle writes what it points to, not the
+/// binding). A module-level root is judged by the globals step at its own
+/// sites, and a compile-time root holds no runtime storage to lend.
+place_require_mut :: (fn(place : &AstExpr, tok : &Token, how : &String, handle_ok : bool, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!g_audit_mut_bindings && !migrate_mut_bindings_on() && !global_mut_rule_applies(tok, ctx), {
+    return(());
+  });
+  rv := match(place_root_binding(place, env, ctx), .Some(v) => v, .None => return(()));
+  if(rv.is_module_level || (handle_ok && rv.is_compile_time_only), {
+    return(());
+  });
+  if(handle_ok, {
+    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => pi.ty, .None => rv.ty.clone());
+    if(_lb_is_cell_type(&place_ty), {
+      return(());
+    });
+  });
+  binding_require_mut(&rv, tok, how, ctx, exn);
 });
 // ---------------------------------------------------------------------------
 // YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §6, item 1)
@@ -6167,3 +6389,4 @@ export(
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
 export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);
+export(mut_binding_audit_enabled, strip_mut_marker, strip_pattern_mut_markers, binding_require_mut, place_require_mut);

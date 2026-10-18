@@ -100,8 +100,8 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
 });
 /// The number of reports whose outcome equals `want`.
 _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> usize)({
-  (n : usize) = usize(0);
-  (i : usize) = usize(0);
+  (mut(n) : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -116,8 +116,8 @@ _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> u
 });
 /// The first report whose outcome equals `want` (asserts existence).
 _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what : &String) -> VerifyFnReport)({
-  (found : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
-  (i : usize) = usize(0);
+  (mut(found) : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
@@ -133,7 +133,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
     .Some(rp) => rp,
     .None => {
       ids := ArrayList(String).new();
-      (j : usize) = usize(0);
+      (mut(j) : usize) = usize(0);
       while(j < reports.len(), {
         match(
           reports.get(j),
@@ -152,8 +152,8 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
 /// Whether any obligation of `rp` has name starting with `prefix` and a
 /// Refuted verdict whose joined counter-example mentions `needle`.
 _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &String) -> bool)({
-  (hit : bool) = false;
-  (i : usize) = usize(0);
+  (mut(hit) : bool) = false;
+  (mut(i) : usize) = usize(0);
   while(i < rp.obligations.len(), {
     match(
       rp.obligations.get(i),
@@ -178,7 +178,7 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
 });
 _join :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
   sb := StringBuilder.new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < ss.len(), {
     match(
       ss.get(i),
@@ -198,7 +198,7 @@ _join :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
 test("subset error: while loop outside the V3 verifiable subset (no solver needed)", {
   reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/subset_while.yo"), io);
   ids := ArrayList(String).new();
-  (di : usize) = usize(0);
+  (mut(di) : usize) = usize(0);
   while(di < reports.len(), {
     match(
       reports.get(di),
@@ -249,13 +249,13 @@ test("positive battery: every function in verify_straight_line proves", {
   });
   reports := _verify_fixture(String.from("./tests/spec/verify_straight_line.test.yo"), io);
   ids := ArrayList(String).new();
-  (bi : usize) = usize(0);
+  (mut(bi) : usize) = usize(0);
   while(bi < reports.len(), {
     match(
       reports.get(bi),
       .Some(br) => {
         ids.push(`${br.fn_id}=${br.outcome}`);
-        (oj : usize) = usize(0);
+        (mut(oj) : usize) = usize(0);
         while(oj < br.obligations.len(), {
           match(
             br.obligations.get(oj),
@@ -287,7 +287,7 @@ test("positive battery: every function in verify_straight_line proves", {
 // `two_divs` were named `…/divisor-nonzero`, and both calls in `two_calls`
 // `…/requires#0`. Obligation generation needs no solver.
 _fn_report_named :: (fn(reports : &ArrayList(VerifyFnReport), fn_suffix : &String) -> Option(VerifyFnReport))({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < reports.len(), {
     rp := reports(i);
     if(rp.fn_id.ends_with(fn_suffix.clone()), {
@@ -298,9 +298,9 @@ _fn_report_named :: (fn(reports : &ArrayList(VerifyFnReport), fn_suffix : &Strin
   Option(VerifyFnReport).None
 });
 _names_unique :: (fn(rp : &VerifyFnReport) -> bool)({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < rp.obligations.len(), {
-    (j : usize) = (i + usize(1));
+    (mut(j) : usize) = (i + usize(1));
     while(j < rp.obligations.len(), {
       if(rp.obligations(i).name == rp.obligations(j).name, {
         return(false);
@@ -328,7 +328,7 @@ test("obligation names are unique and guard obligations carry their site", {
     .Some(rp) => {
       assert(_names_unique(&rp), "two_divs: two divisions give two distinct obligation names");
       (rows : ArrayList(usize)) = ArrayList(usize).new();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < rp.obligations.len(), {
         obl := rp.obligations(i);
         if(obl.name.contains("divisor-nonzero"), {
@@ -357,8 +357,8 @@ test("obligation names are unique and guard obligations carry their site", {
     _fn_report_named(&reports, String.from(":16")),
     .Some(rp2) => {
       assert(_names_unique(&rp2), "two_calls: two calls of safe_div give two distinct requires#0 names");
-      (ri : usize) = usize(0);
-      (n_req : usize) = usize(0);
+      (mut(ri) : usize) = usize(0);
+      (mut(n_req) : usize) = usize(0);
       while(ri < rp2.obligations.len(), {
         o2 := rp2.obligations(ri);
         if(o2.name.contains("requires#0"), {

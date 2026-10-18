@@ -1,0 +1,301 @@
+// Decision 47 step 2 (Generation A): every binding below module level is
+// immutable unless its name is wrapped in `mut(...)`, as Rust's `let mut`
+// (plans/VALUES_BY_DEFAULT.md decision 47, §6 "Decision 47: immutable
+// bindings"). The marker gates four writes of the binding and every place
+// under it: reassignment, a field or element write, a `&mut` lend and a
+// `&mut self` call. Each is E0917 on an unmarked local, pattern,
+// destructuring or compile-time binding. A `ref` handle the binding holds
+// (today's collections) is a pointer: writing through it needs no marker,
+// and reassigning the binding does. Parameters take no `mut`: a body
+// rebinds one (`mut(y) := x`), and `mut(x) : T` on a parameter is the
+// deleted borrow spelling, E0009. Module-level bindings are
+// tests/global_lend.test.yo.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+_MbPoint :: struct(x : i32, y : i32);
+derive(_MbPoint, Copy, Clone);
+impl(
+  _MbPoint,
+  shift : (fn(self : &mut Self, d : i32) -> unit)({
+    self.x = (self.x + d);
+  }),
+  sum : (fn(self : &Self) -> i32)(self.x + self.y)
+);
+_mb_bump :: (fn(p : &mut _MbPoint) -> unit)({
+  p.y = (p.y + i32(1));
+});
+_mb_read :: (fn(p : &_MbPoint) -> i32)(p.x);
+_MbHandle :: ref(struct(n : i32));
+_MbToken :: struct(n : i32);
+
+test("each of the four writes is accepted on a mut(...) local", {
+  mut(n) := i32(1);
+  n = (n + i32(1));
+  assert(n == i32(2), "reassigned");
+  mut(p) := _MbPoint(x : i32(1), y : i32(2));
+  p.x = i32(10);
+  assert(p.x == i32(10), "field written");
+  _mb_bump(&mut p);
+  assert(p.y == i32(3), "lent `&mut`");
+  p.shift(i32(5));
+  assert(p.x == i32(15), "`&mut self` called");
+  mut(a) := Array(i32, 3)(i32(1), i32(2), i32(3));
+  a(usize(0)) = i32(7);
+  assert(a(usize(0)) == i32(7), "element written");
+  mut(s) := String.from("a");
+  s.push_str("b");
+  assert(s == String.from("ab"), "a `&mut self` call on a String value");
+});
+
+test("each of the four writes to an unmarked local is E0917", {
+  comptime_expect_error({
+    n := i32(1);
+    n = i32(2);
+  }, "Cannot assign to `n`: it is a binding declared without `mut`");
+  comptime_expect_error({
+    p := _MbPoint(x : i32(1), y : i32(2));
+    p.x = i32(3);
+  }, "Cannot write a field of `p`");
+  comptime_expect_error({
+    a := Array(i32, 3)(i32(1), i32(2), i32(3));
+    a(usize(0)) = i32(7);
+  }, "Cannot write an element of `a`");
+  comptime_expect_error({
+    p := _MbPoint(x : i32(1), y : i32(2));
+    _mb_bump(&mut p);
+  }, "Cannot lend `&mut` (a `&mut` argument) `p`");
+  comptime_expect_error({
+    p := _MbPoint(x : i32(1), y : i32(2));
+    p.shift(i32(1));
+  }, "Cannot lend `&mut` (the receiver of a `self : &mut Self` method) `p`");
+  comptime_expect_error({
+    s := String.from("a");
+    s.push_str("b");
+  }, "declared without `mut`");
+  comptime_expect_error({
+    p := _MbPoint(x : i32(1), y : i32(2));
+    _r := &mut p;
+  }, "Cannot lend `&mut` (a local `&mut` borrow) `p`");
+});
+
+test("reading, `&` lends and `&self` calls need no mut", {
+  p := _MbPoint(x : i32(4), y : i32(5));
+  assert(_mb_read(&p) == i32(4), "a `&` argument");
+  assert(p.sum() == i32(9), "a `&self` receiver");
+  q := p;
+  assert(q.x == i32(4), "a copy out");
+});
+
+test("a ref handle is written through without mut, and reassigned with it", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  assert(xs.len() == usize(2), "`&mut self` on a collection handle");
+  h := _MbHandle(n : i32(1));
+  h.n = i32(2);
+  assert(h.n == i32(2), "a field of a `ref` object");
+  comptime_expect_error({
+    ys := ArrayList(i32).new();
+    ys = ArrayList(i32).new();
+  }, "Cannot assign to `ys`");
+  mut(zs) := ArrayList(i32).new();
+  zs = ArrayList(i32).new();
+  assert(zs.len() == usize(0), "a mut(...) handle is reassigned");
+});
+
+// issues/fixed/2026-10-17-std-time-read-only-methods-take-self-mut.md:
+// a read-only std method takes `self : &Self`, so an unmarked binding calls it.
+test("a read-only std method needs no mut on its receiver", {
+  d := Duration.from_millis(i64(1500));
+  assert(d.as_secs() == i64(1), "as_secs");
+  assert(d.subsec_millis() == i64(500), "subsec_millis");
+  assert(!d.is_zero(), "is_zero");
+  e := d.add(Duration.from_secs(i64(1)));
+  assert(e.as_millis() == i64(2500), "add returns a new value");
+  t := Instant.now();
+  _el := t.elapsed();
+  a := Array(i32, 3)(i32(1), i32(2), i32(3));
+  assert(a.len() == usize(3), "Array.len takes `&self`");
+});
+
+test("typed declarations take mut(...) around the name", {
+  (mut(t) : i32) = i32(1);
+  t = i32(2);
+  assert(t == i32(2), "(mut(t) : T) = v");
+  mut(u) : i32;
+  u = i32(1);
+  u = i32(3);
+  assert(u == i32(3), "(mut(u) : T); then two assignments");
+  comptime_expect_error({
+    (w : i32) = i32(1);
+    w = i32(2);
+  }, "Cannot assign to `w`");
+});
+
+test("the first assignment of a binding declared without a value initializes it", {
+  v : i32;
+  v = i32(4);
+  assert(v == i32(4), "one assignment initializes");
+  b : i32;
+  cond(
+    (v > i32(2)) => {
+      b = i32(1);
+    },
+    true => {
+      b = i32(2);
+    }
+  );
+  assert(b == i32(1), "each branch initializes once");
+  comptime_expect_error({
+    k : i32;
+    k = i32(1);
+    k = i32(2);
+  }, "Cannot assign to `k`");
+});
+
+test("a pattern binding takes mut(...) per name", {
+  opt := Option(i32).Some(i32(4));
+  r := match(
+    opt,
+    .Some(mut(v)) => {
+      v = (v + i32(1));
+      v
+    },
+    .None => i32(0)
+  );
+  assert(r == i32(5), ".Some(mut(v))");
+  r2 := match(
+    opt,
+    (mut(w) := .Some(_)) => {
+      w = Option(i32).None;
+      match(w, .Some(_) => i32(1), .None => i32(2))
+    },
+    .None => i32(0)
+  );
+  assert(r2 == i32(2), "(mut(w) := p)");
+  comptime_expect_error(
+    match(
+      opt,
+      .Some(v) => {
+        v = (v + i32(1));
+        v
+      },
+      .None => i32(0)
+    ),
+    "a pattern binding declared without `mut`"
+  );
+});
+
+test("a destructuring takes mut(...) per name", {
+  pt := _MbPoint(x : i32(1), y : i32(2));
+  { x, mut(y) } := pt;
+  y = (y + x);
+  assert(y == i32(3), "{ x, mut(y) }");
+  { x : px, y : mut(py) } := pt;
+  py = (py + px);
+  assert(py == i32(3), "{ y : mut(py) }");
+  (first, mut(second)) := (i32(1), i32(2));
+  second = (second + first);
+  assert(second == i32(3), "(a, mut(b))");
+  comptime_expect_error({
+    { x : qx, y : qy } := pt;
+    qy = qx;
+  }, "a pattern binding declared without `mut`");
+});
+
+test("a compile-time binding is mutable only as mut(x) :: or comptime(mut(x)) :=", {
+  mut(c) :: 12;
+  c = (c + 1);
+  comptime_assert(c == 13, "mut(c) :: 12 is reassigned at compile time");
+  comptime(mut(d)) := 20;
+  d = (d + 2);
+  comptime_assert(d == 22, "comptime(mut(d)) := 20 is reassigned");
+  comptime_expect_error({
+    e :: 12;
+    e = 13;
+  }, "Cannot assign to `e`: it is a compile-time binding declared without `mut`");
+  comptime_expect_error({
+    comptime(f) := 12;
+    f = 13;
+  }, "Cannot assign to `f`: it is a compile-time binding declared without `mut`");
+});
+
+test("a runtime write to a mut(x) :: binding is still E0918", {
+  n := i32(3);
+  comptime_expect_error({
+    mut(g) :: i32(1);
+    g = n;
+  }, "Cannot assign a runtime value to \"g\"");
+});
+
+test("a parameter takes no mut: the body rebinds it, and the rebind moves", {
+  _mb_shifted :: (fn(p : _MbPoint) -> i32)({
+    mut(q) := p;
+    q.x = (q.x + i32(1));
+    q.x
+  });
+  assert(_mb_shifted(_MbPoint(x : i32(1), y : i32(0))) == i32(2), "a rebind is written");
+  comptime_expect_error(
+    (fn(p : _MbPoint) -> i32)({
+      p.x = i32(1);
+      p.x
+    }),
+    "Cannot write a field of `p`: it is a parameter"
+  );
+  comptime_expect_error(
+    (fn(mut(n) : i32) -> i32)(n),
+    "`mut(x)` was deleted: an exclusive borrow is spelled `x : &mut T`"
+  );
+  // A move-only value (plain data without `Copy`) moves into the rebind.
+  tk := _MbToken(n : i32(1));
+  mut(tk2) := tk;
+  tk2.n = i32(2);
+  assert(tk2.n == i32(2), "the rebind owns the value");
+  comptime_expect_error(tk.n, "use of moved value");
+});
+
+test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
+  mut(o) := Option(_MbPoint).Some(_MbPoint(x : i32(1), y : i32(1)));
+  match(
+    &mut o,
+    .Some(p) => {
+      p.x = i32(9);
+    },
+    .None => ()
+  );
+  assert(match(o, .Some(p) => p.x, .None => i32(0)) == i32(9), "written in place");
+  comptime_expect_error({
+    o2 := Option(_MbPoint).None;
+    match(
+      &mut o2,
+      .Some(p) => {
+        p.x = i32(9);
+      },
+      .None => ()
+    );
+  }, "a `&mut` match scrutinee");
+  mut(z) := i32(1);
+  {
+    (bump : Impl(Fn() -> unit)) = ({ &mut z }() => {
+      z = (z + i32(1));
+    });
+    bump();
+  };
+  assert(z == i32(2), "a `&mut` capture of a mut(...) local");
+  comptime_expect_error({
+    z2 := i32(1);
+    (_f : Impl(Fn() -> unit)) = ({ &mut z2 }() => {
+      z2 = i32(2);
+    });
+  }, "a `&mut` capture");
+});
+
+// A module-level compile-time binding reassigned while compiling takes the
+// marker too (decision 47's open point: whether module level allows
+// `mut(x) ::` at all is still to be settled; Generation A accepts it).
+mut(_MB_MODULE_COUNTER) :: 1;
+_MB_MODULE_COUNTER = 2;
+comptime_assert(_MB_MODULE_COUNTER == 2);

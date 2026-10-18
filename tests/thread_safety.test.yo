@@ -241,7 +241,7 @@ _arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
 test("private _-field accessible in same file", {
   MyType :: struct(_secret : i32);
   derive(MyType, Copy, Clone);
-  v := MyType(i32(42));
+  mut(v) := MyType(i32(42));
   assert(v._secret == i32(42), "should access _-prefixed field in same file");
   v._secret = i32(99);
   assert(v._secret == i32(99), "should write _-prefixed field in same file");

@@ -21,7 +21,7 @@ test("inout binding to the container variable survives container growth", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
   r := &mut xs;
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(64), {
     r.push(String.from("filler"));
     i = (i + usize(1));
@@ -51,7 +51,7 @@ test("get handle survives container growth", {
   xs := ArrayList(String).new();
   xs.push(String.from("element-zero"));
   e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(64), {
     xs.push(String.from("filler"));
     i = (i + usize(1));
@@ -65,7 +65,7 @@ test("get handle survives container growth", {
 // was a compile error under the old gates; under the value model it is
 // simply safe.
 test("container freely reassignable while holding an element handle", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("element-zero"));
   e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   xs = ArrayList(String).new();
@@ -78,7 +78,7 @@ test("container freely reassignable while holding an element handle", {
 test("object element mutates in place through a get handle", {
   xs := ArrayList(String).new();
   xs.push(String.from("hello"));
-  e := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
+  mut(e) := match(xs.get(usize(0)), .Some(s) => s, .None => String.new());
   e.push_str(" world");
   assert(match(xs.get(usize(0)), .Some(s) => (s == "hello world"), .None => false), "mutated in place");
 });

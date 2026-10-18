@@ -125,7 +125,7 @@ comptime_expect_error({
 // Canary: the struct that holds the `Arc` is still a plain value: its own
 // fields are written, and the `Arc`'s payload is read, as before.
 test("D3 canary: a struct holding an Arc writes its own fields and reads through the Arc", {
-  h := Holder(a : arc(Counter(n : i32(4))), n : i32(0));
+  mut(h) := Holder(a : arc(Counter(n : i32(4))), n : i32(0));
   h.n = i32(2);
   assert((h.n + h.a.*.n) == i32(6), "the field write landed and the payload read through the Arc");
 });
@@ -156,7 +156,7 @@ test("D3 canary: a read-only inout(self) method and ToString through an Arc are 
 // Canary: a local COPY of the value is not an atomic root.
 test("D3 canary: mutating a local copy taken out of an Arc is legal", {
   a := arc(Counter(n : i32(0)));
-  c := a.*;
+  mut(c) := a.*;
   c.bump();
   assert(c.n == i32(1), "the copy was bumped");
   assert(a.*.n == i32(0), "the Arc's value is untouched");
@@ -244,7 +244,7 @@ comptime_expect_error({
 // parameter, inside `Mutex.with_lock`, and reads through an `Arc` stay legal.
 _take_through_mut :: (fn(s : &mut Slot) -> Option(i64))(s.o.take());
 test("D3 canary: std mutators on owned values, through &mut, and under a lock", {
-  s := Slot(o : Option(i64).Some(i64(1)));
+  mut(s) := Slot(o : Option(i64).Some(i64(1)));
   assert(s.o.take() == Option(i64).Some(i64(1)), "take on an owned value");
   assert(s.o.is_none(), "the owned value was taken");
   _p := s.o.replace(i64(5));

@@ -19,7 +19,7 @@ impl(
   )
 );
 test("Test ClosureType({...}) to create closure value", {
-  x := 1;
+  mut(x) := 1;
   ClosureType :: Impl(Fn(y : i32) -> i32);
   T :: Type.to_comptime_string(ClosureType);
   closure := ClosureType({
@@ -35,7 +35,7 @@ test("Test ClosureType({...}) to create closure value", {
   assert(result == 5, "Expected final result to be 5");
 });
 test("Test anonymous closure value =>", {
-  x := 1;
+  mut(x) := 1;
   (closure : Impl(Fn(y : i32) -> i32)) = (
     y => {
       x = (x + y);
@@ -118,18 +118,18 @@ test("Test multiple expected errors", {
   comptime_expect_error({
     a := 1;
     b := 2;
-    closure : Impl(Fn(y : i32) -> i32);
+    mut(closure) : Impl(Fn(y : i32) -> i32);
     closure = (y => (y + a));
     closure = (y => (y + b));
   }, "Cannot reassign variable \"closure\" of type Impl");
   comptime_expect_error({
     a := 1;
-    (closure : Impl(Fn(y : i32) -> i32)) = (y => (y + a));
+    (mut(closure) : Impl(Fn(y : i32) -> i32)) = (y => (y + a));
     closure = (y => (y + a));
   }, "Cannot reassign variable \"closure\" of type Impl");
 });
 test("Test closure with Dyn", {
-  x := 1;
+  mut(x) := 1;
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
     rc(y => {
       x = (x + y);
@@ -847,7 +847,7 @@ test("decision 44: a reassignment or field write of a bare closure into Dyn(Fn) 
   n := i32(3);
   (f1 : Impl(Fn() -> i32)) = (() => n);
   (f2 : Impl(Fn() -> i32)) = (() => n);
-  (d : Dyn(Fn() -> i32)) = dyn(() => i32(1));
+  (mut(d) : Dyn(Fn() -> i32)) = dyn(() => i32(1));
   comptime_expect_error(d = f1, "Write `dyn(f1)`");
   h := _d44_hold(f : dyn(() => i32(1)));
   comptime_expect_error(h.f = f2, "Write `dyn(f2)`");

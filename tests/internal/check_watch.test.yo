@@ -85,7 +85,7 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   //    sizes flat (B2 purge-on-invalidation, consumed by watch_round).
   ttm_before := type_trait_methods_entry_count();
   gi_before := generic_impl_entry_count();
-  (r : usize) = usize(0);
+  (mut(r) : usize) = usize(0);
   while(r < usize(5), {
     _f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
     r = (r + usize(1));
@@ -270,7 +270,7 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   // registries flat.
   ttm_before := type_trait_methods_entry_count();
   gi_before := generic_impl_entry_count();
-  (r : usize) = usize(0);
+  (mut(r) : usize) = usize(0);
   while(r < usize(5), {
     body := cond(((r % usize(2)) == usize(0)) => _P3B_LIB_V1, true => _P3B_LIB_V2);
     io.await(write_string(Path.new(lib_path.clone()), String.from(body), io), ioexn);
@@ -392,8 +392,8 @@ test("Phase 3b: a DIRECTORY check attributes destructured reads to the right mod
   plan := mm_revalidate_plan(lib_path.clone());
   assert(plan.is_some(), "a signature-stable body edit must produce a per-def plan");
   p := match(plan, .Some(pp) => pp, .None => p0());
-  (second_is_fallback : bool) = false;
-  (fi : usize) = usize(0);
+  (mut(second_is_fallback) : bool) = false;
+  (mut(fi) : usize) = usize(0);
   while(fi < p.fallback_modules.len(), {
     match(
       p.fallback_modules.get(fi),
@@ -486,7 +486,7 @@ _def_int_value :: (fn(module_key : &String, name : &String) -> String)(
   match(
     finished_walk_for(module_key),
     .Some(w) => {
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < w.defs.len(), {
         match(
           w.defs.get(i),

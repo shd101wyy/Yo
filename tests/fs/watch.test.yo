@@ -52,9 +52,9 @@ test("watch a directory: creating a file produces events, poll drains them", {
   io.await(sleep(u64(250)), io);
   first := w.poll();
   assert(first.is_some(), "an event was queued for the new file");
-  (saw_target : bool) = false;
-  (ev : Option(FsEventKind)) = Option(FsEventKind).None;
-  cur := first;
+  (mut(saw_target) : bool) = false;
+  (mut(ev) : Option(FsEventKind)) = Option(FsEventKind).None;
+  mut(cur) := first;
   while(cur.is_some(), {
     e := cur.unwrap();
     if(e.name == "yo_watch_poll.txt", {
@@ -86,7 +86,7 @@ test("next(io) resolves when an event arrives and .None after close", {
   ev := io.await(w.next(io), io);
   assert(ev.is_some(), "next resolved with an event");
   // drain whatever else the backend coalesced, then close: next must not hang
-  (more : Option(FsEvent)) = w.poll();
+  (mut(more) : Option(FsEvent)) = w.poll();
   while(more.is_some(), {
     more = w.poll();
   });
@@ -159,7 +159,7 @@ test("a watcher dropped without close() releases its backend handle", {
   d := temp_dir();
   probe := path_join(&d, `yo_watch_fd_probe.txt`);
   base := _probe_fd(&probe, io);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(200), {
     assert(
       _watch_and_drop(&d),
@@ -222,7 +222,7 @@ test("a Watcher is a Stream: map + take collects one event name", {
   );
   assert(got.len() == usize(1), "take(1) ends the stream after one event");
   assert(got(usize(0)).len() > usize(0), "the mapped item is the entry name");
-  (more : Option(FsEvent)) = w.poll();
+  (mut(more) : Option(FsEvent)) = w.poll();
   while(more.is_some(), {
     more = w.poll();
   });
@@ -263,8 +263,8 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
 
   _touch(&root_target, String.from("one"), io);
   io.await(sleep(u64(250)), io);
-  (saw_root : bool) = false;
-  cur := w.poll();
+  (mut(saw_root) : bool) = false;
+  mut(cur) := w.poll();
   while(cur.is_some(), {
     e := cur.unwrap();
     if(e.name == String.from("yo_watch_recur_root.txt"), {
@@ -276,7 +276,7 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
 
   _touch(&sub_target, String.from("two"), io);
   io.await(sleep(u64(250)), io);
-  (saw_child : bool) = false;
+  (mut(saw_child) : bool) = false;
   cur = w.poll();
   while(cur.is_some(), {
     e := cur.unwrap();
@@ -304,8 +304,8 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
 // of waiting cost ~300 ms of CPU. It now parks, and the event callback wakes
 // it (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
 _cpu_ms :: (fn() -> i64)({
-  sec_buf := MaybeUninit(i64).new();
-  nsec_buf := MaybeUninit(i64).new();
+  mut(sec_buf) := MaybeUninit(i64).new();
+  mut(nsec_buf) := MaybeUninit(i64).new();
   sec := (*i64)(sec_buf.as_ptr());
   nsec := (*i64)(nsec_buf.as_ptr());
   // CLOCK_PROCESS_CPUTIME_ID: 2 on Linux, 12 on macOS.
@@ -367,13 +367,13 @@ test("a directory watch does not rescan the directory on every loop pass", {
   );
   d := path_join(temp_dir(), `yo_watch_busy_dir`);
   _mk := io.await(dir.mkdir(AT_FDCWD, d.to_cstr().ptr().unwrap(), i32(0o755)), io);
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(300), i = (i + i32(1)), {
     _touch(path_join(&d, `f${i}`), String.from("x"), io);
   });
   w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
   t0 := _cpu_ms();
-  (k : i32) = i32(0);
+  (mut(k) : i32) = i32(0);
   while(k < i32(20000), k = (k + i32(1)), {
     io.await(yield(io), io);
   });
@@ -381,7 +381,7 @@ test("a directory watch does not rescan the directory on every loop pass", {
   println(`  CPU for 20000 loop passes under a 300-entry directory watch: ${spent} ms`);
   assert(spent < i64(1500), "the watch did not rescan the directory on every pass");
   w.close();
-  (j : i32) = i32(0);
+  (mut(j) : i32) = i32(0);
   while(j < i32(300), j = (j + i32(1)), {
     _unlink(path_join(&d, `f${j}`), io);
   });

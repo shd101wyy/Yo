@@ -36,7 +36,7 @@ impl(
     io.async(e => {
       self.reads = (self.reads + usize(1));
       limit := cond((self.chunk < size) => self.chunk, true => size);
-      n := usize(0);
+      mut(n) := usize(0);
       while(runtime((n < limit) && (self.pos < self.data.len())), {
         consume((buf.add(n)).* = self.data(self.pos));
         self.pos = (self.pos + usize(1));

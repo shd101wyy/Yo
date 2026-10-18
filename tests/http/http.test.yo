@@ -224,7 +224,7 @@ _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)
   io.async(e => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
-    eof := false;
+    mut(eof) := false;
     while(runtime(!eof && !_ends_headers(&bytes)), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
       cond(
@@ -232,7 +232,7 @@ _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)
           eof = true;
         },
         true => {
-          i := usize(0);
+          mut(i) := usize(0);
           while(runtime(i < n), {
             bytes.push((buf.add(i)).*);
             i = (i + usize(1));
@@ -253,7 +253,7 @@ _serve_scripted :: (
     Impl(Future(unit, IoExn))
 )(
   io.async(e => {
-    k := usize(0);
+    mut(k) := usize(0);
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_read_request(&s, e.io), e);
@@ -356,8 +356,8 @@ test("fetch throws ResponseTooLarge past max_response_bytes", {
   );
   addr := SocketAddr.loopback(u16(19963));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  body := String.new();
-  i := usize(0);
+  mut(body) := String.new();
+  mut(i) := usize(0);
   while(runtime(i < usize(300)), {
     body.push_str("x");
     i = (i + usize(1));
@@ -417,8 +417,8 @@ _hex :: (fn(n : usize) -> String)({
   cond(
     (n == usize(0)) => `0`,
     true => {
-      s := String.new();
-      m := n;
+      mut(s) := String.new();
+      mut(m) := n;
       while(m > usize(0), m = (m / usize(16)), {
         s = `${digits.substring(m % usize(16), (m % usize(16)) + usize(1))}${s}`;
       });
@@ -427,8 +427,8 @@ _hex :: (fn(n : usize) -> String)({
   )
 });
 _chunked :: (fn(chunks : &ArrayList(String), trailer : &String) -> String)({
-  out := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
-  i := usize(0);
+  mut(out) := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
+  mut(i) := usize(0);
   while(i < chunks.len(), i = (i + usize(1)), {
     c := chunks(i);
     out = `${out}${_hex(c.to_bytes().len())}\r\n${c}\r\n`;
@@ -533,7 +533,7 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   responses.push(`garbage\r\n\r\n`);
   seen := rc(ArrayList(String).new());
   server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
-  (outcome : Option(HttpResponse)) = Option(HttpResponse).None;
+  (mut(outcome) : Option(HttpResponse)) = Option(HttpResponse).None;
   {
     client := io.spawn(fetch_with(`http://127.0.0.1:19967/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : garbage_exn));
     outcome = client.await(io);
@@ -1047,14 +1047,14 @@ _ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : &_KaStats, io : Io) -> 
     // ONE carry list for the whole connection: a single `read` can deliver
     // the end of this request and the start of the next.
     carry := rc(ArrayList(u8).new());
-    open := true;
+    mut(open) := true;
     while(runtime(open), {
       framed := e.io.await(
         _wire.read_http_message_buffered(stream, usize(0), _wire.MessageKind.Request, &carry, e.io),
         e
       );
       raw := match(framed, .Ok(x) => x, .Err(_) => String.new());
-      (answer : String) = String.new();
+      (mut(answer) : String) = String.new();
       cond(
         raw.is_empty() => {
           open = false;
@@ -1113,7 +1113,7 @@ _ka_serve :: (
 )(
   io.async(e => {
     held := ArrayList(TcpStream).new();
-    n := usize(0);
+    mut(n) := usize(0);
     while(runtime(n < max_conns), {
       stream := e.io.await(listener.accept(e.io), e);
       stats.accepts = (stats.accepts + usize(1));
@@ -1129,7 +1129,7 @@ _ka_serve :: (
       );
       e.io.await(_ka_conn(&stream, mode, stats, e.io), e);
     });
-    i := usize(0);
+    mut(i) := usize(0);
     while(runtime(i < held.len()), {
       s := held(i);
       e.io.await(s.close(e.io), e);
@@ -1581,7 +1581,7 @@ impl(
       // unrewritten before the "one capture predicate" codegen fix, and this
       // file has to build under an older seed as well.
       room := size;
-      n := usize(0);
+      mut(n) := usize(0);
       while(runtime((n < room) && (self.pos < self.data.len())), {
         consume((buf.add(n)).* = self.data(self.pos));
         self.pos = (self.pos + usize(1));

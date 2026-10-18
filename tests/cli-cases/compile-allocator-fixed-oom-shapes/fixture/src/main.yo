@@ -28,7 +28,7 @@ _child_task :: (fn(io : Io) -> unit)({
   // a long timer: its state stays allocated. A body that finishes at once
   // frees its slot, and the heap never fills (it used to fill only through
   // the slot leak #1093 fixed).
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(65536), {
     io.spawn(
       io.async((io : Io) => {
@@ -41,16 +41,16 @@ _child_task :: (fn(io : Io) -> unit)({
   });
 });
 _child_thread :: (fn() -> unit)({
-  (head : Option(ThreadChain)) = Option(ThreadChain).None;
-  (i : usize) = usize(0);
+  (mut(head) : Option(ThreadChain)) = Option(ThreadChain).None;
+  (mut(i) : usize) = usize(0);
   while(i < usize(65536), {
     head = Option(ThreadChain).Some(ThreadChain(t : Thread(unit).spawn(io => ()), next : head));
     i = (i + usize(1));
   });
 });
 _child_string :: (fn() -> unit)({
-  (s : String) = String.new();
-  (i : usize) = usize(0);
+  (mut(s) : String) = String.new();
+  (mut(i) : usize) = usize(0);
   while(i < usize(65536), {
     s.push_str("0123456789abcdef");
     i = (i + usize(1));
@@ -94,7 +94,7 @@ main :: (fn(io : Io) -> unit)({
   for(shapes, shape => {
     out := io.await(Command.new(&argv(usize(0))).arg(shape.clone()).env_clear().output(io), IoExn(io : io, exn : exn));
     text := String.from_bytes(out.stderr);
-    (found : bool) = false;
+    (mut(found) : bool) = false;
     for(text.split("\n"), line => {
       if(_is_alloc_diagnostic(&line), {
         found = true;

@@ -182,19 +182,19 @@ test("imm parameters borrow", {
 });
 
 test("mut parameters are inout parameters", {
-  (c : i32) = i32(1);
+  (mut(c) : i32) = i32(1);
   _pm_inc(&mut c);
   assert(c == i32(2), "&mut c lends c to a mut parameter");
   _pm_inc(&mut c);
   assert(c == i32(3), "a bare argument to a mut parameter still lends the place");
-  (x : i32) = i32(1);
-  (y : i32) = i32(2);
+  (mut(x) : i32) = i32(1);
+  (mut(y) : i32) = i32(2);
   _pm_swap(&mut x, &mut y);
   assert((x == i32(2)) && (y == i32(1)), "swap through two &mut arguments");
 });
 
 test("&mut lends a field place", {
-  h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
+  mut(h) := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
   _pm_push_seven(&mut h.items);
   _pm_inc(&mut h.n);
   assert(h.items.len() == usize(1), "the push landed in h.items");
@@ -202,7 +202,7 @@ test("&mut lends a field place", {
 });
 
 test("imm and mut receivers", {
-  (c : _PmCounter) = _PmCounter(n : i32(4));
+  (mut(c) : _PmCounter) = _PmCounter(n : i32(4));
   c.bump(i32(3));
   assert(c.get() == i32(7), "mut(self) writes the receiver; imm(self) reads it");
   assert(c.show() == i32(70), "an imm(self) impl satisfies a trait's plain self method");
@@ -223,7 +223,7 @@ test("a mode is part of the fn type, for every type", {
 test("Fn traits spelled with imm and mut", {
   s := String.from("four");
   assert(_pm_apply_imm(t => t.len(), &s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
-  (v : i32) = i32(1);
+  (mut(v) : i32) = i32(1);
   _pm_apply_mut(n => {
     n = (n + i32(10));
   }, &mut v);
@@ -231,7 +231,7 @@ test("Fn traits spelled with imm and mut", {
 });
 
 test("mut(y) := place is inout(y) := place", {
-  (x : i32) = i32(1);
+  (mut(x) : i32) = i32(1);
   y := &mut x;
   y = i32(5);
   assert(y == i32(5), "read through y");
@@ -239,14 +239,14 @@ test("mut(y) := place is inout(y) := place", {
   x = i32(6);
   z := &mut x;
   assert(z == i32(6), "mut(z) := names the same place");
-  h := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
+  mut(h) := _PmHolder(items : ArrayList(i32).new(), n : i32(0));
   n := &mut h.n;
   n = i32(9);
   assert(h.n == i32(9), "a field place");
 });
 
 test("&x and &mut x scrutinees match the place", {
-  (o : Option(i32)) = .Some(i32(3));
+  (mut(o) : Option(i32)) = .Some(i32(3));
   r := match(&o, .Some(v) => v, .None => i32(0));
   assert(r == i32(3), "match(&o, ...) reads o");
   r2 := match(&mut o, .Some(v) => (v + i32(1)), .None => i32(0));
@@ -277,7 +277,7 @@ _PmTable :: struct(n : u64);
 impl(
   _PmTable,
   _digest : (fn(self : &Self, key : &mut String) -> u64)({
-    h := DefaultHasher.new();
+    mut(h) := DefaultHasher.new();
     key.hash(&mut h);
     h.finish() % self.n
   }),
@@ -395,7 +395,7 @@ test("a function-typed parameter checks the whole signature of a concrete slot",
 
 test("a function value whose modes are the slot's is accepted", {
   s := String.from("abc");
-  (n : i32) = i32(1);
+  (mut(n) : i32) = i32(1);
   assert(_pm_call_hook(_pm_len, &s) == usize(3), "an imm function for an imm slot");
   assert(_pm_call_hook(_PmLens.lent, &s) == usize(3), "an imm method value");
   (h : _PmHook) = _pm_len;
@@ -468,7 +468,7 @@ _pm_read_place :: (fn(p : &mut _PmPair) -> usize)(
   )
 );
 test("match(&mut x, …) binds mut places", {
-  (o : Option(i32)) = .Some(i32(1));
+  (mut(o) : Option(i32)) = .Some(i32(1));
   match(
     &mut o,
     .Some(n) => {
@@ -481,16 +481,16 @@ test("match(&mut x, …) binds mut places", {
   assert(match(o, .Some(v) => v, .None => i32(0)) == i32(12), "a mut parameter's match binds places too");
 });
 test("a mut place of a counted payload replaces it in the scrutinee", {
-  (os : Option(String)) = .Some(String.from("old"));
+  (mut(os) : Option(String)) = .Some(String.from("old"));
   _pm_rename(&mut os);
   assert(match(&os, .Some(s) => (s == String.from("renamed")), .None => false), "the payload was replaced in place");
-  (p : _PmPair) = .P(a : i32(2), b : String.from("abc"));
+  (mut(p) : _PmPair) = .P(a : i32(2), b : String.from("abc"));
   assert(_pm_read_place(&mut p) == usize(5), "places are read through");
 });
 test("a mut place of a move-only payload drops the old value at the write", {
   before := g_pm_disposed;
   {
-    (o : Option(_PmRes)) = .Some(_PmRes(n : i32(1)));
+    (mut(o) : Option(_PmRes)) = .Some(_PmRes(n : i32(1)));
     match(
       &mut o,
       .Some(r) => {
@@ -504,7 +504,7 @@ test("a mut place of a move-only payload drops the old value at the write", {
   assert(g_pm_disposed == (before + i32(2)), "the new payload is dropped once, with o");
 });
 test("the scrutinee is reached only through a live mut place", {
-  (o : Option(i32)) = .Some(i32(1));
+  (mut(o) : Option(i32)) = .Some(i32(1));
   comptime_expect_error(
     match(
       &mut o,
@@ -529,7 +529,7 @@ test("the scrutinee is reached only through a live mut place", {
 _PmPlaceHolder :: struct(o : Option(String), k : i32);
 _PmCell :: ref(struct(o : Option(i32)));
 test("a mut match on a field or a dereference writes the scrutinee's part", {
-  (s : _PmPlaceHolder) = _PmPlaceHolder(o : .Some(String.from("a")), k : i32(0));
+  (mut(s) : _PmPlaceHolder) = _PmPlaceHolder(o : .Some(String.from("a")), k : i32(0));
   match(
     &mut s.o,
     .Some(t) => {
@@ -548,7 +548,7 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
   );
   assert(match(h.o, .Some(v) => v, .None => i32(0)) == i32(2), "a ref object's field was written");
   (o5 : Option(i32)) = .Some(i32(5));
-  b := box(o5);
+  mut(b) := box(o5);
   match(
     &mut b.*,
     .Some(n) => {
@@ -559,7 +559,7 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
   assert(match(b.*, .Some(v) => v, .None => i32(0)) == i32(6), "the box's value was written");
 });
 test("a mut place's writing method writes the scrutinee's part", {
-  (ol : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
+  (mut(ol) : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
   match(
     &mut ol,
     .Some(xs) => xs.push(i32(4)),
@@ -592,13 +592,16 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
     "`mut(x)` was deleted"
   );
   comptime_expect_error((fn(s : String) -> imm(String))(s), "`imm(x)` was deleted");
-  (_c : i32) = i32(0);
+  // `_c` is lent `&mut` below, so it is declared `mut` (decision 47).
+  (mut(_c) : i32) = i32(0);
   comptime_expect_error({
     imm(y) := _c;
   }, "`imm(x)` was deleted");
-  comptime_expect_error({
-    mut(y) := _c;
-  }, "`mut(x)` was deleted");
+  // `mut(y) := place` is no longer a borrow: decision 47 made it a mutable
+  // local holding a copy (tests/mut_bindings.test.yo).
+  mut(c_copy) := _c;
+  c_copy = (c_copy + i32(1));
+  assert((c_copy == i32(1)) && (_c == i32(0)), "mut(c_copy) := _c copies");
   comptime_expect_error({
     y := &mut _c;
     mut(y) = _c;
@@ -662,7 +665,7 @@ test("a later argument cannot move the place an earlier argument lends to the ca
     g(&mut a, _pm_consume(a))
   }, "an earlier argument of the same call lends to it");
   o := _PmRes(n : i32(3));
-  a := _PmRes(n : i32(1));
+  mut(a) := _PmRes(n : i32(1));
   assert(_pm_sync(&mut a, _pm_consume(o)) == i32(4), "a later argument may move another binding");
   assert(a.plus(i32(1)) == i32(5), "the lent place is intact");
 });
@@ -687,36 +690,36 @@ _pm_reset_str :: (fn(p : &mut _PmLentStr) -> i32)({
 });
 test("a later argument cannot overwrite or relend the place an earlier argument lends", {
   comptime_expect_error({
-    p := _PmLentStr(s : String.from("a heap-allocated string longer than the inline size"), k : i32(0));
+    mut(p) := _PmLentStr(s : String.from("a heap-allocated string longer than the inline size"), k : i32(0));
     _pm_str_len(&p.s, {
       p = _PmLentStr(s : String.from("x"), k : i32(1));
       i32(0)
     })
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    p := _PmLentStr(s : String.from("a heap-allocated string longer than the inline size"), k : i32(0));
+    mut(p) := _PmLentStr(s : String.from("a heap-allocated string longer than the inline size"), k : i32(0));
     _pm_str_len(&p.s, _pm_reset_str(&mut p))
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    a := _PmRes(n : i32(1));
+    mut(a) := _PmRes(n : i32(1));
     _pm_sync(&mut a, {
       a = _PmRes(n : i32(10));
       i32(1)
     })
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    a := _PmRes(n : i32(1));
+    mut(a) := _PmRes(n : i32(1));
     _pm_sync(&mut a, _pm_reset(&mut a))
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    a := _PmRes(n : i32(1));
+    mut(a) := _PmRes(n : i32(1));
     a.plus({
       a = _PmRes(n : i32(10));
       i32(1)
     })
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
-    a := _PmRes(n : i32(1));
+    mut(a) := _PmRes(n : i32(1));
     _pm_peek(&a, a.bump(i32(1)))
   }, "the borrow starts when that argument is evaluated");
   comptime_expect_error({
@@ -729,10 +732,10 @@ test("a later argument cannot overwrite or relend the place an earlier argument 
   }, "the borrow starts when that argument is evaluated");
   // A read or a `&` relend of the lent place, and a write to a disjoint
   // field, pass.
-  a := _PmRes(n : i32(1));
+  mut(a) := _PmRes(n : i32(1));
   assert(_pm_sync(&mut a, a.plus(i32(1))) == i32(3), "a later argument may read the lent place");
   assert(_pm_peek(&a, _pm_peek(&a, i32(0))) == i32(6), "a later argument may lend the place `&` again");
-  p := _PmLentStr(s : String.from("hello"), k : i32(0));
+  mut(p) := _PmLentStr(s : String.from("hello"), k : i32(0));
   assert(
     _pm_str_len(&p.s, {
       p.k = i32(3);
@@ -803,7 +806,7 @@ test("an operator operand its method borrows cannot be moved by the other operan
     a < _pm_cmp_make(_pm_cmp_eat(a))
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    a := _PmCmp(n : i32(1));
+    mut(a) := _PmCmp(n : i32(1));
     a >= {
       a = _PmCmp(n : i32(5));
       _pm_cmp_make(i32(5))
@@ -871,7 +874,7 @@ impl(_PmKey, Format());
 impl(_PmKey, ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self.n)))));
 impl(_PmKey, Error(source : (fn(self : &Self) -> Option(AnyError))(.None)));
 _pm_hash_of :: (fn(generic(T : Type), x : &T, where(T <: Hash)) -> u64)({
-  h := DefaultHasher.new();
+  mut(h) := DefaultHasher.new();
   x.hash(&mut h);
   h.finish()
 });
@@ -884,7 +887,7 @@ _PmReadOnly :: struct(n : i32);
 impl(_PmReadOnly, ToString(to_string : (fn(self : &Self) -> String)(self.n.to_string())));
 test("Hash, Debug, Format, ToJson and Error.source read a & borrow", {
   k := _PmKey(n : i32(7));
-  h := DefaultHasher.new();
+  mut(h) := DefaultHasher.new();
   k.hash(&mut h);
   assert(_pm_hash_of(&k) == h.finish(), "hashed through a generic &T");
   assert(_pm_finish_of(&h) == h.finish(), "a hasher finished through a generic &H");

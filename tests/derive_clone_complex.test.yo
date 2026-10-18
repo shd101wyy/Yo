@@ -246,7 +246,7 @@ _fold_tree_len :: (fn(t : &FoldTree) -> usize)(match(t, .Branch(cs) => cs.len(),
 test("derive Clone for a nullable-pointer recursive enum over ArrayList(Self)", {
   xs := ArrayList(FoldTree).new();
   xs.push(FoldTree.Leaf);
-  (orig : FoldTree) = FoldTree.Branch(xs);
+  (mut(orig) : FoldTree) = FoldTree.Branch(xs);
   c := orig.clone();
   assert(_fold_tree_len(&c) == usize(1), "the clone holds the child");
   match(

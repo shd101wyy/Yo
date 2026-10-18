@@ -13,7 +13,7 @@ lex_or_panic :: (fn(source : &String, exn : Exception) -> ArrayList(Token))(
 // Filter out Whitespace tokens.
 non_ws :: (fn(toks : &ArrayList(Token)) -> ArrayList(Token))({
   result := ArrayList(Token).new();
-  i := usize(0);
+  mut(i) := usize(0);
   n := toks.len();
   while(i < n, {
     match(
@@ -777,9 +777,9 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
     )
   );
   toks := tokenize(`x : (fn() -> i32)`, `test.yo`, exn);
-  lp := usize(0);
-  rp := usize(0);
-  i := usize(0);
+  mut(lp) := usize(0);
+  mut(rp) := usize(0);
+  mut(i) := usize(0);
   n := toks.len();
   while(i < n, {
     match(
@@ -915,7 +915,7 @@ test("closed operator set: ** splits into two * tokens", {
   );
   toks := non_ws(lex_or_panic(`a ** b`, exn));
   assert(toks.len() == usize(4), "expected 4 tokens: a * * b");
-  (first_star_col : usize) = usize(0);
+  (mut(first_star_col) : usize) = usize(0);
   match(
     toks.get(usize(1)),
     .None => assert(false, "no token at 1"),
@@ -1041,7 +1041,7 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
     }
   );
   // Every token's byte_offset must index `input` back to its own first byte.
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < toks.len(), {
     match(
       toks.get(i),

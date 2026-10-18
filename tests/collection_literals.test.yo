@@ -12,8 +12,8 @@ import("std/fmt");
 test("array_list with multiple i32 elements", {
   xs := array_list(i32(10), i32(20), i32(30));
   assert(xs.len() == usize(3), "len");
-  total := i32(0);
-  it := xs.into_iter();
+  mut(total) := i32(0);
+  mut(it) := xs.into_iter();
   while(true, {
     match(
       it.next(),
@@ -33,7 +33,7 @@ test("array_list rejects empty literal", {
 test("array_list with single element", {
   xs := array_list(i32(42));
   assert(xs.len() == usize(1), "len");
-  it := xs.into_iter();
+  mut(it) := xs.into_iter();
   match(
     it.next(),
     .Some(v) => assert(v == i32(42), "value"),
@@ -43,7 +43,7 @@ test("array_list with single element", {
 test("array_list with String elements (RC types)", {
   xs := array_list(`hello`, `world`);
   assert(xs.len() == usize(2), "len");
-  it := xs.into_iter();
+  mut(it) := xs.into_iter();
   match(
     it.next(),
     .Some(v) => assert(v == `hello`, "first"),
@@ -61,7 +61,7 @@ test("array_list nested literals", {
     array_list(i32(3), i32(4), i32(5))
   );
   assert(outer.len() == usize(2), "outer len");
-  it := outer.into_iter();
+  mut(it) := outer.into_iter();
   match(
     it.next(),
     .Some(v) => assert(v.len() == usize(2), "first inner len"),

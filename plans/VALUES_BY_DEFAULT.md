@@ -156,6 +156,12 @@ Progress:
   - V3 async A5's `Waker.clone` Generation B: `impl(Waker, Clone)` over
     `__yo_waker_clone`, and the cross-thread tests back on `Park` and
     `w.clone()` (#1412).
+  - Decision 47's locals step, Generation A (ahead of V2b Generation B,
+    which its src/std sweep follows): `mut(x)` in every binding position,
+    E0917 for a write to an unmarked local, pattern or compile-time binding
+    outside src/std, `YO_AUDIT_MUT_BINDINGS` and
+    `yo fix --migrate mut-bindings`, with the tests/ sweep (§6
+    "Decision 47" step 2's "as built").
 - **In progress:**
   - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
     over futures, blocked on `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`)
@@ -163,7 +169,7 @@ Progress:
 - **Next:** decision 47's globals step, Generation B (on the next seed),
   the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
-  carrying A1), decision 47's locals step, the allocator interface version 2
+  carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
   (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
@@ -7550,6 +7556,67 @@ once `SEED_VERSION` parses it.
      everywhere.
    - Order: after V2b Generation B and before decision 43, so that
      decision 43's `&mut` rules can assume `mut`.
+   - **Census (2026-10-18, `YO_AUDIT_MUT_BINDINGS=1` with the Generation A
+     binary on `feat/vbd-d47-locals-gena`, `check ./src` and `check ./std`;
+     the tests row is the migration's own count).** Unique write sites of a
+     binding below module level. Today's `ref`-handle collections are written
+     through and not counted; a `(x : T);` declaration's first assignment is
+     not a write:
+
+     | Tree | Write sites | Bindings to mark | Reassign | `&mut` lend / `&mut self` | Field / element | Parameter writes | Handle writes (not counted; 2026-10-16 census branch) |
+     | --- | --- | --- | --- | --- | --- | --- | --- |
+     | src | 15,229 | 9,547 | 11,216 | 3,875 | 138 | 1 | 5,773 |
+     | std | 1,484 | 1,068 | 1,281 | 138 | 65 | 1 | 480 |
+     | tests | — | 2,370 marked by `yo fix --migrate mut-bindings` (2,117 language tests, 243 `tests/internal`, 10 fixtures) | — | — | — | 9, rebound by hand | 2,136 |
+
+     The handle column is what V2b Generation B adds once the collections
+     are values (5,773 more sites in src alone), which is why the src/std
+     sweep follows V2b Generation B. The 2026-10-16 census-branch run counted
+     12,797 src and 1,517 std sites with an earlier rule (no capture-list or
+     `for`-element classification, std/time's read-only receivers still
+     `&mut Self`).
+   - **As built (Generation A, `feat/vbd-d47-locals-gena`).**
+     - `mut(name)` is stripped in place wherever a binding is evaluated
+       (`strip_mut_marker`; `strip_pattern_mut_markers` for `match` arms) and
+       recorded by the declared name's token (`register_mut_binding`), which
+       every copy of the `Variable` keeps: `mut(x) :=`, `mut(x) ::`,
+       `comptime(mut(x)) :=`, `(mut(x) : T) = v`, `(mut(x) : T);`,
+       `.Some(mut(v))`, `(mut(w) := p)`, `{ a, mut(b) }`,
+       `{ x : mut(b) }`, `(a, mut(b))`. A marked pattern or destructuring
+       binding becomes reassignable.
+     - The write error reuses E0917, renamed `E_IMMUTABLE_BINDING_WRITE`
+       (`binding_require_mut`, `place_require_mut`): reassignment (a
+       `(x : T);` declaration's first assignment on each branch is its
+       initialization), a field or `Array` element write of the binding's
+       own storage, a `&mut` argument or `&mut self` receiver, `y := &mut x`,
+       `match(&mut x, …)` and a `&mut x` capture. A borrow is written through,
+       not written. A parameter's write names the rebind; reassigning one
+       stays E0902 (its "You can mutate fields" hint is gone).
+     - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals step.
+     - E0918 is unchanged and checked first, so a runtime write of a
+       `mut(x) ::` is still E0918.
+     - Module-level `mut(x) ::` is ACCEPTED, against the open point's
+       recommendation: tests/comptime.test.yo already reassigns a
+       module-level `::` binding at module level (`_RW_M = i32(2);`), so
+       rejecting it would delete a working feature, which is beyond a
+       Generation A. Generation A only asks for the marker. Whether module
+       level keeps `mut(x) ::` is still the maintainer's call.
+     - A capture-list entry and a pattern binding a macro expansion
+       introduces around a caller's name (the element of
+       `for(coll, x => ...)`) are treated as parameters: no `mut`, and a
+       write names the rebind (`mark_capture_list_value_binding`,
+       `mark_macro_pattern_binding`).
+     - Not yet checked: re-pointing a local borrow (`cur = &mut n.next`)
+       without `mut(cur)`; the desugar of `mut(cur) := &mut place` comes with
+       decision 43.
+     - `yo fix --migrate mut-bindings` marks the declarations and lists each
+       parameter write; the tests/ sweep is its output, kept in its own
+       commit and regenerated rather than merged by hand. A write inside a
+       `comptime_expect_error` argument is held until the case's outcome is
+       known: if the argument still raises an error, the case expects a
+       different one, and the binding is marked so that error stays the one
+       raised; if it no longer raises, the case expected the write error
+       itself, and the binding stays unmarked.
 3. **Tests.**
    - Each of the four write kinds is rejected on an unmarked local and on
      a global, and accepted with `mut`.

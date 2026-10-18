@@ -35,7 +35,7 @@ return_str_from_branch :: (
 )(cond(pick => "left", true => "right"));
 make_holder :: (fn() -> StrHolder)(StrHolder(name : "immortal"));
 test("str stores, returns and reassigns freely (static backing)", {
-  h := StrHolder(name : "hello");
+  mut(h) := StrHolder(name : "hello");
   h = StrHolder(name : "world!");
   assert(h.name.len() == usize(6), "reassigned holder reads");
   n := NestedStrHolder(inner : make_holder());
@@ -43,7 +43,7 @@ test("str stores, returns and reassigns freely (static backing)", {
   assert(return_str_field(h) == "world!", "str field returns");
   assert(return_str_literal().len() == usize(14), "literal returns");
   assert(return_str_from_branch(true) == "left", "branch returns");
-  s := "outer";
+  mut(s) := "outer";
   {
     s = "inner scope literal";
   };
@@ -60,14 +60,14 @@ test("str range windows stay static str", {
 // Range indexing copies: the old slice-invalidation triggers are gone.
 // ---------------------------------------------------------------------------
 test("range copies survive source reassignment and growth", {
-  buf := ArrayList(i32).new();
+  mut(buf) := ArrayList(i32).new();
   buf.push(i32(42));
   buf.push(i32(7));
   s := buf(usize(0) .. usize(2));
   // (a) reassignment of the source — the copy is unaffected
   buf = ArrayList(i32).new();
   // (b) growth/realloc of the source — the copy is unaffected
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
     buf.push(i32(1));
   });

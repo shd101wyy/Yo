@@ -29,12 +29,12 @@ test("Deque.push_back adds multiple elements in order", {
 });
 test("Deque.push_back triggers growth", {
   d := Deque(i32).new();
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(20), i = (i + i32(1)), {
     d.push_back(i);
   });
   assert(d.len() == usize(20), "len should be 20");
-  j := i32(0);
+  mut(j) := i32(0);
   while(j < i32(20), j = (j + i32(1)), {
     assert(d(usize(j)) == j, "element should match");
   });
@@ -59,7 +59,7 @@ test("Deque.push_front adds elements in reverse logical order", {
 });
 test("Deque.push_front triggers growth", {
   d := Deque(i32).new();
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(20), i = (i + i32(1)), {
     d.push_front(i);
   });
@@ -160,17 +160,17 @@ test("Deque.get returns None for empty deque", {
 test("Deque handles wrap-around correctly", {
   d := Deque(i32).new();
   // Fill and drain from front to create wrap-around
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(8), i = (i + i32(1)), {
     d.push_back(i);
   });
   // Pop 4 from front so head advances
-  j := i32(0);
+  mut(j) := i32(0);
   while(j < i32(4), j = (j + i32(1)), {
     d.pop_front();
   });
   // Now push more to back — should wrap around
-  k := i32(8);
+  mut(k) := i32(8);
   while(k < i32(12), k = (k + i32(1)), {
     d.push_back(k);
   });
@@ -296,17 +296,17 @@ test("Deque of String - mixed push and pop", {
 test("Deque of String - growth with wrap-around", {
   d := Deque(String).new();
   // Push initial elements
-  i := 0;
+  mut(i) := 0;
   while(i < 8, i = (i + 1), {
     d.push_back(String.from("item"));
   });
   // Pop from front to advance head
-  j := 0;
+  mut(j) := 0;
   while(j < 4, j = (j + 1), {
     d.pop_front();
   });
   // Push more to trigger wrap-around
-  k := 0;
+  mut(k) := 0;
   while(k < 6, k = (k + 1), {
     d.push_back(String.from("new"));
   });
@@ -336,7 +336,7 @@ test("Deque of String - reuse after drain", {
 // ---- Iterator Tests ----
 test("Deque into_iter - empty deque", {
   d := Deque(i32).new();
-  count := i32(0);
+  mut(count) := i32(0);
   for(d.into_iter(), x => {
     count = (count + i32(1));
   });
@@ -345,7 +345,7 @@ test("Deque into_iter - empty deque", {
 test("Deque into_iter - single element", {
   d := Deque(i32).new();
   d.push_back(i32(42));
-  result := i32(0);
+  mut(result) := i32(0);
   for(d.into_iter(), x => {
     result = x;
   });
@@ -356,9 +356,9 @@ test("Deque into_iter - multiple elements in order", {
   d.push_back(i32(10));
   d.push_back(i32(20));
   d.push_back(i32(30));
-  sum := i32(0);
-  count := i32(0);
-  prev := i32(0);
+  mut(sum) := i32(0);
+  mut(count) := i32(0);
+  mut(prev) := i32(0);
   for(d.into_iter(), x => {
     sum = (sum + x);
     count = (count + i32(1));
@@ -379,7 +379,7 @@ test("Deque into_iter - wrapping circular buffer", {
   d.push_back(i32(1));
   d.push_back(i32(2));
   d.push_back(i32(3));
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(d.into_iter(), x => {
     sum = (sum + x);
   });
@@ -387,7 +387,7 @@ test("Deque into_iter - wrapping circular buffer", {
 });
 test("Deque iter - empty deque", {
   d := Deque(i32).new();
-  count := i32(0);
+  mut(count) := i32(0);
   for(d.iter(), ptr => {
     count = (count + i32(1));
   });
@@ -397,7 +397,7 @@ test("Deque iter - yields pointers to elements", {
   d := Deque(i32).new();
   d.push_back(i32(10));
   d.push_back(i32(20));
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(d.iter(), ptr => {
     sum = (sum + ptr.*);
   });
@@ -446,7 +446,7 @@ test("Deque.new_in keeps its ring in the arena through growth and wrap-around", 
   a := arena.allocator();
   {
     d := Deque(i32).new_in(a);
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(100)), {
       d.push_back(i);
       d.push_front(i32(0) - i);

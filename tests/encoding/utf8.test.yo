@@ -333,8 +333,8 @@ test("decode_lossy substitutes U+FFFD and always advances", {
 test("decode_lossy terminates over a fully invalid buffer", {
   // Four 0xFF bytes: every step must yield U+FFFD and advance by one.
   b := _b4(u8(0xFF), u8(0xFF), u8(0xFF), u8(0xFF));
-  (i : usize) = usize(0);
-  (seen : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
+  (mut(seen) : usize) = usize(0);
   while(i < b.len(), {
     d := decode_lossy(&b, i);
     assert(d.code.to_u32() == u32(0xFFFD), "every byte becomes U+FFFD");
@@ -398,7 +398,7 @@ test("encode/decode round-trips the boundary code points", {
   codes.push(u32(0x10000));
   codes.push(u32(0x1F600));
   codes.push(u32(0x10FFFF));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < codes.len(), {
     cp := match(codes.get(i), .Some(c) => c, .None => u32(0));
     bytes := _encoded_bytes(cp);

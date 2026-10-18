@@ -79,7 +79,7 @@ test("a handle global is mutated through its methods without mut", {
   _gl_names.push(i64(5));
   assert(_gl_names.len() == usize(2), "`&self` on the handle");
   assert(_gl_list_len(&_gl_names) == usize(2), "the handle itself is lent");
-  (t : i64) = i64(0);
+  (mut(t) : i64) = i64(0);
   for(&_gl_names, x => {
     t = (t + x);
   });
@@ -193,9 +193,8 @@ test("rule B: a lend of a field written through a handle global is E0916", {
   // Lend the handle itself and read the field inside the callee.
   assert(_gl_holder_name_len(&_gl_holder) == usize(1), "the write through the handle needs no mut");
 });
-test("mut(name) in a function body is still the deleted local-borrow spelling", {
-  comptime_expect_error({
-    mut(y) := i64(1);
-    y
-  }, "was deleted");
+test("mut(name) in a function body declares a mutable local (decision 47 step 2)", {
+  mut(y) := i64(1);
+  y = (y + i64(1));
+  assert(y == i64(2), "a mutable local, not the deleted borrow spelling");
 });

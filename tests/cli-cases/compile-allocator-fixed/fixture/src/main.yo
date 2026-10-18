@@ -16,9 +16,9 @@ _sum_block :: (fn(p : ?*void, n : usize, seed : u8) -> usize)(
   match(
     p,
     .Some(raw) => {
-      (sum : usize) = usize(0);
+      (mut(sum) : usize) = usize(0);
       bytes := (*u8)(raw);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         unsafe((bytes.add(i)).* = seed.wrapping_add(u8(i)));
         i = (i + usize(1));
@@ -34,9 +34,9 @@ _sum_block :: (fn(p : ?*void, n : usize, seed : u8) -> usize)(
   )
 );
 main :: (fn() -> unit)({
-  (sum : usize) = usize(0);
+  (mut(sum) : usize) = usize(0);
   // grow/shrink realloc: contents must survive both directions.
-  (a : ?*void) = malloc(usize(64));
+  (mut(a) : ?*void) = malloc(usize(64));
   sum = sum.wrapping_add(_sum_block(a, usize(64), u8(1)));
   a = realloc(a, usize(512));
   sum = sum.wrapping_add(_sum_block(a, usize(512), u8(2)));
@@ -49,8 +49,8 @@ main :: (fn() -> unit)({
     b,
     .Some(raw) => {
       bytes := (*u8)(raw);
-      (zeroed : bool) = true;
-      (i : usize) = usize(0);
+      (mut(zeroed) : bool) = true;
+      (mut(i) : usize) = usize(0);
       while(i < usize(128), {
         if(!(unsafe((bytes.add(i)).*) == u8(0)), {
           zeroed = false;
@@ -89,12 +89,12 @@ main :: (fn() -> unit)({
   free(e2);
   // RC objects: String/ArrayList headers ride __yo_rc_alloc under fixed.
   words := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < usize(200), {
     words.push(`fixed-${i.to_string()}`);
     i = (i + usize(1));
   });
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < words.len(), {
     match(
       words.get(j),

@@ -149,7 +149,7 @@ test("String floor/ceil agree exactly on the boundaries themselves", {
   // The invariant that makes them safe to use as a slicing pair:
   // is_char_boundary(i)  <=>  floor(i) == i  <=>  ceil(i) == i.
   s := _subject();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i <= s.len(), i = (i + usize(1)), {
     on := s.is_char_boundary(i);
     assert(s.floor_char_boundary(i) == i == on, "floor fixes exactly the boundaries");
@@ -163,7 +163,7 @@ test("String floor/ceil agree exactly on the boundaries themselves", {
 // ===========================================================================
 test("String char_indices yields BYTE offsets, not character offsets", {
   s := _subject();
-  it := s.char_indices();
+  mut(it) := s.char_indices();
   match(
     it.next(),
     .Some(p) => {
@@ -204,7 +204,7 @@ test("String char_indices offsets are exactly the char boundaries", {
   // not a key, since no rune starts there.)
   s := _subject();
   offsets := ArrayList(usize).new();
-  it := s.char_indices();
+  mut(it) := s.char_indices();
   while(true, {
     match(
       it.next(),
@@ -217,7 +217,7 @@ test("String char_indices offsets are exactly the char boundaries", {
     );
   });
   assert(offsets.len() == s.chars().count(), "one key per rune");
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     assert(offsets.contains(&i) == s.is_char_boundary(i), "key set matches the boundary set");
   });
@@ -225,12 +225,12 @@ test("String char_indices offsets are exactly the char boundaries", {
 });
 test("String char_indices walks in lockstep with chars()", {
   s := `héllo, 世界! 😀`;
-  ci := s.char_indices();
-  ch := s.chars();
-  expected_offset := usize(0);
-  seen := usize(0);
+  mut(ci) := s.char_indices();
+  mut(ch) := s.chars();
+  mut(expected_offset) := usize(0);
+  mut(seen) := usize(0);
   while(true, {
-    (finished : bool) = false;
+    (mut(finished) : bool) = false;
     match(
       ci.next(),
       .Some(p) => {
@@ -257,7 +257,7 @@ test("String char_indices walks in lockstep with chars()", {
   assert(expected_offset == s.len(), "both iterators consumed every byte");
 });
 test("String char_indices on the empty string yields nothing", {
-  it := String.new().char_indices();
+  mut(it) := String.new().char_indices();
   match(it.next(), .Some(_) => assert(false, "empty yields nothing"), .None => ());
 });
 // ===========================================================================
@@ -372,7 +372,7 @@ test("truncation via char_indices().nth keeps whole runes and never lengthens", 
   assert(_truncate_runes(&s, usize(999)) == s, "far more is still a no-op");
   // The property that makes it safe for arbitrary text: every result is a
   // prefix that ends on a rune boundary.
-  i := usize(0);
+  mut(i) := usize(0);
   while(i <= usize(6), i = (i + usize(1)), {
     cut := _truncate_runes(&s, i);
     assert(s.is_char_boundary(cut.len()), "the cut lands on a boundary");
@@ -391,8 +391,8 @@ test("String split on the EMPTY separator stays character-based", {
   assert(parts(usize(3)) == `𝄞`, "part 3");
   assert(parts(usize(1)).len() == usize(2), "'é' is two bytes");
   assert(parts(usize(3)).len() == usize(4), "'𝄞' is four bytes");
-  rejoined := String.new();
-  i := usize(0);
+  mut(rejoined) := String.new();
+  mut(i) := usize(0);
   while(i < parts.len(), i = (i + usize(1)), {
     rejoined.push_string(&parts(i));
   });

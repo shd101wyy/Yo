@@ -94,7 +94,7 @@ test("base64.decode invalid character error", {
 // ===== Roundtrip Tests =====
 test("base64 roundtrip", {
   data := ArrayList(u8).new();
-  i := u8(0);
+  mut(i) := u8(0);
   while(i < u8(255), i = (i + u8(1)), {
     data.push(i);
   });
@@ -102,7 +102,7 @@ test("base64 roundtrip", {
   encoded := base64.encode(&data);
   decoded := base64.decode(&encoded).unwrap();
   assert(decoded.len() == usize(256), "roundtrip should preserve length");
-  j := usize(0);
+  mut(j) := usize(0);
   while(j < usize(256), j = (j + usize(1)), {
     assert(decoded(j) == u8(j), "roundtrip byte mismatch");
   });

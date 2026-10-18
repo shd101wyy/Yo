@@ -87,6 +87,7 @@ pragma(Pragma.AllowUnsafe);
   mark_fnonce_capture_frame,
   mark_closure_param_frame,
   mark_fn_capture_value_binding,
+  mark_capture_list_value_binding,
   synthetic_token,
   snapshot_env,
   get_variables_from_env,
@@ -142,7 +143,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -970,6 +971,8 @@ _evaluate_capture_list :: (
         // `mut`/`inout` parameter or local, or a `mut` capture are
         // reassignable; a by-value parameter, a `match`/`for` binding and an
         // `imm` capture are not. (A cell is never crossed, checked above.)
+        // Decision 47 step 2: and its root binding is declared `mut(name)`.
+        place_require_mut(&ev_place, ast_expr_token(&place_e), &String.from("lend `&mut` (a `&mut` capture)"), true, env, ctx, exn);
         if(!root_var.is_reassignable, {
           _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(&place_e)}\` is not: \`${root_tok.value}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(&place_e)}\`, or take the parameter \`${root_tok.value} : &mut T\`.`);
         });
@@ -1573,6 +1576,9 @@ evaluate_anonymous_function_implementation :: (
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id);
               }));
+              if(!ce.is_borrow, {
+                mark_capture_list_value_binding(cv.id);
+              });
             },
             .None => ()
           );

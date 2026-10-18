@@ -65,7 +65,7 @@ test("HashMap of a move-only value: insert, overwrite, read in place, remove, re
     m := HashMap(i32, _McFd).new();
     // 40 entries cross the 16-bucket table's load factor twice: each rehash
     // moves every entry bitwise and drops none.
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(40), i = (i + i32(1)), {
       m.insert(i, _McFd(n : i));
     });
@@ -96,7 +96,7 @@ test("HashMap of a move-only key and value: remove_entry, retain, clear", {
   before := g_mc_dropped;
   {
     m := HashMap(_McTok, _McFd).new();
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(40), i = (i + i32(1)), {
       m.insert(_McTok(id : i), _McFd(n : i));
     });
@@ -140,7 +140,7 @@ test("HashMap entry: and_modify replaces a move-only value without copying it", 
 });
 test("HashSet of a move-only element", {
   s := HashSet(_McTok).new();
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(40), i = (i + i32(1)), {
     assert(s.insert(_McTok(id : i)), "a new element");
   });
@@ -157,7 +157,7 @@ test("BTreeMap of a move-only value: insert, overwrite, remove, pop_first, pop_l
     m := BTreeMap(i32, _McFd).new();
     // Inserted in descending order, so every insert shifts the entries
     // after it (bitwise swaps).
-    i := i32(20);
+    mut(i) := i32(20);
     while(i > i32(0), i = (i - i32(1)), {
       m.insert(i, _McFd(n : i));
     });
@@ -203,7 +203,7 @@ test("OrderedMap of a move-only value: insert, overwrite, remove, swap_remove", 
   before := g_mc_dropped;
   {
     m := OrderedMap(i32, _McFd).new();
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(10), i = (i + i32(1)), {
       m.insert(i, _McFd(n : i));
     });
@@ -232,7 +232,7 @@ test("Deque of a move-only element: push at both ends past a grow, pop at both e
   sum_before := g_mc_sum;
   {
     d := Deque(_McFd).new();
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(20), i = (i + i32(1)), {
       d.push_back(_McFd(n : i));
       d.push_front(_McFd(n : (i + i32(100))));
@@ -250,12 +250,12 @@ test("Deque of a move-only element: push at both ends past a grow, pop at both e
 });
 test("PriorityQueue of a move-only element", {
   q := PriorityQueue(_McTok).new();
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(20), i = (i + i32(1)), {
     q.push(_McTok(id : ((i * i32(7)) % i32(20))));
   });
   assert(q.len() == usize(20), "twenty elements");
-  expected := i32(19);
+  mut(expected) := i32(19);
   while(expected >= i32(0), expected = (expected - i32(1)), {
     match(q.pop(), .Some(t) => assert(t.id == expected, "popped largest first"), .None => assert(false, "non-empty"));
   });
@@ -272,7 +272,7 @@ test("HashMap of a Drop key: overwrite, remove, remove_entry and retain drop eac
     p5 := _McKd(id : i32(5));
     p6 := _McKd(id : i32(6));
     m := HashMap(_McKd, i32).new();
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(40), i = (i + i32(1)), {
       m.insert(_McKd(id : i), i);
     });
@@ -299,7 +299,7 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
   {
     p3 := _McKd(id : i32(3));
     s := HashSet(_McKd).new();
-    i := i32(0);
+    mut(i) := i32(0);
     while(i < i32(10), i = (i + i32(1)), {
       s.insert(_McKd(id : i));
     });
@@ -313,7 +313,7 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
   {
     p6 := _McKd(id : i32(6));
     m := BTreeMap(_McKd, i32).new();
-    i := i32(10);
+    mut(i) := i32(10);
     while(i > i32(0), i = (i - i32(1)), {
       m.insert(_McKd(id : i), i);
     });

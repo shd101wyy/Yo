@@ -66,7 +66,7 @@ test("Test Array declaration with inferred length", {
     first_inferred := test_basic_inference(0); // Should be 10
     last_inferred := test_basic_inference(4); // Should be 50
     // Test mutable
-    mutable_array := Array(i32, _)(1, 2, 3);
+    mut(mutable_array) := Array(i32, _)(1, 2, 3);
     comptime_expect_error(
       mutable_array = [1, 2, 3, 4]
     );
@@ -96,10 +96,10 @@ test("Test Array copy", {
   arr1 : Array(i32, 3);
   arr1 = [1, 2, 3];
   // Create binding and assign value in one line
-  (arr2 : [i32 ; 3]) = [1, 2, 3];
+  (mut(arr2) : [i32 ; 3]) = [1, 2, 3];
   arr2(0) = 12;
   // Copy array
-  arr3 := arr1;
+  mut(arr3) := arr1;
   arr3(1) = 22; // This shouldn't affect arr1
   assert(arr1(0) == 1);
   assert(arr1(1) == 2);
@@ -164,7 +164,7 @@ test("Test array slice copies (value semantics)", {
 // uses index writes (`arr(i) = v`).
 test("Array iter - empty array yields nothing", {
   arr := Array(i32, 0)();
-  count := usize(0);
+  mut(count) := usize(0);
   for(arr, x => {
     consume(x);
     count = (count + usize(1));
@@ -173,8 +173,8 @@ test("Array iter - empty array yields nothing", {
 });
 test("Array iter - reads elements by value", {
   arr := [i32(10), i32(20), i32(30)];
-  sum := i32(0);
-  count := usize(0);
+  mut(sum) := i32(0);
+  mut(count) := usize(0);
   for(arr, x => {
     sum = (sum + x);
     count = (count + usize(1));
@@ -183,8 +183,8 @@ test("Array iter - reads elements by value", {
   assert(sum == i32(60), "sum should be correct");
 });
 test("Array - mutate via index writes", {
-  arr := [i32(1), i32(2), i32(3)];
-  i := usize(0);
+  mut(arr) := [i32(1), i32(2), i32(3)];
+  mut(i) := usize(0);
   while(i < usize(3), {
     arr(i) = (arr(i) * i32(10));
     i = (i + usize(1));
@@ -197,8 +197,8 @@ test("Array - mutate via index writes", {
 test("Range copy iter - reads elements by value", {
   arr := [i32(100), i32(200), i32(300)];
   slice := arr(usize(0) .. usize(3));
-  sum := i32(0);
-  count := usize(0);
+  mut(sum) := i32(0);
+  mut(count) := usize(0);
   for(slice, x => {
     sum = (sum + x);
     count = (count + usize(1));
@@ -211,7 +211,7 @@ test("Range copy - mutation stays in the copy", {
   // not write back to the source array.
   arr := [i32(1), i32(2), i32(3)];
   copy := arr(usize(0) .. usize(3));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(3), {
     copy(i) = (copy(i) + i32(5));
     i = (i + usize(1));
@@ -223,8 +223,8 @@ test("Range copy - mutation stays in the copy", {
 test("Range copy iter - partial range", {
   arr := [i32(10), i32(20), i32(30), i32(40)];
   slice := arr(usize(1) .. usize(3));
-  sum := i32(0);
-  count := usize(0);
+  mut(sum) := i32(0);
+  mut(count) := usize(0);
   for(slice, x => {
     sum = (sum + x);
     count = (count + usize(1));
@@ -282,7 +282,7 @@ test("Array cmp - the Ord default reaches Ordering", {
 });
 test("Array Clone - independent of its source", {
   a := Array(i32, 3)(1, 2, 3);
-  b := a.clone();
+  mut(b) := a.clone();
   assert(a == b, "a clone equals its source");
   b(usize(1)) = i32(99);
   assert(b(1) == i32(99), "the clone took the write");
@@ -291,7 +291,7 @@ test("Array Clone - independent of its source", {
 });
 test("Array Clone - an owning element type is deep-copied", {
   a := Array(String, 2)(String.from("ab"), String.from("cd"));
-  b := a.clone();
+  mut(b) := a.clone();
   assert(a == b, "the clone starts equal");
   b(usize(0)).push_str("XY");
   assert(b(0) == `abXY`, "the clone took the append");
@@ -369,20 +369,20 @@ impl(
   _twice : (fn(self : &T) -> Array(u8, T.BYTES * 2))(Array(u8, T.BYTES * 2).fill(u8(0)))
 );
 _grow :: (fn(generic(N : usize), a : Array(u8, N)) -> Array(u8, N + usize(1)))({
-  (r : Array(u8, N + usize(1))) = Array(u8, N + usize(1)).fill(u8(0));
-  (i : usize) = usize(0);
+  (mut(r) : Array(u8, N + usize(1))) = Array(u8, N + usize(1)).fill(u8(0));
+  (mut(i) : usize) = usize(0);
   while(i < N, i = (i + usize(1)), {
     r(i) = a(i);
   });
   r
 });
 _concat2 :: (fn(generic(N : usize, M : usize), a : Array(u8, N), b : Array(u8, M)) -> Array(u8, N + M))({
-  (r : Array(u8, N + M)) = Array(u8, N + M).fill(u8(0));
-  (i : usize) = usize(0);
+  (mut(r) : Array(u8, N + M)) = Array(u8, N + M).fill(u8(0));
+  (mut(i) : usize) = usize(0);
   while(i < N, i = (i + usize(1)), {
     r(i) = a(i);
   });
-  (j : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < M, j = (j + usize(1)), {
     r(N + j) = b(j);
   });
@@ -438,8 +438,8 @@ test("Test the array lengths that DO work are unaffected", {
   // A bare generic parameter, which is the shape the guard must not catch:
   // `t_array_var` records the NAME and generic-impl matching binds it.
   sum_all :: (fn(generic(N : usize), xs : Array(i32, N)) -> i32)({
-    (t : i32) = 0;
-    (i : usize) = usize(0);
+    (mut(t) : i32) = 0;
+    (mut(i) : usize) = usize(0);
     while(i < xs.len(), i = (i + usize(1)), {
       t = (t + xs(i));
     });

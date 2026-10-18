@@ -46,7 +46,7 @@ test("borrowed for over a user collection; &mut self methods assert on the objec
   bag.items.push(i32(2));
   bag.bump_version();
   assert(bag.version == i32(1), "field store through &mut self outside any borrow");
-  total := i32(0);
+  mut(total) := i32(0);
   for(&mut bag, x => {
     total = (total + x);
     x = (x * i32(10));
@@ -79,8 +79,8 @@ comptime_expect_error(
 impl(
   Bag,
   first_over : (fn(self : &Self, limit : i32) -> Option(i32))({
-    (found : Option(i32)) = .None;
-    i := usize(0);
+    (mut(found) : Option(i32)) = .None;
+    mut(i) := usize(0);
     while((i < self.items.len()) && found.is_none(), {
       v := self.items(i);
       if(v > limit, {
@@ -97,7 +97,7 @@ test("borrowed for: a read-only user method with a typed local, through an alias
   xs.push(i32(8));
   bag := Bag(items : xs, version : i32(0));
   other := bag; // a second handle of the same bag
-  seen := i32(0);
+  mut(seen) := i32(0);
   for(&mut bag, x => {
     match(
       other.first_over(i32(6)),
@@ -119,7 +119,7 @@ test("borrowed for: a read-only user method with a typed local, through an alias
 impl(
   Bag,
   sum_by_value_for : (fn(self : &Self) -> i32)({
-    total := i32(0);
+    mut(total) := i32(0);
     for(self.items, x => {
       total = (total + x);
     });
@@ -127,7 +127,7 @@ impl(
   }),
   doubled_copy : (fn(self : &Self) -> ArrayList(i32))({
     copy := self.items.clone();
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < copy.len(), {
       copy(i) = (copy(i) * i32(2));
       i = (i + usize(1));
@@ -142,7 +142,7 @@ test("borrowed for: user methods iterating the collection or mutating a fresh co
   xs.push(i32(3));
   bag := Bag(items : xs, version : i32(0));
   other := bag;
-  seen := i32(0);
+  mut(seen) := i32(0);
   for(&mut bag, x => {
     seen = (seen + other.sum_by_value_for());
     d := other.doubled_copy();

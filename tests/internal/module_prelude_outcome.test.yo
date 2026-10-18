@@ -56,7 +56,7 @@ _ns_types :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
 _ns_field_type :: (fn(t : &TypeValue, label : &String) -> TypeValue)({
   labels := _ns_labels(t);
   tys := _ns_types(t);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < labels.len(), {
     if(match(
       labels.get(i),
@@ -78,7 +78,7 @@ _ns_field_type :: (fn(t : &TypeValue, label : &String) -> TypeValue)({
 /// The names of a doc module's `types` list.
 _doc_type_names :: (fn(m : &DocModule) -> ArrayList(String))({
   out := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < m.types.len(), {
     match(
       m.types.get(i),
@@ -92,7 +92,7 @@ _doc_type_names :: (fn(m : &DocModule) -> ArrayList(String))({
 /// The names of a doc module's `traits` list.
 _doc_trait_names :: (fn(m : &DocModule) -> ArrayList(String))({
   out := ArrayList(String).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < m.traits.len(), {
     match(
       m.traits.get(i),
@@ -208,7 +208,7 @@ test("the doc builder renders the cached prelude's parameterised declarations", 
   // No declaration may collapse into a `<fn(...)>` constant — a constant's
   // value is `value_to_string` of the binding, and a FuncVal there means the
   // field type was lost and the function-family branch was skipped.
-  (ci : usize) = usize(0);
+  (mut(ci) : usize) = usize(0);
   while(ci < doc.constants.len(), {
     match(
       doc.constants.get(ci),

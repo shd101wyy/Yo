@@ -620,13 +620,13 @@ test("Path hashes consistently with Eq (usable as a HashMap key)", {
   p := Path.new(`/x/y`);
   q := Path.new(`/x/y`);
   r := Path.new(`/x/z`);
-  h1 := DefaultHasher.new();
+  mut(h1) := DefaultHasher.new();
   p.hash(&mut h1);
   v1 := h1.finish();
-  h2 := DefaultHasher.new();
+  mut(h2) := DefaultHasher.new();
   q.hash(&mut h2);
   v2 := h2.finish();
-  h3 := DefaultHasher.new();
+  mut(h3) := DefaultHasher.new();
   r.hash(&mut h3);
   v3 := h3.finish();
   assert(v1 == v2, "equal paths hash equal");
@@ -681,7 +681,7 @@ test("split_paths / join_paths round-trip a PATH-style string", {
   // Built with the PLATFORM delimiter — the input spelling differs between
   // Unix (`:`) and Windows (`;`), so construct it instead of writing a
   // literal.
-  raw := String.new();
+  mut(raw) := String.new();
   _a := raw.push_string(`/usr/bin`);
   _b := raw.push_byte(u8(PATH_DELIMITER));
   _c := raw.push_string(`/bin`);
@@ -690,7 +690,7 @@ test("split_paths / join_paths round-trip a PATH-style string", {
   assert(parts.len() == usize(2), "empty segment dropped");
   assert(parts(usize(0)) == Path.new(`/usr/bin`), "first (segment equality)");
   assert(parts(usize(1)) == Path.new(`/bin`), "second (segment equality)");
-  expected := String.new();
+  mut(expected) := String.new();
   _e := expected.push_string(`/usr/bin`);
   _f := expected.push_byte(u8(PATH_DELIMITER));
   _g := expected.push_string(`/bin`);

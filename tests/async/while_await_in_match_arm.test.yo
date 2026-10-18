@@ -33,7 +33,7 @@ work :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 // the work or the deadline finishes.
 race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    (result : i32) = i32(0);
+    (mut(result) : i32) = i32(0);
     match(
       limit,
       .None => {
@@ -42,7 +42,7 @@ race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
       .Some(l) => {
         h := e.io.spawn(work(e.io), e);
         dh := e.io.spawn(sleep(l, e.io), e.io);
-        (spins : i32) = i32(0);
+        (mut(spins) : i32) = i32(0);
         while(runtime(!h.is_finished() && !dh.is_finished()), {
           e.io.await(yield(e.io), e.io);
           spins = (spins + i32(1));
@@ -62,7 +62,7 @@ race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
 // looping one and the plain arm must not inherit its loop check.
 race_rev :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    (result : i32) = i32(0);
+    (mut(result) : i32) = i32(0);
     match(
       limit,
       .Some(l) => {
