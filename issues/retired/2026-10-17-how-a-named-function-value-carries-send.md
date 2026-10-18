@@ -61,7 +61,7 @@ enters a generic that requires `Send`?
      `Arc(V)(other)` and `make_mut` writes go through unless the
      concrete-vs-resolved-SomeT rule is tightened as well. That tightening is
      the same fix as
-     `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`.
+     `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`.
    - The declared binding `(f : Impl(Fn(...), Send)) = count` needs the same
      change, so that the variable keeps the declared SomeT rather than adopting
      the right-hand side's bare type.
@@ -99,7 +99,7 @@ D9's paragraph must stop recommending a binding that the compiler rejects.
 
 ## Verdict
 
-1. **Now:** fix the structural-compat rule, which is already filed as `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2). A SomeT that carries a resolution is compared by that resolution in the concrete-actual direction too.
+1. **Now:** fix the structural-compat rule, which is already filed as `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2). A SomeT that carries a resolution is compared by that resolution in the concrete-actual direction too.
 2. **After decision 43 lands:** give each named function its own item type, as Rust does.
    - Both changes rework `TypeValue` and `type_key`, so doing this one earlier would mean two passes over them.
    - It is not on the VBD critical path and gates nothing.

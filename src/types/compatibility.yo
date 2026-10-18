@@ -541,6 +541,39 @@ _compat_impl :: (
   // unify with a concrete sibling arm — both def-time body-eval halts (stage-2
   // "Failed to transpile" holes).
   if(!require_exact && is_some_type(expected) && !is_some_type(actual), {
+    // A BOUND CLOSURE IDENTITY is one type, not an open bound (a closure's
+    // `(k : Impl(Fn() -> i32))` wrapper resolved to its capture struct), so
+    // the concrete actual is judged against that RESOLUTION — the hop the
+    // SomeT-actual rule below already makes. The trait test alone accepted a
+    // concrete `fn() -> i32` into a slot typed by that identity
+    // (`Arc(type_of(k))(seven)`, `Holder(type_of(k))(f : seven)`): `check`
+    // passed, codegen received a function pointer where the capture struct
+    // goes (invalid C), and through `Arc` a function `Send` never judged was
+    // seated inside a `Send` type
+    // (issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md).
+    // The comparison result is returned directly: a failed
+    // resolution-comparison must not fall through to the trait test, which is
+    // the hole. Scoped to `is_bound_closure_identity`: a per-call resolution
+    // (`_with_resolved_concrete`) still names an OPEN bound — a ctl handler's
+    // `ResumeType` carries its trial's resolution, and the hop hardened the
+    // handler's `unit` arm join in src/lexer.yo into E0601. An UNRESOLVED
+    // bound keeps today's trait test below.
+    if(is_bound_closure_identity(expected), {
+      match(
+        expected,
+        Rc(.SomeT({ resolution : ccr_res_cell })) => {
+          ccr_resolution := ccr_res_cell;
+          match(
+            ccr_resolution,
+            .Some(ccr_res_ty) => {
+              return(recur(actual, &ccr_res_ty, mode, visited));
+            },
+            .None => ()
+          );
+        },
+        _ => ()
+      );
+    });
     erts2 := match(
       expected,
       Rc(.SomeT(required_trait_types : rtt2)) => rtt2,
