@@ -66,7 +66,7 @@ and the scope creep the verifier's risk table already guards against.
 | `distinct(a, b)` | proof-only `requires` clause: two list parameters are different lists (the alias frame condition) | `BF_DISTINCT` |
 | spec-transparent pure fns | an uncontracted pure runtime fn is unfoldable inside specs; a recursive one needs `decreases` | ATS lessons A3 |
 | `decreases(a, b, …)` | lexicographic measures | ATS lessons A5 |
-| `yo verify --strict` | `assumed` / `outside-subset` / `unproven` fail the run; summaries always count them | B0 |
+| `yo verify --strict` | `assumed` / `outside-subset` / `unproven` fail the run; summaries always count them (a fourth class, hypothesis vacuity, is planned — FORMAL_VERIFICATION "Vacuity checking") | B0 |
 
 The measurement that justifies everything below (R2 task 1 of the
 indexed-types plan; Z3 5.1.0, the verifier's own preamble): **Z3 does not
