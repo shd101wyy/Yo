@@ -440,6 +440,19 @@ test("Clone: a conditional Clone impl answers no for a type argument without Clo
 _ct_need_copy :: (fn(comptime(T) : Type, x : T, where(T <: Copy)) -> T)(x);
 _ct_need_copy_g :: (fn(generic(T : Type), x : T, where(T <: Copy)) -> T)(x);
 _ct_need_clone :: (fn(comptime(T) : Type, x : T, where(T <: Clone)) -> T)(x.clone());
+// A Drop-counted own: a closure that captures it is not Copy, and whether the
+// closure is disposed after a rejected `comptime_expect_error` move is what
+// the test below counts (issues/fixed/2026-10-17-a-closure-moved-inside-a-failing-comptime-expect-error-stays-moved-and-leaks.md).
+(mut(g_ct_cee_disposed) : i32) = i32(0);
+_CtOwned :: ref(struct(n : i32));
+impl(
+  _CtOwned,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_ct_cee_disposed = (g_ct_cee_disposed + i32(1));
+    })
+  )
+);
 test("Copy: a closure that owns a String moves at d := c, as Rust's does", {
   s := String.from("hi");
   (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
@@ -464,14 +477,34 @@ test("Copy: where(T <: Copy) rejects a closure that owns a String", {
   s := String.from("hi");
   (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
   comptime_expect_error(_ct_need_copy(type_of(c), c), "does not implement required trait Copy");
+  assert(c() == usize(2), "the closure rejected by comptime_expect_error is still callable");
   (c2 : Impl(Fn() -> usize)) = ({ s }() => s.len());
   comptime_expect_error(_ct_need_copy_g(c2), "does not implement required trait Copy");
+  assert(c2() == usize(2), "the generic rejection leaves its operand callable too");
   n := i32(4);
   (k : Impl(Fn() -> i32)) = (() => (n + i32(1)));
   (kg : Impl(Fn() -> i32)) = (() => (n + i32(1)));
   k2 := _ct_need_copy(type_of(k), k);
   k3 := _ct_need_copy_g(kg);
   assert((k2() + k3()) == i32(10), "a closure of Copy captures passes, through a generic parameter too");
+});
+test("Copy: a closure moved inside a failing comptime_expect_error is disposed, not leaked", {
+  {
+    own := _CtOwned(n : i32(1));
+    (c3 : Impl(Fn() -> i32)) = ({ own }() => own.n);
+    comptime_expect_error(_ct_need_copy(type_of(c3), c3), "does not implement required trait Copy");
+    assert(c3() == i32(1), "the rejected move does not consume the closure");
+  };
+  {
+    own := _CtOwned(n : i32(2));
+    (c4 : Impl(Fn() -> i32)) = ({ own }() => own.n);
+    comptime_expect_error(_ct_need_copy_g(c4), "does not implement required trait Copy");
+    assert(c4() == i32(2), "the generic rejected move does not consume it either");
+  };
+  assert(
+    g_ct_cee_disposed == i32(2),
+    "the closures a comptime_expect_error rejected are dropped with their captures at scope end"
+  );
 });
 test("Copy: a &mut capture makes a closure neither Copy nor Clone", {
   mut(n) := i32(0);

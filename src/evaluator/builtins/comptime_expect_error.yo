@@ -20,6 +20,7 @@
   ast_expr_id,
   make_err_expr
 } :: import("../../expr.yo");
+{ Token } :: import("../../token.yo");
 { ArrayList } :: import("std/collections/array_list");
 { Environment, Frame, frame_truncate_variables, env_frames_for_write } :: import("../../env.yo");
 { EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
@@ -174,6 +175,42 @@ evaluate_comptime_expect_error :: (
       sfv_i = (sfv_i + usize(1));
     });
   };
+  // The MOVE MARKS of the caller's bindings, one `Option(Token)` per variable
+  // per frame (index-aligned with `saved_frame_var_counts`). The argument eval
+  // can consume an operand BEFORE the call is rejected — `consume_argument_for_parameter`
+  // marks a closure moved into a by-value parameter, and the
+  // `where(...)` check rejects the call only after that. The rejected
+  // expression is never emitted, so a mark that survives the catch both skips
+  // the operand's scope-end drop (the closure and its capture leak,
+  // `tests/copy_trait.test.yo` under a leak verdict) and makes a later use of
+  // the operand E0901. Frames are index-aligned with this snapshot by the
+  // re-push below, and each frame's first `saved_frame_var_counts` entries
+  // survive the truncation, so a mark is restored onto the same binding it
+  // was taken from.
+  saved_frame_consumed := ArrayList(ArrayList(Option(Token))).new();
+  {
+    (sfc_i : usize) = usize(0);
+    while(sfc_i < env.frames.len(), {
+      frame_marks := ArrayList(Option(Token)).new();
+      match(
+        env.frames.get(sfc_i),
+        .Some(sfc_f) => {
+          (sfc_j : usize) = usize(0);
+          while(sfc_j < sfc_f.variables.len(), {
+            match(
+              sfc_f.variables.get(sfc_j),
+              .Some(sfc_v) => frame_marks.push(match(sfc_v.consumed_at_token, .Some(sfc_ct) => Option(Token).Some(sfc_ct), .None => Option(Token).None)),
+              .None => frame_marks.push(Option(Token).None)
+            );
+            sfc_j = (sfc_j + usize(1));
+          });
+        },
+        .None => ()
+      );
+      saved_frame_consumed.push(frame_marks);
+      sfc_i = (sfc_i + usize(1));
+    });
+  };
   saved_is_executing := ctx.is_executing;
   saved_is_validating := ctx.is_validating_function_definition;
   saved_expected := ctx.expected_type;
@@ -323,6 +360,37 @@ evaluate_comptime_expect_error :: (
         .None => ()
       );
       rfv_i = (rfv_i + usize(1));
+    });
+  };
+  // Restore the move marks snapshotted above: the trial's consumption of a
+  // caller binding must not outlive the rejection (see the snapshot comment).
+  {
+    (rfc_i : usize) = usize(0);
+    while(rfc_i < env.frames.len(), {
+      rfc_marks := match(saved_frame_consumed.get(rfc_i), .Some(m) => m, .None => ArrayList(Option(Token)).new());
+      rfc_count := match(saved_frame_var_counts.get(rfc_i), .Some(c) => c, .None => usize(0));
+      match(
+        env.frames.get(rfc_i),
+        .Some(rfc_f) => {
+          (rfc_j : usize) = usize(0);
+          while(rfc_j < rfc_count, {
+            match(
+              rfc_f.variables.get(rfc_j),
+              .Some(rfc_v) => match(
+                rfc_marks.get(rfc_j),
+                .Some(rfc_mark) => {
+                  rfc_v.consumed_at_token = rfc_mark;
+                },
+                .None => ()
+              ),
+              .None => ()
+            );
+            rfc_j = (rfc_j + usize(1));
+          });
+        },
+        .None => ()
+      );
+      rfc_i = (rfc_i + usize(1));
     });
   };
   truncate_branch_group_stack(saved_branch_groups);
