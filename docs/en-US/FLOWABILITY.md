@@ -221,9 +221,11 @@ A plain `e` in `for(&mut m, e => …)` yields the whole entry; prefer
 that implement `BorrowedWalk` (`ArrayList`, `Deque`, `LinkedList`,
 `HashMap`, `BTreeMap`, `OrderedMap`); `HashSet` and `PriorityQueue` have
 none, because writing a hashed or heap-ordered element in place would break
-the container. A user type becomes a source by implementing `BorrowedWalk`
-(for now only in a `pragma(Pragma.AllowUnsafe)` file, since `walk_elem`
-yields a pointer). `Array(T, N)` takes the value form or an index loop. A
+the container. A user type becomes a source by implementing `BorrowedWalk`;
+`walk_elem` forwards the inner collection's projection with its call-site
+marker (`&mut self.items(cur)`) in safe code, and only a spelling that hands
+out a raw pointer (`self.items.ptr().unwrap().add(cur)`) needs
+`pragma(Pragma.AllowUnsafe)`. `Array(T, N)` takes the value form or an index loop. A
 source that is not a place (`for(&mut make(), x => …)`) is held by a hidden
 local for the loop. The borrowed `for` works inside an `io.async` body, with
 awaits in the loop body.

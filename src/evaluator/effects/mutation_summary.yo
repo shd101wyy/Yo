@@ -67,7 +67,7 @@
 { is_thread_local } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { TokenAndError } :: import("../../error.yo");
-{ ast_expr_to_string, BK_MUT, BK_IMM } :: import("../../expr.yo");
+{ ast_expr_to_string, BK_MUT, BK_IMM, projection_tail_mode } :: import("../../expr.yo");
 { eprintln } :: import("std/fmt");
 {
   is_io_async_call,
@@ -1270,6 +1270,22 @@ _msp_unmarked_arg :: (fn(a : &AstExpr) -> AstExpr)(ast_expr_strip_borrow_marker(
 _msp_is_borrow_marker :: (fn(head : &String, n_args : usize) -> bool)(
   ((head == "&") || (head == BK_BORROW_MUT)) && (n_args == usize(1))
 );
+/// A projection TAIL node (decision 24, `rewrite_projection_tails`): the body
+/// of a `-> &T` / `-> &mut T` function ends in a synthesized `addr_of(place)`
+/// whose token carries the auto-generated marker module path, so the mode
+/// rides the node, never a user-spelled `addr_of`. It LENDS its operand's
+/// place exactly as a call-site borrow marker does: every walk reads through
+/// it as through the marker, and the node itself is not a call — only the
+/// `walk` half additionally records the write-through a `&mut` tail grants
+/// (see `_MsP.walk`). Unrecognized, the mask walk and `classify` answered
+/// "unresolved = all", so EVERY projection-tail method of an RC object
+/// carried an entry `__yo_borrow_assert_unborrowed` on its receiver — one
+/// the borrowed `for`'s own guard then tripped, because the loop calls
+/// `walk_elem` while it holds the collection's borrow flag for the walk's
+/// extent (issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md;
+/// the codegen half of the fix skips the entry assert for a `-> &mut T`
+/// method, beside `is_index_entry_method`).
+_msp_is_projection_tail :: (fn(e : &AstExpr) -> bool)(projection_tail_mode(e).is_some());
 _msp_pass_through_head :: (fn(h : &String) -> bool)(
   (h == "unsafe") || (h == "the") || (h == "runtime") || (h == "consume") || (h == "___dup") || (h == "clone") || (h == "dyn") || (h == "as") || (h == "recur")
 );
@@ -1686,7 +1702,7 @@ impl(
     if((head == ":") && (args.len() == usize(2)), {
       return(match(args.get(usize(1)), .Some(v) => _MsP.classify(&v, ctx), .None => _msp_root(MSP_ROOTED)));
     });
-    if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())) && (args.len() > usize(0)), {
+    if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e)) && (args.len() > usize(0)), {
       return(match(args.get(usize(0)), .Some(a0) => _MsP.classify(&a0, ctx), .None => _msp_root(MSP_ROOTED)));
     });
     if(head == "begin", {
@@ -1911,7 +1927,7 @@ impl(
           match(args.get(usize(1)), .Some(v) => _MsP.flowing(&v, ctx, out), .None => ());
           return(());
         });
-        if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())) && (args.len() > usize(0)), {
+        if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e)) && (args.len() > usize(0)), {
           match(args.get(usize(0)), .Some(a0) => _MsP.flowing(&a0, ctx, out), .None => ());
           return(());
         });
@@ -2419,7 +2435,7 @@ impl(
     if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _ms_head_is_rc_decrement(head.clone())), {
       return(());
     });
-    if(_msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()), {
+    if(_msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e), {
       return(());
     });
     match(
@@ -2679,7 +2695,7 @@ impl(
       match(args.get(ai), .Some(a) => _MsP.strict_walk(&a, borrowed_ids, table, out), .None => ());
       ai = (ai + usize(1));
     });
-    if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())), {
+    if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e)), {
       return(());
     });
     if(_MsP.is_index_call(e, table), {
@@ -2916,6 +2932,47 @@ impl(
     // the place itself (decision 33).
     if(_msp_is_borrow_marker(head.clone(), args.len()), {
       return(match(args.get(usize(0)), .Some(mo) => _MsP.walk(&mo, ctx), .None => m));
+    });
+    // A projection TAIL (decision 24, `rewrite_projection_tails`) hands the
+    // caller a borrow of its operand's place: a `&mut` tail lets the caller
+    // WRITE through the rooted parameter's storage — the mask records
+    // exactly that parameter, as a store would (E0908's write-through check
+    // and decision 18's local-borrow writes rely on it) — while a `&` tail
+    // writes nothing. The node itself is not a call. The place's parameter
+    // comes from `_msp_inout_param_of_place` (rule D3's own helper: the
+    // place may be a VALUE field, `self.a` of a `&mut` struct receiver,
+    // which `classify` roots as NONE because an i32 value roots nothing);
+    // `classify` still supplies the deep/shallow distinction when it does
+    // root the place (an RC hop, `self.items(cur)` of a ref receiver).
+    // Before the tail was recognized, the whole body answered "all": every
+    // projection-tail method of an RC object carried an entry invalidation
+    // assert its own callers then tripped (see the codegen skip beside
+    // `is_index_entry_method`).
+    if(_msp_is_projection_tail(e), {
+      return(
+        match(
+          args.get(usize(0)),
+          .Some(mo) => {
+            inner := _MsP.walk(&mo, ctx);
+            if(match(projection_tail_mode(e), .Some(pm) => pm, .None => false), {
+              match(
+                _msp_inout_param_of_place(&mo, ctx),
+                .Some(wpi) => {
+                  tr := _MsP.classify(&mo, ctx);
+                  if((tr.kind == MSP_PARAM) && (tr.param == wpi), {
+                    _msp_mask_add_root(&inner, tr, tr.deep);
+                  }, {
+                    _msp_bits_set(&mut inner.shallow, wpi);
+                  });
+                },
+                .None => ()
+              );
+            });
+            inner
+          },
+          .None => m
+        )
+      );
     });
     if((head == "=") && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
@@ -3497,6 +3554,9 @@ _rcw_crossing :: (fn(place : &AstExpr, table : &ExprInfoTable) -> Option(_RcwCro
                 pass_base = args.get(usize(1));
               },
               _msp_is_borrow_marker(&head, args.len()) => {
+                pass_base = args.get(usize(0));
+              },
+              _msp_is_projection_tail(&cur) => {
                 pass_base = args.get(usize(0));
               },
               match(_rcw_type_of(&f, table), .Some(ft) => !is_function_type(&ft), .None => false) => {
@@ -4111,7 +4171,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
       });
       // Structural / control builtins, RC primitives, pure builtins, statements:
       // walk the children, the head itself reaches nothing.
-      (children_only : bool) = (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_rc_decrement(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_statement_head(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()));
+      (children_only : bool) = (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_rc_decrement(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_statement_head(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len()) || _msp_is_projection_tail(e));
       if(!children_only, {
         // A call: resolve the callee. Extern → runs no Yo code. A body in a
         // pragma'd file → trusted. Otherwise descend (memoized, cycle-safe).

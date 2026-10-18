@@ -182,8 +182,9 @@ an interior reference … borrows from it`），而不是让元素引用悬垂�
 它保持键不可变。可作为来源的是实现了 `BorrowedWalk` 的 std 集合（`ArrayList`、
 `Deque`、`LinkedList`、`HashMap`、`BTreeMap`、`OrderedMap`）；`HashSet` 与
 `PriorityQueue` 没有实现，因为原地改写一个按哈希或堆序存放的元素会破坏容器。
-用户类型实现 `BorrowedWalk` 即可成为来源（目前只能在
-`pragma(Pragma.AllowUnsafe)` 文件中实现，因为 `walk_elem` 交出的是指针）。
+用户类型实现 `BorrowedWalk` 即可成为来源：`walk_elem` 带调用点标记转发内层集合的
+投影（`&mut self.items(cur)`），安全代码即可；只有交出裸指针的写法
+（`self.items.ptr().unwrap().add(cur)`）才需要 `pragma(Pragma.AllowUnsafe)`。
 `Array(T, N)` 请使用值形式或索引循环。不是位置的来源（`for(&mut make(), x => …)`）
 由一个隐藏局部在循环期间持有。借用形式的 `for` 在 `io.async` 体内同样可用，
 循环体里也可以 await。
