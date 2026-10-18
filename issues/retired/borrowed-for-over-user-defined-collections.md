@@ -1,6 +1,8 @@
 # Can a user-defined container opt into the borrowed `for`? (OPEN-DESIGN)
 
-**Kind:** design question — an open decision, not a defect. Filed 2026-10-10
+**Kind:** design question (decided; retired into the plan).
+
+**Status:** DECIDED 2026-10-18. #1429 (decision 39 Generation A) landed a `BorrowedWalk` trait, and the maintainer delegated the open VBD questions to the coordinator's advisor and accepted its verdicts. Filed 2026-10-10
 from the `plans/backlog/RUST_REFERENCE_PATTERNS.md` audit (§5.3).
 
 ## The hole
@@ -85,6 +87,8 @@ incompatible types: "i32" and "*(i32)""). So a user collection needs
 with a pointer-yielding `iter()` was a source. That `iter()` is headed under
 the same pragma (decision 39), so the requirement is the same either way.
 
+**Correction (2026-10-18).** The gap is narrower than the paragraph above says. The quoted error comes from the bare tail `self.items.walk_elem(cur)`. With the call-site marker, `&mut self.items.walk_elem(cur)` or `&mut self.items(cur)`, a plain-value collection already forwards the projection in safe code. Only a `ref(...)` collection still needs the pragma; see the Verdict.
+
 **Recommendation for the gap:** let a projection body forward a projection
 whose root is `self` or one of its own `&`/`&mut` parameters (decision 24's
 result positions, the single-root rule `NON_ESCAPABLE_TYPES.md` R3 states
@@ -93,3 +97,15 @@ instead of dereferencing it. It is a small compiler Generation A and does
 not wait for reference types. Until it lands, user collections implement
 `BorrowedWalk` under the pragma. Decision 43's
 `impl(&C, IntoIterator(…))` remains the final shape.
+
+## Verdict
+
+- **`BorrowedWalk` is the pre-decision-43 shape and stands.** It came with #1429; its methods are `walk_start`, `walk_valid`, `walk_elem` (which returns a `&mut` element) and `walk_next`. A user collection implements it to get the borrowed `for`.
+- **Decision 43 step 3 decides what comes next** (root-joining, N2). If `impl(&mut C, IntoIterator(…))` replaces `BorrowedWalk` there, the implementors migrate and the trait is deleted. If it does not, `BorrowedWalk` stays as the "Collection trait" fallback that option 2 above describes.
+- **A plain-value user collection implements `walk_elem` in safe code.** Checked on 2026-10-18 with a develop-built compiler:
+  - Forwarding the inner projection with its marker works: `&mut self.items(cur)` or `&mut self.items.walk_elem(cur)`.
+  - The "type error" described above is the bare form `self.items.walk_elem(cur)`, without `&mut`. It fails with a misleading E0601, filed as `issues/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md` (S3).
+  - A `ref(...)` collection, which the test uses, still needs `pragma(Pragma.AllowUnsafe)` and a raw pointer. Forwarding through a `ref` receiver leaves the runtime borrow flag set, so the next container call panics: `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2). `ref` goes away at V5.
+- **`HashSet` and `PriorityQueue` refuse `for(&mut …)` by design.** A `&mut` element would let a caller corrupt their hashing or ordering. If a read-only walk that yields `&T` is added (V2b B7), they implement it; until then their element walk is the consuming `into_iter`.
+- **Reading the collection inside a borrowed `for` body is E0911, by design.** `&mut coll` is live for the whole call, so a read through another path is the exclusivity rule. The E0911 help points to `coll.indices()`.
+- **A borrow declared in a macro's template is live for the whole macro call** when the macro comes from another file. Its tokens have no position in the caller's file, so token-based liveness cannot apply. A same-file macro keeps token-based liveness, because there the positions compare.

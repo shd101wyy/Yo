@@ -18,7 +18,7 @@ filed with a recommendation and cited where it applies (a fourth, `Rc`'s
 `plans/VALUES_BY_DEFAULT.md` decision 46):
 `issues/questions/hashmap-lookup-by-borrowed-key-form.md`,
 `issues/questions/refcell-inside-a-plain-value.md`,
-`issues/questions/borrowed-for-over-user-defined-collections.md`.
+`issues/retired/borrowed-for-over-user-defined-collections.md`.
 
 Decision numbers (`D18`, `D43`, …) refer to `VALUES_BY_DEFAULT.md` §4; bare
 `§`-references (`§3.10`, `§3.13 A2`) are that plan's sections; `R1`–`R7`
@@ -562,7 +562,7 @@ Rust's shape, exactly: `impl(&MyColl, IntoIterator(Item := &T, …))` and
 container, and the iterator they return is a second-class value rooted in
 `c` (R3). A `LendingIterator` (`next(&mut self) -> Option<&mut T>`) is the
 `&mut` cursor above. Position recorded in
-`issues/questions/borrowed-for-over-user-defined-collections.md`.
+`issues/retired/borrowed-for-over-user-defined-collections.md`.
 
 ## 6. Returning a borrow
 

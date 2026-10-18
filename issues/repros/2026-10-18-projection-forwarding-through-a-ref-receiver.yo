@@ -1,0 +1,23 @@
+{ ArrayList } :: import("std/collections/array_list");
+Bag :: ref(struct(items : ArrayList(i32)));
+impl(
+  Bag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(&mut self.items(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+main :: (fn() -> unit)({
+  bag := Bag(items : ArrayList(i32).new());
+  bag.items.push(i32(1));
+  for(&mut bag, x => {
+    x = (x * i32(10));
+  });
+  { println } :: import("std/fmt");
+  println(&bag.items(usize(0)));
+});
+export(main);

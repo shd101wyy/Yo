@@ -1,6 +1,6 @@
 # VALUES_BY_DEFAULT handover — 2026-10-15
 
-**Status: ACTIVE handover, current as of 2026-10-15 (v0.2.63 published 2026-10-15 12:46Z; `SEED_VERSION` is v0.2.63).**
+**Status: SUPERSEDED by [`VBD_HANDOVER_2026-10-17.md`](VBD_HANDOVER_2026-10-17.md) (2026-10-17); its §7 (how to work here), §8 (recipes) and §9 (scripts) still apply. Originally: ACTIVE handover, current as of 2026-10-15 (v0.2.63 published 2026-10-15 12:46Z; `SEED_VERSION` is v0.2.63).**
 - **Supersedes:** [`VBD_HANDOVER_2026-10-13.md`](VBD_HANDOVER_2026-10-13.md). Its §3 order and the 2026-10-10 handover's §5 ("How to work in this repository") still apply unless this document amends them.
 - **Written:** 2026-10-15 by the agent that ran the campaign from 2026-10-13 through the v0.2.63 cut. The maintainer's instruction: "stop all your work after v0.2.63 is out. Then please create a handover doc in new PR so another agent on another machine can pick it up. Please make it as detailed as possible".
 - **Who it is for:** an agent on **another machine**. Nothing below depends on the old box. Every branch named here is pushed. Every script the work needs is either in the repository or inlined in §9, except the global-lend census aggregation script (§2.3 says how to regenerate the census without it). The previous machine's paths appear only in §10, and only as history.
@@ -781,7 +781,7 @@ x :: 12;                           // a true constant
 - `issues/a-generic-function-passed-to-an-impl-fn-parameter-fails-in-codegen.md`.
 - `issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`.
 - `issues/fixed/a-struct-field-of-type-option-box-emits-invalid-c.md`: fixed by #1411.
-- `issues/arc-of-a-named-function-value-fails-its-send-bound.md`. Root cause corrected 2026-10-17 (#1424): the `Arc(V)` type constructor's where-clause re-check rejects the bare `fn` type, and a sound fix waits on `issues/questions/2026-10-17-how-a-named-function-value-carries-send.md`. Filed with it: `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` and `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2 each).
+- `issues/arc-of-a-named-function-value-fails-its-send-bound.md`. Root cause corrected 2026-10-17 (#1424): the `Arc(V)` type constructor's where-clause re-check rejects the bare `fn` type, and a sound fix waits on `issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`. Filed with it: `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` and `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2 each).
 - `issues/fixed/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`: fixed 2026-10-17 (#1424). #612 and #902 had already fixed the value routes; this branch fixes the type-level route, where `Arc(T)`'s `Send` impl judged a closure-over-a-closure's capture struct field by field and refused it. `tests/thread_safety.test.yo` pins the helper accept/reject pair and `arc` of a nested closure crossing a thread.
 - `issues/array-clone-copies-self-out-of-the-borrow.md`.
 - `issues/arraylist-clone-copies-elements-out-through-get.md`.

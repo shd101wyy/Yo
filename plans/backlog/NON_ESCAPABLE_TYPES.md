@@ -368,7 +368,7 @@ borrowing iterator is `iter(self : &Self) -> Cursor(T)` (R3, root `self`)
 with `next(self : &mut Self, depends(item : self.*)) -> (item : Option(&T))` (the item
 carries the cursor's roots, not the cursor); the borrowed `for(&xs, …)`
 dispatches through `impl(&C, IntoIterator(…))`, Rust's shape
-(`issues/questions/borrowed-for-over-user-defined-collections.md`). A
+(`issues/retired/borrowed-for-over-user-defined-collections.md`). A
 closure that writes a `&mut` capture is a `FnMut` (decision 37).
 
 **Disjoint element borrows are a contract, not a borrow-checker proof.**

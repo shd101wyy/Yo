@@ -50,7 +50,7 @@ A closure goes through: `(k2 : Impl(Fn() -> i32, Send)) = k` with
     be judged on the bare type and refused, exactly like `f := nine`.
   - Keeping the promise means keeping a marker-declaring type, or a value, on
     the binding. That is the open decision in
-    `issues/questions/2026-10-17-how-a-named-function-value-carries-send.md`.
+    `issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`.
 
 ## Regression test
 

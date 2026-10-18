@@ -13,9 +13,11 @@
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
 - **Handover:** start with
-  [`plans/handover/VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md), which has the
-  releases, the open PRs, the branches in flight and the Generation B
-  queue.
+  [`plans/handover/VBD_HANDOVER_2026-10-17.md`](handover/VBD_HANDOVER_2026-10-17.md), which has the
+  releases, the open PRs, the branches in flight and the v0.2.65 gate;
+  its predecessor
+  [`VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md)
+  keeps the process recipes and scripts.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -87,7 +89,7 @@ Progress:
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
-  - V3 async A4's compiler half (§3.13; feat/vbd-v3-a4-future-operands): a
+  - V3 async A4's compiler half (§3.13; #1432): a
     generic combinator's by-value future operand accepts a borrowing future, and
     decision 38 B's overlap check for two borrowing operands is E0910;
   - V3 async A5 (§3.13; #1379): `Waker` is a move-only
@@ -1294,7 +1296,7 @@ instead.
       to run it as a scoped child; they wait for that support, with decision
       38 B's overlap check (A2's "Not yet").
   - **As built, the compiler half of the future operands (2026-10-16,
-    feat/vbd-v3-a4-future-operands).**
+    #1432).**
     - **The operand slot is structural.** A by-value parameter whose type is
       a future, of a GENERIC function whose result is a future, accepts a
       borrowing future (`_param_accepts_second_class`,
@@ -1699,6 +1701,13 @@ and in git, not a silent edit.
     immutable after construction, so `Rc` shares them honestly. The small
     trees (`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`) take `Box`. `EvalValue`
     is decided and measured in its own V4 PR.
+    - **Amended 2026-10-18 (maintainer, on the advisor's recommendation;
+      `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`):
+      the rule is by sharing, not by size.** A tree whose subtrees are shared
+      or substituted takes `Rc` children; a tree built once and consumed
+      takes `Box`; a type with no direct `Self` child is a plain value. So
+      `VcTerm` takes `Rc` now (the verifier substitutes and shares
+      subterms), and `VcSort` takes `Box` after V2b B6.
     - **Amended 2026-10-13 (maintainer verdict: "Rc handle when the
       measurements favor it"): `TypeValue` stays an `Rc` handle.** The value
       enum with `Rc(Self)` children was built and measured, and lost. A
@@ -3343,7 +3352,7 @@ and in git, not a silent edit.
 
         The S2 closes there.
       - **User collections.** `BorrowedWalk` is option 2 of
-        `issues/questions/borrowed-for-over-user-defined-collections.md`,
+        `issues/retired/borrowed-for-over-user-defined-collections.md`,
         generalized from an index to a cursor, so std and user types share
         one lowering. A user type can implement it today only under
         `pragma(Pragma.AllowUnsafe)`: `walk_elem` must yield a pointer, and
@@ -6968,7 +6977,7 @@ heavy run, the command is given in item 2.
       - **As built (decision 39's Generation A, 2026-10-17).** The cursor
         is the prelude trait `BorrowedWalk`, public rather than
         std-internal, so that a user collection can be a source too
-        (`issues/questions/borrowed-for-over-user-defined-collections.md`,
+        (`issues/retired/borrowed-for-over-user-defined-collections.md`,
         option 2). The maps' element is the entry: one `walk_elem`
         projection to the `MapEntry(K, V)`, not separate key and value
         projections. `LinkedList`'s cursor is its current `ref` node until
@@ -7220,7 +7229,7 @@ stage-2 RSS):
     `ite` terms, so `Box` children would deep-copy on every snapshot (the
     pattern that made the value `TypeValue` 2.3× slower). The decision is
     open in
-    `issues/questions/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
+    `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
     which recommends `Rc` for `VcTerm` and `Box` for `VcSort` once maps can
     hold move-only values. Both stay `ref(enum)` until then.
 - **`EvalValue`:** last. The comptime-place model aliases on purpose, so its
@@ -7595,12 +7604,15 @@ once `SEED_VERSION` parses it.
      - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals step.
      - E0918 is unchanged and checked first, so a runtime write of a
        `mut(x) ::` is still E0918.
+     - A parameter is an immutable binding, so a `&mut` capture of a
+       by-value parameter reports E0917 before the older "a `&mut` capture
+       needs a writable place" message. Accepted on 2026-10-18.
      - Module-level `mut(x) ::` is ACCEPTED, against the open point's
        recommendation: tests/comptime.test.yo already reassigns a
        module-level `::` binding at module level (`_RW_M = i32(2);`), so
        rejecting it would delete a working feature, which is beyond a
-       Generation A. Generation A only asks for the marker. Whether module
-       level keeps `mut(x) ::` is still the maintainer's call.
+       Generation A. Generation A only asks for the marker. Accepted by the
+       maintainer on 2026-10-18.
      - A capture-list entry and a pattern binding a macro expansion
        introduces around a caller's name (the element of
        `for(coll, x => ...)`) are treated as parameters: no `mut`, and a
@@ -7812,6 +7824,16 @@ audit, finding 4) so that the iterator holds no handle: index cursors and
 the borrowed `for`. Decision 40 (2026-10-07) rules out
 `Pin`; its invariant was corrected the same day (second audit #1264, finding 1).
 Decision 18 was also amended to place-based exclusivity.
+
+**Decided 2026-10-18** (maintainer, taking the advisor's recommendations):
+- `VcTerm`/`VcSort` children: decision 21's 2026-10-18 amendment.
+- How a named function value carries `Send`: function-item types after
+  decision 43, the structural-compat fix first; until then
+  `plans/reference/PARALLELISM_RULES.md` D9 recommends a capture-free
+  closure (`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`).
+- The borrowed `for` over user collections: `BorrowedWalk` stands until
+  decision 43 step 3 (`issues/retired/borrowed-for-over-user-defined-collections.md`).
+- Decision 47 step 2's two as-built departures are accepted (below).
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:

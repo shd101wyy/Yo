@@ -79,7 +79,7 @@ promise would be lost again.
 ## Direction
 
 The fix needs a design decision first:
-`issues/questions/2026-10-17-how-a-named-function-value-carries-send.md`.
+`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`.
 That doc weighs two options:
 - function-item identity types, which is Rust's design;
 - rebinding a binder to a marker-declaring `Impl(Fn(...), Send, ...)` SomeT
