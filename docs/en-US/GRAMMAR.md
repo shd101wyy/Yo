@@ -224,6 +224,13 @@ Field ::= Identifier | Expression ':' Expression
 ;; A begin block's trailing `;` appends a final unit: `{ x; y; }` has value
 ;; `()`; `{ x; y }` has value `y`.
 
+;; The empty record `{}` is a zero-field struct VALUE, not the unit value.
+;; Where unit is expected (a `cond`/`match` arm, a `-> unit` fn body, a unit
+;; argument) write `()` — `{}` there is rejected with an error naming `()`
+;; (a check-time rule since 2026-10-18,
+;; issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
+;; Where a zero-field struct type is expected, `{}` is the literal to write.
+
 ;; Dot Expression
 ;; Leading dot for enum variants or tagged unions
 ;; Example: .Some(value) or .Ok

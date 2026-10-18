@@ -209,6 +209,12 @@ Field ::= Identifier | Expression ':' Expression
 ;; begin 块的尾随 `;` 会追加一个结尾 unit：`{ x; y; }` 的值是 `()`；
 ;; `{ x; y }` 的值是 `y`。
 
+;; 空记录 `{}` 是零字段结构体的“值”，不是 unit 值。在期望 unit 的位置
+;; （`cond`/`match` 分支、`-> unit` 函数体、unit 参数）应写 `()` —— 在这些
+;; 位置写 `{}` 会被拒绝，报错会提示写 `()`（2026-10-18 起的检查期规则，
+;; 见 issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md）。
+;; 在期望零字段结构体类型的位置，`{}` 才是应写的字面量。
+
 ;; 点表达式
 ;; 前导点用于枚举变体或标签联合
 ;; 示例：.Some(value) 或 .Ok

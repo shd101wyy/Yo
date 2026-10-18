@@ -209,8 +209,8 @@ supplies the signature) is written with the right group, which fmt keeps:
 - **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` — that evaluates the type as a
   comptime value. To yield unit, either end the block with `()` as the last expression (no semicolon),
   or omit the tail entirely: a block whose statements all end in `;` already evaluates to unit. An
-  empty arm is `()` — `{}` is an empty STRUCT value, not unit, and must be rejected where unit is
-  expected (`issues/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md`;
+  empty arm is `()` — `{}` is an empty STRUCT value, not unit, and is rejected where unit is
+  expected (`issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md`;
   maintainer directive 2026-10-18).
 
 ## Enum definition syntax
