@@ -292,7 +292,8 @@ A new agent starting from this document re-runs Tier 1 for any branch before mer
 Paste this over the generated `## Changes` section after the release publishes. Keep line 1 and `## Native bundles` byte-for-byte, as in the 2026-10-15 handover §8.4. Add a bullet for every PR that lands before the cut, and check each bullet against the merged PR's body.
 
 - **Language:**
-  - Decision 47 locals Generation A: every `mut(...)` binding form, and `yo fix --migrate mut-bindings`.
+  - Bindings are immutable unless declared `mut(...)` (decision 47 locals, Generation A, #1440). `mut(x)` is accepted in every binding position: patterns, destructuring, `mut(x) ::` and `comptime(mut(x)) :=`. Assigning, compound-assigning, lending `&mut`, or calling a `&mut self` method on an unmarked binding is E0917 ("a write to an immutable binding"). For a parameter, a capture or a `for` element, the E0917 help suggests a rebind. `yo fix --migrate mut-bindings` inserts the markers. The rule is enforced outside `src/` and `std/` until the next release's sweep.
+  - `std/time`'s 27 read-only methods (`Duration.as_secs`, `Instant.elapsed`, `DateTime.to_unix`, …) and `Array(T, N).len` now take `self : &Self` instead of `&mut Self` (#1440); their `yo doc` signatures change.
   - Decision 39 iterators Generation A (#1429): the borrowed `for(&mut coll, x => …)` walks a cursor (`BorrowedWalk`). Touching the collection inside the body, even a read, is now a compile-time E0911 with a hint to use `coll.indices()`; `HashSet` and `PriorityQueue` no longer accept `for(&mut …)` (a `&mut` element could corrupt their order or hashing); `return(x)` of the loop element is E0912 (copy it first).
 - **Compile and codegen:**
   - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost (#1438).
@@ -312,7 +313,9 @@ Paste this over the generated `## Changes` section after the release publishes. 
 - **Leaks:** Fixed (S2): `consume(x)` of an owned value releases it (#1416).
 - **Verifier internals:** `Z3Sexpr` is a value enum (V4, #1435); omit from the notes unless something user-visible changed.
 - **Toolchain:** `YO_TEST_FORK=N` runs `yo test` over many files in forked workers (#1427).
-- **Known open issues filed this cycle:** the §5.3 paths that are still open at the tag.
+- **Known open issues filed this cycle:** the §5.3 paths that are still open at the tag, including the S1 `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (a pre-existing bug, not a regression). Two kinds of issue are not on develop at the tag; list them as prose, without a path:
+  - `yo fix --migrate explicit-copy` can rewrite a generic body seen at only one type, and an arm-tail copy of a borrowed binding (S2). The fixes are on V2b B1's branch.
+  - A `ref(struct)` collection that forwards a projection from `walk_elem` panics at its next container call (S2), and a bare projection tail reports a misleading E0601 (S3). Both docs arrive with #1431.
 
 ## 8. Machine-specific notes (ignore on a new machine)
 
