@@ -206,9 +206,11 @@ supplies the signature) is written with the right group, which fmt keeps:
 
 - The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
 - With semicolon, like `{ expr; }`, the return value is `unit`.
-- **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` as a discard or unit-yielding
-  tail — that evaluates the type as a comptime value and happens to be discarded; the statement form
-  is `();` (maintainer directive 2026-10-18, found in `issues/repros/match-statement-falls-off-end.yo`).
+- **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` — that evaluates the type as a
+  comptime value. To yield unit, either end the block with `()` as the last expression (no semicolon),
+  or omit the tail entirely: a block whose statements all end in `;` already evaluates to unit, and an
+  empty arm/block is `{}` (maintainer directive 2026-10-18, found in
+  `issues/repros/match-statement-falls-off-end.yo`).
 
 ## Enum definition syntax
 
