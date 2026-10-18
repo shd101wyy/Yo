@@ -2,12 +2,15 @@
 
 **Severity:** S3 — a valid program leaks the closure's capture (and what it owns) under ASan; the existing test that covers the shape fails the language suite on the seed and on develop.
 
-**Status:** open. Found 2026-10-19 while gating the tree that fixes
+**Status:** fixed by #1459 (comptime-expect-error marks its operands moved);
+closed on re-verification 2026-10-19. Found while gating the tree that fixes
 `issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
-(the `tests/copy_trait.test.yo` run went red on LeakSanitizer). NOT a
-regression of that change: the v0.2.65 seed binary — which carries none of
-this cycle's changes — compiles the standalone reproducer below into a binary
-with the identical leak (34 bytes in 2 allocations).
+(the `tests/copy_trait.test.yo` run went red on LeakSanitizer against a base
+without #1459). NOT a regression of that change: the v0.2.65 seed binary
+compiled the standalone reproducer below into a binary with the identical
+leak (34 bytes in 2 allocations). After rebasing onto #1459, the same
+reproducer runs clean (`run rc=0`) and `tests/copy_trait.test.yo` passes
+31/31 — the move-marking restore in #1459 was the missing drop.
 
 ## Symptom
 
@@ -57,20 +60,17 @@ yo compile tmp/leak-repro.yo --sanitize address --allocator system -o leak-bin
 Both this and the in-suite failure reproduce identically with the released
 v0.2.65 seed, so the defect predates this cycle.
 
-## Where to look
+## Post-mortem
 
-`c` and `c2` own `s`; every assertion in the test passes, so the leak is the
+`c` and `c2` own `s`; every assertion in the test passes, so the leak was the
 missing DROP of the closure locals after their value flows into a
 comptime-evaluated call that the `where(T <: Copy)` check rejects inside
-`comptime_expect_error`. The trace runs through the unspecialized
-`yo_id_1593...` (one of the two `_ct_need_copy*` helpers) into a
-`_rtparam0_usize_ret_R_gs_...` specialization that constructs the capture
-record. Prime suspect is the dup/drop accounting around a comptime call that
-receives an Rc argument and throws: the comptime side's share is either never
-taken or never returned, and the caller-side drop is suppressed as if the
-comptime call had consumed the value.
+`comptime_expect_error` — the comptime call marked its operand moved and the
+caller-side drop was suppressed, which is exactly what #1459's move-mark
+restore fixed.
 
 ## Test
 
 Already present: `tests/copy_trait.test.yo`, "Copy: where(T <: Copy) rejects
-a closure that owns a String" — it fails before any fix (seed and develop).
+a closure that owns a String" — it failed on the seed and on a pre-#1459
+base, and passes on develop since #1459.
