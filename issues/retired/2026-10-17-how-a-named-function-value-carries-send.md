@@ -1,6 +1,8 @@
 # How does a named function value carry `Send` into a generic container?
 
-**Kind:** design question. This is an open decision, not a defect. Filed
+**Kind:** design question (decided; retired into the plan).
+
+**Status:** DECIDED 2026-10-18: option 1 is the end state, in two scheduled steps. The maintainer delegated the open VBD questions to the coordinator's advisor and accepted its verdicts. Filed
 2026-10-17. It blocks `issues/arc-of-a-named-function-value-fails-its-send-bound.md`
 and `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`.
 
@@ -94,3 +96,12 @@ binding was made.
 
 Option 3 is the fallback if option 1's codegen cost proves too high. Under it,
 D9's paragraph must stop recommending a binding that the compiler rejects.
+
+## Verdict
+
+1. **Now:** fix the structural-compat rule, which is already filed as `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2). A SomeT that carries a resolution is compared by that resolution in the concrete-actual direction too.
+2. **After decision 43 lands:** give each named function its own item type, as Rust does.
+   - Both changes rework `TypeValue` and `type_key`, so doing this one earlier would mean two passes over them.
+   - It is not on the VBD critical path and gates nothing.
+
+**In the interim,** `plans/reference/PARALLELISM_RULES.md` D9 recommends wrapping a named function in a capture-free closure, either `dyn(() => f())` or `arc` of the closure. It no longer recommends the declared binding, which E0601 rejects for a named function. The two blocked issues (`issues/arc-of-a-named-function-value-fails-its-send-bound.md` and `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`) stay open until step 2.

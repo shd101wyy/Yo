@@ -49,7 +49,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1425 | `yo check` reports errors in any closure with an `io : Io` parameter (S3; it was not specific to D3) |
 | #1426 | A recursive enum's self-shell lowers like its nullable-pointer final (derive Clone S2) |
 | #1423 | Handover status notes |
-| #1424 | A closure capture struct is `Send`/`Sync` by its per-variable capture verdicts (D4 at the type level), so `arc` of a closure over a closure crosses threads (S2). `arc(named fn)` stays open: its root cause is the `Arc(V)` constructor's where clause, and the fix waits on `issues/questions/2026-10-17-how-a-named-function-value-carries-send.md`. Two new S2s filed |
+| #1424 | A closure capture struct is `Send`/`Sync` by its per-variable capture verdicts (D4 at the type level), so `arc` of a closure over a closure crosses threads (S2). `arc(named fn)` stays open: its root cause is the `Arc(V)` constructor's where clause, and the fix waits on `issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`. Two new S2s filed |
 | #1420 | Collections hold move-only keys and values (`HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue`); unit pointer moves and a moved `Index` argument lower (3 S2s; bug-fix workflow) |
 | #1432 | V3 A4 compiler half: a generic combinator's by-value future operand accepts a borrowing future (re-rooted at the parameter, so the combinator's future is second-class); decision 38 B overlap is E0910. Only a generic function is a combinator slot (a non-generic one would let two `&mut` operands of one place pass). The std half (`timeout`/`select` over futures) stays parked on `wip/vbd-a4-std-half` behind an S2 |
 | #1409 | A `downcast`/`upcast` result (and `Iso(T)(v)`) declares its owning temp, so a receiver or discarded result is released (S2); the rule is in `c-codegen.instructions.md` |
@@ -59,7 +59,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 | #1433 | A false E1101 is gone (S2; mtxfollow); the strict-FIFO async mutex (#1434) follows |
 | #1438 | S1: an `unwind` through a frame whose destructor makes a call is no longer lost (v0.2.65 gate item 3) |
 | #1412 | V3 A5: `Waker` implements `Clone` over `__yo_waker_clone` (Generation B on the v0.2.64 seed); `cross_thread_wake` uses `w.clone()` again |
-| #1435 | V4: the verifier's `Z3Sexpr` is a value enum (no `Box` needed: its children live in an `ArrayList`). `VcSort`/`VcTerm` wait on `issues/questions/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md` (recommends `Rc` for `VcTerm`, `Box` for `VcSort`, once maps hold move-only values). Its exclusive timing A/B runs once the heavy queue drains. |
+| #1435 | V4: the verifier's `Z3Sexpr` is a value enum (no `Box` needed: its children live in an `ArrayList`). `VcSort`/`VcTerm` wait on `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md` (recommends `Rc` for `VcTerm`, `Box` for `VcSort`, once maps hold move-only values). Its exclusive timing A/B runs once the heavy queue drains. |
 
 ### 2.3 The v0.2.65 release gate
 
@@ -112,7 +112,7 @@ See §2.3. The maintainer chose to keep the release open for them rather than sh
 
 ### 3.x Maintainer questions from #1429 (decision 39)
 
-1. A user-defined collection needs `pragma(Pragma.AllowUnsafe)` to implement `walk_elem`, because a projection body cannot return another projection. Recommendation: make that forwarding work (`issues/questions/borrowed-for-over-user-defined-collections.md`).
+1. A user-defined collection needs `pragma(Pragma.AllowUnsafe)` to implement `walk_elem`, because a projection body cannot return another projection. Recommendation: make that forwarding work (`issues/retired/borrowed-for-over-user-defined-collections.md`).
 2. `HashSet`/`PriorityQueue` refuse `for(&mut …)` by design.
 3. Reading the collection inside a borrowed `for` body is E0911; code that reads or grows it must use `indices()`.
 4. The macro-site liveness rule applies only to a macro defined in another module (the prelude's `for`); a same-module macro keeps token-based liveness.

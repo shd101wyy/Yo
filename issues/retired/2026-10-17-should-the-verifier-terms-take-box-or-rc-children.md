@@ -1,6 +1,8 @@
 # Should the verifier's `VcSort` and `VcTerm` take `Box` or `Rc` children?
 
-**Kind:** design question — an open decision, not a defect. Filed 2026-10-17
+**Kind:** design question (decided; retired into the plan).
+
+**Status:** DECIDED 2026-10-18: the recommendation is taken. The maintainer delegated the open VBD questions to the coordinator's advisor and accepted its verdicts. Filed 2026-10-17
 while converting the V4 trees (`plans/VALUES_BY_DEFAULT.md` §6 V4), after
 `Z3Sexpr` converted and `Pattern` was converted with `Box` children.
 
@@ -56,3 +58,14 @@ move-only values. Amend decision 21 so the rule is "a tree whose algorithm
 shares subtrees takes `Rc`, a tree that is built once and read takes `Box`",
 and keep `Pattern` and `Z3Sexpr` as the `Box` and value cases. Until the
 maintainer decides, both stay `ref(enum)`; `ref` goes away only at V5.
+
+## Verdict
+
+- **`VcTerm` takes `Rc` children now.** Spell it `VcTerm :: Rc(VcTermNode)` or give it `Rc(Self)` children. It needs no collection work, and a snapshot stays O(map size).
+- **`VcSort` takes `Box` children after V2b** has given `HashMap` a borrowing accessor and move-only values (B6).
+- **Decision 21 is amended** (`plans/VALUES_BY_DEFAULT.md` §4, decision 21):
+  - a tree whose algorithm shares subtrees (snapshot and merge) takes `Rc`;
+  - a tree that is built once and read takes `Box`;
+  - a tree with no direct `Self` child is a plain value.
+  `Pattern` is the `Box` case, `Z3Sexpr` the value case, and `TypeValue`/`AstExpr` the `Rc` case.
+- Converting `VcTerm` is V4 work, measured against develop like the other trees (`yo verify ./tests/spec`, the `tests/internal/verifier*` files, `check ./src` time and stage-2 RSS).

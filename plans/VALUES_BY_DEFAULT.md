@@ -3345,7 +3345,7 @@ and in git, not a silent edit.
 
         The S2 closes there.
       - **User collections.** `BorrowedWalk` is option 2 of
-        `issues/questions/borrowed-for-over-user-defined-collections.md`,
+        `issues/retired/borrowed-for-over-user-defined-collections.md`,
         generalized from an index to a cursor, so std and user types share
         one lowering. A user type can implement it today only under
         `pragma(Pragma.AllowUnsafe)`: `walk_elem` must yield a pointer, and
@@ -6970,7 +6970,7 @@ heavy run, the command is given in item 2.
       - **As built (decision 39's Generation A, 2026-10-17).** The cursor
         is the prelude trait `BorrowedWalk`, public rather than
         std-internal, so that a user collection can be a source too
-        (`issues/questions/borrowed-for-over-user-defined-collections.md`,
+        (`issues/retired/borrowed-for-over-user-defined-collections.md`,
         option 2). The maps' element is the entry: one `walk_elem`
         projection to the `MapEntry(K, V)`, not separate key and value
         projections. `LinkedList`'s cursor is its current `ref` node until
@@ -7222,7 +7222,7 @@ stage-2 RSS):
     `ite` terms, so `Box` children would deep-copy on every snapshot (the
     pattern that made the value `TypeValue` 2.3× slower). The decision is
     open in
-    `issues/questions/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
+    `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
     which recommends `Rc` for `VcTerm` and `Box` for `VcSort` once maps can
     hold move-only values. Both stay `ref(enum)` until then.
 - **`EvalValue`:** last. The comptime-place model aliases on purpose, so its

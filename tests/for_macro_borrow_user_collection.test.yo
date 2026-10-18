@@ -1,7 +1,8 @@
-// A user collection implements `BorrowedWalk` with a raw pointer into its
-// list's buffer, so this file needs the pragma: a projection body cannot yet
-// return another projection rooted at `self`
-// (issues/questions/borrowed-for-over-user-defined-collections.md).
+// A `ref` user collection implements `BorrowedWalk` with a raw pointer into
+// its list's buffer, so this file needs the pragma: forwarding the list's
+// projection through a `ref` receiver leaves its borrow flag set
+// (issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md).
+// A plain-value collection forwards `&mut self.items(cur)` in safe code.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 /// The borrowed `for` over a USER collection (plans/VALUES_BY_DEFAULT.md
