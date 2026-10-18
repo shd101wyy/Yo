@@ -147,6 +147,8 @@ Every step names its spec. Where this list and `plans/VALUES_BY_DEFAULT.md` §6 
 
 None of these needs anything new. Remove `~/Workspace/Yo-wt/MERGE_FREEZE`, then merge them one at a time. For each one, rebase, apply the overlap rule (§1.1), and run fmt and refs. Merge without another rebase unless GitHub reports a conflict. The resume point for each branch is its row in §2.4.
 
+**Every branch below was gated before #1440 made local bindings immutable.** After rebasing, run `yo fix <the branch's added or changed test files> --migrate mut-bindings` with a tree-built binary. Commit that output as its own commit, rebind any parameter writes it lists by hand, and then re-run those tests. The overlap rule cannot see this change: it is the language changing under the branch's tests, not develop touching the same files. Test files per branch, counted 2026-10-18: #1421 has 28; #1436 has 4; #1434, #1422 and B1 have 2 each; #1414, #1430 and the trial-specialization branch have 1 each; #1439 has none.
+
 1. #1414: decision 47 globals, Generation B.
 2. #1434: the strict-FIFO async mutex.
 3. #1421: decision 46, Generation B (a write through a plain `Rc` is E0919).
@@ -289,35 +291,76 @@ The maintainer asked for all work to stop once v0.2.65 is published, with this d
 
 A new agent starting from this document re-runs Tier 1 for any branch before merging it (§2.4).
 
-## 7. Draft of v0.2.65's curated release notes
+## 7. v0.2.65's curated release notes (final text, written 2026-10-18)
 
-Paste this over the generated `## Changes` section after the release publishes. Keep line 1 and `## Native bundles` byte-for-byte, as in the 2026-10-15 handover §8.4. Add a bullet for every PR that lands before the cut, and check each bullet against the merged PR's body.
+When the release publishes, keep line 1 (`Patch release v0.2.65`) and the whole `## Native bundles (bootstrap seed chain)` section byte for byte. Replace only the generated `## Changes` section with the text below (2026-10-15 handover §8.4):
 
-- **Language:**
-  - Bindings are immutable unless declared `mut(...)` (decision 47 locals, Generation A, #1440). `mut(x)` is accepted in every binding position: patterns, destructuring, `mut(x) ::` and `comptime(mut(x)) :=`. Assigning, compound-assigning, lending `&mut`, or calling a `&mut self` method on an unmarked binding is E0917 ("a write to an immutable binding"). For a parameter, a capture or a `for` element, the E0917 help suggests a rebind. `yo fix --migrate mut-bindings` inserts the markers. The rule is enforced outside `src/` and `std/` until the next release's sweep.
-  - `std/time`'s 27 read-only methods (`Duration.as_secs`, `Instant.elapsed`, `DateTime.to_unix`, …) and `Array(T, N).len` now take `self : &Self` instead of `&mut Self` (#1440); their `yo doc` signatures change.
-  - Decision 39 iterators Generation A (#1429): the borrowed `for(&mut coll, x => …)` walks a cursor (`BorrowedWalk`). Touching the collection inside the body, even a read, is now a compile-time E0911 with a hint to use `coll.indices()`; `HashSet` and `PriorityQueue` no longer accept `for(&mut …)` (a `&mut` element could corrupt their order or hashing); `return(x)` of the loop element is E0912 (copy it first).
-- **Compile and codegen:**
-  - Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost (#1438).
-  - Fixed (S2): a recursive enum's self-shell lowers like its nullable-pointer final (#1426).
-  - Fixed (S2): a generic `derive(Clone)` over a container field of its parameter (#1437).
-  - Fixed (S2): a `downcast`/`upcast` result used as a method receiver or discarded is released, and so is an `Iso(T)(v)` constructor result (#1409).
-- **Type checking:**
-  - A closure capture struct is `Send`/`Sync` by what it captures, so `arc` of a closure over a closure crosses threads (#1424).
-  - V3 A4: a generic future combinator accepts a borrowing future as its by-value operand, and two operands lending overlapping places are E0910 (#1432).
-  - Fixed (S2): a generic function's by-value closure parameter owns a deferred closure literal (#1428).
-  - `yo check` reports errors inside any closure with an `io : Io` parameter (#1425).
-- **Async runtime:**
-  - Fixed (S1, S2): a `mut` match place binding lives across an `await`, and a `mut` match on a field no longer writes a copy (#1419).
-  - `Waker` implements `Clone` (#1412).
-  - Fixed (S2): the epoll teardown frees its free lists at thread exit (#1417).
-- **Std:** collections hold move-only keys and values (`HashMap`, `HashSet`, `BTreeMap`, `Deque`, `PriorityQueue`) (#1420).
-- **Leaks:** Fixed (S2): `consume(x)` of an owned value releases it (#1416).
-- **Verifier internals:** `Z3Sexpr` is a value enum (V4, #1435); omit from the notes unless something user-visible changed.
-- **Toolchain:** `YO_TEST_FORK=N` runs `yo test` over many files in forked workers (#1427).
-- **Known open issues filed this cycle:** the §5.3 paths that are still open at the tag, including the S1 `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (a pre-existing bug, not a regression). Two kinds of issue are not on develop at the tag; list them as prose, without a path:
-  - `yo fix --migrate explicit-copy` can rewrite a generic body seen at only one type, and an arm-tail copy of a borrowed binding (S2). The fixes are on V2b B1's branch.
-  - A `ref(struct)` collection that forwards a projection from `walk_elem` panics at its next container call (S2), and a bare projection tail reports a misleading E0601 (S3). Both docs arrive with #1431.
+```bash
+gh release view v0.2.65 --json body --jq .body > /tmp/old-body.md
+# new body = line 1 + blank line + the block below + blank line + the "## Native bundles" section of old-body.md
+gh release edit v0.2.65 --notes-file /tmp/new-body.md
+```
+
+Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-only and is omitted). Re-check that each known-issue path is still open at the tag.
+
+````markdown
+## Changes
+
+### Language (values by default, `plans/VALUES_BY_DEFAULT.md`)
+- **Local bindings are immutable unless declared `mut(name)`** (decision 47 locals, Generation A), like Rust's `let mut`.
+  - The marker works in every binding position: `mut(x) := v`, `(mut(x) : T) = v`, `mut(x) :: v`, `comptime(mut(x)) := v`, a `match` pattern (`.Some(mut(v))`) and a destructuring (`{ a, mut(b) }`, `(a, mut(b))`).
+  - Four writes to an unmarked binding are **E0917**: a reassignment, a field or `Array` element write, a `&mut` lend (`&mut x`, `y := &mut x`, `match(&mut x, …)`, a `&mut x` capture), and a `&mut self` method call. A `ref` handle is still written through without the marker. `String` is a value, so `s.push_str(…)` needs `mut(s)`.
+  - Parameters, capture-list entries and `for` elements take no `mut`. Writing one is E0917, and its help suggests rebinding: `mut(p_m) := p;`, or `for(&mut coll, x => …)` for a loop element.
+  - `yo fix <path> --migrate mut-bindings` inserts the markers and lists the writes to rebind by hand. `YO_AUDIT_MUT_BINDINGS=1` prints every write without rejecting it.
+  - The rule is enforced outside `src/` and `std/` until a seed that parses `mut(` builds them; this release is that seed (#1440).
+- **`std/time`'s read-only methods take `self : &Self`.** The 27 methods (`Duration.as_secs`, `Instant.elapsed`, `DateTime.to_unix`, …) and `Array(T, N).len` took `&mut Self`, which would have made `d.as_secs()` on an unmarked `Duration` an E0917. Their `yo doc` signatures change (#1440).
+- **The borrowed `for` walks a cursor over a local borrow** (decision 39, Generation A).
+  - `for(&mut xs, x => …)` no longer goes through `iter()` and no longer copies the collection; each step re-derives the element. `ArrayList`, `Deque`, `HashMap`, `BTreeMap`, `OrderedMap` and `LinkedList` implement the new prelude trait `BorrowedWalk`.
+  - `xs.indices()` on `ArrayList` and `Deque` gives a cursor that survives changes to its container. Use it when the loop body must read or grow the collection.
+  - Behavior change (decision 18, Rust's `iter_mut` rule): a body that names its collection is now **E0911**, for reads such as `xs.len()` as well as writes, and so is a nested loop over the same collection. `return(x)` of the element is E0912; bind a copy first. `HashSet` and `PriorityQueue` no longer accept `for(&mut …)`, because a write in place could break their hashing or order (#1429).
+- **A generic future combinator accepts a borrowing future as its by-value operand** (V3 A4, compiler half). Two operands of one call that lend overlapping places, when either side is `&mut`, are **E0910** (decision 38 B). A non-generic future-to-future function still rejects a borrowing future (#1432).
+- **A closure capture struct is `Send`/`Sync` by what it captures**, so `arc` of a closure that captures another closure over an `Arc(AtomicI32)` now crosses threads (#1424).
+
+### Type checking
+- Fixed (S2): a generic `derive(Clone)` whose field is a container of its parameter (`Option(A)`, `ArrayList(A)`, `Box(A)`) failed with `No method "clone"`. A concrete miss is still reported at the `derive` line (#1437).
+- Fixed (S2): a generic function's by-value closure parameter now owns a closure literal passed to it, so a closure holding a `Drop` value can be moved on inside the callee instead of failing with E0901 (#1428).
+- Fixed (S2): `!unsafe(p.*.flag)` inside a `comptime(T)` function was a false **E1101** (#1433).
+- Fixed (S3): `yo check` reported nothing for an error inside a closure whose parameter is `Io`, which covers `Thread.spawn` and `io.async` bodies (#1425).
+
+### Compile and codegen
+- **Fixed (S1): an `unwind` through a frame whose destructor makes a call was lost.** The frame returned its zeroed dummy result as if it had returned normally: a SIGSEGV for a `ref` result, a wrong value for a scalar. Dropping a `Box` on the escape path was enough to trigger it (#1438).
+- **Fixed (S1): `match(&mut s.o, …)` on a field or a dereference wrote to a copy.** Replacing a counted payload then freed `s.o`'s value twice (#1419).
+- Fixed (S2): a recursive enum that folds to a nullable pointer (`enum(JNull, JArr(xs : ArrayList(Self)))`) failed to C-compile with `unknown type name`. An enum whose payload points back to itself (`enum(Leaf, Node(b : Box(Self)))`) no longer emits a self-referential typedef (#1426).
+- Fixed (S2): a `downcast`/`upcast` result used as a method receiver or discarded was never released, and neither was an `Iso(T)(v)` constructor result (#1409).
+- Fixed (S2): `consume(x)` of an owned value leaked it. It now releases the value, as `drop` does (#1416).
+
+### Async runtime
+- **A `&mut` match place binding can live across an `await`.** Decision 26's restriction is lifted, and a place reached through a local-borrow cursor is checked across every await, including one a macro expands to (E0911). Also fixed: an S2 where a nullable-pointer `match` binding was stored into another arm's task slot (#1419).
+- `Waker` implements `Clone`: a clone is another handle on the same token (#1412).
+- Fixed (S2): the epoll backend leaked its recycled pendings and registrations at thread exit, 248 bytes for one parked `recv` (#1417).
+
+### Standard library
+- **Collections hold move-only keys and values:** `HashMap`, `HashSet`, `BTreeMap`, `OrderedMap` values, `Deque` and `PriorityQueue` move entries bitwise and compare in place. Two codegen S2s found on the way are fixed too: a pointer move of a `unit` place, and an `Index` call that moves a named local (#1420).
+
+### Toolchain for agents (CLI, test runner, diagnostics)
+- **`YO_TEST_FORK=N`:** `yo test` over many files warms one in-process image and forks a worker per file, at most N at a time, replaying output in file order. Linux and macOS only (#1427).
+
+### Known open issues filed this cycle
+- `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (S1, not a regression; v0.2.63 does the same)
+- `issues/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md` (S1)
+- `issues/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md` (S1)
+- `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`
+- `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`
+- `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`
+- `issues/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`
+- `issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`
+- `issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`
+- `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
+- `issues/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`
+- `issues/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md`
+- `yo fix --migrate explicit-copy` can rewrite a generic body seen at only one type, and an arm-tail copy of a borrowed binding (S2). The fixes are on V2b B1's branch.
+- A `ref(struct)` collection that forwards a projection from `walk_elem` panics at its next container call (S2), and a bare projection tail reports a misleading E0601 (S3).
+````
 
 ## 8. Machine-specific notes (ignore on a new machine)
 
