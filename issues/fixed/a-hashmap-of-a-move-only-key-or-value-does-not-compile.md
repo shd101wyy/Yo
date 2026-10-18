@@ -92,7 +92,7 @@ The accessors that return a copy by design (`get`, `front`, `peek`,
 `get_key_value`, the by-value iterators, the entry API's `or_insert`) still
 need a copyable element, as decision 20 specifies; the same E0901 names them
 at the call. Two collections do not share this cause and stay open:
-`issues/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`
+`issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`
 (the value sits in a shared node) and
 `issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md` (the
 key is stored three times).

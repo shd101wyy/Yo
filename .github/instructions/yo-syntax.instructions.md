@@ -999,6 +999,12 @@ A `match` takes its scrutinee the way a parameter takes its argument (Rust's def
 - **Errors (E0901 naming the borrow):** a by-value match of a module-level binding, a closure capture, a field `x.f`, an element `xs(i)` or a dereference `p.*` of a non-implicitly-copyable type — write `match(&x.f, …)`; a projection never takes its root's mode. `(name := p)` in a consuming match needs `Copy` sub-bindings (in a `mut` match none); an or-pattern of a consuming match may not leave a part with a drop unbound (split the arm).
 - `yo fix <path> --migrate match-scrutinee` writes the `&` an existing program needs (a use after the match, a module-level/projection scrutinee); it skips `comptime_expect_error` arguments. The seed still reads `match(&x, …)` as a plain borrowing match, so the sweep is seed-safe.
 
+### A match binding over a shared `ref` node: methods, `&mut` lends, the unlink order (std/collections pitfalls)
+
+- **A plain method on a `ref(struct)` whose fields mention `Self` does not resolve when the receiver is a match payload binding inside another generic method** (E0610 "No method", `issues/2026-10-18-a-method-on-a-self-referential-ref-struct-fails-to-resolve-through-a-match-binding.md`): `match(self.head, .Some(n) => n.m())` fails, while `n.m()` on a constructed value resolves and `_m(&n)` (a free function) always resolves — std's node helpers stay free functions for that reason (`std/collections/linked_list.yo`). Inside a generic `Index`/`IndexMut` body the E0610 is swallowed by the specialization trial and surfaces only as `implicit declaration of function` from the C compiler.
+- **Never lend a match binding `&mut` when the arm can drop the last reference to its cell**: `f(&mut n)` plants a borrow assert on the cell, and unlinking first frees the cell before the assert reads it (an ASan heap-use-after-free; the `pop_front` shape in `linked_list.yo`). Take what you need through direct field reads/writes BEFORE the assignments that drop handles.
+- **`tracer.visit(slot)` in a `Trace` impl needs a slot of exactly the child's own type**: a slot typed `Option(Node)` lowers to the nullable-pointer form, whose visit carries no child traverse function — bind the payload and visit `unsafe(addr_of(binding))`, and visit a raw element buffer by its own pointer (the node `Trace` in `std/collections/linked_list.yo`).
+
 ## Pattern forms in `match` (real pattern matching, 2026-09-19)
 
 Patterns are ordinary expressions the parser already produces; the evaluator
