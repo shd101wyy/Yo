@@ -2716,13 +2716,13 @@ test("a write through an Rc handle is E0919, naming the doors", {
   );
 });
 test("reads, & lends, the handle itself and the doors are not E0919", {
-  h := _ro_make();
+  mut(h) := _ro_make();
   assert(h.n == i32(1), "a read through the handle");
   assert(_ro_read(&h.n) == i32(1), "a & lend of a place in the payload");
   assert(h.items.len() == usize(0), "a &self method on the payload");
   // The handle is the holder's own: rebinding it is not a write through it.
   h = _ro_make();
-  holder := _RoHolder(h : h);
+  mut(holder) := _RoHolder(h : h);
   holder.h = _ro_make();
   assert(holder.h.n == i32(1), "a field holding a handle is rebound");
   // A `ref(struct)` handle is not an `Rc`: its own fields are written through it.
