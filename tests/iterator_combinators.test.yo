@@ -316,6 +316,79 @@ test("iter.peekable peeks without consuming", {
   assert(it.peek().is_none(), "peek at end");
   assert(it.next().is_none(), "next at end");
 });
+// --- peekable Clone ----------------------------------------------------------
+// A Clone-but-not-Copy element type (the String field is Clone, never Copy):
+// IterPeekable's derived Clone must reach `Option(A)`'s conditional impl.
+PeekElem :: struct(v : i32, tag : String);
+derive(PeekElem, Clone);
+ElemIter :: struct(_cur : i32, _end : i32);
+derive(ElemIter, Copy, Clone);
+impl(
+  ElemIter,
+  Iterator(
+    Item : PeekElem,
+    next : (fn(self : &mut Self) -> Option(PeekElem))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(PeekElem(v, `elem`))
+        }
+      )
+    )
+  )
+);
+// A Clone-but-not-Copy inner iterator (the same String field shape on `I`).
+TaggedRange :: struct(_cur : i32, _end : i32, _tag : String);
+derive(TaggedRange, Clone);
+impl(
+  TaggedRange,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self._cur >= self._end) => .None,
+        true => {
+          v := self._cur;
+          self._cur = (self._cur + i32(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+tagged_range :: (fn(start : i32, end_ : i32) -> TaggedRange)(TaggedRange(start, end_, `tag`));
+test("iter.peekable clones a Copy element and inner iterator", {
+  mut(p) := my_range(i32(1), i32(4)).peekable();
+  assert(p.peek().unwrap() == i32(1), "peek fills the slot");
+  mut(q) := p.clone();
+  assert(q.next().unwrap() == i32(1), "clone sees the peeked 1");
+  assert(p.next().unwrap() == i32(1), "original keeps its own 1");
+  assert((p.next().unwrap() == i32(2)) && (q.next().unwrap() == i32(2)), "both continue");
+  assert((p.count() == usize(1)) && (q.count() == usize(1)), "one element left each");
+});
+test("iter.peekable clones a Clone-but-not-Copy element (Option(A) field)", {
+  mut(p) := ElemIter(i32(1), i32(3)).peekable();
+  first := p.peek().unwrap();
+  assert(first.v == i32(1), "peeked the first element");
+  mut(q) := p.clone();
+  a := q.next().unwrap();
+  b := p.next().unwrap();
+  assert((a.v == i32(1)) && (b.v == i32(1)), "clone and original both yield it");
+  c := q.next().unwrap();
+  assert((c.v == i32(2)) && (p.next().unwrap().v == i32(2)), "second element each");
+  assert(p.next().is_none() && q.next().is_none(), "both exhausted");
+});
+test("iter.peekable clones a Clone-but-not-Copy inner iterator", {
+  mut(p) := tagged_range(i32(1), i32(4)).peekable();
+  assert(p.peek().unwrap() == i32(1), "peek fills the slot");
+  mut(q) := p.clone();
+  assert(q.next().unwrap() == i32(1), "clone sees the peeked 1");
+  assert(p.next().unwrap() == i32(1), "original keeps its own 1");
+  assert((p.next().unwrap() == i32(2)) && (q.next().unwrap() == i32(2)), "both continue");
+  assert((p.count() == usize(1)) && (q.count() == usize(1)), "one element left each");
+});
 test("filter predicate now takes the element by value (D3.4 symmetry)", {
   odd_sum := my_range(i32(0), i32(7)).filter(x => ((x % i32(2)) == i32(1))).sum();
   assert(odd_sum == i32(9), "1+3+5");

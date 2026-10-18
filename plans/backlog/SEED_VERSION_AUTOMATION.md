@@ -363,13 +363,21 @@ A seed without the fix fails to evaluate a prelude that uses such a derive.
 class out (`hard_swallow_diagnostic_in_generic_trial`), and
 `tests/derive.test.yo` uses the shape. `std/` does not.
 
-**Generation B, once `SEED_VERSION` carries the fix:**
+**Generation B DONE 2026-10-18** on the v0.2.65 seed (which carries
+Generation A, #1437):
 - `IterPeekable(I, A)` (`std/prelude.yo`) takes its conditional `Clone`:
   `derive(generic(I : Type, A : Type), where(I <: Clone, A <: Clone), IterPeekable(I, A), Clone)`.
-  Its matching `where(I <: Copy, A <: Copy)` `Copy` derive also needs
-  `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`.
-- Verify the gate the usual way before merging: `yo build --std-path ./std`
-  with the actual seed bundle.
+  Gate verified with the actual v0.2.65 seed bundle: `yo build --std-path ./std
+  --cc zig`, rc=0 (`--cc zig` because this box's default GCC 15 errors on an
+  exhaustive-enum-switch fallthrough under `-Werror=return-type`; CI's clang
+  does not — a separate hardening item, not a seed defect). The seed also
+  compiles + runs a Clone-of-a-peekable probe (element Clone-but-not-Copy,
+  inner Clone-but-not-Copy).
+- **Still parked:** its matching `where(I <: Copy, A <: Copy)` `Copy` derive.
+  It needs
+  `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
+  (open — `_first_non_copy_part` rejects the `Option(A)` field while `A` is
+  abstract), and then the same seed verification once a fix lands.
 
 ## Seed-gated follow-up (2026-10-14): the standard streams stop tracking an offset
 
