@@ -1,5 +1,7 @@
 # A duplicate generic trait impl spelled differently is accepted
 
+**Status:** fixed 2026-10-18 (#1465).
+
 **Severity:** S3 — coherence rule 1 ("a type implements a trait at most once", `plans/reference/TRAIT_COHERENCE.md`) misses a second generic impl when its receiver is spelled differently: through an alias of the type constructor, or with another binder name. The program is accepted with two impls of one trait for one type, and which one a call reaches depends on registration order. Nothing is miscompiled beyond the choice of impl.
 
 > Found 2026-10-17 while resolving the review of #1430

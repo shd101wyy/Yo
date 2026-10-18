@@ -450,3 +450,63 @@ test("a helper after the impl calls a later operator member of the same trait", 
   assert(MrE.Node(a) == MrE.Node(b), "equal children");
   assert(MrE.Node(a) != MrE.Node(c), "a child differs");
 });
+
+// ============================================================
+// Coherence rule 1 keys a generic impl's receiver by DECLARATION
+// identity, not by its printed spelling
+// ============================================================
+// An alias of the type constructor (`WA(T)` for `Wrap(T)`), a binder
+// rename (`Option(U)` for `Option(T)`), and an alias nested inside the
+// receiver (`Option(WA(T))` for `Option(Wrap(T))`) are one declaration:
+// a second impl of the same trait through any of them is E0612, not a
+// second side-by-side impl whose winner is registration order.
+// issues/fixed/2026-10-17-a-duplicate-generic-trait-impl-spelled-differently-is-accepted.md
+CohWrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : i32));
+CohWA :: CohWrap;
+CohShow :: trait(show : (fn(self : &Self) -> i32));
+impl(generic(T : Type), CohWrap(T), CohShow(show : (fn(self : &Self) -> i32)(i32(1))));
+CohMeters :: struct(v : i32);
+impl(
+  generic(T : Type),
+  Option(T),
+  From(CohMeters)(
+    from : (fn(value : CohMeters) -> Self)(.None)
+  )
+);
+impl(
+  generic(T : Type),
+  Option(CohWrap(T)),
+  From(CohMeters)(
+    from : (fn(value : CohMeters) -> Self)(.None)
+  )
+);
+test("a duplicate generic trait impl through an alias is E0612", {
+  comptime_expect_error(
+    impl(generic(T : Type), CohWA(T), CohShow(show : (fn(self : &Self) -> i32)(i32(2)))),
+    "is already implemented"
+  );
+});
+test("a duplicate generic trait impl with a renamed binder is E0612", {
+  comptime_expect_error(
+    impl(
+      generic(U : Type),
+      Option(U),
+      From(CohMeters)(
+        from : (fn(value : CohMeters) -> Self)(.None)
+      )
+    ),
+    "is already implemented"
+  );
+});
+test("a duplicate generic trait impl through an alias nested in the receiver is E0612", {
+  comptime_expect_error(
+    impl(
+      generic(T : Type),
+      Option(CohWA(T)),
+      From(CohMeters)(
+        from : (fn(value : CohMeters) -> Self)(.None)
+      )
+    ),
+    "is already implemented"
+  );
+});
