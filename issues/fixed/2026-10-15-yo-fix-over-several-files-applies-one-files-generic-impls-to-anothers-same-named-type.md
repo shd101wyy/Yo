@@ -104,7 +104,7 @@ that run at impl REGISTRATION compared printed names instead, in
    `Clone`, which reads as `Copy` because the `Copy` impl that
    `copy_trait.test.yo` rejects under `comptime_expect_error` stays
    registered (filed separately:
-   `issues/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md`).
+   `issues/fixed/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md`).
    This half is not multi-file only: one file holding both declarations
    failed the same way.
 

@@ -458,7 +458,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
 /// site, and bump the trait-impl epoch so dispatch caches re-derive. Without
 /// this, the `comptime_expect_error` catch leaves the rejected impl
 /// answering `Type.impls` and dispatch for the rest of the compile
-/// (issues/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md).
+/// (issues/fixed/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md).
 /// Move-only declarations need no undo here: only a `Drop` impl records one,
 /// and `Drop` never reaches the post-registration rejection.
 _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
@@ -5113,7 +5113,7 @@ evaluate_module_value :: (
         // `comptime_expect_error` catch continues evaluation, and the
         // rejected impl must not stay registered to answer `Type.impls`
         // and dispatch
-        // (issues/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md).
+        // (issues/fixed/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md).
         match(
           _try_generic_copy_clone_exclusion(&g_entry, ast_expr_token(&mf_expr), ctx),
           .Some(excl_err) => {
