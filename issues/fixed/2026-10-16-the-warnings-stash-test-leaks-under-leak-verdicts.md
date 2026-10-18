@@ -55,4 +55,4 @@ failing test was the stash one) and in CI mode. The file joins the
 `leak-verdict.yml` allowlist so the weekly leg keeps the verdict on it; there
 is no in-language oracle for a leaked reference count on an internal stash.
 
-Fixed by PR (fix/warnings-stash-dedupe-leak).
+Fixed by PR #1455 (fix/warnings-stash-dedupe-leak).
