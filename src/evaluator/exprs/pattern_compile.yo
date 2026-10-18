@@ -1348,7 +1348,7 @@ compile_pattern :: (
     // continued past a throw here with a NULL sub-pattern
     // (issues/fixed/at-pattern-subpattern-error-crashes-check.md).
     sub := compile_pattern(&sub_expr, position_ty, value_opt, pc, env, ctx, exn);
-    return(Pattern.At(name : nm, token : ast_expr_token(&name_expr), atom : name_expr, sub : sub));
+    return(Pattern.At(name : nm, token : ast_expr_token(&name_expr), atom : name_expr, sub : box(sub)));
   });
   // A bare identifier that does NOT name a constant in scope is a BINDING of
   // this position (checked before the Rc look-through so an Rc position
@@ -1399,7 +1399,7 @@ compile_pattern :: (
       );
       sub_expr := match(_args_of(e).get(usize(0)), .Some(a) => a, .None => make_err_expr());
       sub := compile_pattern(&sub_expr, &inner, &inner_val, pc, env, ctx, exn);
-      return(Pattern.ThroughBox(box_ty : cell_ty, inner_ty : inner, sub : sub));
+      return(Pattern.ThroughBox(box_ty : cell_ty, inner_ty : inner, sub : box(sub)));
     },
     .None => ()
   );
@@ -1432,7 +1432,7 @@ compile_pattern :: (
       .None => Option(EvalValue).None
     );
     sub := compile_pattern(e, &inner, &inner_val, pc, env, ctx, exn);
-    return(Pattern.ThroughBox(box_ty : position_ty, inner_ty : inner, sub : sub));
+    return(Pattern.ThroughBox(box_ty : position_ty, inner_ty : inner, sub : box(sub)));
   });
   // An `Rc(T)` or `Arc(T)` cell is never looked through implicitly: the
   // pattern spells the wrapper it crosses (decision 31).
@@ -1627,8 +1627,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
           (si : usize) = usize(0);
           while(si < subs.len(), {
             fidx := match(field_idx.get(si), .Some(k) => k, .None => usize(0));
-            sub := match(subs.get(si), .Some(s) => s, .None => Pattern.Wildcard);
-            r := recur(&sub, sv_fields.get(fidx), ctx);
+            r := recur(&subs(si), sv_fields.get(fidx), ctx);
             match(
               r,
               .Some(b) => {
@@ -1655,19 +1654,15 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
       (i : usize) = usize(0);
       while((i < alts.len()) && !any_true, {
         match(
-          alts.get(i),
-          .Some(a) => match(
-            recur(&a, value_opt, ctx),
-            .Some(b) => {
-              if(b, {
-                any_true = true;
-              });
-            },
-            .None => {
-              all_false = false;
-            }
-          ),
-          .None => ()
+          recur(&alts(i), value_opt, ctx),
+          .Some(b) => {
+            if(b, {
+              any_true = true;
+            });
+          },
+          .None => {
+            all_false = false;
+          }
         );
         i = (i + usize(1));
       });
@@ -1677,8 +1672,8 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
         true => Option(bool).None
       )
     },
-    .At(_, _, _, sub) => recur(&sub, value_opt, ctx),
-    .ThroughBox(_, _, sub) => match(
+    .At(_, _, _, Box(sub)) => recur(&sub, value_opt, ctx),
+    .ThroughBox(_, _, Box(sub)) => match(
       value_opt,
       .Some(v) => match(
         v,
@@ -1699,8 +1694,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
           (result : Option(bool)) = Option(bool).Some(true);
           (si : usize) = usize(0);
           while(si < subs.len(), {
-            sub := match(subs.get(si), .Some(s) => s, .None => Pattern.Wildcard);
-            r := recur(&sub, fields.get(si), ctx);
+            r := recur(&subs(si), fields.get(si), ctx);
             match(
               r,
               .Some(b) => {
@@ -1731,8 +1725,7 @@ match_value :: (fn(p : &Pattern, value_opt : &Option(EvalValue), ctx : &EvalCont
           (si : usize) = usize(0);
           while(si < subs.len(), {
             fi := match(field_idx.get(si), .Some(k) => k, .None => usize(0));
-            sub := match(subs.get(si), .Some(s) => s, .None => Pattern.Wildcard);
-            r := recur(&sub, field_values.get(fi), ctx);
+            r := recur(&subs(si), field_values.get(fi), ctx);
             match(
               r,
               .Some(b) => {
@@ -1769,28 +1762,32 @@ _pattern_subs_classic :: (fn(p : &Pattern, ast_params : &ArrayList(AstExpr)) -> 
       (ok : bool) = true;
       (i : usize) = usize(0);
       while((i < subs.len()) && ok, {
-        sub := match(subs.get(i), .Some(s) => s, .None => Pattern.Wildcard);
-        ok = match(
-          sub,
-          .Wildcard => true,
-          .Bind(_, _, _) => true,
-          .Const(_, _, src, _, _) => {
-            // The pre-IR emitters compare only POSITIONAL numeric/bool
-            // literals in place; a labeled or curly literal was rejected.
-            positional := (
-              (ast_params.len() == subs.len()) && match(
-                ast_params.get(i),
-                .Some(ap) => (!ast_expr_is_fn_call_of(&ap, ":", Option(usize).Some(usize(2))) && !ast_expr_is_fn_call_of(&ap, "_", Option(usize).None)),
-                .None => false
-              )
-            );
-            positional && _is_classic_payload_literal(&src)
-          },
-          _ => false
-        );
+        ok = _classic_variant_sub(&subs(i), ast_params, i, subs.len());
         i = (i + usize(1));
       });
       ok
+    },
+    _ => false
+  )
+);
+/// Sub-pattern `i` (of `n`) of a classic variant arm: `_`, a binder, or a
+/// positional numeric/bool literal.
+_classic_variant_sub :: (fn(sub : &Pattern, ast_params : &ArrayList(AstExpr), i : usize, n : usize) -> bool)(
+  match(
+    sub,
+    .Wildcard => true,
+    .Bind(_, _, _) => true,
+    .Const(_, _, src, _, _) => {
+      // The pre-IR emitters compare only POSITIONAL numeric/bool
+      // literals in place; a labeled or curly literal was rejected.
+      positional := (
+        (ast_params.len() == n) && match(
+          ast_params.get(i),
+          .Some(ap) => (!ast_expr_is_fn_call_of(&ap, ":", Option(usize).Some(usize(2))) && !ast_expr_is_fn_call_of(&ap, "_", Option(usize).None)),
+          .None => false
+        )
+      );
+      positional && _is_classic_payload_literal(&src)
     },
     _ => false
   )
@@ -1803,7 +1800,7 @@ _pattern_is_const_or_or :: (fn(p : &Pattern) -> bool)(
       (ok : bool) = true;
       (i : usize) = usize(0);
       while((i < alts.len()) && ok, {
-        ok = match(alts.get(i), .Some(a) => recur(&a), .None => false);
+        ok = recur(&alts(i));
         i = (i + usize(1));
       });
       ok
@@ -1837,24 +1834,18 @@ pattern_const_values :: (fn(p : &Pattern) -> ArrayList(Option(EvalValue)))({
     .Or(alts) => {
       (i : usize) = usize(0);
       while(i < alts.len(), {
-        match(
-          alts.get(i),
-          .Some(a) => {
-            inner := recur(&a);
-            (k : usize) = usize(0);
-            while(k < inner.len(), {
-              match(
-                inner.get(k),
-                .Some(x) => {
-                  out.push(x);
-                },
-                .None => ()
-              );
-              k = (k + usize(1));
-            });
-          },
-          .None => ()
-        );
+        inner := recur(&alts(i));
+        (k : usize) = usize(0);
+        while(k < inner.len(), {
+          match(
+            inner.get(k),
+            .Some(x) => {
+              out.push(x);
+            },
+            .None => ()
+          );
+          k = (k + usize(1));
+        });
         i = (i + usize(1));
       });
     },

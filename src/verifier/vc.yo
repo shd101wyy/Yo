@@ -2525,7 +2525,7 @@ _arm_ir_bind_into :: (
       _bind_one(name.clone(), scrut, ctx, saved_names, saved_vals);
       true
     },
-    .At(name, _, _, sub) => {
+    .At(name, _, _, Box(sub)) => {
       _bind_one(name.clone(), scrut, ctx, saved_names, saved_vals);
       recur(&sub, scrut, e_ty, ctx, saved_names, saved_vals, parts)
     },
@@ -2538,13 +2538,7 @@ _arm_ir_bind_into :: (
       (all_free : bool) = true;
       (ai : usize) = usize(0);
       while((ai < alts.len()) && all_free, {
-        match(
-          alts.get(ai),
-          .Some(alt) => {
-            all_free = (pattern_bindings(&alt).len() == usize(0));
-          },
-          .None => ()
-        );
+        all_free = (pattern_bindings(&alts(ai)).len() == usize(0));
         ai = (ai + usize(1));
       });
       if(!all_free, {
@@ -2555,17 +2549,11 @@ _arm_ir_bind_into :: (
       (aj : usize) = usize(0);
       (ok : bool) = true;
       while((aj < alts.len()) && ok, {
-        match(
-          alts.get(aj),
-          .Some(alt) => {
-            sub_parts := ArrayList(VcTerm).new();
-            ok = _arm_ir_bind_into(&alt, scrut, e_ty, ctx, saved_names, saved_vals, &mut sub_parts);
-            if(ok, {
-              alts_terms.push(vc_and(&sub_parts));
-            });
-          },
-          .None => ()
-        );
+        sub_parts := ArrayList(VcTerm).new();
+        ok = _arm_ir_bind_into(&alts(aj), scrut, e_ty, ctx, saved_names, saved_vals, &mut sub_parts);
+        if(ok, {
+          alts_terms.push(vc_and(&sub_parts));
+        });
         aj = (aj + usize(1));
       });
       if(ok, {
@@ -2593,13 +2581,7 @@ _arm_ir_bind_into :: (
           .None => _variant_ctor_name(&inner_ty, vname.clone())
         );
         field_term := VcTerm.Proj(ctor : accessor, idx : fi, t : scrut);
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            ok2 = recur(&sub, &field_term, &inner_ty, ctx, saved_names, saved_vals, parts);
-          },
-          .None => ()
-        );
+        ok2 = recur(&subs(i), &field_term, &inner_ty, ctx, saved_names, saved_vals, parts);
         i = (i + usize(1));
       });
       ok2

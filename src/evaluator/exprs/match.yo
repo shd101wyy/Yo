@@ -255,13 +255,7 @@ _variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < subs.len()) && !(hit), {
-        match(
-          subs.get(i),
-          .Some(s) => {
-            hit = match(s, .Const(_, _, _, _, _) => true, _ => false);
-          },
-          .None => ()
-        );
+        hit = _pattern_is_const(&subs(i));
         i = (i + usize(1));
       });
       hit
@@ -269,6 +263,7 @@ _variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
     _ => false
   )
 );
+_pattern_is_const :: (fn(p : &Pattern) -> bool)(match(p, .Const(_, _, _, _, _) => true, _ => false));
 /// Compute the GADT-refined expected type for a match branch. If the expected type is the
 /// SAME SomeT as one of the enum's type-constructor args, the branch
 /// refines it to the variant's `-> recur(...)` arg at that position
@@ -575,10 +570,10 @@ _ownership_unbound :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environm
   own.unbound.push(b);
   Pattern.Bind(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom)
 });
-_ownership_keep :: (fn(own : &_ArmOwnership, ty : &TypeValue, p : &Pattern, env : &Environment) -> Pattern)({
+_ownership_keep :: (fn(own : &_ArmOwnership, ty : &TypeValue, p : Pattern, env : &Environment) -> Pattern)({
   b := _ownership_hidden_bind(own, ty, env);
   own.keeps.push(b);
-  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : p)
+  Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : box(p))
 });
 /// A part with a drop of its own (a counted cell or a move-only value).
 _part_has_drop :: (fn(ty : &TypeValue) -> bool)(type_contains_rc_cell_or_move_only(ty));
@@ -608,23 +603,23 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
     p,
     .Wildcard => cond(
       (own.add_hidden && !in_cell && _part_has_drop(ty)) => _ownership_unbound(own, ty, env),
-      true => p
+      true => p.clone()
     ),
     .Bind(name, _, _) => {
       if(in_cell, {
         own.borrowed.push(name.clone());
       });
-      p
+      p.clone()
     },
     .Const(_, _, _, _, _) => cond(
       (own.add_hidden && !in_cell && _part_has_drop(ty)) => {
         b := _ownership_hidden_bind(own, ty, env);
         own.unbound.push(b);
-        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : p)
+        Pattern.At(name : b.name.clone(), token : ast_expr_token(&b.atom), atom : b.atom, sub : box(p.clone()))
       },
-      true => p
+      true => p.clone()
     ),
-    .Range(_, _, _, _, _, _, _) => p,
+    .Range(_, _, _, _, _, _, _) => p.clone(),
     .Variant(vname, vidx, field_idx, subs, enum_ty, through_ptr, arity) => {
       cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
       ftys := variant_field_types(resolve_enum_shell(&enum_ty), vidx);
@@ -634,14 +629,8 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            new_idx.push(fi);
-            new_subs.push(recur(&sub, &fty, cell, own, env, exn));
-          },
-          .None => ()
-        );
+        new_idx.push(fi);
+        new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
       });
       if(own.add_hidden && !cell, {
@@ -665,7 +654,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       });
       v := Pattern.Variant(name : vname, idx : vidx, field_idx : new_idx, subs : new_subs, enum_ty : enum_ty, through_ptr : through_ptr, arity : arity);
       cond(
-        (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, &v, env),
+        (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, v, env),
         true => v
       )
     },
@@ -673,32 +662,26 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_alts := ArrayList(Pattern).new();
       (ai : usize) = usize(0);
       while(ai < alts.len(), {
-        match(
-          alts.get(ai),
-          .Some(alt) => {
-            before_u := own.unbound.len();
-            before_k := own.keeps.len();
-            na := recur(&alt, ty, in_cell, own, env, exn);
-            if((own.unbound.len() > before_u) || (own.keeps.len() > before_k), {
-              exn.throw(
-                dyn(
-                  format_error_message_with_help(
-                    &own.tok,
-                    `An or-pattern alternative of a consuming \`match\` leaves a part with a drop unbound (\`${pattern_to_string(&alt)}\`): the alternatives would leave different parts to drop when the arm is entered (plans/VALUES_BY_DEFAULT.md decision 26).`,
-                    Option(String).Some(`split the alternatives into arms of their own, bind the part, or match through a borrow (\`match(&x, …)\`)`)
-                  )
-                )
-              );
-            });
-            new_alts.push(na);
-          },
-          .None => ()
-        );
+        before_u := own.unbound.len();
+        before_k := own.keeps.len();
+        na := recur(&alts(ai), ty, in_cell, own, env, exn);
+        if((own.unbound.len() > before_u) || (own.keeps.len() > before_k), {
+          exn.throw(
+            dyn(
+              format_error_message_with_help(
+                &own.tok,
+                `An or-pattern alternative of a consuming \`match\` leaves a part with a drop unbound (\`${pattern_to_string(&alts(ai))}\`): the alternatives would leave different parts to drop when the arm is entered (plans/VALUES_BY_DEFAULT.md decision 26).`,
+                Option(String).Some(`split the alternatives into arms of their own, bind the part, or match through a borrow (\`match(&x, …)\`)`)
+              )
+            )
+          );
+        });
+        new_alts.push(na);
         ai = (ai + usize(1));
       });
       Pattern.Or(alts : new_alts)
     },
-    .At(name, atok, aatom, sub) => {
+    .At(name, atok, aatom, Box(sub)) => {
       if(in_cell, {
         own.borrowed.push(name.clone());
       });
@@ -740,12 +723,12 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
         });
         si = (si + usize(1));
       });
-      Pattern.At(name : name, token : atok, atom : aatom, sub : new_sub)
+      Pattern.At(name : name, token : atok, atom : aatom, sub : box(new_sub))
     },
-    .ThroughBox(box_ty, inner_ty, sub) => {
-      tb := Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : recur(&sub, &inner_ty, true, own, env, exn));
+    .ThroughBox(box_ty, inner_ty, Box(sub)) => {
+      tb := Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : box(recur(&sub, &inner_ty, true, own, env, exn)));
       cond(
-        (own.add_hidden && !in_cell && _part_has_drop(ty)) => _ownership_keep(own, ty, &tb, env),
+        (own.add_hidden && !in_cell && _part_has_drop(ty)) => _ownership_keep(own, ty, tb, env),
         true => tb
       )
     },
@@ -755,7 +738,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(subs.get(i), .Some(sub) => new_subs.push(recur(&sub, &ety, cell, own, env, exn)), .None => ());
+        new_subs.push(recur(&subs(i), &ety, cell, own, env, exn));
         i = (i + usize(1));
       });
       Pattern.Tuple(subs : new_subs, elem_tys : elem_tys)
@@ -769,14 +752,8 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            new_idx.push(fi);
-            new_subs.push(recur(&sub, &fty, cell, own, env, exn));
-          },
-          .None => ()
-        );
+        new_idx.push(fi);
+        new_subs.push(recur(&subs(i), &fty, cell, own, env, exn));
         i = (i + usize(1));
       });
       if(own.add_hidden && !cell, {
@@ -800,7 +777,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       });
       s := Pattern.Struct(struct_ty : struct_ty, field_idx : new_idx, subs : new_subs, arity : arity);
       cond(
-        (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, &s, env),
+        (own.add_hidden && !in_cell && pattern_position_is_cell(ty) && _part_has_drop(ty)) => _ownership_keep(own, ty, s, env),
         true => s
       )
     }
@@ -1216,9 +1193,11 @@ evaluate_match :: (
       counter : usize(0),
       is_mut : mut_places
     );
-    (arm_pat : Pattern) = pat;
+    // The codegen arms (`cg_arms`) are registered only when the match is
+    // forced onto the general lowering, which needs a consuming or `mut` match.
+    (arm_pat : Option(Pattern)) = Option(Pattern).None;
     if(consuming || mut_places, {
-      arm_pat = _augment_arm_pattern(&pat, &position_type, false, &own, &env, exn);
+      arm_pat = Option(Pattern).Some(_augment_arm_pattern(&pat, &position_type, false, &own, &env, exn));
     });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
@@ -1307,17 +1286,21 @@ evaluate_match :: (
     });
     arm := Arm(pattern : pat, guard : guard_ast, body : body_ast, arm_expr : arm_expr, pattern_expr : pattern_ast, classic : classic);
     arms.push(arm);
-    cg_arms.push(Arm(pattern : arm_pat, guard : guard_ast, body : body_ast, arm_expr : arm_expr, pattern_expr : pattern_ast, classic : false));
+    match(
+      arm_pat,
+      .Some(ap) => cg_arms.push(Arm(pattern : ap, guard : guard_ast, body : body_ast, arm_expr : arm_expr, pattern_expr : pattern_ast, classic : false)),
+      .None => ()
+    );
     // The top-level variant this arm names, when it names one (GADT
     // reachability and refinement key off it).
-    top_variant_idx := match(pat, .Variant(_, vidx, _, _, _, _, _) => Option(usize).Some(vidx), _ => Option(usize).None);
+    top_variant_idx := match(&arm.pattern, .Variant(_, vidx, _, _, _, _, _) => Option(usize).Some(vidx), _ => Option(usize).None);
     gadt_reachable := match(
       top_variant_idx,
       .Some(vidx) => gadt_branch_reachable(en_id.clone(), vidx),
       .None => true
     );
     // Compile-time arm selection.
-    mv := cond(ct_known => match_value(&pat, &scrutinee_val_opt, ctx), true => Option(bool).None);
+    mv := cond(ct_known => match_value(&arm.pattern, &scrutinee_val_opt, ctx), true => Option(bool).None);
     // The guard, with the pattern's bindings in scope.
     (guard_val : Option(bool)) = Option(bool).None;
     match(
@@ -1389,7 +1372,7 @@ evaluate_match :: (
       // variant (or the scrutinee type), and — for a primitive-shaped arm —
       // its compared values for the `switch` emitter.
       variable_type := match(
-        pat,
+        &arm.pattern,
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
@@ -1423,9 +1406,9 @@ evaluate_match :: (
       // general lowering (the `case TAG:` block cannot fall through to the
       // later arms on a literal miss), and the expansion must already hang
       // off the `=>` node here, with the arm's own frame env in the info.
-      if((!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(&pat)) || consume_drops || mut_places, {
+      if((!(classic)) || (scrutinee_is_enum && _variant_pattern_has_literal_sub(&arm.pattern)) || consume_drops || mut_places, {
         tests := ArrayList(AstExpr).new();
-        pattern_test_exprs(&pat, &mut tests);
+        pattern_test_exprs(&arm.pattern, &mut tests);
         if(tests.len() > usize(0), {
           ptok := ast_expr_token(&arm_expr);
           begin_atom := AstExpr.Atom(alloc_global_expr_id(), Token(kind : TokenKind.Identifier, value : intern_token_str(String.from(BK_BEGIN)), row : ptok.row, column : ptok.column, character : ptok.character, byte_offset : ptok.byte_offset, module_path : ptok.module_path, input : ptok.input));
@@ -1435,7 +1418,7 @@ evaluate_match :: (
         });
       });
       if(scrutinee_is_primitive && classic, {
-        pvals := pattern_const_values(&pat);
+        pvals := pattern_const_values(&arm.pattern);
         if(pvals.len() > usize(0), {
           expr_info_set_primitive_pattern_values(&mae_info, Option(ArrayList(Option(EvalValue))).Some(pvals));
         });
@@ -1677,7 +1660,7 @@ evaluate_match :: (
                       mark_generic_independent(
                         format_error_message(
                           ast_expr_token(&evaluated_body),
-                          `GADT type mismatch in branch "${pattern_to_string(&pat)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty)}`
+                          `GADT type mismatch in branch "${pattern_to_string(&arm.pattern)}":\n- Expected: ${type_to_string(&refined)}\n- Actual  : ${type_to_string(&body_info.ty)}`
                         ),
                         &refined,
                         &body_info.ty
@@ -1759,7 +1742,7 @@ evaluate_match :: (
       match(
         arms.get(gci),
         .Some(ga) => match(
-          ga.pattern,
+          &ga.pattern,
           .Variant(_, gvidx, _, _, _, _, _) => {
             (known : bool) = false;
             (si : usize) = usize(0);
@@ -1797,13 +1780,13 @@ evaluate_match :: (
         match(
           arms.get(ai3),
           .Some(aa) => match(
-            aa.pattern,
+            &aa.pattern,
             .Variant(an, aidx, _, _, aety, aptr, aar) => if(aidx == target_idx, {
               vname = an;
               varity = aar;
               vptr = aptr;
               vety = aety;
-              grows.push(aa.pattern);
+              grows.push(aa.pattern.clone());
               if(!(_variant_pattern_has_literal_sub(&aa.pattern)), {
                 has_unguarded_group_arm = true;
               });
@@ -1824,7 +1807,7 @@ evaluate_match :: (
             match(
               arms.get(fi3),
               .Some(fa) => match(
-                fa.pattern,
+                &fa.pattern,
                 .Variant(_, fidx, _, _, _, _, _) => if(fidx == target_idx, {
                   fa.classic = false;
                 }),
