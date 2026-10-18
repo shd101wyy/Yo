@@ -27,4 +27,4 @@ The sibling test "fetch throws Other on a garbage status line, and the aborted t
 
 The regression test is the existing "fetch throws Timeout when the server never answers" with leak verdicts on, plus `tests/http/http.test.yo` joining the `leak-verdict.yml` allowlist so the weekly Linux/Clang leg runs the file with the verdict ON (the file's other 50 tests were already leak-clean). No in-language oracle exists for an internal read buffer: a `Drop` counter cannot reach it, which is exactly what the allowlist entry is for.
 
-Fixed by PR (fix/http-timeout-buffer). Measured: 51/51 with leak verdicts ON and in CI mode, on the branch's std.
+Fixed by PR #1453 (fix/http-timeout-buffer). Measured: 51/51 with leak verdicts ON and in CI mode, on the branch's std.
