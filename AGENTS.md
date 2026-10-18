@@ -204,6 +204,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
     - `check ./src` and `check ./std`.
     - The feature's own test files and the tests that name a changed identifier, run ONE file per `yo test` call (it takes one path), plus every `tests/internal` file that imports a changed `src/` module or names a changed identifier. #1343 broke develop by skipping `gc_runtime_atomics`. A std- or prelude-only change does NOT select every internal file (each re-evaluates the compiler, ~4.5 min); more than ~8 → one in-process run under `exclusive`. Selection recipe: `testing.instructions.md` ("Choosing a Tier 1 gate").
     - cli-diff-test, only when std, CLI output, diagnostics text, skills or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
+    - When a change gives `tests/` new syntax the seed cannot parse (a Generation A test sweep), grep `.github/workflows/` for every `yo test` a SEED runs, and run those files with the seed. A tree-binary Tier 1 cannot see this; #1440 turned develop's FV job red that way (`issues/fixed/2026-10-18-the-fv-job-runs-generation-a-test-files-with-the-seed.md`).
     - fmt and `check-issue-refs.sh`.
     - Not in Tier 1: the full language suite, `yo test ./std`, the fixpoint and the full `tests/internal`.
   - **Tier 2, the PR's battery, is not waited for.** It still fires when the PR opens. Once the PR is merged, cancel it, since it gates nothing.
