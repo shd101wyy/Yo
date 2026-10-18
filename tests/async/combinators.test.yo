@@ -976,7 +976,7 @@ _a4_plus :: (fn(op : Impl(Future(i32, Io)), k : i32, io : Io) -> Impl(Future(i32
   io.async({ op, k }(io : Io) => (io.await(op, io) + k))
 );
 test("A4: a borrowing future is a combinator's operand, and the combinator's future borrows in turn", {
-  c := _A4Counter(n : i32(0));
+  mut(c) := _A4Counter(n : i32(0));
   before := g_a4_dropped;
   io.await(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io);
   assert(c.n == i32(1), "the operand wrote through its borrow");
@@ -985,8 +985,8 @@ test("A4: a borrowing future is a combinator's operand, and the combinator's fut
   assert(io.await(_a4_read_after(&c, u64(0), io), io) == i32(5), "the lent local is usable after the call");
 });
 test("A4: two operands of disjoint places, and two shared operands of one place", {
-  a := _A4Counter(n : i32(0));
-  b := _A4Counter(n : i32(100));
+  mut(a) := _A4Counter(n : i32(0));
+  mut(b) := _A4Counter(n : i32(100));
   io.await(_a4_both(_a4_bump_after(&mut a, u64(1), io), _a4_bump_after(&mut b, u64(1), io), io), io);
   assert((a.n == i32(1)) && (b.n == i32(101)), "both operands ran");
   io.await(_a4_both(_a4_read_after(&a, u64(1), io), _a4_read_after(&a, u64(1), io), io), io);
@@ -997,7 +997,7 @@ test("A4: two operands of disjoint places, and two shared operands of one place"
   assert((a.n == i32(4)) && (b.n == i32(121)), "an operand and a plain &mut argument of disjoint places");
 });
 test("A4: two operands of one combinator may not lend overlapping places with a &mut side (decision 38 B)", {
-  c := _A4Counter(n : i32(0));
+  mut(c) := _A4Counter(n : i32(0));
   d := _A4Counter(n : i32(0));
   comptime_expect_error(
     io.await(_a4_both(_a4_bump_after(&mut c, u64(1), io), _a4_bump_after(&mut c, u64(1), io), io), io),
@@ -1037,7 +1037,7 @@ test("A4: two operands of one combinator may not lend overlapping places with a 
   );
 });
 test("A4: a combinator over a borrowing future is itself second-class", {
-  c := _A4Counter(n : i32(0));
+  mut(c) := _A4Counter(n : i32(0));
   comptime_expect_error({
     f := _a4_done(_a4_bump_after(&mut c, u64(1), io), io);
     ()
@@ -1051,7 +1051,7 @@ test("A4: a combinator over a borrowing future is itself second-class", {
 /// across the combinator's suspension.
 _a4_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    c := _A4Counter(n : i32(0));
+    mut(c) := _A4Counter(n : i32(0));
     d := _A4Counter(n : i32(50));
     io.await(yield(io), io);
     io.await(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io);

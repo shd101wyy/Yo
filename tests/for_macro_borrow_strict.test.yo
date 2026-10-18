@@ -17,7 +17,7 @@ Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
   total : (fn(self : &Self) -> i32)({
-    t := i32(0);
+    mut(t) := i32(0);
     for(self.items, x => {
       t = (t + x);
     });
@@ -32,7 +32,7 @@ test("strict: read-only calls, fresh-storage mutation, element writes and other 
   others := ArrayList(i32).new();
   names := ArrayList(String).new();
   names.push(String.from("a"));
-  total := i32(0);
+  mut(total) := i32(0);
   for(&mut xs, x => {
     total = (total + (x * i32(ys.len())));
     assert(ys.contains(x), "read-only method through the alias");
@@ -44,7 +44,7 @@ test("strict: read-only calls, fresh-storage mutation, element writes and other 
   assert(total == i32(6), "body ran twice");
   assert((xs(usize(0)) == i32(11)) && (others.len() == usize(2)), "element writes and the other collection's growth");
   bag := Bag(items : others, version : i32(0));
-  seen := i32(0);
+  mut(seen) := i32(0);
   for(&mut xs, x => {
     seen = (seen + bag.total());
     for(&mut names, n => {

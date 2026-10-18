@@ -529,7 +529,7 @@ test("the scrutinee is reached only through a live mut place", {
 _PmPlaceHolder :: struct(o : Option(String), k : i32);
 _PmCell :: ref(struct(o : Option(i32)));
 test("a mut match on a field or a dereference writes the scrutinee's part", {
-  (s : _PmPlaceHolder) = _PmPlaceHolder(o : .Some(String.from("a")), k : i32(0));
+  (mut(s) : _PmPlaceHolder) = _PmPlaceHolder(o : .Some(String.from("a")), k : i32(0));
   match(
     &mut s.o,
     .Some(t) => {
@@ -548,7 +548,7 @@ test("a mut match on a field or a dereference writes the scrutinee's part", {
   );
   assert(match(h.o, .Some(v) => v, .None => i32(0)) == i32(2), "a ref object's field was written");
   (o5 : Option(i32)) = .Some(i32(5));
-  b := box(o5);
+  mut(b) := box(o5);
   match(
     &mut b.*,
     .Some(n) => {

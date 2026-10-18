@@ -52,7 +52,7 @@ test("ArrayList.push triggers capacity growth", {
   list := ArrayList(i32).new();
   initial_capacity := list.capacity();
   // Push enough elements to trigger growth
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(10), i = (i + usize(1)), {
     list.push(i32(i));
   });
@@ -186,7 +186,7 @@ test("ArrayList.shrink_to_fit preserves elements", {
 });
 test("ArrayList.shrink_to_fit on full capacity does nothing", {
   list := ArrayList(i32).with_capacity(usize(5));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(5), i = (i + usize(1)), {
     list.push(i32(i));
   });
@@ -301,7 +301,7 @@ test("ArrayList.iter yields POINTERS and does not consume the list", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(list.iter(), ptr => {
     sum = (sum + ptr.*);
   });
@@ -328,7 +328,7 @@ test("ArrayList.into_iter still yields VALUES", {
   list := ArrayList(i32).new();
   list.push(i32(4));
   list.push(i32(5));
-  sum := i32(0);
+  mut(sum) := i32(0);
   for(list.into_iter(), x => {
     sum = (sum + x);
   });
@@ -338,7 +338,7 @@ test("ArrayList.iter works on a list of RC strings", {
   list := ArrayList(String).new();
   list.push(String.from("a"));
   list.push(String.from("b"));
-  count := usize(0);
+  mut(count) := usize(0);
   for(list.iter(), ptr => {
     assert(ptr.*.len() == usize(1));
     count = (count + usize(1));
@@ -355,7 +355,7 @@ test("ArrayList.iter walks backwards through next_back", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  it := list.iter();
+  mut(it) := list.iter();
   assert(it.next_back().unwrap().* == i32(3), "last first");
   assert(it.next().unwrap().* == i32(1), "then the front");
   assert(it.next_back().unwrap().* == i32(2), "then the middle");
@@ -496,7 +496,7 @@ test("ArrayList clear and reuse with capacity", {
 });
 test("ArrayList multiple remove operations", {
   list := ArrayList(i32).new();
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(10), i = (i + i32(1)), {
     list.push(i);
   });
@@ -530,12 +530,12 @@ test("ArrayList operations on list with single element", {
 test("ArrayList large number of elements", {
   list := ArrayList(i32).new();
   count := usize(100);
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < count, i = (i + usize(1)), {
     list.push(i32(i));
   });
   assert(list.len() == count);
-  i2 := usize(0);
+  mut(i2) := usize(0);
   while(i2 < count, i2 = (i2 + usize(1)), {
     assert(list(i2) == i32(i2));
   });
@@ -618,7 +618,7 @@ test("ArrayList mixed operations with Rc elements", {
 test("ArrayList stress test with Rc - push 100 and remove from front", {
   list := ArrayList(Rc(i32)).new();
   // Push 100 elements
-  i := 0;
+  mut(i) := 0;
   while(i < 100, i = (i + 1), {
     list.push(Rc(i32)(i32(i) * 10));
   });
@@ -637,7 +637,7 @@ test("ArrayList stress test with Rc - push 100 and remove from front", {
 test("ArrayList stress test with Rc - remove multiple elements at once", {
   list := ArrayList(Rc(i32)).new();
   // Push 20 elements
-  i := 0;
+  mut(i) := 0;
   while(i < 20, i = (i + 1), {
     list.push(Rc(i32)(i32(i)));
   });
@@ -758,7 +758,7 @@ test("ArrayList of String - push pop push cycle", {
 });
 test("ArrayList of String - stress push and remove from front", {
   list := ArrayList(String).new();
-  i := 0;
+  mut(i) := 0;
   while(i < 50, i = (i + 1), {
     list.push(String.from("item"));
   });
@@ -810,7 +810,7 @@ test("ArrayList of String - shrink_to_fit preserves String elements", {
 // ===== Iterator Tests =====
 test("ArrayList into_iter - empty list", {
   list := ArrayList(i32).new();
-  count := usize(0);
+  mut(count) := usize(0);
   for(list.into_iter(), value => {
     consume(value);
     count = (count + usize(1));
@@ -820,8 +820,8 @@ test("ArrayList into_iter - empty list", {
 test("ArrayList into_iter - single element", {
   list := ArrayList(i32).new();
   list.push(i32(42));
-  count := usize(0);
-  got := i32(0);
+  mut(count) := usize(0);
+  mut(got) := i32(0);
   for(list.into_iter(), value => {
     got = value;
     count = (count + usize(1));
@@ -834,8 +834,8 @@ test("ArrayList into_iter - multiple elements in order", {
   list.push(i32(10));
   list.push(i32(20));
   list.push(i32(30));
-  sum := i32(0);
-  count := usize(0);
+  mut(sum) := i32(0);
+  mut(count) := usize(0);
   for(list.into_iter(), value => {
     sum = (sum + value);
     count = (count + usize(1));
@@ -845,7 +845,7 @@ test("ArrayList into_iter - multiple elements in order", {
 });
 test("ArrayList for(list) - empty list", {
   list := ArrayList(i32).new();
-  count := usize(0);
+  mut(count) := usize(0);
   for(list, x => {
     consume(x);
     count = (count + usize(1));
@@ -857,8 +857,8 @@ test("ArrayList for(list) - reads elements by value (into_iter)", {
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
-  sum := i32(0);
-  count := usize(0);
+  mut(sum) := i32(0);
+  mut(count) := usize(0);
   for(list, x => {
     sum = (sum + x);
     count = (count + usize(1));
@@ -871,7 +871,7 @@ test("ArrayList - mutate via index writes", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < list.len(), {
     list(i) = (list(i) * i32(2));
     i = (i + usize(1));
@@ -894,7 +894,7 @@ test("Test ArrayList.ensure_total_capacity", {
   assert(list.len() == usize(1), "ensure_total_capacity should not change length");
   assert(list(usize(0)) == i32(1), "element should be preserved");
   // Can push more without reallocation issues
-  i := i32(0);
+  mut(i) := i32(0);
   while(i < i32(50), i = (i + i32(1)), {
     list.push(i);
   });
@@ -1270,7 +1270,7 @@ test("sort_by_key is stable across equal keys", {
 });
 test("binary_search_by finds a match and reports the insertion point otherwise", {
   xs := ArrayList(i32).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(10), i = (i + i32(1)), {
     xs.push(i * i32(2));
   });
@@ -1294,7 +1294,7 @@ test("binary_search_by searches without constructing a T", {
 // ===== chunks / windows =====
 _drain_lens :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := ArrayList(i32)))) -> ArrayList(usize))({
   out := ArrayList(usize).new();
-  iter := it;
+  mut(iter) := it;
   while(runtime(true), {
     match(
       iter.next(),
@@ -1310,7 +1310,7 @@ _drain_lens :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := Array
 });
 test("chunks splits into non-overlapping pieces with a short tail", {
   xs := ArrayList(i32).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(7), i = (i + i32(1)), {
     xs.push(i);
   });
@@ -1322,11 +1322,11 @@ test("chunks splits into non-overlapping pieces with a short tail", {
 });
 test("chunks yields the elements in order", {
   xs := ArrayList(i32).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(5), i = (i + i32(1)), {
     xs.push(i);
   });
-  it := xs.chunks(usize(2));
+  mut(it) := xs.chunks(usize(2));
   first := match(it.next(), .Some(c) => c, .None => ArrayList(i32).new());
   assert(first.len() == usize(2), "first chunk has two elements");
   assert(first(usize(0)) == i32(0), "starting at the head");
@@ -1338,7 +1338,7 @@ test("a chunk is a COPY — mutating it does not touch the source", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  it := xs.chunks(usize(2));
+  mut(it) := xs.chunks(usize(2));
   c := match(it.next(), .Some(x) => x, .None => ArrayList(i32).new());
   c(usize(0)) = i32(99);
   assert(xs(usize(0)) == i32(1), "the source list is unchanged");
@@ -1356,7 +1356,7 @@ test("chunks larger than the list yield one short chunk", {
 });
 test("windows are overlapping and always exactly the requested size", {
   xs := ArrayList(i32).new();
-  (i : i32) = i32(0);
+  (mut(i) : i32) = i32(0);
   while(i < i32(5), i = (i + i32(1)), {
     xs.push(i);
   });
@@ -1364,7 +1364,7 @@ test("windows are overlapping and always exactly the requested size", {
   assert(lens.len() == usize(3), "5 elements gives 3 windows of 3");
   assert(lens(usize(0)) == usize(3), "each window is full");
   assert(lens(usize(2)) == usize(3), "including the last");
-  it := xs.windows(usize(3));
+  mut(it) := xs.windows(usize(3));
   w0 := match(it.next(), .Some(w) => w, .None => ArrayList(i32).new());
   w1 := match(it.next(), .Some(w) => w, .None => ArrayList(i32).new());
   assert(w0(usize(0)) == i32(0), "the first window starts at the head");
@@ -1389,7 +1389,7 @@ test("ArrayList.new_in keeps its buffer in the arena through growth", {
     // The owner prefix is the one allocation `new_in` makes up front.
     assert(arena.live_blocks() == usize(1), "new_in allocates the owner prefix");
     assert(list.capacity() == usize(0), "and no element storage");
-    i := i32(0);
+    mut(i) := i32(0);
     while(runtime(i < i32(1000)), {
       list.push(i);
       i = (i + i32(1));
@@ -1408,7 +1408,7 @@ test("ArrayList.with_capacity_in reserves inside the arena", {
   list := ArrayList(u64).with_capacity_in(arena.allocator(), usize(64));
   assert(list.capacity() == usize(64), "capacity");
   before := arena.used_bytes();
-  k := usize(0);
+  mut(k) := usize(0);
   while(runtime(k < usize(64)), {
     list.push(u64(k));
     k = (k + usize(1));
@@ -1442,8 +1442,8 @@ test("shrink_to_fit on an empty arena list keeps its allocator", {
 test("try_push reports an exhausted arena as OutOfMemory", {
   arena := Arena.new(usize(256));
   list := ArrayList(u64).new_in(arena.allocator());
-  (full : bool) = false;
-  k := usize(0);
+  (mut(full) : bool) = false;
+  mut(k) := usize(0);
   while(runtime(!full && (k < usize(1000))), {
     full = list.try_push(u64(k)).is_err();
     k = (k + usize(1));
@@ -1493,7 +1493,7 @@ test("clone inside a borrowed for does not trip the flag, for an arena-backed li
     xs.push(i32(1));
     xs.push(i32(2));
     ys := xs;
-    (total : usize) = usize(0);
+    (mut(total) : usize) = usize(0);
     for(&mut xs, x => {
       s := ys.clone();
       total = (total + s.len());
