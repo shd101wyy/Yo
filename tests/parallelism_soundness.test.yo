@@ -703,6 +703,26 @@ comptime_expect_error({
   });
   _dsend_box();
 }, "must be atomically reference counted");
+// D9 at a generic container seat: `Arc(type_of(k))` is typed by the closure's
+// identity (a SomeT resolved to its capture struct), so only THAT closure
+// seats there. The trait test alone accepted any named `fn` of a matching
+// signature — `check` passed and only the C compiler stopped the function
+// pointer, so a function that reaches `g_items` by name crossed into an
+// `Arc` a thread may call (a real data race behind a type error)
+// (issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md).
+comptime_expect_error({
+  _d9_arc_of_named_fn_in_a_closure_slot :: (fn() -> unit)({
+    (k : Impl(Fn() -> unit)) = (
+      () => {
+        d9_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+        ();
+      }
+    );
+    a := Arc(type_of(k))(_d9_push);
+    a;
+  });
+  _d9_arc_of_named_fn_in_a_closure_slot();
+});
 // Canary: function values whose code reaches only atomics cross threads by
 // every route above — a named spawn body, a capture-free closure through a
 // generic bound and an `Impl(Fn, Send)` parameter, a captured closure, a

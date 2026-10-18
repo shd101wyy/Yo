@@ -131,7 +131,7 @@ Decided; see §3.4. The record is `issues/retired/borrowed-for-over-user-defined
   - a tree built once and consumed takes `Box`;
   - a type with no direct `Self` child is a plain value.
 - **How a named function value carries `Send`** (`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`).
-  - First, fix the structural-compat rule: `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2).
+  - First, fix the structural-compat rule: `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2).
   - After decision 43, give each named function its own item type (§4 step 16).
   - Until then, PARALLELISM_RULES D9 recommends a capture-free closure, `dyn(() => f())` or `arc(() => f())`.
 - **The borrowed `for` over user collections** (`issues/retired/borrowed-for-over-user-defined-collections.md`).
@@ -269,7 +269,7 @@ On develop:
 - `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (**S1**, landed with #1432; pre-existing, seed v0.2.63 does the same): a generic function awaiting an `Impl(Future(T, E))` parameter emits a `void*` result or `T v = ;`, and the tail form `io.async({ op }(io : Io) => io.await(op, io))` silently returns a wrong value. Not a v0.2.65 gate item (it is not a regression), but list it under the release's known issues.
 - "a match through a borrowed element copies the element" (S2; its doc is on the #1439 branch until that merges: `match(&xs(i), …)` is E0901 although E0901 suggests that form)
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` (S2, from #1424: D9's documented workaround is E0601)
-- `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2, from #1424: passes `check`, fails in the C compiler; also a `Send` bypass)
+- `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2, from #1424: passes `check`, fails in the C compiler; also a `Send` bypass)
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
 - `issues/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
@@ -370,7 +370,7 @@ Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-o
 - `issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md` (S1)
 - `issues/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md` (S1)
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`
-- `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`
+- `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`
 - `issues/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`
 - `issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`

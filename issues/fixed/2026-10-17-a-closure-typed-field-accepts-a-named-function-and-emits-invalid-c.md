@@ -2,9 +2,9 @@
 
 **Severity:** S2 — `Arc(type_of(k))(f)` / `Holder(type_of(k))(f : f)` with `k` a closure and `f` a named function of the same signature type-check, then die in the C compiler; through `Arc` it also seats a function that `Send` never judged inside a `Send` type.
 
-**Status:** OPEN. **Found:** 2026-10-17, probing the soundness of
-`issues/arc-of-a-named-function-value-fails-its-send-bound.md`, on develop
-5425cd7bf.
+**Status:** FIXED 2026-10-18. **Found:** 2026-10-17, probing the
+soundness of `issues/arc-of-a-named-function-value-fails-its-send-bound.md`,
+on develop 5425cd7bf.
 
 ## Repro
 
@@ -54,13 +54,32 @@ error: incompatible pointer to integer conversion initializing 'int32_t' (aka 'i
   right-hand side's type. Only a fixed slot, such as a struct field or a
   constructor parameter, keeps the identity and reaches the bad C.
 
-## Direction
+## Fix
 
-Make a SomeT that carries a resolution compare by its resolution in the
-concrete-actual rule, as the SomeT-actual rule already does a few lines below
-it. A concrete `fn` is then incompatible with a resolved closure identity, and
-an unresolved bound keeps today's trait test.
+Exactly the direction below: `are_types_compatible`'s "Concrete (actual) vs
+SomeType (expected)" rule (`src/types/compatibility.yo`) now hops to the
+SomeT's `resolution` FIRST, comparing the concrete actual against it and
+returning that comparison's verdict — a failed resolution-comparison no
+longer falls through to the trait test, which was the hole. An UNRESOLVED
+bound keeps today's trait test. This is step 1 of
+`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`'s
+verdict; step 2 (function-item types, after decision 43) is what lets a named
+function itself cross a `Send` bound.
 
-The regression test needs two cases:
-- the repro's constructions are refused at `check`;
-- `Holder(type_of(k))(f : k)` still compiles.
+The `Send` hole closes with the seating: the dirty variant
+(`Arc(type_of(k))` of a function that pushes to a global) is now E0601 at
+`check`, so no codegen-only fix could turn it into a data race.
+
+## Verification
+
+- `tests/closure.test.yo` "a closure-typed field refuses a named function of
+  the same signature": the `Holder(type_of(k))(f : <named fn>)` construction
+  is a `comptime_expect_error`, and `Holder(type_of(k))(f : k)` still seats,
+  calls and returns `3`. Fails before the fix (the seed evaluates the
+  construction cleanly), passes after.
+- `tests/parallelism_soundness.test.yo`
+  `_d9_arc_of_named_fn_in_a_closure_slot`: `Arc(type_of(k))(_d9_push)` is a
+  `comptime_expect_error` (the `Send`-bypass face). Also fails before, passes
+  after.
+- `check ./src` and `check ./std` green under the tree binary (no legitimate
+  use of the old lenient rule in either tree).

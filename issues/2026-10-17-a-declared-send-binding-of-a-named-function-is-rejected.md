@@ -2,9 +2,25 @@
 
 **Severity:** S2: PARALLELISM_RULES D9 tells you to write `(f : Impl(Fn(...), Send)) = count` to make a named function `Send`, and that line is rejected with E0601. A closure literal, `(f : Impl(Fn(...), Send)) = (() => count())`, works.
 
-**Status:** OPEN. **Found:** 2026-10-17, probing the routes of
+**Status:** OPEN — waiting on decision 43's function-item types (step 2 of
+`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`).
+**Found:** 2026-10-17, probing the routes of
 `issues/arc-of-a-named-function-value-fails-its-send-bound.md`, on develop
 5425cd7bf.
+
+**Assessment 2026-10-18**, after the retired doc's step 1 landed (the
+concrete-vs-SomeT resolution hop,
+`issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`):
+nothing that fix could clear is left. The declared annotation
+`Impl(Fn(...), Send)` is a FRESH, UNRESOLVED SomeT at the binding — the new
+hop reads its `resolution`, finds none, and keeps the type-level trait test,
+which a bare `fn` type fails (D9). `(f : Impl(Fn() -> i32, Send)) = nine`
+stays E0601, verified on the tree binary of that fix; the closure-identity
+route `(k2 : Impl(Fn() -> i32, Send)) = k` stays accepted, as before. Making
+the binding keep the declared SomeT — or a value — on the variable is
+exactly step 2's rework of `TypeValue` and `type_key`, so this doc stays open
+until then. D9's interim text already recommends the capture-free closure
+wrapper (`dyn(() => f())`, `arc(() => f())`), which works today.
 
 ## Repro
 

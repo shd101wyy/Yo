@@ -431,6 +431,26 @@ test("a second closure's list after the first list's push", {
   l2(usize(0))();
   assert(hits.load(MemoryOrder.Acquire) == i32(4), "each list called its own closure");
 });
+// A field typed by a closure's identity takes only THAT closure. The identity
+// is a SomeT that carries its resolution (the capture struct); a concrete
+// named `fn` of the same signature implements `Fn() -> i32`, and the
+// concrete-vs-SomeT trait test alone accepted it — `check` passed while the
+// field's C type was the capture struct, and the C compiler rejected the
+// function pointer seated in it
+// (issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md).
+_ClHolder :: (fn(comptime(T) : Type) -> comptime(Type))(struct(f : T));
+_cl_named_seven :: (fn() -> i32)(i32(7));
+test("a closure-typed field refuses a named function of the same signature", {
+  n := i32(3);
+  (k : Impl(Fn() -> i32)) = (() => n);
+  comptime_expect_error({
+    h := _ClHolder(type_of(k))(f : _cl_named_seven);
+    h;
+  });
+  // The identity's own closure still seats, and the field calls it.
+  h := _ClHolder(type_of(k))(f : k);
+  assert(h.f() == i32(3), "the closure-typed field holds its own closure");
+});
 // ---------------------------------------------------------------------------
 // A closure releases its captures (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md).
 // Every case asserts EXACTLY one dispose: 0 is the leak, 2 an over-release.
