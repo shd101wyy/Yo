@@ -64,6 +64,6 @@ It also adds two canaries that must keep failing: a generic derive over a concre
 
 **Limitation recorded here:** a deferred trial still cannot resolve a conditional impl on an abstract instantiation, so `check` judges such calls only at a specialization, as it already did for hand-written impls.
 
-**`Copy` is a separate bug.** A generic `Copy` impl over the same shape is rejected by the impl's field check, hand-written or derived. That is `issues/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`, which has the same abstract-instantiation limitation but a different site.
+**`Copy` is a separate bug.** A generic `Copy` impl over the same shape is rejected by the impl's field check, hand-written or derived. That is `issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`, which has the same abstract-instantiation limitation but a different site.
 
 **Deferred to Generation B, DONE 2026-10-18:** `IterPeekable`'s conditional `Clone` derive is in `std/prelude.yo`, landed once the v0.2.65 seed carried the fix (gate verified: `yo build --std-path ./std --cc zig` with the actual seed bundle, rc=0, plus a compiled-and-run Clone-of-a-peekable probe; `plans/backlog/SEED_VERSION_AUTOMATION.md`, "a generic derive over a container of its parameter"). Its `Copy` still waits on the issue above.

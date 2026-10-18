@@ -750,6 +750,19 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       );
     });
     if(!part_is_copy, {
+      // A field whose type is an instantiation over the impl's abstract type
+      // variables (`p : Option(A)` under `where(A <: Copy)`): the container's
+      // conditional `Copy` impl (`where(T <: Copy)`) discharges its bound
+      // through those variables' own required traits, which the ordinary
+      // predicate cannot see — it rejects a match that binds a forall to
+      // another impl's SomeT. `generic_pattern_implements_trait` runs the
+      // match with abstract bindings allowed and judges each candidate's
+      // `where` bounds against the pattern's own bounds, exactly as
+      // `_copy_without_clone_msg` does for the `Copy: Clone` side
+      // (issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md).
+      part_is_copy = (type_mentions_some_type(&part) && generic_pattern_implements_trait(&part, copy_tt, env));
+    });
+    if(!part_is_copy, {
       lbl := match(labels.get(pi), .Some(l) => l, .None => String.new());
       return(Option(String).Some(`${lbl} has type \`${type_to_string(&part)}\``));
     });
