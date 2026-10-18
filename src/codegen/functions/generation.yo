@@ -584,6 +584,25 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
   // holds the container's borrow for the interior argument it produces
   // (`is_index_entry_method`, function_value.yo).
   if(is_index_entry_method(func_id.clone()), return(()));
+  // A MUT projection (`-> &mut T`, decision 24) is the same shape: it hands
+  // the caller an interior borrow of its receiver, so it runs while its own
+  // caller already holds the container's borrow flag — the borrowed `for`
+  // calls `walk_elem` through the loop guard's flag, a forwarded tail runs
+  // under the outer projection's borrow — and an entry assert would always
+  // see that flag and panic
+  // (issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md).
+  // The mutation mask still records the write-through (the caller writes
+  // through the yielded place), so the evaluator's borrow rules keep
+  // applying; any reallocation goes through a callee that asserts on its own
+  // entry, or the realloc/free auto-assert — the same trade the index-entry
+  // skip above makes.
+  match(
+    function_type,
+    Rc(.Func({ meta : sk_fm })) => if(sk_fm.*.result_is_ref && sk_fm.*.result_is_mut_ref, {
+      return(());
+    }),
+    _ => ()
+  );
   match(
     function_type,
     Rc(.Func({ param_types : pts, result : r, meta : __fm })) => {

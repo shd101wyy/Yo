@@ -221,7 +221,7 @@ None of these needs anything new. Remove `~/Workspace/Yo-wt/MERGE_FREEZE`, then 
       - The wrappers move onto `__yo_cell`/`__yo_atomic_cell`.
       - About 150 test declarations in 68 files migrate.
       - #1421's two cursor-walk tests need a redesign, not a rewrite. They keep `ref(struct)` because a `RefCell` cannot hand a `&mut` out of `with_mut`.
-      - With `ref` gone, the S2 `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` either closes or moves to `Rc(RefCell)`.
+      - With `ref` gone, the S2 `issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` either closes or moves to `Rc(RefCell)`.
     - **Generation B:**
       - The parser drops the constructors.
       - The 527 sites in 73 files that test `is_reference_semantics`/`is_atomic_rc` are reread against the new meaning.
@@ -278,7 +278,7 @@ On develop:
 - `issues/fixed/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`
 - `issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`
 - `issues/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md` (S3, from #1440's cli-diff: from a shell whose environment is about 2 KB larger than 34 KB, the probe's parent runs out of its 64 KiB fixed heap and the case scores a vacuous NO-GOLDEN; develop behaves the same)
-- `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2, found while deciding #1429's questions: a `ref(struct)` collection whose `walk_elem` forwards `&mut self.items(cur)` panics at the next container call; arrives with #1431)
+- `issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2, found while deciding #1429's questions: a `ref(struct)` collection whose `walk_elem` forwards `&mut self.items(cur)` panics at the next container call; arrives with #1431)
 - `issues/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md` (S3: a bare tail `self.items.walk_elem(cur)` reports an internal pointer type instead of naming `&mut`; arrives with #1431)
 
 Filed on in-flight branches; they arrive with those PRs:
