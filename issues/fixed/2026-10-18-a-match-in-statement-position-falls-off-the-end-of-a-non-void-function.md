@@ -120,18 +120,40 @@ materialization. (An earlier field report that "a v0.2.64-seed-built binary
 emits the trailing return" was checked against this artifact evidence and
 refuted; those green gates ran clang-side compilations.)
 
-What changed is the environment, not the emitter: this box's default `cc` is
-gcc 15.2, and the first local gcc build of a v0.2.65-seed era tree hit the
-shape. CI never saw it because every CI path that compiles emitted C uses
-clang and, for the build jobs, `-w` on top:
+What changed is the environment, not the emitter: this box's default `cc`
+is gcc 15.2 — the 2026-10 WSL 3 update removed clang from PATH, and the
+same-day gates that were green that morning still had clang (the
+`fix/trial-specialization-drops-store` re-gate at 10:36 vs the failure
+later the same day). Two independent halves kept every clang-side build
+green (either can hide the other):
 
-- `test.yml`, "Build stage 1 once": `clang -std=c11 -fno-strict-aliasing
-  -fwrapv -w -O2 /tmp/stage1.c …` — clang AND all warnings disabled.
-- The suite-candidate and cross-emit jobs: `--c-compiler clang` or
-  `--emit-c` + clang lines.
-- The v0.2.65 release run `39106358669` (15/15 green) and the v0.2.64-era
-  develop battery `39099399553` (58/58) built their bundles through those
-  clang steps, so the shipped emission was never compiled by gcc.
+- **The yo driver's optimized arm passes clang-only `-Wno-everything`**
+  (`src/main.yo`, the wholesale-silence strategy, load-bearing since #275,
+  2026-08-25; `issues/fixed/release-builds-suppress-all-c-warnings.md`).
+  clang honors it and silences every warning, `-Werror=return-type`
+  included; gcc prints `cc1: note: unrecognized command-line option
+  '-Wno-everything'` (visible in the failing build logs) and silently drops
+  the unknown `-Wno-*`, keeping every default diagnostic on — so the
+  intended silence never happens under gcc. clang additionally does not
+  flag `-Wreturn-type` for a switch whose every present case returns.
+- CI compiles emitted C with clang and, for the build jobs, `-w` on top:
+  - `test.yml`, "Build stage 1 once": `clang -std=c11 -fno-strict-aliasing
+    -fwrapv -w -O2 /tmp/stage1.c …` — clang AND all warnings disabled.
+  - The suite-candidate and cross-emit jobs: `--c-compiler clang` or
+    `--emit-c` + clang lines.
+  - The v0.2.65 release run `39106358669` (15/15 green) and the
+    v0.2.64-era develop battery `39099399553` (58/58) built their bundles
+    through those clang steps, so the shipped emission was never compiled
+    by gcc.
+
+Measured matrix (2026-10-18, repro file; cross-checked against this doc's
+own v0.2.64/v0.2.65 byte-identity diff): seed v0.2.64, seed v0.2.65 and a
+`00eddd3e4`-built tree binary all emit the same fall-off C; gcc rejects it
+in both the `-O0` and optimized arms; `zig cc` (a clang frontend) accepts
+it in both. A clang-equipped box stays green with `--cc clang`
+(`nix develop /home/yiyiwang/Workspace/Yo --command bash -c 'yo build
+--std-path ./std --cc clang'`; keep built binaries inside the same nix
+develop invocation — nix glibc vs system libs).
 
 `--cc zig` also succeeds (zig cc is a clang frontend) — the escape hatch used
 by parallel agents while this fix was in flight. The live experiment agreed:
@@ -162,17 +184,33 @@ carries the fix).
 
 ## Fix
 
-1. **Emitter** (`src/codegen/exprs/match.yo`, `generate_match_expression`):
-   after the chosen lowering returns, when the match node's `control_flow`
-   says every arm diverges (the evaluator stamps it only then), close the
-   construct with `__yo_abort();  // unreachable: every arm of this match
-   diverges`. `__yo_abort` is `_Noreturn` (verified with a C probe: gcc
-   accepts a non-void function whose last statement is a call to it), so both
-   compilers treat the fall-through as unreachable and the C function is
-   well-formed; the trap is dead in every valid program. One choke point
-   covers all five lowerings (tagged union, simple enum, nullable pointer,
-   primitive switch, general if/goto chain — the general lowering's
-   `__yo_mN_end: ;` label had the same hole).
+1. **Emitters — three closers, because no single choke point owns the
+   function's last line:**
+   - `src/codegen/exprs/match.yo`, `generate_match_expression`: after the
+     chosen lowering returns, when the match node's `control_flow` says
+     every arm diverges (the evaluator stamps it only then), close the
+     construct with `__yo_abort();  // unreachable: every arm of this match
+     diverges`. One choke point covers all five lowerings (tagged union,
+     simple enum, nullable pointer, primitive switch, general if/goto chain
+     — the general lowering's `__yo_mN_end: ;` label had the same hole), and
+     it is the only closer inside async state-machine resume functions.
+   - `src/codegen/functions/generation.yo`, `generate_function_body`: the
+     construct-level trap is not enough — the function-body emitter's own
+     epilogue can land AFTER it (measured: `std/string/string.yo`'s
+     `_split_impl`, whose all-diverging `cond` tail is followed by the
+     scope-end `__yo_decr_rc` flush, left gcc a path past a trap it could
+     not prove dead). Two closers close the C function after everything
+     else: when the tail rendered no code (the drops flush first, then the
+     trap), and when `find_return` dropped the tail (a statement before it
+     diverged). Both skip unit-result functions.
+   - `src/codegen/exprs/return.yo`,
+     `generate_implicit_return_statement`: the bare-tail body's
+     empty-render arm ("emit nothing: control cannot reach past the
+     statement form") gains the same non-void trap.
+   `__yo_abort` is `_Noreturn` (verified with a C probe: gcc accepts a
+   non-void function whose last statement is a call to it), so both
+   compilers treat the fall-through as unreachable; every trap is dead code
+   in valid programs.
 2. **Tree-site rewrites** (bootstrap workaround until SEED_VERSION carries
    the emitter fix; each keeps the semantics identical and stays in the
    mixed-arm shape the seed lowers safely):
@@ -205,12 +243,21 @@ Fails-before (installed v0.2.65 seed, system cc = gcc 15.2):
   reproduced locally: 181 passed / 100 failed).
 
 Passes-after: `yo build --std-path ./std` green under the seed+gcc (the two
-rewrites), and `yo-out/x86_64-unknown-linux-gnu/bin/yo test
-tests/match_nested.test.yo --parallel 1` green under the tree binary (the
-emitter trap) — all 28 tests, including the three new shapes:
-`tests/match_nested.test.yo` "an all-arms-return statement match over an
-Option ends a non-void function", "…over a payload enum ends a non-void
-function", and "…before a tail leaves the tail emitted".
+rewrites; two full build rounds, the second carrying all three closers), and
+under the tree binary (`yo-out/x86_64-unknown-linux-gnu/bin/yo`):
+`tests/match_nested.test.yo` 28/28 (the three new shapes: "an
+all-arms-return statement match over an Option ends a non-void function",
+"…over a payload enum ends a non-void function", "…before a tail leaves the
+tail emitted"), `tests/path.test.yo` 89/89, `tests/async_await.test.yo`
+281/281 (the round-1 tree binary — construct trap only — still failed
+`_split_impl` in the path and async_await batches; that failure is what
+found the function-body epilogue ordering), every `tests/match_*.test.yo`,
+`tests/closure_capture_cond_arm.test.yo`,
+`tests/cond_return_in_string_literal.test.yo`,
+`tests/async_while_in_match_arm.test.yo`, and
+`tests/internal/match_binding_shadow.test.yo` (the one internal file
+importing `codegen/exprs/match`) all green, one file per invocation
+(`~/Workspace/Yo-wt/vbd-logs/matchfall/`).
 
 Seed-run CI steps are clang (`--c-compiler clang`) and were never affected;
 the new tests parse and evaluate identically under the seed, so no workflow
