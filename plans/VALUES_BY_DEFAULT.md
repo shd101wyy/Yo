@@ -4686,8 +4686,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     (`issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`;
     fixed 2026-10-16: the collections' probes compare in place and move slots
     bitwise, so `HashMap(Box(K), V)` works); a plain-data field
-    write through any `&T` is accepted and lost
-    (`issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
+    write through any `&T` was accepted and lost, now E0908 (2026-10-17,
+    `issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
   - **Tests:** `tests/rc.test.yo` (the unique-`Box` section: payload place,
     deep clone, a tree cloned and edited on one side, E0901 on an implicit
     copy, one drop, the `Clone`/`Copy`/`Send` derivations, `Eq`/`Hash`/

@@ -396,11 +396,16 @@ Assigning through a `&` local borrow, passing it to a `&mut` parameter,
 calling a writing method on it, or taking `&mut` of a place under it is
 E0908.
 
-The compiler currently enforces the rule for local `&` borrows and for
-writes that would release owned data held by a `&T` parameter (a `String`
-field, a collection). A write to a plain-data field of a `&T` parameter
-still compiles and changes only the callee's copy, an open bug
-(`issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
+The compiler enforces the rule for local `&` borrows and for every write
+into a `&T` parameter's value: a field (plain data included), a nested
+field, a fixed-array element or a `Box`'s payload, assigned, borrowed with
+`&mut`, or passed to a `&mut` parameter the callee writes. A handle
+reached or lent through a `&T` parameter (a `ref` object, an `Rc`, a std
+collection: `h.xs.push(v)`) still writes the storage it shares with the
+caller, until the V2b flip makes the collections values. Until
+2026-10-17 a plain-data field write compiled and changed only the callee's
+copy
+(`issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
 
 ### Re-pointing: the cursor walk
 
