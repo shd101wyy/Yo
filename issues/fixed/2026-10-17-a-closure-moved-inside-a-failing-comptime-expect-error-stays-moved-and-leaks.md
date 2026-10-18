@@ -60,3 +60,23 @@ ownership effects in the caller's environment: snapshot the move state
 when the expected error is caught. The regression test is the reproducer as a
 `tests/copy_trait.test.yo` case that reads `c` afterwards, plus the existing
 test passing its leak check.
+
+
+## Fix (landed)
+
+One mechanism for all three docs (and the fourth of the family,
+`2026-10-17-comptime-expect-error-marks-its-operands-moved.md`, which arrives
+with PR #1422's branch and is closed by the same change):
+`evaluate_comptime_expect_error`
+(`src/evaluator/builtins/comptime_expect_error.yo`) now snapshots every
+frame's `consumed_at_token` list before the argument trial and restores it
+after the frame truncation, alongside the other state the expected throw can
+strand. A rejected expression leaves no ownership effects on the caller's
+bindings: the operand keeps its scope-end drop (no leak), and a later use is
+no longer E0901.
+
+The regression coverage: `tests/copy_trait.test.yo`'s existing test now CALLS
+`c` and `c2` after their rejections (the E0901 was the fails-before), and a
+new test drops a `Drop`-counted capture through both the `comptime(T)` and
+the `generic(...)` rejections (`g_ct_cee_disposed == 2`), which is visible
+in CI without a leak verdict.

@@ -121,7 +121,7 @@ The declared flag is `own=true`, but the binding comes out non-owning.
   for one LeakSanitizer report that develop's binary also produces
   (`issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`).
   `tests/copy_trait.test.yo` has one leak that develop's binary also produces
-  (`issues/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`).
+  (`issues/fixed/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`).
   The `tests/internal` files that import a changed module (`ast_reflection`,
   `macro_helpers`, `binding`, `evaluator_utils_is_valid_variable_name`,
   `macro_expansion`) all pass.

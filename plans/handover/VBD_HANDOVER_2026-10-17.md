@@ -274,8 +274,8 @@ On develop:
 - `issues/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
 - "the async mutex is not FIFO across event loops" (2026-10-16; the FIFO branch moves it)
-- `issues/2026-10-17-a-closure-passed-into-a-comptime-expect-error-call-leaks-its-moved-capture.md`
-- `issues/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`
+- `issues/fixed/2026-10-17-a-closure-passed-into-a-comptime-expect-error-call-leaks-its-moved-capture.md`
+- `issues/fixed/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`
 - `issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`
 - `issues/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md` (S3, from #1440's cli-diff: from a shell whose environment is about 2 KB larger than 34 KB, the probe's parent runs out of its 64 KiB fixed heap and the case scores a vacuous NO-GOLDEN; develop behaves the same)
 - `issues/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2, found while deciding #1429's questions: a `ref(struct)` collection whose `walk_elem` forwards `&mut self.items(cur)` panics at the next container call; arrives with #1431)
