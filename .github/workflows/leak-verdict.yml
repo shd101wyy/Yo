@@ -128,3 +128,15 @@ jobs:
           # in-language oracle (an internal read buffer), so this leg is its
           # regression run.
           "$S1" test ./tests/http/http.test.yo --c-compiler clang --verbose
+          # error.test.yo (the compiler's own diagnostics module under test)
+          # joined when the dedupe path's early return stopped skipping the
+          # loop temp's drop
+          # (issues/fixed/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md).
+          # An internal test: it evaluates the compiler source (~5 min, a few
+          # GB), which this job's budget already covers elsewhere.
+          "$S1" test ./tests/internal/error.test.yo --c-compiler clang --verbose
+          # spawn_blocking.test.yo joined when the awaiter began joining the
+          # worker after taking the result
+          # (issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md):
+          # the flake is a timing window with no in-language oracle.
+          "$S1" test ./tests/spawn_blocking.test.yo --c-compiler clang --verbose

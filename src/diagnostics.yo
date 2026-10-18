@@ -63,18 +63,29 @@ warnings_enabled :: (fn() -> bool)(g_warnings_enabled);
 (g_pending_warnings : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
 emit_warning :: (fn(d : &Diagnostic) -> unit)({
   if(g_warnings_enabled, {
+    // A `seen` flag and a loop-condition exit, NOT a `return` from inside
+    // the arm: the emitted C ran that `return` without the loop body's
+    // "Drop local variables before early return" epilogue, so the `get(pi)`
+    // temp's per-field references on the stored Diagnostic were never
+    // released — one dedupe-rejected `emit_warning` leaked +1 references on
+    // the stored warning's message and path Strings (the 103-byte LSan
+    // report on this module's own test). Leaving the loop through its
+    // condition drops every iteration's temp the loop's own way.
+    (seen : bool) = false;
     (pi : usize) = usize(0);
-    while(pi < g_pending_warnings.len(), {
+    while((pi < g_pending_warnings.len()) && !seen, {
       match(
         g_pending_warnings.get(pi),
         .Some(p) => if((p.span.path == d.span.path) && (p.span.row == d.span.row) && (p.span.col == d.span.col) && (p.message == d.message), {
-          return;
+          seen = true;
         }),
         .None => ()
       );
       pi = (pi + usize(1));
     });
-    g_pending_warnings.push(d);
+    if(!seen, {
+      g_pending_warnings.push(d);
+    });
   });
 });
 /// Take (and clear) the pending warnings — the CLI edge renders whatever
