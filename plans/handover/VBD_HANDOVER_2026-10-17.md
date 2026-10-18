@@ -266,7 +266,7 @@ The doc and its repro (`issues/repros/`) arrive with the E1101 PR. The suspected
 
 On develop:
 
-- `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (**S1**, landed with #1432; pre-existing, seed v0.2.63 does the same): a generic function awaiting an `Impl(Future(T, E))` parameter emits a `void*` result or `T v = ;`, and the tail form `io.async({ op }(io : Io) => io.await(op, io))` silently returns a wrong value. Not a v0.2.65 gate item (it is not a regression), but list it under the release's known issues.
+- `issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (**S1**, landed with #1432; pre-existing, seed v0.2.63 does the same): a generic function awaiting an `Impl(Future(T, E))` parameter emits a `void*` result or `T v = ;`, and the tail form `io.async({ op }(io : Io) => io.await(op, io))` silently returns a wrong value. Not a v0.2.65 gate item (it is not a regression), but list it under the release's known issues.
 - "a match through a borrowed element copies the element" (S2; its doc is on the #1439 branch until that merges: `match(&xs(i), …)` is E0901 although E0901 suggests that form)
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` (S2, from #1424: D9's documented workaround is E0601)
 - `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2, from #1424: passes `check`, fails in the C compiler; also a `Send` bypass)
@@ -366,7 +366,7 @@ Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-o
 - **`YO_TEST_FORK=N`:** `yo test` over many files warms one in-process image and forks a worker per file, at most N at a time, replaying output in file order. Linux and macOS only (#1427).
 
 ### Known open issues filed this cycle
-- `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (S1, not a regression; v0.2.63 does the same)
+- `issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (S1, not a regression; v0.2.63 does the same)
 - `issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md` (S1)
 - `issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md` (S1)
 - `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`
