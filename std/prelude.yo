@@ -7302,23 +7302,29 @@ impl(
     })
   )
 );
-/// Element-wise deep clone. The `out := self` copy establishes an array of the
-/// right shape (the only way to spell one when `U` is generic); every slot is
-/// then overwritten with the element's own clone, so the result shares nothing
-/// with `self` beyond what `T.clone()` shares.
+/// Element-wise deep clone: each slot of the result is written with the clone
+/// of the matching element, read in place through `self(i)` (a `&T`
+/// projection), so the result shares nothing with `self` beyond what
+/// `T.clone()` shares. Nothing is copied out of the `&Self` borrow: no
+/// whole-array copy and no element copy, so a `Clone`-but-not-`Copy` or a
+/// move-only `T` clones as well as a `Copy` one
+/// (issues/fixed/array-clone-copies-self-out-of-the-borrow.md). The storage
+/// comes from `MaybeUninit`, as in `fill`, and each clone is moved into its
+/// uninitialized slot with `__yo_ptr_write`, which drops nothing.
 impl(
   generic(T : Type, U : usize),
   where(T <: Clone),
   Array(T, U),
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      out := self;
-      i := usize(0);
-      while(runtime(i < U), {
-        out(i) = self(i).clone();
-        i = (i + usize(1));
+      mu := MaybeUninit(Self).new();
+      raw := mu.as_ptr();
+      p := (*T)(raw);
+      (i : usize) = usize(0);
+      while(i < U, i = (i + usize(1)), {
+        __yo_ptr_write(p.add(i), self(i).clone());
       });
-      return(out);
+      mu.assume_init(raw)
     })
   )
 );
