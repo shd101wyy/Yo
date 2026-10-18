@@ -109,6 +109,15 @@ yo check ./src --std-path ./std   # type-check the whole compiler tree (evaluato
 yo check ./std --std-path ./std   # the flag is optional for a compiler carrying the entry-side fix (a seed older than that fix still imports its BUNDLED std beside ./std; every entry inside one std tree makes check/test/compile/fix/verify/effects/doc resolve THAT tree, issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md); keeping it spelled out pins the root explicitly. No solver needed: since #760 a missing Z3 is a skip-with-hint for `check` (it ships nothing) and stays a hard failure for `compile` (verify-mode binaries carry no runtime asserts). The FV CI job owns the proofs; `yo verify std/collections/array_list.yo` installs the pinned Z3 if you want them locally
 yo compile src/main.yo --skip-c-compiler   # ~3 min; catches the one async rule `check` cannot see (a hollow `io.async` body, E0905, fires in codegen)
 
+# The C compiler: gcc and clang do NOT agree on emitted-C warnings. The driver's optimized arm passes
+# clang-only `-Wno-everything`, while `-Werror=return-type` stays load-bearing under gcc — C that is
+# warning-clean under clang can still fail a gcc build (a statement-position match emitting no trailing
+# return, 2026-10-18). CI builds with clang. For a matching local clang use the repo's nix shell, and
+# keep runs of the built binaries inside the same wrapper: outside it, the nix-glibc/system-lib mix
+# dies on a pthread assertion (allocate_stack: size != 0). --cc takes ONLY cc|gcc|clang|zig|emcc — a
+# path is rejected, so clang must resolve on PATH.
+nix develop . --command bash -c 'yo build --std-path ./std --cc clang'
+
 # Incremental loop: keep ONE resident checker alive instead of re-running the ~105 s cold `check ./src`.
 # A round re-forces only the edited fn-literal definitions (+ dependents): comment-only 6 ms, one body
 # 80 ms; a body whose readers destructure a re-forced name still re-checks that closure (`token.yo`: 47 s).
