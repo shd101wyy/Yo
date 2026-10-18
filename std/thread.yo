@@ -428,14 +428,23 @@ spawn_blocking :: (
     unsafe(__yo_async_blocking_end(owner.owner));
     ()
   });
-  // Not joined: by the time the awaiting task resumes the worker has already
-  // delivered its value and its wake, so joining would only block the loop on
-  // the thread's own teardown. Dropping the handle detaches it.
-  _detached := worker;
-  // The task owns the park (it is waited on once, §3.13 A5) and the channel.
-  io.async({ p, chan }(io : Io) => {
+  // The task owns the park (it is waited on once, §3.13 A5), the channel,
+  // and the worker's handle — and JOINS the worker after taking the result.
+  // The wake fires before the worker's own teardown, so a DETACHED worker
+  // could still hold its captures (the channel handle, the user closure) when
+  // `main` returned, and LeakSanitizer reported exactly that about one run in
+  // a few hundred
+  // (issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md).
+  // Joining closes the window instead of narrowing it: the awaiter cannot
+  // complete — and `main` cannot return — while the worker still holds its
+  // captures. The join waits only for the thread's own teardown
+  // (`__yo_async_blocking_end`'s inbox post before it is non-blocking), a
+  // bounded sub-millisecond cost on the loop thread.
+  io.async({ p, chan, worker }(io : Io) => {
     io.await(p.wait(io), io);
-    _take_blocking_result(&chan)
+    v := _take_blocking_result(&chan);
+    _ := worker.join();
+    v
   })
 });
 /// SAFETY: the blocking-bracket's loop pointer. `__yo_async_blocking_end`
