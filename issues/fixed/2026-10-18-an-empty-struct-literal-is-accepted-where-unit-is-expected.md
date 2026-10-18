@@ -56,8 +56,8 @@ already type-checked (and still does). The acceptance lived in the evaluator:
   `` write `()` for the unit value — a brace group without a semicolon is a record, so `{}` is a zero-field struct ``.
   Arm bodies, fn bodies, unit arguments and tail expressions are all evaluated with the unit
   expected type, so they all get this message.
-- Migrated the tree's own 20 no-op arms (`=> {}` → `=> ()`; see the census below), the only in-tree
-  users. std, docs and embedded Yo (workflows, heredocs, `scripts/check-embedded-yo.sh`) carry none.
+- Migrated the tree's own no-op arms (`=> {}` → `=> ()`; see the census below). std, docs and
+  embedded Yo (workflows, heredocs, `scripts/check-embedded-yo.sh`) carry none.
 
 Kept legal: `{}` where a zero-field STRUCT type is expected (`Z :: struct(); (fn() -> Z)({})` still
 checks — positive test), `{ }` with whitespace (same record, same rule), and every parse-level use
@@ -92,8 +92,29 @@ left alone: its `{}` is an fn body against `?V` — never a unit position, so no
 it — and a parse-level fixture besides. `issues/repros/*` are historical records and stay as filed.
 
 Every site was audited: all are no-op arms whose sibling arms are `;`-terminated unit blocks, so
-`=> ()` preserves the join type exactly. Re-grepped the whole tree plus `.github/workflows/`, shell
-heredocs and docs after migrating: no further sites.
+`=> ()` preserves the join type exactly.
+
+A third census pass — running the fixed binary's own `yo check ./src` on the migrated tree —
+found eight more sites NO text grep can see (both grep patterns match only same-line, truly
+empty brace groups): brace groups holding only COMMENTS (`{` newline `// …` newline `}`, a
+zero-field record by the same decided rule) and single-line `if(x, { });` dead guards hiding
+behind an import cascade. All migrated in the fix PR:
+
+- `src/evaluator/exprs/property_access.yo` (1) and `src/doc/builder.yo` (1): comment-only
+  `match` arms — the comment moved above the arm, the body became `()`.
+- `src/evaluator/exprs/import.yo` (1): a comment-only `if` then-arm — comment above the `if`,
+  then-arm `()`.
+- `src/evaluator/calls/helper.yo` (1): an empty `.None => { }` arm → `.None => ()`.
+- `src/evaluator/calls/function.yo` (3): dead `if(iob_fld == "await", { });` /
+  `if(struct_name == "Io", { });` guards → `if(…, ());`. These sat behind helper.yo in the
+  import graph, so they surfaced only after the first four were fixed.
+- `tests/negative_impl.test.yo` (1): a comment-only `test(…, { … })` body — the `{}` had been
+  accepted as the unit test body only through the removed empty-struct==unit rule; the body is
+  `()` now.
+
+The definitive census is a comment/string-stripped `\{\s+\}` scan over every tracked `.yo`
+file: zero hits outside `issues/repros/` (historical records) and the parse-level formatter
+fixtures. `yo check ./src` and `yo check ./std` with the final binary are the gate.
 
 ## Test plan (landed)
 
