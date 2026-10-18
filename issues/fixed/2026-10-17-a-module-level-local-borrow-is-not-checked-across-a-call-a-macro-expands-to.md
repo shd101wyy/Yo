@@ -9,7 +9,7 @@ Found with
 (the review of #1419), which fixed the same hole for rule 4.
 
 **Status:** FIXED — by #1419 itself, not by a later change (verified
-2026-10-18; this doc records the verification, no code change landed for it).
+2026-10-18, recorded by PR #1461; no code change landed for it).
 
 ## Symptom
 
