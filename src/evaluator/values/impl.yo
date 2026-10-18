@@ -70,6 +70,7 @@ pragma(Pragma.AllowUnsafe);
   note_inherent_method_site,
   note_trait_impl_site,
   trait_impl_site_of,
+  forget_trait_impl_site_if_from,
   get_type_trait_methods_by_name,
   get_assoc_type_entries,
   assoc_type_registry_key,
@@ -89,7 +90,7 @@ pragma(Pragma.AllowUnsafe);
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type, type_decl_module } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
+{ Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, fn_param_is_ptr_borrow, declare_acyclic_type_id } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
@@ -129,7 +130,7 @@ pragma(Pragma.AllowUnsafe);
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 /// Stamp a generic impl's `generic(T)` names onto a method's FuncVal so the call
 /// site recognizes the method as generic and SPECIALIZES it. A method defined in
 /// `impl(generic(T), C(T), m : (fn(self : Self) -> T))` is evaluated to a FuncVal
@@ -449,6 +450,66 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       g_impl_registry_entry_owners.push(new_owners);
     }
   );
+});
+/// Undo `register_generic_impl` and the side notes that preceded it for an
+/// impl whose registration a LATER check rejected
+/// (`_check_generic_copy_clone_exclusion`): drop the bucket entry with its
+/// owner slot, the `generic` coherence site and the hand-written-`Clone`
+/// site, and bump the trait-impl epoch so dispatch caches re-derive. Without
+/// this, the `comptime_expect_error` catch leaves the rejected impl
+/// answering `Type.impls` and dispatch for the rest of the compile
+/// (issues/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md).
+/// Move-only declarations need no undo here: only a `Drop` impl records one,
+/// and `Drop` never reaches the post-registration rejection.
+_undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
+  // Bucket + owner: registration appends, so the entry to drop is the LAST
+  // one with this site. Both lists are taken out of their slots, mutated and
+  // stored back (the `register_generic_impl`/`purge_generic_impls_owned_by`
+  // discipline).
+  (key_idx : Option(usize)) = Option(usize).None;
+  (ki : usize) = usize(0);
+  (n_keys : usize) = g_impl_registry_keys.len();
+  while(ki < n_keys, {
+    existing_key := match(g_impl_registry_keys.get(ki), .Some(k) => k, .None => String.from(""));
+    if(existing_key == entry.trait_key, {
+      key_idx = Option(usize).Some(ki);
+      ki = n_keys; // break
+    });
+    ki = (ki + usize(1));
+  });
+  match(
+    key_idx,
+    .Some(idx) => {
+      if((idx < g_impl_registry_entry_lists.len()) && (idx < g_impl_registry_entry_owners.len()), {
+        list := g_impl_registry_entry_lists(idx);
+        g_impl_registry_entry_lists(idx) = ArrayList(GenericImplEntry).new();
+        olist := g_impl_registry_entry_owners(idx);
+        g_impl_registry_entry_owners(idx) = ArrayList(String).new();
+        (ri : usize) = list.len();
+        while(ri > usize(0), {
+          ri = (ri - usize(1));
+          hit := match(list.get(ri), .Some(e) => (e.site == entry.site), .None => false);
+          if(hit, {
+            list.drain(ri .. (ri + usize(1)));
+            if(ri < olist.len(), {
+              olist.drain(ri .. (ri + usize(1)));
+            });
+            ri = usize(0); // break
+          });
+        });
+        g_impl_registry_entry_lists(idx) = list;
+        g_impl_registry_entry_owners(idx) = olist;
+      });
+    },
+    .None => ()
+  );
+  // The coherence site coherence noted for this entry (guarded by the site:
+  // a key another impl owns stays).
+  forget_trait_impl_site_if_from(String.from("generic"), &_generic_impl_trait_site_shape(entry), &entry.site);
+  // A hand-written `Clone` the exclusion check itself recorded just before
+  // throwing on it.
+  g_hand_written_clone_sites.remove(entry.site.clone());
+  bump_trait_impl_epoch();
 });
 // ---------------------------------------------------------------------------
 // Move-only declarations (plans/VALUES_BY_DEFAULT.md §3.4, V3)
@@ -2009,17 +2070,14 @@ _decl_identity_of :: (fn(ctor_fid : String, type_id : &String, stable_prefix : S
     true => Option(String).None
   )
 );
-/// Coherence at a GENERIC trait impl: an identical impl (same receiver
-/// pattern and trait, binders renamed by position) from another site is a
-/// duplicate (rule 1), and a registered concrete impl the new entry covers is
-/// an overlap (rule 3, the direction `_check_concrete_impl_coherence` cannot
-/// see). An inherent generic impl (no trait) is checked for a duplicate
-/// method under the same receiver pattern and bounds.
-_check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environment, tok : &Token, exn : Exception) -> unit)({
-  // Two substitutions of the forall binders: `canon` renames them by
-  // position (`$0`, `$1`, …) so two impls that differ only in binder names
-  // compare equal, and `shown` strips their constraint lists so a diagnostic
-  // prints `HashSet(T)`, not the SomeT's whole bound set.
+/// Two substitutions of an impl's forall binders: `canon` renames them by
+/// position (`$0`, `$1`, …) so two impls that differ only in binder names
+/// compare equal, and `shown` strips their constraint lists so a diagnostic
+/// prints `HashSet(T)`, not the SomeT's whole bound set. Shared by
+/// `_check_generic_impl_coherence` and `_generic_impl_trait_site_shape` (the
+/// undo of a rejected registration must rebuild the EXACT key coherence
+/// noted).
+_canon_shown_substs :: (fn(entry : &GenericImplEntry) -> Tuple(Substitution, Substitution))({
   canon := subst_new();
   shown := subst_new();
   (cn_i : usize) = usize(0);
@@ -2038,6 +2096,28 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     );
     cn_i = (cn_i + usize(1));
   });
+  (canon, shown)
+});
+/// The trait-impl site key body `_check_generic_impl_coherence` notes for a
+/// generic TRAIT impl (`type_id` is `"generic"`): the canonically-substituted
+/// receiver and trait, each with its nominal declarations' modules, plus the
+/// trait key. Rebuilt verbatim by `_undo_generic_impl_registration`.
+_generic_impl_trait_site_shape :: (fn(entry : &GenericImplEntry) -> String)({
+  (canon, _shown_unused) := _canon_shown_substs(entry);
+  `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${type_to_string(substitute(&canon, &entry.trait_type))}${_decl_modules_of(&entry.trait_type, usize(0))}|${entry.trait_key}`
+});
+/// Coherence at a GENERIC trait impl: an identical impl (same receiver
+/// pattern and trait, binders renamed by position) from another site is a
+/// duplicate (rule 1), and a registered concrete impl the new entry covers is
+/// an overlap (rule 3, the direction `_check_concrete_impl_coherence` cannot
+/// see). An inherent generic impl (no trait) is checked for a duplicate
+/// method under the same receiver pattern and bounds.
+_check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environment, tok : &Token, exn : Exception) -> unit)({
+  // Two substitutions of the forall binders: `canon` renames them by
+  // position (`$0`, `$1`, …) so two impls that differ only in binder names
+  // compare equal, and `shown` strips their constraint lists so a diagnostic
+  // prints `HashSet(T)`, not the SomeT's whole bound set.
+  (canon, shown) := _canon_shown_substs(entry);
   shown_receiver := type_to_string(substitute(&shown, &entry.receiver_type_pattern));
   if(!match(entry.trait_type, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false), {
     // An INHERENT generic impl: the duplicate-inherent-method rule
@@ -2083,7 +2163,7 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
   // The declaring modules of the receiver's and the trait's nominal types
   // tell two modules' same-named types apart (`From(Meters)` over each
   // file's own `Meters`; `_decl_modules_of`).
-  shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}${_decl_modules_of(&entry.receiver_type_pattern, usize(0))}\n${type_to_string(substitute(&canon, &entry.trait_type))}${_decl_modules_of(&entry.trait_type, usize(0))}|${entry.trait_key}`;
+  shape := _generic_impl_trait_site_shape(entry);
   match(
     note_trait_impl_site(String.from("generic"), &shape, &entry.site),
     .Some(prev) => {
@@ -5026,7 +5106,22 @@ evaluate_module_value :: (
         _check_generic_impl_coherence(&g_entry, &forall_env, ast_expr_token(expr), exn);
         register_generic_impl(&g_entry);
         note_generic_move_only_impl(&g_entry);
-        _check_generic_copy_clone_exclusion(&g_entry, ast_expr_token(&mf_expr), ctx, exn);
+        // The exclusion check must run AFTER registration (at a `Copy` impl
+        // it re-asks whether each hand-written generic `Clone` receiver is
+        // now `Copy`, which needs this impl visible) — so its rejection runs
+        // the registration backwards before re-raising: a
+        // `comptime_expect_error` catch continues evaluation, and the
+        // rejected impl must not stay registered to answer `Type.impls`
+        // and dispatch
+        // (issues/2026-10-16-a-generic-impl-rejected-under-comptime-expect-error-stays-registered.md).
+        match(
+          _try_generic_copy_clone_exclusion(&g_entry, ast_expr_token(&mf_expr), ctx),
+          .Some(excl_err) => {
+            _undo_generic_impl_registration(&g_entry);
+            exn.throw(&excl_err);
+          },
+          .None => ()
+        );
       });
     });
     // Restore self_type so the impl's parent scope sees its prior value.
@@ -6196,6 +6291,15 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
     },
     .None => ()
   );
+});
+/// `_check_generic_copy_clone_exclusion` with its throw captured instead of
+/// unwound, so the caller can undo the registration before re-raising. The
+/// handler is capture-free — the error rides the unwind value out (the
+/// `_try_ctfe_range_ctor` idiom).
+_try_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext) -> Option(AnyError))({
+  trap := Exception(throw : (e -> unwind(Option(AnyError).Some(e))));
+  _check_generic_copy_clone_exclusion(entry, trait_tok, ctx, trap);
+  Option(AnyError).None
 });
 /// Is an impl of `trait_ty` written for `ty`'s shape: a concrete impl of
 /// `ty` itself, or a generic impl whose receiver pattern matches `ty` with
