@@ -91,4 +91,4 @@ call-result pointer in a comptime-parameterized fn" (the issue's generic-impl
 shape and the direct call above); it failed to compile with E1101 before. Each
 call's result is bound before it is asserted: making the first call an operand
 of `!` drops a store in the callee, a separate bug found while gating this fix
-(`issues/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md`).
+(`issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md`).

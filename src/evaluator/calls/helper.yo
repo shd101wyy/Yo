@@ -5262,9 +5262,20 @@ create_specialization_at_call :: (
   // on judging its own code as that specialization's.
   prev_spec := ctx.currently_specializing_function;
   prev_stack_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
+  // The body is evaluated for real, even when an overload trial asked for
+  // the specialization: the specialization outlives the trial and is the one
+  // every later call reuses, so the trial's checking-phase shortcuts (a
+  // deref of a placeholder pointer kept as a compile-time placeholder) must
+  // not shape it. They made a store through such a pointer compile-time only,
+  // and codegen dropped it
+  // (issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md).
+  checking_was := ctx.is_in_function_call_checking_phase;
+  ctx.is_in_function_call_checking_phase = false;
   out := ArrayList(EvalValue).new();
+  trapped := _create_specialization_trapped(fv, ft, av, callee_env, caller_env, ctx, &mut out);
+  ctx.is_in_function_call_checking_phase = checking_was;
   match(
-    _create_specialization_trapped(fv, ft, av, callee_env, caller_env, ctx, &mut out),
+    trapped,
     .Some(err) => {
       ctx.currently_specializing_function = prev_spec;
       // Taken out and stored back: a `match` binding is a copy of the stack

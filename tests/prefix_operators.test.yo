@@ -79,9 +79,8 @@ impl(
   cell : (fn(self : &Self) -> *_NotCell(T))(addr_of(self.st.*)),
   take : (fn(self : &Self) -> bool)(_not_take(T, self.cell()))
 );
-// Each result is bound before it is asserted: a call to these functions as
-// the operand of `!` drops `_not_take`'s store, a separate bug
-// (issues/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md).
+// Each result is bound before it is asserted; the test after this one makes
+// the calls operands of `!`.
 test("! on a runtime pointee through a call-result pointer in a comptime-parameterized fn", {
   w := _NotWrap(i32)(st : box(_NotCell(i32)(flag : true, v : i32(1))));
   first := w.take();
@@ -94,4 +93,34 @@ test("! on a runtime pointee through a call-result pointer in a comptime-paramet
   b.* = true;
   set := _not_flag(u8, _not_ptr(&b));
   assert(set == false, "the same read sees the new value");
+});
+
+// A specialization an overload trial creates outlives the trial: `!`'s
+// candidates (`not`, `comptime_not`) are trial-called with the operand, and
+// the call in the operand specializes its callee. Its body was evaluated in
+// the trial's checking phase, where a deref of a call-result pointer is a
+// compile-time placeholder, so the store through it was taken as compile-time
+// only and never emitted; every later call reused that body
+// (issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md).
+_NotStoreCell :: struct(flag : bool);
+_not_store_take :: (fn(comptime(T) : Type, p : *_NotStoreCell) -> bool)({
+  (was : bool) = unsafe(p.*.flag);
+  unsafe(consume(p.*.flag = false));
+  was
+});
+_not_store_only :: (fn(comptime(T) : Type, p : *_NotStoreCell) -> bool)({
+  unsafe(consume(p.*.flag = false));
+  true
+});
+_not_store_cell :: (fn(b : &Box(_NotStoreCell)) -> *_NotStoreCell)(addr_of(b.*));
+test("a store in a comptime-parameterized fn first called as an operand of ! is emitted", {
+  c := box(_NotStoreCell(flag : true));
+  assert(!!_not_store_take(i32, _not_store_cell(&c)), "the first call reads the set flag");
+  assert(!_not_store_take(i32, _not_store_cell(&c)), "the first call's store cleared it");
+  d := box(_NotStoreCell(flag : true));
+  assert(!!_not_store_only(u8, _not_store_cell(&d)), "a store with no read before it");
+  assert(!d.*.flag, "that store ran too");
+  w := _NotWrap(i64)(st : box(_NotCell(i64)(flag : true, v : i64(1))));
+  assert(!w.take(), "through a generic method: ! of the set flag");
+  assert(w.take(), "the method's store cleared the flag");
 });
