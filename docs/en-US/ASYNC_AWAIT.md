@@ -533,7 +533,8 @@ cancelled with it.
   keeps reading `.None` after the operation's time.
 - A task parked on a `Mutex` or `Channel` leaves its queue. The next `unlock`
   or `send` skips the dead waiter and hands the lock or the message to a live
-  one. Nothing is lost.
+  one; a task the lock was already handed to passes it on to the next waiter
+  when its last reference goes. Nothing is lost.
 - Every task awaiting the aborted one is woken. An `io.await` that was
   **waiting** when the abort happened aborts its own task too, so a
   `JoinHandle.await` further up reads `.None`. Starting an `io.await` on a
@@ -1505,8 +1506,8 @@ for `Park` directly when a waiter list wants to hold the token itself.
 ### Sharing a lock between tasks: the async `Mutex`
 
 `std/async/mutex`'s `Mutex(T)` is a lock whose critical section may span
-awaits: a task that finds it held parks, and `unlock` wakes the longest
-waiter. It follows Rust's `tokio::sync::Mutex`:
+awaits: a task that finds it held parks, and `unlock` hands the lock to the
+longest waiter. It follows Rust's `tokio::sync::Mutex`:
 
 - a `Mutex` is a move-only value (copying one is E0901), and tasks share one
   as `Arc(Mutex(T))`, each holding its own handle on the `Arc`;
@@ -1516,9 +1517,10 @@ waiter. It follows Rust's `tokio::sync::Mutex`:
   suspension, see "Borrowing Futures" above);
 - it is `Send` and `Sync` when `T` is `Send`: a short blocking guard protects
   its state, so tasks on different threads' loops may contend for one. The
-  guard is never held while a `with_lock` body runs, and waiters are served in
-  arrival order among one loop's tasks; across loops the order is not strict
-  (`issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md`).
+  guard is never held while a `with_lock` body runs;
+- waiters are served in arrival order, whichever thread's loop each runs on:
+  `unlock` leaves the lock held and marks it as the front waiter's, so neither
+  a later arrival nor a `try_lock` can take it first.
 
 ```yo
 { assert } :: import("std/assert");
