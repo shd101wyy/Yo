@@ -10,7 +10,7 @@ GADTs extend Yo's enum types by allowing each constructor to specify the exact i
 
 With regular enums, all constructors produce the same type:
 
-```rust
+```yo
 // Regular enum — all variants return Expr(T) for the same T
 Expr :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(Lit(T), Add(Expr(T), Expr(T)))
@@ -19,7 +19,7 @@ Expr :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 This prevents expressing "a literal integer expression has type `Expr(i32)`" while "a boolean expression has type `Expr(bool)`". GADTs solve this:
 
-```rust
+```yo
 // GADT — each constructor specifies its own return type
 Expr :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
@@ -27,21 +27,22 @@ Expr :: (fn(comptime(T) : Type) -> comptime(Type))(
     BoolLit(b : bool) -> recur(bool),
     Add(a : Expr(i32), b : Expr(i32)) -> recur(i32),
     Eq(a : Expr(i32), b : Expr(i32)) -> recur(bool),
-    If(cond : Expr(bool), then : Expr(T), else_ : Expr(T))  // unconstrained T
+    If(cond : Expr(bool), then : Expr(T), else_ : Expr(T)) // unconstrained T
   )
 );
 ```
 
 Now `Expr(i32)` can only be an `IntLit`, `Add`, or `If`, while `Expr(bool)` can only be `BoolLit`, `Eq`, or `If`. Pattern matching refines `T` in each branch:
 
-```rust
+```yo
 eval :: (fn(forall(T : Type), e : Expr(T)) -> T)(
-  match(e,
-    .IntLit(i) => i,        // T refined to i32, returning i32 ✓
-    .BoolLit(b) => b,       // T refined to bool, returning bool ✓
-    .Add(a, b) => (eval(a) + eval(b)),  // T = i32
-    .Eq(a, b) => (eval(a) == eval(b)),  // T = bool
-    .If(c, t, f) => cond(eval(c), eval(t), eval(f))  // T stays abstract
+  match(
+    e,
+    .IntLit(i) => i, // T refined to i32, returning i32 ✓
+    .BoolLit(b) => b, // T refined to bool, returning bool ✓
+    .Add(a, b) => (eval(a) + eval(b)), // T = i32
+    .Eq(a, b) => (eval(a) == eval(b)), // T = bool
+    .If(c, t, f) => cond(eval(c), eval(t), eval(f)) // T stays abstract
   )
 );
 ```
@@ -58,7 +59,7 @@ eval :: (fn(forall(T : Type), e : Expr(T)) -> T)(
 
 ### Arrow syntax: `-> recur(ConcreteType)`
 
-```rust
+```yo
 MyExpr :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     IntLit(i : i32) -> recur(i32),
@@ -79,7 +80,7 @@ MyExpr :: (fn(comptime(T) : Type) -> comptime(Type))(
 
 ### Multi-parameter GADTs
 
-```rust
+```yo
 // Type-safe key-value store
 Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   enum(
@@ -93,7 +94,7 @@ Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 
 Custom discriminants and GADT return types can coexist:
 
-```rust
+```yo
 Packet :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     Header(len : u32) -> recur(u32) = 0,
@@ -121,8 +122,9 @@ When constructing a GADT value, the type checker verifies the fields match and t
 
 This is the core GADT feature. When pattern matching on `(e : Expr(T))`:
 
-```rust
-match(e,
+```yo
+match(
+  e,
   .IntLit(i) => {
     // Here the type checker knows T = i32
     // Because IntLit -> recur(i32), and e : Expr(T), so T must equal i32
@@ -145,9 +147,9 @@ match(e,
 
 Like Haskell and OCaml, functions that consume GADTs generally need explicit type annotations. Yo already requires these for forall functions, so this is consistent:
 
-```rust
+```yo
 // Must annotate return type — the compiler can't infer it across refined branches
-eval :: (fn(forall(T : Type), e : Expr(T)) -> T)( ... );
+eval :: (fn(forall(T : Type), e : Expr(T)) -> T)(...);
 ```
 
 ### Exhaustiveness with GADTs
@@ -157,9 +159,10 @@ Exhaustiveness checking becomes type-aware. If `e : Expr(i32)`, then `.BoolLit` 
 1. Filter variants whose return type **can unify** with the scrutinee's type
 2. Only require those reachable variants to be covered
 
-```rust
+```yo
 eval_int :: (fn(e : Expr(i32)) -> i32)(
-  match(e,
+  match(
+    e,
     .IntLit(i) => i,
     .Add(a, b) => (eval_int(a) + eval_int(b)),
     .If(c, t, f) => cond(eval(c), eval_int(t), eval_int(f))
@@ -172,10 +175,10 @@ eval_int :: (fn(e : Expr(i32)) -> i32)(
 
 Existential types (constructors that introduce new type variables not in the enum's parameters) add significant complexity:
 
-```rust
+```yo
 // NOT supported initially:
 SomeContainer :: enum(
-  Wrap(forall(T : Type), value : T, show : (fn(T) -> str))  // T is existential
+  Wrap(forall(T : Type), value : T, show : (fn(T) -> str)) // T is existential
 );
 ```
 
@@ -217,7 +220,7 @@ No special codegen needed — all GADT logic is erased.
 
 GADTs and HKT are orthogonal. A GADT can be used as an HKT type constructor:
 
-```rust
+```yo
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
   trait(
     map : (fn(forall(A : Type, B : Type), self : F(A), f : Impl(Fn(a : A) -> B)) -> F(B))

@@ -101,15 +101,15 @@ When freed:
 
 ### Owning References
 
-```rust
+```yo
 // object(...) creates an owning reference type
 Node :: object(
-  value: i32,
-  next: Option(Node)
+  value : i32,
+  next : Option(Node)
 );
 
 // node is an owning reference (linear type)
-node := Node(value: 42, next: .None);
+node := Node(value : 42, next : .None);
 
 // Owning reference is linear:
 // - Must be used exactly once
@@ -126,7 +126,7 @@ node := Node(value: 42, next: .None);
 
 ### Borrowing References
 
-```rust
+```yo ignore
 // &T creates a borrowing reference type
 fn print_value(n: *(Node)) -> unit {
   // n is a borrow reference
@@ -147,19 +147,19 @@ print_value(&(node));  // &(node) creates a borrow
 
 ### Creating Borrows
 
-```rust
-node := Node(value: 42, next: .None);  // owning reference
+```yo
+node := Node(value : 42, next : .None); // owning reference
 
 // Create borrow with & operator
-borrow := &(node);  // borrow: *(Node)
+borrow := &node; // borrow: *(Node)
 
 // Borrows can be passed to functions
-process(&(node));
+process(&node);
 
 // Multiple borrows are allowed
-b1 := &(node);
-b2 := &(node);
-b3 := &(node);
+b1 := &node;
+b2 := &node;
+b3 := &node;
 ```
 
 ## Runtime Implementation
@@ -254,7 +254,7 @@ void __check(YoBorrow borrow) {
 
 ### Owning References
 
-```rust
+```yo ignore
 // Source:
 node := Node(value: 42, next: .None);
 printf("%d\n", node.value);
@@ -273,7 +273,7 @@ yo_free(node);
 
 ### Borrowing References
 
-```rust
+```yo ignore
 // Source:
 fn print_node(n: *(Node)) -> unit {
   printf("%d\n", n.value);
@@ -289,7 +289,7 @@ void print_node(YoBorrow n) {
 
 ### Creating Borrows
 
-```rust
+```yo ignore
 // Source:
 node := Node(value: 42, next: .None);
 print_node(&(node));
@@ -310,8 +310,8 @@ The beauty of generational references is that checks can be eliminated in many c
 
 ### 1. Owning References Never Need Checks
 
-```rust
-node := Node(value: 42, next: .None);
+```yo
+node := Node(value : 42, next : .None);
 // No check! We own it!
 printf("%d\n", node.value);
 ```
@@ -326,7 +326,7 @@ printf("%d\n", node->value);
 
 ### 2. Linear Style (Move Ownership)
 
-```rust
+```yo ignore
 fn process(own_node: Node) -> unit {
   // own_node is owned by this function
   // No check needed!
@@ -348,7 +348,7 @@ fn consume(node: Node) -> unit {
 
 **CRITICAL: In multithreading environments, we MUST check on every dereference!**
 
-```rust
+```yo ignore
 fn process(n: *(Node)) -> unit {
   __check(n);  // Check #1
   printf("%d\n", n.value);
@@ -380,7 +380,7 @@ void process(YoBorrow n) {
 
 **Multithreading scenario that breaks "redundant check elimination":**
 
-```rust
+```yo ignore
 // Thread 1:
 fn thread1(n: *(Node)) -> unit {
   __check(n);  // ✅ Passes
@@ -404,7 +404,7 @@ fn thread2(node: Node) -> unit {
 
 **Only safe in provably single-threaded contexts:**
 
-```rust
+```yo ignore
 // Compiler can prove this is single-threaded
 single_threaded fn calculate(n: *(Node)) -> i32 {
   __check(n);  // Check once at entry
@@ -444,16 +444,16 @@ single_threaded fn calculate(n: *(Node)) -> i32 {
 
 ### Use-After-Free Protection
 
-```rust
+```yo
 // Scenario: Borrow outlives owner
 {
   borrow := {
-    node := Node(value: 42, next: .None);
-    &(node)  // Create borrow
-  };  // node freed here, generation set to 0
+    node := Node(value : 42, next : .None);
+    &node // Create borrow
+  }; // node freed here, generation set to 0
 
   // Attempt to use borrow
-  printf("%d\n", borrow.value);  // 💥 PANIC! Generation mismatch!
+  printf("%d\n", borrow.value); // 💥 PANIC! Generation mismatch!
 }
 ```
 
@@ -467,10 +467,10 @@ single_threaded fn calculate(n: *(Node)) -> i32 {
 
 ### Double-Free Protection
 
-```rust
-node := Node(value: 42, next: .None);
-yo_free(node);  // Generation set to 0
-yo_free(node);  // Generation already 0, but malloc will catch this
+```yo
+node := Node(value : 42, next : .None);
+yo_free(node); // Generation set to 0
+yo_free(node); // Generation already 0, but malloc will catch this
 ```
 
 **Protection**: Standard malloc double-free detection + generation checking.
@@ -505,32 +505,32 @@ uint64_t random_u64() {
 
 ### Value Types (No Generation)
 
-```rust
+```yo
 // Value types don't need generation numbers
-Point :: struct(x: i32, y: i32);
+Point :: struct(x : i32, y : i32);
 
-p := Point(x: 10, y: 20);  // Lives on stack
+p := Point(x : 10, y : 20); // Lives on stack
 // No generation, no checks, just copy!
 ```
 
 ### Linear Types (With Generation)
 
-```rust
+```yo
 // Object types are heap-allocated with generation
-Node :: object(value: i32, next: Option(Node));
+Node :: object(value : i32, next : Option(Node));
 
-node := Node(value: 42, next: .None);  // Heap + generation
+node := Node(value : 42, next : .None); // Heap + generation
 ```
 
 ### Mixing Value and Linear Types
 
-```rust
+```yo
 Container :: struct(
-  id: i32,           // Value type
-  data: Node         // Linear type (owning reference)
+  id : i32, // Value type
+  data : Node // Linear type (owning reference)
 );
 
-c := Container(id: 1, data: Node(value: 42, next: .None));
+c := Container(id : 1, data : Node(value : 42, next : .None));
 // c lives on stack
 // c.data points to heap-allocated Node with generation
 ```
@@ -541,7 +541,7 @@ c := Container(id: 1, data: Node(value: 42, next: .None));
 
 **Critical insight**: In a multithreaded environment, we MUST check on every dereference:
 
-```rust
+```yo ignore
 // Thread 1: Uses borrowed reference
 fn reader(n: *(Node)) -> unit {
   __check(n);  // ✅ Passes - object alive
@@ -584,7 +584,7 @@ fn owner(node: Node) -> unit {
 
 Unlike biased RC, generational references have **no thread affinity**:
 
-```rust
+```yo ignore
 // Task can move between threads freely!
 Task :: object(
   work: fn() -> unit,
@@ -683,17 +683,17 @@ fn worker_run(worker: Worker) -> unit {
 
 **Before (RC):**
 
-```rust
-node := Node(value: 42, next: .None);  // ___dup at assignment
-node2 := node;  // ___dup
+```yo
+node := Node(value : 42, next : .None); // ___dup at assignment
+node2 := node; // ___dup
 // ___drop(node2), ___drop(node) at scope exit
 ```
 
 **After (Gen Refs):**
 
-```rust
-node := Node(value: 42, next: .None);  // No dup, just alloc + generation
-node2 := &(node);  // Borrow, no dup!
+```yo
+node := Node(value : 42, next : .None); // No dup, just alloc + generation
+node2 := &node; // Borrow, no dup!
 // Only yo_free(node) at scope exit, no drops
 ```
 
@@ -746,14 +746,14 @@ function emitAssignment(lhs, rhs) {
 
 ### Use-After-Free Detection
 
-```rust
+```yo
 {
   borrow := {
-    node := Node(value: 42, next: .None);
-    &(node)
-  };  // node freed here
+    node := Node(value : 42, next : .None);
+    &node
+  }; // node freed here
 
-  printf("%d\n", borrow.value);  // 💥 Panic!
+  printf("%d\n", borrow.value); // 💥 Panic!
 }
 ```
 
@@ -772,7 +772,7 @@ Stack trace:
 
 ### Borrow Checker Errors (Compile-Time)
 
-```rust
+```yo ignore
 fn broken() -> *(Node) {
   node := Node(value: 42, next: .None);
   return &(node);  // ❌ ERROR: Cannot return borrow of local variable
@@ -796,7 +796,7 @@ ERROR: Cannot return reference to local variable
 
 ### Always Safe (Default) - Thread-Safe
 
-```rust
+```yo ignore
 // Every borrow dereference has __check (thread-safe!)
 fn process(n: *(Node)) -> unit {
   printf("%d\n", n.value);  // __check(n) before access
@@ -816,7 +816,7 @@ fn process(n: *(Node)) -> unit {
 
 ### Optimized (Linear Style)
 
-```rust
+```yo ignore
 // Zero checks by moving ownership
 fn process(n: Node) -> Node {  // Takes ownership
   printf("%d\n", n.value);  // No check!
@@ -829,7 +829,7 @@ fn process(n: Node) -> Node {  // Takes ownership
 
 ### Unsafe (Opt-In)
 
-```rust
+```yo ignore
 // Skip checks for hot paths (at your own risk!)
 // Use the *!(Node) syntax
 fn hot_loop(n: *!(Node)) -> unit {

@@ -599,11 +599,15 @@ edge (§5.4).
 Because no runtime container can exist at compile time (§2.2), the result
 type is a prelude comptime enum:
 
-```rust
+```yo
 ComptimeValue :: enum(
-  Null, Bool(bool), Int(comptime_int), Float(comptime_float), Str(comptime_str),
+  Null,
+  Bool(bool),
+  Int(comptime_int),
+  Float(comptime_float),
+  Str(comptime_str),
   List(ComptimeList(ComptimeValue)),
-  Table(ComptimeList(ComptimeEntry))     // ComptimeEntry :: struct(key : comptime_str, value : ComptimeValue)
+  Table(ComptimeList(ComptimeEntry)) // ComptimeEntry :: struct(key : comptime_str, value : ComptimeValue)
 );
 ```
 

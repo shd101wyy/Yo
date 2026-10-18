@@ -4,7 +4,7 @@
 
 Currently, traits with associated types in Yo use a **function wrapper** pattern:
 
-```rust
+```yo ignore
 Iterator :: (fn(comptime(Item) : Type) -> comptime(Trait)) {
   return trait(
     Item := Item,
@@ -32,10 +32,10 @@ This plan redesigns Yo's traits to follow the Rust model.
 
 ### Trait definition
 
-```rust
+```yo
 Iterator :: trait(
   Item : Type,
-  next : (fn(self : *(Self)) -> Option(Self.Item))
+  next : (fn(self : *Self) -> Option(Self.Item))
 );
 ```
 
@@ -47,18 +47,25 @@ Iterator :: trait(
 
 Use `:` to provide values for all fields (associated types and methods together):
 
-```rust
+```yo
 // Concrete impl
-impl(Counter, Iterator(
-  Item : i32,
-  next : (fn(self : *(Self)) -> Option(Self.Item))(body)
-));
+impl(
+  Counter,
+  Iterator(
+    Item : i32,
+    next : (fn(self : *Self) -> Option(Self.Item))(body)
+  )
+);
 
 // Generic impl
-impl(forall(T : Type), MyIter(T), Iterator(
-  Item : T,
-  next : (fn(self : *(Self)) -> Option(Self.Item))(body)
-));
+impl(
+  forall(T : Type),
+  MyIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(self : *Self) -> Option(Self.Item))(body)
+  )
+);
 ```
 
 The `:` syntax is consistent with existing trait value creation — `tryToImplementTraitWithArgumentsByTraitType` already handles labeled arguments with `:`.
@@ -67,7 +74,7 @@ The `:` syntax is consistent with existing trait value creation — `tryToImplem
 
 Use `:=` to constrain associated types in where clauses and trait specialization contexts:
 
-```rust
+```yo
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
@@ -175,7 +182,7 @@ The specialized TraitType has the same `functionValue` (undefined) and same `typ
 
 **Test in `src/tests/fixme.yo`**:
 
-```rust
+```yo ignore
 // Define trait directly (no function wrapper)
 Iter :: trait(
   Item : Type,
@@ -260,7 +267,7 @@ impl(forall(T : Type), MyIter(T), Iter(
 
 **Test in `src/tests/fixme.yo`**:
 
-```rust
+```yo
 IntoIter :: trait(
   Item : Type,
   IntoIterType : Type,
@@ -269,22 +276,29 @@ IntoIter :: trait(
 );
 
 // Concrete impl — Counter's IntoIterType is Counter (which implements Iter with Item=i32) ✅
-impl(Counter, IntoIter(
-  Item : i32,
-  IntoIterType : Counter,
-  into_iter : (fn(self : Self) -> Self.IntoIterType)(Counter(_current: i32(10), _max: i32(13)))
-));
+impl(
+  Counter,
+  IntoIter(
+    Item : i32,
+    IntoIterType : Counter,
+    into_iter : (fn(self : Self) -> Self.IntoIterType)(Counter(_current : i32(10), _max : i32(13)))
+  )
+);
 
 // Bad impl — BadIter's Iter has Item=bool, but IntoIter claims Item=i32 ❌ Correctly rejected
 // impl(BadStruct, IntoIter(Item : i32, IntoIterType : BadIter, ...));
 // Error: "Where clause constraint not satisfied: BadIter does not implement Iter(Item := i32)"
 
 // Generic impl — Wrapper(T)'s IntoIterType is MyIter(T) (which has SomeType T) → deferred ✅
-impl(forall(T : Type), Wrapper(T), IntoIter(
-  Item : T,
-  IntoIterType : MyIter(T),
-  into_iter : (fn(self : Self) -> Self.IntoIterType)(MyIter(T)(...))
-));
+impl(
+  forall(T : Type),
+  Wrapper(T),
+  IntoIter(
+    Item : T,
+    IntoIterType : MyIter(T),
+    into_iter : (fn(self : Self) -> Self.IntoIterType)(MyIter(T)(...))
+  )
+);
 ```
 
 ### Phase 4: Migrate prelude.yo and std library ✅ Done

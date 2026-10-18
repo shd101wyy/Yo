@@ -206,7 +206,7 @@ keeps the default dialect small and makes macro definitions greppable.
    `comptime(e) : Expr` parameter still works *without* the pragma (the gate
    must not catch derive-style comptime AST work).
 
-```rust
+```yo
 // New: gated macro definition
 pragma(Pragma.AllowMacroDef);
 

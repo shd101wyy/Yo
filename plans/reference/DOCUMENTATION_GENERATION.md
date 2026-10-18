@@ -35,7 +35,7 @@ The standard library already uses `///` and `/** */` comment conventions informa
 
 Use both existing conventions, consistent with what the std library already does:
 
-````rust
+````yo
 //! This module provides core collection types.
 //! It is part of the Yo standard library.
 
@@ -44,20 +44,20 @@ Use both existing conventions, consistent with what the std library already does
 Comptime :: trait(id := "Comptime");
 
 /**
- * Multi-line doc comment block (outer).
- *
- * Supports **Markdown** formatting:
- * - Lists
- * - `code spans` and auto-linked types like `Option`
- * - [links](https://example.com)
- *
- * ## Examples
- *
- * ```rust
- * (x : i32) = i32(42);
- * ```
- */
-ArrayList :: (fn(comptime(T): Type) -> comptime(Type))(...);
+* Multi-line doc comment block (outer).
+*
+* Supports **Markdown** formatting:
+* - Lists
+* - `code spans` and auto-linked types like `Option`
+* - [links](https://example.com)
+*
+* ## Examples
+*
+* ```rust
+* (x : i32) = i32(42);
+* ```
+*/
+ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(...);
 ````
 
 **Outer doc comments** (attach to the next declaration):
@@ -370,7 +370,7 @@ yo doc [path]              # Generate docs for project or file
 
 Following the existing patterns in `std/build.yo` (config structs with defaults, returns `Step`):
 
-```rust
+```yo ignore
 // ── Doc output formats ───────────────────────────────────────────────
 
 DocFormat :: enum(
@@ -425,7 +425,7 @@ export doc;
 
 **Usage in `build.yo`:**
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 // Minimal — just works with defaults

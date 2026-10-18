@@ -13,7 +13,7 @@ QUESTION: How about:
 It will not check the conflict with other `impl`s.
 The conflict only happens when we try to use the trait method.
 
-```rust
+```yo ignore
 id :: module(
   id : (fn(self : Self) -> Self)
 );
@@ -40,7 +40,7 @@ Use Rust like orphan rule:
 
 ~~Separate `trait` and `module` concepts. In this design, `module` is no longer used as `trait`:~~
 
-```rust
+```yo ignore
 SomeModule :: module { // Use the module keyword to define modules
   x :: 1;
   add :: (fn(x : i32, y : i32) -> i32) {
@@ -56,7 +56,7 @@ QUESTION: Should we keep `trait` as structural type or nominal type?
 
 `where` keyword for `trait` bounds:
 
-```rust
+```yo ignore
 // function declaration
 process :: (fn(forall(T : Type, U : Type),
   item : T,
@@ -116,7 +116,7 @@ We can remove the use of `using` once we support `where` clauses.
 
 `undo_impl` to remove an implementation from a type:
 
-```rust
+```yo ignore
 I32Add :: impl(i32, Add(
   add : (((self, other) -> {
     return self + other;

@@ -16,10 +16,10 @@ inside a task, and was REMOVED from `std/async/stream.yo` rather than shipped.
 The `for` loop of async iteration — a loop whose body is ordinary code, so it
 can `break`, `continue` and `return`:
 
-```rust
+```yo
 conns := listener.incoming().take(usize(3));
 io.async((io : Io) => {
-  for_await(conns, io, (c) => {
+  for_await(conns, io, c => {
     match(c, .Ok(s) => serve(s, io), .Err(e) => log(e));
   });
 })

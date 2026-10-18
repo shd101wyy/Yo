@@ -17,7 +17,7 @@ The straightforward "always own" model is now fully implemented:
 
 **Example:**
 
-```rust
+```yo ignore
 fn process(p : Point) -> unit {
   p.x = 10;        // ✅ OK: Mutate field (no RC data in the old value; an RC field is E0908)
   p = Point(0, 0); // ❌ ERROR: Cannot reassign parameter
@@ -46,9 +46,9 @@ We've implemented a **same-value ownership tracking** optimization that eliminat
 
 When a variable is assigned from another variable, we track the ownership relationship:
 
-```rust
-x := Point(3, 4);   // x owns Point(3, 4)
-y := x;             // y owns Point(3, 4), y.isOwningTheSameRcValueAs = x
+```yo
+x := Point(3, 4); // x owns Point(3, 4)
+y := x; // y owns Point(3, 4), y.isOwningTheSameRcValueAs = x
 
 // Before optimization:
 // ___dup(x), ___drop(y), ___drop(x)
@@ -72,11 +72,15 @@ y := x;             // y owns Point(3, 4), y.isOwningTheSameRcValueAs = x
 
 **Example with reassignment in branches:**
 
-```rust
+```yo
 x := MyBox(42);
 cond(
-  some_cond() => { x = MyBox(100); },  // Creates temp for old value
-  true => { x = MyBox(200); }          // Creates temp for old value
+  some_cond() => {
+    x = MyBox(100);
+  }, // Creates temp for old value
+  true => {
+    x = MyBox(200);
+  } // Creates temp for old value
 );
 // Temps are tracked with isOwningTheSameRcValueAs = x
 // Dup/drop pairs for temps are optimized away
@@ -99,7 +103,7 @@ cond(
 
 The optimization correctly handles branches with early returns (return, break, continue):
 
-```rust
+```yo ignore
 segments := ArrayList(Box(i32)).new();
 cond(
   (condition) => {
@@ -129,7 +133,7 @@ This means:
 
 The optimization must respect C's value type semantics. When assigning value types in C (structs, unions, arrays), the assignment performs a **shallow copy (memcpy)**:
 
-```rust
+```yo ignore
 // Value type (struct) with RC field:
 x := { box(42) };   // temp owns struct, x.isOwningTheSameRcValueAs = temp
 y := x;             // y.isOwningTheSameRcValueAs = x

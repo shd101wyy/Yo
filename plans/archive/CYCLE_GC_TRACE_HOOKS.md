@@ -107,7 +107,7 @@ This is exactly Nim's `=trace`. We model it as a `Trace` contract:
 
 A single recursive codegen helper drives everything:
 
-```rust
+```yo
 // pseudo-signature (both compilers)
 traverse_value(emitter, access_expr : String, ty : TypeValue, visited : Set, context)
 ```
@@ -136,7 +136,7 @@ including user-defined containers. A container's elements live in a malloc'd buf
 (not named fields), so a field-walk cannot reach them; the container must expose its
 own element iteration. The `Trace` trait is that contract:
 
-```rust
+```yo
 // std/prelude.yo
 Trace :: trait({
   // Trace every managed object directly held by `self`, descending inline through
@@ -151,7 +151,7 @@ collector's edge-registration callback. It exposes exactly one method — a comp
 intrinsic that is the per-VALUE edge tracer (`traverse_value`, §3.2), monomorphized
 per `T`:
 
-```rust
+```yo
 // GcTracer.visit(child): trace one outgoing edge.
 //   T managed handle (ref struct/enum, non-atomic) → register the edge;
 //   T value struct / enum / tuple / array          → recurse into child;
@@ -174,17 +174,20 @@ compiler inside `visit`'s managed-handle case — it has **no user-facing name**
   cannot reach. Iterate the buffer and call `tracer.visit` per element (and per
   key+value for maps):
 
-```rust
+```yo
 // std/collections/array_list.yo  (uget = unchecked element access)
-impl(ArrayList(forall(E), where(E <: Trace)), Trace(
-  trace : (fn(self : Self, tracer : GcTracer) -> unit)({
-    i := usize(0);
-    while(i < self._length, {
-      tracer.visit(self.uget(i)); // managed elem → register edge; value → recurse
-      i = (i + usize(1));
-    });
-  })
-));
+impl(
+  ArrayList(forall(E), where(E <: Trace)),
+  Trace(
+    trace : (fn(self : Self, tracer : GcTracer) -> unit)({
+      i := usize(0);
+      while(i < self._length, {
+        tracer.visit(self.uget(i)); // managed elem → register edge; value → recurse
+        i = (i + usize(1));
+      });
+    })
+  )
+);
 ```
 
 `Trace` is **mandatory**: every reference type that can transitively hold a managed

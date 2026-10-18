@@ -36,7 +36,7 @@ Allow trait authors to register derive rules for their own traits, so that `deri
 
 ### Motivating example (from `src/tests/fixme.yo`)
 
-```rust
+```yo ignore
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     eq : (fn(self : Self, other : Rhs) -> bool)
@@ -128,7 +128,7 @@ export main;
 
 #### Syntax
 
-```rust
+```yo
 derive_rule(TraitConstructor, DeriveFn)
 ```
 
@@ -148,7 +148,7 @@ derive_rule(TraitConstructor, DeriveFn)
 
 #### `DeriveContext` struct (defined in prelude.yo)
 
-```rust
+```yo
 DeriveContext :: struct(
   target : Expr,
   forall_params : Option(Expr),
@@ -169,7 +169,7 @@ The derive rule has **full control** over how forall/where are included in the g
 
 The trait constructor arguments from the `derive(...)` call are collected by the derive evaluator and passed as a single `ComptimeList(Expr)`:
 
-```rust
+```yo
 // derive(Point, MyEq(Point))    → trait_params = [quote(Point)]
 // derive(Point, MyEq(i32))      → trait_params = [quote(i32)]
 // derive(Point, Hash)           → trait_params = [] (empty — Hash has no params)
@@ -178,8 +178,8 @@ The trait constructor arguments from the `derive(...)` call are collected by the
 
 Inside the derive rule, use `unquote_splicing(trait_params)` to reconstruct the trait application:
 
-```rust
-quote(MyEq(unquote_splicing(trait_params)))  // → MyEq(Point) or MyEq(i32) etc.
+```yo
+quote(MyEq(unquote_splicing(trait_params))) // → MyEq(Point) or MyEq(i32) etc.
 ```
 
 #### Fully Expr-based — No Code-String Generation
@@ -199,13 +199,14 @@ Property access with dynamic field names: `self.(unquote(field.name.to_expr()))`
 
 Maps each struct field through a comptime function, then combines with a binary operator:
 
-```rust
+```yo
 __yo_type_join_fields(
-  T,                                                    // Type
-  (fn(comptime(field) : FieldInfo) -> comptime(Expr))(  // mapper: FieldInfo → Expr
+  T, // Type
+  (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+    // mapper: FieldInfo → Expr
     quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
   ),
-  quote(&&)                                             // combiner: binary operator Expr
+  quote(&&) // combiner: binary operator Expr
 )
 ```
 
@@ -221,7 +222,7 @@ Signature: `fn(comptime(T) : Type, comptime(mapper) : (fn(comptime(FieldInfo)) -
 
 Same pattern for enum variants:
 
-```rust
+```yo ignore
 __yo_type_join_variants(
   T,
   (fn(comptime(variant) : VariantInfo) -> comptime(Expr))(
@@ -238,7 +239,7 @@ __yo_type_join_variants(
 
 These are comptime-only struct types defined in prelude or as builtins:
 
-```rust
+```yo
 // FieldInfo — passed to __yo_type_join_fields mapper
 FieldInfo :: struct(
   name : comptime_string,
@@ -260,28 +261,35 @@ These are constructed internally by the builtins and passed to the mapper functi
 
 A method on `DeriveContext` that constructs the full `impl(...)` Expr with optional forall/where:
 
-```rust
-impl(DeriveContext,
+```yo
+impl(
+  DeriveContext,
   make_impl : (fn(comptime(self) : Self, comptime(trait_body) : Expr) -> comptime(Expr))(
     cond(
       (self.forall_params.is_some() && self.where_clause.is_some()) =>
-        quote(impl(
-          unquote(self.forall_params.comptime_unwrap()),
-          unquote(self.target),
-          unquote(self.where_clause.comptime_unwrap()),
-          unquote(trait_body)
-        )),
+        quote(
+          impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(self.where_clause.comptime_unwrap()),
+            unquote(trait_body)
+          )
+        ),
       self.forall_params.is_some() =>
-        quote(impl(
-          unquote(self.forall_params.comptime_unwrap()),
-          unquote(self.target),
-          unquote(trait_body)
-        )),
+        quote(
+          impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(trait_body)
+          )
+        ),
       true =>
-        quote(impl(
-          unquote(self.target),
-          unquote(trait_body)
-        ))
+        quote(
+          impl(
+            unquote(self.target),
+            unquote(trait_body)
+          )
+        )
     )
   )
 );
@@ -289,13 +297,15 @@ impl(DeriveContext,
 
 Usage in derive rules:
 
-```rust
+```yo
 // Instead of manually constructing impl with forall/where:
-ctx.make_impl(quote(
-  MyEq(unquote_splicing(trait_params))(
-    eq : ((self, other) -> unquote(eq_body))
+ctx.make_impl(
+  quote(
+    MyEq(unquote_splicing(trait_params))(
+      eq : ((self, other) -> unquote(eq_body))
+    )
   )
-))
+)
 // → impl(forall(T:Type), GenericPoint(T), where(T<:MyEq(T)), MyEq(GenericPoint(T))(eq:...))
 // → impl(Point, MyEq(Point)(eq:...))  // when no forall/where
 ```
@@ -304,8 +314,9 @@ ctx.make_impl(quote(
 
 All type reflection builtins are exposed as methods on `Type` for readability:
 
-```rust
-impl(Type,
+```yo
+impl(
+  Type,
   field_count : (fn(comptime(self) : Type) -> comptime(i32))(
     __yo_type_field_count(self)
   ),
@@ -330,17 +341,17 @@ impl(Type,
 
 Usage becomes cleaner:
 
-```rust
-n :: T.field_count();          // instead of __yo_type_field_count(T)
-name :: T.get_name();          // instead of __yo_type_get_name(T)
-eq_body :: T.join_fields(mapper, quote(&&));  // instead of __yo_type_join_fields(T, mapper, quote(&&))
+```yo
+n :: T.field_count(); // instead of __yo_type_field_count(T)
+name :: T.get_name(); // instead of __yo_type_get_name(T)
+eq_body :: T.join_fields(mapper, quote(&&)); // instead of __yo_type_join_fields(T, mapper, quote(&&))
 ```
 
 #### `__yo_comptime_string_to_expr(code)` — Dynamic quote
 
 Converts a `comptime_string` to an `Expr` value. Semantically equivalent to a dynamic `quote`:
 
-```rust
+```yo ignore
 "x".to_expr()          // same as quote(x)
 "(a + b)".to_expr()    // same as quote((a + b))
 ```
@@ -351,8 +362,9 @@ Builtin signature: `fn(comptime(code) : comptime_string) -> comptime(Expr)`
 
 User-facing API via `impl` in prelude:
 
-```rust
-impl(comptime_string,
+```yo
+impl(
+  comptime_string,
   to_expr : (fn(comptime(self) : comptime_string) -> comptime(Expr))(
     __yo_comptime_string_to_expr(self)
   )
@@ -363,7 +375,7 @@ impl(comptime_string,
 
 `quote` is extended to handle standalone operators as expressions:
 
-```rust
+```yo ignore
 quote(&&)   // Expr representing the && operator
 quote(||)   // Expr representing the || operator
 quote(+)    // Expr representing the + operator
@@ -381,7 +393,7 @@ The derive rule is stored directly on the trait value:
 
 This means **derive rules travel with imports**. When a module exports `MyEq`, any derive_rule registered on it comes along — no global registry needed.
 
-```rust
+```yo ignore
 // In my_eq.yo:
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(eq : (fn(self : Self, other : Rhs) -> bool))
@@ -410,7 +422,7 @@ Registered rules take priority over built-ins, allowing users to override defaul
 
 #### Example 1: Custom Eq-like trait (struct, Expr-based)
 
-```rust
+```yo ignore
 MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(eq : (fn(self : Self, other : Rhs) -> bool))
 );
@@ -441,7 +453,7 @@ derive(Point, MyEq(Point));
 
 #### Example 2: Custom Describe trait (parameterless)
 
-```rust
+```yo ignore
 Describe :: trait(
   describe : (fn(self : Self) -> String)
 );
@@ -466,7 +478,7 @@ derive(Point, Describe);
 
 For users who prefer the existing comptime function approach without `derive_rule`:
 
-```rust
+```yo ignore
 derive_describe :: (fn(comptime(T) : Type) -> comptime(unit)) {
   name :: T.get_name();
   code :: (("impl(T, Describe(describe : (fn(self : Self) -> String)(  `" + name) + "`)))");
@@ -478,7 +490,7 @@ derive(Point, derive_describe);  // pass as comptime fn, not via derive_rule
 
 #### Example 4: Overriding a built-in derive
 
-```rust
+```yo ignore
 derive_rule(Eq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)) {
   n :: T.field_count();
   eq_body :: cond(
@@ -502,14 +514,17 @@ derive_rule(Eq, (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
 
 #### Example 5: Generic type with forall/where
 
-```rust
+```yo
 Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(first : T, second : T));
 
 // The derive rule receives forall/where in DeriveContext.
 // ctx.make_impl automatically wraps with forall/where:
-derive(forall(A : Type, B : Type), Pair(A, B),
+derive(
+  forall(A : Type, B : Type),
+  Pair(A, B),
   where(A <: MyEq(A), B <: MyEq(B)),
-  MyEq(Pair(A, B)));
+  MyEq(Pair(A, B))
+);
 
 // ctx.make_impl generates:
 // impl(forall(A : Type, B : Type), Pair(A, B), where(A <: MyEq(A), B <: MyEq(B)),
@@ -532,7 +547,7 @@ deriveRule?: FunctionValue;
 
 #### Step 1b: Define `DeriveContext` in prelude
 
-```rust
+```yo
 // In std/prelude.yo:
 DeriveContext :: struct(
   target : Expr,
@@ -540,27 +555,34 @@ DeriveContext :: struct(
   where_clause : Option(Expr)
 );
 
-impl(DeriveContext,
+impl(
+  DeriveContext,
   make_impl : (fn(comptime(self) : Self, comptime(trait_body) : Expr) -> comptime(Expr))(
     cond(
       (self.forall_params.is_some() && self.where_clause.is_some()) =>
-        quote(impl(
-          unquote(self.forall_params.comptime_unwrap()),
-          unquote(self.target),
-          unquote(self.where_clause.comptime_unwrap()),
-          unquote(trait_body)
-        )),
+        quote(
+          impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(self.where_clause.comptime_unwrap()),
+            unquote(trait_body)
+          )
+        ),
       self.forall_params.is_some() =>
-        quote(impl(
-          unquote(self.forall_params.comptime_unwrap()),
-          unquote(self.target),
-          unquote(trait_body)
-        )),
+        quote(
+          impl(
+            unquote(self.forall_params.comptime_unwrap()),
+            unquote(self.target),
+            unquote(trait_body)
+          )
+        ),
       true =>
-        quote(impl(
-          unquote(self.target),
-          unquote(trait_body)
-        ))
+        quote(
+          impl(
+            unquote(self.target),
+            unquote(trait_body)
+          )
+        )
     )
   )
 );
@@ -608,7 +630,7 @@ Expr-based API:
 
 Expose type reflection builtins as methods on `Type`:
 
-```rust
+```yo ignore
 impl(Type,
   field_count : ...,   // wraps __yo_type_field_count
   is_struct : ...,     // wraps __yo_type_is_struct
@@ -684,26 +706,26 @@ Update `docs/en-US/DERIVE_TRAITS.md` and `docs/zh-CN/DERIVE_TRAITS.md`.
 
 ## Syntax
 
-```rust
+```yo
 // Basic derive — traits passed explicitly as trait values:
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point), Ord(Point), Hash, Clone, ToString);
 
 // Eq and Ord take a type parameter (the Rhs type):
-derive(Point, Eq(Point));   // Eq(Point) returns TraitType
+derive(Point, Eq(Point)); // Eq(Point) returns TraitType
 
 // Hash, Clone, ToString are already traits (no params):
-derive(Point, Hash);         // Hash is TraitType directly
+derive(Point, Hash); // Hash is TraitType directly
 
 // Generic type with forall/where (same positions as impl):
-Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(first: T, second: T));
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(first : T, second : T));
 derive(forall(T), Pair(T), where(T <: Eq(T)), Eq(Pair(T)));
 
 // User-defined derive function:
 derive_Default :: (fn(comptime(T) : Type) -> comptime(unit))({
   // Use type reflection + comptime_eval to generate impl
 });
-derive(Point, Eq(Point), derive_Default);  // Mix built-in and user-defined
+derive(Point, Eq(Point), derive_Default); // Mix built-in and user-defined
 ```
 
 ## Design Decisions
@@ -714,7 +736,7 @@ In Yo, `Eq` is a function `fn(comptime(Rhs) : Type) -> comptime(Trait)`, NOT a t
 
 Therefore, derive arguments must be **evaluated trait values**, not bare names:
 
-```rust
+```yo
 // CORRECT — each argument evaluates to a TraitType or a derive function:
 derive(Point, Eq(Point), Hash, Clone);
 
@@ -736,16 +758,16 @@ For traits without a built-in derive AND that are not comptime functions, derive
 
 `derive` returns `unit`, consistent with how `impl` works (which returns the trait value, not the receiver type). Derive is a statement-like expression:
 
-```rust
+```yo
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq(Point), Hash, Clone);  // returns unit, ignored
+derive(Point, Eq(Point), Hash, Clone); // returns unit, ignored
 ```
 
 ### 3. `forall`/`where` supported (like `impl`)
 
 `derive` supports the same `forall`/`where` structure as `impl`, because derive is conceptually "`impl` but auto-generates the method bodies":
 
-```rust
+```yo
 // Concrete type (no forall/where needed):
 derive(Point, Eq(Point), Hash, Clone);
 
@@ -762,7 +784,7 @@ derive(forall(T), Pair(T), Eq(Pair(T)), Hash, Clone, where(T <: Eq(T), T <: Hash
 
 Two valid positions for `where`:
 
-```rust
+```yo
 // where before target type:
 derive(forall(T), where(T <: Eq(T)), Pair(T), Eq(Pair(T)), Hash, Clone);
 
@@ -774,7 +796,7 @@ derive(forall(T), Pair(T), where(T <: Eq(T)), Eq(Pair(T)), Hash, Clone);
 
 **Generated code**: Each trait gets its own `impl` with the full `forall`/`where` forwarded:
 
-```rust
+```yo
 derive(forall(T), Pair(T), where(T <: Eq(T), T <: Hash), Eq(Pair(T)), Hash)
 // generates TWO impls:
 // impl(forall(T), Pair(T), where(T <: Eq(T), T <: Hash), Eq(Pair(T))(...))
@@ -850,7 +872,7 @@ This is a standalone language feature useful beyond derive.
 
 **Strategy**: Field-wise equality using `==` on each field, combined with `&&`.
 
-```rust
+```yo ignore
 // derive(Point, Eq(Point)) generates equivalent of:
 impl(Point, Eq(Point)(
   (==) : (fn(lhs: Self, rhs: Self) -> bool)
@@ -896,7 +918,7 @@ For enums: compare discriminant first, then field-wise for each variant.
 
 **Syntax**:
 
-```rust
+```yo ignore
 // Function that accepts a Type and variadic Trait arguments:
 derive : (fn(comptime(T) : Type, ...(comptime(traits) : ComptimeList(Trait))) -> comptime(unit))
 
@@ -986,13 +1008,13 @@ Allow comptime functions as derive arguments.
 
 **Example:**
 
-```rust
+```yo
 Default :: trait(default : (fn() -> Self));
 
 derive_Default :: (fn(comptime(T) : Type) -> comptime(unit))({
   name :: __yo_type_get_name(T);
   count :: __yo_type_field_count(T);
-  comptime_assert((count == 0), "derive_Default only works on empty structs");
+  comptime_assert(count == 0, "derive_Default only works on empty structs");
   comptime_eval("impl(" + name + ", Default(default : (() -> " + name + "())))");
 });
 
@@ -1011,18 +1033,54 @@ Implement user-facing `TypeTag` enum for compile-time type identification, plus 
 
 The `TypeTag` enum mirrors the compiler's internal `TypeTag` 1:1 (40+ variants), giving users precise type identification:
 
-```rust
+```yo
 TypeTag :: enum(
-  Unit, Bool, Usize, Isize,
-  U8, I8, U16, I16, U32, I32, U64, I64, F32, F64,
-  ComptimeInt, ComptimeFloat, ComptimeString,
-  Char, Short, UShort, Int, UInt,
-  Long, ULong, LongLong, ULongLong, LongDouble,
-  Void, Type,
-  Array, Tuple, Struct, Enum, Union, Function,
-  SomeType, Slice, Module, Trait,
-  Ptr, Iso, Arc, Dyn,
-  Expr, ComptimeList, TypeApplication
+  Unit,
+  Bool,
+  Usize,
+  Isize,
+  U8,
+  I8,
+  U16,
+  I16,
+  U32,
+  I32,
+  U64,
+  I64,
+  F32,
+  F64,
+  ComptimeInt,
+  ComptimeFloat,
+  ComptimeString,
+  Char,
+  Short,
+  UShort,
+  Int,
+  UInt,
+  Long,
+  ULong,
+  LongLong,
+  ULongLong,
+  LongDouble,
+  Void,
+  Type,
+  Array,
+  Tuple,
+  Struct,
+  Enum,
+  Union,
+  Function,
+  SomeType,
+  Slice,
+  Module,
+  Trait,
+  Ptr,
+  Iso,
+  Arc,
+  Dyn,
+  Expr,
+  ComptimeList,
+  TypeApplication
 );
 ```
 
@@ -1033,7 +1091,7 @@ Guard methods are implemented via `impl(TypeTag, ...)`:
 
 `Type.get_tag(T)` static method:
 
-```rust
+```yo ignore
 impl(Type,
   get_tag : (fn(comptime(self) : Type) -> comptime(TypeTag))({
     return __yo_type_get_tag(self);
@@ -1043,7 +1101,7 @@ impl(Type,
 
 #### Usage in derive_rule
 
-```rust
+```yo ignore
 derive_rule(MyTrait, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr)) {
   tag :: Type.get_tag(T);
   cond(
@@ -1063,7 +1121,7 @@ match(Type.get_tag(T),
 
 #### FieldInfo struct for field reflection
 
-```rust
+```yo
 // Compile-time struct describing a single struct/enum field
 FieldInfo :: struct(
   name : comptime_string,
@@ -1074,7 +1132,7 @@ FieldInfo :: struct(
 
 #### VariantInfo struct for enum reflection
 
-```rust
+```yo
 // Compile-time struct describing an enum variant
 VariantInfo :: struct(
   name : comptime_string,
@@ -1086,7 +1144,7 @@ VariantInfo :: struct(
 
 #### Builtin declarations
 
-```rust
+```yo ignore
 extern "Yo",
   // === Type kind queries ===
   __yo_type_get_tag : (fn(comptime(T) : Type) -> comptime(TypeTag)),
@@ -1182,7 +1240,7 @@ Extend `tests/derive.test.yo`:
 
 ### Auto-Constraint Inference for Generic Types
 
-```rust
+```yo
 // Dream syntax — no forall/where needed:
 derive(Pair, Eq);
 // Auto-analyzes Pair(T)'s fields, generates:

@@ -30,7 +30,7 @@ This is Swift's model. It's Go's model. It's Java's model. All three are widely 
 
 `unsafe(...)` is a regular builtin call that takes **exactly one expression** — the same shape as `return(...)`, `consume(...)`, etc. The argument can be any expression: a deref, an assignment, a `cond`, a `match`, or a multi-statement begin-block.
 
-```rust
+```yo
 // Single expression — most common form:
 v := unsafe(p.*);
 
@@ -38,13 +38,15 @@ v := unsafe(p.*);
 unsafe(p.* = i32(12));
 
 // cond / match wrapped directly (NO braces — { without ; is a struct literal):
-result := unsafe(cond(
-  (len < usize(16)) => Option(Header).None,
-  true => Option(Header).Some(parse_inner(buf))
-));
+result := unsafe(
+  cond(
+    (len < usize(16)) => Option(Header).None,
+    true => Option(Header).Some(parse_inner(buf))
+  )
+);
 
 // Multi-statement begin-block — note semicolons are required to make it a block:
-do_stuff :: (fn(p : *(i32)) -> i32)(
+do_stuff :: (fn(p : *i32) -> i32)(
   unsafe({
     p.* = (p.* + i32(1));
     p.*
@@ -89,15 +91,15 @@ A function with `*(T)` in its signature is callable from any unsafe-capable file
 
 Every Yo source file is either **safe** (default) or **unsafe-capable** (opt-in via pragma). There is **no path-based privilege** — files under `std/` and `yo-self/` must declare the pragma explicitly, same as any other file. One uniform rule:
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 ```
 
 `pragma(...)` is a new builtin (added to `BuiltinKeywords`) that takes one `comptime(Pragma)` argument. `Pragma` is an enum defined in `std/prelude.yo`:
 
-```rust
+```yo
 Pragma :: enum(
-  AllowUnsafe   // opt into raw pointers, unsafe(...), asm(...), extern fn
+  AllowUnsafe // opt into raw pointers, unsafe(...), asm(...), extern fn
   // future variants: NoMain, Deprecated, Strict, ...
 );
 ```
@@ -163,7 +165,7 @@ This is the standard abstraction-as-safety pattern — same as Rust's `Vec<T>`, 
 
 To recover the in-place-mutation pattern (`swap`, `increment`, etc.) without introducing references as a first-class concept, safe code gets an `inout` parameter form, modeled on Pascal / Nim / C#'s `ref` / Swift's `inout`:
 
-```rust
+```yo
 swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
   tmp := a;
   a = b;
@@ -173,8 +175,8 @@ swap :: (fn(ref(a) : i32, ref(b) : i32) -> unit)({
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  swap(x, y);              // no &() needed — inout-ness is in the param spec
-  assert((x == i32(2)), "swapped");
+  swap(x, y); // no &() needed — inout-ness is in the param spec
+  assert(x == i32(2), "swapped");
 });
 ```
 
@@ -199,7 +201,7 @@ This is essentially "second-class references restricted to parameter syntax." Be
 
 Yo's parameter modifiers follow a uniform shape: the modifier wraps the parameter name as a function-call-style annotation, then the type annotation follows. This matches the existing `own(name) : Type` pattern (used pervasively in `std/prelude.yo` and `std/imm/`):
 
-```rust
+```yo ignore
 fn(ref(name) : Type, ...) -> Return
 fn(own(name) : Type, ...) -> Return         // existing — consumes the argument
 ```
@@ -210,7 +212,7 @@ Type annotation is required (same as regular parameters). Multiple `ref(...)` pa
 
 Yo's current iterator API returns `*(T)` from `next()`:
 
-```rust
+```yo ignore
 ArrayIterPtr :: ...
 impl(... Iterator(Item : *(T), next : ... -> Option(*(T))));
 
@@ -223,8 +225,9 @@ Under this plan, `ptr : *(T)` is a forbidden type in safe code, so the pointer-i
 
 Public iterators yield `T` by value. The `for` macro works unchanged — the bound variable has type `T`, not `*(T)`:
 
-```rust
-for(arr.iter(), (x) => {        // x : T
+```yo
+for(arr.iter(), x => {
+  // x : T
   print(x);
 });
 ```
@@ -237,8 +240,8 @@ The current `*IterPtr` types either get renamed `*IterRaw` (stdlib-only) or are 
 
 For collections supporting `Index` + indexing-assignment (`Array`, `Slice`, `ArrayList`), use Yo's existing `arr(i) = value` syntax:
 
-```rust
-for(arr.indices(), (i) => {
+```yo
+for(arr.indices(), i => {
   arr(i) = (arr(i) * i32(2));
 });
 ```
@@ -251,12 +254,12 @@ Does not work for unordered collections (`HashMap`, `HashSet`) where indexing is
 
 For general mutable iteration (including `HashMap`, etc.), a new trait `IteratorMut` provides a callback-style API:
 
-```rust
-arr.each_mut((x) => {
+```yo
+arr.each_mut(x => {
   x = (x + i32(1));
 });
 
-hashmap.values_mut((v) => {
+hashmap.values_mut(v => {
   v.tweak();
 });
 ```
@@ -265,7 +268,7 @@ The inout-ness is part of the `Fn(...)` signature that `each_mut` expects, not s
 
 `IteratorMut` trait sketch:
 
-```rust
+```yo
 IteratorMut :: trait(
   Item : Type,
   each_mut : (fn(self : Self, f : Impl(Fn(ref(x) : Self.Item) -> unit)) -> unit)
@@ -322,7 +325,7 @@ The boundary is enforced by a lint (`yo check --stdlib-public-safe`), not by the
 
 User code cannot declare `extern fn`. To call a C function, user code calls a stdlib wrapper:
 
-```rust
+```yo
 // In std/sys/process.yo (pragma(Pragma.AllowUnsafe);):
 extern_exit :: extern_fn("exit", fn(code : i32) -> never);
 
@@ -433,10 +436,10 @@ The rollout is incremental. Phase A is the foundation (`unsafe(...)` marker); Ph
 
 - [x] **Hash trait migrated.** Trait signature + all primitive impls in std/prelude.yo. Plus `__derive_hash` macro, String, imm.String. Pattern:
 
-  ```rust
+  ```yo
   // Before:
   Hash :: trait(
-    hash : (fn(self : *(Self)) -> u64)
+    hash : (fn(self : *Self) -> u64)
   );
 
   // After:
@@ -517,7 +520,7 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 
 ### Idiomatic safe user code
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
@@ -527,7 +530,7 @@ main :: (fn() -> unit)({
   list.push(i32(3));
 
   total := i32(0);
-  for(list.iter(), (item) => {
+  for(list.iter(), item => {
     total = (total + item);
   });
   printf("total = %d\n", total);
@@ -538,7 +541,7 @@ No pragma, no `&()`, no `*(T)`, no `unsafe(...)`. This is the default user exper
 
 ### In-place mutation with `inout`
 
-```rust
+```yo
 increment :: (fn(ref(x) : i32) -> unit)({
   x = (x + i32(1));
 });
@@ -547,16 +550,16 @@ main :: (fn() -> unit)({
   counter := i32(0);
   increment(counter);
   increment(counter);
-  assert((counter == i32(2)), "counter incremented");
+  assert(counter == i32(2), "counter incremented");
 });
 ```
 
 ### Opting into unsafe in a user file
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
-raw_swap :: (fn(a : *(i32), b : *(i32)) -> unit)(
+raw_swap :: (fn(a : *i32, b : *i32) -> unit)(
   unsafe({
     tmp := a.*;
     a.* = b.*;
@@ -567,7 +570,7 @@ raw_swap :: (fn(a : *(i32), b : *(i32)) -> unit)(
 main :: (fn() -> unit)({
   x := i32(1);
   y := i32(2);
-  raw_swap(&(x), &(y));
+  raw_swap(&x, &y);
 });
 ```
 
@@ -575,42 +578,47 @@ Opt-in is a single line. The file is now responsible for its own safety.
 
 ### What gets rejected in safe code
 
-```rust
+```yo
 // In a safe user file (no pragma):
 
-bad_addr :: (fn() -> *(i32))({          // error: raw pointer types are not available in safe code
+bad_addr :: (fn() -> *i32)({
+  // error: raw pointer types are not available in safe code
   x := i32(42);
-  &(x)
+  &x
 });
 
-bad_unsafe :: (fn(p : *(i32)) -> i32)(   // error: raw pointer types are not available in safe code
-  unsafe(p.*)                            // (also: 'unsafe(...)' is not available in safe code)
+bad_unsafe :: (fn(p : *i32) -> i32)(
+  // error: raw pointer types are not available in safe code
+  unsafe(p.*) // (also: 'unsafe(...)' is not available in safe code)
 );
 
-bad_extern :: extern_fn("foo", ...);     // error: extern FFI declarations are not available in safe code
+bad_extern :: extern_fn("foo", ...); // error: extern FFI declarations are not available in safe code
 ```
 
 Each error includes a "use 'ref(...)' parameters" / "use a stdlib wrapper" hint.
 
 ### Stdlib internal pattern — safe public API with unsafe internals
 
-```rust
+```yo
 // In std/collections/array_list.yo:
 pragma(Pragma.AllowUnsafe);
 
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
-    _ptr : Option(*(T)),
+    _ptr : Option(*T),
     _length : usize,
     _capacity : usize
   )
 );
 
-impl(forall(T : Type), ArrayList(T),
+impl(
+  forall(T : Type),
+  ArrayList(T),
   get : (fn(self : Self, i : usize) -> Option(T))(
     cond(
       (i >= self._length) => .None,
-      true => match(self._ptr,
+      true => match(
+        self._ptr,
         // SAFETY: i < _length, _ptr points to allocated buffer of _capacity ≥ _length
         .Some(p) => .Some(unsafe((p.add(i)).*)),
         .None => .None
@@ -624,16 +632,16 @@ Public signature is safe (`Self`, `usize`, `Option(T)`); internal `*(T)` deref i
 
 ### Stdlib internal pattern — `unsafe(...)` for a whole function body
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
-strlen :: (fn(s : *(u8)) -> usize)(
+strlen :: (fn(s : *u8) -> usize)(
   unsafe({
     n := usize(0);
     p := s;
-    while((p.* != u8(0)), {
+    while(p.* != u8(0), {
       n = (n + usize(1));
-      p = (p.add(1));
+      p = p.add(1);
     });
     n
   })
@@ -644,18 +652,20 @@ Acceptable when the function is fundamentally a thin wrapper over raw memory.
 
 ### Public safe API over unsafe primitive
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 
 // Internal:
-parse_header :: (fn(buf : *(u8), len : usize) -> Option(Header))(
-  unsafe(cond(
-    (len < usize(16)) => Option(Header).None,
-    true => {
-      magic := buf.*;
-      Option(Header).Some(Header(magic : magic))
-    }
-  ))
+parse_header :: (fn(buf : *u8, len : usize) -> Option(Header))(
+  unsafe(
+    cond(
+      (len < usize(16)) => Option(Header).None,
+      true => {
+        magic := buf.*;
+        Option(Header).Some(Header(magic : magic))
+      }
+    )
+  )
 );
 
 // Public safe wrapper (could live in a safe file that re-exports):
@@ -717,10 +727,10 @@ The following sharp edges remain after the gates above. They were raised in revi
 
 1. **Dangling `Slice(T)` from local arrays — ✅ RESOLVED.** `Slice(T)` is a fat pointer (ptr + length) whose user-visible type doesn't mention `*(T)`. Safe code could previously construct a slice from a stack-allocated array and return it past the array's lifetime:
 
-   ```rust
+   ```yo
    make_dangling :: (fn() -> Slice(i32))({
      arr := Array(i32, 3).fill(i32(0));
-     arr.as_slice()                 // points into the dying call frame
+     arr.as_slice() // points into the dying call frame
    });
    ```
 

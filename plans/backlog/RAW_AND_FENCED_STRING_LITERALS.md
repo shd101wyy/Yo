@@ -10,7 +10,7 @@ wrong twice over, and the second way is a real gap.
 **An ordinary Yo comment can already contain backticks.** The lexer skips
 comments, so this compiles and runs today, no escape needed:
 
-```rust
+```yo ignore
 // This is `valid` without escape
 /// A doc comment with `markdown` backticks and a ```rust fence
 ```
@@ -20,7 +20,7 @@ That is the case a reader is most likely to have in mind, and it works.
 **A backtick inside a template LITERAL is different**, because there it is
 string content, and `` ` `` is the delimiter:
 
-```rust
+```yo ignore
 c := `// reads `state` first`;   // the second ` CLOSES the literal
 ```
 
@@ -78,7 +78,7 @@ template with a delimiter that C text does not contain.
 **Recommendation: a triple-backtick fence,** which reads the way a markdown
 fence reads and which no emitted C contains:
 
-````rust
+````yo ignore
 c := ```
 // reads `state` first, then registers
 static int x = 1;

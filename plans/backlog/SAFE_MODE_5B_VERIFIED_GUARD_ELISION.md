@@ -250,7 +250,7 @@ driver turns the filtered set (§5) into a table that lives next to the
 lives there so no evaluator or codegen file imports `src/verifier/`, and the
 table keeps that layering:
 
-```rust
+```yo
 GuardClass :: enum(Index, DivZero, DivOverflow, AddOverflow, SubOverflow, MulOverflow, NegOverflow, ShiftWidth);
 GuardSite :: struct(
   node_id : usize,
@@ -268,7 +268,7 @@ is yes it emits exactly what the guard wraps: `_binop(args, op)` for
 div/rem/shift, the plain op for arithmetic, `_unop_narrowed` for negation, the
 raw index for subscripts:
 
-```rust
+```yo
 guard_site_is_proved :: (fn(expr : AstExpr, class : GuardClass) -> bool)(...);
 ```
 

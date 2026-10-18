@@ -55,9 +55,11 @@ specific to the OS-thread spawn path (`__yo_thread_spawn` /
 `std/sync/channel.yo`, `Sender`'s `Dispose` impl, for the shape a Rust reader
 writes first:
 
-```rust
+```yo
 tx2 := tx.clone();
-t := Thread.spawn((io) => { tx2.send(v); });   // tx2's dispose never runs
+t := Thread.spawn(io => {
+  tx2.send(v);
+}); // tx2's dispose never runs
 ```
 
 ## Options
@@ -83,16 +85,16 @@ t := Thread.spawn((io) => { tx2.send(v); });   // tx2's dispose never runs
    each worker mints its own sender inside its body, where the local's
    scope-end drop DOES run.
 
-   ```rust
+   ```yo
    rx := Channel(i32).receiver(usize(16));
    {
      keeper := rx.sender();
-     w := Thread.spawn((io) => {
+     w := Thread.spawn(io => {
        tx := rx.sender();
        tx.send(i32(7));
      });
      w.join();
-   };                       // keeper drops -> closed
+   }; // keeper drops -> closed
    ```
 
    Covered by `tests/sync/channel.test.yo`, "a sender per thread: the last one

@@ -168,7 +168,7 @@ Two builtins, one mechanism:
 
 - **`law(fn-type)`** — a module-level claim with no body:
 
-  ```rust
+  ```yo
   pragma(Pragma.Verify);
   { sort, sorted } :: import("./sort");
 
@@ -217,7 +217,7 @@ Two builtins, one mechanism:
   what a structural proof step needs; the fuel bound keeps the encoding
   finite and the budget deterministic.
 
-  ```rust
+  ```yo ignore
   // A recursive SPEC function over a fixed array (comptime N).
   sum_from :: ghost_fn((fn(a : Array(i64, 8), i : i64, decreases(i64(8) - i)) -> (s : i64))(
     cond((i >= i64(8)) => i64(0), true => (a(i) + sum_from(a, i + i64(1))))
@@ -238,8 +238,8 @@ Two builtins, one mechanism:
   `invariant(safe(g))` proved from `step`'s contract, `safe`/`won` are
   plain (inlined) ghost fns, and the law
 
-  ```rust
-  never_wins :: law(fn(moves : Array(Move, 64), ensures(!(won(replay(start(), moves))))) -> unit);
+  ```yo
+  never_wins :: law(fn(moves : Array(Move, 64), ensures(!won(replay(start(), moves)))) -> unit);
   ```
 
   closes from `replay`'s `ensures` plus the inlined definitions. It is a B1

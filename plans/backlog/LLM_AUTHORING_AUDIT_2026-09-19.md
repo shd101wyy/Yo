@@ -69,9 +69,9 @@ written.** Acceptance is that plan's.
 
 ### 2.2 Enum-variant inference for a local, from where the local flows
 
-```rust
+```yo
 f :: (fn(x : i32) -> Result(i32, E))({
-  r := .Ok(x);          // error: Failed to infer enum variant type.   (probe p13)
+  r := .Ok(x); // error: Failed to infer enum variant type.   (probe p13)
   return(r);
 });
 ```
@@ -130,12 +130,18 @@ objections still apply and are answered, not dismissed:
 **Design.** The prelude gets the three-line macro from the test file, verbatim
 in shape:
 
-```rust
+```yo
 try :: (fn(quote(expr) : Expr) -> unquote(Expr))({
   temp :: gensym("try");
   quote({
     unquote(temp) := unquote(expr);
-    match(unquote(temp), .Ok(value) => value, .Err(error) => { return(.Err(error)); })
+    match(
+      unquote(temp),
+      .Ok(value) => value,
+      .Err(error) => {
+        return(.Err(error));
+      }
+    )
   })
 });
 ```

@@ -46,7 +46,7 @@ keeps that visibility without a parallel operator grammar.
 Replace the prelude's `(&==)/(&!=)/(&<)/(&<=)/(&>)/(&>=)` members of
 `impl(generic(T : Type), *(T), ...)` (std/prelude.yo:5530) with:
 
-```rust
+```yo ignore
 impl(generic(T : Type), *(T), Eq(*(T))(
   (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
   (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
@@ -63,7 +63,7 @@ Eq once the inner impl exists.
 
 ### Arithmetic → unsafe methods, Rust names
 
-```rust
+```yo ignore
 impl(generic(T : Type), *(T),
   /// p &+ n  →  p.add(n)     (offset by n elements, forward)
   add : (fn(self : Self, count : usize) -> Self)(__yo_ptr_add(self, count)),

@@ -189,7 +189,7 @@ the blocker. **The §3 finding suggests you should not need to.**
 Apply this patch (saved verbatim at `/tmp/probe_instrumentation.patch` this
 session; reproduced here because `/tmp` will not survive):
 
-```rust
+```yo
 // yo-self/evaluator/values/impl.yo, after `open(import("std/string"));`
 open(import("std/fmt"));
 _(env : impl_dbg_env) :: import("std/env");

@@ -95,8 +95,10 @@ The consequence is that the documented way to collect spawned work from
 inside a task is a hand-rolled busy loop
 (`docs/en-US/ASYNC_AWAIT.md` 654–744):
 
-```rust
-while(!all_finished(handles), { io.await(yield(io), io); });
+```yo
+while(!all_finished(handles), {
+  io.await(yield(io), io);
+});
 ```
 
 std and the compiler carry the same loop three times
@@ -312,7 +314,7 @@ suspension in a task and the ordinary blocking poll in `main`.
 `handle.await(io)` stays the blocking form for plain `fn`s. The combinators
 are `io.async` bodies over `join` and the multi-handle wait:
 
-```rust
+```yo ignore
 join_all   : (fn(handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(ArrayList(Option(T)), Io)))
 race       : (fn(handles : ArrayList(JoinHandle(T)), io : Io) -> Impl(Future(usize, Io)))
 race_first : …  -> Impl(Future(Option(T), Io))

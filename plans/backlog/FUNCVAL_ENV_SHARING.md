@@ -154,7 +154,7 @@ Known hazards of a registry, addressed up front:
 
 New, in env.yo (alongside `capture_env_for`, which stays during migration):
 
-```rust
+```yo ignore
 // Frozen def-scope registry (TS: FunctionType.env).
 (g_funcval_def_envs : HashMap(usize, Environment)) = ...;
 (g_def_env_index_keys : ArrayList(usize)) = ...;   // g_frame_indexes eviction

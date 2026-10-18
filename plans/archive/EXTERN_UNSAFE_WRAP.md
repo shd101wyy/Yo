@@ -7,11 +7,11 @@ Status: **✅ Landed.** All phases complete (A gate, B tests, C migration, D uns
 Currently a file declaring `pragma(Pragma.AllowUnsafe);` can call any
 `extern "c"` function with no syntactic marker at the call site:
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
-c_include("<stdlib.h>", malloc : (fn(size : usize) -> ?*(void)), ...);
+c_include("<stdlib.h>", malloc : (fn(size : usize) -> ?*void), ...);
 
-allocate :: (fn(n : usize) -> ?*(void))(malloc(n));  // no marker
+allocate :: (fn(n : usize) -> ?*void)(malloc(n)); // no marker
 ```
 
 The pragma is a **file-level** pass: once declared, every line in
@@ -185,24 +185,24 @@ verify the diagnostic and codegen before bulk migration.
 
 Before:
 
-```rust
-malloc :: (fn(n : usize) -> ?*(void))(__yo_malloc(n));
+```yo
+malloc :: (fn(n : usize) -> ?*void)(__yo_malloc(n));
 ```
 
 After:
 
-```rust
-malloc :: (fn(n : usize) -> ?*(void))(unsafe(__yo_malloc(n)));
+```yo
+malloc :: (fn(n : usize) -> ?*void)(unsafe(__yo_malloc(n)));
 ```
 
 Or, more realistically for `std/libc/stdlib.yo`-style passthroughs,
 the wrap goes inside the body:
 
-```rust
+```yo
 // before
-free :: (fn(p : *(void)) -> unit)(__yo_free(p));
+free :: (fn(p : *void) -> unit)(__yo_free(p));
 // after
-free :: (fn(p : *(void)) -> unit)(unsafe(__yo_free(p)));
+free :: (fn(p : *void) -> unit)(unsafe(__yo_free(p)));
 ```
 
 Note the wrapper function `free` is still a normal `fn(...)`; only

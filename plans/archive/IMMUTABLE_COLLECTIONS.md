@@ -45,7 +45,7 @@ The existing Yo type system has a gap for immutable/persistent data structures:
 
 ### Syntax
 
-```rust
+```yo ignore
 // Atomic RC object type — thread-safe, supports Dispose
 ArcBytes :: atomic object(
   _ptr : *(u8),
@@ -141,7 +141,7 @@ impl(ArcBytes, Dispose(
 
 A classic cons list. Ideal for stack-like access patterns and functional programming.
 
-```rust
+```yo
 // std/imm/list.yo
 
 ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
@@ -191,7 +191,7 @@ The current `String` type (in `std/string`) uses `ArrayList(u8)` internally (an 
 
 `imm.String` provides an immutable, `Send`-safe string using `atomic object`.
 
-```rust
+```yo ignore
 // std/imm/string.yo
 
 /// Immutable, thread-safe UTF-8 string.
@@ -249,7 +249,7 @@ impl(String, Dispose(
 
 A general-purpose indexed sequence with efficient random access, update, and append. Internally uses a **bit-partitioned trie** (the same structure as Clojure's PersistentVector / Scala's Vector).
 
-```rust
+```yo ignore
 // std/imm/vec.yo
 
 // Branching factor: 32 (5 bits per level)
@@ -313,7 +313,7 @@ Uses a **Hash Array Mapped Trie (HAMT)** — the standard structure for persiste
 
 Real-world HAMT nodes are typically sparse: most internal nodes have only 2–8 out of 32 possible children. A naïve `Array(Option(MapNode), 32)` wastes ~192 bytes of empty Option slots per node. Instead, we use **compact arrays** where only occupied slots are stored:
 
-```rust
+```yo ignore
 // std/imm/map.yo
 
 /// HAMT branch node — uses bitmap + compact child array.
@@ -420,13 +420,15 @@ Map :: (fn(
 
 Thin wrapper around `imm.Map(T, unit)`.
 
-```rust
+```yo
 // std/imm/set.yo
 
-Set :: (fn(
-  comptime(T) : Type,
-  where(T <: (Eq(T), Hash, Send))
-) -> comptime(Type))(
+Set :: (
+  fn(
+    comptime(T) : Type,
+    where(T <: (Eq(T), Hash, Send))
+  ) -> comptime(Type)
+)(
   struct(
     _map : Map(T, unit)
   )
@@ -457,7 +459,7 @@ Set :: (fn(
 
 Uses a **persistent red-black tree** (or weight-balanced tree) for ordered key-value storage.
 
-```rust
+```yo ignore
 // std/imm/sorted_map.yo
 
 Color :: enum(Red, Black);
@@ -514,13 +516,15 @@ SortedMap :: (fn(
 
 Thin wrapper around `imm.SortedMap(T, unit)`.
 
-```rust
+```yo
 // std/imm/sorted_set.yo
 
-SortedSet :: (fn(
-  comptime(T) : Type,
-  where(T <: (Ord(T), Send))
-) -> comptime(Type))(
+SortedSet :: (
+  fn(
+    comptime(T) : Type,
+    where(T <: (Ord(T), Send))
+  ) -> comptime(Type)
+)(
   struct(
     _map : SortedMap(T, unit)
   )
@@ -566,7 +570,7 @@ std/imm/
 
 **Usage**:
 
-```rust
+```yo
 { List } :: import "std/imm/list";
 { Map } :: import "std/imm/map";
 { String } :: import "std/imm/string";
@@ -657,10 +661,10 @@ This is the standard HAMT approach (used by Clojure, Scala, im-rs). The added co
 
 Tree-based iterators (Vec trie, Map HAMT, SortedMap RB-tree) need a stack to track position:
 
-```rust
+```yo
 MapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _stack : ArrayList(struct(node: MapNode(K, V), idx: usize)),
+    _stack : ArrayList(struct(node : MapNode(K, V), idx : usize)),
     _remaining : usize
   )
 );
@@ -697,7 +701,7 @@ Since `atomic object` auto-derives `Send` when all fields are `Send`, and the ou
 
 Provide conversion methods:
 
-```rust
+```yo
 // Mutable → Immutable (copies data into persistent structure)
 imm_list := List(i32).from_array_list(mutable_array_list);
 imm_map := Map(K, V).from_hash_map(mutable_hash_map);
@@ -713,11 +717,11 @@ mutable_str := imm_str.to_string();
 
 Building a persistent structure one element at a time is O(n log n) due to repeated path copying. Provide transient/builder APIs for O(n) bulk construction:
 
-```rust
+```yo
 // Builder API — mutable internally, produces immutable result
 builder := Vec(i32).builder();
 // ... add many elements to builder (mutable, O(1) amortized each) ...
-imm_vec := builder.build();  // Freeze into immutable Vec
+imm_vec := builder.build(); // Freeze into immutable Vec
 ```
 
 The builder uses a mutable internal representation during construction, then "freezes" it into the persistent structure. This mirrors Clojure's transient collections.

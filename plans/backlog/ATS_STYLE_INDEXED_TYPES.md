@@ -89,7 +89,7 @@ The two facts that matter for the comparison:
 
 ### 2.3 The measured gap
 
-```rust
+```yo
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> i32)(xs(i));
@@ -255,13 +255,13 @@ seed gate for `std/` and `src/` adoption.
 **Goal:** the DML worked examples verify end-to-end over `ArrayList(T)`,
 `Array(T, N)` with generic `N`, and `RawSlice(T)`:
 
-```rust
+```yo
 pragma(Pragma.Verify);
 concat :: (fn(a : ArrayList(i32), b : ArrayList(i32), ensures(r.len() == (a.len() + b.len()))) -> (r : ArrayList(i32)))(...);
-get    :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> i32)(xs(i));
-zip    :: (fn(a : ArrayList(i32), b : ArrayList(i32), requires(a.len() == b.len()), ensures(r.len() == a.len())) -> (r : ArrayList(i32)))(...);
+get :: (fn(xs : ArrayList(i32), i : usize, requires(i < xs.len())) -> i32)(xs(i));
+zip :: (fn(a : ArrayList(i32), b : ArrayList(i32), requires(a.len() == b.len()), ensures(r.len() == a.len())) -> (r : ArrayList(i32)))(...);
 filter :: (fn(xs : ArrayList(i32), ensures(r.len() <= xs.len())) -> (r : ArrayList(i32)))(...);
-reverse:: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))(...);
+reverse :: (fn(xs : ArrayList(i32), ensures(r.len() == xs.len())) -> (r : ArrayList(i32)))(...);
 ```
 
 Tasks:

@@ -334,7 +334,7 @@ immortal vtable — chosen over "ctx + inline fn pointers" because the *same
 two words* are what the block prefix (§3.2) stores, and a prefix must never
 point at a stack copy of a value type.
 
-```rust
+```yo
 // std/allocator.yo — added beside the existing externs
 AllocatorVTable :: struct(
   alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
@@ -343,9 +343,9 @@ AllocatorVTable :: struct(
 );
 Allocator :: struct(
   ctx : ?*void,
-  vtable : *(AllocatorVTable)
+  vtable : *AllocatorVTable
 );
-impl(Allocator, Send());   // the audited base (§3.8)
+impl(Allocator, Send()); // the audited base (§3.8)
 
 // Public methods (the ONLY way user code touches an allocator):
 //   Allocator.alloc(self, size) -> ?*void        writes the prefix (§3.2)
@@ -420,10 +420,10 @@ typedef struct { void* ctx; const void* vtable; } __yo_alloc_prefix_t;  // 16 B 
 
 ### 3.3 Layer 1 — containers take an allocator (P1, std-only)
 
-```rust
+```yo
 arena := Arena.new(usize(4) * usize(1024) * usize(1024));
 list := ArrayList(i32).new_in(arena.allocator());
-list.push(i32(1));                          // buffer grows inside the arena
+list.push(i32(1)); // buffer grows inside the arena
 map := HashMap(str, i32).with_capacity_in(arena.allocator(), usize(16));
 
 // Fallback: the existing constructors are unchanged and default to global
@@ -521,14 +521,14 @@ D9 (`plans/archive/STD_API_STABILIZATION.md`).
 (`std/allocator.yo`) — "evaluate `f()` with `alloc` as the thread's current
 allocator" — plus `arena.scoped(f)`, its one-line `Arena` spelling.
 
-```rust
+```yo
 Point :: ref(struct(x : i32, y : i32));
 
 p := with_allocator(arena.allocator(), () => Point(x : i32(3), y : i32(4)));
 graph := arena.scoped(() => build_graph(input));
-     // every user-visible RC allocation while the closure runs — ref ctors,
-     // box/arc, dyn, Iso, futures, the objects std creates on your behalf —
-     // comes from the arena
+// every user-visible RC allocation while the closure runs — ref ctors,
+// box/arc, dyn, Iso, futures, the objects std creates on your behalf —
+// comes from the arena
 
 // The `_in` convention for a type's own constructor is the user's one-liner,
 // the same shape std's containers use:
@@ -610,7 +610,7 @@ stays with one allocator for its whole life, wherever it later grows.
 
 ### 3.6 Arena semantics under RC (P0, P4)
 
-```rust
+```yo ignore
 arena := Arena.new(bytes);
 {
   list := ArrayList(i32).new_in(arena.allocator());

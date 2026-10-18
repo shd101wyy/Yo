@@ -57,7 +57,7 @@ Added `Step.add_c_flags(flags: comptime_string)` method to the build system:
 
 Added WASM-specific flags via `add_c_flags`:
 
-```rust
+```yo
 exe_wasm.add_c_flags("-lraylib -sUSE_GLFW=3 -sASYNCIFY -DPLATFORM_WEB");
 ```
 

@@ -16,7 +16,7 @@ The Yo parser already skips doc comment tokens as whitespace everywhere (includi
 
 ### Function parameters
 
-```rust
+```yo
 /// Creates a connection pool.
 ///
 /// ## Returns
@@ -26,17 +26,19 @@ The Yo parser already skips doc comment tokens as whitespace everywhere (includi
 /// ## Panics
 ///
 /// Panics if the global allocator is exhausted.
-createPool :: (fn(
-  /// Maximum number of connections (must be > 0).
-  max_size: u32,
-  /// Connection timeout in milliseconds.
-  timeout: u32
-) -> Result(Pool, PoolError))( ... );
+createPool :: (
+  fn(
+    /// Maximum number of connections (must be > 0).
+    max_size : u32,
+    /// Connection timeout in milliseconds.
+    timeout : u32
+  ) -> Result(Pool, PoolError)
+)(...);
 ```
 
 ### Struct fields
 
-```rust
+```yo
 /// A 2D point in Cartesian space.
 Point :: struct(
   /// The x coordinate.
@@ -48,7 +50,7 @@ Point :: struct(
 
 ### Enum variants
 
-```rust
+```yo
 /// Represents a geometric shape.
 Shape :: enum(
   /// A circle with the given radius.
@@ -68,19 +70,19 @@ Shape :: enum(
 
 ### Trait methods
 
-```rust
+```yo
 /// An iterator over a collection.
 Iterator :: trait(
   /// The type of elements yielded by this iterator.
   Item : Type,
   /// Advances the iterator and returns the next value.
-  next : (fn(self: *(Self)) -> Option(Self.Item))
+  next : (fn(self : *Self) -> Option(Self.Item))
 );
 ```
 
 ### Module-level docs
 
-```rust
+```yo
 //! This module provides string manipulation utilities.
 //!
 //! ## Examples

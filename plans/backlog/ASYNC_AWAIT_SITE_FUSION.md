@@ -99,7 +99,7 @@ extraction. The wrapper's state machine is never built. This is Rust's
 state-machine inlining, applied to exactly the case where the child's
 lifetime is the await.
 
-```rust
+```yo ignore
 // std (unchanged)
 read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
   fd := self._fd;

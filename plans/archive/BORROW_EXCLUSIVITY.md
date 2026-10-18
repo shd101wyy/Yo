@@ -83,14 +83,14 @@ interior-pointer feature standing, and every UAF since has come from it.
 Element access model after v4 (the Java/Python model — zero new
 concepts):
 
-```rust
-e := xs.get(i);          // object elements: dup'd HANDLE to the element
-e.push_str("!");         //   → mutates the element in place; no borrow needed;
-                         //   the handle survives xs.push/realloc (it points at
-                         //   the String object, not into xs's buffer)
-t := xs.get(i);          // struct elements: copy out …
-xs.set(i, t2);           //   … write back
-for(xs, (x) => …);       // value-form iteration (already get-based today)
+```yo
+e := xs.get(i); // object elements: dup'd HANDLE to the element
+e.push_str("!"); //   → mutates the element in place; no borrow needed;
+//   the handle survives xs.push/realloc (it points at
+//   the String object, not into xs's buffer)
+t := xs.get(i); // struct elements: copy out …
+xs.set(i, t2); //   … write back
+for(xs, x => …); // value-form iteration (already get-based today)
 ```
 
 ## Why this is sound BY CONSTRUCTION

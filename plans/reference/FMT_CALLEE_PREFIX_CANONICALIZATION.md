@@ -21,7 +21,7 @@ rejects it ("Cannot create a pointer to a value"). The pointer cast must name th
 type and then call the resulting type value. Two spellings do that, and they parse
 to the SAME AST (`FnCall(func : FnCall(*, [void]), args : [p])`):
 
-```rust
+```yo ignore
 *(void)(p)   // operator-call form: `*`'s call paren, then the cast's args paren
 (*void)(p)   // grouped form: the tight type expression, wrapped once, called
 ```

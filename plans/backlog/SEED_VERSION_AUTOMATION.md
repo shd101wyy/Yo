@@ -510,7 +510,7 @@ parked here because the seed evaluates `std/build.yo` and fails E0401 on the
 unknown builtin (measured 2026-09-30 with v0.2.46: every wrapper shape fails,
 a plain body included):
 
-```rust
+```yo
 // ── Verification ─────────────────────────────────────────────────────
 /// The mode a `build.verify` step runs its target files in (the same two
 /// modes `Pragma.Verify` / `Pragma.VerifyOrAssert` select per file, see

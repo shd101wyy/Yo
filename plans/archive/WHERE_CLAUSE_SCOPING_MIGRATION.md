@@ -13,21 +13,22 @@ This document describes the migration from globally-mutating where clause constr
 
 Before this migration, where clause constraints were implemented by directly mutating the `SomeType`'s module fields. This caused constraints to leak across function boundaries:
 
-```rust
-LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(
+```yo
+LinkedList :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
     // This function has where(T <: Eq(T))
-    has :: (fn(
-      self: Self,
-      value: T,
-      where(T <: Eq(T))
-    ) -> bool)({
-      current_opt.value == value;  // Works - T has Eq(T)
+    has :: (
+      fn(
+        self : Self,
+        value : T,
+        where(T <: Eq(T))
+      ) -> bool
+    )({
+      current_opt.value == value; // Works - T has Eq(T)
     }),
-
     // This function has NO where clause
     test_without_where :: (fn(self : Self, value : T) -> bool)({
-      current_opt.value == value;  // SHOULD FAIL but didn't!
+      current_opt.value == value; // SHOULD FAIL but didn't!
     })
   )
 );
@@ -249,13 +250,12 @@ This change is **non-breaking** for correctly written code:
 
 **Incorrect code that may have worked before**:
 
-```rust
-Container :: (fn(comptime(T): Type) -> comptime(Type))(
+```yo
+Container :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
-    method1 :: (fn(self: Self, where(T <: Copy)) -> unit)({ ... }),
-
+    method1 :: (fn(self : Self, where(T <: Copy)) -> unit)({ ... }),
     // This relied on leaked constraints - now fails correctly
-    method2 :: (fn(self: Self) -> unit)({
+    method2 :: (fn(self : Self) -> unit)({
       // Tries to use Copy methods on T without declaring where clause
     })
   )
@@ -270,19 +270,20 @@ Container :: (fn(comptime(T): Type) -> comptime(Type))(
 
 The fix is validated by `src/tests/examples/fixme.yo`:
 
-```rust
-LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(
+```yo
+LinkedList :: (fn(comptime(T) : Type) -> comptime(Type))(
   object(
-    has :: (fn(
-      self: Self,
-      value: T,
-      where(T <: Eq(T))  // Declares constraint
-    ) -> bool)({
-      current_opt.value == value;  // ✓ Works
+    has :: (
+      fn(
+        self : Self,
+        value : T,
+        where(T <: Eq(T)) // Declares constraint
+      ) -> bool
+    )({
+      current_opt.value == value; // ✓ Works
     }),
-
     test_without_where :: (fn(self : Self, value : T) -> bool)({
-      current_opt.value == value;  // ✗ Should fail - NO Eq(T)
+      current_opt.value == value; // ✗ Should fail - NO Eq(T)
     })
   )
 );

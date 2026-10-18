@@ -9,10 +9,10 @@ Status: **✅ Landed.** Phases A–F complete. Verdicts pinned in `tests/slice_f
 doesn't mention `*(T)`**, so safe code can construct a slice from
 local-storage and return it past that storage's lifetime:
 
-```rust
+```yo
 make_dangling :: (fn() -> Slice(i32))({
   arr := Array(i32, 3).fill(i32(0));
-  arr.as_slice()                 // points into the dying call frame
+  arr.as_slice() // points into the dying call frame
 });
 ```
 
@@ -146,7 +146,7 @@ Use one of:
 
 ### Worked verdicts
 
-```rust
+```yo ignore
 // (1) Local array → slice → return. REJECT.
 make_dangling :: (fn() -> Slice(i32))({
   arr := Array(i32, 3).fill(i32(0));

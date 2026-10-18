@@ -107,11 +107,11 @@ wasm32-wasi              (WebAssembly, standalone WASI)
 
 Define a `Target` type used in `build.yo`:
 
-```rust
+```yo
 Target :: struct(
   arch : Arch,
   os : Os,
-  abi : ?(Abi)
+  abi : ?Abi
 );
 
 Arch :: enum(X86_64, Aarch64, X86, Arm, Wasm32);
@@ -133,7 +133,7 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 
 ### 2.2 Example `build.yo`
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.module({ name: "my-app", root: "./src/lib.yo" });
@@ -201,7 +201,7 @@ The build runner (`src/build-runner.ts`) flow:
 
 ### 2.3 Multi-Target Example
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.module({ name: "my-app", root: "./src/lib.yo" });
@@ -235,7 +235,7 @@ install.depend_on(wasm);
 
 ### 2.4 Library Example
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.module({ name: "my-lib", root: "./src/lib.yo" });
@@ -257,14 +257,14 @@ Yo supports cross-module linking via `extern "Yo"` declarations and static libra
 
 **Library module** (`add.yo`) exports a function:
 
-```rust
+```yo ignore
 add :: (fn(a: i32, b: i32) -> i32)((a + b));
 export add;
 ```
 
 **Executable module** (`demo.yo`) declares it with `extern "Yo"` and calls it:
 
-```rust
+```yo ignore
 extern "Yo",
   add : (fn(a: i32, b: i32) -> i32);
 
@@ -276,7 +276,7 @@ export main;
 
 **Build file** (`build.yo`) links them together:
 
-```rust
+```yo ignore
 build :: import "std/build";
 build.module({ name: "demo", root: "./src/lib.yo" });
 
@@ -302,7 +302,7 @@ The build module is imported as a namespace and provides compile-time functions 
 
 **Constants:**
 
-```rust
+```yo ignore
 Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
 Allocator :: enum(Mimalloc, Libc)
 Sanitize :: enum(None, Address, Leak)
@@ -312,7 +312,7 @@ target_host :: comptime_string  // Host target triple
 
 **Config Struct Types (with `?=` defaults):**
 
-```rust
+```yo
 // Executable artifact config
 Executable :: struct(
   name : comptime_string,
@@ -349,7 +349,7 @@ TestSuite :: struct(
 
 **Functions (all return `Step`):**
 
-```rust
+```yo ignore
 // Project metadata (returns unit — the only exception)
 project(config: Project)
 
@@ -384,7 +384,7 @@ step(name: comptime_string, description: comptime_string) -> Step  // kind: Step
 
 **Step struct:**
 
-```rust
+```yo
 Step :: struct(
   name : comptime_string,
   kind : StepKind
@@ -393,7 +393,7 @@ Step :: struct(
 
 **Import helpers:**
 
-```rust
+```yo
 ImportEntry :: struct(
   name : comptime_string,
   module : BuildModule
@@ -410,12 +410,12 @@ Internally, wrapper functions decompose the config struct and pass individual fi
 
 Like Zig's `b.option()`, `build.yo` can declare user-configurable options via `yo build -D<name>=<value>`:
 
-```rust
+```yo
 // In build.yo:
 strip :: build.option({
-  name: "strip",
-  description: "Strip debug symbols",
-  default: "false"
+  name : "strip",
+  description : "Strip debug symbols",
+  default : "false"
 });
 ```
 
@@ -423,7 +423,7 @@ The `option()` function returns a `comptime_string` value. At evaluation time, i
 
 **Config type:**
 
-```rust
+```yo
 BuildOption :: struct(
   name : comptime_string,
   description : comptime_string,
@@ -442,13 +442,13 @@ yo build -Dstrip          # shorthand for -Dstrip=true
 
 Register system libraries via `build.system_library()` and link them using the `step.link()` method:
 
-```rust
+```yo
 // Register system libraries (returns Step)
 openssl :: build.system_library({
-  name: "openssl"
+  name : "openssl"
 });
 
-exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+exe :: build.executable({ name : "my-app", root : "./src/main.yo" });
 
 // Link using Step method
 exe.link(openssl);
@@ -579,7 +579,7 @@ my-project/
 
 **`build.yo`:**
 
-```rust
+```yo ignore
 build :: import "std/build";
 
 build.module({ name: "my-project", root: "./src/lib.yo" });
@@ -605,7 +605,7 @@ test_step.depend_on(tests);
 
 **`src/main.yo`:**
 
-```rust
+```yo ignore
 { println } :: import "std/fmt";
 
 main :: (fn()-> unit) {
@@ -617,16 +617,16 @@ export(main);
 
 **`src/lib.yo`:**
 
-```rust
-add :: (fn(a: i32, b: i32) -> i32)(
-  (a + b)
+```yo
+add :: (fn(a : i32, b : i32) -> i32)(
+  a + b
 );
 export(add);
 ```
 
 **`tests/main.test.yo`:**
 
-```rust
+```yo
 { test } :: import "std/testing";
 
 test("it works", {
@@ -715,7 +715,7 @@ The Yo-side naming also changes to avoid Node.js conventions:
 
 ### 5.4 Updating `std/process.yo`
 
-```rust
+```yo
 // Current (Node.js naming)
 Platform :: {
   Darwin : "darwin",
@@ -1091,17 +1091,17 @@ This section documents features the build system does not yet support, organized
 
 **Proposed API**:
 
-```rust
+```yo
 // Run an arbitrary shell command as a build step
 cmd := build.system_command({
-  name: "generate-proto",
-  program: "protoc",
-  args: ComptimeList("--yo_out=src/gen", "proto/api.proto"),
-  cwd: "."
+  name : "generate-proto",
+  program : "protoc",
+  args : ComptimeList("--yo_out=src/gen", "proto/api.proto"),
+  cwd : "."
 });
 
 // Wire it as a dependency
-exe := build.executable({ name: "server", root: "./src/main.yo" });
+exe := build.executable({ name : "server", root : "./src/main.yo" });
 exe.depend_on(cmd);
 ```
 
@@ -1138,9 +1138,9 @@ yo build --watch --run        # Rebuild and re-run on change
 
 **Proposed API**:
 
-```rust
-exe := build.executable({ name: "my-app", root: "./src/main.yo" });
-build.install(exe);  // Marks artifact for installation
+```yo
+exe := build.executable({ name : "my-app", root : "./src/main.yo" });
+build.install(exe); // Marks artifact for installation
 
 // yo build --prefix /usr/local   → copies to /usr/local/bin/my-app
 // yo build                       → copies to yo-out/bin/my-app (default)
@@ -1163,13 +1163,13 @@ build.install(exe);  // Marks artifact for installation
 
 **Proposed API**:
 
-```rust
+```yo
 // In library's build.yo:
-build.feature({ name: "tls", description: "Enable TLS support", default: false });
-build.feature({ name: "json", description: "Enable JSON parsing", default: true });
+build.feature({ name : "tls", description : "Enable TLS support", default : false });
+build.feature({ name : "json", description : "Enable JSON parsing", default : true });
 
 // In consumer's build.yo:
-dep := build.dependency({ name: "http", url: "...", ref: "main" });
+dep := build.dependency({ name : "http", url : "...", ref : "main" });
 dep.enable_feature("tls");
 dep.disable_feature("json");
 ```
@@ -1182,7 +1182,7 @@ dep.disable_feature("json");
 
 **Proposed API**:
 
-```rust
+```yo
 // Define a named profile
 Profile :: struct(
   optimize : Optimize,
@@ -1190,11 +1190,11 @@ Profile :: struct(
   sanitize : Sanitize
 );
 
-dev :: Profile({ optimize: .Debug, allocator: .Libc, sanitize: .Address });
-release :: Profile({ optimize: .ReleaseFast, allocator: .Mimalloc, sanitize: .None });
+dev :: Profile({ optimize : .Debug, allocator : .Libc, sanitize : .Address });
+release :: Profile({ optimize : .ReleaseFast, allocator : .Mimalloc, sanitize : .None });
 
 // Apply to artifact
-exe := build.executable({ name: "app", root: "./src/main.yo", profile: dev });
+exe := build.executable({ name : "app", root : "./src/main.yo", profile : dev });
 ```
 
 Or simpler: `--profile dev` / `--profile release` CLI flag.
@@ -1205,7 +1205,7 @@ Or simpler: `--profile dev` / `--profile release` CLI flag.
 
 **Proposed API**:
 
-```rust
+```yo ignore
 // workspace.yo (root of monorepo)
 build :: import "std/build";
 
@@ -1287,11 +1287,11 @@ yo build --check                  # Type-check and evaluate, skip C codegen + cl
 
 #### 11.3.1 Link-Time Optimization (LTO)
 
-```rust
+```yo
 exe := build.executable({
-  name: "app",
-  root: "./src/main.yo",
-  lto: true          // Pass -flto to clang
+  name : "app",
+  root : "./src/main.yo",
+  lto : true // Pass -flto to clang
 });
 ```
 
@@ -1300,10 +1300,10 @@ exe := build.executable({
 
 #### 11.3.2 Benchmarking
 
-```rust
+```yo
 bench := build.benchmark({
-  name: "perf-tests",
-  root: "./benchmarks/main.yo"
+  name : "perf-tests",
+  root : "./benchmarks/main.yo"
 });
 ```
 
@@ -1349,11 +1349,11 @@ Uses `lipo` to merge two single-arch binaries.
 
 For dependencies, allow version ranges instead of exact refs:
 
-```rust
+```yo
 dep := build.dependency({
-  name: "json-parser",
-  url: "https://github.com/user/json-parser.git",
-  version: "^1.2.0"    // Any 1.x.y where x >= 2
+  name : "json-parser",
+  url : "https://github.com/user/json-parser.git",
+  version : "^1.2.0" // Any 1.x.y where x >= 2
 });
 ```
 
@@ -1361,18 +1361,18 @@ Requires a version resolver that maps `^1.2.0` to the best matching git tag.
 
 #### 11.3.8 Build-Only / Dev Dependencies
 
-```rust
+```yo
 // Only needed during build, not linked into final artifact
-build.dev_dependency({ name: "test-utils", path: "../test-utils" });
+build.dev_dependency({ name : "test-utils", path : "../test-utils" });
 ```
 
 #### 11.3.9 Debug Info Levels
 
-```rust
+```yo
 exe := build.executable({
-  name: "app",
-  root: "./src/main.yo",
-  debug_info: .Full     // .Full | .LineOnly | .None
+  name : "app",
+  root : "./src/main.yo",
+  debug_info : .Full // .Full | .LineOnly | .None
 });
 ```
 
@@ -1382,11 +1382,11 @@ Maps to clang's `-g`, `-gline-tables-only`, or no debug flag.
 
 For shared library consumers, control where the runtime linker searches:
 
-```rust
+```yo
 exe := build.executable({
-  name: "app",
-  root: "./src/main.yo",
-  rpath: ComptimeList("$ORIGIN/../lib", "/opt/mylibs")
+  name : "app",
+  root : "./src/main.yo",
+  rpath : ComptimeList("$ORIGIN/../lib", "/opt/mylibs")
 });
 ```
 

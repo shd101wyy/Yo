@@ -1113,7 +1113,7 @@ performed, which is exactly what the `.None` arm does.
 trait carrying an ASSOCIATED TYPE (`Unsigned : Type`), so the body can name
 its own result:
 
-```rust
+```yo ignore
 UnsignedCounterpart :: trait(id := "UnsignedCounterpart", Unsigned : Type);
 impl(i8, UnsignedCounterpart(Unsigned : u8));
 …

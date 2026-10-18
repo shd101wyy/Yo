@@ -125,18 +125,28 @@ them all is as invasive as A without the clean end state.
 
 ## Fast repro (≈10s, validated this session)
 
-```rust
+```yo
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 RecT :: enum(
   Leaf(value : i32),
   Tuple(labels : ArrayList(String), types : ArrayList(Self))
 );
-impl(RecT, clone : (fn(self : Self) -> Self)(
-  match(self,
-    .Leaf({ value }) => RecT.Leaf(value : value),
-    .Tuple({ labels, types }) => RecT.Tuple(labels : labels.clone(), types : types.clone()))));
-main :: (fn() -> unit)({ x := RecT.Tuple(labels : ArrayList(String).new(), types : ArrayList(RecT).new()); _ := x.clone(); () });
+impl(
+  RecT,
+  clone : (fn(self : Self) -> Self)(
+    match(
+      self,
+      .Leaf({ value }) => RecT.Leaf(value : value),
+      .Tuple({ labels, types }) => RecT.Tuple(labels : labels.clone(), types : types.clone())
+    )
+  )
+);
+main :: (fn() -> unit)({
+  x := RecT.Tuple(labels : ArrayList(String).new(), types : ArrayList(RecT).new());
+  _ := x.clone();
+  ()
+});
 export(main);
 ```
 

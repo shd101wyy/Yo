@@ -119,22 +119,49 @@ no crash). Adding drops without matching dups corrupts memory:
 
 **Probe A — every-pattern leak check** (expect ALL `→` equal once fixed):
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio.yo"));
 Gc :: import("std/gc");
 N :: ref(struct(v : i32, next : Option(Self)));
-p1_local :: (fn() -> unit)({ x := N(1, Option(N).None); (); });
-sink :: (fn(n : N) -> unit)({ (); });
-p2_pass :: (fn() -> unit)({ x := N(2, Option(N).None); sink(x); });
+p1_local :: (fn() -> unit)({
+  x := N(1, Option(N).None);
+  ();
+});
+sink :: (fn(n : N) -> unit)({
+  ();
+});
+p2_pass :: (fn() -> unit)({
+  x := N(2, Option(N).None);
+  sink(x);
+});
 mk :: (fn() -> N)(N(3, Option(N).None));
-p3_return :: (fn() -> unit)({ y := mk(); (); });
-p4_field :: (fn() -> unit)({ a := N(4, Option(N).None); b := N(5, Option(N).Some(a)); (); });
+p3_return :: (fn() -> unit)({
+  y := mk();
+  ();
+});
+p4_field :: (fn() -> unit)({
+  a := N(4, Option(N).None);
+  b := N(5, Option(N).Some(a));
+  ();
+});
 main :: (fn() -> unit)({
-  b1 := Gc.tracked_count(); p1_local();  a1 := Gc.tracked_count(); unsafe(printf("p1 %llu->%llu\n", b1, a1));
-  b2 := Gc.tracked_count(); p2_pass();   a2 := Gc.tracked_count(); unsafe(printf("p2 %llu->%llu\n", b2, a2));
-  b3 := Gc.tracked_count(); p3_return(); a3 := Gc.tracked_count(); unsafe(printf("p3 %llu->%llu\n", b3, a3));
-  b4 := Gc.tracked_count(); p4_field();  a4 := Gc.tracked_count(); unsafe(printf("p4 %llu->%llu\n", b4, a4));
+  b1 := Gc.tracked_count();
+  p1_local();
+  a1 := Gc.tracked_count();
+  unsafe(printf("p1 %llu->%llu\n", b1, a1));
+  b2 := Gc.tracked_count();
+  p2_pass();
+  a2 := Gc.tracked_count();
+  unsafe(printf("p2 %llu->%llu\n", b2, a2));
+  b3 := Gc.tracked_count();
+  p3_return();
+  a3 := Gc.tracked_count();
+  unsafe(printf("p3 %llu->%llu\n", b3, a3));
+  b4 := Gc.tracked_count();
+  p4_field();
+  a4 := Gc.tracked_count();
+  unsafe(printf("p4 %llu->%llu\n", b4, a4));
 });
 export(main);
 ```
@@ -142,13 +169,26 @@ export(main);
 **Probe B — Dispose-fires-on-scope-exit** (expect `disposed 7` to print, between `using 7`
 and `after`):
 
-```rust
+```yo
 pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio.yo"));
 Res :: ref(struct(id : i32));
-impl(Res, Dispose(dispose : (fn(self : Self) -> unit)({ unsafe(printf("disposed %d\n", self.id)); })));
-useit :: (fn() -> unit)({ r := Res(7); unsafe(printf("using %d\n", r.id)); });
-main :: (fn() -> unit)({ useit(); unsafe(printf("after\n")); });
+impl(
+  Res,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      unsafe(printf("disposed %d\n", self.id));
+    })
+  )
+);
+useit :: (fn() -> unit)({
+  r := Res(7);
+  unsafe(printf("using %d\n", r.id));
+});
+main :: (fn() -> unit)({
+  useit();
+  unsafe(printf("after\n"));
+});
 export(main);
 ```
 

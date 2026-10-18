@@ -283,30 +283,31 @@ New module `src/diagnostics.yo` (types + renderers + code table), new
 `src/diagnostics_registry.yo` (explanations data, §5). Flat files, matching
 repo style.
 
-```rust
+```yo
 Severity :: enum(Error, Warning, Note, Help);
 
 Span :: struct(
-  path : String,       // module path as printed today
-  row : usize,         // 0-based (Token basis; +1 is display-only)
-  col : usize,         // 0-based, rune column
-  len : usize          // rune length of the span (token/expr source length)
+  path : String, // module path as printed today
+  row : usize, // 0-based (Token basis; +1 is display-only)
+  col : usize, // 0-based, rune column
+  len : usize // rune length of the span (token/expr source length)
 );
 
-Label :: struct(       // a secondary location attached to a diagnostic
+Label :: struct(
+  // a secondary location attached to a diagnostic
   severity : Severity, // Note today; Help reserved
-  message : String,    // "value moved here", "expected type comes from this parameter"
+  message : String, // "value moved here", "expected type comes from this parameter"
   span : Span
 );
 
 Diagnostic :: struct(
-  code : Option(String),      // "E0308"; .None until P2 assigns it (renders without [E…])
-  severity : Severity,        // Error for the primary; entries never less than the thrower says
-  message : String,           // VERBATIM existing text (frozen in P1/P2)
-  span : Span,                // primary location
-  labels : ArrayList(Label),  // secondary locations (today's extra TokenAndError entries)
-  notes : ArrayList(String),  // plain "note:" prose lines, no location
-  help : Option(String)       // "help:" — did-you-mean, corrected form, signature
+  code : Option(String), // "E0308"; .None until P2 assigns it (renders without [E…])
+  severity : Severity, // Error for the primary; entries never less than the thrower says
+  message : String, // VERBATIM existing text (frozen in P1/P2)
+  span : Span, // primary location
+  labels : ArrayList(Label), // secondary locations (today's extra TokenAndError entries)
+  notes : ArrayList(String), // plain "note:" prose lines, no location
+  help : Option(String) // "help:" — did-you-mean, corrected form, signature
 );
 ```
 
@@ -328,12 +329,14 @@ Rules:
 `YoError` is re-based to carry the structure (same thrown type, so ~1024
 `exn.throw` sites and every existing catch keep working):
 
-```rust
-YoError :: ref(struct(
-  diagnostics : ArrayList(Diagnostic),  // replaces token_and_error_list
-  is_assertion_error : bool,            // deleted (D7)
-  kind : Option(ErrorKind)              // deleted; ErrorKind deleted (D7)
-));
+```yo
+YoError :: ref(
+  struct(
+    diagnostics : ArrayList(Diagnostic), // replaces token_and_error_list
+    is_assertion_error : bool, // deleted (D7)
+    kind : Option(ErrorKind) // deleted; ErrorKind deleted (D7)
+  )
+);
 ```
 
 - `format_error_message(token, message, …)` **keeps its signature** — 1012
@@ -449,17 +452,17 @@ compiler dependency via the LSP, so no seed-availability risk).
 Registry entry (data, in `src/diagnostics_registry.yo`; ships inside the
 binary so `yo explain` works offline):
 
-```rust
-Example  :: struct(bad : String, good : String, why : String, why_zh : String);
-Explain  :: struct(
-  code : String,            // "E0308"
-  title : String,           // "mismatched types"        (English)
-  title_zh : String,        // 简体中文标题
-  summary : String,         // one sentence              (English)
+```yo
+Example :: struct(bad : String, good : String, why : String, why_zh : String);
+Explain :: struct(
+  code : String, // "E0308"
+  title : String, // "mismatched types"        (English)
+  title_zh : String, // 简体中文标题
+  summary : String, // one sentence              (English)
   summary_zh : String,
-  explanation : String,     // paragraphs; markdown-ish  (English)
+  explanation : String, // paragraphs; markdown-ish  (English)
   explanation_zh : String,
-  examples : ArrayList(Example),  // snippets are language-neutral; `why` prose is bilingual
+  examples : ArrayList(Example), // snippets are language-neutral; `why` prose is bilingual
   related : ArrayList(String)
 );
 ```

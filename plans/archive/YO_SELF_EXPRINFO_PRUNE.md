@@ -248,10 +248,10 @@ drop a source expression's info.
 Sketch (full draft, including the worklist and the per-field lists, was written
 during the round-16 session):
 
-```rust
-current_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);   // expr.yo
-(g_info_id_log : ArrayList(ExprId)) = ArrayList(ExprId).new();       // expr_info.yo
-(g_parsed_id_ranges : ArrayList(usize)) = ArrayList(usize).new();    // flat lo,hi pairs
+```yo
+current_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id); // expr.yo
+(g_info_id_log : ArrayList(ExprId)) = ArrayList(ExprId).new(); // expr_info.yo
+(g_parsed_id_ranges : ArrayList(usize)) = ArrayList(usize).new(); // flat lo,hi pairs
 (g_released_env : Environment) = Environment.new(String.from(""));
 // expr_info_table_set gains: g_info_id_log.push(id);
 // prune(table, roots, from): mark roots -> for id in log[from..]:

@@ -27,25 +27,30 @@ Add explicit partial application via `_` placeholder for multi-param type constr
 
 ### Target syntax
 
-```rust
+```yo
 // Define Functor trait — F is a type constructor (kind: Type → Type)
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Trait))(
   trait(
     Inner : Type,
-    map : (fn(forall(B : Type), self: Self, f: (fn(a : Self.Inner) -> B)) -> F(B))
+    map : (fn(forall(B : Type), self : Self, f : (fn(a : Self.Inner) -> B)) -> F(B))
   )
 );
 
 // Implement Functor for Option
-impl(forall(A : Type), Option(A), Functor(Option)(
-  Inner : A,
-  map : (fn(forall(B : Type), self: Self, f: (fn(a : A) -> B)) -> Option(B))(
-    match(self,
-      .Some(v) => .Some(f(v)),
-      .None => .None
+impl(
+  forall(A : Type),
+  Option(A),
+  Functor(Option)(
+    Inner : A,
+    map : (fn(forall(B : Type), self : Self, f : (fn(a : A) -> B)) -> Option(B))(
+      match(
+        self,
+        .Some(v) => .Some(f(v)),
+        .None => .None
+      )
     )
   )
-));
+);
 
 // Or more concisely using anonymous function (types inferred from trait):
 // impl(forall(A : Type), Option(A), Functor(Option)(
@@ -59,17 +64,19 @@ impl(forall(A : Type), Option(A), Functor(Option)(
 // ));
 
 // Use Functor in generic code via forall with function-type kind
-do_map :: (fn(
-  forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
-  container: F(A),
-  f: (fn(a : A) -> B),
-  where(F(A) <: Functor(F))
-) -> F(B))(
+do_map :: (
+  fn(
+    forall(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
+    container : F(A),
+    f : (fn(a : A) -> B),
+    where(F(A) <: Functor(F))
+  ) -> F(B)
+)(
   container.map(f)
 );
 
 // Partial application — fix one parameter of a multi-param type constructor
-IntResult :: Result(_, i32);  // becomes fn(comptime(OkType) : Type) -> comptime(Type)
+IntResult :: Result(_, i32); // becomes fn(comptime(OkType) : Type) -> comptime(Type)
 ```
 
 ## Phases

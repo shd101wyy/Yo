@@ -18,7 +18,7 @@
 
 Sync primitives (`Channel`, `Mutex`, `Cond`, etc.) are `object` types with non-atomic RC. They are thread-safe internally (protected by mutexes/condvars) but their RC is not. `Arc(T)` provides the atomic RC wrapper needed to share them across threads.
 
-```rust
+```yo ignore
 { Channel } :: import "std/sync/channel";
 { Thread } :: import "std/thread";
 
@@ -53,18 +53,18 @@ interface ArcType extends Type {
 
 ### Construction
 
-```rust
+```yo
 // Explicit construction via Arc(T) type constructor
 ch := Channel(i32).new(usize(10));
-arc_ch := Arc(Channel(i32))(ch);   // ch moved into Arc
+arc_ch := Arc(Channel(i32))(ch); // ch moved into Arc
 
 // Convenience helper function (like box() for Box)
-arc_ch := arc(Channel(i32).new(usize(10)));  // arc_ch : Arc(Channel(i32))
+arc_ch := arc(Channel(i32).new(usize(10))); // arc_ch : Arc(Channel(i32))
 ```
 
 The `arc()` helper function:
 
-```rust
+```yo ignore
 arc :: (fn(forall(T : Type), value : T) -> Arc(T))
   Arc(T)(value)
 ;
@@ -74,26 +74,26 @@ arc :: (fn(forall(T : Type), value : T) -> Arc(T))
 
 ### Dereference via `(*)`
 
-```rust
+```yo
 arc_ch := Channel(i32).new(usize(10));
-arc_ch.(*).send(i32(42));      // Deref → Channel(i32), call send
-arc_ch.(*).close();            // Deref → Channel(i32), call close
+arc_ch.*.send(i32(42)); // Deref → Channel(i32), call send
+arc_ch.*.close(); // Deref → Channel(i32), call close
 ```
 
 `arc.(*)` returns a **borrowed** reference to the inner value (ownership remains with Arc). This is the same borrowing semantics as pointer `.(*)` dereference — the result has `isOwningTheRcValue = false`.
 
 **Safety note**: `(*)` dereference is "unsafe" in the sense that storing the result in a variable could bypass Arc's lifetime management. A safer alternative (for later):
 
-```rust
+```yo
 // Future: exclusive access via closure
-arc_ch.with((ch) => {
+arc_ch.with(ch => {
   ch.send(i32(42));
 });
 ```
 
 ### Send Trait
 
-```rust
+```yo
 impl(forall(T : Type), Arc(T), Send());
 ```
 
@@ -107,7 +107,7 @@ impl(forall(T : Type), Arc(T), Send());
 
 `Channel.new` returns `Self` as before. Users wrap in Arc explicitly:
 
-```rust
+```yo
 { Channel } :: import "std/sync/channel";
 { Thread } :: import "std/thread";
 

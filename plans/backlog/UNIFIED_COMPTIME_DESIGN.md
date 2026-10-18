@@ -43,7 +43,7 @@ Key Zig insights:
 
 ## Current Yo Design
 
-```rust
+```yo ignore
 // :: = compile-time binding (value MUST be known)
 PI :: 3.14159;
 MyType :: i32;
@@ -65,14 +65,14 @@ generic_fn :: (fn(comptime(T) : Type, x : T) -> T) { ... };
 
 ### 1. Remove `::`, Keep Only `:=`
 
-```rust
+```yo
 // Before
 PI :: 3.14159;
 MyType :: i32;
 
 // After - same syntax for everything
-PI := 3.14159;      // Automatically compile-time (value is literal)
-MyType := i32;      // Automatically compile-time (type value)
+PI := 3.14159; // Automatically compile-time (value is literal)
+MyType := i32; // Automatically compile-time (type value)
 ```
 
 **Implementation:**
@@ -83,7 +83,7 @@ MyType := i32;      // Automatically compile-time (type value)
 
 ### 2. `comptime` for Parameter Constraints Only
 
-```rust
+```yo ignore
 // comptime(T) means: T must be compile-time known at call site
 // Used for generics and type-level programming
 Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> Type)
@@ -138,7 +138,7 @@ In `binding.ts` and `helper.ts`:
 
 ## Migration Guide
 
-```rust
+```yo
 // Old code
 PI :: 3.14159;
 MyType :: i32;

@@ -20,9 +20,9 @@ The current `Error` trait in `std/error.yo` has placeholder TODOs for `is` and `
 
 **Solution**: Introduce `SelfTrait` as a builtin keyword (analogous to `Self` for the implementing type). `SelfTrait` refers to the trait being defined.
 
-```rust
+```yo
 Error :: trait(
-  (source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))) ?= ((self) -> .None),
+  (source : (fn(self : *Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
 ```
@@ -48,7 +48,7 @@ Here `SelfTrait` resolves to `Error`, so `Dyn(SelfTrait)` = `Dyn(Error)` = `AnyE
 
 A compile-time builtin that maps a type to a unique runtime `usize` identifier.
 
-```rust
+```yo ignore
 typeid(MyError)   // returns usize — unique per concrete type
 typeid(i32)       // different usize for each type
 ```
@@ -84,13 +84,13 @@ The compiler automatically populates `__yo_type_id` with `(uintptr_t)&__yo_typei
 
 **Signature**:
 
-```rust
+```yo
 downcast(dyn_value, T) // → Option(T)
 ```
 
 **Usage**:
 
-```rust
+```yo ignore
 (animal : Animal) = dyn(Cat(`kitty`));
 
 // Safe downcast with type check
@@ -136,9 +136,9 @@ if downcast(animal, Cat).is_some(), {
 
 With `SelfTrait`:
 
-```rust
+```yo
 Error :: trait(
-  (source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))) ?= ((self) -> .None),
+  (source : (fn(self : *Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
 
@@ -147,25 +147,29 @@ AnyError :: Dyn(Error);
 
 Usage example:
 
-```rust
+```yo
 IoError :: object(message : String);
-impl(IoError, ToString(to_string : ((self) -> self.*.message)));
-impl(IoError, Error());  // uses default source
+impl(IoError, ToString(to_string : (self -> self.*.message)));
+impl(IoError, Error()); // uses default source
 
 NetworkError :: object(
   message : String,
   cause : Option(AnyError)
 );
-impl(NetworkError, ToString(to_string : ((self) -> self.*.message)));
-impl(NetworkError, Error(
-  source : ((self) -> self.*.cause)
-));
+impl(NetworkError, ToString(to_string : (self -> self.*.message)));
+impl(
+  NetworkError,
+  Error(
+    source : (self -> self.*.cause)
+  )
+);
 
 handle_error :: (fn(err : AnyError) -> unit)({
   printf("Error: %s\n", err.to_string().as_str());
 
   // Check specific error type and downcast
-  match(downcast(err, NetworkError),
+  match(
+    downcast(err, NetworkError),
     .Some(net_err) => {
       printf("Network error: %s\n", net_err.message.as_str());
     },
@@ -173,7 +177,8 @@ handle_error :: (fn(err : AnyError) -> unit)({
   );
 
   // Chain to source
-  match(err.source(),
+  match(
+    err.source(),
     .Some(inner) => handle_error(inner),
     .None => ()
   );

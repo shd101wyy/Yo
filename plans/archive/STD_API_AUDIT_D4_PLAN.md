@@ -126,7 +126,7 @@ than repairing it, and `tests/string/string_byte_index.test.yo`'s
 description that follows is the pre-flip state.
 `_has_prefix` (`std/string/string.yo:883`) advances with
 
-```rust
+```yo
 while((byte_index < self_bytes) && (char_index < position), byte_index = (byte_index + usize(1)), {
   ... is_start => char_index = (char_index + usize(1));
 });
@@ -738,16 +738,16 @@ things catch it:
    `tests/string/string_byte_index.test.yo`, one canonical subject string
    covering all four UTF-8 widths:
 
-   ```rust
+   ```yo
    //  a    é       中          𝄞
    //  1B   2B      3B          4B         total 10 bytes, 4 runes
    s := String.from("aé中𝄞");
-   assert(s.len() == usize(10));            // BYTES after D4
-   assert(s.char_len() == usize(4));        // runes
+   assert(s.len() == usize(10)); // BYTES after D4
+   assert(s.char_len() == usize(4)); // runes
    assert(s.index_of(String.from("中")) == Option(usize).Some(usize(3)));
    assert(s.substring(usize(3), usize(6)) == String.from("中"));
    assert(s.is_char_boundary(usize(3)));
-   assert(!(s.is_char_boundary(usize(4))));
+   assert(!s.is_char_boundary(usize(4)));
    ```
 
    Every method in the §1.1 table gets a row against this one string. Because

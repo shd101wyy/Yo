@@ -17,13 +17,13 @@ reach today?".
 
 `std/http/server.yo`, `HttpServer.serve_once`:
 
-```rust
+```yo
 serve_once : (fn(self : Self, handler : ..., io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     stream := e.io.await(self.listener.accept(e.io), e);
     framed := e.io.await(read_http_message(stream, self.max_request_bytes, MessageKind.Request, e.io), e);
     ...
-  })
+    })
 )
 ```
 
@@ -56,11 +56,11 @@ The pattern that works inside a task is hand-rolled, and this tree already has
 one instance of it: `std/http/client.yo`'s `_fetch_deadline`, which implements
 `FetchOptions.timeout`.
 
-```rust
-h := e.io.spawn(work(e.io), e);              // the operation, as a task
-dh := e.io.spawn(sleep(limit, e.io), e.io);  // the deadline, as a task
+```yo
+h := e.io.spawn(work(e.io), e); // the operation, as a task
+dh := e.io.spawn(sleep(limit, e.io), e.io); // the deadline, as a task
 while(runtime(!h.is_finished() && !dh.is_finished()), {
-  e.io.await(yield(e.io), e.io);             // a REAL suspension point
+  e.io.await(yield(e.io), e.io); // a REAL suspension point
 });
 ```
 
@@ -92,9 +92,11 @@ contract change discussed below. Roughly 80 lines.
 **B. Add a `Future`-returning deadline combinator to `std/async`.** The missing
 API is something like
 
-```rust
-with_deadline :: (fn(generic(T : Type), fut : Impl(Future(T, IoExn)), limit : Duration, io : Io)
-  -> Impl(Future(Result(T, TimeoutError), IoExn)))
+```yo
+with_deadline :: (
+  fn(generic(T : Type), fut : Impl(Future(T, IoExn)), limit : Duration, io : Io)
+  -> Impl(Future(Result(T, TimeoutError), IoExn))
+)
 ```
 
 i.e. `timeout`'s semantics with `timeout`'s blocking poll replaced by an
