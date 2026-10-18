@@ -22,7 +22,7 @@ B :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
 main :: (fn() -> unit)({
   xs := ArrayList(B).new();
   xs.push(B.Leaf(v : i32(1)));
-  (ys : ArrayList(A)) = xs;   // accepted; should be E0601
+  (ys : ArrayList(A)) = xs; // accepted; should be E0601
   _n := match(B.Node(kids : ys), .Node(k) => k.len(), _ => usize(0));
 });
 export(main);
