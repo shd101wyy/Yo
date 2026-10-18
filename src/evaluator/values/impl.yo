@@ -283,7 +283,7 @@ TypeImplementsTraitFullFn :: (
     env : &Environment
   ) -> bool
 );
-(g_type_implements_trait_full_fn : Option(TypeImplementsTraitFullFn)) =
+(mut(g_type_implements_trait_full_fn) : Option(TypeImplementsTraitFullFn)) =
   Option(TypeImplementsTraitFullFn).None;
 set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)({
   g_type_implements_trait_full_fn = Option(TypeImplementsTraitFullFn).Some(f);
@@ -293,7 +293,7 @@ set_type_implements_trait_full_fn :: (fn(f : TypeImplementsTraitFullFn) -> unit)
 /// resolves at trait-checking step 4. Routed via a function pointer to break the
 /// impl.yo ↔ trait_checking.yo import cycle (same pattern as above).
 RegisterTraitValueFn :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit);
-(g_register_trait_value_fn : Option(RegisterTraitValueFn)) =
+(mut(g_register_trait_value_fn) : Option(RegisterTraitValueFn)) =
   Option(RegisterTraitValueFn).None;
 /// Install the function pointer (called from trait_checking.yo init block).
 set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
@@ -315,7 +315,7 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 /// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
 /// the caller throws with its own token/exn, invoking it per trait entry.
 CheckSelfConstraintsFn :: (fn(target_type : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> Option(String));
-(g_check_self_constraints_fn : Option(CheckSelfConstraintsFn)) =
+(mut(g_check_self_constraints_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
 /// Install the function pointer (called from trait_checking.yo init block).
 set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
@@ -331,7 +331,7 @@ set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// rejected when the pattern is evaluated), so the pattern check covers every
 /// instantiation. Same function-pointer routing as above: impl.yo cannot
 /// import trait_checking.yo.
-(g_receiver_kind_trait_fn : Option(CheckSelfConstraintsFn)) =
+(mut(g_receiver_kind_trait_fn) : Option(CheckSelfConstraintsFn)) =
   Option(CheckSelfConstraintsFn).None;
 /// Install the function pointer (called from trait_checking.yo init block).
 set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
@@ -533,7 +533,7 @@ MoveOnlyDecl :: struct(
 /// type-key epoch they were keyed in. Cleared with the memo.
 (g_move_only_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 (g_move_only_fast_answers : ArrayList(String)) = ArrayList(String).new();
-(g_move_only_fast_epoch : u64) = u64(0);
+(mut(g_move_only_fast_epoch) : u64) = u64(0);
 /// `type_key`s being answered: a generic impl's where-clause check can ask
 /// about the same type again (it reaches `type_contains_rc_type`).
 (g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
@@ -680,7 +680,7 @@ register_negative_impl :: (fn(type_id : &String, trait_id : &String) -> unit)({
 /// below: that fn's def-time trial reaches `_abstract_bindings_ok` (through
 /// `_resolve_one_forall_binding_from`), whose body reads this — at ITS
 /// position the binding would not have executed yet (E0906).
-(g_open_pattern_query : bool) = false;
+(mut(g_open_pattern_query) : bool) = false;
 /// The forall `fa_some`'s binding: the one the receiver pattern gave it before
 /// the where pass (`pre_where`, index-aligned with `forall_somes`),
 /// else the scoped lookup in `env`.
@@ -1214,7 +1214,7 @@ _is_future_handle_slot :: (fn(t : &TypeValue) -> bool)(
 /// method finder, and Yo has no forward references). Installed by the
 /// module-level statement right after the finder's definition.
 FindAssocFromImplsFn :: (fn(t : &TypeValue, label : &String, env : &Environment) -> Option(TypeValue));
-(g_find_assoc_from_impls_fn : Option(FindAssocFromImplsFn)) = Option(FindAssocFromImplsFn).None;
+(mut(g_find_assoc_from_impls_fn) : Option(FindAssocFromImplsFn)) = Option(FindAssocFromImplsFn).None;
 /// True when any member of `tys` is, or structurally contains, a SomeT.
 _any_type_has_some_type :: (fn(tys : &ArrayList(TypeValue)) -> bool)({
   (ati : usize) = usize(0);
@@ -4358,7 +4358,7 @@ _run_impl_field :: (
   pop_forcing_def();
 });
 /// A forced member's failure, parked by the capture-free handler below.
-(g_field_force_failure : Option(String)) = Option(String).None;
+(mut(g_field_force_failure) : Option(String)) = Option(String).None;
 _flag_field_force_failure :: (fn(msg : &String) -> unit)({
   g_field_force_failure = Option(String).Some(msg);
   ()

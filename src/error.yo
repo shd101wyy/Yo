@@ -516,7 +516,7 @@ render_any_error :: (fn(err : &AnyError) -> String)(
 /// group. Every stash-and-print edge (module loading, the LSP, import-site
 /// collapse) reads STRUCTURED data from here instead of parsing rendered
 /// text — one stash next to the text stash, populated at the same points.
-(g_last_error_diagnostics : Option(ArrayList(Diagnostic))) = Option(
+(mut(g_last_error_diagnostics) : Option(ArrayList(Diagnostic))) = Option(
   ArrayList(Diagnostic)
 ).None;
 // ---------------------------------------------------------------------------
@@ -539,11 +539,11 @@ render_any_error :: (fn(err : &AnyError) -> String)(
 /// most recent evaluation attempt is the one that failed. Any later or nested
 /// evaluation invalidates it, so a generic message can never inherit an
 /// unrelated earlier failure.
-(g_swallowed_diagnostics : Option(ArrayList(Diagnostic))) = Option(
+(mut(g_swallowed_diagnostics) : Option(ArrayList(Diagnostic))) = Option(
   ArrayList(Diagnostic)
 ).None;
-(g_eval_attempt : usize) = usize(0);
-(g_swallowed_at_attempt : usize) = usize(0);
+(mut(g_eval_attempt) : usize) = usize(0);
+(mut(g_swallowed_at_attempt) : usize) = usize(0);
 /// Called by the exn-less evaluation wrapper on entry.
 note_eval_attempt :: (fn() -> unit)({
   g_eval_attempt = (g_eval_attempt + usize(1));

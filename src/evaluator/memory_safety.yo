@@ -74,7 +74,7 @@ register_file_pragma :: (fn(module_path : &String, kind : Pragma) -> unit)({
 });
 /// Reset the registry. Used between independent `check` runs.
 _clear_pragma_registry :: (fn() -> unit)({
-  g_privileged_files = ArrayList(PragmaEntry).new();
+  g_privileged_files.clear();
   ()
 });
 /// Drop pragma entries for a single module (LSP edit / cache invalidation).
@@ -93,7 +93,8 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_privileged_files = kept;
+  g_privileged_files.clear();
+  g_privileged_files.append(&mut kept);
   ()
 });
 /// Is the module path implicitly unsafe-capable for pointer ops?
@@ -214,16 +215,18 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
     }
   )
 });
-/// Decision 47 Generation A (plans/VALUES_BY_DEFAULT.md): the module-level
-/// mutability rules (a write to an unmarked global, E0917; a lend of a
-/// `mut(...)` global, E0916) are enforced outside the trees the seed builds,
-/// because the seed cannot parse `mut(name)` yet: std, the compiler source
-/// beside it (`<std>/../src/`), the repository's own build file and scripts
-/// that the seed also compiles (`<std>/../build.yo`, `<std>/../scripts/`,
-/// e.g. `scripts/build_site.yo` in the release job), a fetched dependency in
-/// the store (`.../store/sha256/...`) and macro expansions. Decision 47's
-/// locals step (step 2) shares it. Generation B sweeps those trees and drops
-/// this exemption.
+/// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
+/// the mutability rule for a binding below module level (a write to an
+/// unmarked local, pattern or compile-time binding, E0917) is enforced
+/// outside the trees the seed builds, because the seed cannot parse a local
+/// `mut(name)` yet: std, the compiler source beside it (`<std>/../src/`), the
+/// repository's own build file and scripts that the seed also compiles
+/// (`<std>/../build.yo`, `<std>/../scripts/`, e.g. `scripts/build_site.yo` in
+/// the release job), a fetched dependency in the store
+/// (`.../store/sha256/...`) and macro expansions. The module-level rules
+/// (E0917 on a global, E0916) no longer consult it: globals Generation B
+/// swept std and src. Locals Generation B sweeps those trees and drops this
+/// exemption.
 (g_mut_rule_exempt_memo : HashMap(String, bool)) = HashMap(String, bool).new();
 is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(

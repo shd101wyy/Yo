@@ -109,7 +109,7 @@ env_mod :: import("std/env");
 // State
 // ---------------------------------------------------------------------------
 // Cached prelude env — populated on first load, reused thereafter.
-(g_cached_prelude_env : Option(Environment)) = Option(Environment).None;
+(mut(g_cached_prelude_env) : Option(Environment)) = Option(Environment).None;
 /// The export namespace the FIRST prelude evaluation already produced:
 /// `AnonModuleResult.module_value` / `.module_type` — the source-namespace
 /// StructVal paired with the Struct type whose per-field types are the ones
@@ -120,13 +120,13 @@ env_mod :: import("std/env");
 /// and the other parameterised declarations into `<fn(...)>` constants
 /// (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). Populated in the
 /// same block as `g_cached_prelude_env`, cleared with it in `mm_reset`.
-(g_cached_prelude_module_value : Option(EvalValue)) = Option(EvalValue).None;
-(g_cached_prelude_module_type : Option(TypeValue)) = Option(TypeValue).None;
+(mut(g_cached_prelude_module_value) : Option(EvalValue)) = Option(EvalValue).None;
+(mut(g_cached_prelude_module_type) : Option(TypeValue)) = Option(TypeValue).None;
 /// Frame count of `g_cached_prelude_env` when it was cached. The cache is a
 /// PRIVATE snapshot and nothing may push into it; `mm_fresh_module_env`
 /// treats any growth as an internal error (silent contamination of every
 /// later module — issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md).
-(g_cached_prelude_frame_count : usize) = usize(0);
+(mut(g_cached_prelude_frame_count) : usize) = usize(0);
 // Demand-driven module loader state (set per load run). The import handler
 // `ctx.load_module` has a fixed `(path) -> LoadModuleResult` signature, so the
 // loading context (the std path) is stashed here for the on-demand load path;
@@ -134,7 +134,7 @@ env_mod :: import("std/env");
 // returned, never thrown through a stored handler. This enables CIRCULAR imports: a module is registered as "loading"
 // (with its live env) before its body runs, so a cyclic import reads its
 // partial exports instead of failing "module not preloaded".
-(g_loader_std_path : Option(String)) = Option(String).None;
+(mut(g_loader_std_path) : Option(String)) = Option(String).None;
 // Shared ExprInfoTable for codegen: when set (during `compile`), every
 // demand-loaded module's eval context writes its per-expression metadata into
 // THIS one table instead of a fresh per-module table. Codegen emits the bodies
@@ -142,7 +142,9 @@ env_mod :: import("std/env");
 // so their ExprInfo must live in a single table. ExprIds are globally unique
 // (alloc_global_expr_id), so a shared table has no cross-module key collisions.
 // `.None` during `check`/`test` (each file keeps its own table).
-(g_shared_expr_info_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+(mut(g_shared_expr_info_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+/// No shared table is installed: each module evaluation keeps its own.
+_no_shared_expr_info_table :: (fn() -> bool)(match(g_shared_expr_info_table, .Some(_) => false, .None => true));
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -153,7 +155,7 @@ env_mod :: import("std/env");
 /// can catch it — a module whose top-level eval throws inside
 /// `comptime_expect_error(import("…"))` is an EXPECTED error, not a
 /// driver-fatal one (tests/circular_import.test.yo's circular_error fixture).
-(g_load_module_error : Option(String)) = Option(String).None;
+(mut(g_load_module_error) : Option(String)) = Option(String).None;
 /// Outcome of evaluating one `.yo` file: `ok` plus the module value/type when
 /// the evaluation succeeded.
 ///
@@ -189,14 +191,14 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
 /// root through the same slot, so every later resolution in the process —
 /// and the `--std-path` a `test`/`build` parent forwards to its child
 /// `compile` processes — agrees with it.
-(g_std_path_override : Option(String)) = Option(String).None;
+(mut(g_std_path_override) : Option(String)) = Option(String).None;
 set_std_path_override :: (fn(path : &String) -> unit)({
   g_std_path_override = Option(String).Some(path);
 });
 /// The stashed `--std-path` override, if any. `build_runner.yo` forwards it
 /// to child `compile`/`test` processes.
 get_std_path_override :: (fn() -> Option(String))({
-  return(g_std_path_override.clone());
+  return(g_std_path_override);
 });
 /// Resolve the standard-library root. The proper evaluator needs this so
 /// `import("std/...")` can be satisfied — without it, the prelude cannot be
@@ -423,7 +425,7 @@ mm_set_loader_context :: (fn(std_path : &String) -> unit)({
   g_loader_std_path = Option(String).Some(std_path);
 });
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
-mm_has_prelude_env :: (fn() -> bool)(!g_cached_prelude_env.is_none());
+mm_has_prelude_env :: (fn() -> bool)(match(g_cached_prelude_env, .Some(_) => true, .None => false));
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
   g_cached_prelude_module_value = Option(EvalValue).None;
@@ -443,11 +445,12 @@ mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
 /// Clone the cached prelude env, or start a fresh one keyed on `module_path`
 /// when no prelude has been loaded yet.
 mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
+  (want_frames : usize) = g_cached_prelude_frame_count;
   match(
     g_cached_prelude_env,
-    .Some(pe) => if(pe.frames.len() != g_cached_prelude_frame_count, {
+    .Some(pe) => if(pe.frames.len() != want_frames, {
       panic(
-        `internal error: the cached prelude env has ${pe.frames.len().to_string()} frames, expected ${g_cached_prelude_frame_count.to_string()} — a live env's frame list aliased the cache and something pushed into it (issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md)`
+        `internal error: the cached prelude env has ${pe.frames.len().to_string()} frames, expected ${want_frames.to_string()} — a live env's frame list aliased the cache and something pushed into it (issues/fixed/comptime-expect-error-re-pushed-the-module-frame-into-the-prelude-env.md)`
       );
     }),
     .None => ()
@@ -1845,7 +1848,7 @@ mm_revalidate_apply :: (
               );
               ri = (ri + usize(1));
             });
-            (reval_per_module_table : bool) = g_shared_expr_info_table.is_none();
+            (reval_per_module_table : bool) = _no_shared_expr_info_table();
             (reval_mark : usize) = if(reval_per_module_table, specialization_recording_begin(), usize(0));
             mod_failures := revalidate_walk_defs(&walk, &defs);
             revalidated = (revalidated + defs.len());
@@ -1999,13 +2002,13 @@ mm_reset :: (fn() -> unit)({
 /// evaluator's import-root table on the first module load
 /// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1). Per-process
 /// configuration — `mm_reset` leaves it alone.
-(g_imports_file_override : Option(String)) = Option(String).None;
-(g_imports_file_loaded : bool) = false;
+(mut(g_imports_file_override) : Option(String)) = Option(String).None;
+(mut(g_imports_file_loaded) : bool) = false;
 set_imports_file_override :: (fn(path : &String) -> unit)({
   g_imports_file_override = Option(String).Some(path);
   g_imports_file_loaded = false;
 });
-get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override.clone());
+get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override);
 /// Load the `--imports` mapping once. A relative root is absolutized against
 /// the process cwd (the runner writes absolute paths; the flag is usable by
 /// hand too). Malformed lines (no `=`, empty name or root) are errors — the
@@ -2056,7 +2059,7 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
 /// the last entry had none above it. One process serves many entries (`check
 /// ./src`, the test runner's batches, an LSP session) that share a manifest,
 /// so the closure is computed once per manifest.
-(g_manifest_roots_for : Option(String)) = Option(String).None;
+(mut(g_manifest_roots_for) : Option(String)) = Option(String).None;
 /// Register the `import("name")` roots of the project the entry file `fs_path`
 /// belongs to (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1): the
 /// nearest `yo.toml` at or above its directory, resolved by
@@ -2066,7 +2069,7 @@ _load_imports_file :: (fn(exn : Exception) -> unit)({
 /// it is set, discovery is skipped. A malformed manifest is an error here —
 /// it is a compile error of the entry, reported once by the owning edge.
 _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> unit)({
-  if(g_imports_file_override.is_some(), {
+  if(get_imports_file_override().is_some(), {
     return(());
   });
   entry_dir := match(
@@ -2207,7 +2210,7 @@ export(_eval_module_exprs_capturing_error, _take_load_error);
 /// hands its parent (saved + own total) on the way out. Unconditionally
 /// maintained — the arithmetic is free — while `profile_record_module` itself
 /// no-ops unless profiling is armed.
-(g_prof_child_load_ns : i64) = i64(0);
+(mut(g_prof_child_load_ns) : i64) = i64(0);
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
 /// register its exports. Registers it as "loading" (with its live env) BEFORE
 /// evaluating, so a circular import resolves to its partial exports. Uses the
@@ -2376,7 +2379,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   out_tys := ArrayList(TypeValue).new();
   // check: this module's table dies with it, so the bodies evaluated into it
   // are summarized for later modules' walks first (summarize_function_bodies).
-  (per_module_table : bool) = g_shared_expr_info_table.is_none();
+  (per_module_table : bool) = _no_shared_expr_info_table();
   (mint_mark : usize) = if(per_module_table, specialization_recording_begin(), usize(0));
   _eval_module_exprs_capturing_error(&mod_exprs, &env, &ctx, &mut out_vals, &mut out_tys);
   if(per_module_table, {
@@ -2581,7 +2584,7 @@ mm_load_prelude_file :: (
   g_prof_child_load_ns = i64(0);
   // keep_frame_at_end=true so the prelude's bindings survive into the cached
   // env.
-  (prelude_per_module_table : bool) = g_shared_expr_info_table.is_none();
+  (prelude_per_module_table : bool) = _no_shared_expr_info_table();
   (prelude_mint_mark : usize) = if(prelude_per_module_table, specialization_recording_begin(), usize(0));
   prelude_result := evaluate_anonymous_module_begin_exprs(
     exprs,
@@ -2621,7 +2624,7 @@ mm_load_prelude_file :: (
     i64(0),
     prof_t0.elapsed().as_nanos() - g_prof_child_load_ns
   );
-  if(g_cached_prelude_env.is_none(), {
+  if(!mm_has_prelude_env(), {
     // Cache a PRIVATE SNAPSHOT (fresh frame lists and Frame objects, the
     // same Frame ids, shared Variable handles), never the live prelude env:
     // the evaluator threads envs by reassigning `env.frames = <ExprInfo>.env.frames`,
@@ -2781,7 +2784,7 @@ mm_eval_entry_exprs :: (
   out_tys := ArrayList(TypeValue).new();
   // check: the specializations this entry mints are cached for every later
   // file of a directory check, but their bodies live in this entry's table.
-  (entry_per_module_table : bool) = g_shared_expr_info_table.is_none();
+  (entry_per_module_table : bool) = _no_shared_expr_info_table();
   (entry_mint_mark : usize) = if(entry_per_module_table, specialization_recording_begin(), usize(0));
   _eval_module_exprs_capturing_error(exprs, &env, &ctx, &mut out_vals, &mut out_tys);
   if(entry_per_module_table, {
@@ -2911,7 +2914,7 @@ mm_load_file :: (
   // process-wide registries under fresh type identities — which corrupts
   // where-constrained generic-impl resolution for every file checked after it
   // (see issues/fixed/seed-built-stage1-array-fill-method-miss.md).
-  if(input_path.ends_with(String.from("prelude.yo")) && !g_cached_prelude_env.is_none(), {
+  if(input_path.ends_with(String.from("prelude.yo")) && mm_has_prelude_env(), {
     if(verbose, {
       emit_chatter(`check: ${input_path} — evaluator OK`);
     });
@@ -2991,7 +2994,7 @@ mm_load_file :: (
     return(_prelude_load_outcome(input_path.clone(), std_path.clone()));
   });
   // Ensure the prelude env is cached (single-file loads skip any pre-load step).
-  if(g_cached_prelude_env.is_none(), {
+  if(!mm_has_prelude_env(), {
     _pre := recur(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
   });
   entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
@@ -3036,7 +3039,7 @@ mm_preload_prelude :: (
   ) -> bool
 )({
   (ok : bool) = true;
-  if(g_cached_prelude_env.is_none(), {
+  if(!mm_has_prelude_env(), {
     // The always-visible mark for the prelude's registrations is applied
     // inside mm_load_prelude_file, together with the registration-owner stamp,
     // so EVERY path that evaluates the prelude — this one and the single-file

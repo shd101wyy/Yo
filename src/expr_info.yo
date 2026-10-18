@@ -439,7 +439,7 @@ ExprInfo :: ref(
 /// shallow copy, point THIS ExprInfo at it, and hand it out. Other sharers
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
-(g_adopt_env_calls : usize) = usize(0);
+(mut(g_adopt_env_calls) : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : &ExprInfo) -> Environment)({
   g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(&info.env);
@@ -1026,9 +1026,9 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 /// The active mode: 0 until `compile` hands the shared table over
 /// (`scope_release_set_table`), so `check`, `test`'s evaluation and the LSP
 /// never record or release.
-(g_scope_mode : usize) = usize(0);
-(g_scope_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
-(g_scope_depth : usize) = usize(0);
+(mut(g_scope_mode) : usize) = usize(0);
+(mut(g_scope_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+(mut(g_scope_depth) : usize) = usize(0);
 (g_scope_log_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
 (g_scope_log_ids : ArrayList(ExprId)) = ArrayList(ExprId).new();
 (g_scope_atom_exc : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
@@ -1042,25 +1042,25 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 /// The husk lookup supplies the rest of each answer.
 (g_scope_one : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
 (g_scope_inner : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
-(g_scope_prefix_bad : usize) = usize(0);
+(mut(g_scope_prefix_bad) : usize) = usize(0);
 /// A released info whose env shares only its first `k` frames with the husk.
 (g_scope_klen : HashMap(ExprId, usize)) = HashMap(ExprId, usize).new();
-(g_scope_rereleased : usize) = usize(0);
-(g_scope_stale_key : usize) = usize(0);
+(mut(g_scope_rereleased) : usize) = usize(0);
+(mut(g_scope_stale_key) : usize) = usize(0);
 /// Shadow mode: the info object each id was released with (release mode
 /// tells a re-logged object by its husk env).
 (g_scope_shadow_objs : HashMap(ExprId, ExprInfo)) = HashMap(ExprId, ExprInfo).new();
-(g_scope_released : usize) = usize(0);
-(g_scope_kept : usize) = usize(0);
-(g_scope_mismatch : usize) = usize(0);
-(g_scope_checked : usize) = usize(0);
+(mut(g_scope_released) : usize) = usize(0);
+(mut(g_scope_kept) : usize) = usize(0);
+(mut(g_scope_mismatch) : usize) = usize(0);
+(mut(g_scope_checked) : usize) = usize(0);
 (g_scope_samples : ArrayList(String)) = ArrayList(String).new();
-(g_scope_calls : usize) = usize(0);
-(g_scope_path : usize) = usize(0);
+(mut(g_scope_calls) : usize) = usize(0);
+(mut(g_scope_path) : usize) = usize(0);
 (g_scope_mm_kinds : HashMap(String, usize)) = HashMap(String, usize).new();
 (g_scope_logged : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
-(g_scope_unlogged : usize) = usize(0);
-(g_scope_logged_unreleased : usize) = usize(0);
+(mut(g_scope_unlogged) : usize) = usize(0);
+(mut(g_scope_logged_unreleased) : usize) = usize(0);
 /// Turn the release on for `compile`'s shared table (or off with `.None`).
 scope_release_set_table :: (fn(t : &Option(ExprInfoTable)) -> unit)({
   g_scope_table = t;
@@ -1482,7 +1482,17 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
 });
 scope_release_report :: (fn() -> unit)(
   if(g_scope_mode_wanted == usize(1), {
-    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${g_scope_released.to_string()} kept=${g_scope_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${g_scope_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} rereleased=${g_scope_rereleased.to_string()} stale_key=${g_scope_stale_key.to_string()} checked=${g_scope_checked.to_string()} mismatch=${g_scope_mismatch.to_string()} calls=${g_scope_calls.to_string()} unlogged=${g_scope_unlogged.to_string()} logged_unreleased=${g_scope_logged_unreleased.to_string()}`);
+    (n_released : usize) = g_scope_released;
+    (n_kept : usize) = g_scope_kept;
+    (n_prefix_bad : usize) = g_scope_prefix_bad;
+    (n_rereleased : usize) = g_scope_rereleased;
+    (n_stale_key : usize) = g_scope_stale_key;
+    (n_checked : usize) = g_scope_checked;
+    (n_mismatch : usize) = g_scope_mismatch;
+    (n_calls : usize) = g_scope_calls;
+    (n_unlogged : usize) = g_scope_unlogged;
+    (n_logged_unreleased : usize) = g_scope_logged_unreleased;
+    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
     kit := g_scope_mm_kinds.into_iter();
     while(runtime(true), {
       match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);
@@ -1533,7 +1543,7 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
 /// shared table): `check` gives each module a table that dies with it, and a
 /// process-wide map would outlive those (+20 MB on `check src/main.yo`).
 (g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
-(g_share_name_paths : bool) = false;
+(mut(g_share_name_paths) : bool) = false;
 set_name_path_sharing :: (fn(on : bool) -> unit)({
   g_share_name_paths = on;
   if(!on, {
@@ -1584,7 +1594,7 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
 /// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
 /// codegen reads. Off unless `YO_CODEGEN_READS` / `YO_CODEGEN_KEEP` is set
 /// (`codegen_c.yo` switches it on for collect + emit only).
-(g_codegen_read_log_on : bool) = false;
+(mut(g_codegen_read_log_on) : bool) = false;
 (g_codegen_read_keys : HashSet(usize)) = HashSet(usize).new();
 codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
@@ -1888,7 +1898,7 @@ _mg_canon :: (fn(module_path : &String) -> String)({
 /// shape as `branch_group_stack_len` / `truncate_branch_group_stack`, so
 /// nested `comptime_expect_error`s nest correctly. Only keys this recording
 /// window ADDED are rolled back; a name already registered stays.
-(g_mg_recording_depth : usize) = usize(0);
+(mut(g_mg_recording_depth) : usize) = usize(0);
 (g_mg_recorded_keys : ArrayList(String)) = ArrayList(String).new();
 module_global_recording_mark :: (fn() -> usize)({
   g_mg_recording_depth = (g_mg_recording_depth + usize(1));
@@ -2200,12 +2210,12 @@ active_where_trait_ids :: (fn() -> ArrayList(String))(
 /// (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.2) must not see the trial's constraints;
 /// `restore_active_where_trait_ids` puts the saved stack back afterwards.
 take_active_where_trait_ids :: (fn() -> ArrayList(ArrayList(String)))({
-  saved := g_active_where_trait_ids;
-  g_active_where_trait_ids = ArrayList(ArrayList(String)).new();
+  saved := g_active_where_trait_ids.split_off(usize(0));
   saved
 });
 restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> unit)({
-  g_active_where_trait_ids = saved;
+  g_active_where_trait_ids.clear();
+  g_active_where_trait_ids.extend(saved);
   ()
 });
 /// True when a prior assignment record for `var_id` exists on the CURRENT
@@ -2830,7 +2840,8 @@ print_spec_report_if_requested :: (fn() -> unit)({
     );
   });
   eprintln(`[spec-report] cloned_nodes=${cloned_expr_node_count().to_string()} specializations=${total_specs.to_string()} fids=${rows.len().to_string()} runtime_calls=${total_calls.to_string()}`);
-  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${g_adopt_env_calls.to_string()}`);
+  (adopt_calls : usize) = g_adopt_env_calls;
+  eprintln(`[spec-report] ${snapshot_ring_stats()} adopt_env_calls=${adopt_calls.to_string()}`);
   ti := type_intern_probe_report();
   if(ti.len() > usize(0), {
     eprintln(&ti);
@@ -2988,16 +2999,15 @@ export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_en
 /// edit recorded through a synthetic token (a derive's generated impl) is
 /// dropped at apply time instead of corrupting the file.
 MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
-(g_migrate_param_modes : bool) = false;
+(mut(g_migrate_param_modes) : bool) = false;
 (g_migrate_edits : ArrayList(MigrateEdit)) = ArrayList(MigrateEdit).new();
 (g_migrate_edit_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_param_modes :: (fn(on : bool) -> unit)({
   g_migrate_param_modes = on;
 });
 take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
-  out := g_migrate_edits;
-  g_migrate_edits = ArrayList(MigrateEdit).new();
-  g_migrate_edit_keys = HashSet(String).new();
+  out := g_migrate_edits.split_off(usize(0));
+  g_migrate_edit_keys.clear();
   out
 });
 record_migrate_edit :: (fn(tok : &Token, len : usize, replacement : &String, expect : &String) -> unit)({
@@ -3014,7 +3024,7 @@ migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
 /// 26): a use after a consuming `match`, and a module-level or projection
 /// scrutinee a `match` cannot move, record `&` before the scrutinee instead
 /// of being rejected.
-(g_migrate_match_scrutinee : bool) = false;
+(mut(g_migrate_match_scrutinee) : bool) = false;
 set_migrate_match_scrutinee :: (fn(on : bool) -> unit)({
   g_migrate_match_scrutinee = on;
 });
@@ -3035,7 +3045,7 @@ export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_m
 /// `addr_of(x)`). `expect` is the printed `&x` expression, which the rewrite
 /// matches against the source text before it edits anything.
 AddrOfSite :: struct(path : String, row : usize, col : usize, expect : String, lent : bool);
-(g_migrate_addr_of : bool) = false;
+(mut(g_migrate_addr_of) : bool) = false;
 (g_addr_of_sites : ArrayList(AddrOfSite)) = ArrayList(AddrOfSite).new();
 (g_addr_of_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_addr_of :: (fn(on : bool) -> unit)({
@@ -3059,9 +3069,8 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
   g_addr_of_sites.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
-  out := g_addr_of_sites;
-  g_addr_of_sites = ArrayList(AddrOfSite).new();
-  g_addr_of_site_keys = HashSet(String).new();
+  out := g_addr_of_sites.split_off(usize(0));
+  g_addr_of_site_keys.clear();
   out
 });
 export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site, take_addr_of_sites);
@@ -3073,7 +3082,7 @@ export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site,
 /// method or a field is left as written
 /// (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md).
 DestructorSite :: struct(path : String, row : usize, col : usize);
-(g_migrate_drop_trait : bool) = false;
+(mut(g_migrate_drop_trait) : bool) = false;
 (g_destructor_sites : ArrayList(DestructorSite)) = ArrayList(DestructorSite).new();
 (g_destructor_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_drop_trait :: (fn(on : bool) -> unit)({
@@ -3094,9 +3103,8 @@ record_destructor_site :: (fn(member_tok : &Token) -> unit)({
   g_destructor_sites.push(DestructorSite(path : member_tok.module_path.clone(), row : usize(member_tok.row), col : usize(member_tok.column)));
 });
 take_destructor_sites :: (fn() -> ArrayList(DestructorSite))({
-  out := g_destructor_sites;
-  g_destructor_sites = ArrayList(DestructorSite).new();
-  g_destructor_site_keys = HashSet(String).new();
+  out := g_destructor_sites.split_off(usize(0));
+  g_destructor_site_keys.clear();
   out
 });
 export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_destructor_site, take_destructor_sites);
@@ -3107,7 +3115,7 @@ export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_des
 /// marker goes; `expect` is the printed place, which the rewrite matches
 /// against the source text before it edits anything.
 MarkerSite :: struct(path : String, row : usize, col : usize, expect : String, marker : String);
-(g_migrate_markers : bool) = false;
+(mut(g_migrate_markers) : bool) = false;
 (g_marker_sites : ArrayList(MarkerSite)) = ArrayList(MarkerSite).new();
 (g_marker_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_markers :: (fn(on : bool) -> unit)({
@@ -3126,9 +3134,8 @@ record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> u
   g_marker_sites.push(MarkerSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone()));
 });
 take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
-  out := g_marker_sites;
-  g_marker_sites = ArrayList(MarkerSite).new();
-  g_marker_site_keys = HashSet(String).new();
+  out := g_marker_sites.split_off(usize(0));
+  g_marker_site_keys.clear();
   out
 });
 export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, take_marker_sites);
@@ -3139,7 +3146,7 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// printed pattern, which the rewrite matches against the source text before
 /// it edits anything.
 RcPatternSite :: struct(path : String, row : usize, col : usize, expect : String);
-(g_migrate_rc_pattern : bool) = false;
+(mut(g_migrate_rc_pattern) : bool) = false;
 (g_rc_pattern_sites : ArrayList(RcPatternSite)) = ArrayList(RcPatternSite).new();
 (g_rc_pattern_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_rc_pattern :: (fn(on : bool) -> unit)({
@@ -3158,9 +3165,8 @@ record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   g_rc_pattern_sites.push(RcPatternSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone()));
 });
 take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
-  out := g_rc_pattern_sites;
-  g_rc_pattern_sites = ArrayList(RcPatternSite).new();
-  g_rc_pattern_site_keys = HashSet(String).new();
+  out := g_rc_pattern_sites.split_off(usize(0));
+  g_rc_pattern_site_keys.clear();
   out
 });
 export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_pattern_site, take_rc_pattern_sites);
@@ -3171,7 +3177,7 @@ export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_p
 /// printed value, which the rewrite matches against the source text before
 /// it edits anything.
 DynSpellingSite :: struct(path : String, row : usize, col : usize, expect : String);
-(g_migrate_dyn_spelling : bool) = false;
+(mut(g_migrate_dyn_spelling) : bool) = false;
 (g_dyn_spelling_sites : ArrayList(DynSpellingSite)) = ArrayList(DynSpellingSite).new();
 (g_dyn_spelling_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_dyn_spelling :: (fn(on : bool) -> unit)({
@@ -3190,9 +3196,8 @@ record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   g_dyn_spelling_sites.push(DynSpellingSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone()));
 });
 take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
-  out := g_dyn_spelling_sites;
-  g_dyn_spelling_sites = ArrayList(DynSpellingSite).new();
-  g_dyn_spelling_site_keys = HashSet(String).new();
+  out := g_dyn_spelling_sites.split_off(usize(0));
+  g_dyn_spelling_site_keys.clear();
   out
 });
 export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, record_dyn_spelling_site, take_dyn_spelling_sites);
@@ -3200,7 +3205,7 @@ export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, recor
 /// `mut(name)` (decision 47): `row`/`col` are its declared name's token,
 /// `expect` the name, which the rewrite matches against the source text.
 MutableGlobalSite :: struct(path : String, row : usize, col : usize, expect : String);
-(g_migrate_mutable_globals : bool) = false;
+(mut(g_migrate_mutable_globals) : bool) = false;
 (g_mutable_global_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
 (g_mutable_global_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_mutable_globals :: (fn(on : bool) -> unit)({
@@ -3218,9 +3223,8 @@ record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   g_mutable_global_sites.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
 });
 take_mutable_global_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mutable_global_sites;
-  g_mutable_global_sites = ArrayList(MutableGlobalSite).new();
-  g_mutable_global_site_keys = HashSet(String).new();
+  out := g_mutable_global_sites.split_off(usize(0));
+  g_mutable_global_site_keys.clear();
   out
 });
 export(MutableGlobalSite, set_migrate_mutable_globals, migrate_mutable_globals_on, record_mutable_global_site, take_mutable_global_sites);
@@ -3228,7 +3232,7 @@ export(MutableGlobalSite, set_migrate_mutable_globals, migrate_mutable_globals_o
 /// 47 step 2): the same shape as `MutableGlobalSite`. A written parameter
 /// cannot take the marker (decision 47: parameters stay immutable); it is
 /// recorded in `g_mut_param_sites` at the write, for the report.
-(g_migrate_mut_bindings : bool) = false;
+(mut(g_migrate_mut_bindings) : bool) = false;
 (g_mut_binding_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
 (g_mut_binding_site_keys : HashSet(String)) = HashSet(String).new();
 (g_mut_param_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
@@ -3300,15 +3304,13 @@ _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   g_mut_param_sites.push(site);
 });
 take_mut_binding_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_binding_sites;
-  g_mut_binding_sites = ArrayList(MutableGlobalSite).new();
-  g_mut_binding_site_keys = HashSet(String).new();
+  out := g_mut_binding_sites.split_off(usize(0));
+  g_mut_binding_site_keys.clear();
   out
 });
 take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_param_sites;
-  g_mut_param_sites = ArrayList(MutableGlobalSite).new();
-  g_mut_param_site_keys = HashSet(String).new();
+  out := g_mut_param_sites.split_off(usize(0));
+  g_mut_param_site_keys.clear();
   out
 });
 export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);

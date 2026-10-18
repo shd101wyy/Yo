@@ -100,22 +100,22 @@ _GEN_LIMIT :: (usize(1) << _INDEX_BITS);
 // them) and every chunk entry are written once, under `_pool_mutex`, before
 // any index that reaches them is handed out.
 _CHUNK0 :: usize(16);
-_dir := Option(*void).None;
+mut(_dir) := Option(*void).None;
 // States created so far: the highest index in use.
-_states := usize(0);
+mut(_states) := usize(0);
 // Dead states, reused by the next `Arena.new`. Reachable from a global, so
 // they are never reported as leaks; bounded by the peak number of arenas alive
 // at once.
 _pool_mutex := __yo_mutex_create();
-_pool := Option(*void).None;
+mut(_pool) := Option(*void).None;
 // Abandoned states (and, through them, their regions): kept reachable on
 // purpose, since an abandoned arena lives as long as the process.
-_abandoned := Option(*void).None;
+mut(_abandoned) := Option(*void).None;
 // Under `--debug-heap` only: arenas neither deinit nor abandoned, for the exit
 // report. Off otherwise, so a leaked arena stays unreachable and LSan still
 // reports its region.
-_live := Option(*void).None;
-_reporter_installed := false;
+mut(_live) := Option(*void).None;
+mut(_reporter_installed) := false;
 _round_up :: (fn(n : usize) -> usize)((((n + _ALIGN) - usize(1)) / _ALIGN) * _ALIGN);
 // The chunk holding `index`: floor(log2((index - 1) / _CHUNK0 + 1)).
 _chunk_of :: (fn(index : usize) -> usize)({
@@ -134,7 +134,8 @@ _state_at :: (fn(index : usize) -> *_ArenaState)({
   first := (_CHUNK0 * ((usize(1) << c) - usize(1)));
   // SAFETY: `_dir` and its entry `c` were written before `index` was handed
   // out, and are never written again.
-  chunk := unsafe((*?*void)(_dir.unwrap()).add(c).*).unwrap();
+  dir := _dir;
+  chunk := unsafe((*?*void)(dir.unwrap()).add(c).*).unwrap();
   (*_ArenaState)(unsafe((*u8)(chunk).add((j - first) * size_of(_ArenaState))))
 });
 // A context word as the `?*void` an `Allocator` carries, and back. The word
@@ -277,7 +278,7 @@ _new_state :: (fn() -> *_ArenaState)({
     true => ()
   );
   cond(
-    _dir.is_none() => {
+    match(_dir, .Some(_) => false, .None => true) => {
       _dir = match(
         GlobalAllocator.calloc(_INDEX_BITS, size_of(?*void)),
         .Some(d) => .Some(d),
@@ -288,7 +289,8 @@ _new_state :: (fn() -> *_ArenaState)({
   );
   c := _chunk_of(index);
   // SAFETY: `_dir` holds `_INDEX_BITS` entries, more than any index needs.
-  slot := unsafe((*?*void)(_dir.unwrap()).add(c));
+  dir := _dir;
+  slot := unsafe((*?*void)(dir.unwrap()).add(c));
   cond(
     unsafe(slot.*).is_none() => {
       chunk := match(

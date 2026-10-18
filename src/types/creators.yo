@@ -24,7 +24,7 @@
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
 // ---------------------------------------------------------------------------
-(g_some_type_id_counter : usize) = usize(0);
+(mut(g_some_type_id_counter) : usize) = usize(0);
 generate_some_type_id :: (fn() -> String)({
   local_c := g_some_type_id_counter;
   s := local_c.to_string();
@@ -1004,7 +1004,7 @@ type_binding_name :: (fn(type_id : &String) -> Option(String))(
 );
 /// Drop every binding name (a reset of the evaluator universe).
 clear_type_binding_names :: (fn() -> unit)({
-  g_type_binding_names = HashMap(String, String).new();
+  g_type_binding_names.clear();
 });
 
 /// Impl-level generic VALUE-binder kinds (`N : usize` in
@@ -1036,7 +1036,7 @@ clear_some_binder_kind :: (fn(name : &String, lvl : usize) -> unit)({
 /// `set_in_def_time_trial` delegate here); the storage sits in the types
 /// layer so types/compatibility.yo can read it without an evaluator-layer
 /// import cycle (same layering reason as `_some_binder_kinds` above).
-(g_in_def_time_trial_cell : bool) = false;
+(mut(g_in_def_time_trial_cell) : bool) = false;
 trial_flag_get :: (fn() -> bool)(g_in_def_time_trial_cell);
 trial_flag_set :: (fn(v : bool) -> bool)({
   prev := g_in_def_time_trial_cell;

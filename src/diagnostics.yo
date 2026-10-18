@@ -20,7 +20,7 @@ json :: import("std/encoding/json");
 /// at CLI startup from `--error-format`/`YO_ERROR_FORMAT`; every edge that
 /// prints or rethrows a rendered diagnostic goes through
 /// `render_diagnostics_for_mode` so the choice is global and consistent.
-(g_error_format : String) = String.from("human");
+(mut(g_error_format) : String) = String.from("human");
 set_error_format :: (fn(mode : &String) -> unit)({
   g_error_format = mode;
 });
@@ -29,16 +29,18 @@ error_format :: (fn() -> String)(g_error_format);
 /// are DATA (stdout); human/short go to stderr like every compiler's
 /// diagnostics.
 emit_rendered_text :: (fn(text : &String) -> unit)({
+  fmt := g_error_format;
   cond(
-    ((g_error_format == "json") || (g_error_format == "sarif")) => println(text),
+    ((fmt == "json") || (fmt == "sarif")) => println(text),
     true => eprintln(text)
   );
 });
 /// Progress chatter (`check: …`): stdout normally, stderr under
 /// `--error-format json` so the data channel stays pure JSON Lines.
 emit_chatter :: (fn(text : &String) -> unit)({
+  fmt := g_error_format;
   cond(
-    ((g_error_format == "json") || (g_error_format == "sarif")) => eprintln(text),
+    ((fmt == "json") || (fmt == "sarif")) => eprintln(text),
     true => println(text)
   );
 });
@@ -50,7 +52,7 @@ emit_chatter :: (fn(text : &String) -> unit)({
 /// unflushed stash would grow across a server's lifetime. Detection sites
 /// (the evaluator's scope-end walks) call `emit_warning`, which is a no-op
 /// while this is off, so a disabled run pays one bool test per scope.
-(g_warnings_enabled : bool) = false;
+(mut(g_warnings_enabled) : bool) = false;
 set_warnings_enabled :: (fn(on : bool) -> unit)({
   g_warnings_enabled = on;
 });
@@ -78,8 +80,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
 /// Take (and clear) the pending warnings — the CLI edge renders whatever
 /// accumulated during the command, in the process's current format.
 take_warnings :: (fn() -> ArrayList(Diagnostic))({
-  out := g_pending_warnings;
-  g_pending_warnings = ArrayList(Diagnostic).new();
+  out := g_pending_warnings.split_off(usize(0));
   out
 });
 /// ── Diagnostic codes (P2, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────
@@ -338,7 +339,7 @@ derive(Diagnostic, Clone);
 /// once at startup; every render reads it. Only the HUMAN renderer colors —
 /// `short` stays grep-able and `json`/`sarif` stay parseable regardless of
 /// the flag, including the human text embedded in their payloads.
-(g_color_enabled : bool) = false;
+(mut(g_color_enabled) : bool) = false;
 set_color_enabled :: (fn(on : bool) -> unit)({
   g_color_enabled = on;
 });
@@ -1049,14 +1050,15 @@ render_diagnostics_sarif :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)
 });
 /// Render a diagnostic group in the process's current format (defined after
 /// the renderers it dispatches to — module-level order matters).
-render_diagnostics_for_mode :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)(
+render_diagnostics_for_mode :: (fn(diagnostics : &ArrayList(Diagnostic)) -> String)({
+  fmt := g_error_format;
   cond(
-    (g_error_format == "short") => render_diagnostics_short(diagnostics),
-    (g_error_format == "json") => render_diagnostics_json(diagnostics),
-    (g_error_format == "sarif") => render_diagnostics_sarif(diagnostics),
+    (fmt == "short") => render_diagnostics_short(diagnostics),
+    (fmt == "json") => render_diagnostics_json(diagnostics),
+    (fmt == "sarif") => render_diagnostics_sarif(diagnostics),
     true => render_diagnostics_human(diagnostics)
   )
-);
+});
 
 export(Severity, Span, Label, Diagnostic, Repair);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);

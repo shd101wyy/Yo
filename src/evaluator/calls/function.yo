@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut, variable_is_future_operand_parameter, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3083,11 +3083,15 @@ _lent_place_string :: (fn(lp : &_LentPlace) -> String)({
 });
 /// Decision 38 D's frozen-lender premise (§3.13 A2): a place lent to a
 /// borrowing future stays put only while its owner cannot run. A local's
-/// frame is suspended with the task that awaits the future; a module-level
-/// runtime binding, or a `thread_local` one, is reachable by name from every
-/// task on the thread, so another task could reassign or write it during the
-/// await and the future would read a released value. D1 stops other threads
-/// only. A `::` constant has no runtime storage to change and is lent freely.
+/// frame is suspended with the task that awaits the future; a `mut(G)`
+/// module-level binding, or a `thread_local(mut(x))` one, is reachable by name
+/// from every task on the thread, so another task could reassign or write it
+/// during the await and the future would read a released value. D1 stops
+/// other threads only. A binding declared without `mut` is immutable
+/// (decision 47), and a `::` constant has no runtime storage, so both are lent
+/// freely; a place in the storage behind an unmarked handle global is judged
+/// by rules A and B at the call that makes the future
+/// (`_check_call_global_lends`).
 _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
@@ -3114,18 +3118,18 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
   });
 });
 /// The E0909 for a place lent to a borrowing future whose root binding is a
-/// module-level (or `thread_local`) runtime binding.
+/// `mut(G)` module-level (or `thread_local(mut(x))`) runtime binding.
 _reject_global_lend_to_future :: (fn(place : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
   lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
   gv := match(_lent_root_variable(&lp.root, ctx), .Some(v) => v, .None => return(()));
-  if(!gv.is_module_level || gv.is_compile_time_only, {
+  if(!gv.is_module_level || (gv.is_compile_time_only || !is_mut_global(&gv.token.module_path, &gv.name)), {
     return(());
   });
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
         ast_expr_token(place),
-        `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and \`${gv.name}\` is a module-level binding (a static or a \`thread_local\`): any task on this thread can reassign or write it while this one waits, so the future could read a value that was already released (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
+        `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and \`${gv.name}\` is a mutable module-level binding (\`mut(${gv.name})\`, a static or a \`thread_local\`): any task on this thread can reassign or write it while this one waits, so the future could read a value that was already released (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
         Option(String).Some(`lend a local copy (\`v := ...; io.await(f(&v, io), io)\`), or read \`${gv.name}\` by name inside the future at each use`)
       ),
       E_BORROW_ESCAPES
@@ -3511,7 +3515,7 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx :
     global_require_mut(gv, &at, &`lend \`&mut\` (${l.form})`, ctx, exn);
   });
   if(marked, {
-    if(global_lend_audit_enabled() || !global_mut_rule_applies(&at, ctx), {
+    if(global_lend_audit_enabled(), {
       return(());
     });
     raise_flow_violation(
@@ -3520,7 +3524,7 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx :
           &at,
           `Cannot lend \`${place_text}\` to \`${callee_text}\` (${l.form}): \`${gv.name}\` is declared \`mut(${gv.name})\`, a mutable module-level binding, which has no run-time borrow flag. Any function can write it by name, and so can another task while the callee awaits, so the callee could read a value that was already released while it still holds the borrow (plans/VALUES_BY_DEFAULT.md decision 18 rule 3, decision 47).`,
           Option(String).Some(
-            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}.clone(); f(&mut v); ${gv.name} = v;\`), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
+            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}; f(&mut v); ${gv.name} = v;\`; \`${gv.name}.clone()\` would itself lend it), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
           )
         ),
         E_GLOBAL_LENT_TO_CALL

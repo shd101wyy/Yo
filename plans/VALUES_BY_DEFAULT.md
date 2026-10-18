@@ -145,7 +145,11 @@ Progress:
   - Decision 47's globals step, Generation A: `mut(G)` module-level
     bindings, E0917 for a write to an unmarked global, E0916 for lending a
     `mut(G)` global to a call (the global-lend S1), and
-    `yo fix --migrate mutable-globals` (#1401).
+    `yo fix --migrate mutable-globals` (#1401); and Generation B: std and
+    src mark their written globals, the reassigned handle globals reset in
+    place, the E0916 lends rewritten, the std/src exemption dropped, and
+    E0909 narrowed to `mut(G)` roots (#1414; decision 47's "As built
+    (Generation B)").
   - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`,
     with the written-after guard (#1385).
   - decision 46 Generation A: the `YO_AUDIT_RC_WRITE` census,
@@ -169,8 +173,7 @@ Progress:
   - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
     over futures, blocked on `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`)
     and A6's `Rc`-field half (V2c).
-- **Next:** decision 47's globals step, Generation B (on the next seed),
-  the rest of V2b (direct projection
+- **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
   (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
@@ -6477,8 +6480,9 @@ heavy run, the command is given in item 2.
    - v0.2.64 is the seed (`SEED_VERSION`). It carries A1 (#1384, already in
      v0.2.63), decision 47's `mut(` parser and A5's `__yo_waker_clone`.
    - Decision 47 globals Generation B has landed (handover §2.3, "Generation
-     B"): `is_global_mut_rule_exempt` is gone, so std and src are judged by
-     E0916/E0917 like user code. Every count below assumes it.
+     B"): `is_global_mut_rule_exempt` no longer covers globals (it stays
+     for decision 47's locals step until its Generation B), so std and src
+     are judged by E0916/E0917 on globals like user code. Every count below assumes it.
    - #1385 (A2, `yo fix --migrate explicit-copy`) has landed (handover §4
      step 8). The tree-built compiler runs the migration; the seed does not
      need it, because `.clone()` is valid in every seed.
@@ -7581,6 +7585,41 @@ once `SEED_VERSION` parses it.
      write back), a `markdown_yo` companion release, then drop
      `is_global_mut_rule_exempt` and narrow #1389's E0909 to `mut(G)` and
      `thread_local(mut(...))` roots.
+   - **As built (Generation B, `feat/d47-globals-genb`, #1414; it needs a
+     seed that parses `mut(`, v0.2.64):**
+     - The census (`YO_AUDIT_GLOBAL_LEND` over `check ./src` and
+       `check ./std`), before the migration on develop `36c41e62b`
+       (2026-10-16): 264 written globals (src 249, std 12, `markdown_yo` 3
+       plus `wasm_api.yo`'s one, which src does not import); 62 of the src
+       ones are `ref` handles that are only ever reassigned; lending the
+       written globals gives 261 lends before the resets. After the resets
+       and the migration, re-measured on develop `ed733408c` (2026-10-17):
+       88 E0916 sites (src 82, std 6) plus 4 rule A conflicts at 3 sites
+       that the exemption had hidden.
+     - The 62 handle globals are reset in place: `G = T.new()` becomes
+       `G.clear()`, the take-and-reset helpers (`out := G; G = T.new(); out`)
+       become `G.split_off(usize(0))`, and an assignment from a fresh local
+       becomes `G.clear(); G.append(&mut local)` (`G.extend(p)` from a
+       borrowed parameter). Two stay `mut(G)`: `g_lb_lookahead_stmts`
+       (aliases the caller's statement list) and
+       `g_synthetic_token_last_inner` (aliases an entry of the token cache).
+     - `yo fix --migrate mutable-globals` then marks 189 src and 12 std
+       globals, and the 88 lends are rewritten by hand: a counter is read
+       into a local before it is bumped, a `String`/`Option` global is copied
+       into a local (or read through its existing getter, which returns the
+       global by value), `std/rand.yo` steps a local copy of the
+       thread-local state and writes it back.
+     - `is_global_mut_rule_exempt` and `global_mut_rule_applies` no longer
+       guard the globals rules (the locals step, #1440, keeps them for its
+       Generation A): E0916 and E0917 on a global apply everywhere, macro
+       expansions and fetched dependencies included. `markdown_yo` marks its four globals in the
+       companion (shd101wyy/markdown_yo#19, released as 0.0.18, which
+       `yo.toml` now requires).
+     - E0909 for a place lent to a borrowing future fires only when its root
+       is a `mut(G)` or `thread_local(mut(x))` binding; an unmarked global is
+       immutable and is lent freely (`tests/async_await.test.yo`). Rules A
+       and B still judge a handle global's storage at the call that makes the
+       future.
 2. **Locals, patterns and comptime.**
    - Generation A:
      - `mut(x)` in every binding position, patterns and destructuring
@@ -7634,7 +7673,9 @@ once `SEED_VERSION` parses it.
        `match(&mut x, …)` and a `&mut x` capture. A borrow is written through,
        not written. A parameter's write names the rebind; reassigning one
        stays E0902 (its "You can mutate fields" hint is gone).
-     - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals step.
+     - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals
+       step's Generation A; the globals step's Generation B (#1414) took the
+       globals rules off the exemption and left it to this step.
      - E0918 is unchanged and checked first, so a runtime write of a
        `mut(x) ::` is still E0918.
      - A parameter is an immutable binding, so a `&mut` capture of a

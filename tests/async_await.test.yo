@@ -7192,15 +7192,19 @@ test("a borrowing future cannot hold an element lent through an index (decision 
   io.await(_a2_bump_i32(&mut a.cells(usize(1)), io), io);
   assert(a.cells(usize(1)) == i32(6), "an element of a fixed-size array is part of the local's own storage");
 });
-// A module-level or `thread_local` binding is reachable by name from every
-// task on the thread, so another task could reassign it while a future that
-// borrows it waits
+// A `mut(G)` module-level or `thread_local(mut(x))` binding is reachable by
+// name from every task on the thread, so another task could reassign it while
+// a future that borrows it waits
 // (issues/fixed/2026-10-15-a-module-level-global-lent-to-a-borrowing-future-can-be-reassigned-during-the-await.md).
+// A global declared without `mut` is immutable (decision 47), so a future may
+// borrow it.
 _A2Global := _A2Counter(n : i32(1));
 mut(_a2_global_n) := i32(2);
 _a2_global_cells := Array(i32, 2)(i32(4), i32(5));
 mut(_A2ArcGlobal) := arc(_A2Counter(n : i32(1)));
+_A2ArcFixed := arc(_A2Counter(n : i32(5)));
 (thread_local(_a2_tl_n) : i32) = i32(0);
+(thread_local(mut(_a2_tl_m)) : i32) = i32(0);
 _A2_CONST :: _A2Counter(n : i32(3));
 _A2Defaulted :: struct(n : i32);
 impl(
@@ -7219,25 +7223,32 @@ _a2_read_i32_later :: (fn(c : &i32, io : Io) -> Impl(Future(i32, Io)))(
     c
   })
 );
-test("a borrowing future cannot hold a place rooted in a module-level or thread_local binding (decision 38 D, §3.13 A2)", {
-  comptime_expect_error(io.await(_a2_tenfold(&_A2Global, io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_bump(&mut _A2Global, io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_A2Global.bump(io), io), "is a module-level binding");
-  // A method whose call omits a defaulted parameter still lends its receiver.
-  comptime_expect_error(io.await(_A2DefaultedGlobal.plus_later(io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_bump_i32(&mut _A2Global.n, io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_global_n, io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_read_i32_later(&_a2_global_cells(usize(0)), io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_tl_n, io), io), "is a module-level binding");
+test("a borrowing future cannot hold a place rooted in a mut(G) or thread_local(mut(x)) binding (decision 38 D, §3.13 A2, decision 47)", {
+  comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_global_n, io), io), "is a mutable module-level binding");
+  comptime_expect_error(io.await(_a2_read_i32_later(&_a2_global_n, io), io), "is a mutable module-level binding");
+  comptime_expect_error(io.await(_a2_read_i32_later(&_a2_tl_m, io), io), "is a mutable module-level binding");
   fp := _a2_bump_i32;
-  comptime_expect_error(io.await(fp(&mut _a2_global_n, io), io), "is a module-level binding");
+  comptime_expect_error(io.await(fp(&mut _a2_global_n, io), io), "is a mutable module-level binding");
   // A shared borrow through `Arc` derefs is still rooted in the global, and
   // `_A2ArcGlobal = arc(...)` during the await would release the payload.
-  comptime_expect_error(io.await(_a2_tenfold(&_A2ArcGlobal.*, io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_read_i32_later(&_A2ArcGlobal.*.n, io), io), "is a module-level binding");
+  comptime_expect_error(io.await(_a2_tenfold(&_A2ArcGlobal.*, io), io), "is a mutable module-level binding");
+  comptime_expect_error(io.await(_a2_read_i32_later(&_A2ArcGlobal.*.n, io), io), "is a mutable module-level binding");
   // Through a local `Arc` the lend is accepted: the handle is the task's own.
   la := arc(_A2Counter(n : i32(4)));
   assert(io.await(_a2_tenfold_later(&la.*, io), io) == i32(40), "a shared borrow through a local Arc crosses the suspension");
+  // So is one through an unmarked `Arc` global: nothing can reassign it.
+  assert(io.await(_a2_tenfold_later(&_A2ArcFixed.*, io), io) == i32(50), "a shared borrow through an unmarked Arc global crosses the suspension");
+  // An unmarked global is immutable: a future may borrow it, and writing it
+  // through a `&mut` lend is E0917.
+  assert(io.await(_a2_tenfold(&_A2Global, io), io) == i32(10), "an unmarked global is lent to a borrowing future");
+  // A method whose call omits a defaulted parameter lends its receiver too.
+  assert(io.await(_A2DefaultedGlobal.plus_later(io), io) == i32(1), "an unmarked global is a borrowing future's receiver");
+  assert(io.await(_a2_read_i32_later(&_a2_global_cells(usize(0)), io), io) == i32(4), "an element of an unmarked fixed-size array global is lent");
+  assert(io.await(_a2_read_i32_later(&_a2_tl_n, io), io) == i32(0), "an unmarked thread_local is lent to a borrowing future");
+  comptime_expect_error(io.await(_a2_bump(&mut _A2Global, io), io), "declared without `mut`");
+  comptime_expect_error(io.await(_A2Global.bump(io), io), "declared without `mut`");
+  comptime_expect_error(io.await(_a2_bump_i32(&mut _A2Global.n, io), io), "declared without `mut`");
+  comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_tl_n, io), io), "declared without `mut`");
   // A `::` constant has no runtime storage another task could change.
   assert(io.await(_a2_tenfold(&_A2_CONST, io), io) == i32(30), "a :: constant is lent freely");
   // A local copy is the task's own.

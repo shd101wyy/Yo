@@ -152,12 +152,13 @@ _evaluate_contract_marker :: (
 /// `index` only when the node's `index-in-bounds` site is proved.
 (g_index_unchecked_twins : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
 set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
-  g_verify_target_paths = paths;
+  g_verify_target_paths.clear();
+  g_verify_target_paths.extend(paths);
   // A new verification recording starts: forget the previous compile's
   // container twins (watch rounds). Unlike the proved-site table, which
   // `_run_contract_verification` clears AFTER evaluation, twins are recorded
   // DURING evaluation, so they reset here.
-  g_index_unchecked_twins = HashMap(ExprId, EvalValue).new();
+  g_index_unchecked_twins.clear();
   ()
 });
 _is_verify_target :: (fn(module_path : &String) -> bool)({
@@ -1305,7 +1306,7 @@ single2 :: (fn(a : &AstExpr, b : &AstExpr) -> ArrayList(AstExpr))({
   out.push(b);
   out
 });
-(g_contract_old_counter : usize) = usize(0);
+(mut(g_contract_old_counter) : usize) = usize(0);
 /// Rewrite `old(expr)` occurrences inside one `ensures` predicate: each is
 /// hoisted into an entry-time snapshot binding `__yo_contract_old_K := expr`
 /// pushed onto `snapshots`, and the `old(expr)` node is replaced by a
@@ -1327,8 +1328,9 @@ _hoist_old_in :: (
           snapshots,
           bind_op.clone()
         );
-        snap_name := `__yo_contract_old_${g_contract_old_counter.to_string()}`;
-        g_contract_old_counter = (g_contract_old_counter + usize(1));
+        snap_n := g_contract_old_counter;
+        g_contract_old_counter = (snap_n + usize(1));
+        snap_name := `__yo_contract_old_${snap_n.to_string()}`;
         snapshots.push(
           _build_binding(snap_name.clone(), &inner, f_tok.clone(), bind_op.clone())
         );
@@ -1445,8 +1447,8 @@ record_proved_guard_site :: (fn(site : &ProvedGuardSite) -> unit)({
 });
 /// Drop every recorded site and the elision count (the start of a compile).
 clear_proved_guard_sites :: (fn() -> unit)({
-  g_proved_guard_sites = HashMap(ExprId, ArrayList(ProvedGuardSite)).new();
-  g_elided_guard_nodes = HashSet(String).new();
+  g_proved_guard_sites.clear();
+  g_elided_guard_nodes.clear();
   ()
 });
 record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)({
@@ -1524,7 +1526,7 @@ verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
 /// effects are inert.
 /// The CLI override (`--verify-mode`); the file pragma is source of truth
 /// when present, this decides otherwise.
-(g_verify_mode_override : Option(String)) = Option(String).None;
+(mut(g_verify_mode_override) : Option(String)) = Option(String).None;
 set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
   g_verify_mode_override = m;
   ()
@@ -1588,8 +1590,7 @@ evaluated_for_verify :: (
 /// Drain the registry (move the tasks out and reset it) for the verifier
 /// pass. `yo verify` drains once after evaluating the target set.
 take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
-  out := g_verify_tasks;
-  g_verify_tasks = ArrayList(VerifyTask).new();
+  out := g_verify_tasks.split_off(usize(0));
   out
 });
 /// V6 task 1 (FORMAL_VERIFICATION.md): trait-contract INHERITANCE at impl

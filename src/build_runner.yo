@@ -415,7 +415,7 @@ resolve_build_import_roots :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    g_import_lines = ArrayList(String).new();
+    g_import_lines.clear();
     has_manifest := manifest_opt.is_some();
     if(!has_manifest && (registry.referenced_dependencies.len() > usize(0)), {
       e.exn.throw(dyn(`Error: build.dependency("${registry.referenced_dependencies(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
@@ -452,7 +452,8 @@ resolve_build_import_roots :: (
       lines.push(`${r.name}=${r.root}`);
       li = (li + usize(1));
     });
-    g_import_lines = lines;
+    g_import_lines.clear();
+    g_import_lines.append(&mut lines);
     e.io.await(_link_store_trees(&manifest, e.io, e.exn), e);
     ()
   })
@@ -547,7 +548,8 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
   });
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.len(), {
-    if(g_dep_import_dirs(i) == package_dir, {
+    dir := g_dep_import_dirs(i);
+    if(dir == package_dir, {
       out := ArrayList(String).new();
       lines := g_dep_import_texts(i);
       (j : usize) = usize(0);
@@ -565,7 +567,8 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
 _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
   while(i < g_dep_import_dirs.len(), {
-    if(g_dep_import_dirs(i) == package_dir, {
+    dir := g_dep_import_dirs(i);
+    if(dir == package_dir, {
       return(());
     });
     i = (i + usize(1));
@@ -1440,7 +1443,7 @@ _stamp_push_str :: (fn(dst : &mut ArrayList(u8), s2 : &String) -> unit)({
 /// `<stage-1> yo build` on an unchanged tree served the artifact the seed had
 /// compiled, and a "stage-2" was the stage-1 binary again
 /// (issues/fixed/yo-build-cache-ignores-which-compiler-built-the-artifact.md).
-(g_compiler_identity : Option(String)) = Option(String).None;
+(mut(g_compiler_identity) : Option(String)) = Option(String).None;
 /// Pin the identity instead of hashing the executable (tests).
 set_compiler_identity :: (fn(id : &String) -> unit)({
   g_compiler_identity = Option(String).Some(id);
