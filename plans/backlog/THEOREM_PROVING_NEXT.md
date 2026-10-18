@@ -66,7 +66,7 @@ and the scope creep the verifier's risk table already guards against.
 | `distinct(a, b)` | proof-only `requires` clause: two list parameters are different lists (the alias frame condition) | `BF_DISTINCT` |
 | spec-transparent pure fns | an uncontracted pure runtime fn is unfoldable inside specs; a recursive one needs `decreases` | ATS lessons A3 |
 | `decreases(a, b, …)` | lexicographic measures | ATS lessons A5 |
-| `yo verify --strict` | `assumed` / `outside-subset` / `unproven` fail the run; summaries always count them | B0 |
+| `yo verify --strict` | `assumed` / `outside-subset` / `unproven` fail the run; summaries always count them (a fourth class, hypothesis vacuity, is planned — FORMAL_VERIFICATION "Vacuity checking") | B0 |
 
 The measurement that justifies everything below (R2 task 1 of the
 indexed-types plan; Z3 5.1.0, the verifier's own preamble): **Z3 does not
@@ -300,6 +300,36 @@ for recursive spec functions (F7).
 | **Proof certificates** — remove Z3 from the trusted base | Z3 proof logs + a small independent checker, itself written and verified in Yo ([`../reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md) §8; SELF_VERIFICATION D5) | a certification customer needing independent assurance ("V8+ at the earliest") |
 | **An external audit oracle** — a K semantics of Yo, or exporting the deterministic SMT-LIB VCs to an external ITP (Lean/Isabelle) for a semantic-preservation-scale claim | build nothing inside Yo; export only (the SMT-LIB emitter is already golden-tested) | a semantic-preservation-scale claim anyone actually needs to make |
 | **Verified unsafe std** — prove `ArrayList`'s raw-buffer bodies instead of `assumed()` | a raw-buffer model for `ArrayList` alone, not a general heap model (ATS_LESSONS §4, decided 2026-10-02) | a std bug traced to a wrong `assumed()` clause |
+
+**Design rules for the certificate route** (recorded 2026-10-18, so the
+un-parking PR does not re-derive them). Yo's certificate is a *proof*
+certificate: per obligation, the SMT-LIB query, the solver's proof
+object, and the hash of the encoder that produced the query — never a
+claim about the emitted C, because Yo hands C11 to a system compiler and
+translation validation is out of scope (SELF_VERIFICATION "Foundations").
+Binding a certificate to an artifact's bytes needs a target whose
+lowering the checker can itself replay; of Yo's targets only wasm32 has
+that shape, and it stays parked with the rest.
+
+- **The checker is a separate, separately versioned binary**, and the
+  compiler links no checker: a compiler that can vouch for its own
+  output certifies nothing.
+- **Exact-match pinning, no negotiation.** A certificate names the
+  encoder hash and the solver pin it was produced under; the checker
+  accepts only an exact match, with no grace window. Every encoder change
+  re-certifies everything — that cost is the point.
+- **Two speeds.** A fast CI `check` trusts the cached proof objects and
+  prints what it checked; a release-grade `verify` replays every proof
+  from a fresh directory and ignores every cache.
+- **Fail closed.** No diagnostic, cache hit or missing input may turn a
+  failed or absent proof into acceptance; a checker that cannot tell
+  which proofs failed fails the run.
+- **The producer is adversarial, not merely buggy.** The checker's test
+  corpus includes hostile certificates — renamed symbols, a proof for a
+  different query, a query whose mangled names collide — not only
+  honest-but-wrong ones.
+- **Pinned vs declared.** A report may print as "certified" only what
+  the checker pinned; what the compiler declared is a different column.
 
 ## 9. Non-goals (binding)
 
