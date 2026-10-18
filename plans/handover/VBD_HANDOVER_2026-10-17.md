@@ -294,6 +294,12 @@ The maintainer asked for all work to stop once v0.2.65 is published, with this d
    - Run refs. All 7 ` ```yo ` blocks parse with the tree compiler.
    - `git push -f origin rg/1442:plans/self-verification-honesty-pass`, then `gh pr ready 1442` and `gh pr merge 1442 --squash --admin`.
    - Delete the remote branch by hand if `--delete-branch` refuses.
+4b. Lands `ci/fmt-check-plans`, the maintainer's 2026-10-18 request to fmt-check `plans/` in CI and format every plan. It is pushed as a bare branch with no PR yet, two commits on `53995438d`:
+   - **The sweep** (regenerable). 317 Yo blocks fenced ` ```rust ` become ` ```yo ` and are tree-formatted. 233 become ` ```yo ignore `: historical syntax, plus the six syntax and formatter docs, where a block's layout is the illustration. One C snippet becomes ` ```c `. The 22 genuine Rust blocks keep ` ```rust `.
+   - **The gate.** `./plans` joins `test.yml`'s fmt step and `gates_fast.sh` GATE 6, and `AGENTS.md` and `documentation.instructions.md` name it.
+   - It overlaps only #1442, in `FORMAL_VERIFICATION.md`, `THEOREM_PROVING_NEXT.md` and `BEND_LAWS_AND_AGENT_LOOP_LESSONS.md`. After #1442 merges, rebase it. On a conflict, take develop's side, re-run `python3 ~/Workspace/Yo-wt/vbd-logs/fmtplans/refence.py <tree yo> plans <tmp>` and `yo fmt ./plans`, and amend the sweep commit.
+   - Tier 1: tree-binary `fmt --check ./plans` (idempotent), refs, and a look at the diff of any newly re-fenced block. Then open the PR from the template and admin-merge it.
+   - From then on, any ` ```yo ` block added under `plans/` must be formatted (GATE 6).
 5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.
 
 A new agent starting from this document re-runs Tier 1 for any branch before merging it (§2.4).
