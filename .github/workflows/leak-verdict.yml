@@ -128,3 +128,8 @@ jobs:
           # in-language oracle (an internal read buffer), so this leg is its
           # regression run.
           "$S1" test ./tests/http/http.test.yo --c-compiler clang --verbose
+          # spawn_blocking.test.yo joined when the awaiter began joining the
+          # worker after taking the result
+          # (issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md):
+          # the flake is a timing window with no in-language oracle.
+          "$S1" test ./tests/spawn_blocking.test.yo --c-compiler clang --verbose

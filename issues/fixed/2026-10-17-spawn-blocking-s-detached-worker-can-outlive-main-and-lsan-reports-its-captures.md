@@ -38,3 +38,23 @@ Either join detached workers at process exit (a runtime-level registry of
 live detached threads), or release the worker closure's captures before the
 wake that lets the awaiting task finish. The second fix only narrows the
 window, because the thread's own teardown still races the exit.
+
+## Fix (landed)
+
+A third variant, which closes the window completely without touching the
+runtime: the returned future's task now owns the worker's `JoinHandle` and
+joins it AFTER taking the result (`std/thread.yo`, `spawn_blocking`). The
+join waits only for the thread's own teardown — `__yo_async_blocking_end`'s
+inbox post before it is a few atomics and a non-blocking notify — a bounded
+sub-millisecond cost on the loop thread, and the awaiting task can no longer
+complete (nor can `main` return) while the worker still holds its captures.
+An awaiter that drops the future without awaiting, or an aborted task, still
+drops the handle detached — the old semantics — which is correct: nothing
+observes those captures afterwards.
+
+Measured on the branch's std: `tests/spawn_blocking.test.yo` 5/5 with leak
+verdicts ON, plus a 15-run loop green with verdicts on. The file joins the
+`leak-verdict.yml` allowlist (the flake has no in-language oracle: it is a
+timing window between the wake and the thread's teardown).
+
+Fixed by PR (fix/spawn-blocking-join-worker).

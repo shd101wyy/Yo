@@ -119,7 +119,7 @@ The declared flag is `own=true`, but the binding comes out non-owning.
   `move_only`, `closure_capture_rc_leak` and `closure_capture_list` pass under
   ASan. `tests/spawn_blocking.test.yo` passes under TSan, and under ASan except
   for one LeakSanitizer report that develop's binary also produces
-  (`issues/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`).
+  (`issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`).
   `tests/copy_trait.test.yo` has one leak that develop's binary also produces
   (`issues/fixed/2026-10-17-comptime-expect-error-over-a-moving-call-leaves-the-argument-consumed-so-it-leaks.md`).
   The `tests/internal` files that import a changed module (`ast_reflection`,
