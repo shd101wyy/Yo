@@ -1,17 +1,20 @@
 //! Insertion-ordered map.
 //!
 //! `OrderedMap(K, V)` preserves the order in which keys were first inserted,
-//! similar to JavaScript's `Map` or Python's `dict` (≥ 3.7). Backed by a
-//! `HashMap` for O(1) average-time lookup and an `ArrayList` of keys for
-//! deterministic iteration order.
+//! similar to JavaScript's `Map` or Python's `dict` (≥ 3.7). The entries live
+//! in one `ArrayList(MapEntry(K, V))` in insertion order — the ONLY place a
+//! key is stored — beside a hash index from each key's hash to the positions
+//! of the entries whose key hashes to it, so lookup is O(1) average time and
+//! the key is never copied
+//! (`issues/fixed/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`).
 //!
 //! # Complexity
 //!
 //! - `set` (new key): O(1) amortized
 //! - `set` (existing key): O(1) — value updated in place, order unchanged
 //! - `get` / `contains_key`: O(1) average
-//! - `remove`: O(n) — the keys after the removed one shift down a slot
-//! - `swap_remove`: O(1) — moves the last key into the removed slot, so the
+//! - `remove`: O(n) — the entries after the removed one shift down a slot
+//! - `swap_remove`: O(1) — moves the last entry into the removed slot, so the
 //!   iteration order changes (Rust's `IndexMap::swap_remove`)
 //! - `index_of` / `get_index`: O(1) — positional lookup, both directions
 //! - `iter` / `keys` / `values`: O(n), in insertion order
@@ -46,15 +49,24 @@
 //! Adding it would change what `remove`'s cost is worth accepting. Everything
 //! else is settled — D14's pointer `iter()` and the `IntoIterator` that makes
 //! `for(map, ...)` work both landed 2026-09-08.
-// `iter()` yields `*(MapEntry(K, V))` into the backing HashMap's buckets (D14),
-// so this module names a raw pointer type. The pointers are produced by
-// `HashMap.get_entry_ptr` and never dereferenced here.
+// `iter()` yields `*(MapEntry(K, V))` into the entry list's buffer (D14), so
+// this module names a raw pointer type. The pointers come from
+// `ArrayList.ptr` and are never dereferenced outside the in-place readers.
 pragma(Pragma.AllowUnsafe);
 { MapEntry } :: import("./entry.yo");
 { ArrayList } :: import("./array_list");
 { HashMap, HashMapError } :: import("./hash_map");
+{ DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
+{ AllocError } :: import("../allocator.yo");
 /// Ordered map preserving insertion order of keys.
 /// Keys must implement `Eq` and `Hash`.
+///
+/// The key of each entry is stored ONCE, in `_entries`; `_index` maps the
+/// key's HASH to the positions of the entries whose key hashes to it (two
+/// keys can share a hash, so the value is a list of positions, each compared
+/// by key in place). A move-only key — a `Drop` type, a `Box`, a plain type
+/// with neither `Copy` nor `Clone` — therefore moves in with its entry and
+/// out again, never through a copy.
 OrderedMap :: (
   fn(
     comptime(K) : Type,
@@ -64,16 +76,15 @@ OrderedMap :: (
 )(
   ref(
     struct(
-      _map : HashMap(K, V),
-      _order : ArrayList(K),
-      /// Each live key's position in `_order`. This is what makes
-      /// `swap_remove` O(1) — without it, finding the slot to swap into means
-      /// scanning `_order`, and the whole point of `swap_remove` over `remove`
-      /// is that it does not walk the map. `IndexMap` keeps the same side
-      /// table for the same reason. Every write to `_order` must keep it in
-      /// step; the four sites are `new`, `insert`, `remove` and `clear`.
-      /// It also answers `index_of` and, with `_order`, `get_index`.
-      _index : HashMap(K, usize)
+      /// The entries, in insertion order. The only home of each key.
+      _entries : ArrayList(MapEntry(K, V)),
+      /// Each key's hash -> the positions in `_entries` of the entries whose
+      /// key hashes to it. A list of positions, because a hash is not a key:
+      /// on a lookup every position is compared by key, in place. This is
+      /// what makes `swap_remove` O(1) and answers `index_of`; every write
+      /// to `_entries` must keep it in step — the sites are `insert`,
+      /// `remove` and `swap_remove` (`new` and `clear` start it empty).
+      _index : HashMap(u64, ArrayList(usize))
     )
   )
 );
@@ -84,44 +95,155 @@ impl(
   /// Create an empty `OrderedMap`.
   new : (fn() -> Self)(
     Self(
-      _map : HashMap(K, V).new(),
-      _order : ArrayList(K).new(),
-      _index : HashMap(K, usize).new()
+      _entries : ArrayList(MapEntry(K, V)).new(),
+      _index : HashMap(u64, ArrayList(usize)).new()
     )
   ),
   /// Number of entries.
-  len : (fn(self : &Self) -> usize)(self._map.len()),
+  len : (fn(self : &Self) -> usize)(self._entries.len()),
   /// Whether the map is empty.
-  is_empty : (fn(self : &Self) -> bool)(self._map.is_empty()),
+  is_empty : (fn(self : &Self) -> bool)(self._entries.is_empty()),
+  /// The entry buffer, for the in-place readers. Only called with a position
+  /// below `len()`, so the buffer exists.
+  _entries_ptr : (fn(self : &Self) -> *MapEntry(K, V))(
+    match(
+      self._entries.ptr(),
+      .Some(p) => p,
+      .None => __yo_panic("OrderedMap: the entry list has no buffer")
+    )
+  ),
+  /// A key's hash. The FIXED SipHash keys keep the index reproducible run to
+  /// run, as `HashMap` does for its bucket order.
+  _hash_key : (fn(self : &Self, key : &K) -> u64)({
+    h := DefaultHasher.new_with_keys(DEFAULT_KEY_0, DEFAULT_KEY_1);
+    key.hash(&mut h);
+    h.finish()
+  }),
+  /// The position of `key` in `_entries`, comparing each candidate's key in
+  /// place — a `&K` is all a lookup ever needs, so a move-only key is found.
+  _find_pos : (fn(self : &Self, key : &K) -> Option(usize))({
+    h := self._hash_key(key);
+    match(
+      self._index.get(&h),
+      .Some(positions) => {
+        (mut(found) : Option(usize)) = Option(usize).None;
+        i := usize(0);
+        while((i < positions.len()) && found.is_none(), i = (i + usize(1)), {
+          match(
+            positions.get(i),
+            .Some(pos) => {
+              ep := self._entries_ptr().add(pos);
+              cond(
+                (ep.*.key == key) => {
+                  found = Option(usize).Some(pos);
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+        });
+        found
+      },
+      .None => Option(usize).None
+    )
+  }),
+  /// Record that `pos` holds an entry whose key hashes to `h`. The bucket is
+  /// an `ArrayList`, a shared handle, so the `get` copy writes the list the
+  /// index holds.
+  _index_add : (fn(self : &mut Self, h : u64, pos : usize) -> unit)(
+    match(
+      self._index.get(&h),
+      .Some(positions) => positions.push(pos),
+      .None => {
+        fresh := ArrayList(usize).new();
+        fresh.push(pos);
+        self._index.insert(h, fresh);
+        ()
+      }
+    )
+  ),
+  /// Forget the position `pos` under `h` (`remove`/`swap_remove`).
+  _index_drop : (fn(self : &mut Self, h : u64, pos : usize) -> unit)(
+    match(
+      self._index.get(&h),
+      .Some(positions) => {
+        match(
+          positions.index_of(&pos),
+          .Some(i) => consume(positions.remove(i)),
+          .None => ()
+        );
+        ()
+      },
+      .None => ()
+    )
+  ),
+  /// Move a position record from `from` to `to` under `h` — the fix-up a
+  /// shift or a swap leaves behind.
+  _index_bump : (fn(self : &mut Self, h : u64, from : usize, to : usize) -> unit)(
+    match(
+      self._index.get(&h),
+      .Some(positions) => {
+        match(
+          positions.index_of(&from),
+          .Some(i) => {
+            consume(positions.remove(i));
+            positions.insert(i, to);
+          },
+          .None => ()
+        );
+        ()
+      },
+      .None => ()
+    )
+  ),
   /// Returns `true` if `key` is present.
-  contains_key : (fn(self : &Self, key : &K) -> bool)(self._map.contains_key(key)),
+  contains_key : (fn(self : &Self, key : &K) -> bool)(self._find_pos(key).is_some()),
   /// Returns the value for `key`, or `.None`.
-  get : (fn(self : &Self, key : &K) -> Option(V))(self._map.get(key)),
+  get : (fn(self : &Self, key : &K) -> Option(V))(
+    match(
+      self._find_pos(key),
+      .Some(pos) => Option(V).Some((self._entries_ptr().add(pos)).*.value),
+      .None => Option(V).None
+    )
+  ),
   /// Insert or update `key -> value`.
   ///
-  /// - For a new key, appends `key` to the insertion order.
-  /// - For an existing key, only updates the value; order is preserved.
+  /// - For a new key, the whole entry (key and value) moves into the list.
+  /// - For an existing key, only the value moves: it is swapped in place,
+  ///   bitwise, and the old one moves out. The key never moves.
   ///
   /// Returns `Ok(.Some(old_value))` if key already existed, `Ok(.None)` for
   /// a new key, or `.Err(_)` on allocation failure.
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
-  try_insert : (fn(self : &mut Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    is_new := !self._map.contains_key(&key);
-    result := self._map.try_insert(key, value);
-    cond(
-      is_new => match(
-        &result,
-        .Ok(_) => {
-          self._index.insert(key, self._order.len());
-          self._order.push(key);
-        },
-        .Err(_) => ()
-      ),
-      true => ()
-    );
-    return(result);
-  }),
+  try_insert : (fn(self : &mut Self, key : K, value : V) -> Result(Option(V), HashMapError))(
+    match(
+      self._find_pos(&key),
+      .Some(pos) => {
+        // The old value moves out bitwise and the new one moves into its
+        // slot (HashMap.try_insert's idiom): nothing is copied, and the key
+        // stays where it is.
+        p := self._entries_ptr().add(pos);
+        old := __yo_ptr_read(unsafe(addr_of(p.*.value)));
+        __yo_ptr_write(unsafe(addr_of(p.*.value)), value);
+        Result(Option(V), HashMapError).Ok(Option(V).Some(old))
+      },
+      .None => {
+        h := self._hash_key(&key);
+        pos := self._entries.len();
+        entry := MapEntry(K, V)(key : key, value : value);
+        match(
+          self._entries.try_push(entry),
+          .Err(_) => Result(Option(V), HashMapError).Err(.AllocError(error : .OutOfMemory)),
+          .Ok(_) => {
+            self._index_add(h, pos);
+            Result(Option(V), HashMapError).Ok(Option(V).None)
+          }
+        )
+      }
+    )
+  ),
   /// Insert a key/value pair, returning the PREVIOUS value for that key.
   /// A new key is appended to the insertion order; an existing key keeps its
   /// position.
@@ -137,89 +259,78 @@ impl(
   /// Remove `key`, keeping the insertion order of everything else — Rust's
   /// `IndexMap::shift_remove`. Returns the removed value or `.None`.
   ///
-  /// O(n) in the number of keys AFTER the removed one: they each shift down a
-  /// slot, and the position index has to learn where they went. Use
+  /// O(n) in the number of entries AFTER the removed one: they each shift
+  /// down a slot, and the hash index has to learn where they went. Use
   /// `swap_remove` when the order does not matter.
-  remove : (fn(self : &mut Self, key : &K) -> Option(V))({
-    removed := self._map.remove(key);
+  remove : (fn(self : &mut Self, key : &K) -> Option(V))(
     match(
-      &removed,
-      .Some(_) => {
-        idx := match(
-          self._index.remove(key),
-          .Some(i) => i,
-          .None => __yo_panic("OrderedMap.remove: key in the map but not in the position index")
-        );
-        _dropped := self._order.remove(idx);
-        // Only the keys AFTER the hole moved; the ones before it kept their
-        // positions, so the index is patched over the tail rather than rebuilt.
-        j := idx;
-        n := self._order.len();
+      self._find_pos(key),
+      .None => Option(V).None,
+      .Some(pos) => {
+        // The stored key's hash, taken while the entry is still in place.
+        h := self._hash_key(&((self._entries_ptr().add(pos)).*.key));
+        self._index_drop(h, pos);
+        // The whole entry moves out bitwise; a struct-pattern match takes
+        // the value and drops the key.
+        entry := self._entries.remove(pos);
+        // Every entry after the hole slid down one slot: move its position
+        // record down with it.
+        j := pos;
+        n := self._entries.len();
         while(j < n, j = (j + usize(1)), {
-          match(self._order.get(j), .Some(k) => self._index.insert(k, j), .None => Option(usize).None);
+          hj := self._hash_key(&((self._entries_ptr().add(j)).*.key));
+          self._index_bump(hj, j + usize(1), j);
         });
-      },
-      .None => ()
-    );
-    return(removed);
-  }),
-  /// Remove `key` in O(1), moving the LAST key into its position — Rust's
+        match(entry, { key : _, value : v } => Option(V).Some(v))
+      }
+    )
+  ),
+  /// Remove `key` in O(1), moving the LAST entry into its position — Rust's
   /// `IndexMap::swap_remove`. Returns the removed value or `.None`.
   ///
   /// This CHANGES the iteration order, which is the whole trade: `remove`
-  /// preserves insertion order and pays O(n) to rebuild the key list, while
-  /// this touches three slots and is done. Reach for it when you are draining
+  /// preserves insertion order and pays O(n) to rebuild the entry list, while
+  /// this touches two slots and is done. Reach for it when you are draining
   /// a map, or when order stops mattering once a key is gone.
-  swap_remove : (fn(self : &mut Self, key : &K) -> Option(V))({
-    removed := self._map.remove(key);
+  swap_remove : (fn(self : &mut Self, key : &K) -> Option(V))(
     match(
-      &removed,
-      .Some(_) => {
-        idx := match(
-          self._index.remove(key),
-          .Some(i) => i,
-          .None => __yo_panic("OrderedMap.swap_remove: key in the map but not in the position index")
-        );
-        last := (self._order.len() - usize(1));
+      self._find_pos(key),
+      .None => Option(V).None,
+      .Some(pos) => {
+        // The stored key's hash, taken while the entry is still in place.
+        h := self._hash_key(&((self._entries_ptr().add(pos)).*.key));
+        last := (self._entries.len() - usize(1));
+        // The whole entry moves out bitwise; a struct-pattern match takes
+        // the value and drops the key.
+        entry := self._entries.swap_remove(pos);
+        self._index_drop(h, pos);
         cond(
-          (idx == last) => {
-            self._order.pop();
-          },
+          (pos == last) => (),
           true => {
-            // Read the key that is about to move BEFORE the swap, so its
-            // new position can be recorded.
-            moved := match(self._order.get(last), .Some(k) => Option(K).Some(k), .None => Option(K).None);
-            self._order.swap_remove(idx);
-            match(moved, .Some(mk) => self._index.insert(mk, idx), .None => Option(usize).None);
+            // The entry that was last now sits at `pos`; move its position
+            // record (after the drop above, so a hash it shares with the
+            // removed key cannot collide with the old record).
+            hlast := self._hash_key(&((self._entries_ptr().add(pos)).*.key));
+            self._index_bump(hlast, last, pos);
           }
         );
-      },
-      .None => ()
-    );
-    return(removed);
-  }),
+        match(entry, { key : _, value : v } => Option(V).Some(v))
+      }
+    )
+  ),
   /// The position of `key` in the iteration order, or `.None` if it is
-  /// absent — Rust's `IndexMap::get_index_of`. O(1): the position index that
+  /// absent — Rust's `IndexMap::get_index_of`. O(1): the hash index that
   /// `swap_remove` needs already answers this.
-  index_of : (fn(self : &Self, key : &K) -> Option(usize))(self._index.get(key)),
+  index_of : (fn(self : &Self, key : &K) -> Option(usize))(self._find_pos(key)),
   /// The `(key, value)` pair at position `i` in the iteration order, or
   /// `.None` when `i` is out of range — Rust's `IndexMap::get_index`.
   get_index : (fn(self : &Self, i : usize) -> Option(MapEntry(K, V)))(
-    match(
-      self._order.get(i),
-      .Some(k) => match(
-        self._map.get(&k),
-        .Some(v) => Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : k, value : v)),
-        .None => Option(MapEntry(K, V)).None
-      ),
-      .None => Option(MapEntry(K, V)).None
-    )
+    self._entries.get(i)
   ),
   /// Remove all entries.
   clear : (fn(self : &mut Self) -> unit)({
-    self._map.clear();
-    self._order = ArrayList(K).new();
-    self._index = HashMap(K, usize).new();
+    self._entries = ArrayList(MapEntry(K, V)).new();
+    self._index = HashMap(u64, ArrayList(usize)).new();
   })
 );
 /// Iterator over the keys of an `OrderedMap` in insertion order.
@@ -242,19 +353,23 @@ impl(
   where(K <: (Eq(K), Hash)),
   OrderedMapKeys(K, V),
   /// Next key in INSERTION order, or `.None` at the end — O(1), straight off
-  /// the key-order list.
+  /// the entry list.
   ///
   /// The keys are yielded by value (dup'd for a refcounted `K`). Inserting a
   /// new key during the walk appends to that list and so extends the walk;
-  /// removing one rebuilds it and shifts everything after the removed key.
+  /// removing one shifts everything after the removed entry.
   next : (fn(self : &mut Self) -> Option(K))({
     cond(
-      (self._index >= self._map._order.len()) => {
-        return(.None);
+      (self._index >= self._map._entries.len()) => {
+        return(Option(K).None);
       },
       true => ()
     );
-    k := self._map._order.get(self._index);
+    k := match(
+      self._map._entries.get(self._index),
+      .Some(e) => Option(K).Some(e.key),
+      .None => Option(K).None
+    );
     self._index = (self._index + usize(1));
     return(k);
   })
@@ -278,27 +393,23 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapValues(K, V),
-  /// Next value in the KEYS' insertion order, or `.None` at the end.
-  ///
-  /// Costs a hash lookup per step — it reads the key off the order list and
-  /// then asks the backing map for its value — where `keys()` is a plain
-  /// array read. `iter()` yields entry pointers and pays the lookup once per
-  /// entry too, but hands back the key alongside the value.
+  /// Next value in the KEYS' insertion order, or `.None` at the end — O(1),
+  /// a plain array read off the entry list.
   next : (fn(self : &mut Self) -> Option(V))({
     cond(
-      (self._index >= self._map._order.len()) => {
-        return(.None);
+      (self._index >= self._map._entries.len()) => {
+        return(Option(V).None);
       },
       true => ()
     );
     match(
-      self._map._order.get(self._index),
-      .Some(k) => {
+      self._map._entries.get(self._index),
+      .Some(e) => {
         self._index = (self._index + usize(1));
-        return(self._map._map.get(&k));
+        return(Option(V).Some(e.value));
       },
       .None => {
-        return(.None);
+        return(Option(V).None);
       }
     );
   })
@@ -326,27 +437,19 @@ impl(
     Item : MapEntry(K, V),
     next : (fn(self : &mut Self) -> Option(MapEntry(K, V)))({
       cond(
-        (self._index >= self._map._order.len()) => {
-          return(.None);
+        (self._index >= self._map._entries.len()) => {
+          return(Option(MapEntry(K, V)).None);
         },
         true => ()
       );
       match(
-        self._map._order.get(self._index),
-        .Some(k) => {
+        self._map._entries.get(self._index),
+        .Some(e) => {
           self._index = (self._index + usize(1));
-          match(
-            self._map._map.get(&k),
-            .Some(v) => {
-              return(.Some(MapEntry(K, V)(key : k, value : v)));
-            },
-            .None => {
-              return(.None);
-            }
-          );
+          return(Option(MapEntry(K, V)).Some(e));
         },
         .None => {
-          return(.None);
+          return(Option(MapEntry(K, V)).None);
         }
       );
     })
@@ -355,11 +458,11 @@ impl(
 /// Pointer iterator over an `OrderedMap`'s `(key, value)` pairs, in insertion
 /// order — what `iter()` returns (D14).
 ///
-/// Each `next` yields a `*(MapEntry(K, V))` INTO the backing `HashMap`'s
-/// bucket array (the same storage `HashMap.iter()` hands out), so entries are
-/// borrowed rather than rebuilt by value, and writing `p.*.value` updates the
-/// map in place. Any mutation that rehashes the map (`insert` that grows it,
-/// `remove`, `clear`) invalidates pointers already yielded.
+/// Each `next` yields a `*(MapEntry(K, V))` straight into the entry list's
+/// buffer, so entries are borrowed rather than rebuilt by value, and writing
+/// `p.*.value` updates the map in place. Any insertion that grows the buffer
+/// reallocates it, and a `remove`/`swap_remove` shifts entries, so both
+/// invalidate or reorder pointers already yielded.
 OrderedMapIterPtr :: (
   fn(
     comptime(K) : Type,
@@ -382,22 +485,20 @@ impl(
     Item : *MapEntry(K, V),
     next : (fn(self : &mut Self) -> Option(*MapEntry(K, V)))({
       cond(
-        (self._index >= self._map._order.len()) => {
-          return(.None);
+        (self._index >= self._map._entries.len()) => {
+          return(Option(*MapEntry(K, V)).None);
         },
         true => ()
       );
       match(
-        self._map._order.get(self._index),
-        .Some(k) => {
+        self._map._entries.ptr(),
+        .Some(base) => {
+          p := base.add(self._index);
           self._index = (self._index + usize(1));
-          // Through a local of the (shared) map object: a `mut` receiver
-          // may not borrow two object hops deep when an argument is refcounted.
-          om := self._map;
-          return(om._map.get_entry_ptr(&k));
+          return(Option(*MapEntry(K, V)).Some(p));
         },
         .None => {
-          return(.None);
+          return(Option(*MapEntry(K, V)).None);
         }
       );
     })
@@ -437,9 +538,8 @@ impl(
   )
 );
 /// The borrowed `for`'s cursor (decision 39, plans/VALUES_BY_DEFAULT.md): a
-/// position in the insertion order, re-checked against its live length at
-/// each step. The element is the entry in the backing `HashMap`, found from
-/// the key at that position.
+/// position in the entry list, re-checked against its live length at each
+/// step. The element is the entry at that position, in place.
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
@@ -448,17 +548,12 @@ impl(
     WalkCursor : usize,
     WalkElem : MapEntry(K, V),
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
-    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._order.len()),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._entries.len()),
     walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
-      k := self._order(cur);
-      // Through a local of the map object: a `&mut` receiver may not borrow
-      // two object hops deep when an argument is refcounted.
-      m := self._map;
-      match(
-        m.get_entry_ptr(&k),
-        .Some(p) => p,
-        .None => __yo_panic("OrderedMap: walk cursor names no entry")
-      )
+      if(cur >= self._entries.len(), {
+        __yo_panic("OrderedMap: walk cursor out of bounds");
+      });
+      self._entries.ptr().unwrap().add(cur)
     }),
     walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
   )

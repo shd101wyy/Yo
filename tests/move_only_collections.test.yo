@@ -399,3 +399,68 @@ test("LinkedList of a plain type with neither Copy nor Clone: contains compares 
   assert(!d.contains(&p2), "not found");
   match(d.pop_back(), .Some(v) => assert(v.id == i32(5), "the last element"), .None => assert(false, "non-empty"));
 });
+
+// OrderedMap: each key is stored ONCE, in the entry list; the hash index
+// maps only hashes to positions, so no operation copies a key
+// (issues/fixed/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md).
+test("OrderedMap of a Drop key: insert, overwrite, remove, swap_remove, index_of", {
+  before := g_mc_kdropped;
+  {
+    m := OrderedMap(_McKd, i32).new();
+    k1 := _McKd(id : i32(1));
+    k2 := _McKd(id : i32(2));
+    k3 := _McKd(id : i32(3));
+    m.insert(_McKd(id : i32(1)), i32(10));
+    m.insert(_McKd(id : i32(2)), i32(20));
+    m.insert(_McKd(id : i32(3)), i32(30));
+    m.insert(_McKd(id : i32(4)), i32(40));
+    assert(m.len() == usize(4), "four entries");
+    assert(g_mc_kdropped == before, "inserting a new key drops nothing");
+    assert(m.contains_key(&k2), "contains compares in place");
+    assert(m.get(&k3).unwrap() == i32(30), "get");
+    assert(m.index_of(&k3).unwrap() == usize(2), "index_of");
+    // An overwrite moves only the value: the new key drops, the stored one stays.
+    match(m.insert(_McKd(id : i32(2)), i32(200)), .Some(old) => assert(old == i32(20), "the old value moves out"), .None => assert(false, "present"));
+    assert(g_mc_kdropped == (before + i32(1)), "the overwritten insert's argument key dropped once");
+    assert(m.get(&k2).unwrap() == i32(200), "the new value is stored");
+    // remove shifts the tail and fixes the position records.
+    match(m.remove(&k1), .Some(v) => assert(v == i32(10), "the removed value moves out"), .None => assert(false, "present"));
+    assert(g_mc_kdropped == (before + i32(2)), "remove dropped the stored key once");
+    assert(m.index_of(&k2).unwrap() == usize(0), "the tail shifted down");
+    assert(m.index_of(&k3).unwrap() == usize(1), "the position records moved with them");
+    // swap_remove moves the last entry into the hole and fixes its record.
+    match(m.swap_remove(&k2), .Some(v) => assert(v == i32(200), "the swap-removed value moves out"), .None => assert(false, "present"));
+    assert(g_mc_kdropped == (before + i32(3)), "swap_remove dropped the stored key once");
+    assert(m.len() == usize(2), "two entries left");
+    assert(m.get(&k3).unwrap() == i32(30), "k3 still there");
+    assert(m.get(&_McKd(id : i32(4))).unwrap() == i32(40), "the last entry moved up");
+    (mut(seen) : i32) = i32(0);
+    for(&mut m, e => {
+      seen = (seen + e.key.id);
+    });
+    assert(seen == i32(7), "the borrowed for reads the keys in place: 3 + 4");
+    b := g_mc_kdropped;
+    m.clear();
+    assert(g_mc_kdropped == (b + i32(2)), "clear dropped both stored keys");
+    assert(m.is_empty(), "empty");
+  };
+  // Every key drops exactly once: the overwrite's argument, the two that
+  // remove/swap_remove took, the two clear dropped, the `get` temporary and
+  // the three locals.
+  assert(g_mc_kdropped == (before + i32(9)), "9 drops: the overwrite argument, remove, swap_remove, two from clear, the get temporary, three locals");
+});
+test("OrderedMap of a plain key with neither Copy nor Clone: the same surface", {
+  m := OrderedMap(_McTok, i32).new();
+  t2 := _McTok(id : i32(2));
+  m.insert(_McTok(id : i32(1)), i32(10));
+  m.insert(_McTok(id : i32(2)), i32(20));
+  m.insert(_McTok(id : i32(3)), i32(30));
+  match(m.insert(_McTok(id : i32(2)), i32(200)), .Some(old) => assert(old == i32(20), "overwrite"), .None => assert(false, "present"));
+  assert(m.contains_key(&t2), "found without a copy");
+  match(m.remove(&t2), .Some(v) => assert(v == i32(200), "removed"), .None => assert(false, "present"));
+  assert(m.index_of(&_McTok(id : i32(3))).unwrap() == usize(1), "positions fixed");
+  match(m.swap_remove(&_McTok(id : i32(1))), .Some(v) => assert(v == i32(10), "swap-removed"), .None => assert(false, "present"));
+  assert(m.len() == usize(1), "one left");
+  m.clear();
+  assert(m.is_empty(), "empty");
+});

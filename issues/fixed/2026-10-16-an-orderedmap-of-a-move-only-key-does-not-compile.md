@@ -2,9 +2,23 @@
 
 **Severity:** S2 — valid programs are rejected: `OrderedMap(K, V).insert` fails with E0901 when `K` is a `Drop` type, a `Box`, or a plain type with neither `Copy` nor `Clone`.
 
-**Status:** open. Found 2026-10-16 while checking the std collections for the
+**Status:** fixed. Found 2026-10-16 while checking the std collections for the
 cause of `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`.
-A move-only VALUE works since that fix; a move-only KEY has a different cause.
+A move-only VALUE worked since that fix; a move-only KEY had a different cause.
+
+**Fix (PR #1457):** the store-each-key-once redesign this doc's Fix direction
+sketched, as `IndexMap` does it. The entries live in one
+`ArrayList(MapEntry(K, V))` in insertion order — the only home of each key —
+and `_index : HashMap(u64, ArrayList(usize))` maps each key's HASH to the
+positions of the entries whose key hashes to it (two keys can share a hash,
+so the value is a list of positions, each compared by key in place through
+the entry buffer). `try_insert`'s overwrite moves only the value, bitwise in
+place; a new entry moves in whole. `remove` drops the position record, moves
+the entry out and bumps the shifted tail's records; `swap_remove` drops the
+record and bumps the moved last entry's. Lookups (`contains_key`, `get`,
+`index_of`) need only a `&K`. The iterators walk the entry list directly —
+`iter()` hands out pointers straight into its buffer, with no per-step hash
+lookup — and `get_index` is a plain array read.
 
 ## Symptom
 

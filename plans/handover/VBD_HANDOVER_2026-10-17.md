@@ -373,7 +373,7 @@ Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-o
 - `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`
 - `issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`
-- `issues/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`
+- `issues/fixed/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`
 - `issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`
 - `issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
 - `issues/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`
