@@ -6670,45 +6670,70 @@ heavy run, the command is given in item 2.
      - Ratchet: measure N5. The allocation count is expected to RISE here
        (deep copies). Move `check_src_main_alloc_calls` if it leaves ±5%,
        with a dated comment naming this PR.
-     - **PARKED 2026-10-19: the sweeps are measured ~80x too slow to land.**
-       The B1 branch (`feat/v2b-genb-b1-migration`, parked at `e556161b0`,
-       restacked on the post-#1414 develop; std 165 insertions / 38 files,
-       src 3,106 insertions / 1,338 listed / 201 files) built and passed
-       `check ./src` 278/278 and `check ./std` 172/172 under the seed, but
-       the TREE-built (swept) compiler is catastrophically slow at
-       evaluation, on an idle box:
-       - `yo check std/string/string.yo --std-path ./std`: seed v0.2.65
-         5.4 s, tree binary 430 s; `std/path.yo` did not finish in 300 s.
-       - `yo test tests/global_lend.test.yo`: 12/12 fail, "Yo compilation
-         exceeded the configured time limit" (600 s), reproduced twice.
-       - `perf` (30 s sample): ~60% of CPU inside std HashMap internals
-         (`hash(key)`, the bucket probe, the bucket get) plus `mi_malloc`,
-         symbolized in `yo.c` — deep copies of hash-keyed structures
-         re-hash every key.
-       - Mechanism, from the diff: the sweep turned env-carrying shared
-         copies into deep copies — 1,268 of the 3,271 `src/` insertions are
-         in `src/evaluator/`, including
-         `env_ptr.input_string = result_info.env.input_string.clone();`
-         (clones a module's ENTIRE source text) and `module_path.clone()`
-         in per-operation paths.
-       - Tool cost: a single-file `yo fix --migrate explicit-copy` on a
-         `src/` file peaks above 50 GB RSS and 45 min without completing
-         (three attempts 2026-10-19, two kernel-OOM-killed); the original
-         sweep's one directory invocation is the viable shape.
+     - **PARKED 2026-10-19: the sweeps are measured ~80–100x too slow to
+       land; the copies are genuine, so representation work precedes any
+       re-sweep.** The B1 branch (`feat/v2b-genb-b1-migration`, parked at
+       `e556161b0`, restacked on the post-#1414 develop; std 165 insertions /
+       38 files, src 3,106 insertions / 1,338 listed / 201 files) built and
+       passed `check ./src` 278/278 and `check ./std` 172/172 under the
+       seed, but the TREE-built (swept) compiler is catastrophically slow at
+       evaluation and MEMORY-BOUND. The `b1diag` experiment (2026-10-19,
+       artifacts `~/Workspace/Yo-wt/vbd-logs/b1diag-v66/`, machine-local;
+       verdict in
+       `issues/retired/2026-10-19-did-the-explicit-copy-migration-misread-moves-as-copies-on-env-carrying-sites.md`):
+       - Measurements (`check std/string/string.yo --std-path ./std`):
+
+         | binary | wall | max RSS |
+         | --- | --- | --- |
+         | seed v0.2.65 | 3.7 s | 136 MB |
+         | swept tree | 430+ s (7:10 idle, 15:02 loaded) | 45.0 GB |
+         | 838 insertions reverted (27%) | 414 s (6:54, loaded) | 46.7 GB |
+
+         Also `yo test tests/global_lend.test.yo`: 12/12 fail at the 600 s
+         compile timeout, twice. `perf`: ~89% of the hot mass is std
+         HashMap `hash`/probe/get plus `mi_malloc` — deep copies of
+         hash-keyed structures re-hash every key. 1,268 of the 3,271 `src/`
+         insertions are in `src/evaluator/`.
+       - Mechanism (corrected): the copies are GENUINE, and the regression
+         is a POPULATION effect — reverting 27% of the insertions (every
+         whole-module-source `input_string`/`module_path` clone plus 658
+         hot names) recovered at most half the time excess and ZERO memory.
+         Per-site classes: A, env-adopted whole-module strings (no move
+         spelling exists under decision 19); C, `TypeValue` label/type-list
+         clones (the dominant mass); D, mut-global caches cloned per lookup
+         (genuine under decision 47). The old "count bump becomes an O(n)
+         deep copy, ±5% ratchet" note overlooked that `String.clone` was
+         always a real byte copy — the cost is copy × per-operation
+         frequency × retention across ~3,100 sites on the evaluator's hot
+         paths.
+       - Tool gaps (real but secondary; fixes are guards, not recovery):
+         dying temporaries get cloned (the explicit-copy audit's liveness
+         judgment is local/own-param-only, while the copy-trait audit
+         treats a temporary as a move), and the migration has no
+         cost/frequency model (`_copy_written_after` consults writes only).
+         Fixing both and regenerating still reproduces the regression.
+       - Measurement note: the ">50 GB / 45 min per single file" cost seen
+         re-running the tool was an artifact of the SWEPT binary running it
+         (the tool evaluates with the compiler it is); the original sweep
+         did all 201 `src/` files in 384 s clean.
        Nobody had seen this before: the previous B1 session's Tier 1 "had
        only reached the build", and `yo build`/`yo check` have no timeout;
-       the ratchet's ±5% premise is off by orders of magnitude, and the
-       fixpoint and the self-hosted test gates cannot run on a swept tree.
-       What landed instead (2026-10-19): the branch's NON-sweep commits —
-       the two migration S2 fixes and the recursive E0916
+       the fixpoint and the self-hosted test gates cannot run on a swept
+       tree. What landed instead (2026-10-19): the branch's NON-sweep
+       commits — the two migration S2 fixes and the recursive E0916
        structural-clone exemption with its `tests/global_lend.test.yo`
        cases — as the partial B1 PR.
-     - Precondition for regenerating the sweeps: audit the hottest
-       insertions for moves-mis-read-as-copies on env-carrying sites
-       (start with `src/evaluator/env.yo`'s `input_string`/`module_path`
-       sites) — see
-       `issues/questions/2026-10-19-did-the-explicit-copy-migration-misread-moves-as-copies-on-env-carrying-sites.md`.
-       Until that verdict, the sweeps stay out of every release.
+     - Path to a landable B1 (v0.2.67 scope; the sweeps stay out of
+       v0.2.66): pull the borrow/share conversions AHEAD of any re-sweep —
+       intern or `Rc`-share `module_path` and `input_string` in
+       `Environment`, share envs and `TypeValue` label/type lists instead
+       of copying them, redesign the mut-global read-by-clone caches
+       (decision 47) so a read does not clone per lookup; land the two tool
+       gaps as guards (list dying temporaries; a cost model that lists hot
+       sites for hand edits instead of cloning them); then regenerate as a
+       LISTING-HEAVY sweep over an already-sharing tree, most remaining
+       sites becoming borrows or shares by hand (B4-style), few becoming
+       clones.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
