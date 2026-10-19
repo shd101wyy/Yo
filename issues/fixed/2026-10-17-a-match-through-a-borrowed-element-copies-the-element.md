@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `match(&xs(i), …)` is rejected with E0901 when the element type is not implicitly copyable (a move-only value, plain data without `Copy`), although it is the repair E0901 itself names for `match(xs(i), …)`. Code that matches a collection's element has to move the match into a helper that takes `p : &T`.
 
-**Status:** FIXED 2026-10-18. **Found:** 2026-10-17, converting `Pattern` to a value enum with `Box` children (VBD V4, `feat/vbd-v4-pattern-box`). Reproduces on the v0.2.63 seed and on a tree-built stage 1 of develop `5425cd7bf`.
+**Status:** FIXED 2026-10-18 (PR #1471). **Found:** 2026-10-17, converting `Pattern` to a value enum with `Box` children (VBD V4, `feat/vbd-v4-pattern-box`). Reproduces on the v0.2.63 seed and on a tree-built stage 1 of develop `5425cd7bf`.
 
 ## Reproducer
 
