@@ -279,7 +279,7 @@ On develop:
 - `issues/fixed/2026-10-17-spawn-blocking-s-detached-worker-can-outlive-main-and-lsan-reports-its-captures.md`
 - `issues/fixed/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md` (S3, from #1440's cli-diff: from a shell whose environment is about 2 KB larger than 34 KB, the probe's parent runs out of its 64 KiB fixed heap and the case scores a vacuous NO-GOLDEN; develop behaves the same)
 - `issues/fixed/2026-10-18-a-projection-forwarded-through-a-ref-receiver-leaves-its-borrow-flag-set.md` (S2, found while deciding #1429's questions: a `ref(struct)` collection whose `walk_elem` forwards `&mut self.items(cur)` panics at the next container call; arrives with #1431)
-- `issues/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md` (S3: a bare tail `self.items.walk_elem(cur)` reports an internal pointer type instead of naming `&mut`; arrives with #1431)
+- `issues/fixed/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md` (S3: a bare tail `self.items.walk_elem(cur)` reports an internal pointer type instead of naming `&mut`; arrives with #1431)
 
 Filed on in-flight branches; they arrive with those PRs:
 
