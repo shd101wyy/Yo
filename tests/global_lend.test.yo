@@ -231,8 +231,10 @@ test("a structural clone() of a mut global is exempt from E0916", {
   assert(t.label == String.from("t"), "a derived Clone over String and ArrayList(String)");
   o := _gl_mopt.clone();
   assert(o.is_some(), "an Option(String)");
-  xs := _gl_mlist.clone();
-  assert(xs.len() == _gl_mlist.len(), "an ArrayList(i64)");
+  mut(xs) := _gl_mlist.clone();
+  xs.push(i64(1));
+  ys := _gl_mlist.clone();
+  assert(xs.len() == (ys.len() + usize(1)), "an ArrayList(i64): the copy is deep, so the global is untouched");
 });
 test("a clone() that reaches a hand-written Clone stays E0916", {
   comptime_expect_error(_gl_mloud.clone(), "is declared `mut(_gl_mloud)`");
