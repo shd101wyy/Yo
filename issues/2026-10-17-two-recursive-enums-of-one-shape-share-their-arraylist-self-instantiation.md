@@ -66,3 +66,35 @@ may merge, two different declarations may not. The declaration-stable enum id
 `type_decl_module` plus the declaration position are candidates for the extra
 key component. Any change here needs the C-type-identity cases the dedup was
 added for to stay merged.
+
+## Attempted 2026-10-18 (not landed; two measured dead ends)
+
+Two half-fixes were built and measured; each breaks std, and the failure
+mode of BOTH is the same underlying gap:
+
+1. **Dedup keyed by a decl part derived from the id string**
+   (`_enum_decl_part`: the `enum_decl_…` id verbatim, the `enum_…_n<k>`
+   CTFE id with its occurrence counters stripped). `check ./std` stays
+   green (172/172) but the SAME declaration reached once through its
+   module-level id and once through a CTFE-minted id keys APART:
+   `ArrayList(RecA)` built directly and the `ArrayList(Self)` inside
+   `RecA`'s own `Node` variant got two C structs, and the doc's own
+   "valid program does not compile" symptom reproduces BETWEEN THE TWO
+   RENDITIONS OF ONE LIST (`initialization of '__yo_t_1388…*' from
+   incompatible pointer type '__yo_t_1571…*'` at the `Node.kids`
+   initializer).
+2. **A compatibility rejection on differing decl parts** (the assignment
+   acceptance): even scoped to empty-named renditions and same-family ids,
+   std/allocator.yo's `Allocator.same` (`self.ctx == other.ctx`) goes
+   E0605 — legitimate same-type comparisons cross the id families too.
+
+The missing primitive is one DECLARATION IDENTITY that both id families
+resolve to: the module-level `enum_decl_<stem>_<anchor>` and the CTFE
+`enum_<module>_<anchor>_n<k>` spell one declaration's anchor differently, so
+any string derivation from the ids splits renditions that must merge. The
+promising direction is upstream of the ids: stamp the DECLARATION's
+`stable_position_id` into every instantiation minted from that declaration
+(evaluator/types/enum.yo id minting, the ctfe_depth split), and key both the
+sig dedup and any nominal compat rule on THAT. Measured with tree builds
+v2-v6 under `~/Workspace/Yo-wt/vbd-logs/evalgen-v66/build-i2-v*.log` and
+`verify-i2-v*.log`.
