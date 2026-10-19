@@ -74,8 +74,8 @@ next :: (fn(generic(T : Type, p : Origin), self : &mut(Cursor(T, p))) -> Option(
 Cursor :: (fn(comptime(T : Type, p : Origin) -> comptime(Type))(
   struct(xs : &(ArrayList(T), p), i : usize)
 ));
-// unions are spelled as tuples in origin position:
-longest :: (fn(a : &(ArrayList(u8), q), b : &(ArrayList(u8), r)) -> View(u8, (q, r)))(...);
+// unions are spelled as tuples in origin position; q and r are declared first:
+longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(ArrayList(u8), r)) -> View(u8, (q, r)))(...);
 ```
 
 - **An origin value is one of:** an origin parameter (`p`, abstract,
@@ -86,6 +86,14 @@ longest :: (fn(a : &(ArrayList(u8), q), b : &(ArrayList(u8), r)) -> View(u8, (q,
   (`self._buf`) are designed (§7) and phased with the access clause. A
   local's place is an origin **inside bodies only** (flow-inferred, O2);
   it can never appear in a signature (O3's return rule rejects it).
+- **An origin parameter is declared before use** (maintainer, 2026-10-20):
+  an abstract origin named in a signature must be declared in the
+  `generic(...)` clause (`generic(q : Origin, r : Origin)`), exactly as a
+  type name must be; a type constructor declares it among its `comptime`
+  parameters. An undeclared origin name in a signature is an error naming
+  the declaration site. A **parameter's own place** (`self`, `a`, `b`)
+  needs no declaration — it names a parameter the way a field path names
+  a field.
 - **The parse.** `&(A, B)` in type position is an origin-qualified reference
   iff `B` resolves to an `Origin`-kinded name; if both `A` and `B` resolve
   to types it is a reference to a tuple, exactly as today. The two readings
@@ -285,7 +293,8 @@ both.push(&z);                                 // error naming {x, y} and {z}; y
 Every clause form of the superseded design is an origin spelling now.
 The clause grammar, its zone after `where`, its `Fn(...)-type` subtyping
 order and its callee checks are **not built** — parametricity does their
-work:
+work (the rows abbreviate the `generic` clause that declares each origin
+parameter):
 
 | Superseded clause | Origin spelling |
 | --- | --- |
@@ -503,6 +512,26 @@ Adopted from the post beyond the foundation: the `Rc` place parameter (O9),
 union places (O1), place paths (§7, phased). Already Yo's by other means:
 the no-Polonius claim (last-use liveness), `Send`/`Sync`, leaks as a
 collection concern.
+
+### Compared with Mojo, the other origin system
+
+Mojo's origins (`ref[o] a : A`, `origin_of(x)`,
+`Pointer(T, origin=...)`) are the closest relative, and the differences
+are deliberate:
+
+| | Mojo | Yo |
+| --- | --- | --- |
+| what an origin is | the one owning variable a value came from — a singular provenance token, split into `ImmOrigin`/`MutOrigin` kinds | a **set of places** (parameter places, spelled unions `(p, q)`, later field paths); mutability lives in the reference (`&`/`&mut`), not in the origin kind |
+| who writes it | the compiler, transparently; a user writes it around pointer indirection, and `origin_of(x)` recovers one | the author, at every contract (`generic(p : Origin)`, `&(T, p)`), because Yo is written by LLMs; elision is four stated defaults the checker verifies |
+| where it attaches | the argument-convention system (`ref[o]` beside the borrowed/mut conventions) and `origin=` slots on `Pointer` | the type itself: a reference is a type taking the origin as a trailing argument, uniform in every type position, container and cell |
+| storage | a struct gains an origin parameter and threads it into each `Pointer`'s `origin=` slot | any composite or cell gains the origin parameters of its fields' types (O4) — the same capability with no per-pointer slot |
+| what it drives | lifetime tracking and eager destruction at last use | the freeze/exclusivity checks (O3); Yo's last-use drops are decision 18's, independent of origins |
+| shared mutation | not covered by origins | the gated `Rc(T, p)` (O9 — from Ante, not Mojo) |
+
+Both reject Rust's region machinery — no outlives lattice, no variance, no
+higher-ranked bounds — and both make checking parametric. The name is
+shared; the shape is not: Mojo's origin is singular provenance the compiler
+writes, Yo's is a declared place set the author writes.
 
 ## 7. Open questions, with positions
 
