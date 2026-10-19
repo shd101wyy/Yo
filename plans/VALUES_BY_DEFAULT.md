@@ -3041,7 +3041,7 @@ and in git, not a silent edit.
       (`ArrayList(&(T, p))`, `HashMap(&(K, p), V)`); the containing type is
       then origin-carrying too. A **cell** payload follows the amended
       rule (O4): `Box` and `RefCell` may carry origins (the pointer points
-      outward; N2), `Rc` from the gated `Rc(T, p)` phase, `Arc` and a
+      outward; N2), `Rc`, `Arc` and a
       `Dyn` payload never (E0909).
       `type_of(f)` names closure types, so `Rc(type_of(f))` is checked
       too. The check runs at the declaration and at every instantiation.
@@ -3772,14 +3772,13 @@ and in git, not a silent edit.
       elided origins never unify, so `map.remove(&k)` keeps `k` usable
       with nothing spelled. Elision is a default the checker verifies,
       never inference it trusts; std's load-bearing signatures
-      (`Iterator.next`) spell. `Rc(T)` stays read-only (decision 46);
-      the gated `Rc(T, p)` adds statically checked shared mutation
-      (exclusivity over the shared origin, no runtime marks; mutable
-      cycles without `RefCell`). No region variables, no outlives, no
+      (`Iterator.next`) spell. `Rc` stays read-only (decision 46), and
+      no origin crosses an `Rc`/`Arc` deref (hold the handle, re-derive
+      at each use). No region variables, no outlives, no
       variance, no HRTB — after substitution an origin is a ground set of
       places, so the Polonius class of accept problems does not arise
       (`NON_ESCAPABLE_TYPES.md` §4 has the cost table; §2 O7 the clause
-      mapping; §8 the phases N0–N4).
+      mapping; §8 the phases N0–N3).
     - **Verifier.** A `&T` parameter stays a lent, unchanged place and a
       `&mut T` a modifiable one; a bound `&T` local is modelled as an alias
       of its root; containers of references are outside the subset until
@@ -3796,8 +3795,7 @@ and in git, not a silent edit.
       origins are ground place sets, not region variables; the
       names-in-types half is adopted, the solving half is not); Ante's
       unstable-place invalidation (`!`) and shared-mutable `ref`/`mut`
-      kinds (both contradict "`&` means unchanged"; shared mutation goes
-      through the gated `Rc(T, p)` instead); a body-inferred mutation
+      kinds (both contradict "`&` means unchanged"); a body-inferred mutation
       effect; `&String → &str` and every other deref coercion; Austral's
       linear types.
       - **The "bites" gate is discharged** (2026-10-19): the maintainer
@@ -3805,9 +3803,17 @@ and in git, not a silent edit.
         design-it-right-for-LLM-authors argument — explicit contracts a
         checker verifies beat inference at semantic distance. The
         smallest-construct-first ladder and the one-signature-readability
-        rule survive as design constraints on the implementation; the
-        `Rc(T, p)` phase (N4) keeps its own counted gate, decision 46's
-        census as the adoption metric.
+        rule survive as design constraints on the implementation.
+      - **`Rc(T, p)` — statically checked shared mutation through
+        origin-tracked handles — considered and rejected** (maintainer,
+        2026-10-20: Rust's design makes sense; the runtime exclusivity
+        check happens on `RefCell` only and `Rc` stays read-only like
+        Rust's). It would put a second mutation mechanism beside
+        `RefCell` for the narrow statically-provable case `Rc.get_mut`'s
+        count check already covers, while the genuinely shared cases
+        (the async channel and mutex states) are not statically provable
+        and use `RefCell` anyway. Mutable cycles keep the runtime check
+        (`Rc(RefCell(Node))`), as in Rust.
     - **Cost and phase.** A `TypeValue.Reference(T, mutable, origin)`
       variant and the `TypeValue.Origin` kind replace the slot flags
       (`param_is_ref`, `call_param_is_ref`/`is_owning` in `FnTraitT`,
@@ -3823,8 +3829,8 @@ and in git, not a silent edit.
       and containers carry origins, E0909 becomes the no-origin rule);
       N3 is std's Generation B (`iter`, `slice`, `entry`, the borrowed
       `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the
-      `Future(T, p)` spelling replacing A2's registry); N4 is the gated
-      `Rc(T, p)`. The `depends` zone is never built — a net deletion
+      `Future(T, p)` spelling replacing A2's registry); the `depends`
+      zone is never built — a net deletion
       against the superseded design.
     - **Tests.** `impl(&T, M)` versus `impl(T, M)` dispatch; `&&T` reached
       through a generic; reborrow versus move of a `&mut T`; the `.*`
@@ -3836,7 +3842,8 @@ and in git, not a silent edit.
       elided `push` signature whose body stores an unrelated origin
       (rejected in the callee), a binding whose type names its own place,
       a live body-local origin at an `await`, origins crossing a
-      no-origin position (E0909), the `Rc(T, p)` rows (N4); the borrowed
+      no-origin position (E0909), a place crossing an `Rc`/`Arc` deref
+      (rejected, O9); the borrowed
       `for` by `impl(&C, IntoIterator)`.
 
 44. **`Dyn(Trait)` stays the owned, boxed trait object; the borrowed form
@@ -7476,10 +7483,11 @@ measured `check ./src` time and stage-2 RSS.
    - Every whole-value read or write through a reference in `std/` and
      `src/` is rewritten to `.*`, by `yo fix <path> --migrate deref`, which
      reuses V3b's borrow-site tooling.
-5. **`Rc(T, p)`, gated (N4).** Statically checked shared mutation through
-   origin-tracked handles — exclusivity over the shared origin, no
-   runtime marks, mutable cycles without `RefCell` — adopted against
-   decision 46's census; plain `Rc(T)` is unchanged.
+
+Decision 46's `Rc` rules are unchanged by all of this: `Rc(T)` read-only,
+the three doors, `RefCell` the one spelling of dynamic exclusivity, and
+no origin crossing an `Rc`/`Arc` deref (the `Rc(T, p)` extension was
+rejected — decision 43's "Rejected" list).
 
 **Open, not decided (noted 2026-10-13):**
 - **Handler (`ctl`) types could become structurally origin-carrying.**

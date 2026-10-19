@@ -9,7 +9,7 @@ draft is fixed. Sections marked (planned: <phase>) describe design that has
 not landed.
 
 Tag legend: `V2b`, `V2c`, `V5` are phases of
-[`plans/VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); `N1`–`N4` are phases
+[`plans/VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); `N1`–`N3` are phases
 of [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md);
 "Generation B" means the compiler accepts the feature in user code today and
 `std/` adopts it once a released seed carries it.
@@ -817,7 +817,7 @@ and collection buffers are part of their owner's value and are never
 tracked. An `Arc` payload must be `Acyclic`, so an `Arc` cannot close a
 cycle. See [`CYCLE_COLLECTION.md`](../docs/en-US/CYCLE_COLLECTION.md).
 
-## 11. References as values (planned: NON_ESCAPABLE_TYPES N1–N4)
+## 11. References as values (planned: NON_ESCAPABLE_TYPES N1–N3)
 
 Today a borrow lives in a parameter, a local binding, a capture or a
 projection result. The origin phase makes `&T` and `&mut T` **types** —
@@ -892,10 +892,13 @@ both.push(&z);                            // error naming {x, y} and {z}; yo fix
 ```
 
 (N3) std's entry API, guards, parser remainders and the `FnMut` slots
-follow on the next seed; (N4, gated on decision 46's census) `Rc(T, p)`
-adds statically checked shared mutation through origin-tracked handles —
-exclusivity over the shared origin, no runtime marks, mutable cycles
-without `RefCell`.
+follow on the next seed. `Rc(T)` stays read-only, like Rust's, and no
+origin crosses an `Rc`/`Arc` dereference: hold the handle and re-derive
+the place at each use. Shared mutation keeps decision 46's doors —
+`RefCell(T)` (the one spelling of the runtime exclusivity check),
+`Rc.get_mut`, `Rc.make_mut` — and a `RefCell` payload may hold a
+reference, with the marks governing mutation and the origin governing
+the borrow.
 
 ## 12. Async and threads
 
@@ -1012,7 +1015,7 @@ mutate on purpose becomes a value held in an `Rc`.
   42 borrow spelling, 43 references as types, 44 `Dyn`, 45 `Drop` (the
   `Dispose` rename).
 - [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md):
-  origins (O1–O9, the `Origin` kind and `&(T, p)`); phases N0–N4.
+  origins (O1–O9, the `Origin` kind and `&(T, p)`); phases N0–N3.
 - Related docs: [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md),
   [`DYN_DESIGN.md`](../docs/en-US/DYN_DESIGN.md),
   [`ARC.md`](../docs/en-US/ARC.md),

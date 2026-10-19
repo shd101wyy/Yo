@@ -39,8 +39,9 @@ every sub-range is a copy (§2.4, and CODEGEN_PERFORMANCE §0.1's kernel), no
 rather than remainders. The escape hatches — `Rc`/`RefCell`, indices,
 closures, re-derivation — stay the right defaults; they are no longer the
 whole answer. The origin amendment additionally opens **storage**: a
-reference-holding value in a cell, behind an owning pointer, in a shared
-structure — the shapes the second-class wall (E0909) refused outright —
+reference-holding value in a `Box` or a `RefCell` payload, behind an
+owning pointer — the shapes the second-class wall (E0909) refused
+outright —
 become ordinary types whose origin parameters propagate outward to a frame
 that owns the places.
 
@@ -57,7 +58,7 @@ that owns the places.
 | `Fn`/`FnMut`/`FnOnce` | decision 37 | unchanged; `Fn(...)` types carry origin parameters |
 | the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | unchanged (a loop, not a value) |
 | a future may borrow when rooted at the body's `&`/`&mut` parameters | §3.13 A2 | the origin spelling of the same rule (O8); A2's wrapper-id registry is replaced by type-carried origins |
-| `Rc` is read-only through the handle; the three doors | decision 46 | unchanged for `Rc(T)`; the gated `Rc(T, p)` (O9) extends it |
+| `Rc` is read-only through the handle; the three doors | decision 46 | unchanged, full stop — no origin crosses an `Rc`/`Arc` deref (O9) |
 | `mut(G)`/`mut(x)` markers | decision 47 | unchanged; a marker grants writability of a binding, an origin names the places a borrow touches — orthogonal facts |
 
 ## 2. The design
@@ -232,7 +233,7 @@ structural check off the type, replacing the per-position enumeration of the
 second-class wall. A `Box(&(T, p))` is legal wherever `p` is in scope; a
 `RefCell(&(T, p))` legal beside it (the cell's dynamic marks govern the
 payload's mutation, the origin governs the borrow — orthogonal); an
-`Rc(&(T, p))` waits for O9.
+`Rc`/`Arc` payload accepts none (O9).
 
 ### O5. No self-reference, therefore no `Pin`
 
@@ -345,37 +346,33 @@ parameter):
   cannot be captured by an `io.spawn` body. `Arc` stays origin-free and
   read-only across threads (decision 46, D3).
 
-### O9. `Rc(T, p)`: statically checked shared mutation (gated phase)
+### O9. Origins stop at borrows: `Rc`/`Arc` stay read-only
 
-Decision 46 stays true for the plain handle: `Rc(T)` carries no marks, the
-payload is read-only through it, and the doors are `RefCell(T)`,
-`Rc.get_mut`, `Rc.make_mut`. The origin amendment adds a fourth door, on
-its own phase and gated on a counted need (the census below):
+Decision 46 is the whole rule and the amendment leaves it intact
+(maintainer, 2026-10-20: Rust's split makes sense — the runtime
+exclusivity check happens on `RefCell` only, and `Rc` stays read-only
+like Rust's):
 
-- **`Rc(T, p)`** is a handle whose payload's mutation rights are tied to
-  the origin `p`. Every clone constructed from it shares `p` — the type
-  says so, so a clone cannot lose the tracking. A read projection through
-  any handle yields `&(T, p)`; a write projection yields `&mut(T, p)` and
-  requires exclusivity over `p` — statically, by O3's intersection, with
-  **no runtime marks and no runtime cost** (the marks decision 41 removed
-  do not come back; the check is compile-time set algebra).
-- **Cycles become writable without `RefCell`**: a node whose next-pointers
-  are `Rc(Node(T), p)` — the graph's nodes share `p`; mutation through
-  any handle is exclusive over `p`. Rust needs `GhostCell`-style machinery
-  for this; Yo spells it as an instantiation. Leaks stay possible (a cycle
-  outliving its root cannot be freed deterministically) — the cycle
-  collector keeps that job, exactly as Ante treats leaks as a separate
-  collection concern.
-- **Granularity, honestly:** exclusivity is over the whole origin, so
-  concurrent disjoint-node mutation is rejected; it goes to `get2_mut`-
-  style contracts (R4's sibling sub-loans) or stays behind `RefCell`.
-  Ante's invalidation semantics (§6) would buy that granularity at the
-  cost of "`&` means unchanged" — rejected, recorded.
-- **Adoption target:** decision 46's census — 379 `Rc`-write sites (std's
-  async channel and mutex states among them). Each site becomes either a
-  `p`-tracked handle (proof where the summaries proved outcome (a)) or
-  keeps its `RefCell`. `Arc(T, p)` does not exist (threads share no
-  places); `Rc(T, p)` is not `Send`/`Sync`.
+- **No origin names a place that crosses an `Rc`/`Arc` deref** (R5's
+  rule, kept): `View(T)(xs : &(ArrayList(T), h.*.items ...))` and
+  `out.push(&h.*.x)` are errors. Hold the handle (`r : &Rc(S)`) and
+  re-derive the place at each use (`r.*.items.len()`), as a capture list
+  already does (decision 38 D). The borrowed `for` over an `Rc`-rooted
+  container keeps its own pin (§3.10, decision 39).
+- `Rc(T)` and `Arc(T)` payloads accept **no origin parameters**; a plain
+  `Rc` carries no borrow marks (decision 41) and costs what Rust's
+  `Rc<T>` costs (CP2d).
+- **Shared mutation keeps the three doors**: `RefCell(T)` in the payload's
+  type — the one spelling of the dynamic exclusivity check, unchanged —
+  `Rc.get_mut` (`.None` unless the count is 1) and `Rc.make_mut`
+  (clone-on-write). A `RefCell` payload may itself hold a reference
+  (`RefCell(&(T, p))`, O4): the marks govern the payload's mutation, the
+  origin governs the borrow — orthogonal.
+- **Mutable cycles** stay `Rc(RefCell(Node))` with the runtime check, as
+  in Rust and as today; immutable cycles stay plain `Rc` plus the cycle
+  collector. The `Rc(T, p)` extension that would have made cycles
+  writable without runtime checks was considered and rejected — §6's row
+  records why.
 
 ## 3. What it unlocks, mapped to the catalog
 
@@ -393,11 +390,12 @@ origin parameter, as O7's table does.)
 | §4.4 `Cow` | `StrArg :: enum(Borrowed(s : &(String, p)), Owned(s : String))` | `Cow<'a, str>` |
 | §2.4 parser remainders | `parse_int(input : View(u8, p)) -> Result(((View(u8, p), T)), ParseError)` | nom's `IResult<&str, T>` |
 | §3.4 two-phase loans | `begin(self : &mut(Self, p)) -> Txn(S, p)` | `Loan<'a>` |
-| **storage behind owning pointers and shared cells** | `Box(View(T, p))`, `RefCell(&(T, p))` — the old E0909 wall | `Box<&'a T>` |
-| **mutable cyclic graphs without runtime marks** | `Rc(Node(T), p)` (O9, gated) | `GhostCell` / `RefCell` |
+| **storage behind owning pointers and dynamic cells** | `Box(View(T, p))`, `RefCell(&(T, p))` — the old E0909 wall | `Box<&'a T>` |
 
 Not unlocked, on purpose: a reference across threads, a reference in an
-`extern` signature, a self-referential value (O5). They keep their catalog
+`extern` signature, a reference inside an `Rc`/`Arc` cell (O9), a
+self-referential value (O5), mutable cycles without a runtime check
+(`Rc(RefCell(Node))`, as Rust). They keep their catalog
 answers (`RUST_REFERENCE_PATTERNS.md` §14).
 
 ## 4. What it costs — and why the checker is not Rust's
@@ -480,12 +478,12 @@ the deliberate trade for checkability; unsoundness would require a place
 entering an origin set without passing through a spelled or defaulted
 position, and every such position is one of the eight above.
 
-**`Rc(T, p)`:** clones share `p` by construction (the type parameter is
-copied with the clone); a write projection needs exclusivity over `p`, so
-any live use through any clone conflicts by set identity. The refcount
-keeps the payload alive; the collector handles cycles; leaks stay
-possible — the cycle collector keeps that job
-(VALUES_BY_DEFAULT §3.12).
+**Shared cells:** no origin names a place that crosses an `Rc`/`Arc`
+deref (O9), so no reference can point into a shared cell that another
+handle might mutate or free unseen; mutation of a shared payload happens
+only through `RefCell`'s dynamic marks (§3.10), which the origin system
+never bypasses. The collector handles cycles; leaks stay possible, as
+before.
 
 **Async:** the state machine's stored references point only at the
 caller-frame places named by `p` (A2), which the await/spawn site freezes
@@ -500,8 +498,7 @@ result naming a local's origin **or a by-value parameter's own place**
 `Box`/`RefCell` carrying origins crossing a `Send`/spawn/`extern`/
 module-level position; an elided `push` signature with unrelated fresh
 origins (the body check must reject it); a live body-local origin at an
-`await`; a `Rc(T, p)` write beside a read through another clone; a clone
-stored where `p` is out of scope; sibling sub-loans misused (a second
+`await`; sibling sub-loans misused (a second
 `get2_mut`-style call on the same base while the first pair lives);
 `swap` on referents of different origin types (a type error); a closure
 literal whose captures exceed a slot's origin parameters. Positive
@@ -518,12 +515,14 @@ controls mirror them, `words` and `get2_mut`'s pair among them.
 | inferring a callee's borrow behaviour from its body | still rejected — the contract would live in the body; an edit inside one function silently changes what callers may do, and a body edit re-checks every caller (the incremental checker) |
 | proving element disjointness inside the borrow checker | still rejected — a second, weaker prover beside the verifier; disjointness is a `requires` (R4) |
 | Ante's unstable-place invalidation (`!` — mutation kills outstanding borrows) | **rejected** — it contradicts "`&` means unchanged" (§3.10), which the verifier's alias reasoning leans on; Yo freezes the base instead, and last-use liveness already legalizes the stale-view-then-mutate patterns |
-| Ante's shared-mutable `ref`/`mut` kinds (exclusivity dropped single-threaded) | **rejected** — Yo keeps exclusivity everywhere and buys shared mutation through `Rc(T, p)` (O9) at root granularity instead |
+| Ante's shared-mutable `ref`/`mut` kinds (exclusivity dropped single-threaded) | **rejected** — Yo keeps exclusivity everywhere; shared mutation stays behind `RefCell` (decision 46), and `Rc` remains read-only like Rust's |
+| `Rc(T, p)`: statically checked shared mutation through origin-tracked handles | **rejected** (maintainer, 2026-10-20: Rust's design makes sense — the runtime exclusivity check happens on `RefCell` only, and `Rc` stays read-only) — it would put a second mutation mechanism beside `RefCell` for the narrow statically-provable case `Rc.get_mut`'s count check already covers, while the genuinely shared cases (async channel and mutex states) are not statically provable and use `RefCell` anyway. Honest cost, recorded: mutable cycles keep the runtime check (`Rc(RefCell(Node))`), as in Rust |
 | Ante's body-inferred `Mutate` effect | **rejected** — signature-based checking keeps `Dyn` dispatch, effect handlers and the incremental checker sound; Ante's own handler interaction is their experimental part |
 | elision-only surface (no explicit `Origin` kind) | **rejected** (maintainer, 2026-10-19) — LLM authorship wants contracts explicit; the failure mode of explicit systems is a local declaration mismatch, of implicit ones a distant inference surprise |
 
-Adopted from the post beyond the foundation: the `Rc` place parameter (O9),
-union places (O1), place paths (§7, phased). Already Yo's by other means:
+Adopted from the post beyond the foundation: union places (O1), place
+paths (§7, phased). Considered and rejected: the `Rc` place parameter
+(§6's row). Already Yo's by other means:
 the no-Polonius claim (last-use liveness), `Send`/`Sync`, leaks as a
 collection concern.
 
@@ -540,7 +539,7 @@ are deliberate:
 | where it attaches | the argument-convention system (`ref[o]` beside the borrowed/mut conventions) and `origin=` slots on `Pointer` | the type itself: a reference is a type taking the origin as a trailing argument, uniform in every type position, container and cell |
 | storage | a struct gains an origin parameter and threads it into each `Pointer`'s `origin=` slot | any composite or cell gains the origin parameters of its fields' types (O4) — the same capability with no per-pointer slot |
 | what it drives | lifetime tracking and eager destruction at last use | the freeze/exclusivity checks (O3); Yo's last-use liveness is decision 18's and its drops decision 45's — both independent of origins |
-| shared mutation | not covered by origins | the gated `Rc(T, p)` (O9 — from Ante, not Mojo) |
+| shared mutation | not covered by origins | `Rc` read-only, `RefCell` the one dynamic door (decision 46) — Rust's and, in effect, Mojo's answer too |
 
 Both reject Rust's region machinery — no outlives lattice, no variance, no
 higher-ranked bounds — and both make checking parametric. The name is
@@ -591,7 +590,6 @@ writes, Yo's is a declared place set the author writes.
 | N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the return rule, place writes), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
-| N4 | `Rc(T, p)` (O9), gated on the counted need: the census sites that can prove exclusivity migrate off `RefCell` | the `Rc` rows of the corpus; the decision-46 census counts as the adoption metric |
 
 After decision 42's Generation B and V2b, as before; each phase is one PR
 or one stack with one battery, per AGENTS.md. The ctl-handler open point
