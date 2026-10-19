@@ -9,6 +9,7 @@
 pragma(Pragma.AllowMacroDef);
 { String } :: import("std/string");
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 
 /// Local re-creation of the removed std `try` macro
 /// (plans/reference/MACRO_POLICY.md Part 3.1).
@@ -64,3 +65,21 @@ test("macro def under AllowMacroDef: skipped branch stays unevaluated", {
   });
   assert(hits == i32(1), "unless(false, ...) runs the body once");
 });
+(g_macro_probe : ArrayList(i32)) = ArrayList(i32).new();
+_macro_probe_touch :: (fn() -> unit)({
+  g_macro_probe.push(i32(1));
+});
+/// Rule 3 (decision 18) at a macro call: the call itself is a runtime call,
+/// so a local borrow of a module-level place may not be live across it — the
+/// expansion's calls (this template's `_macro_probe_touch`) are covered by
+/// the macro call that runs them
+/// (issues/fixed/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md).
+_macro_probe_caller :: (fn() -> unquote(Expr))(quote(_macro_probe_touch()));
+comptime_expect_error({
+  _lb_macro_call_rejected :: (fn() -> unit)({
+    y := &mut g_macro_probe;
+    _macro_probe_caller();
+    y.push(i32(2));
+  });
+  _lb_macro_call_rejected();
+}, "Cannot call");

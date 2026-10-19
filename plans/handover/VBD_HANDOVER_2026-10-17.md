@@ -376,7 +376,7 @@ Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-o
 - `issues/fixed/2026-10-16-an-orderedmap-of-a-move-only-key-does-not-compile.md`
 - `issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`
 - `issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`
-- `issues/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`
+- `issues/fixed/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md`
 - `issues/fixed/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md`
 - `yo fix --migrate explicit-copy` can rewrite a generic body seen at only one type, and an arm-tail copy of a borrowed binding (S2). The fixes are on V2b B1's branch.
 - A `ref(struct)` collection that forwards a projection from `walk_elem` panics at its next container call (S2), and a bare projection tail reports a misleading E0601 (S3).
