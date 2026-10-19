@@ -553,7 +553,10 @@ writes, Yo's is a declared place set the author writes.
   value, legal exactly where the path is (an `_`-prefixed field inside its
   private scope, `plans/reference/MEMBER_VISIBILITY.md`), with the
   companion access clause (`len` reads only `self._len`) that makes
-  outside callers gain from the narrow borrow. Positions unchanged from
+  outside callers gain from the narrow borrow. A field path must root at
+  a reference-typed parameter or an enclosing binding, never at a
+  by-value parameter's slot — the callee-frame principle of O1/O3 and
+  §5 route 1 covers field paths too. Positions unchanged from
   the superseded design: the scoping rule may land once the base does; the
   access clause waits for a counted need. Ante's convergence here (their
   motivating examples are the same cases) is a soft data point, not a
