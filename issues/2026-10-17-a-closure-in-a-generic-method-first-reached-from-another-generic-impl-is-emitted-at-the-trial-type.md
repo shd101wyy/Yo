@@ -76,3 +76,30 @@ The first workaround depended on which occurrence wins, so it was path-dependent
 The workaround in the tree (#1421) takes the binder out of the closure's type. `Channel`'s sender count moved out of `_ChannelState(T)` into its own `_senders : Rc(RefCell(usize))`. The closures that count senders now take `n : &mut usize` at every type. A trial occurrence and the concrete one are then the same C function, so calling the wrong one is harmless. `channel.test.yo` passes from the tree path and two scratch paths with both binaries.
 
 The bug itself remains. Any closure whose type mentions the binder is exposed to it. Revert the split when the fix lands. The fix's regression test is this reproducer, compiled from several module paths.
+
+## Measurement round 2026-10-18 (probe build, `YO_DEBUG_CLFID` on a develop tree)
+
+Gated prints at the two places `src/evaluator/calls/helper.yo` folds a
+closure argument's `func_id` into a specialization key — the `clfid` push in
+`create_specialization_at_call`, and a hit line inside
+`_find_specialization_cache` — answer the first suspect directly:
+
+- Compiling the failing `w1_q3.yo`, the program's OWN closures mint **no
+  `clfid` cache-key entries at all** (six entries total, all from the
+  prelude's own `with`-family calls). The `with_mut` specialization that
+  serves both call sites is therefore NOT created through
+  `create_specialization_at_call`'s keying: it is minted on the
+  generic-impl method-value path (`find_methods_from_generic_impls` →
+  `_inject_forall_captures` → the method `FuncVal`'s own specialization
+  channel), which carries no closure-identity segment. That is why the trial
+  occurrence's identity wins and which occurrence wins follows evaluation
+  order — exactly the path-dependence observed.
+- Suspect 1 (the per-node `ExprInfo` of the `with_mut` call being shared) is
+  NOT excluded by this, but it is now downstream: whatever stamps the fmg
+  method-value specialization must key (or mint per) the closure argument's
+  `func_id` the way `create_specialization_at_call`'s `clfid` segment does,
+  or a trial-minted entry must not be reused outside the trial.
+- Fix-site note for whoever picks this up: the twin comment in
+  `helper.yo`'s closure-identity block (`issues/fixed/forwarded-closure-param-shares-specialization.md`,
+  the `arc-spawn-capture-split` repro) is the working precedent for the key
+  shape; the missing half is the same keying on the fmg path.
