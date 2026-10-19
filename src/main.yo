@@ -2862,7 +2862,13 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// and gets `.clone()`, or `(…).clone()` when the expression is not a
 /// postfix operand. A position copied at two types is a generic body, and a
 /// site whose source text no longer prints as the evaluated expression is a
-/// macro's; both are listed and left as written.
+/// macro's; both are listed and left as written, and so is a copy made inside
+/// a generic specialization (`ExplicitCopySite.in_generic`), where the run may
+/// have seen one instantiation of many. So is a `return` (a function's or a
+/// block's, `match`/`cond` arm tails included) of a place whose root is not
+/// owned there (`ExplicitCopySite.src_borrow`: a `&`/`&mut` parameter or
+/// borrow, a module-level binding, a borrowed binding): a write through the
+/// result is out of sight, and the hand edit is usually a projection.
 _run_migrate_explicit_copy :: (
   fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
 )({
@@ -2909,11 +2915,15 @@ _run_migrate_explicit_copy :: (
     mine := ArrayList(ExplicitCopySite).new();
     pos_type := HashMap(String, String).new();
     generic := HashSet(String).new();
+    in_generic := HashSet(String).new();
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
         st := sites(si);
         key := `${st.row.to_string()}:${st.col.to_string()}`;
+        if(st.in_generic, {
+          in_generic.insert(key.clone());
+        });
         match(
           pos_type.get(key.clone()),
           .Some(t) => if(t != st.ty, {
@@ -2963,6 +2973,21 @@ _run_migrate_explicit_copy :: (
       if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied at more than one type (a generic body); left as written`);
+        continue;
+      });
+      if(in_generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where \`.clone()\` would demand \`Clone\` of every instantiation; left as written`);
+        continue;
+      });
+      // A `return` of a place rooted in a borrow, a module-level binding or
+      // a borrowed binding leaves its block sharing that root's buffer: a
+      // write through it (by a caller, or through the binding an arm tail
+      // flows into) is out of the written-after guard's sight, and the hand
+      // edit is usually a projection (`-> &T`), not a clone.
+      if((st.copy_path == "return") && !st.src_borrow.is_empty(), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is returned from ${st.src_borrow}, so a caller may write through it; return a projection (\`-> ${if(st.src_borrow.contains(String.from("&mut")), "&mut T", "&T")}\`) or spell the copy (\`.clone()\`) by hand`);
         continue;
       });
       written := cond(

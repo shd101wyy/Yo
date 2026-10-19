@@ -117,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -2608,6 +2608,26 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// `dst_decl`: `_ic_decl_key` of each declaration, empty when there is none)
 /// with the site's own position (`at_module`, `at_offset`). A site one of
 /// them is written after (`record_copy_write`) is listed, not rewritten.
+///
+/// `src_borrow` describes the root the copied place borrows from
+/// (`_ic_place_root_borrow`: a `&`/`&mut` parameter, a `&mut` borrow, a
+/// module-level binding or a borrowed binding; empty for an owned root). A
+/// `return` of such a place leaves its block with a value that shares the
+/// root's buffer: out of a function, where a caller may write through it
+/// (usually a classic accessor whose hand edit is a projection, `-> &T`,
+/// decision 24), or out of a `match`/`cond` arm or inner block into a
+/// binding the written-after guard cannot see. It is listed, not rewritten
+/// (issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md,
+/// issues/fixed/2026-10-18-explicit-copy-migration-rewrites-an-arm-tail-copy-of-a-borrowed-binding.md).
+///
+/// `in_generic` is set when the copy was evaluated inside a generic
+/// specialization (`ctx.currently_specializing_function`: a function with
+/// `comptime`/`generic` parameters or a generic impl's method), or its type
+/// still mentions an open type parameter (a definition-time trial of a
+/// generic body no call instantiated: `type_contains_some_type_deep`). One
+/// `.clone()` there would demand `Clone` of every instantiation, while the
+/// run may have seen only one of them, so the site is listed, not rewritten
+/// (issues/fixed/2026-10-17-explicit-copy-migration-rewrites-a-generic-body-seen-at-one-type.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2618,7 +2638,9 @@ ExplicitCopySite :: struct(
   src_decl : String,
   dst_decl : String,
   at_module : String,
-  at_offset : u32
+  at_offset : u32,
+  src_borrow : String,
+  in_generic : bool
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -2652,9 +2674,9 @@ take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
 _ic_decl_key :: (fn(decl : &Token) -> String)(
   `${canonical_module_path(decl.module_path.clone())}:${decl.byte_offset.to_string()}`
 );
-/// The declaration key of the variable `place` is rooted in (`x` of `x`,
-/// `x.f`, `x(i).g`), looked up in `env`, or empty.
-_ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)({
+/// The variable `place` is rooted in (`x` of `x`, `x.f`, `x(i).g`), looked
+/// up in `env`, or none.
+_ic_place_root_var :: (fn(place : &AstExpr, env : &Environment) -> Option(Variable))({
   (e : AstExpr) = place.clone();
   (walking : bool) = true;
   while(walking, {
@@ -2665,7 +2687,7 @@ _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)({
       },
       .FnCall(_, callee, args, is_infix, _) => cond(
         (is_infix || ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2)))) => {
-          e = match(args.get(usize(0)), .Some(a) => a, .None => return(String.new()));
+          e = match(args.get(usize(0)), .Some(a) => a, .None => return(Option(Variable).None));
         },
         true => {
           e = callee;
@@ -2675,14 +2697,14 @@ _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)({
   });
   tok := ast_expr_token(&e);
   if(tok.kind != TokenKind.Identifier, {
-    return(String.new());
+    return(Option(Variable).None);
   });
-  match(
-    find_variable_in_env(env, tok.value.clone()),
-    .Some(v) => _ic_decl_key(&v.token),
-    .None => String.new()
-  )
+  find_variable_in_env(env, tok.value.clone())
 });
+/// The declaration key of the variable `place` is rooted in, or empty.
+_ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
+  match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
+);
 /// Record a write to the variable `place` is rooted in, at `at`, while the
 /// migration runs.
 record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
@@ -2729,6 +2751,29 @@ ImplicitCopyPending :: struct(
 /// element: a borrow) or `place` (a parameter, field, global: a borrow).
 ImplicitCopyRoot :: struct(kind : String, root_id : usize);
 (g_implicit_copy_match_roots : HashMap(usize, ImplicitCopyRoot)) = HashMap(usize, ImplicitCopyRoot).new();
+/// What `place` is rooted in when that root is not owned by the copy's
+/// frame, for the `return` split: a `&` or `&mut` parameter, a `&mut` borrow
+/// (a `&mut` local, or a `match` binding through one), a module-level binding,
+/// or a borrowed binding (a `match`/`for` binding of a borrowed place). Empty
+/// for an owning local, an owned parameter, a temporary, or a `match` binding
+/// of either.
+_ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
+  match(
+    _ic_place_root_var(place, env),
+    .Some(v) => cond(
+      v.is_imm_borrow => String.from("a `&` parameter"),
+      (v.is_ref && v.is_parameter) => String.from("a `&mut` parameter"),
+      v.is_ref => String.from("a `&mut` borrow"),
+      v.is_module_level => `the module-level binding \`${v.name}\``,
+      (v.is_owning_the_rc_value || is_any_temp_variable_name(v.name.clone())) => String.new(),
+      // A `match` binding owns what it binds out of a temporary, or is a
+      // part of an owning local judged at that local's frame end.
+      match(g_implicit_copy_match_roots.get(&v.id), .Some(r) => ((r.kind == "temp") || (r.kind == "local")), .None => false) => String.new(),
+      true => String.from("a borrowed binding")
+    ),
+    .None => String.new()
+  )
+);
 /// Record what `binding`, a pattern binding of a `match` whose evaluated
 /// scrutinee is described by `scr_info`, borrows from.
 audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> unit)({
@@ -2807,7 +2852,7 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// token is the `.`), where the rewrite finds it in the source, and the
 /// declaration keys of its source and destination variables (`_ic_decl_key`,
 /// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String);
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool);
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
@@ -2827,7 +2872,9 @@ _ic_migrate_site :: (
         src_decl : m.src_decl.clone(),
         dst_decl : m.dst_decl.clone(),
         at_module : canonical_module_path(m.leftmost.module_path.clone()),
-        at_offset : m.leftmost.byte_offset
+        at_offset : m.leftmost.byte_offset,
+        src_borrow : m.src_borrow.clone(),
+        in_generic : m.in_generic
       )
     )
   )
@@ -3354,7 +3401,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new())))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env), in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&ei.ty))))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);

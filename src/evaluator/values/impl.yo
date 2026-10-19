@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
+{ is_implicitly_unsafe_capable_file, is_prelude_or_generated_file, is_std_module_path } :: import("../memory_safety.yo");
 { Substitution, subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, fn_param_is_ptr_borrow, declare_acyclic_type_id } :: import("../../types/utils.yo");
 { type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
@@ -307,6 +307,41 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 /// generic one), so the reverse check at a later `Copy` impl can tell a
 /// hand-written `Clone` from a derived one.
 (g_hand_written_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
+/// The hand-written `Clone` impls outside std, by the same site keys: the
+/// impls whose `clone()` runs user code. E0916's structural-clone exemption
+/// (`type_clone_runs_no_user_code`, trait_checking.yo) refuses a `mut(G)`
+/// global's `G.clone()` that reaches one of them.
+(g_user_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Does `ty` have a hand-written `Clone` impl outside std: its concrete impl,
+/// or a generic one whose receiver shape could match it (conservatively: a
+/// shape match counts even where the impl's bounds would refuse `ty`)?
+type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)({
+  if(g_user_clone_sites.len() == usize(0), {
+    return(false);
+  });
+  tid := type_id_or_empty(ty);
+  if(!tid.is_empty(), {
+    match(
+      trait_impl_site_of(&tid, &get_trait_key(clone_tt)),
+      .Some(site) => if(g_user_clone_sites.contains_key(&site), {
+        return(true);
+      }),
+      .None => ()
+    );
+  });
+  bucket := _generic_impl_bucket(&get_base_trait_key(clone_tt));
+  (bi : usize) = usize(0);
+  while(bi < bucket.len(), bi = (bi + usize(1)), {
+    match(
+      bucket.get(bi),
+      .Some(ce) => if(g_user_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(&ce.receiver_type_pattern, ty), {
+        return(true);
+      }),
+      .None => ()
+    );
+  });
+  false
+});
 /// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
 /// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
 /// `Trace` impl on a value type, a `Drop` on a primitive or
@@ -6243,6 +6278,9 @@ _check_copy_clone_exclusion :: (
       clone_key := get_trait_key(&cc.clone_tt);
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
+        if(!is_std_module_path(&trait_tok.module_path, &ctx.std_path), {
+          g_user_clone_sites.insert(site.clone(), true);
+        });
         g_hand_written_clone_sites.insert(site, true);
         if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
@@ -6287,6 +6325,9 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
     .Some(cc) => {
       clone_key := get_base_trait_key(&cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
+        if(!is_std_module_path(&trait_tok.module_path, &ctx.std_path), {
+          g_user_clone_sites.insert(entry.site.clone(), true);
+        });
         g_hand_written_clone_sites.insert(entry.site.clone(), true);
         if(_pattern_implements_via_hook(&entry.receiver_type_pattern, &cc.copy_tt, &env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).None))));
@@ -6415,6 +6456,7 @@ _generic_pattern_covered :: (fn(pattern : &TypeValue, trait_ty : &TypeValue, env
   covered
 });
 export(generic_pattern_implements_trait);
+export(type_has_user_clone_impl);
 export(GenericImplEntry, MethodCandidate);
 /// Entries in the injection memo (the B2 plateau test's probe).
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());

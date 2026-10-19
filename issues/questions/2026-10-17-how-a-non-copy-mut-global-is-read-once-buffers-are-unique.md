@@ -77,3 +77,17 @@ right for a global that is written often, but it should not be forced on a
 `String` that is set once per command. Decide before V2b unique buffers
 Generation B sweeps src, since that sweep is where the nine globals above
 start to fail.
+
+## Implementation
+
+2026-10-17, on `feat/v2b-genb-b1-migration` (V2b Generation B, B1):
+`_is_structural_clone_call` (`src/evaluator/calls/function.yo`) exempts the
+receiver of a `G.clone()` whose resolved method is defined in std, the
+prelude or generated code, and whose every reachable `Clone` impl is too
+(`type_clone_runs_no_user_code`, `src/evaluator/trait_checking.yo`). The walk
+covers fields, variant payloads, tuple parts, array and buffer elements, and a
+`Box`'s payload. A hand-written `Clone` outside std (`type_has_user_clone_impl`,
+`src/evaluator/values/impl.yo`) anywhere inside keeps E0916, and so do a
+`Dyn` and a closure. Tests: `tests/global_lend.test.yo`, "a structural clone()
+of a mut global is exempt from E0916" and "a clone() that reaches a
+hand-written Clone stays E0916".

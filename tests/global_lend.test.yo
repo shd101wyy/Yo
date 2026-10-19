@@ -5,7 +5,9 @@
 // name is wrapped in `mut(...)`, Rust's `static` / `static mut`:
 // - a write to an unmarked one is E0917;
 // - an unmarked one may be lent to any call;
-// - lending a `mut(...)` one, or a place under it, to a call is E0916;
+// - lending a `mut(...)` one, or a place under it, to a call is E0916,
+//   except the receiver of a structural `clone()`: one whose every `Clone`
+//   impl is derived or std's, so it runs no user code;
 // - a `ref` handle the binding holds is mutated through its methods without
 //   `mut`, but a lend into the storage behind it conflicts with a
 //   `&mut self` call on it (rule A), and a lend of a field written through
@@ -197,4 +199,47 @@ test("mut(name) in a function body declares a mutable local (decision 47 step 2)
   mut(y) := i64(1);
   y = (y + i64(1));
   assert(y == i64(2), "a mutable local, not the deleted borrow spelling");
+});
+// A structural `clone()` copies the value and runs no user code, so nothing
+// can write the global while it holds the borrow: `v := G.clone()` reads a
+// mut global of an explicit-copy type (option 1 of
+// issues/questions/2026-10-17-how-a-non-copy-mut-global-is-read-once-buffers-are-unique.md).
+// A hand-written `Clone` outside std anywhere inside runs user code: E0916.
+_GlTagged :: struct(label : String, tags : ArrayList(String));
+derive(_GlTagged, Clone);
+_GlLoud :: struct(n : i64);
+impl(
+  _GlLoud,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      _gl_count = (_gl_count + i64(1));
+      _GlLoud(n : self.n)
+    })
+  )
+);
+_GlWrap :: struct(inner : _GlLoud, label : String);
+derive(_GlWrap, Clone);
+mut(_gl_mtagged) := _GlTagged(label : String.from("t"), tags : ArrayList(String).new());
+mut(_gl_mopt) := Option(String).Some(String.from("o"));
+mut(_gl_mloud) := _GlLoud(n : i64(1));
+mut(_gl_mwrap) := _GlWrap(inner : _GlLoud(n : i64(2)), label : String.from("w"));
+mut(_gl_mlouds) := ArrayList(_GlLoud).new();
+test("a structural clone() of a mut global is exempt from E0916", {
+  s := _gl_mstr.clone();
+  assert(s == String.from("m"), "a String: std's structural Clone");
+  t := _gl_mtagged.clone();
+  assert(t.label == String.from("t"), "a derived Clone over String and ArrayList(String)");
+  o := _gl_mopt.clone();
+  assert(o.is_some(), "an Option(String)");
+  mut(xs) := _gl_mlist.clone();
+  xs.push(i64(1));
+  ys := _gl_mlist.clone();
+  assert(xs.len() == (ys.len() + usize(1)), "an ArrayList(i64): the copy is deep, so the global is untouched");
+});
+test("a clone() that reaches a hand-written Clone stays E0916", {
+  comptime_expect_error(_gl_mloud.clone(), "is declared `mut(_gl_mloud)`");
+  comptime_expect_error(_gl_mwrap.clone(), "is declared `mut(_gl_mwrap)`");
+  comptime_expect_error(_gl_mlouds.clone(), "is declared `mut(_gl_mlouds)`");
+  // Any other `&self` method still lends the global.
+  comptime_expect_error(_gl_mtagged.label.len(), "is declared `mut(_gl_mtagged)`");
 });

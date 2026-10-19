@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate explicit-copy` lists, not rewrites, a copy that
+# leaves a `match` arm when its root is borrowed: `k` and `vs` are bound
+# through `&mut self`, and the arm tail flows into `keys`/`vals`, which are
+# pushed and stored back. Before the fix the run wrote `k.clone()` there
+# (std/encoding/toml.yo's `TomlValue.insert` had this shape, and its parser
+# writes through a copy of the tree, so the migrated parser lost every key;
+# issues/fixed/2026-10-18-explicit-copy-migration-rewrites-an-arm-tail-copy-of-a-borrowed-binding.md).
+# The expected_tree pins main.yo unchanged, and the trailing `check` proves it
+# still evaluates.
+stdout_keep=^fix:
+timeout=240
