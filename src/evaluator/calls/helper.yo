@@ -8666,10 +8666,28 @@ try_to_call_function_with_arguments :: (
             // (issues/trait-impl-method-contract-clauses-corrupt-operator-
             // dispatch.md). Skip the return-vs-expected synthesis when the
             // expected is a fn type the call does not itself return.
-            st10_skip := match(
-              et.ty,
-              Rc(.Func(_, _, _, _, _, _, _)) => !is_function_type(&return_type),
-              _ => false
+            // A DIRECT projection call (decision 24) yields a PLACE of its
+            // pointee, never the callee's raw `*(T)`: a projection body's
+            // missing marker — a `-> &mut T` body ending in the bare
+            // `self.items.walk_elem(cur)` — reaches this synthesis as the
+            // tail's expected `*(T)` against the callee's pointee `T` and
+            // hard-threw E0601 `"T" and "*(T)"`, the internal pointer
+            // spelling, naming no fix. Skip it: the call keeps its place
+            // type and the function's result-position check reports the
+            // marker (function_type.yo). Gated on a CONCRETE callee return
+            // (a SomeT return can still bind against the expected) and a
+            // pointer expected (any other expected keeps today's synthesis)
+            // (issues/fixed/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md).
+            st10_skip := (
+              match(
+                et.ty,
+                Rc(.Func(_, _, _, _, _, _, _)) => !is_function_type(&return_type),
+                _ => false
+              ) || (
+                is_pointer_type(&et.ty)
+                && (get_all_some_types(&return_type).len() == usize(0))
+                && match(func_type, Rc(.Func({ meta : st10_pm })) => st10_pm.*.result_is_ref, _ => false)
+              )
             );
             // The CALL's token anchors a return-type-vs-expected unification
             // failure at the call expression (see Step 6's note).

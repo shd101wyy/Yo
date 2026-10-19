@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
-{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
+{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -79,7 +79,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ ast_expr_to_string, ast_expr_is_fn_call_of, BF_DECREASES } :: import("../../expr.yo");
+{ ast_expr_to_string, ast_expr_is_fn_call_of, ast_expr_strip_borrow_marker, BF_DOT, BF_DECREASES } :: import("../../expr.yo");
 {
   EvalContext,
   set_rerun_pending_def_evals_fn,
@@ -2029,11 +2029,26 @@ Result type: ${type_to_string(&result_box)}`
                 ub_place_ptr := t_ptr(&result_box);
                 if(!ub_skip && result_is_ref && !are_types_compatible(&ub_ty, &ub_place_ptr), {
                   mark_fn_unemittable(fn_val_id.clone());
+                  // A body that forwards ANOTHER projection — its tail is a
+                  // direct projection call (`projection_call_mode_of`) — is
+                  // the common user shape (a collection's `walk_elem`
+                  // forwarding its inner list's), and the missing marker is
+                  // the whole error: name the lending spelling, E0914's style
+                  // for arguments, instead of only the abstract "write
+                  // `&mut place`"
+                  // (issues/fixed/2026-10-18-a-bare-projection-call-as-a-projection-body-is-a-misleading-e0601.md;
+                  // the raw E0601 `"T" and "*(T)"` this replaced showed the
+                  // internal pointer type).
+                  proj_fwd := if(
+                    projection_call_mode_of(&ub_body, ctx).is_some(),
+                    ` The body forwards another projection: a \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\` result lends it at the call site — write \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${_bare_projection_tail_text(&ub_body)}\`.`,
+                    String.new()
+                  );
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(&fb),
-                        `This function returns \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box)}\` written \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.`
+                        `This function returns \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box)}\` written \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.${proj_fwd}`
                       )
                     )
                   );
@@ -2479,3 +2494,39 @@ Result type: ${type_to_string(&result_box)}`
   )
 );
 export(try_to_implement_function_by_function_type, register_rerun_pending_def_evals);
+/// The lending spelling the decision-24 mismatch suggests: a direct
+/// projection call as the user writes it — `self.items.walk_elem(cur)`, not
+/// the evaluator's callee-parenthesised `((self.items).walk_elem)(cur)` —
+/// with each argument's call-site borrow marker read through.
+_bare_projection_tail_text :: (fn(e : &AstExpr) -> String)({
+  s := ast_expr_strip_borrow_marker(e);
+  match(
+    s,
+    .FnCall(_, pf, pargs, _, _) => {
+      callee_txt := cond(
+        ast_expr_is_fn_call_of(&pf, BF_DOT, Option(usize).Some(usize(2))) => match(
+          pf,
+          .FnCall(_, _, dargs, _, _) => match(
+            dargs.get(usize(0)),
+            .Some(recv) => `${local_borrow_place_text(&recv)}.${match(dargs.get(usize(1)), .Some(m) => ast_expr_to_string(&m), .None => String.new())}`,
+            .None => ast_expr_to_string(&pf)
+          ),
+          .Atom(_, _) => ast_expr_to_string(&pf)
+        ),
+        true => ast_expr_to_string(&pf)
+      );
+      (arg_txts : String) = String.new();
+      (i : usize) = usize(0);
+      while(i < pargs.len(), {
+        if(i > usize(0), {
+          arg_txts.push_str(", ");
+        });
+        match(pargs.get(i), .Some(a) => arg_txts.push_string(ast_expr_to_string(&ast_expr_strip_borrow_marker(&a))), .None => ());
+        i = (i + usize(1));
+      });
+      `${callee_txt}(${arg_txts})`
+    },
+    .Atom(_, _) => ast_expr_to_string(&s)
+  )
+});
+export(_bare_projection_tail_text);
