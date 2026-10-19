@@ -7249,7 +7249,7 @@ stage-2 RSS):
     - **Element access.** Elements are read through `&subs(i)` arguments and
       `subs(i).clone()`. `get`, `clone()` of the list and `for(&xs, …)` are
       E0901 for a move-only element, and so is
-      `match(&xs(i), …)` (`issues/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md`).
+      `match(&xs(i), …)` (`issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md`).
       The usefulness walk's row specialization therefore moved into per-row
       helpers (`_specialize_variant_row`, `_specialize_aggregate_row`,
       `_expand_row_head`).

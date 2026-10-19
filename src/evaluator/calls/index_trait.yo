@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -38,7 +38,8 @@ pragma(Pragma.AllowUnsafe);
   ArgEntry,
   ArgValues,
   VarArgEntry,
-  set_promote_index_places_fn
+  set_promote_index_places_fn,
+  set_is_index_place_fn
 } :: import("../context.yo");
 {
   ExprInfo,
@@ -2109,9 +2110,36 @@ has_index_impl :: (
   methods := _find_all_index_methods(concrete_type, caller_env);
   methods.len() > usize(0)
 });
+/// `e` is an element access `recv(i)` whose receiver is a RUNTIME binding of
+/// a type that dispatches `Index` — the shape a MARKED match scrutinee
+/// (`match(&xs(i), …)`) must read in place, not copy
+/// (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
+/// A closure or function call of the same shape fails `has_index_impl`, and a
+/// compile-time-only receiver (a `::` binding) is not a place.
+_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)({
+  ctx;
+  match(
+    e,
+    .FnCall(_, isp_callee, isp_args, isp_infix, _) => {
+      if(isp_infix || !ast_expr_is_atom(&isp_callee) || (isp_args.len() != usize(1)), {
+        return(false);
+      });
+      match(
+        get_variables_from_env(env, ast_expr_token(&isp_callee).value.clone()).last(),
+        .Some(isp_v) => cond(
+          isp_v.is_compile_time_only => false,
+          true => has_index_impl(&isp_v.ty, &isp_args, env, ctx)
+        ),
+        .None => false
+      )
+    },
+    .Atom(_, _) => false
+  )
+});
 /// Install `promote_index_places_for_write` behind context.yo's hook.
 register_promote_index_places :: (fn() -> unit)({
   set_promote_index_places_fn(promote_index_places_for_write);
+  set_is_index_place_fn(_is_index_place);
   ()
 });
 export(try_to_call_with_index_trait, promote_index_places_for_write, register_promote_index_places);

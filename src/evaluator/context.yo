@@ -920,6 +920,24 @@ call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment,
     .None => ()
   )
 );
+// --- index-place detection hook (a marked match scrutinee's route) ---------
+// `recv(i)` whose receiver is a runtime binding of a type that dispatches
+// `Index` (calls/index_trait.yo's `has_index_impl`). exprs/match.yo cannot
+// import calls/index_trait.yo without a cycle, so it asks through this hook,
+// installed by index_trait.yo's `register_promote_index_places`.
+IsIndexPlaceFn :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool);
+(mut(g_is_index_place_fn) : Option(IsIndexPlaceFn)) = Option(IsIndexPlaceFn).None;
+set_is_index_place_fn :: (fn(f : IsIndexPlaceFn) -> unit)({
+  g_is_index_place_fn = Option(IsIndexPlaceFn).Some(f);
+  ()
+});
+call_is_index_place :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool)(
+  match(
+    g_is_index_place_fn,
+    .Some(f) => f(e, env, ctx),
+    .None => false
+  )
+);
 // --- function-body evaluation hook -----------------------------------------
 // Evaluate an expression AS A FUNCTION BODY (through the begin machinery, so a
 // bare `return(...)` body resolves `return`), for modules that cannot import
@@ -3544,6 +3562,8 @@ export(
   call_evaluate_fn_body,
   set_promote_index_places_fn,
   call_promote_index_places_for_write,
+  set_is_index_place_fn,
+  call_is_index_place,
   in_def_time_trial,
   set_in_def_time_trial,
   set_module_walk,
