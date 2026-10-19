@@ -22,7 +22,7 @@
 { TypeValue, TypeValueNode } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
 { is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
-{ resolve_enum_shell } :: import("./types/creators.yo");
+{ resolve_enum_shell, resolve_struct_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
 { some_resolution } :: import("./expr_info.yo");
@@ -366,13 +366,39 @@ _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   )
 );
 /// The field types of variant `idx` of enum `enum_ty` (empty when absent).
-variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeValue))(
-  match(
+variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeValue))({
+  raw := match(
     enum_ty,
     Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
     _ => ArrayList(TypeValue).new()
-  )
-);
+  );
+  out := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  while(i < raw.len(), {
+    match(
+      raw.get(i),
+      .Some(t) => {
+        // Resolve SHELLS before the payload is used as a binding's type: a
+        // self-referential producer's field `Option(Self)` evaluates
+        // `Option(<the struct's own empty SHELL>)` while the struct is still
+        // being built, and the enum id is shared per source position, so the
+        // FIRST-registered instance (payload = the 0-field shell) can be the
+        // one a match reads — a payload binding then carried a struct with
+        // NO fields and no type_arguments, its method dispatch could bind
+        // nothing (E0610) and codegen swallowed the same shape into an
+        // undeclared-function C error. The shell shares the final's id, so
+        // `resolve_struct_shell` (and the enum twin) hands back the
+        // field-populated final — the field-reading convention
+        // `types/creators.yo` mandates for every such site
+        // (`issues/fixed/2026-10-18-a-method-on-a-self-referential-ref-struct-fails-to-resolve-through-a-match-binding.md`).
+        out.push(resolve_enum_shell(resolve_struct_shell(&t)));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 /// A struct type's field types (empty for a non-struct). Expression-bodied:
 /// a case whose pattern carries a curly `{…}` destructuring cannot take a
 /// brace-block body (E0007).

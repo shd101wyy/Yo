@@ -2148,6 +2148,9 @@ _find_specialization_cache :: (
                   });
                 });
                 if(ct_match, {
+                  if(debug_knob(`YO_DEBUG_CLFID`).is_some(), {
+                    eprintln(`[clf-hit] fid=${func_id} ci=${ci.to_string()} of ${n_caches.to_string()}`);
+                  });
                   // Check runtime parameter types match (exact match)
                   n_rt := cache.runtime_parameter_types.len();
                   n_cur_rt := runtime_parameter_types.len();
@@ -3065,6 +3068,9 @@ create_specialized_function_inline :: (
                 cf_v,
                 .FuncVal(cf_fvd, _) => {
                   cf_fid := cf_fvd.*.func_id;
+                  if(debug_knob(`YO_DEBUG_CLFID`).is_some(), {
+                    eprintln(`[clf-key] caller=${func_id} i=${cfi.to_string()} fid=${cf_fid}`);
+                  });
                   compile_time_args.push(EvalValue.StrLit(`clfid${cfi.to_string()}_${cf_fid}`));
                   closure_fid_sig.push_str("_cl");
                   closure_fid_sig.push_string(cfi.to_string());

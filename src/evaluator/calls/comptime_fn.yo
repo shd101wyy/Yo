@@ -1398,6 +1398,9 @@ evaluate_comptime_fn_call :: (
     .TypeVal(rv_tb) => match(
       rv_tb,
       Rc(.Struct({ id : sid, name : sname, field_labels : slabels, field_types : stypes, is_reference_semantics : sref, is_atomic_rc : satomic, is_newtype : snt, constructor_func_id : scfid })) => if(scfid.len() == usize(0), {
+        if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+          eprintln(`[tmint-stamp] STAMP sid=${sid} nargs=${inst_type_args.len().to_string()}`);
+        });
         // Mirror the shared-object stamp for copies that predate this one
         // (self-recursive shells, memoized embedders) — see expr_info.yo.
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
@@ -1405,7 +1408,12 @@ evaluate_comptime_fn_call :: (
         EvalValue.TypeVal(
           rc(TypeValueNode.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false))
         )
-      }, return_value),
+      }, {
+        if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+          eprintln(`[tmint-stamp] SKIP sid=${sid} cfid=${scfid}`);
+        });
+        return_value
+      }),
       // An enum instantiation's type arguments, the twin of the Struct stamp
       // above. Only an enum MINTED in CTFE is an instantiation of this
       // constructor: a module-level declaration (`enum_decl_` id) returned by
