@@ -1471,3 +1471,21 @@ test("IndexMut: a String key survives the write it indexes", {
   assert(ms(s) == i32(5), "the write landed");
   assert(s.len() == usize(23), "the key string is alive after the write");
 });
+// The nested access `mm(i)(k) = v`: the inner index_mut's receiver is itself
+// an index place borrowing into `mm` while the move-only key sits beside it —
+// the exact shape the ref-place rule rejects in a USER call, so the index
+// specialization trial (which replays the desugared call through the
+// user-call machinery) swallowed that rejection, fell back to the
+// unspecialized generic method, and codegen called a C function it never
+// declared (issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
+test("IndexMut: a nested write through a generic impl with a move-only key", {
+  inner := HashMap(_IxDk, i32).new();
+  inner.insert(_IxDk(n : i32(5)), i32(50));
+  mm := HashMap(i32, HashMap(_IxDk, i32)).new();
+  mm.insert(i32(1), inner);
+  mid := g_ix_dropped;
+  mm(i32(1))(_IxDk(n : i32(5))) = i32(60);
+  assert((g_ix_dropped - mid) == i32(1), "the nested write drops its key once");
+  kr := _IxDk(n : i32(5));
+  assert(mm(i32(1))(kr) == i32(60), "the nested write landed");
+});
