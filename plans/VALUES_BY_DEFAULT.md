@@ -6670,6 +6670,45 @@ heavy run, the command is given in item 2.
      - Ratchet: measure N5. The allocation count is expected to RISE here
        (deep copies). Move `check_src_main_alloc_calls` if it leaves ±5%,
        with a dated comment naming this PR.
+     - **PARKED 2026-10-19: the sweeps are measured ~80x too slow to land.**
+       The B1 branch (`feat/v2b-genb-b1-migration`, parked at `e556161b0`,
+       restacked on the post-#1414 develop; std 165 insertions / 38 files,
+       src 3,106 insertions / 1,338 listed / 201 files) built and passed
+       `check ./src` 278/278 and `check ./std` 172/172 under the seed, but
+       the TREE-built (swept) compiler is catastrophically slow at
+       evaluation, on an idle box:
+       - `yo check std/string/string.yo --std-path ./std`: seed v0.2.65
+         5.4 s, tree binary 430 s; `std/path.yo` did not finish in 300 s.
+       - `yo test tests/global_lend.test.yo`: 12/12 fail, "Yo compilation
+         exceeded the configured time limit" (600 s), reproduced twice.
+       - `perf` (30 s sample): ~60% of CPU inside std HashMap internals
+         (`hash(key)`, the bucket probe, the bucket get) plus `mi_malloc`,
+         symbolized in `yo.c` — deep copies of hash-keyed structures
+         re-hash every key.
+       - Mechanism, from the diff: the sweep turned env-carrying shared
+         copies into deep copies — 1,268 of the 3,271 `src/` insertions are
+         in `src/evaluator/`, including
+         `env_ptr.input_string = result_info.env.input_string.clone();`
+         (clones a module's ENTIRE source text) and `module_path.clone()`
+         in per-operation paths.
+       - Tool cost: a single-file `yo fix --migrate explicit-copy` on a
+         `src/` file peaks above 50 GB RSS and 45 min without completing
+         (three attempts 2026-10-19, two kernel-OOM-killed); the original
+         sweep's one directory invocation is the viable shape.
+       Nobody had seen this before: the previous B1 session's Tier 1 "had
+       only reached the build", and `yo build`/`yo check` have no timeout;
+       the ratchet's ±5% premise is off by orders of magnitude, and the
+       fixpoint and the self-hosted test gates cannot run on a swept tree.
+       What landed instead (2026-10-19): the branch's NON-sweep commits —
+       the two migration S2 fixes and the recursive E0916
+       structural-clone exemption with its `tests/global_lend.test.yo`
+       cases — as the partial B1 PR.
+     - Precondition for regenerating the sweeps: audit the hottest
+       insertions for moves-mis-read-as-copies on env-carrying sites
+       (start with `src/evaluator/env.yo`'s `input_string`/`module_path`
+       sites) — see
+       `issues/questions/2026-10-19-did-the-explicit-copy-migration-misread-moves-as-copies-on-env-carrying-sites.md`.
+       Until that verdict, the sweeps stay out of every release.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
