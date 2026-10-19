@@ -530,3 +530,27 @@ test("a duplicate generic trait impl through an alias nested in the receiver is 
     "is already implemented"
   );
 });
+
+// A generic impl that instantiates another generic over `ArrayList(<its own
+// same-named binder>)` must not capture the binder by (name, frame level):
+// two top-level impls give their `T`s one frame level, so the substitution
+// `T@L ↦ ArrayList(T@L)` applied a second time nested it and codegen emitted
+// a `W2(ArrayList(ArrayList(T)))` instance whose helpers never exist — the C
+// compiler failed on the batch. Renaming either binder hid it
+// (`issues/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md` — still open; this test intentionally FAILS the batch at the C compiler until the fix lands).
+W2 :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_b : isize, _value : T));
+impl(
+  generic(T : Type),
+  W2(T),
+  new : (fn(value : T) -> Self)(Self(_b : isize(0), _value : value))
+);
+Ch2 :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_st : W2(ArrayList(T))));
+impl(
+  generic(T : Type),
+  Ch2(T),
+  new : (fn() -> Self)(Self(_st : W2(ArrayList(T)).new(ArrayList(T).new())))
+);
+test("a generic impl wrapping ArrayList of its same-named parameter compiles", {
+  c := Ch2(i32).new();
+  assert(c._st._value.len() == usize(0), "empty");
+});
