@@ -188,7 +188,19 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
 ### 4.1 Right after v0.2.66
 
 1. Land every §2.2 PENDING row that did not make the cut (each already has a branch and gates).
-2. B12 → B13 note (§4.4 of the 2026-10-17 handover) still governs `Dyn`; the seed is now v0.2.66.
+2. **Re-land #1476's scope-aware live-range scan** (reverted by #1481): the measured root cause and the
+   failed decl-position-aware round are in
+   `issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md` (S1) and the re-opened
+   `issues/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`; the
+   un-designed piece is statement-internal evaluation order (a re-point token preceding the binding's
+   last read).
+3. **End-triage leftovers (triaged 2026-10-19, both stay open, neither blocks a release):** the
+   non-routable connect LSan leak (`issues/2026-10-17-the-non-routable-connect-test-leaks…`, S3,
+   network-env — CI's network rejects TEST-NET instantly so CI is green; the one-line fix is
+   `h.abort()` on the spawned connect in `tests/net/tcp.test.yo`, or a harness drain of pending tasks);
+   and the LinkedList move-only pop/clear (`issues/2026-10-16-…`, S2, pre-cycle, needs an std API shape
+   that returns the whole node — no partial moves out of a `ref(struct)`).
+4. B12 → B13 note (§4.4 of the 2026-10-17 handover) still governs `Dyn`; the seed is now v0.2.66.
 
 ### 4.2 V2b, reshaped by §3.1 (supersedes the plan's B-step order for src)
 
