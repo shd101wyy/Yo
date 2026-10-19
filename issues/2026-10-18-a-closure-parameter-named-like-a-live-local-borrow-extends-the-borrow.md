@@ -2,7 +2,19 @@
 
 **Severity:** S2 — a valid program is rejected with a false E0911: a later closure whose parameter has the same name as an earlier local borrow keeps that borrow live, so a read of the borrowed place between the two is refused.
 
-**Status:** open. Found 2026-10-18 while re-gating #1421 (decision 46 Generation B) on develop `00eddd3e4`. That branch rewrites #1419's `result.* = …` test writes as `result.with_mut(cur => { cur = … })`. In one test the closure parameter `cur` has the same name as an earlier `cur := &mut o`, and the batch failed to compile. It reproduces with the develop-built `yo-d47loc-3d1afa693` (src and std match `00eddd3e4`), so it is not caused by #1421. Renaming the closure parameter makes the program compile.
+**Status:** open again — its fix (#1476) was REVERTED from develop for
+v0.2.66: the scope-aware live-range scan's arrow-literal skip also hid the
+uses of a borrow BORN at that arm's pattern, so the statement-level range
+fell back to the whole binding statement and `yo check ./src` failed on 16
+files of the compiler's own tree (release-blocking;
+`issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
+Re-land in v0.2.67 with the scan refined: a binding at the tracked borrow's
+own declaration position is its BIRTH site (its arm's body uses count), not
+a shadow — and the cursor-walk interaction (a re-point whose token precedes
+the binding's last read inside one statement) needs the evaluation-order
+rule settled first.
+
+**Status (first finding):** open. Found 2026-10-18 while re-gating #1421 (decision 46 Generation B) on develop `00eddd3e4`. That branch rewrites #1419's `result.* = …` test writes as `result.with_mut(cur => { cur = … })`. In one test the closure parameter `cur` has the same name as an earlier `cur := &mut o`, and the batch failed to compile. It reproduces with the develop-built `yo-d47loc-3d1afa693` (src and std match `00eddd3e4`), so it is not caused by #1421. Renaming the closure parameter makes the program compile.
 
 ## Symptom
 
