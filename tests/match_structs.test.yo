@@ -4,6 +4,7 @@
 //! compile-time scrutinees.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Person :: struct(name : String, age : i32);
@@ -109,4 +110,43 @@ test("a reference-semantics struct pattern reads through the pointer", {
   );
   assert(s(SharedPoint(0, 7)) == i32(7));
   assert(s(SharedPoint(3, 7)) == i32(10));
+});
+// A `match` through a borrowed ELEMENT reads the element in place
+// (decision 26's "A projection scrutinee"): `match(&xs(i), …)` binds its
+// arms through the element's place, as a `&xs(i)` argument does. Before the
+// in-place route the scrutinee's begin evaluation attached an OWNING temp,
+// and owning a projection's element means copying it — E0901 for a
+// move-only element, although `&xs(i)` is the repair E0901 itself names
+// (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
+// Plain data without `Copy`/`Clone` is move-only: the element read must not
+// copy it (a struct with an RC field (a `String`) is still implicitly
+// copyable, which does not exercise the rule).
+_MvElem :: struct(a : i32, b : i64);
+test("a match through a borrowed element of a move-only struct", {
+  xs := ArrayList(_MvElem).new();
+  xs.push(_MvElem(a : i32(3), b : i64(30)));
+  xs.push(_MvElem(a : i32(4), b : i64(40)));
+  match(
+    &xs(usize(1)),
+    _MvElem(a : v, b : s) => {
+      assert(v == i32(4), "the borrowed element's first field");
+      assert(s == i64(40), "and its second field, read through the place");
+    }
+  );
+  // The list still owns its elements: nothing was moved or dropped out of it.
+  assert(xs.len() == usize(2), "the list keeps both elements");
+  assert(xs(usize(1)).a == i32(4), "and the matched element is intact");
+});
+_MvTree :: enum(Leaf(v : i32), At(sub : Box(Self)));
+test("a match through a borrowed element of a Box-children enum", {
+  xs := ArrayList(_MvTree).new();
+  xs.push(_MvTree.Leaf(v : i32(7)));
+  xs.push(_MvTree.At(sub : box(_MvTree.Leaf(v : i32(9)))));
+  match(
+    &xs(usize(1)),
+    .Leaf(v) => assert(false, "the second element is not a Leaf: got ${v}"),
+    // The Box pattern binds the payload through the element's place.
+    .At(Box(s)) => assert(s.v == i32(9), "the boxed leaf's value through the borrowed element")
+  );
+  assert(xs.len() == usize(2), "the list keeps both elements");
 });

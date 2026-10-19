@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, pop_env_frame, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
 {
   EvalValue,
   create_unknown_val,
@@ -902,8 +902,19 @@ evaluate_match :: (
   // Evaluate scrutinee with cleared expectedType
   old_expected_scr := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
+  scr_is_marked_index_place := ((borrowed_match_scrutinee_kind(ast_expr_token(expr)) != u8(0)) && call_is_index_place(&scrutinee_expr, &env, ctx));
   evaluated_scrutinee := cond(
     is_place_expression(&scrutinee_expr, &env) =>
+      evaluate_expression(&scrutinee_expr, &env, ctx),
+    // A MARKED element-access scrutinee (`match(&xs(i), …)`, `match(&mut
+    // xs(i), …)`) reads the element IN PLACE, exactly as a `&xs(i)`
+    // argument does. The begin route below attaches an OWNING temp for its
+    // tail, and owning a projection's element means COPYING it out — E0901
+    // for a move-only element, although `&xs(i)` is the repair E0901 itself
+    // names. The expression route leaves the projection's temp non-owning:
+    // the borrow-mode arms bind through the place, nothing is copied or
+    // dropped (issues/fixed/2026-10-17-a-match-through-a-borrowed-element-copies-the-element.md).
+    scr_is_marked_index_place =>
       evaluate_expression(&scrutinee_expr, &env, ctx),
     true =>
       evaluate_begin_expression(&scrutinee_expr, &env, ctx, ArrayList(Variable).new(), false, exn)
