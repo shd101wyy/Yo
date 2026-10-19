@@ -6,7 +6,7 @@
 > `plans/handover/VBD_HANDOVER_2026-10-17.md` (its §1 process rules, §7 release-notes format and
 > §8 machine notes still apply; read it first). The plan itself is `plans/VALUES_BY_DEFAULT.md`.
 
-## 0. Where to start
+## 0. Where to start (v0.2.66 IS OUT — this is now the v0.2.67 handover)
 
 1. Read this document, then the 2026-10-17 handover, then AGENTS.md.
 2. Confirm v0.2.66 is published: `gh release view v0.2.66`, `SEED_VERSION` bumped, release notes
@@ -119,7 +119,7 @@ doc closures, #1472 + #1475 (honest not-fixed dispositions, §3).
 | gi2 issues 1+2 | **Not fixed this cycle — measured dispositions.** Issue 1 (closure at trial type): the generic-impl method-value specialization path bypasses `create_specialization_at_call`'s clfid keying entirely (fix site pinned; key-shape model = helper.yo's forwarded-closure-param precedent). Issue 2 (ArrayList same-named binder): definition-trial minting proven in emitted C (`_ptr : __yo_t…**` vs `void**`); first fix falsified (identity-keyed substitution + deep SomeT gate: green build, repro still fails); hole = a `T` binding recorded WITHOUT binder id — record `variable_set_bound_some_id` at `_inject_forall_captures`/`_build_def_time_body_env`; parked branch `fix/generic-impl-arraylist-same-named-binder` (worktree `gi4`) with fails-before regression test |
 | ~~#1476~~ MERGED `a24343bad` | false-E0911 closure-parameter shadowing (scope-aware live-range scan; internal verdicts green) |
 | gi2 issues 1/2/4 | generic-method closure at trial type; ArrayList same-named-param instance; self-referential ref-struct method resolution (12-line reduction done) |
-| v0.2.66 cut | §2.1 sequence |
+| ~~v0.2.66 cut~~ DONE | Published 2026-10-19 18:30 UTC: battery 39261040036 green on `7705e766b` (one macOS-intel shard rerun — the first attempt died runner-side, no failed steps, log blob 404); Release run 39289494475 (bump=patch) all green; tag → `b24589905` (the bump commit, correct target); 13 assets; SEED_VERSION auto-bumped to v0.2.66 in all four workflows; `## Changes` curated from the session draft (42 bullets, revert story in the known-issues list); diagnostic codes unique at the tag (63 codes, E0919/E0920 once each). Next: §4 order, starting with the #1476 re-land |
 
 ### 2.3 Parked branches (all pushed)
 
