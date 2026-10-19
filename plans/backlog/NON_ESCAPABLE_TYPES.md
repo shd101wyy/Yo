@@ -1,31 +1,30 @@
-# References as second-class types: `&T` in fields, root-joining containers, and an inferred single-root lifetime dependency
+# References as first-class types with origins: the `Origin` kind, `&(T, p)`, and declared place sets
 
-**Status: BACKLOG — the design of VALUES_BY_DEFAULT decisions 42 and 43
-(2026-10-10); scheduled as its own phase after decision 42's Generation B
-and V2b, timed by the VBD session.** It records the maintainer's position:
-Yo keeps mutable value semantics for owned values and makes references
-**types, second-class, with lifetimes elided** — the point Swift's `Span`
-and Mojo's `ref` reached, taken without Rust's lifetime names, Mojo's
-origins or Austral's regions. The rules below generalize one rule the plan
-already had, §3.13 A2 (a borrowing future may be returned when every place
-it borrows is rooted at the returning function's own parameters), from
-futures to every type. `FnMut` (decision 37) lands in the same phase.
-Amended 2026-10-13 after the audit in issue #1330 (R7's join domain, the
-callee-side `depends` check, joins inside closures, joins on the root
-place, place writes as joins, the N1/N2 boundary) and a second pass the
-same day: R3 separates a parameter's place from the roots it carries
-(sources `p` / `p.*`) and admits by-value reference-holding
-parameters as roots, without which the entry API, parser remainders and
-non-lending iterators failed R3; joins target every `&mut`
-reference-holding argument, never the argument itself; the root place is
-followed through reference components; component writes are place
-writes, not decision 25 re-points. A third pass the same day: joins
-between two parts of one argument, `&mut r` lending the binding itself,
-module-level roots in borrow sets, `Rc`/`Arc`-crossing components
-rejected (decision 38 D, decision 41's no-marks `Rc`), closure summaries
-closed transitively, per-instantiation `depends`, `&mut` components
-never carried, drops that use no root, and `get2_mut`'s safety assert
-and sibling sub-loans.
+**Status: BACKLOG — the design of VALUES_BY_DEFAULT decision 43, amended
+2026-10-19 by the maintainer: references become FIRST-CLASS types
+parameterized by origins.** An origin is a named set of places — a new
+comptime kind beside `Type`, spelled `p : Origin` in `generic(...)`, and a
+trailing argument of the reference types: `&(T, p)`, `&mut(T, p)`. Yo keeps
+mutable value semantics for owned values (decision 42's spelling; decisions
+18, 24, 25, 28, 33, 35, 37, 38, 47 unchanged) and keeps the freeze model —
+`&` means unchanged, `&mut` exclusive — but a reference, and any type
+containing one, may now stand anywhere its origins can follow, storage
+included. The second-class caste of the 2026-10-10 decision becomes one
+structural predicate: **this position accepts no origin parameters** (E0909
+restated; the positions are §2 O4's list). This amendment supersedes the
+2026-10-13 `depends`-clause and root-joining-tracker design (this file
+before the amending PR, in git history); the mapping from every clause form
+to an origin spelling is §2 O7, and the reason each half was retired is
+§6.
+
+The design follows Ante's place-based borrow checker
+(<https://antelang.org/blog/safe_cyclic_mutability/>, read 2026-10-19):
+places rather than abstract regions, a place parameter on `Rc`, union
+places, place paths. §6 records what was adopted and what was rejected,
+with reasons. One principle frames the surface language (maintainer,
+2026-10-19): **Yo is written by LLMs, so contracts are explicit** — origins
+are spelled in signatures and type declarations, and elided only to defaults
+the checker still verifies (O2).
 
 ## 0. The gap this closes
 
@@ -39,811 +38,515 @@ every sub-range is a copy (§2.4, and CODEGEN_PERFORMANCE §0.1's kernel), no
 `Cow` (§4.4), no sink held in a struct (§3.5), parsers returning offsets
 rather than remainders. The escape hatches — `Rc`/`RefCell`, indices,
 closures, re-derivation — stay the right defaults; they are no longer the
-whole answer.
+whole answer. The origin amendment additionally opens **storage**: a
+reference-holding value in a cell, behind an owning pointer, in a shared
+structure — the shapes the second-class wall (E0909) refused outright —
+become ordinary types whose origin parameters propagate outward to a frame
+that owns the places.
 
 ## 1. What is reused unchanged
 
 | Rule | Where | Used here as |
 | --- | --- | --- |
-| second-classness is structural: anything containing a borrow is second-class; where it may not go | decision 38 A | the rule set for every type containing a `&` |
-| a borrowing future may be returned when every borrowed place is rooted at the callee's own parameters; at the call site the result borrows the argument places | §3.13 A2 | **R3**, generalized to every type |
-| transitive freezes until last use; borrow sets join over reaching definitions | decision 38 A | a reference-holding value's lifetime |
-| local borrows and their live ranges; re-pointing | decisions 18, 25 | binding and re-pointing local borrows (`cur = &place`); component writes are R7's place writes |
-| the call-site sigils `&x` / `&mut x`; argument overlap (E0901/E0911) | decisions 33, 28 | constructing values; exclusivity of `&mut` components |
-| projections `-> &T` / `-> &mut T` | decision 24 | element access on views; the entry API's `or_insert` |
-| the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | iteration over a view; a value never takes the pin (R5, as decision 38 D) |
-| `Fn`/`FnMut`/`FnOnce` | decision 37 | a borrowing iterator's `next(self : &mut Self)` is an ordinary method; a closure that writes a `&mut` capture is a `FnMut` |
+| local borrows and their live ranges; freeze until last use; re-pointing | decisions 18, 25 | the intraprocedural half of checking (O3); origins replace only the interprocedural bookkeeping |
+| transitive freezes; second-class escape positions | decision 38 A | restated as the no-origin positions (O4) |
+| argument overlap and shared/exclusive conflict at a call | decision 28, 38 B | origin intersection (O3) |
+| projections `-> &T` / `-> &mut T`; a `&mut` projection borrows its base | decision 24 | unchanged; the projection's result carries the base's origin |
+| the call-site sigils `&x` / `&mut x` | decision 33 | unchanged; a construction site names its own origin — `&x`'s origin is `x`, self-describing, never spelled |
+| capture lists | decision 35 | entries spell origins like fields (O7) |
+| `Fn`/`FnMut`/`FnOnce` | decision 37 | unchanged; `Fn(...)` types carry origin parameters |
+| the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | unchanged (a loop, not a value) |
+| a future may borrow when rooted at the body's `&`/`&mut` parameters | §3.13 A2 | the origin spelling of the same rule (O8); A2's wrapper-id registry is replaced by type-carried origins |
+| `Rc` is read-only through the handle; the three doors | decision 46 | unchanged for `Rc(T)`; the gated `Rc(T, p)` (O9) extends it |
+| `mut(G)`/`mut(x)` markers | decision 47 | unchanged; a marker grants writability of a binding, an origin names the places a borrow touches — orthogonal facts |
 
-## 2. The rules
+## 2. The design
 
-### R1. Where a reference may live: the inline rule
+### O1. The `Origin` kind and the reference types
 
-`&T` and `&mut T` are types (decision 43). A reference, or any type
-containing one, may be a component of anything laid out **inline** and the
-element of a **root-joining buffer container** (R7); it may never be the
-payload of a **cell**. The containing type is then second-class.
-
-| Composite | Payload lives | May carry a `&` | Then |
-| --- | --- | --- | --- |
-| named `struct`, `enum` (payload per variant) | inline | yes: `xs : &ArrayList(T)`, `Borrowed(s : &String)` | the type is second-class |
-| anonymous record `struct(...)` literal type (decision 35's capture record) | inline | yes | same as a named struct |
-| tuple `(A, B)` | inline | yes: `(&ArrayList(T), usize)`; `(a, n) := t` binds `a` as a reference; a consumed tuple re-borrows its `&` components (nothing moves out of a borrow) | second-class per instantiation |
-| `Array(T, N)` | inline | yes: `Array(&T, N)`; `Index` yields the element reference; all elements share one borrow set, the union of the literal's sources | second-class per instantiation |
-| `Option(T)`, `Result(T, E)`, any user constructor | inline | yes, as an instantiation over a `&`: `Option(&T)`, `Result((View(u8), T), ParseError)` | second-class per instantiation |
-| `ArrayList(T)`, `HashMap(K, V)`, every buffer-owning container | a buffer | yes, as a **root-joining** container (R7), from N2 | second-class, borrow set grows |
-| `Box(T)`, `Rc(T)`, `Arc(T)`, `RefCell(T)`, `Dyn(Trait)` (so a borrowing closure in a `Dyn(Fn(...))`) | a cell | **no** — E0909 | — |
-
-```yo
-View :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(xs : &ArrayList(T), lo : usize, hi : usize)
-);
-Cursor :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(xs : &ArrayList(T), i : usize)
-);
-Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(map : &mut HashMap(K, V), key : K, hash : u64, slot : BucketProbe)
-);
-StrArg :: enum(Borrowed(s : &String), Owned(s : String));
-```
-
-- **Closures may capture `&` and `&mut`.** A capture list that borrows
-  (`{ y : &y, z : &mut z }() => …`, decision 35) makes the closure
-  second-class, not illegal: it may be bound to a local, lent and called —
-  a literal argument to `retain`, `with_lock` or a lent
-  `Impl(Fn(...))` parameter is the common case
-  (`tests/closure_capture_list.test.yo`). (The `xs.for_each(...)` examples
-  below are illustrative: `ArrayList` has no `for_each`. Read them as any
-  lent-callback API, `retain`'s predicate included.) What is E0909 is letting it
-  escape: a `Dyn(Fn(...))` or any other cell, a return, a by-value
-  (escaping) `Impl(Fn(...))` slot, a spawn, an escaping closure's capture
-  (decision 38 A). `Impl(Fn)` itself is not storage; only its by-value,
-  escaping use is.
-- **The type decides, not the live variant.** A `StrArg` built as `.Owned`
-  still cannot be stored in a cell: decision 38 A's rule is structural
-  over types. A program that wants a storable owned form declares a second
-  enum, or stores the payload.
-- **Reading a `&` component** through a value lent as `&` yields `&T`
-  whatever the field's mode (a `&mut T` reached through a `&` path is
-  read-only, decision 43); through `&mut` or an owned value it yields the
-  field's mode. A `&` read out of a place (`v.xs`, `r.*` with
-  `r : &&U`) is a copy carrying the roots it carries; it does not borrow
-  the place it was read from. A `&mut` component is never copied,
-  whatever path reads it: read through a `&` path it yields a `&T`
-  **reborrow** rooted at the component's place, so a result carrying it
-  needs the source `p`, not `p.*` (R3), and the holder stays frozen while
-  the reborrow lives. A write through a reference component is an access
-  of every root that component carries. **Writing** one: `v.xs = &other` re-points
-  it — a place write, so `other` joins `v`'s borrow set (R7) and dropping
-  `other` while `v` lives is E0911 (a scope-end drop is an access,
-  decision 38 A); decision 25's reached-from-self rule is for local
-  borrows (`cur = &place`), not components. `v.xs.* = ys` writes through
-  it (an error unless the field is `&mut`), and `v.xs = ys` with
-  `ys : ArrayList(T)` is a type error — a reference is a value, and only
-  `.field`/`.method()` auto-deref (decision 43).
-- **`match`** follows decision 26: through a borrowed scrutinee a `&`
-  payload binds as a reference capped by the scrutinee's mode; a by-value
-  scrutinee consumes the enum and a `&` payload bound by value re-borrows
-  with the enum's borrow set. `Option(&T)` is this case: `.Some(&x)` is a
-  legal second-class value, and R3 lets a signature say it is returned.
-- **`Copy`.** A type whose references are all `&` is `Copy` if the rest
-  is, with second-class copies (as `&T` itself is `Copy`); a `&mut`
-  component makes it move-only (a copy would be two exclusive borrows).
-- **Where such a type may stand:** a local, a parameter, a result, a block
-  or arm result, a field of another inline composite, an element of a
-  root-joining container — never a cell payload, a `Dyn` payload, a
-  spawned value, an escaping closure's capture, a `Send` value, a
-  module-level binding (no frame owns its roots), or a parameter or result
-  of an `extern` signature (C may store the pointer; FFI takes raw
-  pointers, the existing unsafe boundary).
-- **Passing.** A reference-holding value is passed by value when the
-  slot's type is or contains a reference (`f(v)` into `v : View(T)` copies an all-`&` value
-  and moves a `&mut`-holding one; decision 38 A as amended by 43) or by
-  lend (`f(&v)` into `v : &View(T)`); the callee is checked per
-  instantiation and its result inherits the roots (R3).
-
-### R2. Construction lends; the borrow set is the components' union
-
-```yo
-v := View(T)(xs : &xs, lo : lo, hi : hi); // lends xs for v's life
-e := map.entry(k); // lends map (&mut) for e's life
-```
-
-A `&` component is initialized with a sigiled argument (decision 33) or
-with a reference already in hand. The value's borrow set is the union of
-its components' sets, transitively (decision 38 A), and every source stays
-frozen until the value's last use (decision 18). A `&mut` component
-conflicts with every other access to its root while the value is live
-(E0911). Re-assigning the whole value replaces its set (decision 38 A's
-reaching definitions); writing a component unions into it (R7's place
-write); a local borrow `cur = &place` re-points under decision 25.
-
-A module-level root follows decision 18's rule 3 wherever it enters a
-borrow set, as decision 38 D applies it to captures: a value whose set
-contains one — `View(i32)(xs : &COUNTS, …)`, or a container `&COUNTS` was
-joined into — is rejected if its live range contains a call or an
-`await`, since any callee may write the module-level place.
-
-### R3. A function returns a reference-holding value only with roots among its parameters
-
-§3.13 A2, generalized to every type. A2 only had to map a future's borrow
-of a parameter's *place*; a reference-holding value can also carry roots
-*through* a parameter, so R3 tells the two apart.
-
-- A function may return a reference-holding value iff every root in its
-  borrow set is reached through the function's own reference-holding
-  parameters: `&`/`&mut` parameters (and `self` in those modes), by-value
-  parameters whose type is or contains a reference (`v : View(T)`,
-  `self : Entry(K, V)`), and, for a closure, its captures, which are the
-  roots of its implicit `self`. A borrow of a local, a temporary, a
-  module-level root or an owned by-value parameter (one whose type
-  contains no reference) in the result is a compile error at the
-  `return`, naming the place.
-- **Two kinds of source: a parameter's whole borrow set, or what its
-  referent carries.** A source `p` says the result may carry `p`'s whole
-  borrow set: for `p : &X` or `&mut X`, the lent place itself (and,
-  transitively, everything it carries) — a projection into `p`'s storage
-  (`xs(i)` with `xs : &ArrayList(T)`, `&self.field`) needs this; for a
-  by-value `v : View(T)` or `self : Entry(K, V)`, the roots `v` carries.
-  A source `p.*`, for a reference-typed `p` only, says the result carries
-  only what the referent carries, never the referent itself — a `&` read
-  out of a reference component, an element moved out of a buffer of
-  references, a sub-view of a view `p` points at. A `&mut` is never
-  carried out of a place that keeps it: a `&mut` component cannot be
-  copied, so a `&mut` reached through `p`'s referent is a reborrow of
-  that referent, and a `p.*` source rejects it. `IterMut`'s `next` is
-  therefore a lending iterator (source `self`), which keeps two live
-  items from aliasing; the borrowed `for(&mut xs, …)` stays the spelling
-  for mutation. Only `&` components read out (never a `&mut` component,
-  even demoted to `&` by a `&` path, R1) and values moved out (an element
-  `pop`ped from a buffer) are carried.
-
-```yo
-slice :: (fn(generic(T : Type), xs : &ArrayList(T), lo : usize, hi : usize) -> View(T))(...); // source xs, the default
-longest :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8))(...); // sources a AND b, the default
-pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(view : a)) -> (view : View(u8)))(...); // narrowed: a view of b is an error
-// The item borrows the list the cursor carries, not the cursor: two items may be live
-// across two `next` calls, and `out.push(x)` from `it.next()` leaves `it` usable.
-next :: (fn(generic(T : Type), self : &mut Cursor(T), depends(item : self.*)) -> (item : Option(&T)))(...);
-// With T = &U, the popped reference keeps U's roots, not a borrow of the list:
-// `x := stack.pop(); stack.push(y)` is accepted.
-pop :: (fn(generic(T : Type), self : &mut ArrayList(T), depends(item : self.*)) -> (item : Option(T)))(...);
-// By-value reference-holding parameters carry their roots out: the parser remainder.
-parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
-```
-
-- **Defaults.** With no entry for the result, it has every
-  reference-holding parameter `p` as a source `p`; a lent
-  `Impl(Fn(...))` parameter counts by its captures. This is the
-  conservative reading: without `depends(item : self.*)`, `next` is a
-  *lending* iterator (the item freezes the cursor). The dependency is defaulted
-  from the signature, never a lifetime name, and the clause only narrows.
-- **At the call site** the result carries, for each source `p`, the
-  argument's whole borrow set (for a lend `&x`, the place `x` in its
-  mode), and for each source `p.*`, the argument's borrow set without
-  the lent place — each frozen until the result's last use (A2's
-  caller-side mapping, extended). Result types
-  may be composites over references (`-> Option(&T)`, `-> (View(T),
-  usize)`, `-> Result((View(u8), T), E)`).
-- **The callee is checked against its clause (or the default), in both
-  positions; a clause is never trusted** — except in raw-pointer code
-  (std's buffer internals, `RawSlice`), where the tracker sees no roots
-  and the clause is the trusted statement, the same boundary as FFI; std
-  tests each such clause (below and R7). The tracker (R7) records, for
-  every root, whether it is a parameter's place or a root that parameter
-  carries. At each `return`, every root of the result must be covered by
-  the declared sources: a projection into `self`'s storage under a
-  `self.*` source is an error. At every join inside the body (R7), each
-  root joined into a target reached through a `&mut` parameter `dst`, or
-  through a `&mut` component of a by-value parameter (`ser.out` with
-  `ser : Serializer`), must come from a declared source or the default.
-  The default is everything the parameters carry except the target place
-  itself, so it includes roots carried by another part of the same
-  parameter (`self.out.push(self.prefix)`, the source `self.*`).
-  Re-storing roots a place already carries into that place is no join at
-  all (`dst.push(dst.pop())`). So `dst.push(&local)` is an error with or
-  without a clause, naming the place, and `dst.push(f())` with
-  `f : &Impl(Fn() -> &T)` needs `depends(dst : f.*)`, which then makes
-  the caller join `f`'s captures.
-- **Signatures, never bodies.** A call is checked from the callee's
-  signature alone — its parameter types, its `depends` clause or the
-  default — and the callee's body is checked against that signature, never
-  the other way round. Inferring a callee's borrow behaviour from its body
-  would make the contract invisible, let an edit inside one body break
-  its callers silently, force the incremental checker to re-check every
-  caller on every body edit, and still need declarations for the callees
-  with no body to read (`Dyn`, `Impl(Fn)` slots, `extern`).
-- **Std's obligations.** An iterator's `next`, `pop`, `take` and every
-  copy or move of an element out of a buffer name `self.*` as the
-  result's source; every lookup returning a projection names `self`
-  (`get(self : &Self, k : &K, depends(v : self)) -> (v : Option(&V))`), so
-  `m.get(&k)` does not keep `k` frozen while the result lives; the
-  container-position obligations are in R7.
-- **Why the two defaults treat a lent closure differently.** A result
-  may be computed by calling a lent `Impl(Fn)` parameter, so the result
-  default includes its captures; storing into a target is rarer and
-  conservative-by-default would freeze every closure's captures for the
-  target's life, so the target default excludes it and the callee check
-  turns the rare storing body into an error that names `f.*`.
-- **Effect handlers and `Dyn` dispatch.** A handler's `return(expr)`
-  resumes the operation's call site with `expr`, so a handler is checked
-  by R3 against the operation's signature like any function: a
-  reference-holding resume value must be rooted at the operation's own
-  reference-holding parameters, never at the handler's captures (the
-  computation does not know them). `unwind(expr)` exits the enclosing
-  function with `expr` as its result, so R3 applies at that function's
-  return. `Dyn(Trait)` dispatch needs nothing new: the callee is
-  unknown, but every impl was checked against the trait method's
-  signature, `depends` included, and the caller maps from the signature
-  alone.
-
-#### The `depends` clause
-
-One clause, one grammar, fitted to the contract clauses' rules
-(`.github/instructions/yo-syntax.instructions.md`, "Design-by-contract
-clauses"; `_clause_zone` in `src/evaluator/types/function.yo`):
+`Origin` is a comptime kind beside `Type`: a value of the kind is a **set of
+places**. Reference types take it as a trailing argument.
 
 ```yo ignore
-// every entry is `target : sources`
-depends(target : source)
-depends(target : (source, source, ...))
-depends(target : ()) // nothing flows into target
-depends(t1 : sources, t2 : sources, ...) // several targets, ONE clause
+// a function abstract over an origin:
+next :: (fn(generic(T : Type, p : Origin), self : &mut(Cursor(T, p))) -> Option(&(T, p)))(...);
+// a type constructor binding one (the comptime fn's parameter list grows by the kind):
+Cursor :: (fn(comptime(T : Type, p : Origin) -> comptime(Type))(
+  struct(xs : &(ArrayList(T), p), i : usize)
+));
+// unions are spelled as tuples in origin position:
+longest :: (fn(a : &(ArrayList(u8), q), b : &(ArrayList(u8), r)) -> View(u8, (q, r)))(...);
 ```
 
-- **A target** is the **return label** — the result is named the way
-  `ensures` names it, `-> (view : View(u8))`, with no magic `result`
-  identifier — or a parameter R7 can grow: one of type `&mut` over a
-  reference-holding type, or a by-value parameter with a `&mut`
-  component. Each target appears at most once, and a return label that
-  shadows a parameter name is an error (`depends(self : …)` must mean
-  the parameter).
-- **A source** is a reference-holding parameter `p`, or `p.*` when `p`'s
-  type is a reference (R3 above). A target may name its own `p.*`: roots
-  carried by one part of the argument flowing into another `&mut` part of
-  it (`depends(self : self.*)` covers `self.out.push(self.prefix)`).
-  Naming the target's own place (`depends(self : self)`) is an error: a
-  place never joins itself.
-- **Generic parameters.** Entries are checked per instantiation: a target
-  or source whose type is a type variable is well-formed in the generic
-  signature, and an entry over an instantiation that holds no reference is
-  vacuous (`push`'s `depends(self : value)` at `T = i32`).
-- **`()` says nothing flows in**: `depends(self : ())` on a lookup
-  (`remove(&k)`, `binary_search(&probe)`, `contains(&x)`). A single source
-  needs no parentheses; several form a tuple.
-- **A target the clause does not name keeps its default** — for the
-  result, every reference-holding parameter; for a `&mut` target, every
-  reference-holding parameter except the target's own place (its own
-  `p.*` included), a lent `Impl(Fn(...))` excepted.
-  An entry replaces its target's default; the one source it can add is a
-  lent `Impl(Fn(...))` for a `&mut` target (`depends(dst : f.*)`, R3's
-  callee check).
-- **Clause-call rules, as for `requires`/`ensures`:** at most one
-  `depends(...)` per signature, several targets inside it; `depends()`
-  is a syntax error (omit the clause).
-- **Its zone is right after `where`:** `generic(...)`, parameters,
-  `where(...)`, `depends(...)`, `requires(...)`, `ensures(...)`,
-  `decreases(...)`, `assumed()`. It belongs to the function's type, like
-  `where`, and is not a contract — so the contracts that follow may
-  describe the result it scopes.
-- **It is part of the function type.** It may be written in `Fn(...)`
-  types and trait method signatures: an `Impl(Fn(a : &T) -> &U)` slot
-  with no clause means the default, a value with a narrower clause
-  coerces into it, a value with a wider one does not — so two closures
-  differing only in `depends` have distinct types, ordered by subtyping
-  (`p.*` is narrower than `p`, `()` narrowest). A trait method's clause
-  binds every impl: the `Iterator` trait's `next` declares
-  `depends(item : self.*)`, so generic code sees an item's roots, not
-  the iterator's place. An impl may be narrower than its trait's clause,
-  never wider, so a lending `IterMut` (source `self`) cannot implement
-  `Iterator`; it is its own trait, as Rust's lending iterators are.
+- **An origin value is one of:** an origin parameter (`p`, abstract,
+  instantiated at each application exactly as a `Type` argument is); **a
+  reference-holding parameter's place**, spelled by the parameter's name
+  (`self`, `xs`) — `iter(self : &Self) -> Cursor(T, self)` names the
+  receiver's own place; or **a declared union** `(p, q)`. Field-path origins
+  (`self._buf`) are designed (§7) and phased with the access clause. A
+  local's place is an origin **inside bodies only** (flow-inferred, O2);
+  it can never appear in a signature (O3's return rule rejects it).
+- **The parse.** `&(A, B)` in type position is an origin-qualified reference
+  iff `B` resolves to an `Origin`-kinded name; if both `A` and `B` resolve
+  to types it is a reference to a tuple, exactly as today. The two readings
+  never compete: an origin is not a type, so `&(i32, p)` with `p : Origin`
+  has exactly one well-formed parse. The rule is stated in the syntax
+  documentation with the example. (`&mut(A, B)` is the same rule.) If
+  parsing the pair ever proves friction in practice, the reserved fallback
+  is a named slot (`&(i32, origin : p)`); it is designed, not adopted.
+- **The pointee comes first** (`&(i32, p)`, not `&(p, i32)`): every other
+  parameterized type takes the payload first and qualifiers after
+  (`ArrayList(T, p)`, `Cursor(T, p)`), the origin slot of a reference is
+  the same trailing position, and the pointee type keeps its fixed place —
+  `&i32` extends to `&(i32, p)` without moving anything. Rust's
+  origin-first `&'a T` habit is deliberately not matched; Yo diverges from
+  Rust's spellings everywhere else and internal consistency wins.
+- **Well-formedness — no self-origin.** A binding's type may not name the
+  binding's own place, and a type definition may not name its own fields:
+  `xs : ArrayList(&(T, xs))` and `struct(next : &(Node, self.field))` are
+  errors. This one rule is what makes self-reference unrepresentable and
+  keeps `Pin` out of Yo (O5).
+- **Origins are comptime values.** `TypeInfo` gains the `Origin` kind
+  beside `Reference(T, mutable, origin)`; reflection reads them. Comptime
+  algebra over them (an `overlaps` predicate for `where(...)` aliasing
+  preconditions) is an open question (§7), not part of the first phases.
+- **Codegen erases origins.** A reference is a `const T*` / `T*`; a
+  reference-holding struct is a plain C struct of pointers, `RawSlice`'s
+  shape; no count traffic, no header, no runtime mark. The only runtime
+  borrow state in the language remains `RefCell`'s (§3.10).
 
-```yo
-pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(view : a)) -> (view : View(u8)))(...);
-longest3 :: (fn(a : &String, b : &String, c : &String, depends(view : (a, b))) -> (view : View(u8)))(...);
-// std's ArrayList methods, written as free functions
-push :: (fn(generic(T : Type), self : &mut ArrayList(T), value : T, depends(self : value)) -> unit)(...);
-// nothing flows into self; the removed element keeps its roots, not the key's
-remove :: (fn(generic(T : Type), self : &mut ArrayList(T), key : &T, depends(self : (), item : self.*)) -> (item : Option(T)))(...);
-append :: (fn(generic(T : Type), self : &mut ArrayList(T), other : &mut ArrayList(T), depends(self : other.*, other : ())) -> unit)(...);
-// a result and a target in one clause
-pop_into :: (fn(generic(T : Type), self : &mut ArrayList(T), out : &mut ArrayList(T), depends(self : (), out : self.*, item : self.*)) -> (item : Option(T)))(...);
-swap :: (fn(generic(T : Type), a : &mut T, b : &mut T, depends(a : b.*, b : a.*)) -> unit)(...);
-```
+### O2. Elision: defaults the checker verifies, never inference it trusts
 
-### R4. Methods and iterators
+Every origin may be elided; elision is a **default the checker still checks
+the body against**, so it changes what is written, never what is proven
+(the guarantee that does the work is O3's coercion rule: a body storing
+`&(T, q)` into a `&(T, p)`-typed place checks `q ⊆ p`, so an elided
+signature that lies fails in the callee, not at a caller far away).
 
-A reference-holding type has ordinary `&Self`, `&mut Self` and `Self`
-methods, `Dispose` (the scope-end drop is an access, decision 38 A, so a
-guard's `dispose` runs while its borrow is live), and trait impls. A drop
-uses a value's borrow set only through a `Dispose` that may read through
-one of its references. A reference has no `Dispose`, and std's buffer
-containers read an element only to dispose it, so dropping an
-`ArrayList(&T)` frees its buffer without using the joined roots:
-`out := …; x := …; out.push(&x)` does not make `x`'s earlier scope-end
-drop an E0911 once `out`'s last use has passed (Rust's `may_dangle` on
-`Vec`; a std obligation on raw-pointer code, like `depends`). A
-user-written `Dispose` on a reference-holding type keeps every root
-live until the drop. A
-borrowing iterator is `iter(self : &Self) -> Cursor(T)` (R3, root `self`)
-with `next(self : &mut Self, depends(item : self.*)) -> (item : Option(&T))` (the item
-carries the cursor's roots, not the cursor); the borrowed `for(&xs, …)`
-dispatches through `impl(&C, IntoIterator(…))`, Rust's shape
-(`issues/retired/borrowed-for-over-user-defined-collections.md`). A
-closure that writes a `&mut` capture is a `FnMut` (decision 37).
+| Position | Elided means |
+| --- | --- |
+| a reference parameter | a fresh anonymous origin, per occurrence: `f(xs : &ArrayList(T), key : &T)` is `f[p, q](...)`, two unrelated borrows |
+| the result's origin | the union of every reference-holding parameter's origin (the conservative R3-era default): `longest(a, b) -> View(u8)` elided borrows both |
+| a `&` field of a type definition | a fresh anonymous origin parameter per field: `struct(xs : &ArrayList(T), lo : usize)` binds one; spell them when fields must relate |
+| a local binding or container in a body | flow-inferred by the intraprocedural checker; diagnostics print the inferred set |
 
-**Disjoint element borrows are a contract, not a borrow-checker proof.**
-Two live `&mut` projections into one container (`&mut xs(i)` beside
-`&mut xs(j)`) are rejected: a `&mut` projection borrows its base
-exclusively (decision 24), and the checker reasons about places, never
-index arithmetic. The disjoint case is one call returning both, with the
-disjointness stated as a precondition:
+- Elision is for simple signatures; the load-bearing ones spell. std's
+  `Iterator` trait spells `next`'s origin so every impl is checked against
+  the non-lending contract; an elided `next(self : &mut Cursor(T)) ->
+  Option(&T)` is the conservative lending reading (the item's origin is
+  the union of the ref parameters = the cursor's place), exactly the old
+  default.
+- **std's `depends(self : ())` obligation disappears.** Distinct elided
+  origins never unify: `map.remove(&k)` and `list.binary_search(&probe)`
+  keep the key usable after the call with nothing spelled, because the
+  key's fresh origin is unrelated to the container's. What `depends`
+  existed to narrow is now the default, and spelling is what narrows
+  further.
 
-```yo
-get2_mut :: (fn(generic(T : Type), self : &mut ArrayList(T), i : usize, j : usize, requires(i != j, i < self.len(), j < self.len())) -> (&mut T, &mut T))(...);
-```
+### O3. The checking rules: set algebra over declared places
 
-- **The check is a memory-safety check, not an erasable contract.** The
-  `requires` states it for the verifier; the body also asserts it, a
-  safety assert kept in every build like a bounds check, because
-  `Pragma.NoContracts` erases contracts entirely and `verify` mode keeps
-  only `requires`' entry check (`docs/en-US/FORMAL_VERIFICATION.md`,
-  "Modes"). The assert goes away only where codegen's proved-guard
-  elision proves the caller's side (CODEGEN_PERFORMANCE CP2g,
-  `plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`). A caller passing `i` and `i` fails to verify under
-  `Pragma.Verify` and panics otherwise.
-- **Sibling sub-loans.** The `&mut` components of one call result that
-  share a source are sibling sub-loans of that one loan, disjoint from
-  each other by the callee's construction (the raw-pointer body is the
-  trusted part), like sibling fields (decision 18, "siblings stay
-  free"). `(a, b) := xs.get2_mut(i, j)` lets `a` and `b` live, be written
-  and be passed together — `swap(a, b)` passes decision 28's overlap
-  check — while any other access to `xs` is E0911 until the last use of
-  either.
-- The body is raw-pointer code (R3's trusted boundary), tested like every
-  such std clause. `get_disjoint_mut(self, idx : Array(usize, N))` is the
-  same shape for `N` indices, with a pairwise-distinct precondition.
+Checking an origin-parameterized program is four mechanisms, none of them a
+region solver:
 
-### R5. Roots through `Rc`/`Arc`
+1. **Application** substitutes origin arguments at every call, exactly as
+   `Type` arguments are substituted today (the receiver's type fixes the
+   method's origin args; the arguments must match the substituted
+   signature).
+2. **Conflict is origin intersection.** A `&mut(T, p)` live (decision 18's
+   live ranges) conflicts with any other live use of any place in `p`
+   (E0911); two `&mut` arguments of one call with intersecting origins are
+   E0910 (decision 28 restated); reads of `p` coexist — Ante's use-vs-
+   mention distinction falls out of set algebra without an effect system.
+3. **Coercion is subset.** `&(T, p)` coerces into `&(T, (p, q))` (widening
+   a union) and into a fresh-elided parameter's position; nothing else
+   coerces. This is the whole subtyping story — there is no variance
+   lattice.
+4. **Liveness** is decision 18's, unchanged: freezes end at last use,
+   re-pointing is decision 25's, moves and drops are accesses.
 
-A reference whose place crosses an `Rc`/`Arc` deref is never a
-component, an element or a joined root: `View(T)(xs : &h.*.items, …)` and
-`out.push(&h.*.x)` are errors, exactly as decision 38 D rejects the
-capture `{ items : &r.*.items }` and A2 a future's. A plain `Rc` carries
-no borrow marks (decision 41), and a `Copy` value's copies are untracked,
-so nothing could stop a write through a second handle while the value
-lives. The error names the explicit spelling: hold the handle
-(`r : &Rc(S)`) and re-derive the place at each use (`r.*.items.len()`).
-The borrowed `for` over an `Rc`-rooted container keeps its own pin
-(§3.10, decision 39): it is a loop, not a value. The default root is a
-value place. A `RefCell(T)` root
-is a `with`/`with_mut` body or an expression-scoped `get`/`get_mut`
-projection, never a component and never a bound projection (the dynamic
-borrow is call- or expression-scoped, decision 41; binding `cell.get_mut()`
-is an error naming `with_mut`).
+Around them:
 
-### R6. Async and threads
+- **The return rule** (R3's successor): an origin in a result type may name
+  only origin parameters or reference-holding parameters' places. A local's
+  place in a result is a compile error at the `return`, naming the place —
+  the caller-side mapping is the substitution of step 1 plus the freeze of
+  step 2, so the "re-rooting" A2 could not do for futures becomes ordinary
+  type application.
+- **Place writes.** `v.xs = &y` requires `y`'s origin ⊆ `v`'s declared
+  origin set; `v.xs.* = ys` writes through it (an error unless the field
+  is `&mut`); `v.xs = ys` with `ys : ArrayList(T)` is a type error (a
+  reference is a value; only `.field`/`.method()` auto-deref, decision
+  43). No tracker state: the type of `v` is the whole contract.
+- **Containers declare their unions** (O6): a push outside the declared set
+  is a local error naming both sets; `yo fix` widens the declaration.
+- **`mut` markers stay orthogonal** (decision 47): writing through a
+  `&mut(T, p)` requires the roots of `p` to be `mut`-marked at their
+  bindings; an origin names where a borrow touches, a marker grants that a
+  binding is writable.
+- **Sibling sub-loans** (from R4): the two `&mut(T, self._buf)` results of
+  `get2_mut` share one origin by construction — multiple `&mut` results of
+  one call are sibling sub-loans, disjoint by the callee's raw-pointer body
+  and its `requires(i != j)` (the verifier discharges it; the body's safety
+  assert stays in every build). This is the one place the checker accepts
+  two live `&mut` over one origin, and only from a single call's results.
+- **Reborrows** (decision 43): a `&mut` passed to a `&mut` slot is
+  reborrowed (`&mut r.*`); read through a `&` path a `&mut` component
+  yields a `&` reborrow over the same origin — the holder stays frozen
+  while the reborrow lives.
+- **Drops that use no root** (R4's `may_dangle` obligation): std's buffer
+  containers free their buffer without touching the joined roots'
+  referents, so `x`'s scope-end drop after `out`'s last use is not a
+  conflict. A user-written `Drop` on a reference-holding type keeps every
+  root live until the drop.
 
-A reference-holding value is not `Send` (decision 38 E) and cannot be
-spawned or captured by an `io.async` body except under A2's own rules. It
-may be held across an `await` only when its roots may be (A2's
-`Rc`-crossing errors apply).
+### O4. First-classness: where origin-carrying types may stand
 
-### R7. Growing borrow sets: root-joining containers and every `&mut` target
+| Position | May carry origin parameters |
+| --- | --- |
+| locals, parameters, results, block and arm results | yes |
+| fields of inline composites (named/anonymous structs, enums, tuples, `Array(T, N)`, `Option`, `Result`, any user constructor) | yes — the composite gains the origin parameters of its fields' types |
+| buffer containers (`ArrayList`, `HashMap`, …) | yes, over a declared union (O6) |
+| cells — `Box`, `RefCell`, `Dyn` payload, an escaping closure's capture, a spawned value | **`Box` and `RefCell`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5), **`Dyn` and spawn: no** (E0909, initially) |
+| `Send` values, thread boundaries | no — structurally: a type with origin parameters is not `Send` |
+| module-level bindings | no, initially (§7) |
+| `extern` signatures | no — FFI takes raw pointers, the existing unsafe boundary |
+| self-referential (an origin naming the value's own fields or its own place) | never — the well-formedness rule of O1 |
 
-A buffer container instantiated over a type containing a `&` is legal
-(from N2, §8) and second-class, and unlike a value built once (R2) its
-borrow set **grows**: every element pushed in brings its roots. The join
-rules below are stated for every **reference-holding target** — any
-place whose type contains a reference, reached by the caller through a
-`&mut` lend, through a `&mut` root that an argument carries, or written
-in place. A root-joining container is the case
-where the growth is unbounded, but a struct, an `Option(&T)` or a
-`&mut &T` lent `&mut` grows the same way:
-`set(dst : &mut Option(&T), v : &T)` writing `.Some(v)` leaves the
-caller's `o` holding `v`'s referent. Two events join roots into a target,
-each for the rest of the target's life:
+E0909 is restated: **"this position accepts no origin parameters"** — one
+structural check off the type, replacing the per-position enumeration of the
+second-class wall. A `Box(&(T, p))` is legal wherever `p` is in scope; a
+`RefCell(&(T, p))` legal beside it (the cell's dynamic marks govern the
+payload's mutation, the origin governs the borrow — orthogonal); an
+`Rc(&(T, p))` waits for O9.
 
-1. **A call.** The rule is stated over **every call**, a method call being
-   receiver sugar: at any call, each argument joins its whole borrow set
-   — a reference or a reference-holding value, in either mode, lent or by
-   value (`&x`, `&mut x`, a `View(T)` passed by value, a consumed
-   `ArrayList(&mut T)`) — into every **other** argument that is a target:
-   one `&mut`-lent whose type contains a reference, or one that carries a
-   `&mut` root to such a place (a `Serializer` passed by value whose
-   `out : &mut ArrayList(&T)` points at the caller's list — decision 38
-   B already counts a value carrying a `&mut` borrow as a `&mut`
-   argument; this is that rule applied to joins). The join lands on the
-   carried root, as narrowed by the callee's `depends` clause (R3). An argument never joins itself: in `out.push(&x)` only
-   `&x` joins `out`, and the receiver `&mut out` joins nothing. **Within
-   one argument**, the roots it carries join every other `&mut`
-   reference-holding place it carries: `s.emit()` with
-   `s : Ser`, `Ser :: struct(out : &mut ArrayList(&String), prefix :
-   &String)`, joins `prefix`'s roots into the list `s.out` points at,
-   because `emit` may run `self.out.push(self.prefix)`. The clause
-   narrows it: an `emit` whose body carries `prefix` into `out` declares
-   `depends(self : self.*)`, which admits that internal flow and no root
-   from another argument; one whose body does not declares
-   `depends(self : ())`, under which the callee check rejects that push. A closure passed to a
-   lent `Impl(Fn(...))` slot joins nothing by default, because a lent
-   closure cannot be stored (decision 38 A) and R3's callee check rejects
-   a body that stores something rooted in it (`dst.push(f())`) unless the
-   clause names `f.*`. So `out.push(&x)` grows `out`'s roots by `x`, and
-   so does `push_all(&mut out, &vals)` at the caller — a unit-returning
-   helper that grows a `&mut` argument cannot escape the tracker, because
-   the join is recorded at the call, not inside the callee (R3 checks the
-   callee against the same clause). A `&self` method, or a call with no
-   `&mut` reference-holding argument, joins nothing.
-2. **A place write.** Writing a reference-holding value through a `&mut`
-   (`dst.* = .Some(v)`, `e.slot.* = &z`) or into a component of a
-   reference-holding value — an element (`out(i) = &x`), a field
-   (`v.xs = &y`, `out(i).xs = &y`), a payload — unions the right-hand
-   side's borrow set into the root place the write reaches. Only a
-   whole-value assignment to a local binding replaces its set (decision
-   38 A's reaching definitions); a write through a reference never does,
-   since the referent may hold roots the writer cannot see. A projection
-   write is not a call that receives the value, so it is its own trigger.
+### O5. No self-reference, therefore no `Pin`
 
-A join lands on the **root place** the lend designates, never on a
-binding that merely performed it, and the path to it is followed through
-reference components: an auto-borrowed receiver `r.push(&x)` with
-`r := &mut out` reborrows `r`'s referent, so the join grows `out`'s set
-(the local borrow's root, decision 18), while `set(&mut r, &y)` with
-`r := &x` lends the binding `r` itself (a `&mut &i64`), so `y` joins
-`r`'s set and `y`'s drop while `r` lives is E0911;
-`s.buf.push(&x)` with `s` owning `buf` grows `s`'s; `ser.out.push(&x)`
-with `ser.out : &mut ArrayList(&T)` grows the list `ser.out` points at —
-every `&mut` root in `ser`'s borrow set that can hold that type,
-conservatively — not `ser`, which may die while the list lives. When the
-root place is outside the frame (a `&mut` parameter, a `&mut` capture),
-R3's callee check applies. A joined value contributes its whole borrow
-set, transitively, as construction does (R2): pushing a `v : View(T)`
-joins every root of `v`, and pushing `&v` joins `v` and every root of `v`.
+Rust needs `Pin` because a value can contain a pointer into itself (an
+async generator holding a borrow of its own saved local across an `await`),
+so moving the value after construction would dangle the pointer. Yo's
+design makes that state **unrepresentable**:
 
-A local borrow lent `&mut` to a callee is thus re-pointed by union, not
-under decision 25's reached-from-self rule, which keeps governing the
-direct spelling `cur = &place`. With per-value sets, the union and the
-drop-is-an-access rule are what make any re-point sound, so decision
-25's sibling-root restriction is no longer needed for `&` borrows;
-relaxing it is a decision-25 amendment for the maintainer when N1 lands,
-not part of this plan.
+- An origin may only name places that exist **before** the value:
+  parameters, enclosing bindings, earlier origins. A type definition cannot
+  name its own fields and a binding's type cannot name its own place (O1's
+  well-formedness rule). Every reference inside a value points **outward**,
+  at a place owned by an enclosing frame.
+- Moving a value therefore never dangles anything it contains: the pointers
+  aim at other frames' storage. This is the same trade Hylo and Swift make,
+  and the same position the second-class design already had — nothing is
+  lost relative to the landed baseline, and the escape it names is the
+  existing one: a self-referential struct is not writable in safe Yo at all
+  (Rust can, with `Pin` and `unsafe`).
+- **Async.** §3.13 A2 already restricts a borrowing future to borrows
+  rooted at its body's `&`/`&mut` parameters; the origin spelling is
+  `Future(T, p)` with `p` those parameters' places, and the state machine
+  (heap-allocated once cold) stores only outward pointers to the caller
+  frame. A borrow of an async body's **own local** living across an
+  `await` would need an origin naming the state machine's own field —
+  prohibited by the same rule; the await-point check (O8) rejects a live
+  body-local origin at the `await`. No `Pin`, no address-stability
+  reasoning, no projection-safe move analysis.
+- `Box` gives the stable-address escape hatch FFI-style code needs: the
+  payload never moves when the handle does. Holding `&(T, box_place)`
+  across a move of the box is rejected anyway (the move is an access,
+  decision 18) — no aliasing subtlety reaches the user.
 
-The default is conservative on purpose and would freeze a transient key
-for the container's life (`map.remove(&k)`, `list.binary_search(&probe)`)
-and a drained container's place for the receiver's (`a.append(&mut b)`),
-so std narrows:
+### O6. Containers: declared origin unions
 
-- every non-storing method with a reference-holding parameter beside a
-  `&mut` target declares `depends(self : ())` — tested by "the probe key is
-  usable after the call";
-- a storing one names what it stores:
-  `push(self : &mut Self, value : T, depends(self : value))`;
-- a draining or exchanging one names what the other side carries, not
-  its place: `append(self : &mut Self, other : &mut Self, depends(self :
-  other.*, other : ()))`, `swap(a : &mut T, b : &mut T, depends(a : b.*,
-  b : a.*))` — tested by "`b` is usable after the call".
+A buffer container instantiated over a type containing a reference carries
+the reference's origin parameter as its own — spelled as a declared union
+at the instantiation:
 
-The declaration is the contract: a caller is never checked against a
-callee's body (R3, "Signatures, never bodies"). The mutation summaries
-(§3.10's machinery) may at most let `yo fix` propose a missing clause.
-Joined roots keep their mode: a `&mut x` pushed in freezes `x`
-exclusively for the container's live range, so a second `&mut x` or a read
-of `x` while it lives is E0911; a `&x` freezes `x` against writes only.
-**Sets never shrink** while a value lives (only a whole-value assignment
-to a local replaces one), so a value that handed a `&mut` root on still
-carries it: pushing a popped `&mut` back while it lives, or `swap` over
-two `&mut`-holding values, is rejected — a stated limitation, not a
-hole.
-Returning the container is R3 over the joined set:
-
-```yo
-// View(u8) is the L1 view into the String's bytes. `str` itself is the first-class
-// Copy view of STATIC bytes and never takes `&`: `(x : str) = "Hi";` and
-// `ArrayList(str)` are ordinary first-class values.
-words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
-  out := ArrayList(View(u8)).new();
-  ranges := self.word_ranges(); // a named binding: a borrow never crosses a temporary (decision 35)
-  for(&ranges, r => {
-    out.push(self.text.view(r)); // a View passed by value joins its roots (self)
-  }); // every root of `out` is self
-  out // R3: depends on self
-});
+```yo ignore
+out := ArrayList(&(View(u8), self))(...);      // may ever hold views rooted at self
+both := ArrayList(&(T, (x, y)))(...);          // two roots, declared up front
+out.push(self.text.view(r));                   // the view's origin is self ⊆ self: accepted
+both.push(&z);                                 // error naming {x, y} and {z}; yo fix widens
 ```
 
 - Growth and reallocation are irrelevant to soundness: the elements are
   pointers and the roots are frozen or exclusively borrowed for the
-  container's life.
-- Elements rooted through an `Rc`/`Arc` deref are rejected (R5); a cell never holds such a container (`Rc(ArrayList(&T))` is
-  E0909). A struct holding one is second-class by the structural rule.
-- **The tracker is new** (the VBD implementer's review): the closures'
-  capture-borrow sets (`g_capture_borrows`, keyed by the capture struct's
-  type id) cannot carry it, since two `ArrayList(&T)` values share one type
-  with different roots. Root-joining is a per-value borrow set on the
-  **root place** — the single local-borrow root
-  `VariableRare.inout_borrow_root_id` keeps today, extended to a set of
-  `(root, mode)` pairs, where a parameter's root is either its place or
-  the roots it carries (R3's `p` and `p.*`) — joined at each call and
-  place write above, unioned over reaching definitions at control-flow
-  joins, read by the freeze and exclusivity checks and by R3's return and
-  callee checks. Flow-sensitive and intraprocedural. It also tracks joins
-  into targets rooted *outside* the frame (a `&mut` parameter, a `&mut`
-  capture), which R3's callee check reads.
-- **Joins inside a closure body.** The borrowed `for` splices its body
-  into the enclosing function (the `for` macro's `is_ref_form` branch in
-  `std/prelude.yo`), so `words`' joins are ordinary. A real closure that
-  holds a target by a `&mut` capture and joins into it
-  (`xs.for_each(_ => out.push(&ys))`) treats the capture as a parameter:
-  R3's callee check runs in its body, with only captured places as
-  sources, and the literal's join summary (which captures join into
-  which), closed transitively before it is used (`b.* → a` and `z → b`
-  give `z → a`: calling the closure twice moves `&z` into `a`), is
-  recorded per literal, keyed like `g_capture_borrows` by the
-  capture struct's type id: one type per literal, so a per-literal
-  summary fits where a per-value set does not. The enclosing function
-  applies the summary where the literal takes its `&mut` capture, the
-  conservative point since the closure may run any time while it lives.
-  An `io.async` body is the same, through A2's registered capture-borrow
-  set.
-- **A closure's own parameter never joins a captured target**, even when
-  its type is a reference: `xs.for_each(x => out.push(x))` is rejected,
-  because `x`'s roots are bound inside `for_each` and cannot be mapped at
-  the literal. The borrowed `for` is the spelling for collecting
-  (`for(&xs, x => out.push(x.*))`); §7 records the refinement.
-- Codegen: a buffer of `const T*` / `T*`, no per-element retain/release, no element
-  drops.
+  container's life (the elements never move within their buffer in a way
+  the references could miss — realloc copies pointers, not referents).
+- A push outside the declared union is a local, deterministic error — the
+  friction of rigidity is accepted deliberately (maintainer, 2026-10-19:
+  LLM authorship prefers a declaration to fix over an inference to
+  understand), and a `yo fix` widening proposes the widened union.
+- Returning the container is the return rule over the union:
+  `words(self : &Doc) -> ArrayList(&(View(u8), self))` — every pushed
+  view's origin ⊆ `self`, checked in the body, stated in the type.
+- In a body, the union may be elided and flow-inferred (O2); the signature
+  it must satisfy is still spelled or defaulted.
+- Codegen: a buffer of `const T*` / `T*`, no per-element retain/release, no
+  element drops.
+
+### O7. What replaces `depends`: the mapping
+
+Every clause form of the superseded design is an origin spelling now.
+The clause grammar, its zone after `where`, its `Fn(...)-type` subtyping
+order and its callee checks are **not built** — parametricity does their
+work:
+
+| Superseded clause | Origin spelling |
+| --- | --- |
+| `depends(view : a)` | `-> View(u8, a)` |
+| the default (every ref-holding param) | the elided result origin (O2) |
+| `depends(item : self.*)` | `self : &mut(Cursor(T, p)) -> Option(&(T, p))` — the origin `p` the cursor carries |
+| a projection into the parameter's own storage (`p`, not `p.*`) | the parameter's place origin: `get(self : &Self, ...) -> Option(&(V, self))` |
+| `depends(self : value)` on `push` | `self : &mut(ArrayList(&(T, r))), value : &(T, r)` — one shared variable; the caller's subset coercion is the join |
+| `depends(self : ())` on a lookup | nothing — distinct elided origins never unify (O2) |
+| `swap(a : &mut T, b : &mut T, depends(a : b.*, b : a.*))` | `swap(a : &mut(&(T, r), p), b : &mut(&(T, r), q))` — both referents typed `&(T, r)`, so exchanging values needs no flow clause: origins travel with values |
+| a trait's clause binding every impl | the trait method's signature carries the origin parameters; an impl may instantiate narrower (subset), never wider |
+
+- **Closures.** A capture-list entry spells origins like a field:
+  `{ y : &(T, y), z : &mut(T, z) }` — the closure's type carries them; a
+  lent `Impl(Fn(...))` slot's own origin parameters must subsume the
+  literal's (the coercion rule, O3-3). A closure's parameters are fresh
+  origins like any function's.
+- **`Impl(Fn(...))` types carry origin parameters** in their argument and
+  result positions; `Dyn(Fn(...))` payloads stay origin-free initially
+  (§7).
+- **Effect handlers and `Dyn` dispatch:** a handler's `return(expr)` resume
+  value is checked against the operation's signature — its result origins
+  may name the operation's own parameters, never the handler's captures;
+  `unwind` at the enclosing function's return. `Dyn(Trait)` dispatch maps
+  from the trait method's declared origins; every impl was checked against
+  them.
+
+### O8. Async and threads
+
+- A borrowing future carries its origins in its type (`Future(T, p)`,
+  `p` the body's `&`/`&mut` parameter places, §3.13 A2 unchanged in
+  substance): the wrapper-id registry A2 built is replaced by the type, and
+  **forwarding works** — `f(c : &mut C, io)` returning `bump(&mut c, io)`
+  is ordinary substitution, closing A2's recorded "forwarding is not
+  accepted yet" gap.
+- **The await-point rule:** a live origin naming a body-local place at an
+  `await` is an error (O5); module-level places follow decision 18 rule 3
+  (no call or `await` in the live range), now visible in the type as the
+  named global.
+- An origin-carrying type is not `Send` (structural), cannot be spawned,
+  cannot be captured by an `io.spawn` body. `Arc` stays origin-free and
+  read-only across threads (decision 46, D3).
+
+### O9. `Rc(T, p)`: statically checked shared mutation (gated phase)
+
+Decision 46 stays true for the plain handle: `Rc(T)` carries no marks, the
+payload is read-only through it, and the doors are `RefCell(T)`,
+`Rc.get_mut`, `Rc.make_mut`. The origin amendment adds a fourth door, on
+its own phase and gated on a counted need (the census below):
+
+- **`Rc(T, p)`** is a handle whose payload's mutation rights are tied to
+  the origin `p`. Every clone constructed from it shares `p` — the type
+  says so, so a clone cannot lose the tracking. A read projection through
+  any handle yields `&(T, p)`; a write projection yields `&mut(T, p)` and
+  requires exclusivity over `p` — statically, by O3's intersection, with
+  **no runtime marks and no runtime cost** (the marks decision 41 removed
+  do not come back; the check is compile-time set algebra).
+- **Cycles become writable without `RefCell`**: a node whose next-pointers
+  are `Rc(Node(T), p)` — the graph's nodes share `p`; mutation through
+  any handle is exclusive over `p`. Rust needs `GhostCell`-style machinery
+  for this; Yo spells it as an instantiation. Leaks stay possible (a cycle
+  outliving its root cannot be freed deterministically) — the cycle
+  collector keeps that job, exactly as Ante treats leaks as a separate
+  collection concern.
+- **Granularity, honestly:** exclusivity is over the whole origin, so
+  concurrent disjoint-node mutation is rejected; it goes to `get2_mut`-
+  style contracts (R4's sibling sub-loans) or stays behind `RefCell`.
+  Ante's invalidation semantics (§6) would buy that granularity at the
+  cost of "`&` means unchanged" — rejected, recorded.
+- **Adoption target:** decision 46's census — 379 `Rc`-write sites (std's
+  async channel and mutex states among them). Each site becomes either a
+  `p`-tracked handle (proof where the summaries proved outcome (a)) or
+  keeps its `RefCell`. `Arc(T, p)` does not exist (threads share no
+  places); `Rc(T, p)` is not `Send`/`Sync`.
 
 ## 3. What it unlocks, mapped to the catalog
 
 | Catalog gap | Now | Rust / Swift equivalent |
 | --- | --- | --- |
-| §2.4 sub-range arguments, `RUST_ADOPTION_CANDIDATES.md` L1 | `View(T)` (or a builtin `[T]` over it): `&xs` + range, zero-copy, `len` + `Index` projections, a `for` source | `&[T]`, Swift `Span` |
-| §2.2 `fn words(&self) -> Vec<&str>` | `words(self : &Doc) -> ArrayList(View(u8))` (R7, root `self`), pass-local | `Vec<&'a str>` |
-| §5.1 borrowing iterators, adapter chains over a borrowed container | `iter(self : &Self) -> Cursor(T)`, `next(self : &mut Self, depends(item : self.*)) -> (item : Option(&T))`, adapters as inline structs holding the cursor; `impl(&C, IntoIterator)` for the `for` | `impl Iterator<Item = &T> + 'a` |
-| §4.5 the entry API | `entry(self : &mut Self, k) -> Entry(K, V)` (R3), `or_insert(self, v) -> &mut V` | `Entry<'a, K, V>` |
-| §3.2 guards | `lock(self : &mut Self) -> LockGuard(T)` with `Dispose` unlocking; `with_lock` stays the recommended form | `MutexGuard<'a, T>` |
-| §3.5 sinks | `Serializer :: struct(out : &mut StringBuilder, depth : usize)` | `Serializer<'a, W>` |
-| §4.4 `Cow` | `StrArg :: enum(Borrowed(s : &String), Owned(s : String))` | `Cow<'a, str>` |
-| §2.4 parser remainders | `-> (View(u8), T)` (R3) | nom's `IResult<&str, T>` |
-| §3.4 two-phase loans | `begin(self : &mut Self) -> Txn(S)` holding `store : &mut Store` | `Loan<'a>` |
+| §2.4 sub-range arguments, `RUST_ADOPTION_CANDIDATES.md` L1 | `View(T, p)`: `&(xs, p)` + range, zero-copy, `len` + `Index` projections, a `for` source | `&[T]`, Swift `Span` |
+| §2.2 `fn words(&self) -> Vec<&str>` | `words(self : &Doc) -> ArrayList(&(View(u8), self))` | `Vec<&'a str>` |
+| §5.1 borrowing iterators, adapter chains | `iter(self : &Self) -> Cursor(T, self)` with `next(self : &mut(Cursor(T, p))) -> Option(&(T, p))`; adapters as inline structs holding the cursor | `impl Iterator<Item = &'a T> + 'a` |
+| §4.5 the entry API | `entry(self : &mut(Self, p), k) -> Entry(K, V, p)`; `or_insert(self, v) -> &(mut(V, p))` | `Entry<'a, K, V>` |
+| §3.2 guards | `lock(self : &mut(Self, p)) -> LockGuard(T, p)` with `Drop` unlocking | `MutexGuard<'a, T>` |
+| §3.5 sinks | `Serializer(out : &mut(StringBuilder, p), depth : usize)` | `Serializer<'a, W>` |
+| §4.4 `Cow` | `StrArg :: enum(Borrowed(s : &(String, p)), Owned(s : String))` | `Cow<'a, str>` |
+| §2.4 parser remainders | `parse_int(input : View(u8, p)) -> Result(((View(u8, p), T)), ParseError)` | nom's `IResult<&str, T>` |
+| §3.4 two-phase loans | `begin(self : &mut(Self, p)) -> Txn(S, p)` | `Loan<'a>` |
+| **storage behind owning pointers and shared cells** | `Box(View(T, p))`, `RefCell(&(T, p))` — the old E0909 wall | `Box<&'a T>` |
+| **mutable cyclic graphs without runtime marks** | `Rc(Node(T), p)` (O9, gated) | `GhostCell` / `RefCell` |
 
-Not unlocked, on purpose: a reference kept beyond its roots' frame with
-more than one independent root, a reference in a cell or a `Dyn`, a
-reference across threads — the shapes Rust needs named lifetimes for; they
-keep their catalog answers (`RUST_REFERENCE_PATTERNS.md` §14).
+Not unlocked, on purpose: a reference across threads, a reference in an
+`extern` signature, a self-referential value (O5). They keep their catalog
+answers (`RUST_REFERENCE_PATTERNS.md` §14).
 
-## 4. What it costs
+## 4. What it costs — and why the checker is not Rust's
 
-- **Evaluator.** A `TypeValue` reference variant replacing the slot flags
-  (`param_is_ref`, `call_param_is_ref`/`is_owning` in `FnTraitT`,
-  `FuncParam` modes) through the evaluator, the specializer, the verifier
-  encoding and codegen — the largest refactor in the plan; the per-value
-  borrow-set tracker (R7) with its place/carried roots and per-literal
-  closure summaries; the R3 return check, the callee check and the `depends` clause (parsed with
-  the contract clauses); the inline rule's declared-storage check;
-  `FnMut` (decision 37).
-- **Codegen.** A reference is a `const T*` / `T*`; a reference-holding
-  struct is a plain C struct of pointers, `RawSlice`'s shape; no count
-  traffic, no header. `&mut` components are `restrict` candidates under
-  CODEGEN_PERFORMANCE CP1a.
-- **Verifier.** A `&T` parameter is a lent, unchanged place; a bound `&T`
-  local an alias of its root; a view carries `len` and the same
-  `index-in-bounds` obligations as its container; containers of
-  references are outside the subset until modelled.
-- **Seed gating.** New syntax the seed never sees: Generation A lands the
-  types, the rules and the test corpus in user code; Generation B converts
-  std (`slice`, `iter`, `entry`, the `FnMut` slots) on the next seed.
-- **Docs.** The catalog's §2.2, §2.4, §3.2, §4.5, §5.1 are rewritten with
-  the phase; decision 38 A's type-position bullet, decision 24 and decision
-  39 already carry the final rule.
-- **Diagnostics name the borrowed place and the value holding it.** An
-  E0911 or R3/R7 error says which root place is frozen, which value keeps
-  it frozen, where that value got the borrow, and where its last use is:
-  "`x` is frozen: `out` holds `&x` (joined by `out.push(&x)` at line 12)
-  until `out`'s last use at line 30", or "the result borrows `self.buf`
-  but `depends(item : self.*)` allows only what `self` carries". The
-  tracker already records each root's place path and the join or
-  projection that added it, so the message costs no new analysis.
-- **Tooling.** The parser and `_clause_zone` learn the `depends` zone
-  (after `where`), and `Fn(...)` types accept the clause — the first
-  clause that is part of a function type; `yo fmt` lays it out like the
-  contract clauses; LSP signature help and hover show it; `yo doc` prints the
-  inferred default (§7). New error codes in the diagnostics registry, each
-  with a `yo explain` entry: the R3 return of a non-parameter root, a
-  return outside the declared sources (including a place under `p.*`),
-  the callee check (a join outside the declared or default set), a
-  `depends` naming a parameter that holds no reference in any
-  instantiation, a closure parameter joined
-  into a captured target, a buffer container over a reference before N2,
-  and a reference in an `extern` signature.
+The maintainer's question on adoption (2026-10-19) was whether this makes
+Yo's borrow checker as hard to implement as Rust's. It does not; the
+difficulty moves into places Yo already has machinery:
+
+| Rust's cost | Yo's corresponding mechanism |
+| --- | --- |
+| region-variable solving (NLL constraints, the Polonius class of accept problems) | none — after substitution an origin is a ground set of places; "do these conflict" is lookup, not constraint solving. Rust's accept problems were artifacts of regions being abstract |
+| variance and the subtyping lattice | one rule: subset coercion into a declared union (O3-3) |
+| higher-ranked trait bounds (`for<'a>`) | none — an origin parameter is an ordinary generic parameter, instantiated at application like `T` |
+| lifetime elision interacting with closures and traits | four stated defaults (O2), each checked against the body |
+
+What actually remains to build:
+
+- **Evaluator / checker.** The `TypeValue.Reference(T, mutable, origin)`
+  variant and the `Origin` kind through the evaluator, specializer,
+  verifier encoding and codegen — still the largest refactor in the plan,
+  and unchanged in size by this amendment (it was step 1 before, it is
+  step 1 now). The checking itself is application + set intersection +
+  liveness; the per-value root-joining tracker of the superseded R7 — the
+  one genuinely new analysis that design needed — is **deleted**, replaced
+  by declared unions read off types.
+- **Parser.** The `&(T, p)` pair with its kind-directed disambiguation;
+  `generic(p : Origin)`; `Fn(...)` types with origin parameters. The
+  `depends` zone is never built — a net deletion relative to the
+  superseded design.
+- **Diagnostics.** Every origin error names the two sets and the places in
+  their intersection or difference; `yo doc` prints elided defaults (§7).
+  New error codes: the self-origin well-formedness rule, the
+  no-origin-position escape, the return of a local origin, the
+  await-point rule, the union-violating push.
+- **Tooling.** `yo fix` proposes widened unions; LSP hover shows a value's
+  origin set; signature help shows a call's origin substitution.
+- **Seed gating.** Generation A lands the kind, the parse and the rules in
+  user code; the tree and std convert on the next seed (Generation B), as
+  every phase of this plan does.
 
 ## 5. Soundness argument
 
-Every reference-holding value is a closure capture record with a name. The
-borrow set, the freeze until last use, the no-escape positions, the overlap
-rules and A2's caller-side mapping are the rules closures and futures
-already obey. The places a reference could escape, and what stops it:
+**The invariant (I1):** every live reference's origins resolve to places
+whose owners are still alive, and every live `&mut` is exclusive over the
+places its origin names. The mechanisms, and the escape routes they close:
 
-1. **Through a return** — R3 refuses any root not reached through a
-   reference-holding parameter; the caller freezes what the clause maps
-   to (the argument's whole borrow set, or what its referent carries).
-2. **Through a component write** — a place write unions the new
-   referent's roots into the value's set (R7), and the referent's
-   scope-end drop while the value lives is an access (decision 38 A), so
-   pointing a component at a shorter-lived place is E0911 at that drop.
-3. **Through storage** — the inline rule keeps cells and `Dyn` payloads
-   reference-free; a target's roots grow with what flows in at every
-   call that lends it `&mut` — a container, a struct, an `Option(&T)`,
-   a `&mut &T` alike — and at every place write into it (R7), so a
-   helper function cannot grow it unseen; the helper itself is checked
-   against its `depends` clause or the default (R3), so the declaration
-   the caller trusts is never a lie (raw-pointer code excepted, where it
-   is the tested trusted statement).
-4. **Through a carried result** — a `p.*` source maps to the argument's
-   roots, not its place, and is checked in the callee: a projection into
-   `p`'s storage, or a reborrow of a `&mut` reached through `p`, under
-   `p.*` is an error, so a carried result never points into the argument
-   place the caller is free to use again.
-5. **Through a copy** — an all-`&` value's copies carry the same roots; a
-   `&mut`-holding value is move-only.
-6. **Through a closure body** — a `&mut` capture is a parameter to the
-   callee check, the literal's join summary is applied where the capture
-   is taken, and a closure parameter never joins a captured target (R7).
-7. **Through an unknown callee** — `Dyn` dispatch and effect handlers are
-   checked against the signature the caller maps from (R3).
-8. **Through C or a module-level binding** — neither may hold a
-   reference-holding value (R1).
+1. **Through a return** — the return rule restricts result origins to
+   parameter origins and parameter places; sound by induction on the call
+   stack (the parameter's owner is the caller, one frame up), with the
+   caller freezing the substituted places until the result's last use.
+2. **Through storage** — origin parameters propagate through type
+   application, so storing a reference-holding value grows the storing
+   type's origin set by construction; a place write checks the subset
+   relation (O3). There is no tracker to fall out of sync with the type.
+3. **Through a copy** — copies carry identical origins (all-`&` values are
+   `Copy`); a `&mut`-holding value is move-only, so two exclusive borrows
+   cannot exist.
+4. **Through a closure** — capture entries spell origins into the
+   closure's type; a slot's parameters subsume the literal's (coercion);
+   an escaping closure's capture and a `Dyn` payload are no-origin
+   positions (E0909).
+5. **Through an unknown callee** — a `Dyn`/function-value call is checked
+   from the signature it dispatches on (traits carry origin parameters;
+   every impl was checked against them); an `extern` takes no origins.
+6. **Through a move or drop of a root** — moves and drops are accesses
+   (decisions 18, 38 A); a drop that uses no root keeps its std obligation
+   (O3).
+7. **Through self-reference** — unrepresentable (O1's well-formedness
+   rule); this is also what removes any need for `Pin` (O5).
+8. **Through C, a thread, or a module-level binding** — no-origin
+   positions, structural.
 
-**The negative-test corpus, written before the rules land:** return a view
-of a local; return a view of the wrong parameter under `depends`; store a
-view in a cell (`Rc(View(T))`, `Box(View(T))`); a `Dyn` over a tuple with a
-reference; capture a view in an escaping closure; spawn one; re-point a
-component to a temporary; a `&mut` view and a `push` on its root in one
-expression; a view whose place crosses an `Rc` deref; store a `StrArg` whose
-live value is `.Owned` in a cell; move a `.Borrowed` payload out of a
-consumed scrutinee; return `.Some(&local)`; `derive(Copy)` on an enum with
-a `&mut` payload; `ArrayList(&mut T)` with two pushes of one root (E0911);
-a read of `x` while `ArrayList(&mut T)` holding `&mut x` lives; a return
-of a container with a non-parameter root; an `Rc`-rooted element in a
-container; a `&mut T` through a `&` path written (error);
-`push_all(&mut out, &vals)` then `vals` dropped while `out` lives (E0911
-at the drop); `r := cell.get_mut()` (error naming `with_mut`); a bare
-`cur = v` with `v : T` (type error); a `depends(dst : ())` callee that
-pushes its `&` argument into `dst` (container check); a callee pushing
-`&local` into a `&mut` parameter's container, with and without a clause;
-`out.push(local.view(r))` then a write to `local` while `out` lives (a
-by-value view joins, E0911); `out(i) = &x` then a write to `x` (a place
-write joins, E0911); `r := &mut out; r.push(&x)` then a write to `x`
-after `r` dies (the join is on `out`); `xs.for_each(_ => out.push(&ys))`
-then a write to `ys` while `out` lives (the closure summary); a closure
-pushing `&` of its own parameter into a captured container; a
-reference-holding module-level binding; an `extern` signature with a
-`&` parameter; a handler resuming with a view of its own local; an
-`ArrayList(&T)` before N2 (error naming N2); `set(&mut o, &x)` with
-`set(dst : &mut Option(&T), v : &T)` then a write to `x` while `o` lives
-(a non-container target joins); `v.xs = &y` with `y` scoped inside `v`'s
-life (E0911 at `y`'s drop); `write(ser, &x)` with `ser : Serializer`
-passed by value and `ser.out` the caller's list, then a write to `x`
-while the list lives (a carried `&mut` root is a target); `ser.out.push(&x)` with `ser.out` a `&mut`
-list, then `ser` dies and `x` is written while the list lives (the join
-follows the reference); `dst.push(f())` with `f : &Impl(Fn() -> &T)` and
-no `depends(dst : f.*)`; a result with a `self.*` source that projects
-into `self`; `IterMut`'s `next` with a `self.*` source (a `&mut`
-reborrow is never carried); `next` with no clause and two items live
-(the lending default, E0911); `xs.for_each(x => out.push(x))`. Positive
-controls: a local
-`Array(&T, 3)` from three lends; `(a, n) := t` re-borrowing;
-`-> Result((View(u8), T), E)`; `f(v)` copying an all-`&` view; `words`;
-`map.remove(&k)` followed by a use of `k` (the `depends(self : ())`
-obligation); `out.retain(x => x.len() > n)` followed by a write to `n`
-(a lent closure joins nothing); `out.push(&x)` then `out.push(&y)` (the
-receiver never joins itself); `next` with a `self.*` source and two
-items live and `out.push(x)` from it followed by another `it.next()`;
-`x := stack.pop(); stack.push(y)` on `ArrayList(&T)` (on
-`ArrayList(&mut T)` a set never shrinks, so pushing a popped `&mut`
-back while it lives overlaps the receiver under decision 38 B — a stated
-limitation, not a hole); `a.append(&mut b)`
-then a use of `b`; `dst.push(dst.pop())` under `depends(dst : ())`;
-`parse_int(input)` returning the remainder of a by-value `View(u8)`;
-`entry(k).or_insert(v)` with the `Entry` consumed; `m.get(&k)` then a
-write to `k` while the result lives; `for(&xs, x => out.push(x.*))`; `(a, b) := xs.get2_mut(i, j)` with
-both written while live. Negative: `&mut xs(i)` beside `&mut xs(j)`
-(E0911, even with `i != j` known); `xs.get2_mut(i, i)` under
-`Pragma.Verify` (fails to verify) and without it (the runtime assert
-fires); a use of `xs` while `a` or `b` lives. Third-pass negatives:
-`s.emit()` pushing `self.prefix` into `self.out`, then `prefix`'s
-referent dropped while the list lives; `set(&mut r, &y)` with `r := &x`,
-then `y` dropped while `r` lives; `View(i32)(xs : &COUNTS, …)` live
-across a call; `out.push(&h.*.x)` through an `Rc`; a closure
-`{ a : &mut a, b : &mut b, z : &z }` moving `b`'s popped element into
-`a` and pushing `&z` into `b`, called twice, then `z` dropped while `a`
-lives; `peek(h : &Holder, depends(r : h.*)) -> (r : &i64)` returning
-the `&mut` component `h.m`. Third-pass positives: `out := …; x := …;
-out.push(&x)` with `out`'s last use before `x`'s drop; `swap(a, b)` on
-`get2_mut`'s two halves; `get2_mut(i, i)` under `Pragma.NoContracts`
-still panics.
+**Over-approximation is the safety margin, never a hazard:** declared
+unions over-freeze (a container holding only `x`-borrows still freezes
+`y`), elided defaults over-freeze, and disjointness is never guessed — it
+is a contract the verifier discharges (`get2_mut`). Incompleteness here is
+the deliberate trade for checkability; unsoundness would require a place
+entering an origin set without passing through a spelled or defaulted
+position, and every such position is one of the eight above.
+
+**`Rc(T, p)`:** clones share `p` by construction (the type parameter is
+copied with the clone); a write projection needs exclusivity over `p`, so
+any live use through any clone conflicts by set identity. The refcount
+keeps the payload alive; the collector handles cycles; leaks are possible
+and priced (§3.12, as before).
+
+**Async:** the state machine's stored references point only at the
+caller-frame places named by `p` (A2), which the await/spawn site freezes
+for the future's life; body-local origins at an `await` are rejected
+(O8), so no pointer into the machine itself can exist (O5).
+
+The **negative-test corpus is written before the rules land** (N0) and
+includes, beside the superseded design's rows restated in origin terms: a
+binding whose type names its own place; a type naming its own field; a
+result naming a local's origin; a push outside the declared union; a
+`Box`/`RefCell` carrying origins crossing a `Send`/spawn/`extern`/
+module-level position; an elided `push` signature with unrelated fresh
+origins (the body check must reject it); a live body-local origin at an
+`await`; a `Rc(T, p)` write beside a read through another clone; a clone
+stored where `p` is out of scope; sibling sub-loans misused (a second
+`get2_mut`-style call on the same base while the first pair lives);
+`swap` on referents of different origin types (a type error); a closure
+literal whose captures exceed a slot's origin parameters. Positive
+controls mirror them, `words` and `get2_mut`'s pair among them.
 
 ## 6. Alternatives considered
 
-| Alternative | Why not |
+| Alternative | Verdict |
 | --- | --- |
-| Rust's lifetimes (`'a` in types and signatures) | the annotation burden and the error-at-a-distance this project rejected (ROADMAP non-goals); every shape in §3 is covered without a name because the root is a parameter |
-| Mojo's origins (`ref [origin]`, parametric) | named lifetimes with inference; the inferred half is R3, the named half is what §3's "not unlocked" refuses |
-| Austral's regions and linear types | regions are lexical names; linear "use exactly once" is heavier than Yo's affine moves plus `Dispose`, and ATS A2's must-use covers the useful part |
-| references as modes only (the pre-decision-43 design) | correct but confusing (a mode written in a type slot that is not a type) and it blocks `impl(&T, …)` and `FnMut`; the maintainer chose types |
-| keep only `Rc`/indices/closures | the measured copies and the catalogued gaps |
-| inferring a callee's borrow behaviour from its body (interprocedural summaries) | the contract would live in the body: an edit inside one function silently changes what its callers may do, every body edit re-checks every caller, and callees with no body (`Dyn`, `Impl(Fn)`, `extern`) need declarations anyway. A call is checked from the signature alone (R3) |
-| proving element disjointness inside the borrow checker (index arithmetic, loop bounds, guards) | a second, weaker prover beside the verifier; disjointness is a `requires` the verifier already discharges (R4's `get2_mut`) |
-| a shared-mutable reference kind (several live writers, no runtime flag) | sound only with a rule for every stored alias when its target's owner is dropped or reallocated, and for interior borrows taken through one alias while another writes; `Rc`/`RefCell` (decision 41), indices and arenas cover graphs and back-pointers |
-| lifetime names in types (`View<'a>`, lifetime-polymorphic types) | `depends(view : a)` does select among a signature's roots, but only as a narrowing of the inferred "depends on all of them" in one signature; a type never carries a root name, so no constraint crosses a frame |
+| Rust's lifetimes (`'a` as abstract regions, outlives, variance, HRTB) | **still rejected as regions** — the solving, the variance and the error-at-a-distance are what §4 refuses; the names-in-types half is now adopted as origins, which are ground place sets, not region variables |
+| Mojo's origins (`ref [origin]`, parametric, inferred) | **adopted in modified form** — parametric origins with explicit spelling at contracts and checked defaults elsewhere; no inference at semantic distance |
+| Austral's regions | **adopted in modified form** — declared and explicit; its linear types stay rejected (affine moves + `Drop` are lighter) |
+| the 2026-10-13 `depends`-clause + root-joining-tracker design (this file's predecessor) | **superseded** — the clause grammar, its `Fn(...)` subtyping order and its per-value flow tracker (the design's one new analysis) all collapse into parametricity and declared unions (O7, O6); the mapping table shows nothing lost |
+| inferring a callee's borrow behaviour from its body | still rejected — the contract would live in the body; an edit inside one function silently changes what callers may do, and a body edit re-checks every caller (the incremental checker) |
+| proving element disjointness inside the borrow checker | still rejected — a second, weaker prover beside the verifier; disjointness is a `requires` (R4) |
+| Ante's unstable-place invalidation (`!` — mutation kills outstanding borrows) | **rejected** — it contradicts "`&` means unchanged" (§3.10), which the verifier's alias reasoning leans on; Yo freezes the base instead, and last-use liveness already legalizes the stale-view-then-mutate patterns |
+| Ante's shared-mutable `ref`/`mut` kinds (exclusivity dropped single-threaded) | **rejected** — Yo keeps exclusivity everywhere and buys shared mutation through `Rc(T, p)` (O9) at root granularity instead |
+| Ante's body-inferred `Mutate` effect | **rejected** — signature-based checking keeps `Dyn` dispatch, effect handlers and the incremental checker sound; Ante's own handler interaction is their experimental part |
+| elision-only surface (no explicit `Origin` kind) | **rejected** (maintainer, 2026-10-19) — LLM authorship wants contracts explicit; the failure mode of explicit systems is a local declaration mismatch, of implicit ones a distant inference surprise |
+
+Adopted from the post beyond the foundation: the `Rc` place parameter (O9),
+union places (O1), place paths (§7, phased). Already Yo's by other means:
+the no-Polonius claim (last-use liveness), `Send`/`Sync`, leaks as a
+collection concern.
 
 ## 7. Open questions, with positions
 
-- **`[T]` as a builtin or `View(T)` in std.** Position: std first, the
-  builtin spelling only if the verifier or codegen needs a primitive.
-  Decided in L1's PR. Related: whether `str` becomes the view of an owned
-  `String`'s bytes in borrow position (L1).
-- **The `depends` spelling — decided 2026-10-13 by the maintainer.** One
-  clause whose every entry is `target : sources`, the result named by the
-  return label as in `ensures`, zone right after `where` (R3, "The
-  `depends` clause"). Chosen over a positional result entry
-  (`depends(a, self : b)`: mixes positional and named entries, and
-  `depends(self)` reads like `depends(self : x)`) and over a second
-  clause word for targets (`stores(self : value)`: two words, two zones).
-  The carried source `p.*` reuses decision 43's deref: `p` is the
-  reference (the lent place included), `p.*` the value behind it, whose
-  roots are what the result keeps.
-- **Field-path sources.** `depends(item : self._buf)` lets a result
-  borrow one field instead of the whole value. Position (maintainer,
-  2026-10-13):
-  - **Who may write one.** A field-path source is legal exactly where the
-    path itself is: a private (`_`-prefixed) field only inside its type's
-    private scope — the declaring module and its same-directory siblings,
-    E0405's scope (`plans/reference/MEMBER_VISIBILITY.md`,
-    `private_member_blocked`), the scope in-file `test(...)` declarations
-    and sibling `*.test.yo` files already use. Code outside that scope
-    can never write a clause that depends on another type's
-    representation. A trait method cannot name fields of `Self`, so
-    field-path sources appear only on a concrete type's own methods and
-    free functions over it.
-  - **What callers outside see.** A public method may carry the clause;
-    to a caller that cannot name `_buf` the path is an opaque part of the
-    argument, which the checker tracks without the caller's source
-    mentioning it. Renaming the field breaks no caller; changing which
-    fields a method borrows withdraws a promise, like widening any
-    `depends` entry.
-  - **The companion, without which outside callers gain nothing.**
-    `e := xs.get_mut(0)` borrowing only `xs._buf` still conflicts with
-    `xs.len()`, because `len(self : &Self)` reads all of `xs`. The payoff
-    needs a second, declared clause stating which fields a method
-    accesses (`len` reads only `self._len`) — a statement about access,
-    not flow, so a separate clause from `depends`, and declared, never
-    inferred ("Signatures, never bodies", R3). Inside the private scope
-    the code reads `xs._len` directly and needs no companion.
-  - **Phasing.** The scoping rule alone is cheap and serves module-
-    internal code; it may land after N2. The access clause is designed
-    and built together with any outside-facing use, once a counted need
-    appears (decision 43's "bites" triggers).
-- **`depends` in `yo doc`.** Whether `yo doc` prints the default clause
-  on every reference-returning signature. Position: yes, so a reader sees
-  the roots without reading the body.
-- **Collecting through a lent closure's parameter.**
-  `xs.for_each(x => out.push(x))` is rejected (R7). A refinement could
-  let the callee's signature say where its slot's argument comes from
-  (here `self.*`), so the literal's summary maps through it; it would
-  need a source-side entry the clause grammar does not have yet. Position: not now; the borrowed `for` covers
-  collecting, and the refinement waits for a counted need (decision 43's
-  "bites" triggers).
-- **Whether a `&`-holding value may be a `match` scrutinee by value.**
-  Position: yes, decision 26's by-value match consumes it; its bindings
-  re-borrow with its borrow set (R1).
+- **Field-path origins and the access clause.** `self._buf` as an origin
+  value, legal exactly where the path is (an `_`-prefixed field inside its
+  private scope, `plans/reference/MEMBER_VISIBILITY.md`), with the
+  companion access clause (`len` reads only `self._len`) that makes
+  outside callers gain from the narrow borrow. Positions unchanged from
+  the superseded design: the scoping rule may land once the base does; the
+  access clause waits for a counted need. Ante's convergence here (their
+  motivating examples are the same cases) is a soft data point, not a
+  counted need.
+- **`Dyn` payloads with origin parameters.** Position: not initially — a
+  no-origin position; revisit when a trait-object shape that borrows is
+  asked for by a counted need (the catalog's §14 residue).
+- **Module-level origins.** A global's place as an origin is well-formed
+  (`&(ArrayList(i32), COUNTS)`), and decision 18 rule 3 (no call or
+  `await` in the live range) is the checking rule; the open question is
+  whether a module-level *binding* may carry origin parameters at all.
+  Position: no, initially — no frame owns the roots.
+- **`[T]` as a builtin or `View(T, p)` in std.** Position: std first,
+  decided in L1's PR, unchanged from the superseded design.
+- **`yo doc` printing elided defaults.** Position: yes, so a reader sees
+  the effective origins without reading the body.
+- **Comptime origin algebra.** `overlaps(p, q)` as a comptime predicate
+  usable in `where(...)` (a static aliasing precondition) and the
+  verifier consuming origins as its alias relation (admitting
+  origin-carrying `Rc` into proofs). Position: the kind lands first; both
+  wait for their consumers to exist.
+- **The `&(A, B)` parse fallback.** The named slot `&(i32, origin : p)` is
+  reserved if kind-directed disambiguation proves friction. Position: not
+  adopted; the rule is stated in the syntax documentation.
 
 ## 8. Phases
 
 | Phase | Lands | Gate |
 | --- | --- | --- |
 | N0 | the negative-test corpus written and failing | the tests fail for the right reason |
-| N1 | the `TypeValue` reference variant, R1–R3 (both `depends` forms and their callee checks), `.*`/auto-deref/auto-borrow, `impl(&T, …)`, `FnMut`; `View(T)` in std as the first consumer (Generation A: user code only). A buffer container instantiated over a type containing a reference (`ArrayList(&T)`, `ArrayList(View(u8))`) is an error naming N2: R1 legalizes it only with the tracker. N1's tracker already implements R7 for non-container targets (calls, place writes, root places through references, closure summaries: a `&mut Option(&T)` grows from N1), so no N1 build accepts a join it cannot see | the corpus minus its container cases, the fast suite, fixpoint |
-| N2 | root-joining containers: R7's tracker over buffers (unbounded growth, element place writes), the root-joining row of R1's table, std's container clauses (`push`, `pop`, `append`, the lookups); `iter()` on std's containers; adapter chains; `impl(&C, IntoIterator)` | the container cases of the corpus; decision 39's test requirement (growth mid-walk is a compile error for value roots, the pin panic for `Rc` roots) |
-| N3 | the entry API, guards, parser remainders, the `FnMut` slots in std (Generation B, on the next seed) | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
+| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the return rule, place writes), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
+| N2 | first-class storage: O4's table — cells and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
+| N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
+| N4 | `Rc(T, p)` (O9), gated on the counted need: the census sites that can prove exclusivity migrate off `RefCell` | the `Rc` rows of the corpus; the decision-46 census counts as the adoption metric |
 
-After decision 42's Generation B and V2b; each phase is one PR or one
-stack with one battery, per AGENTS.md.
+After decision 42's Generation B and V2b, as before; each phase is one PR
+or one stack with one battery, per AGENTS.md. The ctl-handler open point
+and the `.*` / `str` decisions recorded under "Decision 43" in
+`plans/VALUES_BY_DEFAULT.md` §6 carry over unchanged.
