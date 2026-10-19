@@ -628,7 +628,7 @@ Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose
 
 Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
-- Pointer dereference: `p.*` (read), `p.* = v` (write)
+- Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a BORROW (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`) is E0920: a borrow is a mode, not a type, and already reads as its value (`.*` on a borrow arrives with decision 43); the only borrowed receiver keeping `.*` is a type's own field named `*` (std's atomics: `self.*` on `self : &Self`)
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
 

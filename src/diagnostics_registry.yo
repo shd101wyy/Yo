@@ -68,6 +68,7 @@ json :: import("std/encoding/json");
   E_IMMUTABLE_BINDING_WRITE,
   E_COMPTIME_BINDING_RUNTIME_WRITE,
   E_RC_PAYLOAD_WRITE,
+  E_DEREF_OF_BORROW,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -713,6 +714,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ RefCell } :: import(\"std/sync/refcell\");\ncount := rc(RefCell(i32).new(i32(0)));\nother := count;\nother.with_mut(v => {\n  v = i32(1);\n});\n",
       "`other` and `count` are two handles to one cell, whose payload is read-only through either; the `RefCell` inside the cell is the door that lets a handle write it, and `count.with(v => v)` then reads 1.",
       "`other` 与 `count` 是指向同一单元的两个句柄，经由任一句柄载荷都是只读的；单元内的 `RefCell` 是让句柄写入它的门，之后 `count.with(v => v)` 读到 1。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_DEREF_OF_BORROW,
+      "a dereference (`.*`) is written on a borrow",
+      "对借用写了解引用（`.*`）",
+      "`v.*` where `v` is a `&T`/`&mut T` parameter or a local borrow (`y := &x`): a borrow is a mode on the binding, not a type, and it already reads as its value.",
+      "`v.*` 中的 `v` 是 `&T`/`&mut T` 参数或局部借用（`y := &x`）：借用是绑定上的模式，不是类型，而且它本来就按其值读取。",
+      "A borrow is not a pointer: `x : &T` and `y := &x` name the caller's storage directly, so reading `v` already IS reading the value — there is no extra level for `.*` to remove. `.*` is for raw pointers (`unsafe(p.*)`, a `*(T)` value), `Deref` wrappers (`b.*` on a `Box`/`Rc`/`Arc`), and a type's own field named `*` (std's atomics: `AtomicBool :: atomic(ref(struct((*) : atomic_bool)))`, read as `self.*` on `self : &Self`). Writing `.*` on a borrow itself arrives with decision 43, which makes references types; until then it is this error. Before the code existed, the same program failed with an evaluator internal (`check_if_function_parameter_matches_argument: arg has no ExprInfo`) far from the `.*`, or with E0406 \"No field `*` on S\" for a struct pointee. Read the value directly: `v`, `v.f`, `v(i)`.",
+      "借用不是指针：`x : &T` 和 `y := &x` 直接命名调用方的存储，因此读 `v` 本身就已经是在读值 —— 不存在供 `.*` 去掉的额外一层。`.*` 用于裸指针（`unsafe(p.*)`，即 `*(T)` 值）、`Deref` 包装（`Box`/`Rc`/`Arc` 上的 `b.*`），以及类型自己名为 `*` 的字段（std 的原子类型：`AtomicBool :: atomic(ref(struct((*) : atomic_bool)))`，在 `self : &Self` 上读作 `self.*`）。对借用本身写 `.*` 要等决策 43 把引用变成类型；在那之前就是这个错误。在该错误码存在之前，同样的程序会在远离 `.*` 的地方以求值器内部错误失败（`check_if_function_parameter_matches_argument: arg has no ExprInfo`），或在结构体点类型上报 E0406 \"No field `*` on S\"。请直接读值：`v`、`v.f`、`v(i)`。",
+      "probe :: (fn(v : &i32) -> bool)(v.* < i32(20));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := probe(&x);\n});\nexport(main);\n",
+      "probe :: (fn(v : &i32) -> bool)(v < i32(20));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := probe(&x);\n});\nexport(main);\n",
+      "`v : &i32` is a borrow, and a borrow reads as its value: `v` alone is the `i32`; `v.*` names no place until decision 43.",
+      "`v : &i32` 是借用，借用按其值读取：单独的 `v` 就是那个 `i32`；在决策 43 之前 `v.*` 不指代任何位置。"
     )
   );
   out.push(
