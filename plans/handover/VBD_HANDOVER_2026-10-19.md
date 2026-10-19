@@ -112,7 +112,7 @@ doc closures, #1472 + #1475 (honest not-fixed dispositions, §3).
 | evalgen issue 1 | nested index call on generic impls (write case verified; read case = substitute chain-follow + type_arguments re-key) |
 | #1469 re-code | deref-of-borrow diagnostic takes a non-colliding code after #1421 minted E0919 |
 | #1474 pass | bare-projection-tail E0601 message (focused pass over `helper.yo`) |
-| #1476 | false-E0911 closure-parameter shadowing (held for two internal verdicts) |
+| ~~#1476~~ MERGED `a24343bad` | false-E0911 closure-parameter shadowing (scope-aware live-range scan; internal verdicts green) |
 | gi2 issues 1/2/4 | generic-method closure at trial type; ArrayList same-named-param instance; self-referential ref-struct method resolution (12-line reduction done) |
 | v0.2.66 cut | §2.1 sequence |
 
