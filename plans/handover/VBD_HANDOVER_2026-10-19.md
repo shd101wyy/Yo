@@ -67,10 +67,12 @@ that outlive it:
 
 ### 2.1 v0.2.66 (being cut as this document is updated)
 
-- Base content: 35+ merged PRs (§2.2). The release REQUIRES markdown_yo v0.0.19 (manifest `^0.0.19`).
+- Base content: 42 merged PRs (§2.2). The release REQUIRES markdown_yo v0.0.19 (manifest `^0.0.19`).
 - User-visible breaks to say in the notes: `{}` rejected where unit is expected (#1473); the gcc
   match-statement fix (#1447) is NOT a v0.2.65 regression (v0.2.64 emits identical C; clang-only
-  `-Wno-everything` vs gcc's `-Werror=return-type`) — use that framing.
+  `-Wno-everything` vs gcc's `-Werror=return-type`) — use that framing. **The notes must NOT claim
+  #1476's closure-parameter fix — #1481 reverted it pre-release (see §2.2); its issue doc is in the
+  known-issues list.**
 - The cut sequence (AGENTS.md): cancel all runs but the newest develop battery; battery green on the
   exact tip; `git diff --stat <battery-head>..origin/develop -- src/ std/ tests/ .github/ scripts/
   build.yo` empty; dispatch `release.yml` with `bump=patch`; NEVER cancel a Release run; `bump=none`
@@ -108,7 +110,7 @@ doc closures, #1472 + #1475 (honest not-fixed dispositions, §3).
 **PENDING at the last update of this document** (update this table, then merge this PR):
 | Piece | State |
 | --- | --- |
-| **develop RED — the release blocker** | `check ./src` fails at CI (battery 39227862952 @ `a24343bad`: test ubuntu+arm, Bootstrap fixpoint, Self-hosted tier-1, FV; battery 39213359450 @ `f17367f98` already failed its macOS shard; #1473's own battery was CANCELLED — no verdict). E0911 @ `src/evaluator/exprs/match.yo:1827` (`fa.classic = false` while `fidx : &fa.pattern` live), 16 files / 32 E0911s locally; issue doc `issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md` (S1, release-blocking). Culprit window #1471–#1473 (borrow-liveness cluster); last green battery `5092616de`. Fix-forward agent resumed (evalgen, owns the issue doc); v0.2.66 waits for its PR + a green battery on the exact tip |
+| ~~develop RED~~ RESOLVED by **#1481** MERGED `736c564e9` | **#1476's scope-aware live-range scan was the sole culprit** (attribution by CI history: `f17367f98`'s battery was green on every Linux leg — its macOS shard-0 failure was a "hosted runner lost communication" infra flake; `a24343bad`'s battery failed ubuntu/arm/suite-candidate/fixpoint/self-hosted/FV all on the same E0911 @ `match.yo:1827`). Root cause measured: the tracked borrow's range-end inflated to the whole binding statement (#1476's arrow-literal skip hides the birth arm from the backward scan). One refinement round (decl-position-aware) cleared the 32 E0911s but re-opened E0919s on #1476's cursor-walk tests — undesignable statement-internal evaluation order — so **#1481 cleanly reverts #1476** (code + tests; its issue doc re-opened with the re-land plan and the measured root cause). v0.2.66 therefore ships WITHOUT the closure-parameter shadowing fix; it never shipped in any release, so no retraction — the known-issues list carries the re-opened doc. Release battery: run 39256789230 on tip `736c564e9` |
 | ~~#1478~~ MERGED `574e7df14` | B1 split: the two `explicit-copy` migration S2 fixes + E0916 structural-clone exemption + parked-sweeps docs with b1diag verdict; full Tier 1 + focused rebase re-gate green (full cli-diff 411 PASS/0 GOLDEN-DIFF, full internal 1419/1419) |
 | ~~#1469~~ MERGED `c82f57052` | deref-of-borrow = E0920 (E0919 collision with #1421 resolved by re-code); rebase re-gate green; explain-list golden carries both E0919+E0920 |
 | ~~#1479~~ MERGED `dcc9e3a0f` | evalgen issue-1 WRITE half (index-trial receiver exemption via `ctx.index_specialization_trial_recv_id`); read half open+mechanism narrowed (substitution pass never visits `Bag(K)`) |
@@ -218,12 +220,21 @@ is silent.
 ## 6. v0.2.66 release-notes final state
 
 Updated as the cut proceeds. The draft's `## Changes` sections: Language (d47 globals GenB #1414,
-d46 GenB #1421, the `{}` rejection #1473); Type checking (#1436, #1460, #1466, #1457, #1465, #1430);
-Compile and codegen (#1447 with the honest gcc framing, #1452, #1445, #1439); Async runtime (#1434,
-#1458, #1453, #1462); Standard library (#1422, #1456, #1467, #1450, #1470); Toolchain (#1468's
-FLOWABILITY doc change if noted); Compiler performance and memory (#1455, #1463's measurement).
+d46 GenB #1421, the `{}` rejection #1473); Type checking (#1436, #1460, #1466, #1457, #1465, #1430,
+#1479 nested-index-write through a generic impl, #1480 match payload struct-shell, #1474 the
+decision-24 forwarding message for a bare projection tail, #1469 deref-of-borrow = the NEW code
+E0920 — note the E0919 collision story with #1421 resolved by re-code); Compile and codegen (#1447
+with the honest gcc framing, #1452, #1445, #1439); Async runtime (#1434, #1458, #1453, #1462);
+Standard library (#1422, #1456, #1467, #1450, #1470); Toolchain for agents (#1478: the two
+`yo fix --migrate explicit-copy` fixes — a return of a borrowed-root place is LISTED not rewritten,
+a copy inside a generic specialization left as written — plus the E0916 structural-`clone()` exemption
+with the honest number: the landable half re-checks `std/string/string.yo` in 8.9 s where the parked
+full sweep took 430+ s / 45 GB); Compiler performance and memory (#1455, #1463's measurement).
 Known issues: rebuilt from what is open at the tag — the removal map in the machine-local draft tied
-every line to its fixer; re-derive with `ls issues/` at the tag. No Retracted claims this cycle.
+every line to its fixer; re-derive with `ls issues/` at the tag; MUST include the re-opened
+`issues/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`
+(reverted by #1481 with a measured re-land plan). No Retracted claims this cycle (the #1476 revert
+removed nothing a release ever shipped).
 
 ## 7. Machine-specific notes (this cycle's box; ignore elsewhere)
 
