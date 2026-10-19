@@ -87,7 +87,7 @@
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, strip_mut_marker, place_require_mut } :: import("../utils.yo");
+{ is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding, strip_mut_marker, place_require_mut, reject_write_through_rc } :: import("../utils.yo");
 { throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
@@ -470,6 +470,8 @@ _evaluate_inout_local_binding :: (
     // A `&mut` binding writes the place: its element accesses dispatch
     // `IndexMut` (decision 34, V2b).
     call_promote_index_places_for_write(&evaluated_rhs, env, ctx, exn);
+    // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
+    reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
     match(
       lb_place,
       .Some(lp) => {
@@ -812,6 +814,10 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
+  if(is_mut, {
+    // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
+    reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
+  });
   if(!are_types_compatible(&rhs_info.ty, &cur_var.ty), {
     exn.throw(
       dyn(

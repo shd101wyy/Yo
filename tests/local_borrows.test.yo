@@ -13,8 +13,10 @@ Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Shape :: struct(origin : Point, name : String);
 Holder :: ref(struct(n : i32, s : String));
-Node :: struct(value : i32, next : Option(Rc(Self)));
-List :: struct(head : Option(Rc(Node)));
+// A `ref` object, not an `Rc`: the cursor walk writes `next` through each
+// node, and an `Rc`'s payload is read-only (decision 46).
+Node :: ref(struct(value : i32, next : Option(Self)));
+List :: struct(head : Option(Node));
 (mut(g_count) : i32) = i32(0);
 g_list := List(head : .None);
 bump :: (fn(n : &mut i32) -> unit)({
@@ -149,7 +151,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(rc(Node(value : v, next : .None)));
+  cur = .Some(Node(value : v, next : .None));
 });
 sum_list :: (fn(list : &List) -> i32)({
   (mut(total) : i32) = i32(0);
@@ -388,7 +390,7 @@ comptime_expect_error(
   }),
   "is a module-level binding"
 );
-head_of :: (fn(l : &List) -> Option(Rc(Node)))(l.head);
+head_of :: (fn(l : &List) -> Option(Node))(l.head);
 comptime_expect_error(
   repoint_to_a_place_a_callee_could_reach_rejected :: (fn() -> unit)({
     mut(l1) := List(head : .None);

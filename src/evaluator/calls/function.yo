@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -2770,15 +2770,16 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
 });
 /// Decision 38 D as amended for futures (§3.13 A2): the borrowing future the
 /// call `op_callee(op_args)` makes borrows the places the call lent to the
-/// parameters the future captures. A lent place reached through an `Rc`
-/// deref, a `ref` object, a pointer or an index has no run-time mark held
+/// parameters the future captures. A lent place reached through a `ref`
+/// object, a pointer or an index has no run-time mark held
 /// across the suspension (decision 28's marks are call-scoped), so a write
 /// through another handle while this task waits would go unseen.
 ///
 /// A shared (`&`) borrow whose cell hops are all derefs of a handle whose
-/// payload is read-only through it (`handle_payload_is_read_only`: an `Arc`)
-/// is accepted: no handle writes that payload in safe code (D3), and the
-/// handle the task lends keeps it alive. A `&mut` borrow through one stays
+/// payload is read-only through it (`handle_payload_is_read_only`: an `Rc` or
+/// an `Arc`) is accepted: no handle writes that payload in safe code (E0919
+/// for an `Rc`, decision 46; D3 for an `Arc`), and the handle the task lends
+/// keeps it alive. A `&mut` borrow through one stays
 /// rejected (2026-10-14, the maintainer: the async `Mutex` follows Rust's
 /// `Arc<Mutex<T>>` and `lock(&self)`).
 _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
@@ -3737,7 +3738,7 @@ _borrow_rooted_is_mut :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> 
 /// §3.13 A2's cell rule for one place lent to a borrowing future, given the
 /// cells its hops cross (`place_cell_hops`): any mutable cell is E0909, and so
 /// is a `&mut` borrow through a handle whose payload is read-only through it
-/// (an `Arc`). A shared borrow through such handles alone is accepted.
+/// (an `Rc` or an `Arc`). A shared borrow through such handles alone is accepted.
 _check_future_lend_hops :: (fn(place : &AstExpr, label : &String, hops : &PlaceCellHops, is_mut : bool, ctx : &EvalContext, exn : Exception) -> unit)({
   if(hops.mutable_cell, {
     _reject_cell_lend_to_future(place, label, false, ctx, exn);
@@ -3747,8 +3748,8 @@ _check_future_lend_hops :: (fn(place : &AstExpr, label : &String, hops : &PlaceC
   });
 });
 /// The E0909 for a place lent to a borrowing future through a cell:
-/// `mut_through_read_only` for a `&mut` borrow through an `Arc`, else a
-/// borrow through a mutable cell.
+/// `mut_through_read_only` for a `&mut` borrow through an `Rc` or an `Arc`,
+/// else a borrow through a mutable cell.
 _reject_cell_lend_to_future :: (fn(place : &AstExpr, label : &String, mut_through_read_only : bool, ctx : &EvalContext, exn : Exception) -> unit)(
   raise_flow_violation(
     with_code(
@@ -3756,13 +3757,13 @@ _reject_cell_lend_to_future :: (fn(place : &AstExpr, label : &String, mut_throug
         mut_through_read_only,
         format_error_message_with_help(
           ast_expr_token(place),
-          `This future borrows \`${ast_expr_to_string(place)}\` mutably across its suspension, through an \`Arc\`: the payload of an \`Arc\` is shared by every handle and is never written through one (D3), so an exclusive borrow of it cannot exist (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
-          Option(String).Some(`put the state the future mutates in a \`Mutex\` inside the \`Arc\` (\`Arc(Mutex(T))\`, whose \`lock\` takes \`&self\`), or own the value in the task`)
+          `This future borrows \`${ast_expr_to_string(place)}\` mutably across its suspension, through an \`Rc\` or an \`Arc\`: the payload of either is shared by every handle, so it is read-only through the handle (E0919 for an \`Rc\`, decision 46; D3 for an \`Arc\`), and an exclusive borrow of it cannot exist (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
+          Option(String).Some(`put the state the future mutates in a \`Mutex\` inside the handle (\`Rc(Mutex(T))\` or \`Arc(Mutex(T))\`, whose \`lock\` takes \`&self\`), or own the value in the task`)
         ),
         format_error_message_with_help(
           ast_expr_token(place),
-          `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and that place lives in a shared mutable cell (an \`Rc\`, any \`ref\` object, a pointer dereference, or a buffer reached by an index): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
-          Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), share it as \`Arc(T)\` (a shared borrow through an \`Arc\` may cross a suspension), or own the value in the task`)
+          `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and that place lives in a shared mutable cell (any \`ref\` object, a pointer dereference, or a buffer reached by an index): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
+          Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), share it as \`Rc(T)\` or \`Arc(T)\` (a shared borrow through either may cross a suspension), or own the value in the task`)
         )
       ),
       E_BORROW_ESCAPES
@@ -9542,6 +9543,9 @@ Fix: wrap the call:
             // cannot yield (E0908).
             if(match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false), {
               call_promote_index_places_for_write(&evaled_arg, &arg_eval_env, ctx, exn);
+              // Decision 46 (E0919): an `Rc`'s payload is read-only through
+              // the handle.
+              reject_write_through_rc(&evaled_arg, if(match(fv_param_labels.get(ai), .Some(l) => (l == "self"), .None => false), "mut-recv", "mut-arg"), resolved_param_types.get(ai), ctx, exn);
             });
             arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
             arg_info := match(

@@ -7,6 +7,7 @@ import("std/libc/stdio");
 { yield } :: import("std/async");
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
+{ RefCell } :: import("std/sync/refcell");
 
 // ---------------------------------------------------------------------------
 // 1. state() on a completed task reads Completed without blocking
@@ -42,10 +43,12 @@ test("Test JoinHandle state while suspended", {
 // 3. abort() of a suspended task: await returns .None
 // ---------------------------------------------------------------------------
 test("Test JoinHandle abort returns None", {
-  ran := Rc(bool)(false);
+  ran := rc(RefCell(bool).new(false));
   fut := io.async((io : Io) => {
     io.await(sleep(u64(50)), io);
-    ran.* = true;
+    ran.with_mut(cur => {
+      cur = true;
+    });
     return(i32(9));
   });
   h := io.spawn(fut, io);
@@ -53,7 +56,7 @@ test("Test JoinHandle abort returns None", {
   assert(h.state() == FutureState.Aborted, "abort should mark the task Aborted");
   r := h.await(io);
   assert(match(r, .Some(_) => false, .None => true), "awaiting an aborted task should give .None");
-  assert(!(ran.*), "the aborted body must not resume past its suspension point");
+  assert(!ran.with(cur => cur), "the aborted body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
 // 4. The aborted task's pending timer completion fires safely afterwards
@@ -61,10 +64,12 @@ test("Test JoinHandle abort returns None", {
 //    through the state switch).
 // ---------------------------------------------------------------------------
 test("Test aborted task pending completion is safe", {
-  ran2 := Rc(bool)(false);
+  ran2 := rc(RefCell(bool).new(false));
   fut := io.async((io : Io) => {
     io.await(sleep(u64(10)), io);
-    ran2.* = true;
+    ran2.with_mut(cur => {
+      cur = true;
+    });
     return(i32(3));
   });
   h := io.spawn(fut, io);
@@ -74,7 +79,7 @@ test("Test aborted task pending completion is safe", {
   // Outlive the aborted task's 10ms timer so its continuation fires into the
   // aborted state machine while the loop is still alive.
   io.await(sleep(u64(30)), io);
-  assert(!(ran2.*), "aborted body must not have resumed when its timer fired");
+  assert(!ran2.with(cur => cur), "aborted body must not have resumed when its timer fired");
 });
 // ---------------------------------------------------------------------------
 // 5. abort() after completion is a no-op
@@ -161,10 +166,12 @@ test("abort of a directly spawned raw IoFuture stays Aborted after the operation
   assert(h.await(io).is_none(), "await reads .None");
 });
 test("aborting a task aborts the named child future it awaits", {
-  ran := Rc(bool)(false);
+  ran := rc(RefCell(bool).new(false));
   child := io.async((io : Io) => {
     io.await(sleep(u64(50)), io);
-    ran.* = true;
+    ran.with_mut(cur => {
+      cur = true;
+    });
     i32(1)
   });
   parent := io.async({ child }(io : Io) => {
@@ -175,14 +182,16 @@ test("aborting a task aborts the named child future it awaits", {
   io.await(yield(io), io);
   hp.abort();
   io.await(sleep(u64(80)), io);
-  assert(!(ran.*), "and its body never resumed past its sleep");
+  assert(!ran.with(cur => cur), "and its body never resumed past its sleep");
   assert(hp.await(io).is_none(), "the parent reads .None");
 });
 test("aborting a task leaves a task it joins running", {
-  ran := Rc(bool)(false);
+  ran := rc(RefCell(bool).new(false));
   shared := io.async((io : Io) => {
     io.await(sleep(u64(20)), io);
-    ran.* = true;
+    ran.with_mut(cur => {
+      cur = true;
+    });
     i32(5)
   });
   hs := io.spawn(shared, io);
@@ -195,7 +204,7 @@ test("aborting a task leaves a task it joins running", {
   // joined task is detached and keeps running.
   assert(hw.await(io).is_none(), "the waiter reads .None");
   io.await(sleep(u64(60)), io);
-  assert(ran.*, "the joined task's body ran to the end");
+  assert(ran.with(cur => cur), "the joined task's body ran to the end");
 });
 // ---------------------------------------------------------------------------
 // A user method named `await` is an ordinary method: codegen lowers
@@ -296,19 +305,21 @@ test("awaiting a handle moves a move-only result out; a dropped handle releases 
   assert(g_jh_res_disposed == (before + i32(3)), "the joined result is disposed once");
 });
 test("a dropped handle detaches its task, which runs to the end", {
-  ran := Rc(bool)(false);
+  ran := rc(RefCell(bool).new(false));
   {
     _h := io.spawn(
       io.async((io : Io) => {
         io.await(sleep(u64(10)), io);
-        ran.* = true;
+        ran.with_mut(cur => {
+          cur = true;
+        });
         ()
       }),
       io
     );
   };
   io.await(sleep(u64(40)), io);
-  assert(ran.*, "the detached task finished on its own");
+  assert(ran.with(cur => cur), "the detached task finished on its own");
 });
 // issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md:
 // a method call on an element of a handle list borrowed it through a copy

@@ -55,10 +55,10 @@ test("auto-deref: nested Rc(Rc(T)) reaches the innermost payload", {
   bb := rc(rc(_mk(i32(2))));
   assert(bb.n == i32(2), "field through two wrappers");
   assert(bb.get() == i32(2), "method through two wrappers");
-  bb.bump();
-  assert(bb.*.*.n == i32(3), "inout(self) through two wrappers");
-  bb.n = i32(9);
-  assert(bb.*.*.n == i32(9), "write through two wrappers");
+  // An `Rc`'s payload is read-only through the handle (decision 46), through
+  // every wrapper.
+  comptime_expect_error(bb.bump(), "read-only through the handle");
+  comptime_expect_error(bb.n = i32(9), "read-only through the handle");
 });
 test("auto-deref: a method the wrapper and its payload both have is E0616", {
   b := rc(_mk(i32(5)));
@@ -68,7 +68,7 @@ test("auto-deref: a method the wrapper and its payload both have is E0616", {
   comptime_expect_error(b.clone(), "Write Rc.clone(b) for the Rc's own clone, or b.*.clone(...) for the payload's");
   // The annotations are the check: each spelling has its own type.
   (c : Rc(_P)) = Rc.clone(b);
-  c.n = i32(6);
+  Rc.make_mut(&mut c).n = i32(6);
   assert(b.n == i32(5), "the clone is a new cell");
   assert(c.n == i32(6), "and its payload is reachable");
   (d : _P) = b.*.clone();
@@ -77,22 +77,17 @@ test("auto-deref: a method the wrapper and its payload both have is E0616", {
   (pl : _P) = b.*;
   assert(pl.n == i32(5), "b.* names the payload");
 });
-test("auto-deref: a field write through Rc is a place", {
+// An `Rc`'s payload is read-only through the handle (decision 46): a write
+// through the auto-dereference is E0919, as one through an `Arc` is D3's.
+test("auto-deref: a field write through Rc is E0919", {
   b := rc(_mk(i32(1)));
-  b.n = i32(5);
-  assert(b.*.n == i32(5), "b.n = v writes b.*.n");
-  // An Rc shares its cell: the write is seen through every copy.
-  c := b;
-  c.n = i32(7);
-  assert(b.n == i32(7), "written through the shared cell");
+  comptime_expect_error(b.n = i32(5), "read-only through the handle");
+  comptime_expect_error(b.*.n = i32(5), "read-only through the handle");
 });
-test("auto-deref: inout(self) through Rc", {
+test("auto-deref: a &mut self call through Rc is E0919", {
   b := rc(_mk(i32(1)));
-  b.bump();
-  assert(b.*.n == i32(2), "b.bump() mutates the payload");
-  b.items.push(i32(3));
-  b.items.push(i32(4));
-  assert(b.*.items.len() == usize(2), "b.items.push(x) mutates the payload's list");
+  comptime_expect_error(b.bump(), "read-only through the handle");
+  comptime_expect_error(b.items.push(i32(3)), "read-only through the handle");
 });
 test("auto-deref: Arc reads forward, writes are D3 errors in safe code", {
   a := arc(_Q(n : i32(4), arr : [i32(1), i32(2)]));
@@ -111,17 +106,15 @@ test("auto-deref: one generic body serves a value and an Rc", {
   assert(_read_n(&p) == i32(3), "plain receiver again");
 });
 test("auto-deref: indexing a forwarded field (callee position)", {
-  b := rc(_mk(i32(1)));
-  b.items.push(i32(5));
-  b.items.push(i32(6));
+  p := _mk(i32(1));
+  p.items.push(i32(5));
+  p.items.push(i32(6));
+  b := rc(p.clone());
   assert(b.items(usize(1)) == i32(6), "b.items(i) reads b.*.items(i)");
-  b.items(usize(0)) = i32(7);
-  assert(b.*.items(usize(0)) == i32(7), "b.items(i) = v writes the payload's list");
-  bb := rc(rc(_mk(i32(1))));
-  bb.items.push(i32(8));
-  assert(bb.items(usize(0)) == i32(8), "through two wrappers");
-  bb.items(usize(0)) = i32(9);
-  assert(bb.*.*.items(usize(0)) == i32(9), "written through two wrappers");
+  comptime_expect_error(b.items(usize(0)) = i32(7), "read-only through the handle");
+  bb := rc(rc(p));
+  assert(bb.items(usize(0)) == i32(5), "through two wrappers");
+  comptime_expect_error(bb.items(usize(0)) = i32(9), "read-only through the handle");
 });
 test("auto-deref: a function-typed payload field is callable", {
   h := rc(_H(f : (fn(x : i32) -> i32)(x + i32(1))));
@@ -169,8 +162,10 @@ _clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone())
 test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
   b := rc(_mk(i32(3)));
   c := _clone_any(&b);
-  c.n = i32(8);
-  assert(b.n == i32(3), "T := Rc(_P): the Rc's own clone, a new cell");
+  // A write through `c` would be E0919 (decision 46), so the fresh cell
+  // shows in the counts: neither handle shares the other's.
+  assert(c.n == i32(3), "T := Rc(_P): the clone reads the payload");
+  assert((ref_count(b) == usize(1)) && (ref_count(c) == usize(1)), "T := Rc(_P): the Rc's own clone, a new cell");
 });
 // derive(Clone) spells a wrapper field's clone through its Clone impl, so a
 // struct holding an `Rc` derives Clone with no clash.
@@ -181,7 +176,7 @@ derive(_EnumRc, Clone);
 test("auto-deref: derive(Clone) clones an Rc field through the Rc's Clone", {
   x := _HoldsRc(r : rc(i32(1)), k : i32(2));
   y := x.clone();
-  x.r.* = i32(5);
+  Rc.make_mut(&mut x.r) = i32(5);
   assert(y.r.* == i32(1), "the derived clone made a new cell, as the Rc's Clone does");
   e := _EnumRc.A(r : rc(i32(6)));
   f := e.clone();
@@ -246,8 +241,8 @@ test("auto-deref: nested Box and Rc reach the innermost payload", {
   assert(rb.get() == i32(2), "Rc(Box(T)) method");
   br := box(rc(_mk(i32(3))));
   assert(br.n == i32(3), "Box(Rc(T)) field");
-  br.n = i32(4);
-  assert(br.*.*.n == i32(4), "written through Box(Rc(T))");
+  comptime_expect_error(br.n = i32(4), "read-only through the handle");
+  assert(br.*.*.n == i32(3), "Box(Rc(T)): the Rc inside the Box is still read-only (decision 46)");
   bb := box(box(_mk(i32(5))));
   assert(bb.get() == i32(5), "Box(Box(T)) method");
 });

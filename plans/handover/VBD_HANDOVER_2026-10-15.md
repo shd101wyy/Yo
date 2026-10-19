@@ -596,7 +596,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 11. **The `std` `dyn(f)` spelling, if any is left:** #1339 found no bare site in the tree, so there may be nothing to do. Grep before opening a PR.
     - **Done, nothing to change (2026-10-16):** E0618 rejects every bare erasure and `check ./std` and `check ./src` pass on develop, so no bare site is left; the remaining `dyn(f)` hits are comments and the E0618 registry text.
 12. **`Waker.clone` Generation B — LANDED (#1412, on the v0.2.64 seed):** `std/async/waker.yo` implements `Clone` over `__yo_waker_clone`, and `tests/cross_thread_wake.test.yo` is back on `Park` and `w.clone()` (the test-local `_RawWaker` is deleted). Found on the way: the epoll backend leaks its recycled op records at thread exit (S2, pre-existing, hidden by CI's `YO_TEST_LEAK_VERDICT=0`; filed in #1417).
-13. **Decision 46, `Rc` is read-only** (§6 "Decision 46"): Generation A (the `YO_AUDIT_RC_WRITE` census, `RefCell(T)` if not landed, `Rc.make_mut` and `try_unwrap`) **landed 2026-10-16 (feat/vbd-d46-gena; the census counts are in step 1's "as built")**, then Generation B (the sweep, then the error) on a seed carrying it. This also makes E0909's read-only-handle predicate true for `Rc`, so `Rc(Mutex(T))` works.
+13. **Decision 46, `Rc` is read-only** (§6 "Decision 46"): Generation A (the `YO_AUDIT_RC_WRITE` census, `RefCell(T)` if not landed, `Rc.make_mut` and `try_unwrap`) **landed 2026-10-16 (#1415; the census counts are in step 1's "as built")**, then Generation B (the sweep, then the error) on a seed carrying it: **#1421** (E0919, the sweep behind `RefCell`; step 2's "as built"). This also makes E0909's read-only-handle predicate true for `Rc`, so `Rc(Mutex(T))` works.
 14. **The rest of the plan, in the 2026-10-13 handover's §3 order:**
     - V3 A4's future operands (§3.13 A4): `timeout` and two-way `select` accept a borrowing future, run it as a scoped child, and abort and join it on a deadline or a loss; decision 38 B's overlap check for two borrowing futures passed to one combinator lands with it.
       - The compiler half landed in #1432: a generic combinator's by-value future operand accepts a borrowing future, and decision 38 B's overlap check is E0910.
@@ -645,12 +645,12 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 
 - The payload is read-only through the handle (maintainer, 2026-10-14: "Rc in Yo shouldnt be mutable shared cell. Thats why we introduced the RefCell").
 - Mutation goes through Rust's doors only: `RefCell(T)`, `Rc.get_mut` on a unique handle, `Rc.make_mut` when `T <: Clone`, or `Mutex`/atomics.
-- Until decision 46's Generation B lands, the compiler still ADMITS writes through a plain `Rc` that the summaries prove (§3.10 outcome (a)). Never describe Yo's `Rc` as a mutable cell.
+- Generation B (#1421) makes every write through a plain `Rc` handle E0919, proved or not. Never describe Yo's `Rc` as a mutable cell.
 
 ### 5.3 The async `Mutex` (maintainer, 2026-10-14: "lets match how rust does it?")
 
 - `Mutex(T)` is move-only like `tokio::sync::Mutex`. `lock(self : &Self, io)` returns a future that borrows it.
-- It is shared as `Arc(Mutex(T))`. E0909 accepts a `&` through a handle whose payload is read-only through the handle: `Arc` now, `Rc` after decision 46.
+- It is shared as `Arc(Mutex(T))`. E0909 accepts a `&` through a handle whose payload is read-only through the handle: `Arc`, and `Rc` since decision 46 Generation B (#1421).
 - This is PR #1380 (§2.3), landed 2026-10-17.
 
 ### 5.4 Closures follow Rust (decision 36 amended, #1366)

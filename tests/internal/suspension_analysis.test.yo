@@ -2,6 +2,7 @@
 //! Mirrors src/evaluator/shared/suspension-analysis.ts
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 { SuspensionPoint, SuspensionAnalysisResult } :: import("../../src/evaluator/shared/suspension_analysis_types.yo");
 { AstExpr, ast_expr_is_fn_call_of } :: import("../../src/expr.yo");
 { TokenKind, Token } :: import("../../src/token.yo");
@@ -69,13 +70,17 @@ make_noop_detector :: (fn() -> SuspensionPointDetector)(
 // A detector that returns a SuspensionPoint for every FnCall it is shown.
 // The walker appends what `detect` returns (#1204 changed the callback from
 // pushing into a handed-in list), so the running index lives in a shared
-// counter cell, as `await_analysis`'s detector keeps its own state.
+// counter cell (an `Rc(RefCell(usize))`: an `Rc`'s payload is read-only,
+// decision 46), as `await_analysis`'s detector keeps its own state.
 make_detect_all_detector :: (fn() -> SuspensionPointDetector)({
-  next_index := rc(usize(0));
+  next_index := rc(RefCell(usize).new(usize(0)));
   SuspensionPointDetector(
     detect : dyn((expr, parent_expr) => {
-      idx := next_index.*;
-      next_index.* = (idx + usize(1));
+      idx := next_index.with_mut(n => {
+        cur := n;
+        n = (cur + usize(1));
+        cur
+      });
       points := ArrayList(SuspensionPoint).new();
       sp := SuspensionPoint(
         index : idx,

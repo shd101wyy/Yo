@@ -47,6 +47,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
+{ RefCell } :: import("../sync/refcell");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
 { TlsStream } :: import("../crypto/tls");
@@ -216,7 +217,7 @@ _Idle :: ref(
   struct(
     key : String,
     transport : _Transport,
-    carry : Rc(ArrayList(u8)),
+    carry : Rc(RefCell(ArrayList(u8))),
     since : Instant
   )
 );
@@ -365,7 +366,7 @@ impl(
   // off) and the caller must close it — Go's answer too: the connection in
   // hand is closed rather than evicting one already in the pool, so a burst
   // of parallel requests cannot churn the whole pool.
-  _put : (fn(self : &Self, key : &String, transport : &_Transport, carry : &Rc(ArrayList(u8))) -> bool)(
+  _put : (fn(self : &Self, key : &String, transport : &_Transport, carry : &Rc(RefCell(ArrayList(u8)))) -> bool)(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
@@ -686,7 +687,7 @@ _fetch_once :: (
       reused := taken.is_some();
       // One leftover-byte buffer per CONNECTION: a pooled connection brings
       // its own, a fresh one starts empty.
-      carry := rc(ArrayList(u8).new());
+      carry := rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
       (conn_opt : Option(_Transport)) = Option(_Transport).None;
       match(
         taken,

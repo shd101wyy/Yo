@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_RC_PAYLOAD_WRITE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -1267,7 +1267,9 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
 });
 /// Whether a handle's payload is read-only through the handle: the deref
 /// `h.*` of a handle of type `t` reaches a place no other handle can write in
-/// safe code. True for the prelude's `Arc` only: D3 rejects every write
+/// safe code. True for the prelude's `Rc` and `Arc`. Every write through an
+/// `Rc` is E0919 (decision 46, `reject_write_through_rc`), in every file, so
+/// its payload changes only through a `RefCell` inside it. For an `Arc`, D3 rejects every write
 /// through an atomic object outside a `pragma(Pragma.AllowUnsafe)` file, and
 /// every call whose callee may write through one, judged by the callee's
 /// mutation mask wherever it is defined (`Option.take` included:
@@ -1278,22 +1280,23 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
 /// and a prelude name cannot be shadowed, so the stamped name plus the
 /// `atomic(ref(struct((*) : V)))` shape is the prelude's type. Any other atomic
 /// object (`std/sync/atomic.yo`'s handles, a user's `atomic(ref(...))`) is a
-/// mutable cell. False for an `Rc`, which is still a shared mutable cell
-/// (§3.10). `Rc` joins when it becomes read-only (decision 46): flipping this
-/// predicate is the whole change on this side.
+/// mutable cell. The `Rc` is the prelude's shared cell (`is_box_type`).
 handle_payload_is_read_only :: (fn(t : &TypeValue) -> bool)(
-  is_atomic_reference_struct_type(t)
-  && match(
-    t,
-    Rc(.Struct({ name, field_labels })) => (name.starts_with("Arc(") && ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false))),
-    _ => false
+  is_box_type(&t_refine_inner(t))
+  || (
+    is_atomic_reference_struct_type(t)
+    && match(
+      t,
+      Rc(.Struct({ name, field_labels })) => (name.starts_with("Arc(") && ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false))),
+      _ => false
+    )
   )
 );
 /// What the hops of an evaluated place pass through, from the outermost hop
 /// to the root (`place_cell_hops`).
 PlaceCellHops :: struct(
   /// A deref of a handle whose payload is read-only through it
-  /// (`handle_payload_is_read_only`: an `Arc` today).
+  /// (`handle_payload_is_read_only`: an `Rc` or an `Arc`).
   read_only_handle : bool,
   /// Any other cell: an `Rc` or another `ref` object, an atomic object that
   /// is not an `Arc` (its fields are written in place under its own lock), a
@@ -1379,6 +1382,109 @@ place_cell_hops :: (fn(ev : &AstExpr, ctx : &EvalContext) -> PlaceCellHops)({
 capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
   h := place_cell_hops(ev, ctx);
   h.read_only_handle || h.mutable_cell
+});
+/// Decision 46 (plans/VALUES_BY_DEFAULT.md): the `Rc` handle whose payload
+/// the evaluated place `ev` lies in, or `.None`. The walk follows field steps
+/// (`h.*`, `s.f`) and element steps (`xs(i)`, whose callee is the place) from
+/// the written storage outwards, through a label or a borrow marker, and stops
+/// at the first step whose base is the prelude's `Rc` (`is_box_type`). Every
+/// place under `h.*` is in the payload, a `ref` object or an element reached
+/// from it included, so a write there is a write through the handle.
+place_rc_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
+  (cur : AstExpr) = ast_expr_strip_borrow_marker(ev);
+  (walking : bool) = true;
+  while(walking, {
+    // A label (`name : place`) is read through; its value is not a step.
+    (label_value : Option(AstExpr)) = Option(AstExpr).None;
+    (base : Option(AstExpr)) = match(
+      cur,
+      .FnCall(_, rh_callee, rh_args, rh_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => rh_args.get(usize(0)),
+        ast_expr_is_fn_call_of(&cur, BK_COLON, Option(usize).Some(usize(2))) => {
+          label_value = rh_args.get(usize(1));
+          Option(AstExpr).None
+        },
+        (!rh_infix && (rh_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rh_callee)), .Some(ci) => !is_function_type(&ci.ty), .None => false)) => Option(AstExpr).Some(rh_callee),
+        true => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      base,
+      .Some(b) => {
+        if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)), .Some(bi) => is_box_type(&t_refine_inner(&bi.ty)), .None => false), {
+          return(Option(AstExpr).Some(b));
+        });
+        cur = b;
+      },
+      .None => match(
+        label_value,
+        .Some(lv) => {
+          cur = ast_expr_strip_borrow_marker(&lv);
+        },
+        .None => {
+          walking = false;
+        }
+      )
+    );
+  });
+  Option(AstExpr).None
+});
+/// Decision 46's E0919: the evaluated `place` is written, and it lies in an
+/// `Rc`'s payload, which is read-only through the handle, as Rust's. `kind`
+/// names the write: `assign` (the target of `=`), `mut-arg` (a `&mut`
+/// argument), `mut-recv` (a `self : &mut Self` receiver) or `mut-borrow` (a
+/// local `&mut` borrow binding or re-point). `param_ty` is
+/// the `&mut` parameter's type: a receiver the AST still spells as the
+/// handle (`h.push(x)` on an `Rc(ArrayList(T))`) is auto-dereferenced when
+/// the parameter is not itself an `Rc`, so the payload is what is lent. The
+/// message names the doors. No-op for any other place, while a call's
+/// candidates are trial-checked, and in ghost (spec) code, which never
+/// writes.
+reject_write_through_rc :: (fn(place : &AstExpr, kind : str, param_ty : Option(TypeValue), ctx : &EvalContext, exn : Exception) -> unit)({
+  if(ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
+    return(());
+  });
+  (handle : Option(AstExpr)) = place_rc_handle(place, ctx);
+  if(handle.is_none(), {
+    match(
+      param_ty,
+      .Some(pt) => {
+        bare := ast_expr_strip_borrow_marker(place);
+        if(!is_box_type(&t_refine_inner(&pt)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&bare)), .Some(pi) => is_box_type(&t_refine_inner(&pi.ty)), .None => false), {
+          handle = Option(AstExpr).Some(bare);
+        });
+      },
+      .None => ()
+    );
+  });
+  match(
+    handle,
+    .Some(h) => {
+      h_text := _place_text(&h);
+      p_text := _place_text(place);
+      h_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&h)), .Some(hi) => type_to_string(&hi.ty), .None => String.from("Rc(T)"));
+      what := cond(
+        (kind == "mut-arg") => `lend \`${p_text}\` as \`&mut\``,
+        (kind == "mut-recv") => `call a \`self : &mut Self\` method on \`${p_text}\``,
+        (kind == "mut-borrow") => `borrow \`${p_text}\` with \`&mut\``,
+        true => `assign to \`${p_text}\``
+      );
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            ast_expr_token(place),
+            `Cannot ${what}: it is in the payload of the \`Rc\` handle \`${h_text}\` (\`${h_ty}\`), and an \`Rc\`'s payload is shared, so it is read-only through the handle, as Rust's (plans/VALUES_BY_DEFAULT.md decision 46). Another handle to the same cell would see the write, and a borrow of the payload held elsewhere would change under it.`,
+            Option(String).Some(`mutate through a door: keep the payload in a \`RefCell\` (\`Rc(RefCell(T))\`, then \`${h_text}.with_mut(v => ...)\`, std/sync/refcell), call \`Rc.make_mut(&mut ${h_text})\` (it clones the payload when the cell is shared; \`T <: Clone\`), take the payload out of the only handle with \`Rc.try_unwrap(${h_text})\`, own the value uniquely (a plain value or a \`Box(T)\`) instead of sharing it, or, across threads, use \`Arc(Mutex(T))\` or atomics`)
+          ),
+          E_RC_PAYLOAD_WRITE
+        ),
+        ctx,
+        exn
+      );
+    },
+    .None => ()
+  );
 });
 /// A function's result of type `ty` (§3.13 A2, decision 38 A). A
 /// second-class value is never returned, except a borrowing future whose every
@@ -5062,7 +5168,7 @@ export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_bindin
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_is_future_operand_parameter, variable_id_in_scope);
-export(capture_place_crosses_cell, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
+export(capture_place_crosses_cell, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);

@@ -52,8 +52,10 @@ old_len_of :: (fn(s : &String) -> usize)(s.len());
 old_bump :: (fn(n : &mut i32) -> unit)({
   n = (n + i32(1));
 });
-Node :: struct(value : i32, next : Option(Rc(Self)));
-List :: struct(head : Option(Rc(Node)));
+// A `ref` object, not an `Rc`: the cursor walk writes `next` through each
+// node, and an `Rc`'s payload is read-only (decision 46).
+Node :: ref(struct(value : i32, next : Option(Self)));
+List :: struct(head : Option(Node));
 append :: (fn(list : &mut List, v : i32) -> unit)({
   cur := &mut list.head;
   while(cur.is_some(), {
@@ -65,7 +67,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(rc(Node(value : v, next : .None)));
+  cur = .Some(Node(value : v, next : .None));
 });
 sum_list :: (fn(list : &List) -> i32)({
   (mut(total) : i32) = i32(0);

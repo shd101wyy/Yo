@@ -10,6 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { HashSet } :: import("std/collections/hash_set");
+{ RefCell } :: import("std/sync/refcell");
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
 { open_sync, close_sync, write_sync } :: import("std/sys/file");
@@ -292,12 +293,12 @@ Emitter :: ref(
     /// (set by generate_function). `emit_*` code-section writes record any
     /// minted-temp declaration into it so the drop-emission gate has the
     /// C-emission-order ground truth. See `_emitter_record_declared_temp`.
-    declared_ref : Option(Rc(HashSet(String))),
+    declared_ref : Option(Rc(RefCell(HashSet(String)))),
     /// When `.Some`, points at the current function's block-scope stack
     /// (declared_scopes). Each emitted body line pushes/pops `"{"` frames on every
     /// C brace and records named-local + temp decls — the escape gate's
     /// block-scope-aware liveness signal. See `_emitter_track_scope`.
-    scope_ref : Option(Rc(ArrayList(String))),
+    scope_ref : Option(Rc(RefCell(ArrayList(String)))),
     /// Code spill (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3): with a
     /// `code_spill_path`, finished code past `CODE_SPILL_BYTES` is written
     /// to that file between functions and the `code` buffer is cleared, so
@@ -352,8 +353,8 @@ impl(
       headers : String.new(),
       declarations : String.new(),
       code : String.new(),
-      declared_ref : Option(Rc(HashSet(String))).None,
-      scope_ref : Option(Rc(ArrayList(String))).None,
+      declared_ref : Option(Rc(RefCell(HashSet(String)))).None,
+      scope_ref : Option(Rc(RefCell(ArrayList(String)))).None,
       code_spill_fd : i32(-1),
       code_spill_path : String.new(),
       code_spilled_bytes : usize(0),
@@ -494,8 +495,8 @@ impl(
   emit_line : (fn(self : &mut Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
-    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(&mut s.*, String.from(c)), .None => ());
-    match(self.scope_ref, .Some(st) => _emitter_track_scope(&mut st.*, String.from(c)), .None => ());
+    match(self.declared_ref, .Some(s) => s.with_mut(set => _emitter_record_declared_temp(set, String.from(c))), .None => ());
+    match(self.scope_ref, .Some(st) => st.with_mut(stack => _emitter_track_scope(stack, String.from(c))), .None => ());
     if(self.move_zeroes.len() > usize(0), {
       self._flush_move_zeroes(String.from(c));
     });
@@ -541,8 +542,8 @@ impl(
   }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(self : &mut Self, c : &String) -> unit)({
-    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(&mut s.*, c.clone()), .None => ());
-    match(self.scope_ref, .Some(st) => _emitter_track_scope(&mut st.*, c.clone()), .None => ());
+    match(self.declared_ref, .Some(s) => s.with_mut(set => _emitter_record_declared_temp(set, c.clone())), .None => ());
+    match(self.scope_ref, .Some(st) => st.with_mut(stack => _emitter_track_scope(stack, c.clone())), .None => ());
     self.code.push_string(c.clone());
     self.code.push_str("\n");
     if(self.move_zeroes.len() > usize(0), {
@@ -557,7 +558,7 @@ impl(
   /// and every exit after it releases the value
   /// (issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
   mark_declared_in_scope : (fn(self : &mut Self, name : &String) -> unit)(
-    match(self.scope_ref, .Some(st) => st.*.push(name), .None => ())
+    match(self.scope_ref, .Some(st) => st.with_mut(stack => stack.push(name)), .None => ())
   ),
   /// A `#line` directive must start a physical line: an `emit`/`emit_string`
   /// fragment with no trailing newline gets its newline first, so a directive

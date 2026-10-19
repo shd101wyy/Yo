@@ -8,6 +8,7 @@ pipe_io :: import("std/sys/pipe");
 fcntl_io :: import("std/sys/fcntl");
 { O_NONBLOCK } :: import("std/sys/constants");
 { sleep } :: import("std/sys/timer");
+{ RefCell } :: import("std/sync/refcell");
 test("pipe read/write", {
   mut(pipefd_uninit) := MaybeUninit(Array(i32, usize(2))).new();
   pipefd := (*i32)(pipefd_uninit.as_ptr());
@@ -122,15 +123,19 @@ test("two concurrent async reads on one pipe end both complete", {
       buf_a := (*u8)(buf_a_uninit.as_ptr());
       mut(buf_b_uninit) := MaybeUninit(Array(u8, usize(8))).new();
       buf_b := (*u8)(buf_b_uninit.as_ptr());
-      read_a := Rc(i32)(-99);
-      read_b := Rc(i32)(-99);
+      read_a := rc(RefCell(i32).new(-99));
+      read_b := rc(RefCell(i32).new(-99));
       task_a := io.async((io : Io) => {
         n := io.await(file.read(read_fd, buf_a, u32(8), u64(0)), io);
-        read_a.* = n;
+        read_a.with_mut(cur => {
+          cur = n;
+        });
       });
       task_b := io.async((io : Io) => {
         n := io.await(file.read(read_fd, buf_b, u32(8), u64(0)), io);
-        read_b.* = n;
+        read_b.with_mut(cur => {
+          cur = n;
+        });
       });
       handle_a := io.spawn(task_a, io);
       handle_b := io.spawn(task_b, io);
@@ -146,9 +151,9 @@ test("two concurrent async reads on one pipe end both complete", {
       assert(cw == i32(0));
       ra := handle_a.await(io);
       rb := handle_b.await(io);
-      unsafe(printf("  concurrent reads: a=%d b=%d\n", read_a.*, read_b.*));
-      assert((read_a.* >= i32(0)) && (read_b.* >= i32(0)));
-      assert((read_a.* + read_b.*) == i32(4));
+      unsafe(printf("  concurrent reads: a=%d b=%d\n", read_a.with(cur => cur), read_b.with(cur => cur)));
+      assert((read_a.with(cur => cur) >= i32(0)) && (read_b.with(cur => cur) >= i32(0)));
+      assert((read_a.with(cur => cur) + read_b.with(cur => cur)) == i32(4));
       cr := io.await(file.close(read_fd), io);
       assert(cr == i32(0));
     },

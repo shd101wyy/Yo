@@ -39,6 +39,7 @@
   generate_drop_code_for_value
 } :: import("./drop_dup.yo");
 { HashSet } :: import("std/collections/hash_set");
+{ RefCell } :: import("std/sync/refcell");
 { _call_generate_expr } :: import("./_expr.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
 /// c_name if present, else `async_capture_<id>`. (Same lookup as async.yo's
@@ -349,8 +350,8 @@ _emit_capture_drop_lines :: (
   before := em.code.len();
   prev_declared := em.declared_ref;
   prev_scope := em.scope_ref;
-  em.declared_ref = Option(Rc(HashSet(String))).None;
-  em.scope_ref = Option(Rc(ArrayList(String))).None;
+  em.declared_ref = Option(Rc(RefCell(HashSet(String)))).None;
+  em.scope_ref = Option(Rc(RefCell(ArrayList(String)))).None;
   // Field by field over the heap copy of the capture struct: the spawn
   // wrapper owns that copy (the spawn is a MOVE — `_generate_spawn_call`'s
   // heap copy inherits the call-site struct's references) and is the only

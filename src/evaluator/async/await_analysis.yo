@@ -29,6 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ RefCell } :: import("std/sync/refcell");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, ast_call_args_unmarked } :: import("../../expr.yo");
 { ExprInfo, ExprInfoTable, expr_info_table_get, lookup_io_builtin_call, lookup_macro_expansion, scope_variables, some_resolution } :: import("../../expr_info.yo");
@@ -428,18 +429,23 @@ analyze_await_points :: (
   ) -> AwaitAnalysisResult
 )({
   // Side-channel: stores async-specific fields for each await suspension point.
-  // An `Rc`: the detector closure and this function hold the same map on
-  // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
-  await_extras := rc(HashMap(String, AwaitPointExtra).new());
+  // An `Rc(RefCell(...))`: the detector closure and this function hold the
+  // same map on purpose, a closure captures by value
+  // (plans/VALUES_BY_DEFAULT.md §3.13), and an `Rc`'s payload is read-only
+  // through the handle (decision 46).
+  await_extras := rc(RefCell(HashMap(String, AwaitPointExtra)).new(HashMap(String, AwaitPointExtra).new()));
   result := analyze_suspension_points(
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn((expr, parent_expr) => {
-        found := ArrayList(SuspensionPoint).new();
-        detect_await_expr_(expr, parent_expr, &mut found, &mut await_extras.*, get_info);
-        found
-      }),
+      detect : dyn(
+        (expr, parent_expr) =>
+          await_extras.with_mut(extras => {
+            found := ArrayList(SuspensionPoint).new();
+            detect_await_expr_(expr, parent_expr, &mut found, extras, get_info);
+            found
+          })
+      ),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : true
     )
@@ -507,7 +513,7 @@ analyze_await_points :: (
     );
     expr_char_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      await_extras.*.get(expr_char_key.clone()),
+      await_extras.with(extras => extras.get(expr_char_key.clone())),
       .None => (),
       // should not happen: every SP was registered via detect_await_expr_
       .Some(extra) => {
