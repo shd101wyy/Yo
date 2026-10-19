@@ -50,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { unknown_field_message, unknown_field_code, unknown_variant_message, unknown_field_through_deref_message } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
-{ suggest_name, E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
+{ suggest_name, E_AMBIGUOUS_METHOD, E_DEREF_OF_BORROW } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr, local_borrow_take_receiver, local_borrow_mark_receiver, local_borrow_clear_receiver, local_borrows_active, local_borrow_access_expr, LocalBorrowAccess } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
@@ -841,6 +841,45 @@ Raw pointer operations may dereference invalid memory.`
       },
       .None => ()
     );
+    // `v.*` where `v` is a BORROW (a `&T`/`&mut T` parameter or a local
+    // borrow `y := &x`): a borrow is a mode on the binding, not a type, and
+    // it reads as its value — `.*` on a borrow arrives with decision 43.
+    // Without this check the expression fell through to the property lookup,
+    // which left it with no ExprInfo (a scalar pointee), so the failure
+    // surfaced as the evaluator internal
+    // "check_if_function_parameter_matches_argument: arg has no ExprInfo" far
+    // from the `.*`, or as E0406 "No field `*` on S" for a struct pointee
+    // (issues/fixed/2026-10-17-a-dereference-of-a-borrow-parameter-in-a-closure-reports-an-internal-error.md).
+    // A type that DECLARES a field named `*` keeps the field read: that is
+    // the atomic idiom (`AtomicBool :: atomic(ref(struct((*) : atomic_bool)))`
+    // read as `self.*` on `self : &Self` in std/sync/atomic.yo).
+    if(ast_expr_is_atom(&object_expr), {
+      match(
+        get_variables_from_env(&env, ast_expr_token(&object_expr).value.clone()).last(),
+        .Some(deref_b_v) => if((deref_b_v.is_ref || deref_b_v.is_imm_borrow) &&
+          !match(
+            obj_ty_deref,
+            .Some(deref_b_ot) => find_first_field_index(_field_labels_of(&deref_b_ot), String.from("*")).is_some(),
+            .None => false
+          ), {
+          deref_b_name := ast_expr_token(&object_expr).value.clone();
+          deref_b_mode := cond(deref_b_v.is_ref => "&mut", true => "&");
+          exn.throw(
+            dyn(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(expr),
+                  `\`${deref_b_name}\` is a \`${deref_b_mode}\` borrow: a borrow reads as its value, and \`.*\` does not apply to a borrow until decision 43 (references become types).`,
+                  Option(String).Some(`read the value directly — \`${deref_b_name}\` already is the value (\`${deref_b_name}.field\` for a field, \`${deref_b_name}(i)\` for an element); \`.*\` is for raw pointers (\`unsafe(p.*)\`), \`Deref\` wrappers (\`b.*\`) and a type's own \`*\` field (std's atomics)`)
+                ),
+                E_DEREF_OF_BORROW
+              )
+            )
+          );
+        }),
+        .None => ()
+      );
+    });
     // Not a pointer — fall through to normal property lookup below.
   });
   // -------------------------------------------------------------------------
