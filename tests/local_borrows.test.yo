@@ -9,7 +9,6 @@
 /// body, which `comptime_expect_error` cannot observe: it is pinned by
 /// tests/cli-cases/local-borrow-across-an-await-through-a-cell-is-e0911.
 { String } :: import("std/string");
-{ RefCell } :: import("std/sync/refcell");
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Shape :: struct(origin : Point, name : String);
@@ -543,89 +542,3 @@ test("copying a borrow out before returning the copy is the way out", {
   assert(ret_scalar() == i32(1), "`v := y` reads through the borrow and v owns the copy");
   assert(ret_through_op() == i32(1), "an operation on the borrow reads through it");
 });
-
-// --- An inner binding that shares the borrow's spelling shadows it ----------
-// A closure parameter (or a block statement that rebinds the name) named like
-// a live local borrow is a NEW binding: the borrow's range must not extend to
-// its mentions, so the borrowed place is readable between the borrow's last
-// real use and the shadowing binding
-// (`issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`).
-test("a closure parameter named like a live borrow does not extend the borrow", {
-  result := rc(RefCell(i32).new(0));
-  (mut(o) : Option(i32)) = .Some(i32(2));
-  cur := &mut o;
-  match(
-    cur,
-    .Some(v) => {
-      v = (v * i32(3));
-    },
-    .None => ()
-  );
-  r := match(o, .Some(v) => v, .None => i32(0));
-  result.with_mut(cur => {
-    cur = r;
-  });
-  assert(result.with(c => c) == i32(6), "the write through the closure parameter landed");
-});
-test("a match arm pattern that binds the name shadows the borrow", {
-  (mut(o) : i32) = i32(1);
-  cur := &mut o;
-  cur = i32(5);
-  v := (o + i32(0));
-  other := Option(i32).Some(i32(4));
-  w := match(
-    other,
-    .Some(cur) => (cur + i32(0)),
-    .None => i32(0)
-  );
-  assert((o == i32(5)) && (v == i32(5)) && (w == i32(4)), "the arm bound its own cur");
-});
-comptime_expect_error(
-  a_closure_that_captures_the_borrow_still_extends_it :: (fn() -> unit)({
-    (mut(o) : Option(i32)) = .Some(i32(2));
-    cur := &mut o;
-    probe := o.is_none();
-    f := (fn() -> bool)(cur.is_none());
-    f();
-    probe;
-    ()
-  }),
-  "with `&mut` and is still live"
-);
-comptime_expect_error(
-  a_cond_arm_condition_still_uses_the_borrow :: (fn() -> unit)({
-    (mut(flag) : bool) = true;
-    cur := &mut flag;
-    probe := flag;
-    cond(
-      (cur.* == true) => (),
-      true => ()
-    );
-    probe;
-    ()
-  }),
-  "with `&mut` and is still live"
-);
-
-// `.*` on a borrow names no place: a borrow is a mode on the binding, not a
-// type, and it reads as its value; `.*` on a borrow arrives with decision 43.
-// Before E0920 the deref fell through the property lookup and surfaced as
-// the evaluator internal "check_if_function_parameter_matches_argument: arg
-// has no ExprInfo" far from the `.*`
-// (issues/fixed/2026-10-17-a-dereference-of-a-borrow-parameter-in-a-closure-reports-an-internal-error.md).
-comptime_expect_error({
-  _deref_of_borrow_param :: (fn(v : &i32) -> bool)(v.* < i32(20));
-  n := i32(5);
-  _deref_of_borrow_param(&n);
-}, "does not apply to a borrow");
-comptime_expect_error({
-  _deref_of_local_borrow :: (fn() -> bool)({
-    x := i32(5);
-    y := &x;
-    y.* < i32(20)
-  });
-  _deref_of_local_borrow();
-}, "does not apply to a borrow");
-// The borrow itself reads as its value (`v < i32(20)`, tested above), and a
-// type's OWN field named `*` keeps its field read (std's atomics; pinned by
-// `check ./std`, which reads `self.*` on `self : &Self` throughout).

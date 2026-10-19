@@ -2,35 +2,19 @@
 
 **Severity:** S2 — a valid program is rejected with a false E0911: a later closure whose parameter has the same name as an earlier local borrow keeps that borrow live, so a read of the borrowed place between the two is refused.
 
-**Status:** FIXED 2026-10-18. Found 2026-10-18 while re-gating #1421 (decision 46 Generation B) on develop `00eddd3e4`. That branch rewrites #1419's `result.* = …` test writes as `result.with_mut(cur => { cur = … })`. In one test the closure parameter `cur` has the same name as an earlier `cur := &mut o`, and the batch failed to compile. It reproduces with the develop-built `yo-d47loc-3d1afa693` (src and std match `00eddd3e4`), so it is not caused by #1421. Renaming the closure parameter makes the program compile.
+**Status:** open again — its fix (#1476) was REVERTED from develop for
+v0.2.66: the scope-aware live-range scan's arrow-literal skip also hid the
+uses of a borrow BORN at that arm's pattern, so the statement-level range
+fell back to the whole binding statement and `yo check ./src` failed on 16
+files of the compiler's own tree (release-blocking;
+`issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
+Re-land in v0.2.67 with the scan refined: a binding at the tracked borrow's
+own declaration position is its BIRTH site (its arm's body uses count), not
+a shadow — and the cursor-walk interaction (a re-point whose token precedes
+the binding's last read inside one statement) needs the evaluation-order
+rule settled first.
 
-## Fix
-
-`local_borrow_range_of`'s scan helpers (`_lb_mentions`, `_lb_last_mention`,
-`_lb_region_end`, `_lb_has_repoint`, all `src/evaluator/utils.yo`) are
-scope-aware:
-
-- An `=>`/`->`/`=>>` literal whose LEFT side binds the borrow's name (a
-  closure parameter declaration or a `match` arm pattern; `_lb_binds_name`)
-  is not a use of the borrow: the left side declares the new binding and the
-  body's mentions of the name are of it. A closure whose parameters do not
-  bind the name still counts — its body may genuinely capture the borrow.
-- A `cond` arm's left side is a CONDITION, a use: the arm node is walked
-  without the binding rule (`in_cond_arm`), so `cond(cur => …, true => …)`
-  still keeps the borrow live.
-- A named `fn`/`ctl`/`Fn` literal whose parameter list binds the name
-  (`_lb_fn_literal_binds`) is skipped whole: its parameters and body are the
-  new binding's scope. (A `:=` or typed-`=` rebinding of the name is a
-  REDEFINITION error in Yo — begin blocks and closure bodies do not open
-  binding scopes — so only an arrow-literal binding can shadow.)
-- Unrecognized binding shapes answer "does not bind", which keeps the range
-  LONG (the safe direction: a false E0911, never a missed exclusivity
-  violation).
-
-`tests/local_borrows.test.yo` carries the reproducer, a match-arm-pattern
-shadowing case, and two controls (a closure that genuinely captures the
-borrow, and a `cond` condition using it, both still E0911 under
-`comptime_expect_error`).
+**Status (first finding):** open. Found 2026-10-18 while re-gating #1421 (decision 46 Generation B) on develop `00eddd3e4`. That branch rewrites #1419's `result.* = …` test writes as `result.with_mut(cur => { cur = … })`. In one test the closure parameter `cur` has the same name as an earlier `cur := &mut o`, and the batch failed to compile. It reproduces with the develop-built `yo-d47loc-3d1afa693` (src and std match `00eddd3e4`), so it is not caused by #1421. Renaming the closure parameter makes the program compile.
 
 ## Symptom
 
