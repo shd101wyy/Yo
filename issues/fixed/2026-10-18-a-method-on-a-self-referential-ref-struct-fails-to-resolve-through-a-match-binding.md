@@ -6,7 +6,7 @@
 reached inside another generic type's method; the same call on a directly
 constructed value resolves.
 
-**Status:** open. Found 2026-10-18 while fixing
+**Status:** FIXED 2026-10-18. Found 2026-10-18 while fixing
 `issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`:
 `std/collections/linked_list.yo` wanted a `_take_value` method on `Node(T)` and
 had to stay with free functions instead. The OLD std already worked around the
@@ -82,6 +82,35 @@ different TypeValue copy when the struct's fields mention `Self` (the
 id?). The instantiation-identity family
 (`issues/fixed/yo-self-specialization-signature-type-identity.md`) is where to
 look.
+
+## Root cause (measured) and fix
+
+Gated prints (`YO_DEBUG_TMINT`: struct-id mints, the comptime-fn
+`type_arguments` stamp, and the match arm's payload bind) on a 12-line
+reduction — the second generic type and the generic method are NOT needed —
+showed the bind taking `struct_<file>_Plain_r2c4_n1` with **0 field types**,
+no `type_arguments` and no `constructor_func_id`: the struct's own empty
+SHELL. A self-referential producer's field `next : Option(Self)` evaluates
+`Option(<the shell>)` while the struct is still being built, and that enum
+INSTANCE shares the enum id of every other `Option(...)` instantiation at the
+same position, so the instance a match reads can be the one whose payload is
+the shell (`variant_field_types` reads the scrutinee enum node's raw variant
+fields). A `.Some(old_head)` binding then carried a 0-field struct: dispatch
+could neither read a field to bind the impl's `T` (the no-`Self` twin binds
+it by field synthesis, `[rfb-bound] scoped-concrete`) nor read
+`type_arguments` (`[bfta] con_ta=` empty), and the E0610 followed.
+
+The fix resolves shells in `variant_field_types` (`src/pattern.yo`): every
+payload type passes through `resolve_enum_shell(resolve_struct_shell(·))`
+before it becomes a binding's type — the same convention
+`types/creators.yo` mandates for every field-reading site. The shell shares
+the final's id, so the resolution hands back the field-populated final, whose
+`value : T` field is already concrete at the call's instantiation.
+
+`tests/match_nested.test.yo` carries the 12-line reduction as a test (the
+same file already covers nested variant payloads); it fails E0610 before the
+fix (verified with the v0.2.65 seed and a develop-built probe binary) and
+resolves after.
 
 ## Test
 

@@ -33,7 +33,8 @@ import("std/fmt");
   evaluate_type_field,
   register_struct_fields
 } :: import("./field.yo");
-{ stable_position_id, stable_type_id } :: import("../../utils.yo");
+{ stable_position_id, stable_type_id, debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { register_struct_final, _patch_self_shell } :: import("../../types/creators.yo");
 { _type_reaches_root_by_value } :: import("./enum.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -82,6 +83,9 @@ evaluate_struct_type :: (
     stable_position_id(String.from("struct_decl_"), &decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column)),
     stable_type_id(String.from("struct_"), &decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column))
   );
+  if((debug_knob(`YO_DEBUG_TMINT`).is_some()) && (ctx.ctfe_depth > usize(0)), {
+    eprintln(`[tmint-mint] ${struct_id}`);
+  });
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(struct_id.clone(), decl_tok.module_path.clone());
   // Preliminary struct type (empty fields) used as SelfType during field evaluation.

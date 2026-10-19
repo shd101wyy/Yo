@@ -50,6 +50,8 @@
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ debug_knob } :: import("../../utils.yo");
+{ eprintln } :: import("std/fmt");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { suggest_name, E_FIELD_NOT_FOUND } :: import("../../diagnostics.yo");
@@ -943,6 +945,13 @@ _compile_variant :: (
       });
     });
     fty := match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+      fid5 := match(fty.clone(), Rc(.Struct({ id : bid6 })) => bid6, _ => String.from("-"));
+      fta5 := match(fty.clone(), Rc(.Struct({ type_arguments : bta6 })) => bta6.len(), _ => usize(0));
+      fcf5 := match(fty.clone(), Rc(.Struct({ constructor_func_id : bcf6 })) => bcf6, _ => String.from("-"));
+      eid5 := match(enum_ty.clone(), Rc(.EnumT(bid7, _, _, _, _, _, _, _, _, _)) => bid7, _ => String.from("-"));
+      eprintln(`[tmint-varpayload] enum=${eid5} var=${vname} payload_id=${fid5} n_ta=${fta5.to_string()} cfid=${fcf5} ty=${type_to_string(&fty)}`);
+    });
     fval := match(
       field_vals,
       .Some(fvs) => fvs.get(fidx),
@@ -1342,6 +1351,24 @@ compile_pattern :: (
       return(Pattern.Wildcard);
     });
     nm := _atom_name(&name_expr);
+    if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+      (fs : String) = String.from("");
+      match(
+        position_ty.clone(),
+        Rc(.Struct({ field_types : bfts })) => {
+          (fi2 : usize) = usize(0);
+          while(fi2 < bfts.len(), {
+            match(bfts.get(fi2), .Some(ft2) => { fs.push_string(type_to_string(&ft2)); fs.push_str(";"); }, .None => ());
+            fi2 = (fi2 + usize(1));
+          });
+        },
+        _ => ()
+      );
+      bid2 := match(position_ty.clone(), Rc(.Struct({ id : bid })) => bid, _ => String.from("-"));
+      bta2 := match(position_ty.clone(), Rc(.Struct({ type_arguments : bta })) => bta.len(), _ => usize(0));
+      bcf2 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf })) => bcf, _ => String.from("-"));
+      eprintln(`[tmint-bind] name=${nm} id=${bid2} n_ta=${bta2.to_string()} cfid=${bcf2} fields=${fs}`);
+    });
     pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : name_expr));
     // The self-calls that can throw are by NAME, not `recur`: seeds up to
     // v0.2.45 emit `recur` without the escape check, so a seed-built compiler
@@ -1357,6 +1384,24 @@ compile_pattern :: (
   if(ast_expr_is_atom(e) && !_is_literal_atom(e), {
     nm := _atom_name(e);
     if(!_constant_in_scope(nm.clone(), env), {
+      if(debug_knob(`YO_DEBUG_TMINT`).is_some(), {
+        (fs2 : String) = String.from("");
+        match(
+          position_ty.clone(),
+          Rc(.Struct({ field_types : bfts2 })) => {
+            (fi3 : usize) = usize(0);
+            while(fi3 < bfts2.len(), {
+              match(bfts2.get(fi3), .Some(ft3) => { fs2.push_string(type_to_string(&ft3)); fs2.push_str(";"); }, .None => ());
+              fi3 = (fi3 + usize(1));
+            });
+          },
+          _ => ()
+        );
+        bid3 := match(position_ty.clone(), Rc(.Struct({ id : bid4 })) => bid4, _ => String.from("-"));
+        bta3 := match(position_ty.clone(), Rc(.Struct({ type_arguments : bta4 })) => bta4.len(), _ => usize(0));
+        bcf3 := match(position_ty.clone(), Rc(.Struct({ constructor_func_id : bcf4 })) => bcf4, _ => String.from("-"));
+        eprintln(`[tmint-bind] name=${nm} id=${bid3} n_ta=${bta3.to_string()} cfid=${bcf3} fields=${fs2}`);
+      });
       pc.binds.push(BindInfo(name : nm.clone(), ty : position_ty, value : value_opt, atom : e));
       return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : e));
     });

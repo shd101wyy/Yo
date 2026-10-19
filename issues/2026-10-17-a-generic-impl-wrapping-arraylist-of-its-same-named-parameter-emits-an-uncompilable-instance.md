@@ -66,3 +66,43 @@ Codegen then emits the nested instance. `type_contains_some_type` (`src/types/ut
 ## Workaround in the tree
 
 `std/async/channel.yo` spells its binder `Msg` (#1421), so `RefCell(_ChannelState(Msg))` and `ArrayList(Msg)` never share a spelling with `RefCell`'s or `ArrayList`'s `T`. Revert that rename when the fix lands.
+
+## Measurement round 2026-10-18 (emitted-C evidence; first fix falsified)
+
+The emitted C of the reproducer pins WHEN the nested instance is minted, and
+a first fix attempt narrows WHERE it is not:
+
+- **The nested `W(ArrayList(ArrayList(T)))` is minted at DEFINITION-TRIAL
+  level, with `T` still abstract.** In the C, the good trial instance's
+  constructor takes `_ptr : void**` (an `ArrayList(T)` whose element type is
+  a raw binder), while the bad instance's constructor takes
+  `_ptr : __yo_t…**` — an `ArrayList` OF the trial `ArrayList(T)` type. Both
+  `W` instances exist before `main` is ever evaluated.
+- **Falsified fix** (branch `fix/generic-impl-arraylist-same-named-binder`,
+  parked, not merged): binder-identity-keyed substitution entries —
+  `subst_add_binder` records the binder SomeT's id, and an entry whose
+  replacement mentions a SomeT sharing its own (name, frame level) (the
+  `T@L ↦ ArrayList(T@L)` shape) then matches only that binder's own
+  occurrences — applied at the two `find_methods_from_generic_impls` `spec_s`
+  sites, plus a deep SomeT gate on constructor/traversal emission
+  (`type_deep_contains_some_type`, the same `Fn`/`Future` carve-outs as the
+  shallow check) and the `std/async/channel.yo` `Msg`→`T` revert. Builds
+  green (`build`, `check src`, `check std` all rc=0) and the emission gate is
+  sound on its own, but the reproducer still fails: **the capture does not
+  flow through those two sites.**
+- **Narrowed suspicion:** the constructor/result-type path resolving the
+  receiver instance's field binder through an ENV binding —
+  `_do_chain_resolve` (`src/types/env_lookup.yo`) already has the
+  identity discipline from `a-caller-binder-named-t-collides`
+  (`_bindings_that_may_be_for`: a binding recorded for another binder is
+  that binder's alone), so the remaining hole is a `T` binding recorded
+  WITHOUT its binder id (an unrecorded binding "may be for" any same-named
+  `T`). The fix is to record `variable_set_bound_some_id` at the site that
+  binds the impl's `generic(T)` into the method body env —
+  `_inject_forall_captures` / `_build_def_time_body_env` are the candidates
+  — NOT to widen resolution.
+- The parked branch also carries the regression test
+  (`tests/impl.test.yo`, "a generic impl wrapping ArrayList of its same-named
+  parameter compiles"), fails-before verified against a develop-built binary:
+  the pristine file passes 16/16; with the test the batch fails at the C
+  compiler with `implicit declaration of function`, this issue's signature.

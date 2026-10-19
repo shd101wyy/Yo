@@ -500,3 +500,29 @@ test("an all-arms-return statement match before a tail leaves the tail emitted",
   assert(h(Outer.Ok(Inner.A(3))) == i32(3));
   assert(h(Outer.Err(4)) == i32(3));
 });
+
+// A self-referential producer's own fields evaluate `Option(<its empty
+// shell>)` while it is being built, and the enum id is shared per position,
+// so a match could read the shell as the payload: a `.Some(old_head)` binding
+// of `Option(Plain(i32))` then carried a 0-field struct, and a method call on
+// it failed E0610 with nothing to bind the impl's `T` from. The payload is
+// resolved to the field-populated final before it becomes a binding's type
+// (`issues/fixed/2026-10-18-a-method-on-a-self-referential-ref-struct-fails-to-resolve-through-a-match-binding.md`).
+Plain :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      value : T,
+      next : Option(Self),
+      prev : Option(Self)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  Plain(T),
+  probe : (fn(self : &Self) -> usize)(usize(7))
+);
+test("a method on a self-referential ref struct resolves through a match binding", {
+  p := Option(Plain(i32)).Some(Plain(i32)(value : i32(1), next : .None, prev : .None));
+  assert(match(p, .None => usize(0), .Some(old_head) => old_head.probe()) == usize(7), "the payload binding carries the field-populated struct");
+});
