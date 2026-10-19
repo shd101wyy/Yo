@@ -65,7 +65,7 @@ pragma(Pragma.AllowUnsafe);
   attach_temp_variable_to_expr,
   adopt_never_type
 } :: import("../utils.yo");
-{ evaluate_begin_expression } :: import("./begin.yo");
+{ evaluate_begin_expression, reject_empty_record_arm } :: import("./begin.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
@@ -336,6 +336,9 @@ evaluate_cond :: (
         }
       );
       // Evaluate the body. One arm, no join: no branch-init window to record.
+      // An arm written `{}` is an empty record, not a no-op (see
+      // reject_empty_record_arm) — rejected before any join is attempted.
+      reject_empty_record_arm(&case_body_true, exn);
       evaluated_body := evaluate_begin_expression(&case_body_true, &case_env_true, ctx, ArrayList(Variable).new(), false, exn);
       body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_body));
       body_cf := match(body_info_opt, .Some(bi) => bi.control_flow, .None => Option(ControlFlowFlags).None);
@@ -467,6 +470,10 @@ evaluate_cond :: (
               begin_branch_group_arm();
               reset_sibling_flow_state(&ec_item.case_env, &prev_arm_body);
               bir_start_a := branch_init_log_len();
+              // An arm written `{}` is an empty record, not a no-op (see
+              // reject_empty_record_arm) — rejected even when every arm is
+              // `{}`, a join no compat query ever sees.
+              reject_empty_record_arm(&ec_item.case_body_expr, exn);
               evaluated_case_body := evaluate_begin_expression(
                 &ec_item.case_body_expr,
                 &ec_item.case_env,

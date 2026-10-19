@@ -1861,7 +1861,7 @@ compile_artifact :: (
         cmd.arg(String.from("--std-path"));
         cmd.arg(&sp);
       },
-      .None => {}
+      .None => ()
     );
     cmd.arg(source_path.to_string());
     cmd.arg(String.from("-o"));
@@ -2378,7 +2378,7 @@ run_verify_step :: (
         cmd.arg(String.from("--std-path"));
         cmd.arg(&sp);
       },
-      .None => {}
+      .None => ()
     );
     cmd.arg(target.to_string());
     cmd.arg(String.from("--verify-mode"));
@@ -2420,7 +2420,7 @@ run_test_suite :: (
         cmd.arg(String.from("--std-path"));
         cmd.arg(&sp);
       },
-      .None => {}
+      .None => ()
     );
     cmd.arg(test_path.to_string());
     // Suite excludes are project-relative; the child test runner resolves
@@ -2433,7 +2433,7 @@ run_test_suite :: (
           cmd.arg(String.from("--exclude"));
           cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(ex.clone())).to_string());
         },
-        .None => {}
+        .None => ()
       );
       exi = (exi + usize(1));
     });

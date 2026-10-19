@@ -209,8 +209,8 @@ supplies the signature) is written with the right group, which fmt keeps:
 - **`()` is the unit VALUE; `unit` is the TYPE.** Never write `unit;` — that evaluates the type as a
   comptime value. To yield unit, either end the block with `()` as the last expression (no semicolon),
   or omit the tail entirely: a block whose statements all end in `;` already evaluates to unit. An
-  empty arm is `()` — `{}` is an empty STRUCT value, not unit, and must be rejected where unit is
-  expected (`issues/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md`;
+  empty arm is `()` — `{}` is an empty STRUCT value, not unit, and is rejected where unit is
+  expected (`issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md`;
   maintainer directive 2026-10-18).
 
 ## Enum definition syntax
@@ -1457,7 +1457,7 @@ Fixes, in order of preference:
 1. **Hoist the statement out of the `match` entirely** — put the `eprintln`
    before or after, on a value the arms have already written. Usually the
    instrumentation did not need to be inside the arm at all.
-2. Give every sibling arm the same shape (add a matching statement to `_ => {}`).
+2. Give every sibling arm the same shape (add a matching statement to `_ => { ...; }` — an empty arm is `()`, never `{}`).
 
 The error names a frame _level_, not a file or line, so it does not point at the
 arm you edited. If it appears right after you touched a `match`, assume this

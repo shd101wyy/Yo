@@ -301,9 +301,8 @@ _build_module_val_from_env :: (fn(env : &Environment) -> EvalValue)({
                 // that would cause "already exported" errors when spread-exporting
                 // multiple imports in flatten-eval mode. Real module exports never
                 // contain '.' — operator/impl names do.
-                if(v.name.contains("."), {
-                  // skip — prelude operator binding, not a module export
-                }, {
+                // skip — prelude operator binding, not a module export
+                if(v.name.contains("."), (), {
                   names.push(v.name.clone());
                   values.push(val);
                 });

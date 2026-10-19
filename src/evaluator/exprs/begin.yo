@@ -38,7 +38,8 @@ pragma(Pragma.AllowUnsafe);
   BK_FN_TRAIT,
   BK_FN_ONCE_TRAIT,
   ast_expr_is_fn_call,
-  BK_BORROW_MUT
+  BK_BORROW_MUT,
+  BK_ANON_STRUCT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -94,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { Severity, Diagnostic, Span, warnings_enabled, emit_warning, E_DISCARDED_MUST_USE } :: import("../../diagnostics.yo");
 { extract_future_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("./expr.yo");
@@ -2166,6 +2167,37 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
   )
 });
 
+/// A `cond`/`match` arm body written `{}` is a zero-field RECORD (the
+/// decided brace rule: a brace group without a `;` is a record in every
+/// position), so the arm's value would be an empty struct — never the no-op
+/// the writer means. An arm is a VALUE position, so `{}` is categorically
+/// the wrong shape there, whatever the join type turns out to be (even an
+/// all-`{}` join in statement position, which no compat query ever sees).
+/// The no-op arm spelling is `()`. Maintainer directive 2026-10-18:
+/// "`true => {}` is wrong and should give error" —
+/// issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md
+reject_empty_record_arm :: (fn(body : &AstExpr, exn : Exception) -> unit)(
+  match(
+    body,
+    .FnCall(_, _, arm_args, _, _) => {
+      if((arm_args.len() == usize(0)) && ast_expr_is_fn_call_of(body, BK_ANON_STRUCT, Option(usize).None), {
+        exn.throw(
+          dyn(
+            format_error_message_with_help(
+              ast_expr_token(body),
+              String.from("an arm written `{}` is an empty struct literal — a no-op arm is `()`"),
+              Option(String).Some(
+                String.from("write `=> ()` — a brace group without a semicolon is a record, so `{}` is a zero-field struct, not unit")
+              )
+            )
+          )
+        );
+      }, ());
+    },
+    _ => ()
+  )
+);
+
 evaluate_begin_expression :: (
   fn(
     expr : &AstExpr,
@@ -3661,6 +3693,7 @@ _evaluate_begin_expression_impl :: (
 });
 export(DupCallsResult, is_unit_value_expression);
 export(collect_dup_calls_conservatively);
+export(reject_empty_record_arm);
 export(evaluate_begin_expression);
 /// A binding a consuming `match` arm owns (plans/VALUES_BY_DEFAULT.md
 /// decision 26) that the arm's body moved: a `return`, `unwind` or effect

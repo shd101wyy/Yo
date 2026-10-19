@@ -601,27 +601,19 @@ _compat_impl :: (
       .None => ()
     );
   });
-  // --- Empty struct == unit (non-exact) -------------------------------------
-  // `{}` parses to the `_()` anon-struct literal (BK_ANON_STRUCT) — a 0-field,
-  // zero-size value used as a no-op match/cond arm (`.None => {}` / `_ => {}`).
-  // It must unify with a `()`/unit sibling arm (`yo compile` accepts
-  // `match(.Some(x) => (), .None => {})`); without
-  // this rule the tag-mismatch guard below rejects unit-vs-empty-struct, so
-  // every empty-`{}` arm paired with a unit sibling throws "Incompatible types"
-  // at def-time and loses the match's ExprInfo -> "Failed to transpile" marker.
-  // Exact compatibility (cache keys) stays strict (different tags). See
-  // issues/fixed/yo-self-p1-transpile-tail.md (arm-type / Incompatible-types cluster).
-  if(!require_exact, {
-    unit_empty_struct := match(
-      actual,
-      Rc(.Unit) => match(expected, Rc(.Struct({ field_types : eft })) => (eft.len() == usize(0)), _ => false),
-      Rc(.Struct({ field_types : aft })) => match(expected, Rc(.Unit) => (aft.len() == usize(0)), _ => false),
-      _ => false
-    );
-    if(unit_empty_struct, {
-      return(true);
-    });
-  });
+  // --- Empty struct vs unit: NOT compatible ---------------------------------
+  // `{}` parses to the `_()` anon-struct literal (BK_ANON_STRUCT) — a
+  // 0-field RECORD value. `()` is the unit value. This layer used to unify
+  // the two (both directions) so a no-op arm written `.None => {}` joined a
+  // `()`/unit sibling, which made the checker ACCEPT `{}` in every
+  // unit-expected position (arm bodies, fn bodies, unit arguments) while the
+  // type system lied about the value. Reversed by the maintainer's directive
+  // 2026-10-18 ("`true => {}` is wrong and should give error"): an empty
+  // `{}` against unit is rejected earlier, at the literal, with a message
+  // naming `()` (the `_()` dispatch in evaluator/exprs/_expr.yo), and any
+  // path that still reaches this predicate fails the tag-mismatch guard
+  // below. The tree's own no-op arms write `=> ()` —
+  // issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md.
   // --- SomeType (actual) vs concrete (expected) ------------------------------
   // A SomeType that already carries a
   // resolved concrete type is compatible when its RESOLUTION is — e.g. an

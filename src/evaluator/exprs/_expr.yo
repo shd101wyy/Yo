@@ -280,6 +280,15 @@ _is_punned_single_field :: (fn(expr : &AstExpr) -> bool)(
     _ => false
   )
 );
+/// True when `expr` is the `{}` literal — the zero-field anon struct
+/// (`_(...)` with no arguments). A RECORD value, never unit.
+_is_empty_record_literal :: (fn(expr : &AstExpr) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, args, _, _) => (args.len() == usize(0)),
+    _ => false
+  )
+);
 /// The punned field's name, for the message. Empty when not punned.
 _punned_field_name :: (fn(expr : &AstExpr) -> String)(
   match(
@@ -862,7 +871,29 @@ _evaluate_expression :: (
             // expected type that can never be a record — a primitive, unit,
             // or an enum. A trait/Impl/Dyn position can legitimately receive
             // a record literal, so those are left alone.
-            if(!expected_is_anon_struct && _is_punned_single_field(expr) && (is_primitive_type(&et_ty) || is_unit_type(&et_ty) || is_enum_type(&et_ty)), {
+            // THE `{}` FOOTGUN (unit). The zero-field case of the same
+            // decided rule: `{}` is a zero-field RECORD, and unit is never
+            // a record — but the spellings are one keystroke apart, and the
+            // compatibility layer used to unify empty-struct with unit (both
+            // directions), so `true => {}` type-checked while an empty
+            // struct flowed into a unit slot. Reject it HERE, at the
+            // literal, with the parens form in the message (maintainer
+            // directive 2026-10-18:
+            // issues/fixed/2026-10-18-an-empty-struct-literal-is-accepted-where-unit-is-expected.md).
+            if(!expected_is_anon_struct && _is_empty_record_literal(expr) && is_unit_type(&et_ty), {
+              exn.throw(
+                dyn(
+                  format_error_message_with_help(
+                    ast_expr_token(expr),
+                    String.from("`{}` is an empty struct literal, but unit is expected here"),
+                    Option(String).Some(
+                      String.from("write `()` for the unit value — a brace group without a semicolon is a record, so `{}` is a zero-field struct")
+                    )
+                  )
+                )
+              );
+              make_err_expr()
+            }, if(!expected_is_anon_struct && _is_punned_single_field(expr) && (is_primitive_type(&et_ty) || is_unit_type(&et_ty) || is_enum_type(&et_ty)), {
               exn.throw(
                 dyn(
                   format_error_message_with_help(
@@ -879,7 +910,7 @@ _evaluate_expression :: (
               expected_is_anon_struct && !is_some_type(&et_ty),
               evaluate_function_call(expr, env, type_of_type(&et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
               evaluate_anonymous_struct_value(expr, env, ctx, exn)
-            ))
+            )))
           },
           .None => evaluate_anonymous_struct_value(expr, env, ctx, exn)
         ),
