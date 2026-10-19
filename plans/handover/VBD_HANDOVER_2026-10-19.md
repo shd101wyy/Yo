@@ -108,10 +108,10 @@ doc closures, #1472 + #1475 (honest not-fixed dispositions, §3).
 **PENDING at the last update of this document** (update this table, then merge this PR):
 | Piece | State |
 | --- | --- |
-| B1 split PR | The two `explicit-copy` migration S2 fixes + the E0916 structural-clone exemption + the sweep-parking docs (b1diag findings folded in) |
-| evalgen issue 1 | nested index call on generic impls (write case verified; read case = substitute chain-follow + type_arguments re-key) |
-| #1469 re-code | deref-of-borrow diagnostic takes a non-colliding code after #1421 minted E0919 |
-| #1474 pass | bare-projection-tail E0601 message (focused pass over `helper.yo`) |
+| #1478 (B1 split) | OPEN: the two `explicit-copy` migration S2 fixes + the E0916 structural-clone exemption + the sweep-parking docs (b1diag findings folded in); full Tier 1 green at `6596178a6`; agent doing one focused rebase+re-gate pass (5 src files shared with develop since its base) before merge |
+| evalgen issue 1 | nested index call on generic impls — SPLIT: write-case PR rides v0.2.66 (Tier 1 in flight), read case dispositioned open (substitute chain-follow + type_arguments re-key) |
+| #1469 re-code | E0920 re-coded, rebase onto `a24343bad` in flight (3 files overlap; first re-gate had check-src rc=1, agent iterating) |
+| ~~#1474~~ MERGED `4c81aebe8` | bare-projection-tail decision-24 message (helper.yo Step-10 skip + result-position forwarding sentence; rebase `9d707291a` gate green; cli-case golden re-recorded — the rebased tree renders the suggested spelling without evaluator parens) |
 | ~~#1476~~ MERGED `a24343bad` | false-E0911 closure-parameter shadowing (scope-aware live-range scan; internal verdicts green) |
 | gi2 issues 1/2/4 | generic-method closure at trial type; ArrayList same-named-param instance; self-referential ref-struct method resolution (12-line reduction done) |
 | v0.2.66 cut | §2.1 sequence |
