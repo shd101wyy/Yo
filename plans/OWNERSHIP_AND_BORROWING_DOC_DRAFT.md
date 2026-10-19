@@ -509,9 +509,9 @@ first_mut :: (fn(g : &mut Grid) -> &mut i32)(&mut g.a);
   planned: Generation B)
 - (planned: V2b) Today a projection is reached only through the subscript;
   a direct call such as `first(&g)` is an error. Once the rest of the
-  projection design lands, the result is a second-class value: a receiver,
-  an argument, an operand, the left of `=`, or a local binding, never
-  stored in a cell or captured by an escaping closure.
+  projection design lands, the result is a reference value: a receiver,
+  an argument, an operand, the left of `=`, or a local binding — and,
+  once N2 lets cells carry origin parameters, storable there too.
 
 Two live `&mut` projections into one container are rejected even for
 different indices: the checker reasons about places, not index arithmetic.
@@ -619,10 +619,12 @@ export(main);
   module-level binding, nothing through an `Rc`/`Arc` dereference. To use
   a place inside an `Rc`, capture the handle (`{ &r }`) and derive
   `r.*.items` in the body.
-- A closure holding a borrow is second-class: it can be bound, called and
-  lent, but returning it, storing it, putting it in a `Dyn`, passing it to a
-  by-value parameter or spawning it is E0909. A `&mut` capture also makes it
-  move-only.
+- A closure holding a borrow is second-class today: it can be bound,
+  called and lent, but returning it, storing it, putting it in a `Dyn`,
+  passing it to a by-value parameter or spawning it is E0909 (from N1 the
+  restriction restates as the no-origin positions of section 11; a lent
+  `Impl(Fn(...))` slot stays the non-escaping form). A `&mut` capture
+  also makes it move-only.
 - The places a closure borrows are frozen while it lives (E0910). Today the
   freeze lasts to the end of the binding's scope; ending it at the
   closure's last use is planned (Generation B). (std adoption planned:
@@ -803,7 +805,8 @@ cross-thread forms stay `Arc(Mutex(T))` and `Arc(RwLock(T))`.
   at every site; a bare `f` there becomes a type error.
 - (planned: NON_ESCAPABLE_TYPES N1) A borrowed trait object, with no
   allocation, is `&Dyn(Trait)`, made by `dyn(&v)` or by lending an owned
-  `Dyn` (`&d`). It is second-class like every reference. Narrowing
+  `Dyn` (`&d`). It follows the reference rules (until N2, the
+  second-class ones). Narrowing
   `&Dyn(A, B)` to `&Dyn(A)` is `upcast(r, Dyn(A))`.
 
 ### Cycles
@@ -859,10 +862,12 @@ view's last use. A `&mut` component makes the value move-only.
 ### Returning references: the origin in the result type (N1)
 
 A function may return a reference-holding value when every origin in its
-result type names an origin parameter or one of its parameters' places;
-the caller freezes those places until the result's last use.
+result type names an origin parameter or one of its reference-typed
+parameters' places (a by-value parameter contributes its type's origins,
+never its own place — that slot is the callee's frame, E0912's rule); the
+caller freezes those places until the result's last use.
 
-```yo
+```yo ignore
 // borrows a only: r is declared, and the result names it (b's elided origin is a fresh, unrelated one)
 pick :: (fn(generic(r : Origin), a : &(ArrayList(u8), r), b : &ArrayList(u8)) -> View(u8, r))(...);
 // the item shares the origin the cursor carries, not the cursor: two items may be live at once
@@ -903,12 +908,15 @@ without `RefCell`.
 - **The `io.async` body is a by-value `FnOnce`**, so it owns its
   captures. An implicit capture that the body moves out is E0913; list it
   (`io.async({ f }(io : Io) => io.await(f, io))`).
-- **A future may borrow, and is then second-class.** A function whose
+- **A future may borrow, and is then second-class today.** A function whose
   returned future captures one of its `&`/`&mut` parameters returns a
   borrowing future. It may be the direct operand of `io.await`, or be
   returned when every borrow is rooted at the returning function's own
   borrow parameters; binding it to a local, storing it or spawning it is
   E0909. This is what lets `Stream.next(self : &mut Self, io)` exist.
+  (planned: N3) The future's type carries its origins (`Future(T, p)`),
+  forwarding works, and what stays E0909 narrows to the no-origin
+  positions — spawn and `Send`.
 - A borrowing future may not borrow through an `Rc`/`Arc` dereference: own
   the value in the task, or share `Rc(Mutex(S))`.
 - A `JoinHandle` is move-only: `join(self, io)` consumes it, and a dropped
@@ -943,8 +951,8 @@ The async runtime stays single-threaded.
 | E0901 | use of a moved value; the note names `derive(T, Copy, Clone)`, `x.clone()`, `match(&x, …)` or `x : &T` |
 | E0907 | a value moved on some ways out of a loop and not on others |
 | E0908 | a write through a `&` borrow |
-| E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N2 a reference whose origins cannot follow it into the position (a `Send` value, a spawn, an `extern` signature, a module-level binding) |
-| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves a place an earlier argument lends to the call |
+| E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N2 a reference whose origins cannot follow it into the position (a `Send` value, a spawn, an `extern` signature, a module-level binding, a `Dyn` payload) |
+| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves a place an earlier argument lends to the call; (from N1) two `&mut` arguments of one call with intersecting origins |
 | E0911 | an access conflicts with a live local borrow, or a re-point while a derived borrow is live; (planned: V2b) overlapping call arguments; (from N1) an access conflicting with a live origin; (from N2) a push outside a container's declared origin union |
 | E0912 | a local borrow crosses the function boundary |
 | E0913 | a closure moves a capture out where its call cannot consume it |

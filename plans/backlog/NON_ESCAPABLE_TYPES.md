@@ -80,9 +80,13 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
 
 - **An origin value is one of:** an origin parameter (`p`, abstract,
   instantiated at each application exactly as a `Type` argument is); **a
-  reference-holding parameter's place**, spelled by the parameter's name
-  (`self`, `xs`) — `iter(self : &Self) -> Cursor(T, self)` names the
-  receiver's own place; or **a declared union** `(p, q)`. Field-path origins
+  reference-typed parameter's place** — a `&`/`&mut` parameter, whose
+  place is the *caller's lent place*, spelled by the parameter's name
+  (`self`, `xs`): `iter(self : &Self) -> Cursor(T, self)` names the
+  receiver's lent place. A **by-value** parameter of reference-holding
+  type contributes only the origin parameters its type carries, never its
+  own place (that slot is the callee's frame; E0912's rule); or **a
+  declared union** `(p, q)`. Field-path origins
   (`self._buf`) are designed (§7) and phased with the access clause. A
   local's place is an origin **inside bodies only** (flow-inferred, O2);
   it can never appear in a signature (O3's return rule rejects it).
@@ -91,15 +95,16 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   `generic(...)` clause (`generic(q : Origin, r : Origin)`), exactly as a
   type name must be; a type constructor declares it among its `comptime`
   parameters. An undeclared origin name in a signature is an error naming
-  the declaration site. A **parameter's own place** (`self`, `a`, `b`)
-  needs no declaration — it names a parameter the way a field path names
-  a field.
+  the declaration site. A **reference-typed parameter's own place**
+  (`self`, `a`, `b`) needs no declaration — it names a parameter the way
+  a field path names a field.
 - **The parse.** `&(A, B)` in type position is an origin-qualified reference
   iff `B` resolves to an `Origin`-kinded name; if both `A` and `B` resolve
   to types it is a reference to a tuple, exactly as today. The two readings
   never compete: an origin is not a type, so `&(i32, p)` with `p : Origin`
-  has exactly one well-formed parse. The rule is stated in the syntax
-  documentation with the example. (`&mut(A, B)` is the same rule.) If
+  has exactly one well-formed parse. The rule will be stated in the syntax
+  documentation with the example when N1 lands it. (`&mut(A, B)` is the
+  same rule.) If
   parsing the pair ever proves friction in practice, the reserved fallback
   is a named slot (`&(i32, origin : p)`); it is designed, not adopted.
 - **The pointee comes first** (`&(i32, p)`, not `&(p, i32)`): every other
@@ -175,8 +180,10 @@ region solver:
 Around them:
 
 - **The return rule** (R3's successor): an origin in a result type may name
-  only origin parameters or reference-holding parameters' places. A local's
-  place in a result is a compile error at the `return`, naming the place —
+  only origin parameters or reference-typed parameters' places (a by-value
+  parameter contributes its type's origin parameters, never its own
+  place). A local's place — or a by-value parameter's slot, which is one —
+  in a result is a compile error at the `return`, naming the place —
   the caller-side mapping is the substitution of step 1 plus the freeze of
   step 2, so the "re-rooting" A2 could not do for futures becomes ordinary
   type application.
@@ -214,7 +221,7 @@ Around them:
 | locals, parameters, results, block and arm results | yes |
 | fields of inline composites (named/anonymous structs, enums, tuples, `Array(T, N)`, `Option`, `Result`, any user constructor) | yes — the composite gains the origin parameters of its fields' types |
 | buffer containers (`ArrayList`, `HashMap`, …) | yes, over a declared union (O6) |
-| cells — `Box`, `RefCell`, `Dyn` payload, an escaping closure's capture, a spawned value | **`Box` and `RefCell`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5), **`Dyn` and spawn: no** (E0909, initially) |
+| cells — `Box`, `RefCell`, `Dyn` payload, an escaping closure's capture, a spawned value | **`Box` and `RefCell`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5), **`Dyn`, spawn and an escaping closure's capture: no** (E0909, initially) |
 | `Send` values, thread boundaries | no — structurally: a type with origin parameters is not `Send` |
 | module-level bindings | no, initially (§7) |
 | `extern` signatures | no — FFI takes raw pointers, the existing unsafe boundary |
@@ -266,10 +273,10 @@ the reference's origin parameter as its own — spelled as a declared union
 at the instantiation:
 
 ```yo ignore
-out := ArrayList(&(View(u8), self))(...);      // may ever hold views rooted at self
-both := ArrayList(&(T, (x, y)))(...);          // two roots, declared up front
-out.push(self.text.view(r));                   // the view's origin is self ⊆ self: accepted
-both.push(&z);                                 // error naming {x, y} and {z}; yo fix widens
+out := ArrayList(&(View(u8), self))(...);       // may ever hold views rooted at self
+both := ArrayList(&(T, (x, y)))(...);           // two roots, declared up front
+out.push(self.text.view(rng));                  // the view's origin is self ⊆ self: accepted
+both.push(&z);                                  // error naming {x, y} and {z}; yo fix widens
 ```
 
 - Growth and reallocation are irrelevant to soundness: the elements are
@@ -372,12 +379,15 @@ its own phase and gated on a counted need (the census below):
 
 ## 3. What it unlocks, mapped to the catalog
 
+(The signatures abbreviate the `generic(...)` clause that declares each
+origin parameter, as O7's table does.)
+
 | Catalog gap | Now | Rust / Swift equivalent |
 | --- | --- | --- |
 | §2.4 sub-range arguments, `RUST_ADOPTION_CANDIDATES.md` L1 | `View(T, p)`: `&(xs, p)` + range, zero-copy, `len` + `Index` projections, a `for` source | `&[T]`, Swift `Span` |
 | §2.2 `fn words(&self) -> Vec<&str>` | `words(self : &Doc) -> ArrayList(&(View(u8), self))` | `Vec<&'a str>` |
 | §5.1 borrowing iterators, adapter chains | `iter(self : &Self) -> Cursor(T, self)` with `next(self : &mut(Cursor(T, p))) -> Option(&(T, p))`; adapters as inline structs holding the cursor | `impl Iterator<Item = &'a T> + 'a` |
-| §4.5 the entry API | `entry(self : &mut(Self, p), k) -> Entry(K, V, p)`; `or_insert(self, v) -> &(mut(V, p))` | `Entry<'a, K, V>` |
+| §4.5 the entry API | `entry(self : &mut(Self, p), k) -> Entry(K, V, p)`; `or_insert(self, v) -> &mut(V, p)` | `Entry<'a, K, V>` |
 | §3.2 guards | `lock(self : &mut(Self, p)) -> LockGuard(T, p)` with `Drop` unlocking | `MutexGuard<'a, T>` |
 | §3.5 sinks | `Serializer(out : &mut(StringBuilder, p), depth : usize)` | `Serializer<'a, W>` |
 | §4.4 `Cow` | `StrArg :: enum(Borrowed(s : &(String, p)), Owned(s : String))` | `Cow<'a, str>` |
@@ -435,8 +445,10 @@ whose owners are still alive, and every live `&mut` is exclusive over the
 places its origin names. The mechanisms, and the escape routes they close:
 
 1. **Through a return** — the return rule restricts result origins to
-   parameter origins and parameter places; sound by induction on the call
-   stack (the parameter's owner is the caller, one frame up), with the
+   origin parameters and reference-typed parameters' places; sound by
+   induction on the call stack (a lent place's owner is the caller, one
+   frame up — a by-value parameter's slot is the callee's own and is
+   rejected as a local's), with the
    caller freezing the substituted places until the result's last use.
 2. **Through storage** — origin parameters propagate through type
    application, so storing a reference-holding value grows the storing
@@ -471,8 +483,9 @@ position, and every such position is one of the eight above.
 **`Rc(T, p)`:** clones share `p` by construction (the type parameter is
 copied with the clone); a write projection needs exclusivity over `p`, so
 any live use through any clone conflicts by set identity. The refcount
-keeps the payload alive; the collector handles cycles; leaks are possible
-and priced (§3.12, as before).
+keeps the payload alive; the collector handles cycles; leaks stay
+possible — the cycle collector keeps that job
+(VALUES_BY_DEFAULT §3.12).
 
 **Async:** the state machine's stored references point only at the
 caller-frame places named by `p` (A2), which the await/spawn site freezes
@@ -482,7 +495,8 @@ for the future's life; body-local origins at an `await` are rejected
 The **negative-test corpus is written before the rules land** (N0) and
 includes, beside the superseded design's rows restated in origin terms: a
 binding whose type names its own place; a type naming its own field; a
-result naming a local's origin; a push outside the declared union; a
+result naming a local's origin **or a by-value parameter's own place**
+(E0912's rule); a push outside the declared union; a
 `Box`/`RefCell` carrying origins crossing a `Send`/spawn/`extern`/
 module-level position; an elided `push` signature with unrelated fresh
 origins (the body check must reject it); a live body-local origin at an
@@ -525,7 +539,7 @@ are deliberate:
 | who writes it | the compiler, transparently; a user writes it around pointer indirection, and `origin_of(x)` recovers one | the author, at every contract (`generic(p : Origin)`, `&(T, p)`), because Yo is written by LLMs; elision is four stated defaults the checker verifies |
 | where it attaches | the argument-convention system (`ref[o]` beside the borrowed/mut conventions) and `origin=` slots on `Pointer` | the type itself: a reference is a type taking the origin as a trailing argument, uniform in every type position, container and cell |
 | storage | a struct gains an origin parameter and threads it into each `Pointer`'s `origin=` slot | any composite or cell gains the origin parameters of its fields' types (O4) — the same capability with no per-pointer slot |
-| what it drives | lifetime tracking and eager destruction at last use | the freeze/exclusivity checks (O3); Yo's last-use drops are decision 18's, independent of origins |
+| what it drives | lifetime tracking and eager destruction at last use | the freeze/exclusivity checks (O3); Yo's last-use liveness is decision 18's and its drops decision 45's — both independent of origins |
 | shared mutation | not covered by origins | the gated `Rc(T, p)` (O9 — from Ante, not Mojo) |
 
 Both reject Rust's region machinery — no outlives lattice, no variance, no
@@ -563,7 +577,8 @@ writes, Yo's is a declared place set the author writes.
   wait for their consumers to exist.
 - **The `&(A, B)` parse fallback.** The named slot `&(i32, origin : p)` is
   reserved if kind-directed disambiguation proves friction. Position: not
-  adopted; the rule is stated in the syntax documentation.
+  adopted; the rule is stated in this document and will be stated in the
+  syntax documentation when N1 lands it.
 
 ## 8. Phases
 

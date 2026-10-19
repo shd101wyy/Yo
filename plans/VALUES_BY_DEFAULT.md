@@ -274,9 +274,13 @@ Unique ownership removes the question instead of answering it.
     - The pre-decision-42 mode words are an error, E0009, naming the
       sigil form; `yo fix --migrate borrow-spelling` (v0.2.58) rewrites
       them.
-  - Borrows are second-class: they cannot be stored, returned, captured by
-    an escaping closure or spawned. So every check is intraprocedural, and
-    no lifetimes appear in the language.
+  - Borrows are references carrying origins (decision 43, amended
+    2026-10-19): today they are second-class — they cannot be stored,
+    returned, captured by an escaping closure or spawned, so every check is
+    intraprocedural. From N1 a reference is a first-class `&(T, p)` type
+    storable anywhere its origin's places are in scope, and the checks are
+    substitution, set intersection and liveness; no Rust-style region
+    lifetime appears in the language at any point.
 - **No buffer is shared, so no buffer is counted.** The buffers of `String`
   and the collections are plain allocations owned by their value, like
   Rust's `Vec` and `String`. A mutator writes in place with no uniqueness
@@ -1657,7 +1661,8 @@ and in git, not a silent edit.
     Hylo's model: its spec's immutable and mutable projections, with
     exclusivity for the projection's lifetime. Yo's local default is owned,
     so the borrow is spelled. The conditions:
-    1. **Second-class:** no store, return, escaping capture or spawn.
+    1. **Second-class** (until decision 43's N1–N2 generalize it to the
+       origin positions): no store, return, escaping capture or spawn.
     2. **Exclusivity, by place** (amended 2026-10-05 by the maintainer, so
        that it matches decision 28's overlap rule).
        - **What is frozen.** While a `&` borrow `y` is live, the borrowed
@@ -2255,7 +2260,7 @@ and in git, not a silent edit.
         `impl(&T, Add(&T)(...))`, which is Rust's `impl Add<&str> for String`
         and `impl Add for &BigInt`. This reverses the 2026-10-05 rejection of
         "impls on borrows", which rested on borrows not being first-class.
-        Decision 43 makes `&T` a second-class type that an impl can name.
+        Decision 43 makes `&T` a type that an impl can name.
         Until decision 43's phase lands, an operator on an owning type takes
         its operands by value.
       - **Dyn.** `LogicalNot`'s `(!)` is still the one operator with a vtable
@@ -3335,7 +3340,7 @@ and in git, not a silent edit.
         nor `std/` writes a borrowed `for`, so stage 1 never expands one.
       - **Rejected, with reasons:**
         - *A borrowing iterator struct* (`Cursor { xs : &ArrayList(T), i }`):
-          decision 38 A forbids a borrow in a field until decision 43's R1.
+          decision 38 A forbids a borrow in a field until decision 43's N2.
           It is decision 39's later form, not this one.
         - *`iter(self : &Self)` storing a copy of the receiver* (today's
           shape): after B8 that copy is E0901, or a hidden clone per walk.
@@ -3437,6 +3442,14 @@ and in git, not a silent edit.
         local borrow (§9), must preserve second-classness when decided;
       - any V2b escape of a yielded place out of its owner's storage;
       - any future first-class or storable reference type.
+    - **The third trigger fired and was discharged** (amended 2026-10-19):
+      decision 43's amendment makes references first-class and storable,
+      and the relocation hazard does not return, because a type may never
+      name its own fields and a binding's type never its own place — a
+      self-referential value is unrepresentable, so moving a value never
+      dangles what it contains, and an async state machine stores only
+      caller-frame pointers (`NON_ESCAPABLE_TYPES.md` O5). No
+      `Pin`-like marker is needed.
 
 41. **`RefCell(T)` is the one spelling of the dynamic exclusivity check;
     outside it the check is static.** Confirmed 2026-10-10 by the maintainer
@@ -3685,8 +3698,8 @@ and in git, not a silent edit.
     redesign (antelang.org/blog/safe_cyclic_mutability/, read 2026-10-19);
     the adopted and rejected pieces are recorded there (§6).
     - **Types.** `&T` and `&mut T` are bindable (`r := &x`), nameable
-      (`IntRef :: &i32`), passable, returnable under the single-root rule
-      (R3), usable as generic arguments (so `&&T` exists and is accepted),
+      (`IntRef :: &i32`), passable, returnable under the origin return
+      rule (O3), usable as generic arguments (so `&&T` exists and is accepted),
       and the subject of impls: `impl(&T, Trait(…))` and the blanket
       `impl(generic(T), &T, Trait(…))`, distinct from `impl(T, …)` under
       `TRAIT_COHERENCE.md`. `&T` is `Copy`. `&mut T` is not: passed to a
@@ -3696,7 +3709,7 @@ and in git, not a silent edit.
     - **`str` is first-class and never takes `&`.** `str` is the `Copy`
       view of static bytes (decision 36): `(x : str) = "Hi";` is the whole
       spelling and `ArrayList(str)` an ordinary list. A view into an owned
-      `String`'s interior is the second-class view of
+      `String`'s interior is the borrowed view of
       `RUST_ADOPTION_CANDIDATES.md` L1 (`View(u8)` in the examples; whether
       `str` becomes that view in borrow position is L1's open question).
       A `&` is written only where a lend of an owned value happens.
@@ -3722,7 +3735,8 @@ and in git, not a silent edit.
       and `RefCell(&(T, p))` are legal, because the pointer points
       outward and moving the cell moves the pointer, never its target.
       E0909 is restated as "this position accepts no origin parameters":
-      `Send` values and thread boundaries, spawned tasks, a `Dyn` payload
+      `Send` values and thread boundaries, spawned tasks, an escaping
+      closure's capture, a `Dyn` payload
       (initially), module-level bindings (initially), `extern`
       signatures — and a self-referential value is unrepresentable (a
       type may never name its own fields, a binding's type never its own
@@ -3738,8 +3752,11 @@ and in git, not a silent edit.
       coercion is subset into a union, application substitutes origin
       arguments as it substitutes `Type` arguments, and liveness is
       decision 18's. The result rule: an origin in a result type names
-      only origin parameters or parameter places (a local's origin names
-      itself in the error). Containers declare their unions up front
+      only origin parameters or reference-typed parameters' places — a
+      by-value parameter contributes its type's origin parameters, never
+      its own place, which is the callee's frame slot (E0912's rule); a
+      local's origin names itself in the error. Containers declare their
+      unions up front
       (`ArrayList(&(T, (x, y)))`; a push outside the set is a local error
       naming both sets, which a `yo fix` widening repairs — LLM
       authorship prefers a declaration to fix over an inference to
@@ -3841,8 +3858,8 @@ and in git, not a silent edit.
       reference (data pointer, vtable), with no allocation. It is made by
       `dyn(&v)` / `dyn(&mut v)` over a borrow of a concrete value, or by
       lending an owned `Dyn` (`&d`, `&mut d`), which lends its payload.
-      It follows every rule decision 43 gives a reference (second-class,
-      roots, exclusivity, no cell payload).
+      It follows every rule decision 43 gives a reference (origin-carrying,
+      the return and exclusivity rules, the no-origin positions).
       - **The erasure is spelled, never coerced** (amended 2026-10-12,
         re-asked by the maintainer; the first draft made `&v → &Dyn(Trait)`
         an implicit conversion at a typed slot). The owned form is already
