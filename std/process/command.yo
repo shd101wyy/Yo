@@ -404,8 +404,17 @@ _spawn_with_fds :: (
   // can be moved into the closure's capture struct.
   has_interior_nul := _command_has_interior_nul(self);
   storage := _build_cstr_storage(self);
-  env_storage := _build_env_storage(self);
+  // Build the child env ONLY when a constructed `envp` will be passed: an
+  // inherited spawn (`envp = NULL`) never reads it, and the walk copies every
+  // `environ` entry into heap-owned strings — an allocation proportional to
+  // the CALLER'S environment that a small-heap program (the fixed-region
+  // allocator's OOM probe) cannot survive
+  // (`issues/fixed/2026-10-18-compile-allocator-fixed-oom-case-fails-under-a-large-caller-environment.md`).
   use_envp := (self._env_clear || (self._env_overrides.len() > usize(0)));
+  env_storage := cond(
+    use_envp => _build_env_storage(self),
+    true => ArrayList(ArrayList(u8)).new()
+  );
   // The cwd C string is built OUTSIDE the async closure for the same reason
   // as `storage`: it must be an Rc value the capture struct can own, and it
   // must stay alive until the spawn call reads it.
