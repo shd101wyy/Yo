@@ -796,6 +796,27 @@ _reject_if_container_reachable :: (
     exn : Exception
   ) -> unit
 )({
+  // The synthetic call an index-method specialization trial replays (args =
+  // [receiver, index]) is not a user call: its RECEIVER is an index place
+  // borrowing into the base container while the key arg sits beside it —
+  // exactly this rule's shape — but the desugared index access
+  // `mm(i)(k) = v` is the sanctioned spelling of that write, and the REAL
+  // (non-trial) index path never runs this check (the single-level
+  // `mm(k) = v` receiver is a bare atom, not an index-place FnCall, so the
+  // rule cannot fire there). Rejecting only in the trial falls back to the
+  // unspecialized generic method, a C function codegen never declares.
+  // Skip the rule for THAT receiver only; other calls the trial
+  // re-evaluates (the receiver's own nested evaluation, the specialized
+  // body's internal calls) keep it.
+  match(
+    ctx.index_specialization_trial_recv_id,
+    .Some(trial_rid) => {
+      if(ast_expr_id(ref_arg) == trial_rid, {
+        return(());
+      });
+    },
+    .None => ()
+  );
   if(!ast_expr_is_atom(container_atom), {
     return(());
   });

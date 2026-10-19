@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, find_variable_in_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -1131,7 +1131,19 @@ _specialize_index_method :: (
       .None => ()
     );
   });
+  // Exempt the trial's own synthetic receiver from the flowability
+  // ref-place rules (see the field comment in context.yo): the desugared
+  // nested index access passes the receiver — itself an index place —
+  // beside the key, the exact shape `_reject_if_container_reachable`
+  // part (b) rejects for USER calls, and a rejection swallowed here falls
+  // back to the unspecialized method (never emitted). The trial's throw
+  // unwinds out of `_specialize_index_method_trial` (the handler's fn), so
+  // this restore runs on both paths.
+  saved_trial_recv := ctx.index_specialization_trial_recv_id;
+  trial_recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
+  ctx.index_specialization_trial_recv_id = Option(ExprId).Some(ast_expr_id(&trial_recv));
   _specialize_index_method_trial(mv, mty, expr, caller_env, ctx, idx_expr, out);
+  ctx.index_specialization_trial_recv_id = saved_trial_recv;
   mi = usize(0);
   while(mi < moved.len(), mi = (mi + usize(1)), {
     match(

@@ -358,6 +358,23 @@ EvalContext :: ref(
     is_inside_where_clause : bool,
     /// Whether we are evaluating the LHS of an assignment.
     is_lhs_of_assignment : bool,
+    /// ExprId of the RECEIVER expression of the synthetic call the
+    /// index-method specialization trial is replaying
+    /// (`_specialize_index_method_trial` builds args = [receiver, index] and
+    /// runs the whole user-call machinery on them). The flowability ref-place
+    /// rules judge that synthetic call by the user-call contract — the nested
+    /// write `mm(i)(k) = v` desugars to `index_mut(mm(i), k)`, whose receiver
+    /// is an index place borrowing into `mm` while the key `k` sits beside it
+    /// as an Rc value, exactly the shape `_reject_if_container_reachable`
+    /// part (b) conservatively rejects — but the REAL index path never runs
+    /// those rules (the single-level `mm(k) = v` with a move-only key is
+    /// accepted because its receiver is a bare atom, not an index-place
+    /// FnCall), so the trial must not either: rejecting there falls back to
+    /// the unspecialized generic method, a C function codegen never declares.
+    /// Gated on the receiver's expr id so the rule still fires for OTHER
+    /// calls the trial re-evaluates (the receiver's own nested evaluation,
+    /// the specialized body's internal calls).
+    (index_specialization_trial_recv_id : Option(ExprId)) ?= Option(ExprId).None,
     /// Shared mutable container tracking concrete return types of Impl(…) returns.
     function_return_impl_concrete_type : Option(ArrayList(ImplConcreteTypeInfo)),
     /// Force all variable bindings (including `:=`) to be compile-time.
