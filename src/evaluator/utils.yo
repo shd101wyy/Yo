@@ -6128,20 +6128,6 @@ _lb_any_binds_name :: (fn(args : &ArrayList(AstExpr), name : &String) -> bool)({
   });
   false
 });
-_lb_binds_name_from :: (fn(args : &ArrayList(AstExpr), from : usize, name : &String) -> bool)({
-  (i : usize) = from;
-  while(i < args.len(), {
-    match(
-      args.get(i),
-      .Some(a) => if(_lb_binds_name(&a, name.clone()), {
-        return(true);
-      }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  false
-});
 /// `e` is an `=>` / `->` / `=>>` literal node: a closure, or an arm of a
 /// `match` / `cond` (both spell an arm `lhs => rhs`).
 _lb_is_arrow_literal :: (fn(e : &AstExpr) -> bool)(
