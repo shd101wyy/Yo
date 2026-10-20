@@ -70,3 +70,48 @@ test("RefCell is Send when T is, never Sync, so Arc(RefCell(T)) is rejected", {
   comptime_assert(!Type.impls(RefCell(Rc(i32)), Send), "RefCell(Rc(i32)) is not Send");
   comptime_expect_error(Arc(RefCell(i32)));
 });
+// A capture-free closure in a generic method is minted once per instantiation
+// of that method. Each mint must keep its own capture struct: codegen calls a
+// closure through the function its capture struct maps to, and one struct
+// shared by the `Ch(i32)` and `Ch(u8)` mints sent both `with_mut` calls to
+// one of them, so the C compiler rejected the program. The `Tx` case reaches
+// `Ch._add` from another generic impl's definition-time trial first
+// (issues/fixed/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md).
+_CsSt :: (fn(comptime(Item) : Type) -> comptime(Type))(struct(n : usize, x : Option(Item)));
+_CsCh :: (fn(comptime(Item) : Type) -> comptime(Type))(struct(_st : Rc(RefCell(_CsSt(Item)))));
+impl(
+  generic(Item : Type),
+  _CsCh(Item),
+  new : (fn() -> Self)(Self(_st : rc(RefCell(_CsSt(Item)).new(_CsSt(Item)(n : usize(0), x : Option(Item).None))))),
+  _add : (fn(self : &Self) -> unit)(
+    self._st.with_mut(s => {
+      s.n = (s.n + usize(1));
+    })
+  ),
+  count : (fn(self : &Self) -> usize)(self._st.with(s => s.n))
+);
+_CsTx :: (fn(comptime(T) : Type) -> comptime(Type))(struct(_ch : _CsCh(T)));
+impl(
+  generic(T : Type),
+  _CsTx(T),
+  _attach : (fn(ch : &_CsCh(T)) -> Self)({
+    ch._add();
+    Self(_ch : ch)
+  })
+);
+test("a closure in a generic method keeps its own capture struct per instantiation", {
+  c := _CsCh(i32).new();
+  c._add();
+  d := _CsCh(u8).new();
+  d._add();
+  d._add();
+  assert(c.count() == usize(1), "the i32 instance counted once");
+  assert(d.count() == usize(2), "the u8 instance counted twice");
+});
+test("a closure in a generic method reached from another generic impl first", {
+  c := _CsCh(i64).new();
+  t := _CsTx(i64)._attach(&c);
+  c._add();
+  assert(c.count() == usize(2), "the attach and the direct call both counted");
+  assert(t._ch.count() == usize(2), "one shared cell");
+});

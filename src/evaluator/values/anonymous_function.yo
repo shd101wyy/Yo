@@ -131,6 +131,7 @@ pragma(Pragma.AllowUnsafe);
   propagate_captures_to_enclosing,
   generate_captured_variable_dup_expressions,
   create_capture_type_and_value,
+  closure_signature_key,
   validate_capture_trait_requirements,
   validate_send_closure_global_reach,
   FuncCapturedVarInfo,
@@ -2911,7 +2912,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       closure_borrows_captures = dup_res.borrowed;
       closure_capture_dups = dup_res.dup_exprs;
     });
-    cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok);
+    cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok, closure_signature_key(&function_type));
     closure_capture_type = cap_res.capture_type;
     _mark_fnonce_capture_struct_of(closure_owns_captures, &closure_capture_type);
     // An `io.async` body may capture a second-class value: its future is then

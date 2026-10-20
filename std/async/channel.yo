@@ -110,7 +110,15 @@ _ChannelState :: (fn(comptime(Msg) : Type) -> comptime(Type))(
     /// or `try_send` that buffers a value wakes the front one; `close` wakes
     /// them all, because a closed-and-drained channel resolves `.None`
     /// rather than waiting.
-    _recv_waiters : ArrayList(Waker)
+    _recv_waiters : ArrayList(Waker),
+    /// How many live `Sender(T)` handles share this channel. Zero for a
+    /// `Channel` created with `new` and used directly: nothing counts down,
+    /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
+    ///
+    /// A plain `usize`, not an atomic: Yo's async runtime is per-thread and
+    /// cooperative, so every increment and decrement runs on the one loop
+    /// thread with no suspension point in between.
+    _senders : usize
   )
 );
 impl(
@@ -137,21 +145,7 @@ impl(
 /// own them.
 Channel :: (fn(comptime(Msg) : Type) -> comptime(Type))(
   struct(
-    _st : Rc(RefCell(_ChannelState(Msg))),
-    /// How many live `Sender(T)` handles share this channel. Zero for a
-    /// `Channel` created with `new` and used directly: nothing counts down,
-    /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
-    ///
-    /// A plain `usize` behind its own `RefCell`, not an atomic: Yo's async
-    /// runtime is per-thread and cooperative, so every increment and
-    /// decrement runs on the one loop thread with no suspension point in
-    /// between. It lives outside `_ChannelState(T)` so that the closures
-    /// writing it do not mention `T`: a closure in a generic method reached
-    /// from `Sender`'s generic impl can be emitted at that impl's trial
-    /// type, and a closure whose type does not depend on `T` is the same C
-    /// function at every type
-    /// (issues/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md).
-    _senders : Rc(RefCell(usize))
+    _st : Rc(RefCell(_ChannelState(Msg)))
   )
 );
 impl(
@@ -169,11 +163,11 @@ impl(
             _closed : false,
             _recv_dropped : false,
             _send_waiters : ArrayList(Waker).new(),
-            _recv_waiters : ArrayList(Waker).new()
+            _recv_waiters : ArrayList(Waker).new(),
+            _senders : usize(0)
           )
         )
-      ),
-      _senders : rc(RefCell(usize).new(usize(0)))
+      )
     )
   }),
   /// Send a value, suspending while the buffer is full. Resolves to
@@ -346,16 +340,16 @@ impl(
   }),
   /// Count one more `Sender`. Internal: `Sender._attach` and `Sender.clone`.
   _add_sender : (fn(self : &Self) -> unit)(
-    self._senders.with_mut(n => {
-      n = (n + usize(1));
+    self._st.with_mut(s => {
+      s._senders = (s._senders + usize(1));
     })
   ),
   /// Count one `Sender` fewer, and answer how many are left. Internal:
   /// `Sender.drop`.
   _remove_sender : (fn(self : &Self) -> usize)(
-    self._senders.with_mut(n => {
-      n = (n - usize(1));
-      n
+    self._st.with_mut(s => {
+      s._senders = (s._senders - usize(1));
+      s._senders
     })
   )
 );

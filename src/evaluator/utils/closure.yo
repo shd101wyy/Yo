@@ -36,6 +36,7 @@
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_fn_trait_type, is_some_type, is_function_type } :: import("../../types/guards.yo");
 { format_error_message } :: import("../../error.yo");
@@ -1007,6 +1008,34 @@ propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo),
 // ---------------------------------------------------------------------------
 // create_capture_type_and_value
 // ---------------------------------------------------------------------------
+/// The part of a closure's capture-struct key that names its CALL signature:
+/// the codegen identity (`type_key`) of each parameter type and of the result.
+/// One closure literal is minted once per instantiation of the code around it
+/// (`Ch(i32)._add` and `Ch(u8)._add` each mint `s => …`), and codegen maps a
+/// capture struct to ONE closure function (`impl_closure_call_map`,
+/// src/codegen/exprs/closures.yo). Two mints that capture the same fields but
+/// take different parameter types must therefore get distinct capture
+/// structs, or the call through either one reaches whichever closure the map
+/// kept (issues/fixed/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md).
+/// Not a `Func` (no signature known): "".
+closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
+  match(
+    fn_ty,
+    Rc(.Func({ param_types : csk_pts, result : csk_ret })) => {
+      out := String.from("(");
+      (csk_i : usize) = usize(0);
+      while(csk_i < csk_pts.len(), {
+        match(csk_pts.get(csk_i), .Some(csk_t) => out.push_string(type_key(&csk_t)), .None => ());
+        out.push_str(",");
+        csk_i = (csk_i + usize(1));
+      });
+      out.push_str(")->");
+      out.push_string(type_key(&csk_ret));
+      out
+    },
+    _ => String.new()
+  )
+);
 /// Create the capture struct type (and optional value) for a closure from
 /// its captured variables.
 ///
@@ -1021,7 +1050,9 @@ create_capture_type_and_value :: (
     expected_capture_type : &Option(TypeValue),
     captured_vars_with_values : &Option(HashMap(String, FuncCapturedVarInfo)),
     env : &Environment,
-    closure_tok : &Token
+    closure_tok : &Token,
+    /// `closure_signature_key` of the closure's own function type.
+    closure_signature : &String
   ) -> CaptureTypeAndValueResult
 )(
   // Phase 4: explicit capture struct type check.
@@ -1091,6 +1122,8 @@ create_capture_type_and_value :: (
       cap_key.push_string(usize(closure_tok.column).to_string());
       cap_key.push_str(":");
       cap_key.push_string(usize(closure_tok.character).to_string());
+      cap_key.push_str("|sig:");
+      cap_key.push_string(closure_signature.clone());
       cap_key.push_str("|");
       (csi : usize) = usize(0);
       while(csi < field_labels.len(), {
@@ -1630,6 +1663,6 @@ export(validate_capture_trait_requirements);
 export(validate_send_closure_global_reach);
 export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id, record_closure_capture_verdicts);
 export(enrich_captured_variables, propagate_captures_to_enclosing);
-export(create_capture_type_and_value);
+export(create_capture_type_and_value, closure_signature_key);
 export(structural_clone_expansion, evaluate_yo_capture_field, closure_identity_of);
 export(generate_captured_variable_dup_expressions);

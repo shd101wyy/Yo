@@ -2,7 +2,7 @@
 
 **Severity:** S2. A valid program fails in the C compiler, depending on its module path. The shape is a generic type's method holding a closure (any `RefCell` `with`/`with_mut` body) called from another generic impl, which decision 46 makes the usual way to write shared state.
 
-**Status:** OPEN. **Found:** 2026-10-17, moving `std/async/channel.yo`'s state into `Rc(RefCell(...))` for decision 46 Generation B (#1421). It is not caused by that change: v0.2.64 with develop's std fails too.
+**Status:** FIXED 2026-10-20 (branch `fix/generic-impl-method-value-closure-identity`; see "Root cause and fix" at the end). **Found:** 2026-10-17, moving `std/async/channel.yo`'s state into `Rc(RefCell(...))` for decision 46 Generation B (#1421). It is not caused by that change: v0.2.64 with develop's std fails too.
 **Reproducer:** `issues/repros/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.yo`
 
 ## Symptom
@@ -69,7 +69,7 @@ So one closure literal minted at two types (`func_id` is occurrence-indexed, `an
 
 Related records: `issues/fixed/forwarded-closure-param-shares-specialization.md`, and the `arc-spawn-capture-split` repro named in helper.yo's closure-identity comment. Possibly the same family, open: `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (one capture struct across instantiations) and `issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`.
 
-## Workaround in the tree
+## Workaround in the tree (reverted with the fix)
 
 The first workaround depended on which occurrence wins, so it was path-dependent. `Sender._attach` called a closure-free `Channel._sender()` instead of `_add_sender`. That passed `channel.test.yo` from three scratch paths with both the tree binary and v0.2.64, and then failed from `tests/async/channel.test.yo` in the tree, with the same mismatch one call deeper.
 
@@ -103,3 +103,59 @@ closure argument's `func_id` into a specialization key — the `clfid` push in
   `helper.yo`'s closure-identity block (`issues/fixed/forwarded-closure-param-shares-specialization.md`,
   the `arc-spawn-capture-split` repro) is the working precedent for the key
   shape; the missing half is the same keying on the fmg path.
+
+## Root cause and fix (2026-10-20)
+
+The 2026-10-18 measurement above does not reproduce on develop `6ccddf25d`:
+with `YO_DEBUG_CLFID=1` the `with_mut` call in `_add` DOES go through
+`create_specialization_at_call` and is keyed per closure mint — three
+`[clf-key] … fid=closure_yo_id_…00000{0,1,2}` lines (the `_add` definition
+trial at `Item`, `Tx._attach`'s trial at `T`, the concrete `i32` call), and
+three distinct `with_mut` specializations. The keying was never the problem.
+
+What the C shows instead:
+
+- ONE `with_mut` body is emitted, the concrete one (its `slot._value` is
+  `St(i32)`), and inside it the call `body(&mut slot._value)` names the
+  TRIAL mint's closure function `…000001` (`St(T)`).
+- That call is a Piece C static dispatch (`src/codegen/exprs/other_fn_call.yo`):
+  the callee's capture-struct id is looked up in `impl_closure_call_map`,
+  which `register_impl_closure_call_mappings`
+  (`src/codegen/exprs/closures.yo`) fills by walking every emitted closure
+  function and keying it by its capture struct.
+- `s => { s.n = … }` captures nothing, and the capture-struct id
+  (`create_capture_type_and_value`, `src/evaluator/utils/closure.yo`) was keyed
+  by source position plus capture FIELDS only. Every mint of the literal —
+  at `St(Item)`, `St(T)`, `St(i32)` — got the same capture struct, so the map
+  held whichever closure the HashMap walk visited last. That walk order follows
+  the fids' hashes, which include the module path: the path dependence.
+
+The trial mint is not needed to see it. Two concrete instantiations collide at
+every path:
+
+```yo
+c := Ch(i32).new();
+c._add();
+d := Ch(u8).new();
+d._add();
+```
+
+fails the C compiler with develop's binary from four different paths, with the
+same `incompatible pointer types` error.
+
+**Fix:** the capture-struct key also carries the closure's call signature
+(`closure_signature_key`: the `type_key` of each parameter type and of the
+result), passed in by the two closure-literal callers
+(`anonymous_function.yo`, `closure_type.yo`); the specialization caller already
+keys by its specialized fid. Two mints that capture the same fields but take
+different parameter types now get distinct capture structs, so the map sends
+each call to its own closure. A re-evaluation of the same mint has the same
+signature and keeps sharing its struct, which is what the key was for.
+
+**Regression tests:** `tests/sync/refcell.test.yo` ("a closure in a generic
+method keeps its own capture struct per instantiation", the `Ch(i32)`/`Ch(u8)`
+shape; "… reached from another generic impl first", this doc's `Tx` shape).
+With develop's binary the batch fails at the C compiler; with the fix 9/9 pass.
+`std/async/channel.yo`'s sender count moved back into `_ChannelState`, which
+also fails `tests/async/channel.test.yo` at the C compiler with develop's
+binary and passes 22/22 with the fix.
