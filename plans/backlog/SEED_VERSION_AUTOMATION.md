@@ -585,19 +585,25 @@ before it evaluates `build.yo` (`name`, `version`; an absent field and every
 field outside a build read as `""`). A build file calls the builtin directly
 today — cli-case `build-manifest`.
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying it):** `std/build.yo`
-exposes the friendly spelling — a `Manifest` struct and a `manifest ::
-Manifest(name : __yo_build_manifest_field("name"), …)` binding, so a build file
-writes `build.manifest.name`. It CANNOT land earlier: a module-level `::`
-binding is forced by its own `export(...)`, so an older seed fails
-`std/build.yo` with `error[E0401]: Variable "__yo_build_manifest_field" not
-found` — and `fixpoint-arm64.yml` bootstraps gen-1 with `yo build`, which
-evaluates `std/build.yo` on every run. (The v0.2.30 seed does not even report
-it: it still swallows build-file evaluation errors and prints `No build steps
-defined.`) Verify the gate the usual way before merging: `yo build` the tree
-with the actual seed bundle. The cli-case fixture then moves to
-`build.manifest.<field>`, and the user docs (`docs/*/BUILD_SYSTEM.md`) document
-it as the public surface.
+**Generation B DONE 2026-10-20** on the v0.2.66 seed, with one change of
+spelling: `build.manifest()`, a function, instead of the planned module-level
+`manifest :: Manifest(...)` value read as `build.manifest.name`.
+
+- **Why not the value (measured with the v0.2.66 seed):** `std/build.yo` is
+  evaluated once per `yo build`, and `_evaluate_dependency_builds` evaluates a
+  dependency's `build.yo` after the project's with no `mm_reset()` between
+  them. A value keeps the fields of the first build file: a path dependency
+  whose `build.yo` named its library `build.manifest.name` got the PROJECT's
+  name (`Error: dependency "mathlib" defines no artifact "mathlib"`). The
+  builtin called directly, and the function, read each build file's own
+  `[package]` table.
+- **As built:** `std/build.yo` exports `Manifest` (`name`, `version`) and
+  `manifest :: (fn() -> comptime(Manifest))(...)`. The cli-case
+  `build-manifest` reads `build.manifest()`; the new cli-case
+  `build-manifest-in-dependency` pins the dependency case (it fails with the
+  value spelling). `docs/*/BUILD_SYSTEM.md` document it under `[package]`.
+  `yo build --std-path ./std` with the installed v0.2.66 seed builds the tree,
+  which evaluates the new `std/build.yo`.
 
 ## Seed-gated follow-up (2026-10-03): `JoinHandle.join` at the three hand-rolled wait loops
 

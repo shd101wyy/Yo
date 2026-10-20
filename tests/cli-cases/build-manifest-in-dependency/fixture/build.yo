@@ -1,0 +1,14 @@
+build :: import("std/build");
+
+// Each build file's `build.manifest()` is ITS OWN `[package]` table: the
+// dependency's build.yo is evaluated after this one, against the same
+// std/build.yo evaluation, and must still read "mathlib" (a module-level
+// manifest value would keep this file's "app" there).
+dep :: build.dependency("mathlib");
+lib :: dep.artifact("mathlib");
+
+exe :: build.executable({ name : build.manifest().name, root : "./src/main.yo" });
+exe.link(lib);
+
+run_step :: build.step("run", "Build and run the app");
+run_step.depend_on(build.run(exe));

@@ -437,6 +437,42 @@ env_is_set :: (fn(comptime(name) : comptime_str) -> comptime(bool))(
   __yo_build_env_is_set(name)
 );
 export(env_is_set);
+// ── Manifest (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1) ──
+/// The `[package]` table of the `yo.toml` beside the build file being
+/// evaluated. A field the manifest does not set, and every field outside a
+/// build, reads as `""`.
+Manifest :: struct(
+  /// `[package] name`.
+  name : comptime_str,
+  /// `[package] version`.
+  version : comptime_str
+);
+export(Manifest);
+/// The manifest of the package whose build file is being evaluated, so an
+/// artifact or step can be named by `yo.toml` instead of repeating it.
+///
+/// A function, not a module-level value: `std/build.yo` is evaluated once per
+/// `yo build`, and a dependency's `build.yo` runs after the project's against
+/// that same evaluation. A value would keep the project's fields there; each
+/// call reads the manifest of the build file it is evaluated in.
+///
+/// ## Examples
+///
+/// ```yo
+/// build :: import("std/build");
+///
+/// exe :: build.executable({ name : build.manifest().name, root : "./src/main.yo" });
+///
+/// install :: build.step("install", build.manifest().version);
+/// install.depend_on(exe);
+/// ```
+manifest :: (fn() -> comptime(Manifest))(
+  Manifest(
+    name : __yo_build_manifest_field("name"),
+    version : __yo_build_manifest_field("version")
+  )
+);
+export(manifest);
 // ── Documentation generation ─────────────────────────────────────────
 /// Output format for documentation generation.
 DocFormat :: enum(
