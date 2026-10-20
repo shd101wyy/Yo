@@ -793,7 +793,7 @@ test("a where-bound restated on each method of a generic impl is recorded once",
   assert(match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false), "the fixture analyzes clean");
   counts := generic_impl_binder_bound_counts(&String.from("Kw"));
   assert(counts.len() > usize(0), "the fixture's generic impl is registered");
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < counts.len(), {
     n := match(counts.get(i), .Some(c) => c, .None => usize(0));
     assert(n == usize(1), `Kw carries ${n.to_string()} required traits, want one Ord(Kw)`);
