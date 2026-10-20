@@ -8,7 +8,7 @@
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype } :: import("../functions/declarations.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
@@ -871,7 +871,7 @@ _no_cast_by_value_param :: (fn(t : &TypeValue) -> bool)(
 /// storage type of a by-value parameter (a `unit` is the one-byte
 /// placeholder), and `T*` for a `ref`/`inout` one — the callee's prototype.
 _fn_pointer_param_type_string :: (
-  fn(param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), i : usize, context : &FunctionGenerationContext) -> String
+  fn(param_types : &SharedList(TypeValue), param_is_ref : &SharedList(bool), i : usize, context : &FunctionGenerationContext) -> String
 )(
   match(
     param_types.get(i),
@@ -2721,7 +2721,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // and called an `int32_t*` function through a by-value pointer type,
           // truncating the address
           // (issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-          cast.push_string(_fn_pointer_param_type_string(&param_types.items, &param_is_ref.items, pi, context));
+          cast.push_string(_fn_pointer_param_type_string(&param_types, &param_is_ref, pi, context));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2754,7 +2754,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               fa_pt := match(
                 sig_param_types.get(fa_i),
                 .Some(spt_i) => if(sig_fn.is_some() && is_function_type(&spt_i), generate_function_prototype(&spt_i, String.from("(*)"), &context.base, Option(String).None, false), _fn_pointer_param_type_string(&sig_param_types, &sig_param_is_ref, fa_i, context)),
-                .None => _fn_pointer_param_type_string(&param_types.items, &param_is_ref.items, fa_i, context)
+                .None => _fn_pointer_param_type_string(&param_types, &param_is_ref, fa_i, context)
               );
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
