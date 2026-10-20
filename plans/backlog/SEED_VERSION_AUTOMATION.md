@@ -664,8 +664,9 @@ emitted `__yo_async_spawn_start_cwd` since v0.2.20): `std/sys/process.spawn`
 calls `__yo_async_spawn_start_cwd(..., .None)`, std no longer declares the
 6-argument `__yo_async_spawn_start`, and the inherit-cwd wrapper is deleted from
 the POSIX, Windows and wasm runtimes (`src/codegen/async/runtime_io_*.yo`).
-`yo build --std-path ./std` with the installed v0.2.66 seed builds the tree
-(the seed compiles std's spawn against ITS runtime, which has both symbols).
+`yo build --std-path ./std` with the installed v0.2.66 seed (`yo 0.2.66`)
+builds the tree: rc=0, 426.4 s, max RSS 4.5 GB, Mac Mini M4 (the seed compiles
+std's spawn against ITS runtime, which has both symbols).
 
 - **`__yo_build_doc`'s dead `include_deps` slot (B13, 2026-09-12):**
   `DocConfig.include_deps` was write-only and is gone from `std/build.yo`, but
