@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `__yo_ptr_write(p, arr)` where `arr : Array(String, N)` (any element type with a refcount) fails at the C compiler, so unsafe std code cannot move a whole array into raw storage.
 
-**Status:** fixed on `feat/macro-b3-collection-constructors` (2026-10-20). Found
+**Status:** fixed (2026-10-20, `feat/macro-b3-collection-constructors`). Found
 while writing `ArrayList(T).from(sink(arr) : Array(T, N))`
 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` B3), which moves the array into the
 list's buffer with one `__yo_ptr_write`.
