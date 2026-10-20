@@ -33,6 +33,8 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
    before/after `check ./src` time and max RSS; then shared envs at the adopt sites, shared `TypeValue`
    label/type lists, and the read-by-clone mut-global caches (`synthetic_token`,
    `_stable_type_id_owner_memo`), each measured.
+   This work also owes the v0.2.67 ratchet re-baseline (§2.1): attribute the +38 MB of `check src/main.yo`
+   RSS the cycle added (1,061,416 → 1,099,472 kB, Linux CI) per PR and reclaim it.
 2. **Gate and land the pushed prep branches** (§2.3) — each needs its first build:
    `feat/explicit-copy-guards`, then the `Acyclic` stack (`perf/acyclic-compiler-containers` on #1486).
    The `Acyclic` stack must be rebased onto develop (#1501 re-keyed enum identity) and its probe table
@@ -107,6 +109,9 @@ RELEASE-FACTS
 - `issues/questions/2026-10-20-should-the-cycle-walk-infer-acyclicity-for-self-only-ref-enums.md` (on the
   `Acyclic` branch): recommends NOT inferring.
 - The S2/S3 issues filed this cycle are the v0.2.67 notes' known-issues list (§5).
+- **Which PRs hold the cycle's +3.6 % `check` RSS** is unmeasured (§0.2 step 1). The candidates' own bodies
+  name the mechanism: #1501, #1503, #1506, #1507, #1508 (one specialization per distinct operand producer),
+  #1493 (+0.5 %, measured).
 - Pre-cycle S1s unchanged: `a-write-through-a-string-copy-is-lost-when-the-string-was-empty` (expect V2b B8
   to remove it), the FTT stub, the self-hosted emit leak classes, the RC depth cap.
 
@@ -130,6 +135,10 @@ RELEASE-FACTS
 
 - A workflow agent cannot be redirected: changing one item's scope (the Iso fix → file-only) meant stopping
   the whole workflow and relaunching. Keep items that may change scope in their own workflow.
+- **A superseded develop battery hides a red short job.** The ratchet failed on 400413ac3's battery at
+  05:51 (1,083,500 kB > 1,070,594) and nobody saw it. The next merges superseded that battery, and the
+  sweeper cancelled them, so the failure surfaced only on the release candidate's battery four hours and
+  14 merges later. When cancelling a superseded battery, first read the jobs it already finished.
 - An agent's permission classifier refused raising the memory-ratchet baseline (correctly — that is the
   maintainer's call). Escalate ratchet changes instead of retrying them.
 
