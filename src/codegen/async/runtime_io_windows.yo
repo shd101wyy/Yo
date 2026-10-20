@@ -2354,6 +2354,24 @@ typedef struct {
   HANDLE write_port;
   struct __yo_win_pipe_writer_s* writer;
   void* next_write;
+  // Blocking-accept bookkeeping (is_blocking_accept). A listener AcceptEx
+  // cannot serve (AF_UNIX, or the extension is unavailable) accepts with a
+  // plain accept(), which blocks until a peer connects — so it runs on a
+  // thread-pool worker that posts this OVERLAPPED to accept_port when it
+  // returns, never on the loop thread
+  // (issues/fixed/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md).
+  // The worker writes only accept_sock / accept_len / accept_errno (the peer
+  // address lands in accept_buf); the loop reads them once the packet is
+  // dequeued, so the port is the barrier and they need no atomics. Everything
+  // else is loop-thread state: accept_abandoned marks an op whose future was
+  // cancelled (the worker cannot be recalled), next_accept links the loop's
+  // list of accepts still on a worker.
+  bool is_blocking_accept;
+  bool accept_abandoned;
+  int accept_len;
+  int32_t accept_errno;
+  HANDLE accept_port;
+  void* next_accept;
 } __yo_win_overlapped_t;
 
 // One FIFO of writes per pipe handle: the head is on a worker, the rest wait
@@ -2369,6 +2387,11 @@ static __declspec(thread) __yo_win_pipe_writer_t* __yo_win_pipe_writers = NULL;
 // Writes on a worker right now. While any is, the port must outlive the loop's
 // cleanup: the worker posts to it when its WriteFile returns.
 static __declspec(thread) size_t __yo_win_pipe_writes_inflight = 0;
+// Blocking accepts on a worker right now (abandoned ones included), linked
+// through next_accept. While any is, the port must outlive the loop's cleanup
+// too: the worker posts to it when its accept() returns, which may be never.
+static __declspec(thread) void* __yo_win_blocking_accepts = NULL;
+static __declspec(thread) size_t __yo_win_blocking_accepts_inflight = 0;
 
 // AcceptEx / GetAcceptExSockaddrs are Microsoft extensions fetched through
 // WSAIoctl at run time (no mswsock import library needed). Thread-local like
@@ -2664,8 +2687,9 @@ static void __yo_io_cleanup(void) {
   // post to this port when its WriteFile returns. Closing the port would let
   // that post land on whatever port later reuses the handle value, so the
   // port is left open for the process: one handle, only while a write is
-  // stuck.
-  if (__yo_io_iocp && __yo_win_pipe_writes_inflight == 0) {
+  // stuck. A blocking accept still on a worker (no peer ever connected) posts
+  // to it the same way when its accept() returns, so it keeps the port too.
+  if (__yo_io_iocp && __yo_win_pipe_writes_inflight == 0 && __yo_win_blocking_accepts_inflight == 0) {
     CloseHandle(__yo_io_iocp);
   }
   __yo_io_iocp = NULL;
@@ -2703,6 +2727,43 @@ static void __yo_io_cleanup(void) {
     { if (atomic_load(&node->future->state) != -2) atomic_store(&node->future->state, -1); }
     __yo_decr_rc((void*)node->future);
     __yo_free(node);
+  }
+  // The same for each task parked on a blocking accept: abort it through its
+  // cancel hook (which abandons the op), then abandon whatever the abort left.
+  // The OVERLAPPEDs themselves stay allocated — a worker still writes into
+  // each one and posts it to the port kept open above, where nothing will
+  // dequeue it.
+  {
+    size_t abortable = 0;
+    for (__yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_win_blocking_accepts; ov;
+         ov = (__yo_win_overlapped_t*)ov->next_accept) {
+      if (!ov->accept_abandoned) abortable++;
+    }
+    if (abortable > 0) {
+      __yo_io_future_t** snapshot = (__yo_io_future_t**)__yo_malloc(abortable * sizeof(__yo_io_future_t*));
+      if (snapshot) {
+        size_t i = 0;
+        for (__yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_win_blocking_accepts; ov;
+             ov = (__yo_win_overlapped_t*)ov->next_accept) {
+          if (!ov->accept_abandoned) snapshot[i++] = ov->future;
+        }
+        for (i = 0; i < abortable; i++) {
+          __yo_io_teardown_abort_waiters(snapshot[i]);
+        }
+        __yo_free(snapshot);
+      }
+    }
+    for (__yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_win_blocking_accepts; ov;
+         ov = (__yo_win_overlapped_t*)ov->next_accept) {
+      if (ov->accept_abandoned) continue;
+      ov->accept_abandoned = true;
+      ov->future->cancel_fn = NULL;
+      { if (atomic_load(&ov->future->state) != -2) atomic_store(&ov->future->state, -1); }
+      __yo_decr_rc((void*)ov->future);
+      ov->future = NULL;
+    }
+    __yo_win_blocking_accepts = NULL;
+    __yo_win_blocking_accepts_inflight = 0;
   }
   if (__yo_win_assoc_handles) {
     __yo_free(__yo_win_assoc_handles);
@@ -2883,11 +2944,17 @@ static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov);
 static void __yo_win_finish_fs_event(__yo_win_overlapped_t* ov, DWORD bytes);
 
 static void __yo_win_pipe_write_done(__yo_win_overlapped_t* ov);
+static void __yo_win_blocking_accept_done(__yo_win_overlapped_t* ov);
 static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
   if (ov->is_pipe_write) {
     (void)bytes;
     __yo_win_pipe_write_done(ov);
+    return;
+  }
+  if (ov->is_blocking_accept) {
+    (void)bytes;
+    __yo_win_blocking_accept_done(ov);
     return;
   }
   if (ov->is_fs_event) {
@@ -4095,6 +4162,114 @@ static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog
   return future;
 }
 
+// ---- Blocking accepts on a worker -------------------------------------------
+// The worker owns accept_sock / accept_len / accept_errno / accept_buf from
+// submit until its post; the loop owns the OVERLAPPED again once
+// GetQueuedCompletionStatusEx hands it back. The worker never touches loop
+// state (the port it posts to was captured at submit).
+static VOID CALLBACK __yo_win_blocking_accept_work(PTP_CALLBACK_INSTANCE inst, PVOID ctx) {
+  (void)inst;
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)ctx;
+  int len = (int)sizeof(ov->accept_buf);
+  SOCKET as = accept(ov->listen_sock, (struct sockaddr*)ov->accept_buf, &len);
+  if (as == INVALID_SOCKET) {
+    ov->accept_errno = (int32_t)__yo_wsa_to_errno(WSAGetLastError());
+  } else {
+    ov->accept_sock = as;
+    ov->accept_len = len;
+  }
+  PostQueuedCompletionStatus(ov->accept_port, 0, 0, &ov->overlapped);
+}
+
+static void __yo_win_blocking_accept_unlink(__yo_win_overlapped_t* ov) {
+  void** link = &__yo_win_blocking_accepts;
+  while (*link && *link != (void*)ov) link = &((__yo_win_overlapped_t*)*link)->next_accept;
+  if (*link) *link = ov->next_accept;
+}
+
+// Cancel hook. A worker blocked in accept() cannot be recalled, so the op is
+// ABANDONED instead: the future is released and stops counting as pending
+// work (a server task aborted while no peer ever connects must not keep the
+// loop alive), and the completion — if one ever comes — closes the socket it
+// accepted for nobody.
+static bool __yo_win_blocking_accept_cancel(__yo_io_future_t* future) {
+  for (__yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_win_blocking_accepts; ov;
+       ov = (__yo_win_overlapped_t*)ov->next_accept) {
+    if (ov->future == future && !ov->accept_abandoned) {
+      ov->accept_abandoned = true;
+      ov->future = NULL;
+      __yo_pending_io_count--;
+      __yo_decr_rc((void*)future);
+      return true;
+    }
+  }
+  return false;
+}
+
+// The worker's post was dequeued: hand the accepted socket to the caller
+// exactly as the synchronous accept() did (peer address copied out, the
+// socket joined to the port and marked a socket), or close it if the op was
+// abandoned meanwhile.
+static void __yo_win_blocking_accept_done(__yo_win_overlapped_t* ov) {
+  __yo_win_blocking_accepts_inflight--;
+  __yo_win_blocking_accept_unlink(ov);
+  if (ov->accept_abandoned) {
+    if (ov->accept_sock != INVALID_SOCKET) closesocket(ov->accept_sock);
+    __yo_win_free_overlapped(ov);
+    return;
+  }
+  __yo_io_future_t* future = ov->future;
+  future->cancel_fn = NULL;
+  if (ov->accept_sock == INVALID_SOCKET) {
+    future->result = -ov->accept_errno;
+  } else {
+    if (ov->out_addr && ov->out_addrlen) {
+      uint32_t copy_len = (uint32_t)ov->accept_len;
+      if (copy_len > *ov->out_addrlen) copy_len = *ov->out_addrlen;
+      memcpy(ov->out_addr, ov->accept_buf, copy_len);
+      *ov->out_addrlen = (uint32_t)ov->accept_len;
+    }
+    if (__yo_io_iocp) {
+      __yo_win_associate_handle((HANDLE)ov->accept_sock);
+    }
+    __yo_win_fd_mark_socket((int32_t)(uintptr_t)ov->accept_sock);
+    future->result = (int32_t)(uintptr_t)ov->accept_sock;
+  }
+  __yo_io_wake_continuation(future);
+  __yo_win_free_overlapped(ov);
+}
+
+static __yo_io_future_t* __yo_win_blocking_accept_start(__yo_io_future_t* future, SOCKET ls, void* addr,
+                                                        uint32_t* addrlen) {
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, (HANDLE)ls, 0);
+  if (!ov) {
+    future->result = -ENOMEM;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+  ov->is_socket = true;
+  ov->sock = ls;
+  ov->is_blocking_accept = true;
+  ov->listen_sock = ls;
+  ov->accept_sock = INVALID_SOCKET;
+  ov->accept_errno = 0;
+  ov->out_addr = addr;
+  ov->out_addrlen = addrlen;
+  ov->accept_port = __yo_io_iocp;
+  ov->next_accept = __yo_win_blocking_accepts;
+  __yo_win_blocking_accepts = ov;
+  __yo_win_blocking_accepts_inflight++;
+  future->cancel_fn = __yo_win_blocking_accept_cancel;
+  atomic_init(&future->state, 0);
+  __yo_pending_io_count++;
+  if (!TrySubmitThreadpoolCallback(__yo_win_blocking_accept_work, ov, NULL)) {
+    // No worker to run it: fail the accept through the same completion path.
+    ov->accept_errno = (int32_t)__yo_win_error_to_errno(GetLastError());
+    PostQueuedCompletionStatus(ov->accept_port, 0, 0, &ov->overlapped);
+  }
+  return future;
+}
+
 static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
   __yo_io_init();
 
@@ -4174,21 +4349,14 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     __yo_win_free_overlapped(ov);
     return future;
   }
-  // AF_UNIX, or the extension is unavailable: the historical blocking accept.
-  int len = (int)(*addrlen);
-  SOCKET result = accept(ls, (struct sockaddr*)addr, &len);
-  if (result == INVALID_SOCKET) {
-    future->result = -(int32_t)__yo_wsa_to_errno(WSAGetLastError());
-  } else {
-    *addrlen = (uint32_t)len;
-    if (__yo_io_iocp) {
-      __yo_win_associate_handle((HANDLE)result);
-    }
-    __yo_win_fd_mark_socket((int32_t)(uintptr_t)result);
-    future->result = (int32_t)(uintptr_t)result;
-  }
-  atomic_init(&future->state, -1);
-  return future;
+  // AF_UNIX, or the extension is unavailable: a plain accept(), which blocks
+  // until a peer connects. On the loop thread that froze every task — a
+  // spawned server awaiting accept before its client (on the same loop)
+  // connected deadlocked, the D6 hang again for Unix-domain listeners
+  // (issues/fixed/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md).
+  // So the accept runs on a thread-pool worker instead and its result comes
+  // back through the port, like a pipe write.
+  return __yo_win_blocking_accept_start(future, ls, addr, addrlen);
 }
 
 static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
