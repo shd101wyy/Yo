@@ -1709,7 +1709,7 @@ Raw pointer operations may dereference invalid memory.`
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
       pa_union_member := ast_expr_token(&property_expr).value;
-      if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.clone()), ctx.unsafe_context)), {
+      if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.items.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.clone()), ctx.unsafe_context)), {
         exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty)))));
         return(expr);
       });

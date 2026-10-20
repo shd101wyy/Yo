@@ -1830,7 +1830,7 @@ _variant_test_code :: (fn(enum_ty : &TypeValue, vidx : usize, vname : &String, p
     can_optimize_as_nullable_pointer(enum_ty),
     .Some(_) => {
       // The enum IS the pointer: the fieldless variant is NULL.
-      fields := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => ArrayList(TypeValue).new());
+      fields := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
       v := _enum_value_code(path, is_raw_ptr);
       t := String.from("(");
       t.push_string(&v);
@@ -1910,7 +1910,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .Const(_, _, _, _, _) => (),
     .Range(_, _, _, _, _, _, _) => (),
     .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
-      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => ArrayList(TypeValue).new());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -2051,8 +2051,8 @@ _emit_pattern_chain :: (
         line.push_str(";");
         em.emit_string_line(&line);
       });
-      labels_v := match(enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => no_labels()), _ => ArrayList(String).new());
-      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => ArrayList(TypeValue).new());
+      labels_v := match(enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => no_labels()), _ => no_labels());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
       v_cell := (in_cell || pattern_position_is_cell(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
