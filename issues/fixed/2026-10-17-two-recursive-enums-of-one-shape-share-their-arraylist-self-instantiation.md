@@ -125,7 +125,10 @@ ABSOLUTE position of the `enum(...)` node. An anchored key (the first cut,
 built on `_anchored_position`) split one declaration again: the prelude's
 `Option` body was minted under two different anchor lists in one process
 (ids `enum_std__prelude_cast_s2_r8019c2_n0` and
-`enum_std__prelude_has_other_aliases_s2_r16c2_n63`), and `Allocator.same`'s
+`enum_std__prelude_has_other_aliases_s2_r16c2_n63`: a nested `impl({...})`
+module overwrites its file's anchors,
+`issues/2026-10-20-a-nested-impl-module-overwrites-its-files-identity-anchors.md`),
+and `Allocator.same`'s
 `self.ctx == other.ctx` went E0605 — the exact failure of the 2026-10-18
 attempt 2, now explained: the two ids spell DIFFERENT anchors for one node.
 
