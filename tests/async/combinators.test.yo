@@ -1,12 +1,13 @@
 //! Async combinators — the `JoinHandle` family (`join_all`, `race`,
-//! `race_first`, `any`, `any_first`, `timeout`;
+//! `race_first`, `any`, `any_first`), the future-taking `timeout` and
+//! `select` (plans/VALUES_BY_DEFAULT.md §3.13 A4;
 //! `plans/archive/STD_API_AUDIT.md` §7 P0 item 6) and the `Stream` family
 //! (`map`, `filter`, `filter_map`, `take`, `skip`, `for_each`, `collect`;
 //! `plans/reference/ASYNC_ITERATION_STREAM.md`).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ join_all, race, race_first, any, any_first, timeout, TimeoutError, yield } :: import("std/async");
+{ join_all, race, race_first, any, any_first, timeout, TimeoutError, select, Selected, yield } :: import("std/async");
 { Stream, for_await } :: import("std/async/stream");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
@@ -135,22 +136,25 @@ test("Test any with all aborted", {
 // 6. timeout — completion inside the limit
 // ---------------------------------------------------------------------------
 test("Test timeout completes in time", {
-  h := io.spawn(sleepy(i32(7), u64(5), io), io);
-  r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
+  r := io.await(timeout(sleepy(i32(7), u64(5), io), Duration.from_millis(i64(200)), io), io);
   assert(match(r, .Ok(v) => (v == i32(7)), .Err(_) => false), "task inside the limit should deliver its value");
 });
-test("Test timeout consumes its handle", {
+test("Test timeout consumes its operand", {
   comptime_expect_error(
-    _timeout_then_await :: (fn(io : Io) -> bool)({
-      h := io.spawn(sleepy(i32(1), u64(1), io), io);
-      _r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
-      h.await(io).is_some()
+    _timeout_then_await :: (fn(io : Io) -> i32)({
+      f := sleepy(i32(1), u64(1), io);
+      _r := io.await(timeout(f, Duration.from_millis(i64(200)), io), io);
+      io.await(f, io)
     }),
     "use of moved value"
   );
-  h := io.spawn(sleepy(i32(8), u64(1), io), io);
-  r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
-  assert(match(r, .Ok(v) => (v == i32(8)), .Err(_) => false), "the consumed handle's value comes back");
+  f := sleepy(i32(8), u64(1), io);
+  r := io.await(timeout(f, Duration.from_millis(i64(200)), io), io);
+  assert(match(r, .Ok(v) => (v == i32(8)), .Err(_) => false), "the consumed future's value comes back");
+  // A task that is already spawned is timed out through its join future.
+  h := io.spawn(sleepy(i32(9), u64(1), io), io);
+  rh := io.await(timeout(h.join(io), Duration.from_millis(i64(200)), io), io);
+  assert(match(rh, .Ok(o) => (o == .Some(i32(9))), .Err(_) => false), "the join resolves to the task's result");
 });
 // ---------------------------------------------------------------------------
 // 6b. timeout — repeated in-time calls against a long deadline.
@@ -164,13 +168,12 @@ test("Test timeout consumes its handle", {
 test("Test timeout in a loop against a long deadline", {
   (mut(i) : usize) = usize(0);
   while(i < usize(200), i = (i + usize(1)), {
-    h := io.spawn(sleepy(i32(3), u64(0), io), io);
-    r := io.await(timeout(h, Duration.from_millis(i64(60000)), io), io);
+    r := io.await(timeout(sleepy(i32(3), u64(0), io), Duration.from_millis(i64(60000)), io), io);
     assert(match(r, .Ok(v) => (v == i32(3)), .Err(_) => false), "every in-time call should deliver its value");
   });
 });
 // ---------------------------------------------------------------------------
-// 7b. timeout — a SELF-aborted task is Aborted, not Elapsed (D18)
+// 7b. timeout — a SELF-aborted task is not an elapsed deadline (D18)
 // ---------------------------------------------------------------------------
 test("Test timeout distinguishes an aborted task from an elapsed deadline", {
   fut := io.async((io : Io) => {
@@ -178,12 +181,13 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
     return(i32(1));
   });
   h := io.spawn(fut, io);
-  // Cancel the task ourselves, well inside a generous deadline.
+  // Cancel the task ourselves, well inside a generous deadline: its join
+  // resolves in time, to `.None`.
   h.abort();
-  r := io.await(timeout(h, Duration.from_millis(i64(500)), io), io);
+  r := io.await(timeout(h.join(io), Duration.from_millis(i64(500)), io), io);
   assert(
-    match(r, .Ok(_) => false, .Err(e) => match(e, .Aborted => true, .Elapsed => false)),
-    "a task cancelled before its deadline must report Aborted"
+    match(r, .Ok(v) => v.is_none(), .Err(_) => false),
+    "a task cancelled before its deadline joins as .None, in time"
   );
 });
 // ---------------------------------------------------------------------------
@@ -198,8 +202,7 @@ test("Test timeout aborts on deadline", {
     });
     return(i32(1));
   });
-  h := io.spawn(fut, io);
-  r := io.await(timeout(h, Duration.from_millis(i64(10)), io), io);
+  r := io.await(timeout(fut, Duration.from_millis(i64(10)), io), io);
   assert(
     match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)),
     "an over-deadline task should report Elapsed, not a bare .None"
@@ -359,10 +362,8 @@ test("Test race_first inside a task", {
 /// A timeout that elapses, and one that does not, both from inside a task.
 timeouts_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
-    slow := io.spawn(sleepy(i32(1), u64(200), io), io);
-    fast := io.spawn(sleepy(i32(2), u64(1), io), io);
-    a := io.await(timeout(slow, Duration.from_millis(i64(10)), io), io);
-    b := io.await(timeout(fast, Duration.from_millis(i64(500)), io), io);
+    a := io.await(timeout(sleepy(i32(1), u64(200), io), Duration.from_millis(i64(10)), io), io);
+    b := io.await(timeout(sleepy(i32(2), u64(1), io), Duration.from_millis(i64(500)), io), io);
     (mut(score) : i32) = i32(0);
     match(
       a,
@@ -461,17 +462,16 @@ impl(
 /// arguments: (s.collect)(io)`), so this helper took the collect future
 /// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
 /// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
-_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
-  h := io.spawn(s.collect(io), io);
+_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))(
   match(
-    io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
+    io.await(timeout(s.collect(io), Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "stream collect did not finish inside the deadline");
       ArrayList(i32).new()
     }
   )
-});
+);
 /// A consumer generic over "anything that yields values asynchronously" —
 /// the thing that was impossible before the trait existed. It never names the
 /// item type, and accepts stream sources and combinator chains alike.
@@ -681,8 +681,7 @@ test("Test Stream for_each inside a spawned task", {
   drain := Countdown(_n : i32(4)).for_each(x => {
     seen.push(x);
   }, io);
-  h := io.spawn(drain, io);
-  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(drain, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_each finished inside the deadline");
   assert(seen.len() == usize(4), "every item reached the body");
 });
@@ -710,8 +709,7 @@ test("Test a hand-written consumer loop inside a spawned task", {
     });
     seen.len()
   });
-  h := io.spawn(task, io);
-  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(task, Duration.from_millis(i64(5000)), io), io);
   assert(match(r, .Ok(n) => (n == usize(3)), .Err(_) => false), "the task looped over every item");
   assert(seen(usize(0)) == i32(6), "and the body's effect is visible outside");
 });
@@ -760,8 +758,7 @@ test("Test for_await inside a spawned task, with continue and break", {
       seen.push(x);
     });
   });
-  h := io.spawn(task, io);
-  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(task, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_await finished inside the deadline");
   assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
   assert((seen(usize(0)) == i32(6)) && ((seen(usize(1)) == i32(4)) && (seen(usize(2)) == i32(3))), "6 4 3");
@@ -819,7 +816,7 @@ test("Test for_await suspends its task between items", {
     io.await(yield(io), io);
     i = (i + i32(1));
   });
-  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(h.join(io), Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the task finished");
   assert(seen.len() == usize(3), "one entry per item");
   // A blocking await would run the whole loop inside the spawn, before main
@@ -1062,6 +1059,17 @@ test("A4: a combinator over a borrowing future is itself second-class", {
   comptime_expect_error(_a4_eat(_a4_bump_after(&mut c, u64(1), io)), "spawned or moved into a by-value parameter");
   comptime_expect_error(io.await(_a4_plus(_a4_bump_after(&mut c, u64(1), io), i32(1), io), io), "spawned or moved into a by-value parameter");
 });
+/// Under `unsafe(...)` in this unsafe-capable file, `io.spawn` accepts a
+/// borrowing future: the code vouches that the task ends before the borrow
+/// does, which is how `timeout` and `select` start their scoped operands.
+/// The safe spawn of the same future is E0909 (the test above).
+test("A4: io.spawn under unsafe accepts a borrowing future", {
+  mut(c) := _A4Counter(n : i32(0));
+  (h : JoinHandle(i32)) = unsafe(io.spawn(_a4_bump_after(&mut c, u64(1), io), io));
+  r := io.await(h.join(io), io);
+  assert(r == .Some(i32(1)), "the spawned borrowing future ran");
+  assert(c.n == i32(1), "it wrote through its borrow before the join resolved");
+});
 /// The same inside a task: the lent locals live in the task's state machine
 /// across the combinator's suspension.
 _a4_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
@@ -1204,6 +1212,114 @@ test("A4: a type built from the binder of a join future at two types is two type
   assert(i == .Some(.Some(i32(7))), "the plain-function form at i32");
   j := _a4_some_sync(io.spawn(io.async((io : Io) => true), io).join(io), io);
   assert(j == .Some(.Some(true)), "the plain-function form at bool");
+});
+// ---------------------------------------------------------------------------
+// A4, std half: `timeout` and `select` over borrowing futures
+// (plans/VALUES_BY_DEFAULT.md §3.13 A4). Each operand runs as a scoped child
+// task that is aborted and joined before the combinator resolves, so no
+// borrow outlives the call.
+// ---------------------------------------------------------------------------
+test("A4: timeout over a borrowing future that finishes in time", {
+  mut(c) := _A4Counter(n : i32(0));
+  r := io.await(timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(500)), io), io);
+  assert(match(r, .Ok(v) => (v == i32(1)), .Err(_) => false), "the operand's value comes back");
+  assert(c.n == i32(1), "the operand wrote through its borrow");
+  c.n = (c.n + i32(4));
+  assert(io.await(_a4_read_after(&c, u64(0), io), io) == i32(5), "the lent local is usable after the call");
+});
+test("A4: timeout over a borrowing future that hits the deadline aborts and joins it", {
+  mut(c) := _A4Counter(n : i32(0));
+  before := g_a4_dropped;
+  r := io.await(timeout(_a4_bump_after(&mut c, u64(300), io), Duration.from_millis(i64(5)), io), io);
+  assert(match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)), "the deadline fired first");
+  assert(g_a4_dropped == (before + i32(1)), "the aborted operand was joined and disposed before timeout resolved");
+  c.n = (c.n + i32(10));
+  io.await(sleep(u64(350)), io);
+  assert(c.n == i32(10), "the aborted operand never resumed to write through its borrow");
+});
+test("A4: select over two borrowing futures of disjoint places", {
+  mut(a) := _A4Counter(n : i32(0));
+  mut(b) := _A4Counter(n : i32(100));
+  before := g_a4_dropped;
+  s := io.await(select(_a4_bump_after(&mut a, u64(300), io), _a4_bump_after(&mut b, u64(1), io), io), io);
+  assert(match(s, .Some(.Second(v)) => (v == i32(101)), _ => false), "the faster operand won");
+  assert(g_a4_dropped == (before + i32(2)), "both operands were joined and disposed: the winner finished, the loser was aborted");
+  io.await(sleep(u64(350)), io);
+  assert(a.n == i32(0), "the loser was aborted before its write");
+  assert(b.n == i32(101), "the winner's write stands");
+  // Two shared borrows of one place may overlap.
+  s2 := io.await(select(_a4_read_after(&a, u64(1), io), _a4_read_after(&a, u64(300), io), io), io);
+  assert(match(s2, .Some(.First(v)) => (v == i32(0)), _ => false), "two & operands over one place");
+});
+test("A4: select's two operands may not lend overlapping places with a &mut side (decision 38 B)", {
+  mut(c) := _A4Counter(n : i32(0));
+  comptime_expect_error(
+    io.await(select(_a4_bump_after(&mut c, u64(1), io), _a4_bump_after(&mut c, u64(1), io), io), io),
+    "two operands of one combinator may not reach one place with an exclusive side"
+  );
+  comptime_expect_error(
+    io.await(select(_a4_read_after(&c, u64(1), io), _a4_bump_after(&mut c, u64(1), io), io), io),
+    "two operands of one combinator may not reach one place with an exclusive side"
+  );
+  // A later argument may not overwrite the place an operand lends.
+  comptime_expect_error(
+    io.await(
+      timeout(_a4_bump_after(&mut c, u64(1), io), {
+        c = _A4Counter(n : i32(7));
+        Duration.from_millis(i64(5))
+      }, io),
+      io
+    ),
+    "an earlier argument of the same call lends to the future"
+  );
+});
+test("A4: timeout over a borrowing future is itself second-class", {
+  mut(c) := _A4Counter(n : i32(0));
+  comptime_expect_error({
+    f := timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(5)), io);
+    ()
+  }, "would hold a borrowing future");
+  comptime_expect_error(io.spawn(timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(5)), io), io), "spawned or moved into a by-value parameter");
+});
+/// `timeout` and `select` inside a task: the lent locals live in the task's
+/// state machine across the combinator's suspension.
+_a4_std_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    mut(c) := _A4Counter(n : i32(0));
+    d := _A4Counter(n : i32(50));
+    io.await(yield(io), io);
+    r := io.await(timeout(_a4_bump_after(&mut c, u64(1), io), Duration.from_millis(i64(500)), io), io);
+    s := io.await(select(_a4_bump_after(&mut c, u64(1), io), _a4_read_after(&d, u64(300), io), io), io);
+    (mut(score) : i32) = c.n;
+    if(r.is_ok(), {
+      score = (score + i32(10));
+    });
+    match(
+      s,
+      .Some(.First(v)) => {
+        score = (score + (v * i32(100)));
+      },
+      _ => ()
+    );
+    score
+  })
+);
+test("A4: timeout and select over borrowing futures inside a task", {
+  r := io.await(_a4_std_in_task(io), io);
+  assert(r == i32(212), "two bumps (2), the timeout delivered (10), select's first operand won with 2 (200)");
+});
+/// Join futures of two result types through `timeout` and `select`: the two
+/// compiler halves of issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md
+/// and issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md.
+test("A4: timeout and select over join futures of two result types", {
+  h1 := io.spawn(io.async((io : Io) => i32(3)), io);
+  r1 := io.await(timeout(h1.join(io), Duration.from_millis(i64(500)), io), io);
+  assert(match(r1, .Ok(.Some(v)) => (v == i32(3)), _ => false), "the i32 task");
+  h2 := io.spawn(io.async((io : Io) => true), io);
+  r2 := io.await(timeout(h2.join(io), Duration.from_millis(i64(500)), io), io);
+  assert(match(r2, .Ok(.Some(v)) => v, _ => false), "the bool task");
+  s := io.await(select(io.spawn(io.async((io : Io) => i32(4)), io).join(io), io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(s.is_some(), "one of the two joins won");
 });
 /// A combinator used only by the test below, so its first specialization is
 /// the first-class operand's.

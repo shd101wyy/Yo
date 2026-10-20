@@ -277,8 +277,8 @@ test("Test a waiter cancelled after the lock was handed to it passes the lock on
   m.*.unlock();
   ha.abort();
   assert(ha.await(io).is_none(), "a was cancelled");
-  rb := io.await(timeout(hb, Duration.from_millis(i64(500)), io), io);
-  assert(match(rb, .Ok(v) => (v == i32(2)), .Err(_) => false), "b got the lock a was handed");
+  rb := io.await(timeout(hb.join(io), Duration.from_millis(i64(500)), io), io);
+  assert(match(rb, .Ok(v) => (v == .Some(i32(2))), .Err(_) => false), "b got the lock a was handed");
   assert(m.*.get() == i64(2), "b's section ran");
   assert(!m.*.is_locked(), "and b released it");
 });

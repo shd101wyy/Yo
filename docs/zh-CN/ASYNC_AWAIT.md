@@ -364,7 +364,7 @@ export(main);
 `io.async` 的函数体可以借用而不是拥有：在捕获列表里写出借用（`{ &x }`、`{ &mut x }`）。这样得到的 Future 是**二等值**（`plans/VALUES_BY_DEFAULT.md` §3.13 A2），与借用的闭包一样：
 
 - 它在创建处被 await，作为 `io.await` 的操作数（直接作为操作数，或作为 `if`/`cond`/`match` 分支的值、块的末尾表达式）；
-- 它可以作为组合器的操作数，即按值参数和结果都是 Future 的泛型函数（`both(a, b, io)`，参数类型为 `Impl(Future(A, Io))` 和 `Impl(Future(B, Io))`）：组合器自己的 Future 随之借用其操作数所借用的位置，并同样在创建处被 await。同一调用的两个操作数在任一方为 `&mut` 时不能借出重叠的位置（E0910，决定 38 B）；对同一位置的两个 `&` 借用是允许的。结果不是 Future 的函数的按值 Future 参数，以及非泛型函数的按值 Future 参数（其函数体只在定义处检查一次，其 Future 无法携带操作数的借用），仍然拒绝它（E0909）。泛型组合器可以返回其操作数的值：仅通过 `Impl(Future(T, E))` 参数绑定的 `T` 会在调用的特化处解析，因此 `io.async({ op }(io : Io) => io.await(op, io))` 会以操作数自己的 `T` 交回其结果（`issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`）；
+- 它可以作为组合器的操作数，即按值参数和结果都是 Future 的泛型函数（`both(a, b, io)`，参数类型为 `Impl(Future(A, Io))` 和 `Impl(Future(B, Io))`）：组合器自己的 Future 随之借用其操作数所借用的位置，并同样在创建处被 await。同一调用的两个操作数在任一方为 `&mut` 时不能借出重叠的位置（E0910，决定 38 B）；对同一位置的两个 `&` 借用是允许的。结果不是 Future 的函数的按值 Future 参数，以及非泛型函数的按值 Future 参数（其函数体只在定义处检查一次，其 Future 无法携带操作数的借用），仍然拒绝它（E0909）。泛型组合器可以返回其操作数的值：仅通过 `Impl(Future(T, E))` 参数绑定的 `T` 会在调用的特化处解析，因此 `io.async({ op }(io : Io) => io.await(op, io))` 会以操作数自己的 `T` 交回其结果（`issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`）。`std/async` 的 `timeout` 和 `select` 就是这样的组合器（见[借用的 Future 上的超时与 select](#借用的-future-上的超时与-select)）；
 - 当它借用的每个位置都是某个函数自己的 `&`/`&mut` 参数时，该函数可以返回它，因为调用方借出的位置比它活得久。`&T` 参数要通过函数体自己的捕获列表借用（`{ &c }`）；只通过所捕获的闭包间接借用 `&T` 参数的 Future 被返回时是 E0909。函数经由 `&Impl(Fn(...))` 参数借到的借用闭包算作该参数（`m.with_lock({ &s }(v : &mut i64) => ..., io)`）；
 - 它不能绑定到局部变量（包括 `match` 分支的模式）、用 `_ := ...` 丢弃、存储、被逃逸的闭包捕获或被 spawn（E0909）；
 - 它所在 `io.await` 的效应包必须是一个位置（`io`、`self.io`），而不是会运行代码的表达式：效应包在 Future 创建之后求值，否则可能移动或覆盖 Future 借用的位置（E0910）；
@@ -481,8 +481,12 @@ ha.abort();
 assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
-`std/async` 的 `timeout(handle, d, io)` 建立在 `abort` 之上，并消耗句柄。超时时，
-任务以及它所阻塞的一切都会被取消。
+`std/async` 的 `timeout(fut, d, io)` 建立在 `abort` 之上：它把 Future 作为一个有作用域的
+子任务运行；超时时，这个任务以及它所阻塞的一切都会被取消。已经 spawn 的任务通过它的 join
+Future 来设置超时，即 `timeout(h.join(io), d, io)`，结果为 `Ok(Option(T))`。到期时它会丢弃
+join Future 以及其中的句柄，从而让任务脱离（detach）：任务会继续运行，与 Tokio 中被丢弃的
+`JoinHandle` 相同。若希望到期时取消这项工作，请直接把工作自己的 Future 交给 `timeout`，而不要
+先 spawn 它。在 §3.13 A4 之前，`timeout` 接受的是 `JoinHandle`，并在到期时 abort 该任务。
 
 **Future 状态机的状态：**
 
@@ -708,7 +712,7 @@ spawned or awaited task. That nests the event loop and can deadlock. ...
 
 任务内部应当使用 **`handle.join(io)`**（`std/async`）：它是一个 future，解析为同样的
 `Option(T)`，并**挂起**正在等待的任务直到 handle 进入终态。`std/async` 的组合器
-（`join_all`、`race`、`race_first`、`any`、`any_first`、`timeout`）也都是这种 future，
+（`join_all`、`race`、`race_first`、`any`、`any_first`、`timeout`、`select`）也都是这种 future，
 所以同一种写法在 `main` 和任务内部都适用：
 
 ```yo
@@ -768,8 +772,7 @@ export(main);
 ```
 
 `join` 会消耗句柄（`plans/VALUES_BY_DEFAULT.md` §3.13 A3）：结果从任务中移出，对已完成
-任务的 `join` 会立即解析。`join_all`、`race_first`、`any_first` 和 `timeout` 同样消耗
-它们的句柄。`race` 和 `any` 按值接收列表，并连同下标一起把它交还：`(index, handles)`，
+任务的 `join` 会立即解析。`join_all`、`race_first` 和 `any_first` 同样消耗它们的句柄。`race` 和 `any` 按值接收列表，并连同下标一起把它交还：`(index, handles)`，
 因此失败者仍然可以被 abort 或 join：
 
 ```yo ignore
@@ -784,7 +787,63 @@ while(i < rest.len(), i = (i + usize(1)), {
 
 这些等待之下是一个运行时原语：
 一个由任务完成或中止来唤醒的 park future（`std/sys/externs` 的 `__yo_join_wait_new` /
-`__yo_join_wait_add`）；`race` 和 `timeout` 会把多个 handle 加到同一个等待上。
+`__yo_join_wait_add`）；`race`、`timeout` 和 `select` 会把多个任务加到同一个等待上。
+
+### 借用的 Future 上的超时与 select
+
+`timeout(fut, d, io)` 和二路 `select(a, b, io)` 接收的是 Future 而不是句柄
+（`plans/VALUES_BY_DEFAULT.md` §3.13 A4；对应 Tokio 的 `time::timeout` 和 `select!`）：
+
+- `timeout` 的结果是 `Ok(v)`；截止时间先到时是 `Err(TimeoutError.Elapsed)`；操作数自己被中止时是
+  `Err(TimeoutError.Aborted)`；
+- `select` 的结果是最先**完成**的操作数，`Some(Selected.First(a))` 或 `Some(Selected.Second(b))`；
+  两者都被中止时是 `None`。查看时两者都已完成的话，第一个获胜。
+
+每个操作数都是一个 `Future(T, Io)`，作为一个**有作用域的子任务**运行。失败者以及超过截止时间的操作数会被中止，并且每个操作数都会在组合器
+解析之前被 join；如果组合器自己的 Future 先被中止或丢弃，丢弃它会中止它的操作数。被中止的任务
+永远不会再恢复，所以操作数可以是借用的 Future：它的借用随调用结束。
+
+```yo
+{ assert } :: import("std/assert");
+{ timeout, select, Selected } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/sys/timer");
+
+Counter :: struct(n : i32);
+bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &mut c, ms }(io : Io) => {
+    io.await(sleep(ms), io);
+    c.n = (c.n + i32(1));
+    c.n
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  a := Counter(n : i32(0));
+  b := Counter(n : i32(10));
+  r := io.await(timeout(bump_after(&mut a, u64(500), io), Duration.from_millis(i64(5)), io), io);
+  assert(r.is_err(), "截止时间先到；操作数被中止并被 join");
+  s := io.await(select(bump_after(&mut a, u64(500), io), bump_after(&mut b, u64(1), io), io), io);
+  assert(match(s, .Some(.Second(v)) => (v == i32(11)), _ => false), "更快的操作数获胜");
+  assert(a.n == i32(0), "被中止的操作数都没有通过借用写入");
+});
+export(main);
+```
+
+组合器的 Future 于是借用它的操作数所借用的东西，A2 的规则同样适用于它：在创建处被 await，
+不能绑定、存储或 spawn，并且它的 `io.await` 的效应包必须是一个位置。同一调用的两个操作数在
+任一方是 `&mut` 时不能借出重叠的位置（E0910，决策 38 B）：`select(s.next(io), s.next(io), io)`
+是错误，而对同一位置的两个 `&` 借用没有问题。
+
+这条规则是结构性的：任何按值参数和结果都是 Future 的函数都在该参数处接受借用的 Future，并且
+像所有泛型一样按实例检查，所以它的函数体只能 await 这个操作数，或者把它捕获进自己返回的
+Future。结果不是 Future 的函数的按值 Future 参数仍然拒绝借用的 Future（E0909）。
+
+`timeout` 和 `select` 用 `unsafe(io.spawn(fut, io))` 启动它们的操作数。在安全代码中 spawn
+借用的 Future 是 E0909，因为任务可能比借用活得更久。在声明了 `pragma(Pragma.AllowUnsafe)`
+的文件中，`unsafe(...)` 区域内的 `io.spawn` 接受借用的 Future：由代码保证任务在借用结束之前
+结束，`std/async` 的有作用域子任务就是这样做的：在每条路径上 abort 并 join 该任务，并在组合器
+自己的 Future 被丢弃时 abort 它。
 
 ## 事件循环
 

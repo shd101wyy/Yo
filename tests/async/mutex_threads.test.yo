@@ -92,15 +92,12 @@ test("Test a waiter cancelled on another thread's loop leaves the queue", {
   mf := m;
   t := Thread(bool).spawn({ mf }(io : Io) => {
     mw := mf;
-    h := io.spawn(
-      io.async({ mw }(io : Io) => {
-        io.await(mw.*.lock(io), io);
-        mw.*.unlock();
-        i32(1)
-      }),
-      io
-    );
-    r := io.await(timeout(h, Duration.from_millis(i64(20)), io), io);
+    f := io.async({ mw }(io : Io) => {
+      io.await(mw.*.lock(io), io);
+      mw.*.unlock();
+      i32(1)
+    });
+    r := io.await(timeout(f, Duration.from_millis(i64(20)), io), io);
     r.is_err()
   });
   assert(t.join(), "the foreign waiter timed out while parked on the lock");

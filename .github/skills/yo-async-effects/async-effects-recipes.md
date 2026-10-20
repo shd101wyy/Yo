@@ -243,7 +243,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   // ✓ a real suspension point
   outs := io.await(join_all(handles, io), io);
   one := io.await(h.join(io), io); // join consumes h, as await does
-  r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
+  r := io.await(timeout(fetch(io), Duration.from_millis(i64(200)), io), io); // timeout takes a future
   ```
 
   The blocking shape is the restriction that still stands for `h.await(io)`

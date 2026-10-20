@@ -20,8 +20,7 @@ pragma(Pragma.SkipWasm32Wasi);
 // reference to the wait, and the exit drain skipped it because the wait was
 // already Completed, not Aborted.
 test("a join wait completed before its other task's abort is released at exit", {
-  h := io.spawn(io.async((io : Io) => i32(1)), io);
-  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(io.async((io : Io) => i32(1)), Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the task finishes before the deadline");
 });
 
