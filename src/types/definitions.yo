@@ -8,9 +8,11 @@
 //!     integers (`usize`/`isize`) and C-compatible types (whose width is
 //!     platform-dependent) get their own variants.
 //!   * Compound variants store children via `Self` to allow recursion.
-//!   * Tuple/Struct field types are stored as parallel `ArrayList`s so we
+//!   * Tuple/Struct field types are stored as parallel `SharedList`s so we
 //!     don't need a separate mutually-recursive struct (which would require
-//!     a forward-reference dance during evaluation).
+//!     a forward-reference dance during evaluation). The `SomeT` bound lists
+//!     and five `TraitT` lists stay plain `ArrayList`s: the evaluator writes
+//!     them in place after the node is built (see `SharedList`).
 //!   * Generic / unresolved type information (`SomeType`, `TypeApplication`,
 //!     traits with associated types, …) is intentionally kept
 //!     minimal in this iteration — Phase 2b will fill in the details.
@@ -37,8 +39,14 @@ SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// field read through the node's `Rc` is a deep copy). Build one with
 /// `shared_list(xs)`; read it with `len`/`get`/`is_empty`, `xs(i)` and `for(xs, ...)`,
 /// or lend the list itself as `&xs.items`.
-/// `Clone` is declared per element type below and in `TypeValue`'s block:
-/// the prelude's generic `Rc(T)` clone would copy the payload.
+/// `Clone` is declared per element type below and in `TypeValue`'s block: a
+/// generic `Clone` for `SharedList(T)` loses to the prelude's `Rc(T)` impl
+/// (issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md).
+/// Not every list is shared: a `SomeT`'s four bound lists and a `TraitT`'s
+/// `assoc_type_names`, `field_labels`, `field_types`, `self_constraints` and
+/// `neg_self_constraints` are written in place after the node is built, and
+/// every holder of the node sees the write, so they stay `ArrayList`s
+/// (issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md).
 SharedList :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(SharedListCell(T)));
 /// Share `items` as a `SharedList`.
 shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T)) -> SharedList(T))(
@@ -494,7 +502,9 @@ t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
 // `TypeValue.clone()` is one count bump: it returns the handle, sharing the
 // whole node. A `TypeValue` is rebuilt, never mutated (`substitute` and every
 // other consumer construct FRESH nodes; a codebase-wide audit found no
-// in-place write to a node's fields), so sharing is sound, and the
+// in-place write to a node's fields; the `ArrayList` lists named under
+// `SharedList` are pushed to in place, and that write is meant to reach
+// every holder), so sharing is sound, and the
 // self-compile calls this millions of times (ExprInfo / `Variable.ty`).
 // The prelude's `Rc(T)` clone (for a `T <: Clone`) would copy the payload
 // into a new cell; `TypeValueNode` does not implement `Clone`, so this impl
@@ -507,7 +517,9 @@ impl(
 );
 // SAFETY: a TypeValue is rebuilt, never mutated (the audit above): its
 // children are filled when it is built and never written afterwards, so a
-// node only points at nodes older than itself and none reaches itself;
+// node only points at nodes older than itself and none reaches itself (the
+// lists stamped in place receive bounds and members, which are types
+// built before the stamp, never the node itself);
 // recursive types recur through ids and the self shell, not through pointers
 // (plans/VALUES_BY_DEFAULT.md decision 21). Declaring `Acyclic` keeps every
 // TypeValue node, and every `ArrayList(TypeValue)`, out of the cycle

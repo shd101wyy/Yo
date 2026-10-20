@@ -1151,10 +1151,11 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   if((depth > u32(6)) || is_some_type(&ty) || type_implements_trait(&ty, copy_tt, env).implemented, {
     return(());
   });
-  // A fresh list: the nominal arms below push onto it.
+  // The nominal arms below push onto it; they are reached only when
+  // `copy_structural_parts` answers `.None` (a value-nominal type).
   parts := match(
     copy_structural_parts(&ty),
-    .Some(sp) => sp.items.clone(),
+    .Some(sp) => sp.items,
     .None => ArrayList(TypeValue).new()
   );
   if(is_value_nominal_type(&ty), {

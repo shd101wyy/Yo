@@ -1,0 +1,15 @@
+// `Rc(T).clone()` where `T` has no `Clone`: the prelude's
+// `impl(generic(T : Type), where(T <: Clone), Rc(T), Clone(...))` should not
+// apply, so the call should be rejected AT THE CALL SITE ("no method clone on
+// Rc(Cell)"). Instead the impl is selected and its body fails inside the
+// prelude (E0610 at `rc(self.*.clone())`).
+// issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Cell :: struct(x : String);
+main :: (fn() -> unit)({
+  a := rc(Cell(x : String.from("q")));
+  b := a.clone();
+  println(ref_count(a));
+});
+export(main);

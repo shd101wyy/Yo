@@ -4838,7 +4838,7 @@ create_specialized_function_inline :: (
                                   });
                                   cw_oi = (cw_oi + usize(1));
                                 });
-                                cw_new_pts := ArrayList(TypeValue).new();
+                                cw_new_pts_b := ArrayList(TypeValue).new();
                                 (cw_all_conc : bool) = true;
                                 (cw_pi : usize) = usize(0);
                                 while(cw_pi < cw_cpt.len(), {
@@ -4847,9 +4847,10 @@ create_specialized_function_inline :: (
                                   if(get_all_some_types(&cw_pt_res).len() > usize(0), {
                                     cw_all_conc = false;
                                   });
-                                  cw_new_pts.push(cw_pt_res);
+                                  cw_new_pts_b.push(cw_pt_res);
                                   cw_pi = (cw_pi + usize(1));
                                 });
+                                cw_new_pts := shared_list(cw_new_pts_b);
                                 cw_ret_res := substitute(&cw_s, &cw_cres);
                                 if(get_all_some_types(&cw_ret_res).len() > usize(0), {
                                   cw_all_conc = false;
@@ -4867,7 +4868,7 @@ create_specialized_function_inline :: (
                                     ) => {
                                       register_func_type(
                                         cw_fid.clone(),
-                                        rc(TypeValueNode.Func(cw_fts, shared_list(cw_new_pts.clone()), cw_its, cw_wts, cw_ret_res, cw_fm, no_types()))
+                                        rc(TypeValueNode.Func(cw_fts, cw_new_pts.clone(), cw_its, cw_wts, cw_ret_res, cw_fm, no_types()))
                                       );
                                     },
                                     _ => ()
