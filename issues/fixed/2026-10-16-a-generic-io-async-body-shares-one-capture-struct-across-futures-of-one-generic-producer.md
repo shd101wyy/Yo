@@ -104,8 +104,9 @@ Measured on the reproducer:
 | `repro_s2.yo` | clang `incompatible pointer types` | `ok` |
 | emitted C | 380,285 bytes, 17 `capture_` mentions | 380,526 bytes (+241), 18 |
 | single-call control, plain-function producer | `ok` | `ok` |
+| the compiler's own C (`compile src/main.yo --emit-c`, same source) | 142,824,369 bytes, 1,984 `capture_` mentions | 142,824,324 bytes, 1,984 |
 
-The +241 bytes are the second capture struct, which is correct: the two instantiations' fields have different C types.
+The +241 bytes are the second capture struct, which is correct: the two instantiations' fields have different C types. The compiler itself has no such pair, so its own C is the same size to within 45 bytes, with no capture struct added.
 
 ### Split off: the evaluator variant is a different bug
 
