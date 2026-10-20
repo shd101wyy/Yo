@@ -155,4 +155,5 @@ ArrayList(Self) is collected". It builds one `KNode.Kids(k)` / `k.push(e)`
 cycle, collects, and asserts that the node was disposed, that the tracked
 count is back to its base, that `Type.can_form_rc_cycle(KNode)` holds, and
 that `KNode` is not `Acyclic`. With the seed the first assertion fails ("the
-node of the list-closed cycle was disposed").
+node of the list-closed cycle was disposed"). With the fix it passes (tree binary `d31c21c57`: 23 of the file's 24 tests pass; the failing one is the open S3
+`issues/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md`).
