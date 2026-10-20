@@ -126,7 +126,7 @@ The 10-17 list also lacked two boundaries that this schedule absorbs into the B1
 | Macro plan B3, B4 | MACRO_AND_ISO_REMOVAL Part B; B3 deletes `from_array` (§5 decision 8) | v0.2.68 (any time) | no; B3 runs the escape-hatch checklist |
 | `Acyclic` declarations, then #1486 | #1486's "Deferred"; §5 decision 10 | v0.2.68 | no |
 | `VcTerm` `Rc` children | decision 21 as amended 2026-10-18 | v0.2.68 | no; after V2c its copies need `.clone()` |
-| A4 std half + the capture-struct S2 | 2026-10-19 handover §3.2; `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` | **landed in v0.2.67** (#1503, #1506, #1509) | no |
+| A4 std half + the capture-struct S2 | 2026-10-19 handover §3.2; `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` | **landed in v0.2.67** (#1503, #1506, #1509) | no |
 | V1 leftover: `arc` takes `alloc` | plan V1 "Remaining, Generation A" | v0.2.68 | possibly (see the v0.2.68 row) |
 
 ## 5. Decided 2026-10-20
