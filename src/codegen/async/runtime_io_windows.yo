@@ -5146,8 +5146,7 @@ static HANDLE __yo_win_dup_inheritable_handle(HANDLE handle) {
   return dup;
 }
 
-// See runtime_io_common.yo: the cwd-taking shim, with the 6-argument name as
-// an inherit-cwd wrapper for the seed-gated std side.
+// See runtime_io_common.yo: the spawn shim (NULL cwd = inherit the parent's).
 static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t** argv, uint8_t** envp,
                                                   int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd,
                                                   const uint8_t* cwd) {
@@ -5253,11 +5252,6 @@ static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t
   future->result = (int32_t)pi.dwProcessId;
   atomic_init(&future->state, -1);
   return future;
-}
-
-static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
-                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
-  return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
 }
 
 // NTSTATUS abnormal-termination codes mapped to the CRT's <signal.h> numbering

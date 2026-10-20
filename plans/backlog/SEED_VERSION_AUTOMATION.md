@@ -655,10 +655,18 @@ all platforms (posix `posix_spawn_file_actions_addchdir_np`, weak-linked so an
 older libc reports ENOSYS; Windows `CreateProcessW` lpCurrentDirectory; wasm
 stub) and the 6-argument `__yo_async_spawn_start` std declares is a wrapper
 passing NULL. Proven by tests/process/command.test.yo under the fresh binary.
-**Generation B (once `SEED_VERSION` ≥ the release carrying this):** declare
-`__yo_async_spawn_start_cwd` in std/sys/externs.yo, make `std/sys/process.spawn`
-take `cwd : ?(*(u8))`, add `Command.current_dir(path)` + a test through the
-public API; then delete the 6-argument wrapper in a later generation.
+**Generation B DONE** (as built, `std/sys/process.spawn_cwd` beside `spawn`
+rather than a `cwd` parameter on `spawn`): `__yo_async_spawn_start_cwd` is
+declared in std/sys/externs.yo and `Command.current_dir(path)` is public API,
+tested in `tests/process/command.test.yo`.
+**The later generation DONE 2026-10-20** on the v0.2.66 seed (its runtime has
+emitted `__yo_async_spawn_start_cwd` since v0.2.20): `std/sys/process.spawn`
+calls `__yo_async_spawn_start_cwd(..., .None)`, std no longer declares the
+6-argument `__yo_async_spawn_start`, and the inherit-cwd wrapper is deleted from
+the POSIX, Windows and wasm runtimes (`src/codegen/async/runtime_io_*.yo`).
+`yo build --std-path ./std` with the installed v0.2.66 seed (`yo 0.2.66`)
+builds the tree: rc=0, 426.4 s, max RSS 4.5 GB, Mac Mini M4 (the seed compiles
+std's spawn against ITS runtime, which has both symbols).
 
 - **`__yo_build_doc`'s dead `include_deps` slot (B13, 2026-09-12):**
   `DocConfig.include_deps` was write-only and is gone from `std/build.yo`, but
