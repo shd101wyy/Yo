@@ -5,6 +5,8 @@
 > disagreed, and wherever the draft left a question open, the maintainer delegated the pick
 > (2026-10-20); §5 "Decided 2026-10-20" records each pick and its reason, and the tables below
 > follow it. Checked against develop `fc15a6092` (2026-10-20), with SEED_VERSION at v0.2.66.
+> Plan line numbers cited here are develop's at `fc15a6092`, before this branch's dated notes in
+> `plans/VALUES_BY_DEFAULT.md` (which shift them by 3 to 21 lines).
 
 This draft maps every VBD step that has not landed to the release where it can land. It follows five rules:
 
