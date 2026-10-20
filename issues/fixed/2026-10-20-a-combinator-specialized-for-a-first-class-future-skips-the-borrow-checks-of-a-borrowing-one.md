@@ -28,16 +28,19 @@ first_use :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 main :: (fn(io : Io) -> unit)({
   mut(c) := C(n : i32(0));
-  r := io.await(with_k(bump_after(&mut c, u64(1), io), {
-    drop(c);
-    i32(5)
-  }, io), io);
+  r := io.await(
+    with_k(bump_after(&mut c, u64(1), io), {
+      drop(c);
+      i32(5)
+    }, io),
+    io
+  );
   println(`r=${r}`);
 });
 export(main);
 ```
 
-On develop this compiles and prints `r=1`: the operand wrote into `c` after `drop(c)`. With `c = C(n : i32(7))` in place of `drop(c)` it prints `r=8 c=8`. Delete `first_use` and both forms are rejected with E0910 (`This argument moves `c`, which an earlier argument of the same call lends to the future the call makes`). That is the correct verdict, and with the fix it is reported whether or not `first_use` exists.
+On develop this compiles and prints `r=1`: the operand wrote into `c` after `drop(c)`. With `c = C(n : i32(7))` in place of `drop(c)` it prints `r=8 c=8`. Delete `first_use` and both forms are rejected with E0910 ("This argument moves `c`, which an earlier argument of the same call lends to the future the call makes"). That is the correct verdict, and with the fix it is reported whether or not `first_use` exists.
 
 ## Cause
 
