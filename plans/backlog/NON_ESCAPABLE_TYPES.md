@@ -467,9 +467,11 @@ consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
   never written through a handle (decision 46; a `&mut` lend through an
   `Rc`/`Arc` deref stays E0919), `Rc.get_mut`/`make_mut` take
   `h : &mut Rc(T)` and so conflict with the freeze, the frozen handle
-  keeps the strong count above zero so neither the drop nor the cycle
-  collector (which restores everything reachable from a live handle)
-  frees the payload, and heap storage never relocates (decision 40). The
+  cannot be dropped, moved or reassigned, so its strong count is never
+  decremented while the borrow lives — the payload is therefore neither
+  freed nor a collection candidate (the collector considers only objects
+  whose count was decremented, `CYCLE_COLLECTION.md`) — and heap storage
+  never relocates (decision 40). The
   first text kept R5's "no origin crosses an `Rc`/`Arc` deref; hold the
   handle and re-derive at each use", whose reason — a plain `Rc` holds no
   marks for a borrow to take — was the pre-decision-46 model, and the
@@ -593,7 +595,7 @@ is subset coercion into a union, `'static` is the empty origin.
 | `thread::scope`, rayon over a local `Vec` | none: a borrow is never `Send` | **parked on decision 43's trigger 2** — the fill is a scoped spawn whose join is structural, with origins ⊆ the scope's lent places and `Sync` for `&`; a parallelism-runtime design, not a borrow-model one |
 | `type Item<'a>` (GATs) for lending iterators | not needed: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap**; an associated type constructor over `Origin` for other GAT shapes is §7 |
 | self-referential values via `Pin` + `unsafe` | unrepresentable in safe code (O5); `AllowUnsafe` raw pointers otherwise | **not a gap in safe code** — Rust's safe subset cannot either |
-| `static mut` | `mut(G)` with decision 18 rule 3 | **not a gap** — Rust's needs `unsafe` |
+| `static mut` | `mut(G)`, a safe lend with decision 18 rule 3 (no call or `await` in the live range) | **Yo is safe where Rust is `unsafe`** — every access to a `static mut` is unsafe in Rust; the trade is the live-range restriction |
 
 | Yo can write | Rust |
 | --- | --- |
@@ -666,8 +668,12 @@ places its origin names. The mechanisms, and the escape routes they close:
    caller's type does not cover. There is no tracker to fall out of sync
    with the type.
 3. **Through a copy** — copies carry identical origins (all-`&` values are
-   `Copy`); a `&mut`-holding value is move-only, so two exclusive borrows
-   cannot exist.
+   `Copy`); a `&mut`-holding value is move-only, so a copy never
+   duplicates an exclusive loan. Two `&mut(T, p)` values MAY coexist
+   (O3 step 2: a callee returned both out of one lend); what the rule
+   forbids is any further access to `p` by name while either lives, and
+   their disjointness is the callee's obligation — safe code cannot
+   produce overlapping ones without an access conflict in its own body.
 4. **Through a closure** — capture entries spell origins into the
    closure's type; a slot's parameters subsume the literal's (coercion);
    an escaping closure's capture and a `Dyn` payload are no-origin
@@ -695,8 +701,8 @@ position, and every such position is one of the eight above.
 
 **Shared cells:** a reference into a shared payload carries the handle it
 went through (O9), and that handle is frozen while the reference lives —
-so the payload cannot be freed (the count stays above zero; the collector
-restores what a live handle reaches) and cannot be written through any
+so the payload cannot be freed (the handle's count is never decremented,
+so it is neither dropped nor a collection candidate) and cannot be written through any
 handle (decision 46; `&mut` through a deref is E0919). Mutation of a
 shared payload happens only through `RefCell`'s dynamic marks (§3.10),
 whose guard is the origin of any borrow into it. A payload never carries
