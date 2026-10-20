@@ -134,8 +134,10 @@ replacing its own `T` is an infinite type, so such an entry can only have
 been made for another binder that shares the spelling. A replacement that
 IS the SomeT (a constraint refinement `T := T : (Integer)`) is still
 applied. `_type_mentions_some_id` walks fields, elements and pointees
-(`get_all_some_types`) plus an instance's type arguments, so a phantom
-argument counts too.
+(`get_all_some_types`) plus the type arguments of a top-level instance
+or pointee, so a phantom argument there counts too. A phantom argument
+under a tuple, array or function type is not inspected; no known shape
+needs it.
 
 `std/async/channel.yo` spells its binder `T` again (the #1421 `Msg`
 workaround is reverted), and `tests/impl.test.yo` ("a generic impl
