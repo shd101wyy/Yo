@@ -244,9 +244,6 @@ extern(
 export(__yo_as);
 /// The `unsafe` module — provides low-level unwind hatches.
 unsafe :: impl({
-  /// Manually drop `value`, running its destructor immediately.
-  drop :: (fn(quote(value) : Expr) -> unquote(Expr))(quote(___drop(unquote(value))));
-  export(drop);
   cast :: __yo_as;
   export(cast);
 });
@@ -9988,7 +9985,7 @@ impl(
     /// Drops the payload, then frees the cell through its owner prefix.
     drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: the box is the cell's only owner, and this runs once.
-      unsafe.drop(unsafe(self._cell.*));
+      ___drop(unsafe(self._cell.*));
       block := _box_owner_of((*void)(self._cell));
       owner := unsafe(block.*);
       match(
@@ -10117,7 +10114,7 @@ impl(
             Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
           true => {
             // run-time check
-            unsafe.drop(unquote(temp));
+            ___drop(unquote(temp));
             Option(Iso(unquote(temp_type))).None
           }
         ),

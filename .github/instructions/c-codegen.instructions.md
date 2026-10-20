@@ -723,8 +723,8 @@ Every temp-declaring site in `other_fn_call.yo` does this; a new one must too.
 
 ### An arm emitter must emit the rendered code of a unit arm
 
-Some generators RETURN their statement instead of emitting it: `___drop`
-(`unsafe.drop(x)`) renders `__yo_decr_rc(x)` and hands the text back. An arm
+Some generators RETURN their statement instead of emitting it: `___drop(x)`
+renders `__yo_decr_rc(x)` and hands the text back. An arm
 emitter that assigns a value arm to its result temp and emits NOTHING for a
 unit arm therefore loses the statement. Both `cond` lowerings did, which
 emptied `HashMap._resize`'s old-slot release loop: every map with RC keys or

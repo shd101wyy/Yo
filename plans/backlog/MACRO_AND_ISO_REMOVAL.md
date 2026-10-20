@@ -613,7 +613,12 @@ Part C deletes the macros.
     embedding Yo source in string literals.
   - No emit-diff gate — there is no desugar to prove equivalent; the
     migrated suite is the gate.
-- **B4 — `unsafe.drop` → `___drop`.** Rewrite the eleven std sites
+- **B4 — `unsafe.drop` → `___drop`.** *Landed on branch
+  `refactor/macro-b4-unsafe-drop` (2026-10-20): all twelve std sites — the
+  `(^)` body's included, since A1 had not landed and its quoted body would
+  otherwise expand to a deleted name — and `owned_buffer.yo` call `___drop`;
+  the `unsafe` impl keeps only `cast`; the
+  `lsp-analysis-resilience` golden re-recorded.* Rewrite the eleven std sites
   (§1.2; the twelfth dies with A1's `(^)` deletion) and
   `tests/fixtures/owned_buffer.yo:50` to call `___drop(...)` directly, then
   delete `unsafe.drop` from the `unsafe` impl (`std/prelude.yo:248`). No
