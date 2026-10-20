@@ -5,8 +5,6 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ eprintln } :: import("std/fmt");
-{ debug_knob } :: import("../utils.yo");
 { TypeValue } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { t_refine_inner } :: import("./definitions.yo");
@@ -63,17 +61,7 @@ enum_decls_differ :: (fn(a_id : &String, e_id : &String) -> bool)(
     (a_id == e_id) => false,
     true => match(
       g_enum_decl_identities.get(a_id),
-      .Some(ad) => match(
-        g_enum_decl_identities.get(e_id),
-        .Some(ed) => {
-          d := (ad != ed);
-          if(d && debug_knob(String.from("YO_DEBUG_ENUM_DECL")).is_some(), {
-            eprintln(`[enum-decl] differ ${a_id} -> ${ad} | ${e_id} -> ${ed}`);
-          });
-          d
-        },
-        .None => false
-      ),
+      .Some(ad) => match(g_enum_decl_identities.get(e_id), .Some(ed) => (ad != ed), .None => false),
       .None => false
     )
   )
