@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -1273,7 +1273,7 @@ evaluate_anonymous_function_implementation :: (
     Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels,
     _ => no_labels()
   );
-  (param_types : ArrayList(TypeValue)) = match(
+  (param_types : SharedList(TypeValue)) = match(
     function_type,
     Rc(.Func({ param_types : pt })) => pt,
     _ => no_types()
@@ -2595,7 +2595,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
                     rc(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), no_types()))
                   },
-                  _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
+                  _ => t_func_simple(actual_param_labels.clone(), param_types.items.clone(), &body_ty)
                 );
                 register_func_type(func_id.clone(), &rereg_ty);
                 // Record the CONCRETE def-evaluated body type by FuncVal id.
