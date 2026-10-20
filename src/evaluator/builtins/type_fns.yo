@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   create_type_value,
   type_of_eval_value
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, no_label_lists } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, no_label_lists, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_type, t_comptime_string, t_comptime_int, t_comptime_float, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { is_some_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { is_type_hierarchy_type, is_trait_type } :: import("../../types/guards.yo");
@@ -844,9 +844,9 @@ _ti_bind_variant_info_list :: (
   fn(
     env_ptr : &Environment,
     enum_ty : &TypeValue,
-    variant_names : &ArrayList(String),
-    variant_fields : &ArrayList(ArrayList(TypeValue)),
-    variant_field_labels : &ArrayList(ArrayList(String)),
+    variant_names : &SharedList(String),
+    variant_fields : &SharedList(SharedList(TypeValue)),
+    variant_field_labels : &SharedList(SharedList(String)),
     ctx : &EvalContext,
     exn : Exception
   ) -> String
@@ -1246,7 +1246,7 @@ evaluate_yo_type_get_info :: (
       String.from("TypeInfo.Struct(") + fl_name + String.from(", ") + kind_str + String.from(")")
     },
     Rc(.EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _, _)) => {
-      vl_name := _ti_bind_variant_info_list(&local_env, &type_val, &variant_names.items, &variant_fields.items, &variant_field_labels.items, ctx, exn);
+      vl_name := _ti_bind_variant_info_list(&local_env, &type_val, &variant_names, &variant_fields, &variant_field_labels, ctx, exn);
       String.from("TypeInfo.Enum(") + vl_name + String.from(")")
     },
     Rc(.Union(_, labels, types)) => {

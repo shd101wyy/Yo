@@ -20,7 +20,7 @@
 //! reference-semantics drop/dup is lowered directly in codegen (drop_dup.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, SharedList } :: import("../../types/definitions.yo");
 { Environment } :: import("../../env.yo");
 {
   begin_send_derivation,
@@ -197,7 +197,7 @@ auto_derive_traits_for_struct_type :: (
 // auto_derive_traits_for_enum_type
 // ---------------------------------------------------------------------------
 /// Collect all variant field types from a nested ArrayList(ArrayList(TypeValue)).
-_flatten_variant_fields :: (fn(variant_fields : &ArrayList(ArrayList(TypeValue))) -> ArrayList(TypeValue))({
+_flatten_variant_fields :: (fn(variant_fields : &SharedList(SharedList(TypeValue))) -> ArrayList(TypeValue))({
   result := ArrayList(TypeValue).new();
   n := variant_fields.len();
   (i : usize) = usize(0);
@@ -228,7 +228,7 @@ _flatten_variant_fields :: (fn(variant_fields : &ArrayList(ArrayList(TypeValue))
 auto_derive_traits_for_enum_type :: (
   fn(
     enum_id : &String,
-    variant_fields : &ArrayList(ArrayList(TypeValue)),
+    variant_fields : &SharedList(SharedList(TypeValue)),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
     env : &Environment,
