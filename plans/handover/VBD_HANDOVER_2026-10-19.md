@@ -250,6 +250,13 @@ agent must know beyond the plan:
   design doc's §3.1 and `RUST_REFERENCE_PATTERNS.md` was rewritten to origins (its §14 residue is
   now one row: cross-thread lending, parked on decision 43's trigger 2). Nothing about decision 43
   is open.
+- **N0 can start NOW** (plan §6 "Decision 43" step 0; no prerequisite): the negative corpus plus a
+  reference checker — an executable model of O1–O10 over a toy language. Write rows first for the
+  expected-hole list (design doc §8: sets at control-flow joins, elision × closures, drop order ×
+  `may_dangle`, handle-origin × `RefCell` guard × collector, async captures across a cold start),
+  and one row per lowering (macros, closure capture structs, async state machines, effect handlers,
+  `match`/`cond` arms, specialized bodies), since rules added without closure/macro-side checks get
+  swallowed there.
 - **Ordering consequences.** Step 1 of the sequence now adds TWO `TypeValue` variants
   (`Reference(T, mutable, origin)` and the `Origin` kind) and carries a new gate: origins are NOT
   part of `type_key`, the #1329 memos or any specialization key (the emit-diff proves it). The

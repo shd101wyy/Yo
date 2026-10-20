@@ -647,6 +647,16 @@ What actually remains to build:
 - **Seed gating.** Generation A lands the kind, the parse and the rules in
   user code; the tree and std convert on the next seed (Generation B), as
   every phase of this plan does.
+- **Every lowering is an escape route** (2026-10-20). The set algebra is
+  the small part; the cost is applying O3 in every walk that creates or
+  moves a value: macro expansions (`ExprInfo.macro_expansion`), closure
+  capture structs, async state machines (captures and slots), effect
+  handlers (`return`/`unwind`), `match` and `cond` arms, the specializer's
+  per-instantiation bodies (Yo checks a generic body per specialization,
+  so the checker runs per instantiation). A rule added to the evaluator
+  without its closure-side and macro-side checks is silently swallowed
+  there — the 2026-10 audits found 86 of 125 E0617 sites that way — so
+  each phase's gate includes one corpus row per lowering.
 
 ## 5. Soundness argument
 
@@ -853,12 +863,22 @@ it in those words (2026-10-20).
 
 | Phase | Lands | Gate |
 | --- | --- | --- |
-| N0 | the negative-test corpus written and failing | the tests fail for the right reason |
+| N0 | the negative-test corpus (§5's rows) written and failing, AND a **reference checker**: an executable model of O1–O10 over a toy language, a few hundred lines, that the corpus runs through — the cheapest way to find rule interactions a prose argument cannot (2026-10-20). No prerequisite: N0 can start before V2b finishes | the tests fail for the right reason; the model accepts every positive control and rejects every negative row |
 | N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), the handle-origin rule for borrows through an `Rc`/`Arc` deref (O9), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells (`Box`, `RefCell`, `Dyn(Trait, p)`) and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 
-After decision 42's Generation B and V2b, as before; each phase is one PR
-or one stack with one battery, per AGENTS.md. The ctl-handler open point
+After decision 42's Generation B and V2b, as before (N0 excepted); each
+phase is one PR or one stack with one battery, per AGENTS.md.
+
+**Where holes are expected first** (recorded 2026-10-20 so N0 writes rows
+for them before N1 lands): flow-inferred origin sets at control-flow
+joins (loops that push on one path only); the elision defaults meeting
+closures (a literal's fresh parameter origins against captured ones);
+drop order with O3's `may_dangle` obligation (a container declared before
+its roots); the handle-origin rule beside a `RefCell` guard and a
+collection in the same frame (O9); origin-carrying captures in an async
+state machine across a cold start. Rust's own checker had its holes found
+in exactly these kinds of interaction, years after shipping. The ctl-handler open point
 and the `.*` / `str` decisions recorded under "Decision 43" in
 `plans/VALUES_BY_DEFAULT.md` §6 carry over unchanged.

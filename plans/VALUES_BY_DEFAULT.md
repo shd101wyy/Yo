@@ -7472,6 +7472,11 @@ and V4's `TypeValue` conversion, because step 1 adds `TypeValue` variants
 and must not be written twice. Each step is its own PR, with its own
 measured `check ./src` time and stage-2 RSS.
 
+0. **N0, no prerequisite (added 2026-10-20):** the negative-test corpus
+   and the reference checker (NON_ESCAPABLE_TYPES §8 N0) — an executable
+   model of O1–O10 over a toy language that the corpus runs through. It
+   can start now, before V2b finishes; the expected-hole list in §8 is
+   its first input.
 1. **`TypeValue` variants, no language change.**
    `TypeValue.Reference(T, mutable : bool, origin)` — the origin a
    `TypeValue` value of the new `Origin` kind — replaces the slot flags
@@ -7505,6 +7510,11 @@ measured `check ./src` time and stage-2 RSS.
      `impl(&T, Trait(…))`; `FnMut` (decision 37).
    - The storage wall stays as today: E0909 keeps the second-class
      positions until step 3, so no build accepts an escape it cannot see.
+   - The gate includes one corpus row per lowering — macros, closure
+     capture structs, async state machines, effect handlers, `match`/`cond`
+     arms, specialized bodies — because a rule the evaluator adds without
+     its closure-side and macro-side checks is swallowed there
+     (NON_ESCAPABLE_TYPES §4).
    - The tests are decision 43's list, minus the storage and `Rc` rows.
    - The compiler needs no seed for any of this: it is Generation A by
      construction.
