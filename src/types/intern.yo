@@ -59,6 +59,16 @@
 _append_b :: (fn(sb : &mut StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
+/// `_append_strings` over a list the node holds unshared (a trait's labels).
+_append_string_vec :: (fn(sb : &mut StringBuilder, xs : &ArrayList(String)) -> unit)({
+  n := xs.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(xs.get(i), .Some(s) => sb.write_string(&s), .None => ());
+    sb.write_str(",");
+    i = (i + usize(1));
+  });
+});
 _append_strings :: (fn(sb : &mut StringBuilder, xs : &SharedList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
@@ -424,9 +434,9 @@ _intern_key_into :: (
           sb.write_str("{");
           sb.write_string(&tnm);
           sb.write_str("|");
-          _append_strings(sb, &tatn);
+          _append_string_vec(sb, &tatn);
           sb.write_str("|");
-          _append_strings(sb, &tfl);
+          _append_string_vec(sb, &tfl);
           sb.write_str("|");
           ntf := tft.len();
           (itf : usize) = usize(0);
