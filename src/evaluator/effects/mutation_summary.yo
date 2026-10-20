@@ -146,8 +146,8 @@ _ms_type_is_function_like :: (fn(t : &TypeValue) -> bool)({
 _ms_extern_may_mutate :: (
   fn(
     extern_name : &String,
-    param_types : &ArrayList(TypeValue),
-    variadic_types : &ArrayList(TypeValue)
+    param_types : &SharedList(TypeValue),
+    variadic_types : &SharedList(TypeValue)
   ) -> bool
 )({
   if(_ms_head_is_pure_builtin(extern_name.clone()), {
@@ -547,7 +547,7 @@ impl(
           match(
             callee_extern,
             .Some(en) => {
-              if(_ms_extern_may_mutate(&en, &callee_ptypes.items, &callee_vtypes.items), {
+              if(_ms_extern_may_mutate(&en, &callee_ptypes, &callee_vtypes), {
                 return(true);
               });
             },
@@ -597,7 +597,7 @@ impl(
           match(
             tm.*.extern_name,
             .Some(ten) => {
-              if(_ms_extern_may_mutate(&ten, &tpt.items, &tvt.items), {
+              if(_ms_extern_may_mutate(&ten, &tpt, &tvt), {
                 return(true);
               });
               if(_MsW.walk(&func_expr, table, touched), {
@@ -947,7 +947,7 @@ _msp_extern_reallocs :: (fn(h : &String) -> bool)(
 _msp_extern_writes_first_arg :: (fn(h : &String) -> bool)(
   (h == "memmove") || (h == "memcpy") || (h == "memset")
 );
-_msp_extern_has_callback :: (fn(param_types : &ArrayList(TypeValue), variadic_types : &ArrayList(TypeValue)) -> bool)({
+_msp_extern_has_callback :: (fn(param_types : &SharedList(TypeValue), variadic_types : &SharedList(TypeValue)) -> bool)({
   (pi : usize) = usize(0);
   while(pi < param_types.len(), {
     match(
@@ -974,7 +974,7 @@ _msp_extern_has_callback :: (fn(param_types : &ArrayList(TypeValue), variadic_ty
 });
 /// An extern callee: its C name and signature. Externs usually resolve by
 /// TYPE only (the func node carries no FuncVal), so both channels are read.
-_MspExtern :: struct(name : String, ptypes : ArrayList(TypeValue), vtypes : ArrayList(TypeValue));
+_MspExtern :: struct(name : String, ptypes : SharedList(TypeValue), vtypes : SharedList(TypeValue));
 /// Per-function analysis state. `roots` is keyed by NAME (same-named locals
 /// in sibling scopes are joined — conservative); parameters and globals are
 /// resolved from the use site's env, not from this map.
@@ -3185,11 +3185,11 @@ impl(
             callee_extern,
             .Some(en) => {
               cond(
-                _msp_extern_has_callback(&cpt.items, &cvt.items) => {
+                _msp_extern_has_callback(&cpt, &cvt) => {
                   m.all = true;
                   _msp_debug_all(String.from("walk"), e);
                 },
-                _ms_extern_may_mutate(&en, &cpt.items, &cvt.items) => _MsP.roots_of_args(m, &func_expr, &args, ctx),
+                _ms_extern_may_mutate(&en, &cpt, &cvt) => _MsP.roots_of_args(m, &func_expr, &args, ctx),
                 _msp_extern_writes_first_arg(&en) => match(
                   args.get(usize(0)),
                   .Some(a0) => {
@@ -3347,11 +3347,11 @@ impl(
           tm.*.extern_name,
           .Some(ten) => {
             cond(
-              _msp_extern_has_callback(&tpt.items, &tvt.items) => {
+              _msp_extern_has_callback(&tpt, &tvt) => {
                 m.all = true;
                 _msp_debug_all(String.from("walk"), e);
               },
-              _ms_extern_may_mutate(&ten, &tpt.items, &tvt.items) => _MsP.roots_of_args(&m, &func_expr, &args, ctx),
+              _ms_extern_may_mutate(&ten, &tpt, &tvt) => _MsP.roots_of_args(&m, &func_expr, &args, ctx),
               _msp_extern_writes_first_arg(&ten) => match(
                 args.get(usize(0)),
                 .Some(a0) => {
