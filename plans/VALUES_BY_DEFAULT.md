@@ -142,8 +142,9 @@ Progress:
     lost.
   - V4's `Z3Sexpr` as a value enum (#1435) and `Pattern` with `Box`
     children (feat/vbd-v4-pattern-box, Generation B after the v0.2.65 seed
-    bump), after the unwind S1 it exposed (#1438); V4's "as built". `VcSort` and `VcTerm` wait on a decision (`Box`
-    or `Rc` children, `issues/questions/`).
+    bump), after the unwind S1 it exposed (#1438); V4's "as built". `VcTerm` as an `Rc` handle,
+    `Rc(VcTermNode)` (perf/vcterm-rc-children, decision 21's 2026-10-18
+    amendment); `VcSort` takes `Box` after V2b B6.
   - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
     the cycle, reach and `Acyclic` walks through its buffer, not a raw view
     in safe code, and value-rooted borrow flags lower to nothing (#1384).
@@ -4797,7 +4798,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   - **The verifier's local cells are the unique `Box`** (`chain`,
     `guard_cell`, `phi_cell`, `acc_cell` in `src/verifier/vc.yo`): one
     owner each, no closure captures them, and the `VcTerm` payload is a
-    `ref` handle, so `cell.*` reads stay implicit copies.
+    handle (`Rc(VcTermNode)` since decision 21's 2026-10-18 amendment), so
+    `cell.*` reads stay implicit copies.
   - **The owner chains and `consumed_at_token` drop the cell.**
     `Variable`, `CapturedVariable`, `SuspensionCapturedVariable`,
     `EffectCapturedVariable` and `Token` are `ref(struct(...))` types, so
@@ -7417,16 +7419,34 @@ stage-2 RSS):
       - `check src/main.yo` makes 1,828,286,478 allocation calls against
         1,823,309,567 (+0.27%; the clones of rows and arm patterns).
     - **Timing.** The timing A/B is measured after merge, like `Z3Sexpr`'s.
-  - **`VcSort`, `VcTerm`:** not converted. They live in
-    `HashMap(String, VcTerm)` / `HashMap(String, VcSort)`, which cannot hold
-    a move-only value and whose `get` copies (49 sites in `vc.yo`). The
-    symbolic walk snapshots the environment at every branch and merges with
-    `ite` terms, so `Box` children would deep-copy on every snapshot (the
-    pattern that made the value `TypeValue` 2.3× slower). The decision is
-    open in
-    `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
-    which recommends `Rc` for `VcTerm` and `Box` for `VcSort` once maps can
-    hold move-only values. Both stay `ref(enum)` until then.
+  - **`VcTerm`** (2026-10-20, decision 21's 2026-10-18 amendment): an `Rc`
+    handle, `VcTerm :: Rc(VcTermNode)`, the `TypeValue` shape (#1369).
+    `VcTermNode` is the enum with `Rc(Self)` children and
+    `ArrayList(Rc(Self))` lists. Constructions are
+    `rc(VcTermNode.X(...))` (144 sites), and the 88 arms spell the handle,
+    `Rc(.X(...))` (`yo fix --migrate rc-pattern`). A copy of a term is one
+    count bump, as the `ref(enum)` was, so the walk's snapshots and `ite`
+    merges cost what they did. The map fields and the 49 `HashMap.get`
+    sites in `vc.yo` are unchanged; after V2c each copy of the handle is
+    an explicit `.clone()`. Measured on Linux x86_64 (exclusive heavy lock,
+    two runs each; develop 7def2203b against this tree, each stage 1 built
+    by the v0.2.66 seed with clang, each checking its own tree; stage 2 is
+    the CI ratchet's mimalloc build):
+
+    | | develop | `VcTerm` an `Rc` handle |
+    | --- | --- | --- |
+    | `check ./src` (stage 1) | 198.6 / 198.9 s, 1,143,368 / 1,143,476 KB | 192.7 / 194.3 s, 1,146,084 / 1,145,964 KB |
+    | `check src/main.yo` (stage 2) | 184.3 / 184.5 s, 1,104,264 / 1,103,900 KB | 187.2 / 183.8 s, 1,106,196 / 1,106,328 KB |
+    | emitted C (`src/main.yo`) | 143,072,744 B | 143,190,745 B |
+
+    Check RSS is +0.2% (the node's per-type dup and drop functions), and
+    check time is flat. `yo verify` gives byte-identical output with both
+    binaries on every `tests/spec` path that evaluates.
+  - **`VcSort`:** not converted. It lives in `HashMap(String, VcSort)`,
+    which cannot hold a move-only value and whose `get` copies. It takes
+    `Box` children after V2b B6
+    (`issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`);
+    it stays `ref(enum)` until then.
 - **`EvalValue`:** last. The comptime-place model aliases on purpose, so its
   place fields stay `Rc(ArrayList(Self))`. Its children are `Rc` or a
   unique `Box`, decided by measurement.
