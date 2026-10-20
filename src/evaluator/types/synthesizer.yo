@@ -1543,8 +1543,8 @@ _synthesize_types_impl :: (
     exp_trait_id := match(expected_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id, _ => ``);
     giv_trait_id := match(given_ty, Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id, _ => ``);
     if(exp_trait_id == giv_trait_id, {
-      exp_ft := match(expected_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => no_types());
-      giv_ft := match(given_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => no_types());
+      exp_ft := match(expected_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
+      giv_ft := match(given_ty, Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => fts, _ => ArrayList(TypeValue).new());
       n := exp_ft.len();
       (i : usize) = usize(0);
       while(i < n, {
