@@ -111,6 +111,38 @@ the visited root, and the path closes. On the tree binary:
 The `Node` `Trace` impl that the move-only fix added (it visits `next`,
 `prev` and the element buffer) was already the correct traversal.
 
+## Cost (measured 2026-10-20, stage-2 A/B, aarch64 macOS)
+
+The fix also changes what the compiler's OWN types register. 48 container
+instantiations in `src/` have the same shape: a shell behind a nested
+instantiation, missed for the same reason. They hold `AstExpr`, `EvalValue`,
+`VcTerm`, `JsonValue` or `RegexNode` children, and they were cycle-capable
+all along. Examples are `ArrayList(Self)`, `HashMap(String, ArrayList(Self))`,
+`SuspensionPoint`, `PendingDef`, `VcQuery`, `JsonObjBuilder` and
+`ArrayList(<RegexNode shell>)`. Their cells now use the full RC header and
+register with the collector.
+
+| Measure | before | after |
+| --- | --- | --- |
+| self-build emit: constructors calling `__yo_gc_register` | 139 | 188 |
+| self-build emit: small (16 B) headers | 521 | 472 |
+| stage-2 `check ./src --std-path ./std`, user time | 132.9 s | 132.8 s |
+| stage-2 `check ./src`, max RSS | 1.28 GB | 1.50 GB (+17%) |
+| stage-2 `check ./src`, peak footprint | 1.03 GB | 1.25 GB |
+
+- **Time is unchanged.** `__yo_gc_register` links the cell into an
+  intrusive list and makes no allocation, so the malloc-count work ratchet
+  should not move.
+- **RSS does move.** The +17% exceeds the `Evaluator memory ratchet` job's
+  ±10% band (`scripts/bootstrap/memory-ratchet.tsv`, Linux max RSS of
+  `check src/main.yo`). That job is expected to go red until its Linux
+  baseline is re-measured at merge. The macOS number above is not that
+  baseline, so it was not written into the TSV.
+- **Recovery (follow-up, not this fix):** decision 21's declared
+  `impl(T, Acyclic())` on the compiler's tree-shaped container types, which
+  never close a cycle in practice. That is an evaluator-wide edit, so it
+  stays out of this change.
+
 ## Fix direction (as filed)
 
 Make the constructor's `can_type_form_rc_cycle` ask and the runtime agree with
