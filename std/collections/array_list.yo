@@ -221,12 +221,15 @@ impl(
     });
     out
   }),
-  /// Owned `ArrayList` copy of a fixed-size array's elements — the companion
-  /// to array range-indexing (plans/archive/SLICE_REWORK.md).
+  /// Consuming constructor from a fixed-size array — Rust's
+  /// `Vec::from([T; N])`: `ArrayList(i32).from([i32(1), i32(2), i32(3)])`.
   ///
-  /// `N` comes from the array's type, so the exact capacity is reserved up
-  /// front and no growth happens.
-  from_array : (fn(generic(N : usize), arr : &Array(T, N)) -> Self)({
+  /// The array is taken by `sink`, so the caller's binding ends at the call
+  /// and its elements are now the list's. A caller that keeps the array
+  /// passes a copy: `ArrayList(T).from(arr.clone())`. `N` comes from the
+  /// array's type, so the exact capacity is reserved up front and no growth
+  /// happens.
+  from : (fn(generic(N : usize), sink(arr) : Array(T, N)) -> Self)({
     out := Self.with_capacity(N);
     i := usize(0);
     while(i < N, i = (i + usize(1)), {

@@ -6,7 +6,7 @@ pragma(Pragma.AllowUnsafe);
 { rune, String } :: import("std/string");
 { StringBuilder } :: import("std/fmt");
 { Exception } :: import("std/error");
-{ ArrayList, array_list } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array_list");
 { TokenKind, Token, find_matching_bracket, intern_token_str } :: import("./token.yo");
 { tokenize, tokenize_span } :: import("./lexer.yo");
 { interpolation_body_end } :: import("./utils.yo");
@@ -1232,7 +1232,10 @@ impl(
                     input : tok.input
                   );
                   arg_copy := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
-                  .FnCall(self.alloc_id(), .Atom(self.alloc_id(), colon_tok), array_list(arg, arg_copy), true, colon_tok)
+                  pair_args := ArrayList(AstExpr).with_capacity(usize(2));
+                  pair_args.push(arg);
+                  pair_args.push(arg_copy);
+                  .FnCall(self.alloc_id(), .Atom(self.alloc_id(), colon_tok), pair_args, true, colon_tok)
                 },
                 true => arg
               );
@@ -1581,10 +1584,11 @@ impl(
             match(primary_expr, .Atom(_, pt) => pt, .FnCall(_, _, _, _, pt) => pt),
           true => dot_tok
         );
-        init_args := cond(
-          primary_is_dot => array_list(rhs_expr),
-          true => array_list(primary_expr, rhs_expr)
-        );
+        init_args := ArrayList(AstExpr).with_capacity(usize(2));
+        if(!primary_is_dot, {
+          init_args.push(primary_expr);
+        });
+        init_args.push(rhs_expr);
         init_infix := (primary_is_dot == false);
         // Accumulate further immediate dot-chains (no whitespace)
         (cur_expr : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_fn_tok), init_args, init_infix, dot_fn_tok);
@@ -1600,7 +1604,9 @@ impl(
                 break;
               });
               chain_pr := self.parse_primary(cur_idx + usize(1), exn);
-              chain_args := array_list(cur_expr, chain_pr.expr);
+              chain_args := ArrayList(AstExpr).with_capacity(usize(2));
+              chain_args.push(cur_expr);
+              chain_args.push(chain_pr.expr);
               cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), dot_tok), chain_args, true, dot_tok);
               cur_idx = chain_pr.index;
             }
@@ -1751,7 +1757,9 @@ impl(
       if(!nxt_is_immediate_lparen && self.token_starts_prefix_operand(operand_at), {
         op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
         inner := self.parse_prefix_operand(cur_idx, exn);
-        cur_expr = .FnCall(self.alloc_id(), cur_expr, array_list(inner.expr), false, op_tok);
+        operand_args := ArrayList(AstExpr).with_capacity(usize(1));
+        operand_args.push(inner.expr);
+        cur_expr = .FnCall(self.alloc_id(), cur_expr, operand_args, false, op_tok);
         cur_idx = inner.index;
       });
     });
@@ -1780,7 +1788,10 @@ impl(
             break;
           });
           rhs_pr := self.parse_primary(cur_idx + usize(1), exn);
-          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), t), array_list(cur_expr, rhs_pr.expr), true, t);
+          dot_args := ArrayList(AstExpr).with_capacity(usize(2));
+          dot_args.push(cur_expr);
+          dot_args.push(rhs_pr.expr);
+          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), t), dot_args, true, t);
           cur_idx = rhs_pr.index;
         },
         true => {
@@ -1821,7 +1832,9 @@ impl(
       if(!immediate_lparen && self.token_starts_prefix_operand(operand_at), {
         op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
         operand := self.parse_prefix_operand(pr.index, exn);
-        (prefix_call : AstExpr) = .FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok);
+        operand_args := ArrayList(AstExpr).with_capacity(usize(1));
+        operand_args.push(operand.expr);
+        (prefix_call : AstExpr) = .FnCall(self.alloc_id(), pr.expr, operand_args, false, op_tok);
         return(self.parse_primary_end(&prefix_call, operand.index, exn));
       });
     });
@@ -1909,10 +1922,12 @@ impl(
       );
       (import_atom : AstExpr) = .Atom(self.alloc_id(), import_tok);
       (str_atom : AstExpr) = .Atom(self.alloc_id(), str_tok);
+      import_args := ArrayList(AstExpr).with_capacity(usize(1));
+      import_args.push(str_atom);
       (import_expr : AstExpr) = .FnCall(
         self.alloc_id(),
         import_atom,
-        array_list(str_atom),
+        import_args,
         false,
         import_tok
       );
