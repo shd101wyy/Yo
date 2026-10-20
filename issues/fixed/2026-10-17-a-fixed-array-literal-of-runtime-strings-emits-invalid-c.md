@@ -54,6 +54,6 @@ specific to elements whose evaluation records a typed unknown, such as a
 `String.from(...)` call.
 
 Regression test: `tests/array.test.yo`, "A fixed-array literal of runtime
-Strings builds its elements at run time" (the local binding and the struct
-field cases); before the fix its batch fails in the C compiler with
-`expected expression` at both initializers.
+Strings builds its elements at run time" (a local binding, a struct field and
+a module-level global — the global had the same hole); before the fix its batch
+fails in the C compiler with `expected expression` at all three initializers.
