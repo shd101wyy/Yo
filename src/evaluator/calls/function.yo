@@ -11171,10 +11171,8 @@ Fix: wrap the call:
           // reads whichever call wrote last.
           // The forall labels come from the Func's meta, which is the method's
           // own binder list; the gate inside the helper is unchanged.
-          m_callee_ty := _freshen_generic_closure_callee(
-            &method_info.method_ty,
-            match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => no_labels())
-          );
+          m_forall := match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => no_labels());
+          m_callee_ty := _freshen_generic_closure_callee(&method_info.method_ty, &m_forall.items);
           all_args := ArrayList(AstExpr).new();
           if(!method_info.is_static, {
             // When the method's self param is `*(T)` and the receiver is a
