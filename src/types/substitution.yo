@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
 { intern_type } :: import("./intern.yo");
 { t_dyn, enum_phantom_positions } :: import("./creators.yo");
-{ resolve_cell_chain } :: import("./utils.yo");
+{ resolve_cell_chain, get_all_some_types } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
 // ---------------------------------------------------------------------------
 // Substitution map — parallel arrays for (name, level) → TypeValue.
@@ -291,6 +291,53 @@ subst_lookup :: (fn(s : &Substitution, name : &String, level : usize) -> Option(
     i = (i + usize(1));
   });
   Option(TypeValue).None
+});
+/// The (name, level) entry for an occurrence of the SomeT `id`, unless the
+/// entry's type strictly contains `id` itself. `T := W(T)` replacing its own
+/// `T` is an infinite type, so such an entry was made for ANOTHER binder
+/// spelled `T` at the same frame level: a generic impl `Ch(T)` instantiating
+/// `W(ArrayList(T))` binds `W`'s `T` to `ArrayList(<Ch's T>)`, and applying
+/// that entry to `Ch`'s own `T` nests the instance to
+/// `W(ArrayList(ArrayList(T)))`
+/// (issues/fixed/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md).
+_subst_lookup_for_some :: (fn(s : &Substitution, id : &String, name : &String, level : usize) -> Option(TypeValue))(
+  match(
+    subst_lookup(s, name, level),
+    .Some(t) => cond(
+      (!_is_some_t(&t) && _type_mentions_some_id(&t, id)) => Option(TypeValue).None,
+      true => Option(TypeValue).Some(t)
+    ),
+    .None => Option(TypeValue).None
+  )
+);
+/// Does `ty` mention the SomeT `id`, through fields, elements, pointees or an
+/// instantiation's type arguments?
+_type_mentions_some_id :: (fn(ty : &TypeValue, id : &String) -> bool)({
+  somes := get_all_some_types(ty);
+  (i : usize) = usize(0);
+  while(i < somes.len(), {
+    if(match(somes.get(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  tyargs := match(
+    ty,
+    Rc(.Struct({ type_arguments : sta })) => sta,
+    Rc(.EnumT({ type_arguments : eta })) => eta,
+    Rc(.Pointer(pp)) => {
+      return(_type_mentions_some_id(&pp, id));
+    },
+    _ => ArrayList(TypeValue).new()
+  );
+  (j : usize) = usize(0);
+  while(j < tyargs.len(), {
+    if(match(tyargs.get(j), .Some(ta) => _type_mentions_some_id(&ta, id), .None => false), {
+      return(true);
+    });
+    j = (j + usize(1));
+  });
+  false
 });
 // ---------------------------------------------------------------------------
 // substitute — recursive tree walk
@@ -613,7 +660,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
                 true => Option(TypeValue).None
               )
             },
-            .None => subst_lookup(s, &n, lvl)
+            .None => _subst_lookup_for_some(s, &orig_id, &n, lvl)
           );
           match(
             found,

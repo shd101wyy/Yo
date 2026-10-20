@@ -2,7 +2,7 @@
 
 **Severity:** S2. A valid program fails in the C compiler. The shape is a generic impl whose binder is spelled like the binder of a generic it instantiates over `ArrayList(<its own binder>)`, and std hits it as soon as generic state moves into `RefCell(X(T))` (decision 46). Renaming either binder works around it.
 
-**Status:** OPEN. **Found:** 2026-10-17, while moving `std/async/channel.yo`'s state into `Rc(RefCell(_ChannelState(T)))` for decision 46 Generation B (#1421). It is not a regression: v0.2.63 and develop `ed733408c` fail the same way.
+**Status:** FIXED 2026-10-20 (see "Root cause and fix"). **Found:** 2026-10-17, while moving `std/async/channel.yo`'s state into `Rc(RefCell(_ChannelState(T)))` for decision 46 Generation B (#1421). It is not a regression: v0.2.63 and develop `ed733408c` fail the same way.
 **Reproducer:** `issues/repros/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.yo`
 
 ## Symptom
@@ -106,3 +106,45 @@ a first fix attempt narrows WHERE it is not:
   parameter compiles"), fails-before verified against a develop-built binary:
   the pristine file passes 16/16; with the test the batch fails at the C
   compiler with `implicit declaration of function`, this issue's signature.
+
+## Root cause and fix (2026-10-20)
+
+The capture is in `substitute` itself (`src/types/substitution.yo`), not in
+an env binding. A probe build printing every SomeT replacement whose type
+mentions the same (name, level) showed the nesting step directly:
+`T@3#4236 -> ArrayList(T)` under the map `{T@3 = ArrayList(T)}`, where
+`#4236` is `Ch`'s own binder and the `T` inside the replacement is that
+same `#4236`. The entry was made for `W`'s binder (`W`'s `T` :=
+`ArrayList(<Ch's T>)`, both binders at frame level 3), and the SomeT arm's
+(name, level) fallback applied it to `Ch`'s `T` as well. Applying
+`T := ArrayList(T)` to its own `T` nests one level per application, so the
+receiver instance became `W(ArrayList(ArrayList(T)))`.
+
+Recording binder ids on the forall bindings (`_inject_forall_captures`,
+`_funcval_bind_foralls`) and making the runtime-call return substitution
+binder-keyed were both tried first and left the C failure unchanged: the
+same (name, level) entry reaches `substitute` through several
+return-substitution sites, and keying each of them is the wrong level for
+the rule.
+
+**Fix:** the SomeT arm's (name, level) fallback goes through
+`_subst_lookup_for_some`, which refuses an entry whose type strictly
+contains the occurrence's own SomeT id (an occurs check). `T := W(T)`
+replacing its own `T` is an infinite type, so such an entry can only have
+been made for another binder that shares the spelling. A replacement that
+IS the SomeT (a constraint refinement `T := T : (Integer)`) is still
+applied. `_type_mentions_some_id` walks fields, elements and pointees
+(`get_all_some_types`) plus the type arguments of a top-level instance
+or pointee, so a phantom argument there counts too. A phantom argument
+under a tuple, array or function type is not inspected; no known shape
+needs it.
+
+`std/async/channel.yo` spells its binder `T` again (the #1421 `Msg`
+workaround is reverted), and `tests/impl.test.yo` ("a generic impl
+wrapping ArrayList of its same-named parameter compiles") is the
+regression test. Before the fix the batch fails at the C compiler with
+this issue's signature; after it, 17/17 pass.
+
+The codegen half of the fix direction (never emit a registry type with a
+SomeT at any depth) is not part of this fix: with the substitution
+corrected, the nested instance is never minted.
