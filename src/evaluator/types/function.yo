@@ -39,12 +39,13 @@ pragma(Pragma.AllowUnsafe);
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution } :: import("../../expr_info.yo");
+{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type }
@@ -1190,7 +1191,77 @@ _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
     _ => String.from("")
   )
 );
-/// True iff `list` already holds a trait with the same id as `trait_ty`.
+/// The type arguments a parameterized trait was instantiated with, by trait
+/// id (the companion of `expr_info.yo`'s `g_trait_ctor_fids`). A constructor
+/// call whose arguments mention a `SomeT` is not memoized
+/// (`evaluate_comptime_fn_call`'s checking-phase guard), so every evaluation of
+/// `Ord(K)` mints a TraitT with a FRESH id; (constructor funcId, arguments) is
+/// the identity those mints share (`_wcc_same_instantiation`). First stamp wins.
+(g_trait_type_args : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
+/// Record the instantiation arguments of the trait with `trait_id` (first wins).
+register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
+  match(
+    g_trait_type_args.get(trait_id.clone()),
+    .Some(_) => (),
+    .None => {
+      g_trait_type_args.insert(trait_id, args);
+    }
+  );
+});
+/// Forget every recorded instantiation. Called where a COLD compile resets
+/// the id counters (`stable_occurrence_reset`, `run_compile`): trait ids are
+/// occurrence-shaped, so a later compile in the same process (the LSP,
+/// `check --watch`) can re-mint an id this table already holds, and first
+/// stamp wins would answer it with the earlier compile's arguments. A trait
+/// minted before the reset and compared after it finds no entry, which only
+/// keeps a duplicate bound (`_wcc_same_instantiation` answers false).
+reset_trait_type_args :: (fn() -> unit)({
+  g_trait_type_args.clear();
+  ()
+});
+/// Whether the traits with ids `a` and `b` are one instantiation of one
+/// parameterized trait: the same constructor funcId and pairwise equal
+/// (`type_key`) arguments. Every evaluation of `Ord(K)` with `K` a `SomeT`
+/// mints a TraitT with a fresh id (such a constructor call is not memoized),
+/// so `BTreeMap`'s `K` gathered one `Ord(K)` per method whose `where` states
+/// it — fifteen
+/// (issues/fixed/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md).
+_wcc_same_instantiation :: (fn(a : &String, b : &String) -> bool)({
+  a_fid := match(lookup_trait_ctor_fid(a), .Some(f) => f, .None => String.new());
+  b_fid := match(lookup_trait_ctor_fid(b), .Some(f) => f, .None => String.new());
+  if((a_fid.len() == usize(0)) || (a_fid != b_fid), {
+    return(false);
+  });
+  a_args := match(
+    g_trait_type_args.get(a),
+    .Some(l) => l,
+    .None => {
+      return(false);
+    }
+  );
+  b_args := match(
+    g_trait_type_args.get(b),
+    .Some(l) => l,
+    .None => {
+      return(false);
+    }
+  );
+  if(a_args.len() != b_args.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < a_args.len(), {
+    at := match(a_args.get(i), .Some(t) => t, .None => t_unit());
+    bt := match(b_args.get(i), .Some(t) => t, .None => t_unit());
+    if(type_key(&at) != type_key(&bt), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// True iff `list` already holds `trait_ty`: a trait with the same id, or
+/// another mint of the same instantiation (`_wcc_same_instantiation`).
 _wcc_has_trait :: (fn(list : &ArrayList(TypeValue), trait_ty : &TypeValue) -> bool)({
   wcc_want := _wcc_trait_id(trait_ty);
   wcc_n := list.len();
@@ -1199,9 +1270,12 @@ _wcc_has_trait :: (fn(list : &ArrayList(TypeValue), trait_ty : &TypeValue) -> bo
   while((wcc_i < wcc_n) && !wcc_found, {
     match(
       list.get(wcc_i),
-      .Some(wcc_e) => if(_wcc_trait_id(&wcc_e) == wcc_want, {
-        wcc_found = true;
-      }),
+      .Some(wcc_e) => {
+        wcc_have := _wcc_trait_id(&wcc_e);
+        if((wcc_have == wcc_want) || ((wcc_want.len() > usize(0)) && _wcc_same_instantiation(&wcc_have, &wcc_want)), {
+          wcc_found = true;
+        });
+      },
       .None => ()
     );
     wcc_i = (wcc_i + usize(1));
@@ -5427,7 +5501,7 @@ export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
 export(collect_wrapper_trait_somes, _substitute_wrapper_carriers, _resolve_wrapper_carriers_from_env);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
-export(_add_where_clause_constraint, _trait_has_receiver);
+export(_add_where_clause_constraint, _trait_has_receiver, register_trait_type_args, reset_trait_type_args);
 export(
   register_macro_quoted_params,
   register_macro_return_is_unquote,

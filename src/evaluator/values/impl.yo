@@ -654,6 +654,46 @@ generic_impl_entry_count :: (fn() -> usize)({
   });
   total
 });
+/// For every registered generic impl, the number of required traits its
+/// binder named `binder_name` carries (one entry per such binder). A
+/// where-bound restated on several methods must be recorded once
+/// (`_wcc_has_trait`, src/evaluator/types/function.yo); read by
+/// tests/internal/type_trait_methods.test.yo.
+generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usize))({
+  out := ArrayList(usize).new();
+  (ki : usize) = usize(0);
+  while(ki < g_impl_registry_entry_lists.len(), {
+    match(
+      g_impl_registry_entry_lists.get(ki),
+      .Some(list) => {
+        (ei : usize) = usize(0);
+        while(ei < list.len(), {
+          match(
+            list.get(ei),
+            .Some(entry) => {
+              (fi : usize) = usize(0);
+              while(fi < entry.forall_some_types.len(), {
+                match(
+                  entry.forall_some_types.get(fi),
+                  .Some(Rc(.SomeT({ name : bn, required_trait_types : brts }))) => if(bn == binder_name, {
+                    out.push(brts.len());
+                  }),
+                  _ => ()
+                );
+                fi = (fi + usize(1));
+              });
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+  out
+});
 // ---------------------------------------------------------------------------
 // Negative-impl registry (Phase N THREAD_SAFETY). A negative impl
 // `impl(T, !(Trait))` declares that T does NOT implement Trait, overriding
@@ -6475,4 +6515,4 @@ export(mark_concrete_impl_being_registered);
 export(unmark_concrete_impl_being_registered);
 export(has_negative_impl);
 export(GenericImplDocEntry, get_generic_impl_doc_entries, find_generic_impl_method_value);
-export(purge_generic_impls_owned_by, generic_impl_entry_count);
+export(purge_generic_impls_owned_by, generic_impl_entry_count, generic_impl_binder_bound_counts);

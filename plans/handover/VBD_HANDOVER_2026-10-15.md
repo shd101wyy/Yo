@@ -544,7 +544,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 - **Next:** a non-allocating cacheability check (a flag on the node) would win back the ~52M allocations the SomeT gate costs.
 - **Filed** (docs copied to develop by the handover PR):
   - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a develop regression shipped in v0.2.63**). `match(r, Rc(.A(xs)) => …)` on `N :: enum(A(xs : ArrayList(i32)), B)` emits `r->_u42_->_u42_` and fails to C-compile; the v0.2.62 seed compiles it. The suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it first after the cut.
-  - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3). `BTreeMap`'s `K` carries `Ord(K)` 15 times.
+  - `issues/fixed/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3). `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 
 #### Stale remote branches
 
@@ -770,7 +770,7 @@ x :: 12;                           // a true constant
 
 - `issues/fixed/2026-10-16-consume-of-an-owned-local-as-a-statement-leaks-it.md` (S2): found by §4 step 10's Tier 1 (`tests/std_export_coverage.test.yo` leaked its `stdin()` handle through `consume(s)`; the test no longer uses it). **Fixed** by #1416: `consume(x)` of an owned value releases it, as `drop(x)` does.
 - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
-- `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
+- `issues/fixed/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 - `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed by #1402 (E0918).
 - `issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
 - Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (filed with #1402, fixed by #1411), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
