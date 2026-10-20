@@ -513,3 +513,15 @@ test("Test Array(T, N).default() builds N copies at RUN TIME", {
 // `fill`'s contract in the meantime: adding a RUNTIME `Default` must not have
 // relaxed `fill` into accepting runtime values, and every shape that must keep
 // working still does.
+// issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md:
+// a runtime element's value is `Some(UnknownVal)`, which the array literal
+// used to count as known, so the literal compiled as a comptime ArrayVal with
+// one `/* skip generating value */` hole per element — invalid C.
+ArrayLiteralStringHolder :: struct(ss : [String ; 2]);
+test("A fixed-array literal of runtime Strings builds its elements at run time", {
+  (ss : [String ; 2]) = [String.from("a"), String.from("b")];
+  assert(ss(usize(0)) == String.from("a"), "first element");
+  assert(ss(usize(1)) == String.from("b"), "second element");
+  q := ArrayLiteralStringHolder(ss : [String.from("x"), String.from("yz")]);
+  assert(q.ss(usize(1)).len() == usize(2), "a struct field's array literal too");
+});
