@@ -623,7 +623,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
                 agg_ty,
                 Rc(.Struct({ field_labels : labels })) => match(
                   labels.get(index),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels, elems), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
+                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels.items, elems), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
                 Rc(.Tuple(_, _)) => _static_address(EvalValue.TupleVal(elems), &agg_ty, `._${index}`, context),

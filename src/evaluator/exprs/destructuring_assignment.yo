@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
   is_extern_c_global,
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList } :: import("../../types/definitions.yo");
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -707,26 +707,26 @@ evaluate_destructuring_assignment :: (
   if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
     field_labels_opt := match(
       rhs_type,
-      Rc(.Struct({ field_labels : fl })) => Option(ArrayList(String)).Some(fl),
-      Rc(.Union(_, fl, _)) => Option(ArrayList(String)).Some(fl),
-      _ => Option(ArrayList(String)).None
+      Rc(.Struct({ field_labels : fl })) => Option(SharedList(String)).Some(fl),
+      Rc(.Union(_, fl, _)) => Option(SharedList(String)).Some(fl),
+      _ => Option(SharedList(String)).None
     );
     field_types_opt := match(
       rhs_type,
-      Rc(.Struct({ field_types : ft })) => Option(ArrayList(TypeValue)).Some(ft),
-      Rc(.Union(_, _, ft)) => Option(ArrayList(TypeValue)).Some(ft),
-      _ => Option(ArrayList(TypeValue)).None
+      Rc(.Struct({ field_types : ft })) => Option(SharedList(TypeValue)).Some(ft),
+      Rc(.Union(_, _, ft)) => Option(SharedList(TypeValue)).Some(ft),
+      _ => Option(SharedList(TypeValue)).None
     );
-    field_labels := match(field_labels_opt, .Some(l) => l, .None => ArrayList(String).new());
-    field_types := match(field_types_opt, .Some(t) => t, .None => ArrayList(TypeValue).new());
+    field_labels := match(field_labels_opt, .Some(l) => l, .None => no_labels());
+    field_types := match(field_types_opt, .Some(t) => t, .None => no_types());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
       handle_member_destructuring(
         &lhs_func,
         &lhs_args,
-        &field_labels,
-        &field_types,
+        &field_labels.items,
+        &field_types.items,
         &rhs_value,
         &rhs_type,
         lhs,

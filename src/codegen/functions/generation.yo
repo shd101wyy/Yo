@@ -823,9 +823,9 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
           .Some(ci) => {
             cap_labels := match(ci.capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
             if(is_fnonce_closure_fn(func_id.clone()), {
-              owned_capture_labels = cap_labels.clone();
+              owned_capture_labels = cap_labels.items.clone();
             });
-            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
+            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(&ci.capture_type, &context.base));
           },

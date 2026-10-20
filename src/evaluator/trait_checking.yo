@@ -1535,7 +1535,7 @@ type_implements_trait :: (
     marker_relevant := (is_thread_marker || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
-      (fields_opt : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+      (fields_opt : Option(SharedList(TypeValue))) = Option(SharedList(TypeValue)).None;
       // The marker each field must hold. An atomic object's copies share one
       // payload, so it is `Send` and `Sync` only when its fields are `Sync`
       // (plans/VALUES_BY_DEFAULT.md §3.8: `Arc(T)` is `Send` and `Sync` when
@@ -1550,7 +1550,7 @@ type_implements_trait :: (
           (tn == "Runtime") => if(is_ref, {
             direct_true = true;
           }, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(SharedList(TypeValue)).Some(fts);
           }),
           // Send / Sync: a value struct needs every field to hold the
           // marker; an atomic object needs every field `Sync`; a non-atomic
@@ -1558,12 +1558,12 @@ type_implements_trait :: (
           // to impls (fall through).
           is_thread_marker => cond(
             !is_ref => {
-              fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+              fields_opt = Option(SharedList(TypeValue)).Some(fts);
             },
             is_atomic => match(
               sync_trait,
               .Some(st) => {
-                fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+                fields_opt = Option(SharedList(TypeValue)).Some(fts);
                 field_trait = st;
               },
               .None => ()
@@ -1572,14 +1572,14 @@ type_implements_trait :: (
           ),
           // Comptime: objects never; value structs need all fields Comptime.
           (tn == "Comptime") => if(!is_ref, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(SharedList(TypeValue)).Some(fts);
           }),
           // Acyclic: a value struct needs its fields Acyclic, and the
           // elements of a buffer it owns that reach a cell (V2b's unique
           // buffers; the auto-derive's rule); objects defer to the registry
           // (their Acyclic uses can_type_form_rc_cycle at definition).
           (tn == "Acyclic") => if(!is_ref, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(value_acyclic_obligations(&fts));
+            fields_opt = Option(SharedList(TypeValue)).Some(shared_list(value_acyclic_obligations(&fts.items)));
           }),
           true => ()
         ),
@@ -1602,7 +1602,7 @@ type_implements_trait :: (
           });
           cond(
             !e_is_ref => {
-              fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+              fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
             },
             (tn == "Runtime") => {
               direct_true = true;
@@ -1610,7 +1610,7 @@ type_implements_trait :: (
             (is_thread_marker && e_is_atomic) => match(
               sync_trait,
               .Some(st) => {
-                fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+                fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
                 field_trait = st;
               },
               .None => ()
@@ -1627,7 +1627,7 @@ type_implements_trait :: (
         // marker holds iff every field type holds it.
         // See issues/fixed/tuple-types-derive-no-auto-derived-marker.md.
         Rc(.Tuple({ field_types : tuple_fts })) => {
-          fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts);
+          fields_opt = Option(SharedList(TypeValue)).Some(tuple_fts);
         },
         // A `fn(...)` type is a code pointer: it holds no reference, so it is
         // Acyclic. It is NOT Send as a type: whether a function may run on
@@ -1650,7 +1650,7 @@ type_implements_trait :: (
         Rc(.Pointer(pointee_box)) => if(tn == "Acyclic", {
           pfields := ArrayList(TypeValue).new();
           pfields.push(pointee_box);
-          fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
+          fields_opt = Option(SharedList(TypeValue)).Some(shared_list(pfields));
         }),
         _ => ()
       );
@@ -2512,7 +2512,7 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 /// named closure). `complete` is false when the per-parameter flags are not
 /// all recorded (a closure type no `Fn(...)` was written for), so nothing
 /// can be said about its modes.
-_SigModes :: struct(labels : ArrayList(String), types : ArrayList(TypeValue), refs : ArrayList(bool), owns : ArrayList(bool), n : usize, complete : bool);
+_SigModes :: struct(labels : SharedList(String), types : SharedList(TypeValue), refs : SharedList(bool), owns : SharedList(bool), n : usize, complete : bool);
 _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,

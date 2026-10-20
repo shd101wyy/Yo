@@ -388,7 +388,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   // the wrapper releases the box after the call.
                   is_call_once := (fn_base == "FnOnce");
                   wrapper := `__yo_wrap_${impl_key}_call`;
-                  params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
+                  params := _wrapper_params(call_param_types.items.clone(), call_param_is_ref.items.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
                   // A `unit` result lowers to C `void` too: the call is a
