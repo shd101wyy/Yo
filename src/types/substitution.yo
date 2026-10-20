@@ -613,7 +613,13 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
               });
               // Nominal boundary — see _without_len_vars.
               s_nom_t := _without_len_vars(s);
-              new_fts := _subst_list(&s_nom_t, &fts);
+              new_fts := ArrayList(TypeValue).new();
+              i := usize(0);
+              while(i < fts.len(), {
+                elem := match(fts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                new_fts.push(_substitute_at(&s_nom_t, &elem, false));
+                i = (i + usize(1));
+              });
               rc(TypeValueNode.TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons, atcl, atct))
             }
           ),
