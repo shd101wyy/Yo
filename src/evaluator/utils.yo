@@ -2628,6 +2628,14 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// `.clone()` there would demand `Clone` of every instantiation, while the
 /// run may have seen only one of them, so the site is listed, not rewritten
 /// (issues/fixed/2026-10-17-explicit-copy-migration-rewrites-a-generic-body-seen-at-one-type.md).
+///
+/// `src_dying` describes a source that is part of a temporary dying right
+/// after the copy (`_ic_dying_temp_source`: a `match` binding of an owned
+/// temporary such as `m.get(k)`'s result, or a field read whose receiver
+/// chain ends in one, `make().name`); empty otherwise. The copy-trait audit
+/// treats such a source as a move (`audit_record_copy_trait`); the
+/// explicit-copy audit still reports it, since today's dup is real, so the
+/// migration lists it instead of cloning a value nothing reads again.
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2640,7 +2648,8 @@ ExplicitCopySite :: struct(
   at_module : String,
   at_offset : u32,
   src_borrow : String,
-  in_generic : bool
+  in_generic : bool,
+  src_dying : String
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -2774,6 +2783,51 @@ _ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
     .None => String.new()
   )
 );
+/// What the copied expression `rhs` (whose dup reads `source_name`) is a part
+/// of when that is a temporary dying right after the copy, for `yo fix
+/// --migrate explicit-copy`'s dying-temporary guard: a `match` binding of an
+/// owned temporary (`.Some(v) => v` over `m.get(k)`, the copy-trait audit's
+/// `temp` root), or a field read whose receiver chain, read through the
+/// ExprInfo table, ends in an owning temporary (`make().name`,
+/// `h.f().name`). Empty for anything else: a receiver that is a named
+/// variable, a non-owning temporary that is not itself a field read (an
+/// index, a borrow-returning call) or has no ExprInfo is not judged dying.
+_ic_dying_temp_source :: (fn(rhs : &AstExpr, source_name : &String, env : &Environment, ctx : &EvalContext) -> String)({
+  // The match binding, classified exactly as `audit_record_implicit_copy`
+  // classifies a `temp-payload` source.
+  match(
+    find_variable_in_env(env, source_name.clone()),
+    .Some(v) => {
+      captured := match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false);
+      plain_binding := (!is_any_temp_variable_name(v.name.clone()) && !v.is_module_level && !v.is_ref && !captured && !v.is_owning_the_rc_value);
+      if(plain_binding && match(g_implicit_copy_match_roots.get(&v.id), .Some(r) => (r.kind == "temp"), .None => false), {
+        return(String.from("a `match` binding of a temporary"));
+      });
+    },
+    .None => ()
+  );
+  // The field read: follow `.` receivers while each is a non-owning
+  // temporary (another projection); an owning one is the dying temporary.
+  (e : AstExpr) = rhs.clone();
+  while(ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))), {
+    recv := match(
+      e,
+      .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())),
+      .Atom(_, _) => return(String.new())
+    );
+    recv_info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri, .None => return(String.new()));
+    recv_name := match(recv_info.variable_name, .Some(n) => n, .None => return(String.new()));
+    if(!is_any_temp_variable_name(recv_name.clone()), {
+      return(String.new());
+    });
+    owning := match(find_variable_in_env(&recv_info.env, recv_name.clone()), .Some(rv) => rv.is_owning_the_rc_value, .None => return(String.new()));
+    if(owning, {
+      return(String.from("a field of a temporary"));
+    });
+    e = recv;
+  });
+  String.new()
+});
 /// Record what `binding`, a pattern binding of a `match` whose evaluated
 /// scrutinee is described by `scr_info`, borrows from.
 audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> unit)({
@@ -2852,7 +2906,7 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// token is the `.`), where the rewrite finds it in the source, and the
 /// declaration keys of its source and destination variables (`_ic_decl_key`,
 /// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool);
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool, src_dying : String);
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
@@ -2874,7 +2928,8 @@ _ic_migrate_site :: (
         at_module : canonical_module_path(m.leftmost.module_path.clone()),
         at_offset : m.leftmost.byte_offset,
         src_borrow : m.src_borrow.clone(),
-        in_generic : m.in_generic
+        in_generic : m.in_generic,
+        src_dying : m.src_dying.clone()
       )
     )
   )
@@ -3401,7 +3456,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env), in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&ei.ty))))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env), in_generic : (ctx.currently_specializing_function.is_some() || type_contains_some_type_deep(&ei.ty)), src_dying : _ic_dying_temp_source(rhs, &variable_name, &ei.env, ctx)))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);

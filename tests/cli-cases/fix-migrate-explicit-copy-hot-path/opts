@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate explicit-copy --hot-path <path>` lists the copies
+# in a file under a hot path for a hand edit instead of cloning them: a deep
+# copy per operation compounds there, and the edit is usually a borrow or a
+# share (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1": the parked
+# sweep's ~3,100 evaluator clones measured ~80x slower). The same copy shape
+# outside the hot path (`b := a` in main.yo) is still rewritten, so the
+# guard is scoped to the path, segment-wise. The expected_tree pins main.yo
+# rewritten and hot/engine.yo unchanged; the trailing `check` proves the
+# result still evaluates.
+stdout_keep=^fix:
+timeout=240

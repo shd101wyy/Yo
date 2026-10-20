@@ -1,0 +1,13 @@
+# `yo fix <path> --migrate explicit-copy` lists, and does not clone, a copy out
+# of a temporary that dies right after it: a `match` binding of a call's
+# result (`make_opt()`, `m.get(k)`; the copy-trait audit's temporary-as-move
+# rule) and a field read whose receiver is an owning temporary
+# (`make().name`, bound and returned). Before the guard the run inserted four
+# `.clone()` calls there, and named `first_name`'s dying `make()` "a borrowed
+# binding" (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1";
+# issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md).
+# The field of a live local (`d := h.name`) still gets its `.clone()`: the
+# expected_tree pins that one rewrite, and the trailing `check` proves the
+# result still evaluates.
+stdout_keep=^fix:
+timeout=240

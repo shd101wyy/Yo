@@ -1,0 +1,14 @@
+//! `yo fix --migrate explicit-copy --hot-path hot`: the copy in `main.yo` is
+//! rewritten, the one in `hot/engine.yo` is listed for a hand edit.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+{ remember } :: import("./hot/engine.yo");
+main :: (fn() -> unit)({
+  a := String.from("ada");
+  b := a;
+  names := ArrayList(String).new();
+  names.push(b);
+  println(`${a} ${remember(&names).to_string()}`);
+});
+export(main);
