@@ -1,19 +1,51 @@
 # A ref-enum cycle through a ref struct is never collected
 
 **Severity:** S1 — a `ref(enum)` whose only edge back to itself runs through a
-reference struct (`Kids(k : ArrayList(Self))`) is never registered with the
-cycle collector, so every such cycle a program builds leaks for the life of
-the process; and the type also read `Acyclic`, so `Iso(T)` accepted it.
+reference struct is never registered with the cycle collector, so every such
+cycle a program builds leaks for the life of the process; and the type also
+read `Acyclic`, so `Iso(T)` accepted it. The leading instance is the ordinary
+cons list `ref(enum(Nil, Cons(head : i32, tail : Rc(Self))))`: `Rc` is itself
+a `ref(struct)` (`std/prelude.yo`), so its `Rc(Self)` tail is such an edge.
+`Kids(k : ArrayList(Self))` and a user generic `Holder(Self)` are the same
+defect.
 
 **Status:** FIXED 2026-10-20 on `docs/cycle-walk-holder-asymmetry` (`d31c21c57`, see "Fix"). **Found:** 2026-10-20, while checking the cycle walk's
 holder asymmetry reported by the `Acyclic` work on
 `perf/acyclic-compiler-containers`. The holder side of the same walk is
 `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
-Measured with the v0.2.66 seed. The walk in `src/types/utils.yo` is unchanged
-between `v0.2.66` and develop `7def2203b` (the only diff in that file is
-`resolve_cell_chain`).
+Measured with the v0.2.66 seed, and the cons-list rows with the v0.2.67 seed.
+The walk in `src/types/utils.yo` is unchanged between `v0.2.66` and develop
+`d18b3a274` (v0.2.67; the only diff in that file is `resolve_cell_chain`).
 
 ## Reproducer
+
+The cons list, closed through its `Rc(Self)` tail:
+
+```yo
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio.yo");
+Gc :: import("std/gc");
+L :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
+mk :: (fn() -> unit)({
+  a := L.Cons(i32(1), rc(L.Nil));
+  a.tail = rc(a); // a -> Rc -> a
+  ()
+});
+main :: (fn() -> unit)({
+  (mut(i) : i32) = i32(0);
+  while(i < i32(100), i = (i + i32(1)), mk());
+  Gc.collect();
+  unsafe(printf("tracked=%d\n", i32(Gc.tracked_count())));
+});
+export(main);
+```
+
+With the v0.2.67 seed (`--allocator system --sanitize address`) it prints
+`tracked=100`: every cycle stays. `Type.impls(L, Acyclic)` is `true`. The
+same shape is declared in `tests/match_nested.test.yo` and
+`tests/match_async_arms.test.yo`, which build no cycle with it.
+
+A list closed through `ArrayList(Self)`, next to its ref-struct twin:
 
 ```yo
 pragma(Pragma.AllowUnsafe);
@@ -102,8 +134,13 @@ Rc(.EnumT({ id : eid, variant_fields : vfs })) => cond(
   ...
 ```
 
-The struct arm answers `true` for a visited reference struct, so `LS` is
-found. The enum root is the only caller that pre-seeds the root's id.
+Both roots seed their own id: the reference-struct arm of
+`can_type_form_rc_cycle` also runs `visited.push(sid)` before its walk. The
+seed is harmless there, because `_type_refs_back_to_cyclic`'s struct arm
+answers `true` for a visited reference struct (`_id_already_visited(visited,
+&sid) => true`), so `LS` is found. Its enum arm answers `false` for a visited
+reference enum (`_id_already_visited(visited, &eid) => false`), so the seed
+hides the cycle only for an enum root.
 `codegen/functions/constructors.yo`'s per-variant registration gate calls
 `_type_refs_back_to_cyclic(&ft, enum_id, ArrayList(String).new())` with an
 empty `visited`. From there the walk pushes `LE` when it meets it after the
@@ -133,6 +170,8 @@ Measured with the tree binary built from `d31c21c57` (the fix on develop
 | Probe                                            | Seed v0.2.66 | Fixed   |
 | ------------------------------------------------ | ------------ | ------- |
 | 1000 `LE` cycles, tracked after `Gc.collect()`   | 1000         | 0       |
+| 100 cons-list `L` cycles, tracked after collect (v0.2.67 seed) | 100 | 0 |
+| `Type.impls(L, Acyclic)` (v0.2.67 seed)          | `true`       | `false` |
 | one `ME` / `Holder(ME)` cycle, tracked after collect | 1        | 0       |
 | `Type.can_form_rc_cycle(LE)`                     | `false`      | `true`  |
 | `Type.impls(LE, Acyclic)`                        | `true`       | `false` |
