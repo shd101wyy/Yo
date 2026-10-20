@@ -1381,9 +1381,9 @@ instead.
       `std/async/index.yo` now takes futures in both (`timeout(h.join(io),
       d, io)` times out a task that is already spawned), and
       `std/http/client.yo` keeps a private handle race for its `IoExn`
-      exchange: an effect-generic `timeout` is blocked because an `io.async`
-      bundle parameter typed by the binder `E` is checked as `Io`
-      (`issues/2026-10-20-an-io-async-bundle-parameter-typed-by-an-effect-binder-binds-as-io.md`).
+      exchange: an effect-generic `timeout` is blocked because an effect binder
+      `E` bound only through the future parameter resolves to `Io`
+      (`issues/2026-10-20-an-effect-binder-bound-only-through-a-future-parameter-resolves-to-io.md`).
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell
