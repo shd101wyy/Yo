@@ -709,12 +709,13 @@ test("connecting to a non-routable address does not park the event loop", {
   // assert has run: awaiting it would bill this test the full retry window,
   // and a task left pending at exit kept its state machine allocated, which
   // LeakSanitizer reports wherever the network leaves the SYN unanswered
-  // (issues/fixed/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md).
+  // (issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md).
   // A pending connect is cancellable on the epoll, io_uring and kqueue
-  // backends, so there the abort releases the task and its connect future at
-  // once; on Windows (no cancel path for ConnectEx yet) the task stays
-  // `Aborted` and is released when the connect completes. A connect that
-  // already finished is left alone.
+  // backends: epoll and kqueue release it at the abort, io_uring once the
+  // loop reaps the queued cancel's completion, which the ticks after this
+  // test give it. On Windows (no cancel path for ConnectEx yet) the task
+  // stays `Aborted` and is released when the connect completes. A connect
+  // that already finished is left alone.
   exn := Exception(
     throw : (
       err -> {
