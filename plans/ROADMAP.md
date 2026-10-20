@@ -94,7 +94,10 @@ authorship from day one.
   `Rc(T)`/`Arc(T)`. `String` goes first
   ([`STRING_VALUE_SEMANTICS.md`](STRING_VALUE_SEMANTICS.md)), then the
   wrappers, move-only resources, the collections, the compiler's own trees
-  and the removal ([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md)).
+  and the removal ([`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md)). Inside
+  that campaign, `Iso` and the user macro layer are deleted
+  ([`backlog/MACRO_AND_ISO_REMOVAL.md`](backlog/MACRO_AND_ISO_REMOVAL.md)):
+  `Iso` after V2b's collection flips, the macros alongside decision 43.
 - **Safe mode.** No undefined behavior in safe code. Phases 0a–4 landed:
   loud escaped unwinds, bounds-checked indexing, guarded `/` and `%`,
   overflow traps with `wrapping_*` as the escape hatch, saturating casts, the

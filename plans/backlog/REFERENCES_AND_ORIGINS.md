@@ -60,7 +60,7 @@ that owns the places.
 | the call-site sigils `&x` / `&mut x` | decision 33 | unchanged; a construction site names its own origin — `&x`'s origin is `x`, self-describing, never spelled |
 | capture lists | decision 35 | entries spell origins like fields (O7) |
 | `Fn`/`FnMut`/`FnOnce` | decision 37 | unchanged; `Fn(...)` types carry origin parameters |
-| the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | unchanged (a loop, not a value) |
+| the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | unchanged as a rule (a loop, not a value); its lowering moves to `impl(&C, IntoIterator)` at N3 |
 | a future may borrow when rooted at the body's `&`/`&mut` parameters | §3.13 A2 | the origin spelling of the same rule (O8); A2's wrapper-id registry is replaced by type-carried origins |
 | `Rc` is read-only through the handle; the three doors | decision 46 | unchanged; a `&` borrow through a handle's deref carries the handle's place (O9), a `&mut` through one stays E0919 |
 | `mut(G)`/`mut(x)` markers | decision 47 | unchanged; a marker grants writability of a binding, an origin names the places a borrow touches — orthogonal facts |

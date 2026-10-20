@@ -59,11 +59,14 @@ verifier's design, V1–V7 landed),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
 [`MACRO_AND_ISO_REMOVAL`](backlog/MACRO_AND_ISO_REMOVAL.md) is the 2026-10-20
-maintainer decision record and campaign for deleting the macro layer (the std
-macros become parse-time desugars or plain functions following the `if` →
-`cond` precedent, and the three collection literals are deleted outright with
-their call surface — LLM authoring does not need the sugar) and the builtin `Iso(T)`/`^v` (Rust's thread rule: cross-thread
-data is `Send`; `Rc.try_unwrap` is the bridge) — it reverses
+maintainer decision record and campaign, revised after review and scheduled
+inside the VBD campaign, for deleting the macro layer (`for`/`for_await`
+become parse-time desugars following the `if` → `cond` precedent,
+`unsafe.drop` becomes a direct `___drop` call, and the three collection
+literals are replaced by ordinary `from` constructors — LLM authoring does
+not need the sugar) and the builtin `Iso(T)`/`^v` (Rust's thread rule:
+cross-thread data is `Send`; `Rc.try_unwrap` is the bridge; deleted after
+V2b's collection flips). It reverses
 [`reference/MACRO_POLICY`](reference/MACRO_POLICY.md) and supersedes the `Iso`
 carve-outs in [`VALUES_BY_DEFAULT`](VALUES_BY_DEFAULT.md) §3.6/§3.8.
 Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
