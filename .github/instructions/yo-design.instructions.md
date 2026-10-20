@@ -1040,9 +1040,8 @@ env_mut = result.env;
 
 // CORRECT — mutate fields of the referenced value:
 env_mut.frames = result.env.frames;
-env_mut.module_path = result.env.module_path;
+env_mut.module_path = result.env.module_path; // an Rc(String): the adopt shares the cell
 env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
-env_mut.input_string = result.env.input_string;
 ```
 
 ### `io.async` closures: one parameter, effects struct

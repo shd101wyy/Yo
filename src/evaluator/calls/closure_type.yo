@@ -149,7 +149,7 @@ try_to_implement_closure_by_fn_module_type :: (
   while(pi < n_params, {
     p_label := match(param_labels.get(pi), .Some(l) => l, .None => String.from("_p"));
     p_type := match(param_types.get(pi), .Some(t) => t, .None => t_unit());
-    p_tok := synthetic_token(p_label.clone(), &env.module_path);
+    p_tok := synthetic_token(p_label.clone(), &env.module_path.*);
     p_var_opt := add_variable_to_env(
       &env,
       p_label.clone(),
@@ -277,7 +277,6 @@ try_to_implement_closure_by_fn_module_type :: (
       env.frames = bi.env.frames;
       env.module_path = bi.env.module_path;
       env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
-      env.input_string = bi.env.input_string;
     },
     .None => ()
   );

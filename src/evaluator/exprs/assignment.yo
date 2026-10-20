@@ -828,7 +828,7 @@ _module_global_root_var :: (
   });
   match(
     variables.last(),
-    .Some(v) => if(v.is_module_level && !v.is_compile_time_only && !is_thread_local(tok.module_path.clone(), var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
+    .Some(v) => if(v.is_module_level && !v.is_compile_time_only && !is_thread_local(&tok.module_path, var_name.clone()), Option(Variable).Some(v), Option(Variable).None),
     .None => Option(Variable).None
   )
 });
@@ -1475,7 +1475,6 @@ evaluate_assignment :: (
     env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
-    env.input_string = prop_rhs_info.env.input_string;
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(&prop_rhs, &env, ctx, exn);
     // E0918: a field or element of a compile-time binding written at runtime.
@@ -1511,7 +1510,6 @@ evaluate_assignment :: (
     env.frames = prop_rhs_info.env.frames;
     env.module_path = prop_rhs_info.env.module_path;
     env.function_declaration_frame_level = prop_rhs_info.env.function_declaration_frame_level;
-    env.input_string = prop_rhs_info.env.input_string;
     // Step 3b — Slice-flowability at the FIELD/INDEX-write boundary (the
     // sibling of the simple-variable gate). Writing a raw-pointer-carrying
     // value (`Slice`/`str`/aggregate) into `holder.s` / `arr(0)` must root
@@ -1967,7 +1965,6 @@ evaluate_assignment :: (
           env.frames = info.env.frames;
           env.module_path = info.env.module_path;
           env.function_declaration_frame_level = info.env.function_declaration_frame_level;
-          env.input_string = info.env.input_string;
         },
         .None => ()
       );
@@ -2027,7 +2024,7 @@ evaluate_assignment :: (
         )
       );
     });
-    register_thread_local(tl_tok.module_path.clone(), variable_name.clone());
+    register_thread_local(&tl_tok.module_path, variable_name.clone());
   });
   // §4 escape boundary 2 for the typed form `(g : T) = init` at module level
   // (the `:=` form is checked in initialization_assignment.yo): a module-level
@@ -2039,7 +2036,7 @@ evaluate_assignment :: (
     match(
       get_variables_from_env(&env, variable_name.clone()).last(),
       .Some(mut_v) => cond(
-        (mut_v.is_module_level && !mut_v.is_compile_time_only) => register_mut_global(mut_tok.module_path.clone(), variable_name.clone()),
+        (mut_v.is_module_level && !mut_v.is_compile_time_only) => register_mut_global(&mut_tok.module_path, variable_name.clone()),
         true => ()
       ),
       .None => ()
@@ -2139,7 +2136,7 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   // binding at its own declaration token — that is not a write.
   d1_lhs_tok := ast_expr_token(&lhs_resolved);
   d1_is_decl_init := ((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column) && (d1_lhs_tok.module_path == variable.token.module_path));
-  if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
+  if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init && !is_thread_local(&d1_lhs_tok.module_path, variable_name.clone()), {
     _d1_record_write(&variable, ast_expr_token(&lhs_resolved), String.from("assign to"), String.new(), exn);
   });
   // Decision 47: reassigning a module-level binding needs `mut(name)`.
@@ -2226,7 +2223,6 @@ comptime(${variable_name}) : ${dgc_ty_str}
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
   // Slice-flowability at the assignment boundary. When
   // the TARGET's type carries a raw pointer (Slice/str/aggregate-thereof; owned
   // object types like String/ArrayList are excluded by the predicate), the RHS
@@ -2301,7 +2297,6 @@ comptime(${variable_name}) : ${dgc_ty_str}
       env.frames = ri_after_dup.env.frames;
       env.module_path = ri_after_dup.env.module_path;
       env.function_declaration_frame_level = ri_after_dup.env.function_declaration_frame_level;
-      env.input_string = ri_after_dup.env.input_string;
     },
     .None => ()
   );

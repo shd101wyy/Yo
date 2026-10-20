@@ -168,7 +168,7 @@ impl(
     // parser.yo `parse` (this constructor drives Parser directly).
     program := desugar_program_if_calls(parser.get_program(exn));
     // --- Create base environment ---
-    (env : Environment) = Environment.new(module_path);
+    (env : Environment) = Environment.new(rc(module_path.clone()));
     // NOTE: no module-loader wiring call here. `import("...")` resolves through
     // `load_module_fn` directly (used for the prelude just below) and through
     // `g_evaluator_load_fn`.

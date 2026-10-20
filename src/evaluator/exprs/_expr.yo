@@ -629,7 +629,7 @@ _evaluate_assert_ghost_args :: (
   // unreadable there — the escape error fires instead (otherwise codegen
   // would emit a runtime assert reading a name no C declaration carries).
   tok0 := ast_expr_token(expr);
-  if(!_is_verify_target(tok0.module_path.clone()), {
+  if(!_is_verify_target(&tok0.module_path), {
     return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
   });
   prev_ghost := ctx.is_ghost_context;

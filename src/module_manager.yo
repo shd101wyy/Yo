@@ -178,7 +178,7 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
     ok : false,
     module_value : EvalValue.UnitVal,
     module_type : rc(TypeValueNode.Unit),
-    env : Environment.new(String.from("")),
+    env : Environment.new(rc(String.from(""))),
     ctx : eval_context_new(String.from(""), String.from(""))
   )
 );
@@ -456,9 +456,9 @@ mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
     .None => ()
   );
   env := clone_env(
-    match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(module_path.clone()))
+    match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(rc(module_path.clone())))
   );
-  env.module_path = module_path;
+  env.module_path = rc(module_path.clone());
   env
 });
 /// Resolve `input_path` (as written on the command line) to the `file://`
@@ -2546,7 +2546,7 @@ mm_load_prelude_file :: (
     local_exn : Exception
   ) -> bool
 )({
-  prelude_env := Environment.new(input_path.clone());
+  prelude_env := Environment.new(rc(input_path.clone()));
   prelude_ctx := eval_context_new(std_path.clone(), input_path.clone());
   prelude_ctx.is_executing = true;
   // Route the prelude's per-expression metadata into the shared codegen table
@@ -2857,7 +2857,7 @@ _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> Module
   prelude_env := match(
     g_cached_prelude_env,
     .Some(pe) => pe,
-    .None => Environment.new(input_path.clone())
+    .None => Environment.new(rc(input_path.clone()))
   );
   prelude_val := match(
     g_cached_prelude_module_value,
@@ -2942,7 +2942,7 @@ mm_load_file :: (
         ok : true,
         module_value : mm_hit.module_value,
         module_type : mm_hit.module_type,
-        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(input_path.clone())),
+        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(rc(input_path.clone()))),
         ctx : eval_context_new(std_path.clone(), input_path.clone())
       )
     );

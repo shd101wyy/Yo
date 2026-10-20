@@ -4021,7 +4021,7 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     return(Option(String).None);
   });
   v := match(vars.last(), .Some(v0) => v0, .None => return(Option(String).None));
-  if(!v.is_module_level || v.is_compile_time_only || is_thread_local(tok.module_path.clone(), name.clone()), {
+  if(!v.is_module_level || v.is_compile_time_only || is_thread_local(&tok.module_path, name.clone()), {
     return(Option(String).None);
   });
   send_ok := match(
@@ -4397,7 +4397,7 @@ summarize_function_bodies :: (fn(values : &ArrayList(EvalValue), table : &ExprIn
   });
   // `YO_DEBUG_BODY_SUMMARY=1`: per module, the functions offered and summarized.
   if(match(debug_knob(`YO_DEBUG_BODY_SUMMARY`), .Some(d) => (d.len() > usize(0)), .None => false), {
-    eprintln(`[body-summary] ${env.module_path} offered=${values.len().to_string()} summarized=${summarized.to_string()}`);
+    eprintln(`[body-summary] ${env.module_path.*} offered=${values.len().to_string()} summarized=${summarized.to_string()}`);
   });
 });
 /// Drop every memo keyed by one of `fids` (`mm_invalidate_document`: the

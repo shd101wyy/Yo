@@ -1669,7 +1669,7 @@ evaluate_anonymous_function_implementation :: (
         Option(TypeValue).None
       )
     );
-    fl_tok := synthetic_token(fl_name.clone(), &env.module_path);
+    fl_tok := synthetic_token(fl_name.clone(), &env.module_path.*);
     _fa_v := add_variable_to_env(
       env,
       fl_name.clone(),
@@ -1690,7 +1690,7 @@ evaluate_anonymous_function_implementation :: (
   while(il_env_i < implicit_labels.len(), {
     il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
     il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    il_tok := synthetic_token(il_name.clone(), &env.module_path);
+    il_tok := synthetic_token(il_name.clone(), &env.module_path.*);
     il_val := create_unknown_val(il_ty.clone());
     _il_v := add_variable_to_env(
       env,

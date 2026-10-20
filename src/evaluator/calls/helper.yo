@@ -1757,7 +1757,7 @@ ${ast_expr_to_string(&actual_arg)}`
     },
     .None => ()
   );
-  param_tok := synthetic_token(param_label, &callee_env_r.module_path);
+  param_tok := synthetic_token(param_label, &callee_env_r.module_path.*);
   // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T` flag —
   // exactly as the def-time body env binds it (function_type.yo's
   // `add_parameter_to_env(..., p_own, ...)`). The callee owns the reference an
@@ -3032,7 +3032,7 @@ create_specialized_function_inline :: (
                     false,
                     false,
                     false,
-                    synthetic_token(&ectp_label, &callee_env.module_path)
+                    synthetic_token(&ectp_label, &callee_env.module_path.*)
                   );
                   // This binds a PARAMETER label — flag it (see the
                   // check_if_function_parameter_matches_argument bind).
@@ -3228,7 +3228,7 @@ create_specialized_function_inline :: (
                         false,
                         false,
                         false,
-                        synthetic_token(&zb_name, &callee_env.module_path)
+                        synthetic_token(&zb_name, &callee_env.module_path.*)
                       );
                     }, {
                       // Declared-param bridge, mint-env half: the forall bound to
@@ -3298,7 +3298,7 @@ create_specialized_function_inline :: (
                                   false,
                                   false,
                                   false,
-                                  synthetic_token(&zb_name, &callee_env.module_path)
+                                  synthetic_token(&zb_name, &callee_env.module_path.*)
                                 );
                                 zb_done = true;
                               },
@@ -3325,7 +3325,7 @@ create_specialized_function_inline :: (
                             false,
                             false,
                             false,
-                            synthetic_token(&zb_name, &callee_env.module_path)
+                            synthetic_token(&zb_name, &callee_env.module_path.*)
                           );
                         });
                       });
@@ -4003,7 +4003,7 @@ create_specialized_function_inline :: (
                   false,
                   match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                   false,
-                  synthetic_token(&p_label, &callee_env.module_path)
+                  synthetic_token(&p_label, &callee_env.module_path.*)
                 );
               },
               .None => ()
@@ -4179,7 +4179,7 @@ create_specialized_function_inline :: (
                                           false,
                                           false,
                                           false,
-                                          synthetic_token(fn_res_nm.clone(), &callee_env.module_path)
+                                          synthetic_token(fn_res_nm.clone(), &callee_env.module_path.*)
                                         ),
                                         fn_res_id.clone()
                                       );
@@ -4211,7 +4211,7 @@ create_specialized_function_inline :: (
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                 false,
-                synthetic_token(&p_label, &callee_env.module_path)
+                synthetic_token(&p_label, &callee_env.module_path.*)
               );
             }, if(cur_is_folded_const, {
               match(
@@ -4225,7 +4225,7 @@ create_specialized_function_inline :: (
                     false,
                     match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                     false,
-                    synthetic_token(&p_label, &callee_env.module_path)
+                    synthetic_token(&p_label, &callee_env.module_path.*)
                   );
                 },
                 .None => ()
@@ -4492,7 +4492,7 @@ create_specialized_function_inline :: (
                   Option(TypeValue).None,
                   Option(HashMap(String, FuncCapturedVarInfo)).Some(enr_caps),
                   callee_env,
-                  synthetic_token(specialized_func_id.clone(), &callee_env.module_path),
+                  synthetic_token(specialized_func_id.clone(), &callee_env.module_path.*),
                   &specialized_func_id
                 );
                 match(
@@ -4884,7 +4884,7 @@ create_specialized_function_inline :: (
                                   // _trial_eval_fn_body; the body nodes are the
                                   // ORIGINAL ones codegen walks, so the fresh
                                   // infos overwrite the stale ones in place.
-                                  cw_benv := Environment.new(&callee_env.module_path);
+                                  cw_benv := Environment.new(callee_env.module_path);
                                   (cw_cvi : usize) = usize(0);
                                   cw_src := fv_capture_source(&cc_fvd.*);
                                   (n_cw : usize) = fv_source_count(&cw_src, &cc_capvals);
@@ -4921,7 +4921,7 @@ create_specialized_function_inline :: (
                                       false,
                                       false,
                                       false,
-                                      synthetic_token(&cw_cn, &callee_env.module_path)
+                                      synthetic_token(&cw_cn, &callee_env.module_path.*)
                                     );
                                     cw_cvi = (cw_cvi + usize(1));
                                   });
@@ -4939,7 +4939,7 @@ create_specialized_function_inline :: (
                                       false,
                                       false,
                                       false,
-                                      synthetic_token(&cw_pn, &callee_env.module_path)
+                                      synthetic_token(&cw_pn, &callee_env.module_path.*)
                                     );
                                     // Parameter bind — flag it (see the
                                     // check_if_function_parameter_matches_argument bind).
@@ -5643,7 +5643,7 @@ evaluate_ctl_function_body_inline :: (
   while(fi2 < n_forall, {
     fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
     fl_ty := match(forall_types_list.get(fi2), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    ctl_tok := synthetic_token(fl_label.clone(), &specialized_env.module_path);
+    ctl_tok := synthetic_token(fl_label.clone(), &specialized_env.module_path.*);
     _add_forall_var_res := add_variable_to_env(
       &specialized_env,
       fl_label.clone(),
@@ -5766,7 +5766,7 @@ evaluate_ctl_function_body_inline :: (
           fl3.clone(),
           &ft3,
           Option(EvalValue).Some(create_type_value(&concrete_type_for_forall)),
-          &specialized_env.module_path
+          &specialized_env.module_path.*
         )
       );
     });
@@ -6108,7 +6108,7 @@ resolve_param_types_from_expected :: (
   // Seed every signature SomeT as a self-binding placeholder so
   // `synthesize_types` has a slot to rebind (mirrors the generic-placeholder
   // setup in `try_to_call_function_with_arguments`).
-  synth_env := Environment.new(&caller_env.module_path);
+  synth_env := Environment.new(caller_env.module_path);
   synth_env.push_frame(false);
   sig_somes := get_all_some_types(func_type);
   (si : usize) = usize(0);
@@ -6125,7 +6125,7 @@ resolve_param_types_from_expected :: (
         false,
         false,
         false,
-        synthetic_token(&snm, &synth_env.module_path)
+        synthetic_token(&snm, &synth_env.module_path.*)
       );
     });
     si = (si + usize(1));
@@ -7074,11 +7074,11 @@ try_to_call_function_with_arguments :: (
             &__fvm3.*.cap_names,
             &__fvm3.*.cap_tys,
             &cv,
-            &caller_env.module_path
+            caller_env.module_path
           ),
-          _ => Environment.new(&caller_env.module_path)
+          _ => Environment.new(caller_env.module_path)
         ),
-        .None => Environment.new(&caller_env.module_path)
+        .None => Environment.new(caller_env.module_path)
       );
       // Step 5: Push a new frame on callee_env for parameter bindings.
       callee_env.push_frame(false);
@@ -7107,7 +7107,7 @@ try_to_call_function_with_arguments :: (
               false,
               false,
               false,
-              synthetic_token(String.from("Self"), &callee_env.module_path)
+              synthetic_token(String.from("Self"), &callee_env.module_path.*)
             );
           },
           .None => ()
@@ -7307,7 +7307,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&sg_nm, &callee_env.module_path)
+                synthetic_token(&sg_nm, &callee_env.module_path.*)
               );
             });
             if(!sg_is_forall && !sg_already_bound, {
@@ -7321,7 +7321,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&sg_nm, &callee_env.module_path)
+                synthetic_token(&sg_nm, &callee_env.module_path.*)
               );
             });
           });
@@ -7464,7 +7464,7 @@ try_to_call_function_with_arguments :: (
           false,
           false,
           false,
-          synthetic_token(&flabel, &callee_env.module_path)
+          synthetic_token(&flabel, &callee_env.module_path.*)
         );
         fpi = (fpi + usize(1));
       });
@@ -7546,7 +7546,7 @@ try_to_call_function_with_arguments :: (
                             false,
                             false,
                             false,
-                            synthetic_token(tb_label.clone(), &callee_env.module_path)
+                            synthetic_token(tb_label.clone(), &callee_env.module_path.*)
                           ),
                           _self_marker_id(&callee_env, tb_label.clone())
                         );
@@ -7595,7 +7595,7 @@ try_to_call_function_with_arguments :: (
                               false,
                               false,
                               false,
-                              synthetic_token(eb_label.clone(), &callee_env.module_path)
+                              synthetic_token(eb_label.clone(), &callee_env.module_path.*)
                             ),
                             _self_marker_id(&callee_env, eb_label.clone())
                           );
@@ -7671,7 +7671,7 @@ try_to_call_function_with_arguments :: (
                         false,
                         false,
                         false,
-                        synthetic_token(ne_label.clone(), &callee_env.module_path)
+                        synthetic_token(ne_label.clone(), &callee_env.module_path.*)
                       ),
                       _self_marker_id(&callee_env, ne_label.clone())
                     );
@@ -7823,7 +7823,7 @@ try_to_call_function_with_arguments :: (
                                 false,
                                 false,
                                 false,
-                                synthetic_token(ew_fl.clone(), &callee_env.module_path)
+                                synthetic_token(ew_fl.clone(), &callee_env.module_path.*)
                               );
                               ew_done = true;
                             });
@@ -7931,7 +7931,7 @@ try_to_call_function_with_arguments :: (
                                         false,
                                         false,
                                         false,
-                                        synthetic_token(ewa_xn.clone(), &callee_env.module_path)
+                                        synthetic_token(ewa_xn.clone(), &callee_env.module_path.*)
                                       );
                                     }),
                                     .None => ()
@@ -8137,7 +8137,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&plabel, &callee_env_m.module_path)
+                synthetic_token(&plabel, &callee_env_m.module_path.*)
               );
               arg_vals.push(
                 ArgEntry(
@@ -8956,7 +8956,7 @@ try_to_call_function_with_arguments :: (
                             )
                           );
                         });
-                        impl_tok := synthetic_token(&impl_label, &callee_env_m.module_path);
+                        impl_tok := synthetic_token(&impl_label, &callee_env_m.module_path.*);
                         add_variable_to_env(
                           &callee_env_m,
                           &impl_label,
@@ -9028,7 +9028,7 @@ try_to_call_function_with_arguments :: (
           match(
             given_val,
             .Some(gv_val) => {
-              impl_tok2 := synthetic_token(&impl_label, &callee_env_m.module_path);
+              impl_tok2 := synthetic_token(&impl_label, &callee_env_m.module_path.*);
               add_variable_to_env(
                 &callee_env_m,
                 &impl_label,

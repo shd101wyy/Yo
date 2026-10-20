@@ -70,7 +70,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  env := Environment.new(String.from("test"));
+  env := Environment.new(rc(String.from("test")));
   call := mk_typeof_call(usize(7), "x", usize(42));
   result := evaluate_typeof(&call, &env, &ctx, exn);
   // Side-effect: typeof's own ExprInfo is set with TypeVal(i32) and meta-type Type.

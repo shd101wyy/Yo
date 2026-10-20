@@ -394,7 +394,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
             // undeclared-identifier C error (SM cond-branch arm class).
             arm_bare_temp := match(
               context.base.get_expr_info(&arg),
-              .Some(aei0) => is_temp_variable_name(aei0.env.module_path.clone(), arg_code.clone()),
+              .Some(aei0) => is_temp_variable_name(&aei0.env.module_path.*, arg_code.clone()),
               .None => false
             );
             if((arg_code.len() > usize(0)) && !arm_bare_temp, {
@@ -536,7 +536,7 @@ _emit_case_body_no_break :: (fn(case_body : &AstExpr, indent : &String, body_ind
   if(!assigned && (body_code.len() > usize(0)), {
     fb_bare_temp := match(
       context.base.get_expr_info(case_body),
-      .Some(cbei) => is_temp_variable_name(cbei.env.module_path.clone(), body_code.clone()),
+      .Some(cbei) => is_temp_variable_name(&cbei.env.module_path.*, body_code.clone()),
       .None => false
     );
     if(!fb_bare_temp, {
@@ -572,7 +572,7 @@ _emit_case_body_and_break :: (fn(case_body : &AstExpr, indent : &String, body_in
     // (the SM cond-branch `sm->var = ...; temp;` class, sys/bufio flag-on).
     fb_bare_temp := match(
       context.base.get_expr_info(case_body),
-      .Some(cbei) => is_temp_variable_name(cbei.env.module_path.clone(), body_code.clone()),
+      .Some(cbei) => is_temp_variable_name(&cbei.env.module_path.*, body_code.clone()),
       .None => false
     );
     if(!fb_bare_temp, {

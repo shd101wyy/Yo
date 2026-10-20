@@ -524,7 +524,7 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
     index_unchecked_twin_of(ast_expr_id(expr)),
     .Some(twin) => {
       tok := ast_expr_token(expr);
-      site := `${_idx_c_string_literal(tok.module_path.clone())}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+      site := `${_idx_c_string_literal(&tok.module_path)}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
       if(
         guard_site_is_proved(expr, "index-in-bounds"),
         `${_index_method_call_by_name(&twin, recv_arg.clone(), index_code.clone(), context)} /* __yo_cidx_elided(${site}) */`,
@@ -589,7 +589,7 @@ _materialize_owned_rc_comptime_value :: (
   if(var_name.len() == usize(0), return(comptime_code));
   // Only shapes that actually malloc need an owner (see the predicate's doc).
   if(!comptime_value_allocates_rc_object(value, &ei.ty), return(comptime_code));
-  if(!is_temp_variable_name(&ei.env.module_path, &var_name), return(comptime_code));
+  if(!is_temp_variable_name(&ei.env.module_path.*, &var_name), return(comptime_code));
   vars := scope_variables(key, &ei.env, var_name.clone());
   is_owning := match(
     vars.last(),
