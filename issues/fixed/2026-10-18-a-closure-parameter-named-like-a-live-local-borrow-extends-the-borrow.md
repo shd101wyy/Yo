@@ -123,9 +123,10 @@ Tests, all in `tests/local_borrows.test.yo`:
 Measured 2026-10-20 on darwin arm64, with tree-built binaries:
 
 - On bare #1476 re-applied to develop `6ccddf25d` (`a9c57cd7b`), both new tests fail. The guard's `comptime_expect_error` raises nothing. The switch-group test is E0911 "Cannot write `fa.classic`". `check src/evaluator/exprs/match.yo` reports the E0911 at line 1827.
+- The named `fn` literal test fails on the branch before `_lb_fn_literal_binds` looked through the `->` (`9db192e18`) with E0911 "Cannot read `o` here", and seed v0.2.66 reports the same E0911. The bare-identifier condition test cannot fail on a commit, because the flag landed together with it. It was measured on a variant build of the final tree with `_lb_region_end`'s flag replaced by `false`: E0911 "Cannot write `fa.classic`", raised by the `GroupFlag` test.
 - With the fix, everything passes:
   - `check ./src` 278/278 and `check ./std`;
-  - `tests/local_borrows.test.yo` 19/19 and `tests/match_async_arms.test.yo`;
+  - `tests/local_borrows.test.yo` 21/21 and `tests/match_async_arms.test.yo`;
   - 18 more borrow and E0911 language test files;
   - the 20 borrow and E0911 cli-cases with no golden diff;
   - `tests/internal/binding.test.yo` and `tests/internal/evaluator_utils_is_valid_variable_name.test.yo`.
