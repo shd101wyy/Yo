@@ -618,7 +618,9 @@ Part C deletes the macros.
   `(^)` body's included, since A1 had not landed and its quoted body would
   otherwise expand to a deleted name — and `owned_buffer.yo` call `___drop`;
   the `unsafe` impl keeps only `cast`; the
-  `lsp-analysis-resilience` golden re-recorded.* Rewrite the eleven std sites
+  `lsp-analysis-resilience` golden re-recorded, plus
+  `check-derive-clone-non-clone-field` and `lsp-member-definition`, which
+  cite prelude line numbers the deletion shifted by three.* Rewrite the eleven std sites
   (§1.2; the twelfth dies with A1's `(^)` deletion) and
   `tests/fixtures/owned_buffer.yo:50` to call `___drop(...)` directly, then
   delete `unsafe.drop` from the `unsafe` impl (`std/prelude.yo:248`). No
