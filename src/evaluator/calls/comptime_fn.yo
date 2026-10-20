@@ -124,8 +124,8 @@ _has_abstract_some :: (fn(ty : &TypeValue) -> bool)({
 /// A recursive declaration's self-shell shares both the id and the arguments
 /// (or records none), so it still unifies.
 _ctfe_same_id_type_args_agree :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> bool)({
-  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
-  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
+  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
+  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
   if(a_ta.len() != b_ta.len(), {
     // One era recorded its arguments and the other did not (a pattern-era
     // copy): the id is all there is to go on.

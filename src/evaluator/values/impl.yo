@@ -1066,8 +1066,8 @@ _bind_forall_from_type_args :: (
 )({
   fa_name := match(fa_some, Rc(.SomeT({ name })) => name, _ => return(Option(TypeValue).None));
   fa_lvl := match(fa_some, Rc(.SomeT({ frame_level })) => frame_level, _ => return(Option(TypeValue).None));
-  pat_ta := match(pattern, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new());
-  con_ta := match(concrete, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new());
+  pat_ta := match(pattern, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
+  con_ta := match(concrete, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
   if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     (bfta_s : String) = String.from("");
     (bfta_i : usize) = usize(0);
