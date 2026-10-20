@@ -1065,7 +1065,7 @@ _synthesize_types_impl :: (
     bound := get_value_of_some_type_from_env(&ee, expected_ty);
     exp_id2 := match(expected_ty, Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id, _ => ``);
     exp_name := match(expected_ty, Rc(.SomeT(_, n, _, _, _, _, _, _, _, _)) => n, _ => ``);
-    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => no_types());
+    exp_traits := match(expected_ty, Rc(.SomeT(_, _, _, _, rts, _, _, _, _, _)) => rts, _ => ArrayList(TypeValue).new());
     if(is_some_type(&bound) && match(bound, Rc(.SomeT(bid, _, _, _, _, _, _, _, _, _)) => (bid == exp_id2), _ => false), {
       // Unbound — bind to given_ty
       // Occurs check

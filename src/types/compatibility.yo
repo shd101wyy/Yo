@@ -450,7 +450,7 @@ _compat_impl :: (
     artt := match(
       actual,
       Rc(.SomeT(required_trait_types : rtt)) => rtt,
-      _ => no_types()
+      _ => ArrayList(TypeValue).new()
     );
     drtt := match(
       expected,
@@ -492,7 +492,7 @@ _compat_impl :: (
     erts := match(
       expected,
       Rc(.SomeT(required_trait_types : rtt)) => rtt,
-      _ => no_types()
+      _ => ArrayList(TypeValue).new()
     );
     adrtt := match(
       actual,
@@ -578,7 +578,7 @@ _compat_impl :: (
     erts2 := match(
       expected,
       Rc(.SomeT(required_trait_types : rtt2)) => rtt2,
-      _ => no_types()
+      _ => ArrayList(TypeValue).new()
     );
     if(erts2.len() == usize(0), {
       return(true);
@@ -646,7 +646,7 @@ _compat_impl :: (
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
           .None => if(!require_exact, {
-            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => no_types());
+            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => ArrayList(TypeValue).new());
             if(a_reqs.len() == usize(0), {
               return(true);
             });
