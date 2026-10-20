@@ -413,8 +413,8 @@ All parts landed together at the user's direction. Deltas vs the proposal:
   `if` macro + its `export`, add `pragma(Pragma.AllowMacroDef);` to
   std/prelude.yo and the three collection modules, and drop the std
   exemption branch from `is_macro_def_capable_file`. **DONE:** the `if`
-  macro went in #374 (2026-08). The pragma reached `std/prelude.yo`,
-  `std/async/stream.yo` and `std/encoding/json.yo` over time. On 2026-10-20
-  (seed v0.2.66) the three collection modules (`array_list`, `hash_map`,
-  `hash_set`) declared it too and the std branch was deleted
-  (`unpark/std-declares-allow-macro-def`).
+  macro went in #374 (2026-08). `std/async/stream.yo` and
+  `std/encoding/json.yo` declared the pragma when they gained macros. On
+  2026-10-20 (seed v0.2.66) `std/prelude.yo` and the three collection modules
+  (`array_list`, `hash_map`, `hash_set`) declared it too and the std branch
+  was deleted (`unpark/std-declares-allow-macro-def`).

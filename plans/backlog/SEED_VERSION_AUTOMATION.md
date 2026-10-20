@@ -58,10 +58,10 @@ bump after next.
 #374 (2026-08). Paren-less prefix calls in `src/`/`std/` have been allowed
 since v0.2.21 became the seed (`PREFIX_OPERATOR_OPERAND_RULE.md`, "Seed
 constraint: LIFTED 2026-09-02"). The `AllowMacroDef` std exemption was
-deleted 2026-10-20 on the v0.2.66 seed: `std/collections/array_list.yo`,
-`hash_map.yo` and `hash_set.yo` now declare `pragma(Pragma.AllowMacroDef);`
-like `std/prelude.yo`, `std/async/stream.yo` and `std/encoding/json.yo`, and
-`is_macro_def_capable_file` has no std branch. `yo build --std-path ./std`
+deleted 2026-10-20 on the v0.2.66 seed: `std/prelude.yo` and
+`std/collections/array_list.yo`, `hash_map.yo` and `hash_set.yo` now declare
+`pragma(Pragma.AllowMacroDef);` like `std/async/stream.yo` and
+`std/encoding/json.yo`, and `is_macro_def_capable_file` has no std branch. `yo build --std-path ./std`
 with the installed v0.2.66 seed builds the tree, and `yo check ./std` with
 the result passes.
 
