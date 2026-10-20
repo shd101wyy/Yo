@@ -2022,6 +2022,18 @@ compute_compile_time_signature :: (
     if(!is_unit_type(&ptype), {
       seg := `rtparam${rti.to_string()}_${sanitize_for_sig(type_key(&ptype))}`;
       parts.push(seg);
+      // A future wrapper's key is the shared declared wrapper, while the
+      // specialization cache tells two wrappers apart by their resolution
+      // chain ends (`fw_ends_differ` in `_find_specialization_cache`). Spell
+      // the end here too, or the two specs share one C name and the second
+      // caller's state machine is passed to the first's parameter
+      // (issues/fixed/2026-10-20-a-combinator-specialized-for-a-first-class-future-skips-the-borrow-checks-of-a-borrowing-one.md).
+      if(is_some_type(&ptype) && extract_future_trait_from_type(&ptype).is_some(), {
+        fw_end_key := type_key(&resolution_chain_end(&ptype));
+        if(!(fw_end_key == type_key(&ptype)), {
+          parts.push(`fwend${rti.to_string()}_${sanitize_for_sig(fw_end_key)}`);
+        });
+      });
     });
     rti = (rti + usize(1));
   });
