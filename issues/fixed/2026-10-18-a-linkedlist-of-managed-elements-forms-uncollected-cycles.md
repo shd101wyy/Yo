@@ -232,9 +232,9 @@ already registering on develop, so the self-build count should fall below
 develop's 139, not merely back to it. The `EvalValue`, `JsonValue` and
 `RegexNode` families stay registered.
 
-Not measured yet: the self-build registering-constructor count, and stage-2
-`check ./src` max RSS against develop (1.28 GB) and #1486 (1.50 GB). Both
-need the compiler build.
+The self-build registering-constructor count and the stage-2 `check` max
+RSS of the stacked branch were measured after the rebase; see "Measured
+after the rebase" below.
 
 **Re-probe after the rebase, before reading RSS.** This branch and #1486
 sit on a develop older than #1501, which keys enum identity on the
@@ -256,6 +256,37 @@ is the same binary on the rebased branch. Every row reads as above, so
 #1501 changed no verdict. `ArrayList(AstExpr)` reads `true` without the
 declaration and `false` with it, and the same holds for the other declared
 families. `JsonObjBuilder` and `PendingDef` read `true` in both columns.
+
+**Measured after the rebase (2026-10-20, Linux x86_64, CI's recipe).**
+Each side's stage-2 binary was emitted by its own tree-built stage 1
+(`compile src/main.yo --optimize 2 --emit-c --allocator mimalloc`,
+recompiled with clang -O2 and static mimalloc). Each binary then ran
+`check src/main.yo --std-path ./std` on its own tree under `/usr/bin/time -v`,
+twice, alternating, under an exclusive heavy lock:
+
+| Measure | develop `7def2203b` | this stack (#1486 + declarations) |
+| --- | --- | --- |
+| stage-2 `check src/main.yo`, max RSS, run 1 | 1,108,756 kB | 1,110,116 kB |
+| stage-2 `check src/main.yo`, max RSS, run 2 | 1,109,004 kB | 1,110,328 kB |
+| stage-2 emit: constructors calling `__yo_gc_register` | 139 | 158 |
+
+- **RSS moves +0.12%.** The local develop number is within 0.9% of the
+  ratchet's CI baseline (1,099,472 kB), so the stack projects to about
+  1,100,800 kB on CI, well inside the ±10% band. The stack needs no
+  re-baseline and no further declaration.
+- **The registering count rises, but not where the RSS is.** Compared by
+  constructor signature, the declarations remove the nine `VcSort` and
+  `VcTerm` variant constructors, which registered on develop. The fix adds 28
+  constructors in the families that stay registered on purpose:
+  `ArrayList` and `HashMap` instantiations over `EvalValue`, the
+  `EvalValue`-holding memo and cache cells, `PendingDef` and
+  `JsonObjBuilder`. Those cells were cycle-capable all along. The `AstExpr`
+  constructors register on neither side.
+- Wall time does not separate the two sides: 4:49 and 5:13 on develop,
+  5:38 and 4:33 on the stack.
+- Not measured here: the fix alone (#1486 without the declarations) on
+  Linux, and the malloc-count work ratchet. `__yo_gc_register` makes no
+  allocation, so that count is not expected to move.
 
 One observation from the replicas: a reference-struct holder of a
 cycle-capable reference enum (`ref(struct(e : X))`) reads `false`, while a
