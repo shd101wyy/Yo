@@ -112,8 +112,13 @@ The +241 bytes are the second capture struct, which is correct: the two instanti
 
 The doc's second symptom, `Cannot unify incompatible types: "i32" and "bool"`, persists under (b). Its body builds a type from the binder (`(h : JoinHandle(T)) = io.spawn(fut, io)`, `timeout`'s shape). It reproduces with NO capture and NO `io.async` at all: a plain generic function returning `Option(T).Some(io.await(op, io))`, called with two join futures, fails the same way on develop. The cause is the CTFE memo, not the capture struct: an enum argument with the same declaration id memo-hits regardless of its type arguments. Its own doc is `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`.
 
-### Not verified here: the `Channel(T).recv` variant
+### Re-verified after #1503 (develop `fc15a6092`)
 
-Two `Channel` instantiations' `recv` fail to compile on develop even without `wrap` (`closure_yo_id_…` is called with the other instantiation's `__yo_v_s` struct). That is the open `issues/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md` (a closure in a generic method, `RefCell` `with`/`with_mut`), so this variant stays unverified until that issue is fixed.
+#1503 (`issues/fixed/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md`) added the closure's call signature (the `type_key` of its parameters and result) to every capture key. That alone splits the two mints whenever the consumer's `io.async` RESULT mentions `T`, so on develop `fc15a6092` the reproducer above, the `Channel(T).recv` variant (`wrap(c1.recv(io))` then `wrap(c2.recv(io))`) and the first regression test below all compile and run. It does not split them when the consumer's body has ONE call signature at every `T`. With `_a4_ran(generic(T), op : Impl(Future(T, Io)), io) -> Impl(Future(bool, Io))`, whose body awaits `op` and returns `true`, develop still fails in clang (`incompatible pointer types initializing '…913_state_t *' with an expression of type '…911_state_t *'`), over two `JoinHandle(T).join` futures and over two `Channel(T).recv` futures alike. With the fix both compile and run.
 
-Regression test: `tests/async/combinators.test.yo`, "A4: futures of one generic producer at two types each get their own capture struct". It covers the block and tail forms at `i32` and `bool`, and its file fails to compile on develop.
+The `Channel(T).recv` variant was unverifiable before because of the closure bug #1503 fixed. It is now verified, in both shapes.
+
+Regression tests, in `tests/async/combinators.test.yo`:
+
+- "A4: futures of one generic producer at two types each get their own capture struct" covers the block and tail forms at `i32` and `bool`. It failed on `6ccddf25d` and passes on develop since #1503.
+- "A4: a consumer with one call signature at every T gets a capture struct per producer future" covers `_a4_ran` over two join futures and two `recv` futures. It fails on develop `fc15a6092` (the clang error above) and passes with the fix.

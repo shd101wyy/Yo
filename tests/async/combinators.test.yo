@@ -12,6 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 { IoExn, Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
+{ Channel } :: import("std/async/channel");
 
 /// A task that sleeps `ms` then returns `value`.
 sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
@@ -1150,4 +1151,25 @@ test("A4: futures of one generic producer at two types each get their own captur
   assert(c == .Some(i32(4)), "the i32 join through the tail form");
   d := io.await(_a4_id(io.spawn(io.async((io : Io) => false), io).join(io), io), io);
   assert(d == .Some(false), "the bool join through the tail form");
+});
+/// A consumer whose `io.async` body has ONE call signature at every `T`
+/// (`(io : Io) -> bool`), so the closure's signature in its capture key cannot
+/// tell the mints apart: only the captured future's resolution chain end does.
+_a4_ran :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(bool, Io)))(
+  io.async({ op }(io : Io) => {
+    _r := io.await(op, io);
+    true
+  })
+);
+test("A4: a consumer with one call signature at every T gets a capture struct per producer future", {
+  a := io.await(_a4_ran(io.spawn(io.async((io : Io) => i32(3)), io).join(io), io), io);
+  b := io.await(_a4_ran(io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(a && b, "the i32 and the bool join both ran");
+  c1 := Channel(i32).new(usize(2));
+  _s1 := c1.try_send(i32(3));
+  c2 := Channel(bool).new(usize(2));
+  _s2 := c2.try_send(true);
+  c := io.await(_a4_ran(c1.recv(io), io), io);
+  d := io.await(_a4_ran(c2.recv(io), io), io);
+  assert(c && d, "the i32 and the bool recv both ran");
 });
