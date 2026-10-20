@@ -100,6 +100,7 @@ pragma(Pragma.AllowUnsafe);
   type_contains_rc_type,
   type_has_no_open_some,
   resolve_cell_chain,
+  resolution_chain_end,
   fn_param_is_ptr_borrow,
   is_future_value_type
 } :: import("../../types/utils.yo");
@@ -3904,10 +3905,24 @@ create_specialized_function_inline :: (
                             .Some(fw_conc2) => fw_conc2.clone(),
                             .None => fw_src.clone()
                           );
+                          // The rebuild's id is PER MINT: the arg wrapper's id
+                          // is the producer's ONE declared wrapper (every
+                          // `JoinHandle(T).join` future at every `T` is the same
+                          // SomeT), so an id spelled from it alone made both
+                          // mints' `fut` one type, and whatever keys on it — a
+                          // spawn of `fut` in the body, the capture struct of an
+                          // `io.async` capturing it — took the first mint's
+                          // instantiation for the second. The end of the
+                          // resolution chain is the producer specialization's
+                          // own future, so it tells the mints apart
+                          // (issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md).
+                          fw_src_key := type_key(&fw_src);
+                          fw_end_key := type_key(&resolution_chain_end(&fw_res));
+                          fw_rebind_id := if(fw_end_key == fw_src_key, `${fw_id}_fwbind_${fw_src_key}`, `${fw_id}_fwbind_${fw_src_key}_${fw_end_key}`);
                           fw_rebind = Option(TypeValue).Some(
                             rc(
                               TypeValueNode.SomeT(
-                                `${fw_id}_fwbind_${type_key(&fw_src)}`,
+                                fw_rebind_id,
                                 fw_nm,
                                 fw_fl,
                                 fw_pt,
