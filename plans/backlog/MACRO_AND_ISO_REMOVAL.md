@@ -8,13 +8,14 @@ campaign for two maintainer decisions of 2026-10-20, both approved:
    (2026-08-21, "keep, gate, shrink the expansion tax").
 2. **Delete the builtin `Iso(T)` and `^v`.** Supersedes the `Iso` carve-outs in
    `plans/VALUES_BY_DEFAULT.md` §3.6/§3.8 (:631, :695) and the "Iso stays —
-   role unchanged" line of the 2025 `FUTURE_ORIGINS.md` sketch, which #1483
+   role unchanged" line of the `FUTURE_ORIGINS.md` sketch (added 2026-05-19), which #1483
    deleted (`plans/backlog/REFERENCES_AND_ORIGINS.md`, its successor, does not
    mention `Iso`).
 
 Anchors were re-verified on develop `8203bd867` (2026-10-20), which includes
 #1492: std now declares `pragma(Pragma.AllowMacroDef)` itself, and the
-bootstrap std exemption is gone. Expect drift as develop moves. Each part
+bootstrap std exemption is gone. They still hold on `400413ac3` (#1496
+touched only `src/evaluator/values/array.yo` among the cited trees). Expect drift as develop moves. Each part
 re-runs its grep gates at execution time instead of trusting a line number.
 
 ## 0. The decisions, and what they honestly retract
@@ -137,8 +138,10 @@ substitutes.
   thread, while capturing the same `Io` directly is rejected
   (`issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`).
   **The window is ACCEPTED until Part A** (maintainer, 2026-10-20). No interim
-  fix: Part A lands before decision 43 step 2 lets references sit in fields
-  (Schedule), so the hole never widens before it is deleted.
+  fix: Part A lands before decision 43 step 2 (Schedule). Step 2 keeps the
+  storage wall (E0909) and step 3 (N2) is the one that lets references sit
+  in fields, so landing before step 2 is the stricter ordering and the hole
+  never widens before it is deleted.
 
 **Why not first.** Today `Iso` is the only safe way to move a `String` or a
 collection to or from another thread. On develop `8203bd867` (re-checked
@@ -185,7 +188,7 @@ be mutated in place, so the existing macro_expansion mechanism carries it"
 
 | Macro | Definition | Callers | Fate |
 | ----- | ---------- | ------- | ---- |
-| `for` | `std/prelude.yo:10645` | **6 in src**: `src/doc/builder.yo:2212`, `src/evaluator/builtins/comptime_expect_error.yo:287` (`for(&saved_observed_msgs, …)`, which today's sigil rewrite turns into the value form), `src/evaluator/shared/suspension_analysis.yo:668`, `src/lsp/server.yo:876, :1242, :1260`; 0 std; ~190 in tests/ | desugar (B1) |
+| `for` | `std/prelude.yo:10645` | **6 in src**: `src/doc/builder.yo:2212`, `src/evaluator/builtins/comptime_expect_error.yo:287` (`for(&saved_observed_msgs, …)`, which today's sigil rewrite turns into the value form and V2b's B7 Generation B turns into the read walk), `src/evaluator/shared/suspension_analysis.yo:668`, `src/lsp/server.yo:876, :1242, :1260`; 0 std; ~190 in tests/ | desugar (B1) |
 | `for_await` | `std/async/stream.yo:446` | tests only (`tests/async/combinators.test.yo:10` also imports it by name) | desugar (B2) |
 | `(^)` | `std/prelude.yo:10076-10132` | 0 src, 0 std; the Iso test files (A6) | deleted with Iso (A1) |
 | `Var.is_owning_the_rc_value` / `Var.has_other_aliases` | `std/prelude.yo:8240-8257` | 2, inside `(^)` itself | deleted with Iso (A1) |
@@ -207,9 +210,13 @@ too. That, not only CI tooling, is why the prelude macros stay until a
 release carrying the desugars is the seed (Part B's retained-macro rule).
 `VALUES_BY_DEFAULT.md:3341-3342` ("neither `src/` nor `std/` writes a
 borrowed `for`") still holds: `comptime_expect_error.yo:287` spells `&`, but
-the decision-42 sigil rewrite (`src/expr.yo:1719-1728`) strips a bare `&`
-to the value form; only `&mut` selects the borrowed form. B1 must keep that
-distinction.
+today the decision-42 sigil rewrite (`src/expr.yo:1719-1728`) strips a bare
+`&` to the value form; only `&mut` selects the borrowed form. That changes
+before B1: V2b's B7 Generation B (VBD §6, "B7 proper") makes `for(&xs, x => …)`
+the read walk over `c := &xs` with a `walk_ref` projection, so at B1 time
+`comptime_expect_error.yo:287` is a borrowed (read) `for` in `src/`. B1
+reproduces whatever three forms the macro has then: value, `&` read walk,
+`&mut` borrowed walk.
 
 Gated user-macro fixtures (deleted or rewritten in C5): `tests/macro_def_pragma.test.yo`,
 `tests/macro_def_gate.test.yo`, `tests/internal/macro_expansion.test.yo`,
@@ -225,7 +232,7 @@ The authoritative census is the grep gate, not this list:
 
     git grep -nP '\bIso\b|IsoT\b|is_iso_type|__yo_iso|iso_types|IsoTypeInfo|isolating|BK_ISO|BF_YO_ISO|\bt_iso\b|\bTIso\b|IsoValueResult|\bIsolation\b|BF_YO_VAR_|__yo_var_|\^v\b' -- ':!plans/archive' ':!plans/handover' ':!issues/fixed' ':!issues/retired'
 
-On `8203bd867` it hits 44 files in `src/`. The main ones, re-anchored:
+On `8203bd867` (and on `400413ac3`) it hits 45 files in `src/`. The main ones, re-anchored:
 
 - **Evaluator**: `src/evaluator/calls/iso.yo` (584 lines — `_iso_function_offense`
   :74, `evaluate_iso_type_call` with the Phase H/D2/D9 gates,
@@ -261,7 +268,7 @@ On `8203bd867` it hits 44 files in `src/`. The main ones, re-anchored:
   the `.IsoT` arm of `get_type_string` :1747-1751, export :2379);
   `generate_iso_*` in `src/codegen/types/generation.yo`; the deep-walk
   emission `generate_iso_uniqueness_functions`
-  (`src/codegen/functions/constructors.yo`, ~:862-945); the
+  (`src/codegen/functions/constructors.yo`, from :876); the
   `iso_types.len() > 0` trace-collection gate (`src/codegen/codegen_c.yo:520-522`);
   arms in `functions/declarations.yo:546`, `exprs/other_fn_call.yo:256, :1470-1474`,
   `exprs/drop_dup.yo:41, 65, 120` and the `is_iso_type` arms :457/:704 (the
@@ -346,8 +353,8 @@ before the PR is opened.
     Iso sections of THREAD_SAFETY, ARC, MEMORY_SAFETY, DESIGN ("Isolated
     Types"), PARALLELISM, EXPLICIT_ALLOCATORS, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS,
     TYPE_REFLECTION and GRAMMAR, in both languages.
-  - `plans/VALUES_BY_DEFAULT.md`: :56, :631-637, :892, :4457, :4623,
-    :4988-4996 and the later Iso mentions the grep finds; replace the :695
+  - `plans/VALUES_BY_DEFAULT.md`: :56, :631-637, :892, :4457, :4629,
+    :4994-5002 (line numbers on the tree after this plan's own VBD edit) and the later Iso mentions the grep finds; replace the :695
     line "`Iso(T)` / `^v` remain the explicit 'fail if shared' transfer" with
     the Rust-rule statement and a `Rc.try_unwrap` pointer.
   - `plans/reference/PARALLELISM_RULES.md`: **retire D2 in place** (:97-124)
@@ -449,6 +456,9 @@ Part C deletes the macros.
   rewrite (`src/expr.yo:1719-1728`), on the same AST shape the macro
   receives, and reproduces every form the macro handles today:
   - the value form (`coll.into_iter()`, collection moved into the iterator);
+  - the read form `for(&coll, x => body)` that V2b's B7 Generation B adds
+    (`c := &coll`, `walk_ref`, `x : &T`), with the same guard and E0911
+    rules as the borrowed form;
   - the borrowed form `for(&mut coll, x => body)` — decision 39's cursor
     protocol: local borrow for the loop's whole extent, `BorrowedWalk` /
     `walk_elem`, `__borrow_guard` releasing on fall-through/`break`/`return`/
@@ -562,15 +572,18 @@ Part C deletes the macros.
     which becomes E0901 for non-`Copy` elements after V2b's B8 flip. B3
     keeps it as a `where(T <: Clone)`-bounded copy that calls `.clone()`
     per element, or deletes it in favor of `from`; record the choice here.
-  - **Dependency: the fixed-array S2.** A fixed-array literal of runtime
-    `String`s emits invalid C
-    (`issues/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md`,
-    still open on `8203bd867`). Migrated sites with runtime non-`Copy`
-    elements (`tests/collection_literals.test.yo:44`'s
+  - **Dependency: the fixed-array S2 — resolved.** A fixed-array literal of
+    runtime `String`s emitted invalid C; #1496 (`400413ac3`) fixed it
+    (`issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md`,
+    with its test in `tests/array.test.yo`). The migrated sites with runtime
+    non-`Copy` elements (`tests/collection_literals.test.yo:44`'s
     `` array_list(`hello`, `world`) ``, `tests/iterator_combinators.test.yo:586`,
-    `tests/closure_capture_rc_leak.test.yo:26`) either wait for that fix
-    (with its reproducer added as a test) or migrate to pushes. If the issue
-    is fixed first, cite its `issues/fixed/` path here.
+    `tests/closure_capture_rc_leak.test.yo:26`) hold direct runtime
+    `String`s, so they migrate to `from(Array(...)(...))` as written. The
+    nested-field S2
+    (`issues/2026-10-20-an-array-or-tuple-literal-whose-element-holds-a-runtime-field-emits-invalid-c.md`)
+    does not apply to them; a site whose element is a struct with a runtime
+    field uses pushes until it is fixed.
   - **Migrate every caller**: the eight `src/parser.yo` sites (they are
     seed-compiled, and their elements are runtime `AstExpr` values, so they
     use `ArrayList(T).with_capacity(n)` + pushes — an in-tree fix of the S2
@@ -611,13 +624,14 @@ construct's tests one per invocation (`tests/for_macro_borrow.test.yo`,
 stream/channel tests, the collections suites, `tests/rc.test.yo`,
 `tests/arc.test.yo`); for B1, `yo verify ./tests/spec --format json` with the
 tree binary, `tests/spec/contracts_phase0.test.yo`, and every
-`tests/internal/verifier*.test.yo` file one per invocation;
+`tests/internal/verifier*.test.yo` file (21 files: one in-process run under
+`exclusive`, `YO_TEST_IN_PROCESS=1`, per AGENTS.md's more-than-~8 rule);
 `scripts/cli-diff-test.sh` for B1, B2 and B4 (read every GOLDEN-DIFF before
 `--record`); the emit-diff gate proving desugar ≡ macro output (B1/B2 only,
 modulo ExprIds and hidden-local names, corpus and stage-2 C); the
 never-reached assertion; the `check ./src` time and RSS measurement;
 `yo fmt` with the tree binary. Full fast suite before merge for B1 (it
-touches every `for` in 41 test files). Bootstrap gates (`gates_fast.sh`,
+touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstrap gates (`gates_fast.sh`,
 `fixpoint_only.sh`) since the parser and prelude both changed.
 
 ## Part C — delete the macro machinery (Generation B, after B5)
@@ -703,9 +717,11 @@ touches every `for` in 41 test files). Bootstrap gates (`gates_fast.sh`,
     (`m :: (fn(...(quote(entries))) -> unquote(Expr))(());`) used as
     formatter-only input, and they survive C1 because the formatter only
     parses.
-  - `tests/cli-cases/lsp-analysis-resilience` loses `for`,
-    `__for_source_is_place` and (if they become private) `__borrow_guard` /
-    `__BorrowGuard`; re-record with the GOLDEN-DIFF read.
+  - `tests/cli-cases/lsp-analysis-resilience`: `for` stays but changes
+    kind (a prelude function becomes a keyword entry, from C2's keyword-list
+    addition), `for_await` appears as a keyword, and `__for_source_is_place`
+    and (if they become private) `__borrow_guard` / `__BorrowGuard` drop
+    out; re-record with the GOLDEN-DIFF read.
   - Docs, as grep gates in BOTH languages (`docs/en-US/`, `docs/zh-CN/`),
     each to zero hits outside an allowlist: macro-as-mechanism text
     (`git grep -nP '\bmacros?\b|宏' -- docs`, reviewed by hand, since
@@ -752,7 +768,8 @@ touches every `for` in 41 test files). Bootstrap gates (`gates_fast.sh`,
 
 **C — verification.** Full Tier 1; the fast suite; `yo test ./std`;
 `tests/internal` one file per invocation for the rewritten files, plus every
-`tests/internal/verifier*.test.yo` file and `yo verify ./tests/spec --format json`
+`tests/internal/verifier*.test.yo` file (one in-process run under
+`exclusive`) and `yo verify ./tests/spec --format json`
 for C3/C4; `scripts/cli-diff-test.sh` (the E0010 case, the malformed-`for`
 case, the LSP golden, the skill goldens; read every GOLDEN-DIFF);
 `scripts/bootstrap/hollow_sweep69.sh` (every language test through the
@@ -771,15 +788,17 @@ of its own:
   - decision 46's collector-predicate follow-up (VBD §6 "Decision 46" step
     3; the 2026-10-17 handover's step 9): otherwise the narrowed collector
     must keep `Iso`'s traversals complete;
-  - decision 43 step 2 (Generation A, references in user code): references
-    stored in fields would widen the `Send` hole of §0.2;
+  - decision 43 step 2 (Generation A, references in user code): step 2
+    keeps the storage wall and step 3 (N2) is where references reach fields
+    and could widen the `Send` hole of §0.2, so preceding step 2 is the
+    stricter ordering;
   - V5: the Iso tests use `ref(struct)`.
 
   Part A needs no release boundary: it is deletion only.
 - **B3 and B4** can land any time; neither depends on another phase.
 - **B1 and B2** land after decision 43 step 3 (N2, first-class storage)
   settles the borrowed-`for` protocol (`BorrowedWalk` versus
-  `impl(&mut C, IntoIterator)`, REFERENCES_AND_ORIGINS N3; the protocol
+  `impl(&C, IntoIterator)`, REFERENCES_AND_ORIGINS N3; the protocol
   itself lands in step 4). The protocol stays in prelude functions, so the
   parser's lowering is written once.
 - **B5** is decision 43's step-2→4 release: no new release.

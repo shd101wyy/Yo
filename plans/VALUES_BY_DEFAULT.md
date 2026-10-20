@@ -7477,8 +7477,9 @@ references only mean something once collections are uniquely owned values,
 and V4's `TypeValue` conversion, because step 1 adds `TypeValue` variants
 and must not be written twice. Each step is its own PR, with its own
 measured `check ./src` time and stage-2 RSS. `Iso` is gone before step 2
-(`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A), so no reference stored in
-a field can reach an `Iso` graph; that plan's `for` desugar follows step 3
+(`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A), ahead of step 3 (N2), the
+step that lets references sit in fields, so no reference stored in a field
+can reach an `Iso` graph; that plan's `for` desugar follows step 3
 and its macro deletion rides with step 4.
 
 0. **N0, no prerequisite (added 2026-10-20):** the negative-test corpus

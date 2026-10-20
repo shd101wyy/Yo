@@ -96,8 +96,9 @@ defect is a static acceptance hole; no race report was captured.
 accepted until Part A of `plans/backlog/MACRO_AND_ISO_REMOVAL.md` deletes
 `Iso(T)` and `^v` (that plan's §0.2 and its Schedule). The window does not
 widen before then. Part A lands before decision 43 step 2
-(`plans/VALUES_BY_DEFAULT.md` §6 "Decision 43"), so references stored in
-fields never reach an `Iso` graph.
+(`plans/VALUES_BY_DEFAULT.md` §6 "Decision 43"). Step 2 keeps the storage
+wall (E0909); references become storable in fields only at step 3 (N2), so
+they never reach an `Iso` graph.
 
 A prototype fix was written and discarded. It walked the graph's struct
 fields, enum payloads, tuple elements, pointees and type arguments, refused a
