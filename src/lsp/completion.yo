@@ -41,7 +41,7 @@
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../env.yo");
-{ TypeValue, TypeValueNode } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { EvalValue } :: import("../value.yo");
 { type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
@@ -302,8 +302,8 @@ _type_member_items :: (
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
         vname := match(variant_names.get(i), .Some(n) => n, .None => String.new());
-        vfields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+        vfields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
+        vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
         if(vname.len() > usize(0), {
           _push_variant(&vname, &vfields, &vlabels, false, out, seen);
         });
@@ -1218,8 +1218,8 @@ handle_completion :: (
                 (vi : usize) = usize(0);
                 while(vi < variant_names.len(), {
                   vname := match(variant_names.get(vi), .Some(n) => n, .None => String.new());
-                  vfields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-                  vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+                  vfields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+                  vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
                   if(vname.len() > usize(0), {
                     _push_variant(&vname, &vfields, &vlabels, true, &mut items, &mut seen2);
                   });

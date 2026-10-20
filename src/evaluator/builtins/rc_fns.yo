@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
 { t_unit, t_bool } :: import("../../types/creators.yo");
 { Environment, mark_function_frames_isolating } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -50,16 +50,16 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
       String.from(""),
       // id: empty (compat checks use name only)
       String.from("Option"),
-      variant_names,
-      variant_fields,
+      shared_list(variant_names),
+      shared_list(variant_fields),
       Option(String).None,
       // selected_variant_name
-      variant_field_labels,
-      discs,
+      shared_list(variant_field_labels),
+      shared_list(discs),
       false,
       false,
       // type_arguments: none (a synthesized rendition, not a ctor call)
-      ArrayList(TypeValue).new()
+      no_types()
     )
   )
 });

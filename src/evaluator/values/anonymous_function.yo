@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -336,19 +336,19 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
     ftt,
     Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof)) => rc(
       TypeValueNode.Func(
-        ArrayList(TypeValue).new(),
+        no_types(),
         // no generic types
         cpt,
-        ArrayList(TypeValue).new(),
+        no_types(),
         // no implicit types
-        ArrayList(TypeValue).new(),
+        no_types(),
         // no where types
         cr_box,
         rc(
           FuncMeta(
-            forall_labels : ArrayList(String).new(),
+            forall_labels : no_labels(),
             param_labels : cpl,
-            implicit_labels : ArrayList(String).new(),
+            implicit_labels : no_labels(),
             result_is_comptime_only : false,
             // Fn-trait-derived closure type (runtime); `inout` call params
             // carry through (the with_lock write-through closure).
@@ -366,7 +366,7 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
             variadic_comptime : false
           )
         ),
-        ArrayList(TypeValue).new()
+        no_types()
       )
     ),
     _ => rc(TypeValueNode.Unit)
@@ -435,7 +435,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
         ss_new_pts.push(recur(&ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      rc(TypeValueNode.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), ArrayList(TypeValue).new()))
+      rc(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), no_types()))
     },
     _ => ty
   )
@@ -1661,10 +1661,10 @@ evaluate_anonymous_function_implementation :: (
         fl_name.clone(),
         env.frame_count(),
         rc(TypeValueNode.TypeUni(usize(0))),
-        ArrayList(TypeValue).new(),
-        ArrayList(usize).new(),
-        ArrayList(TypeValue).new(),
-        ArrayList(usize).new(),
+        no_types(),
+        no_levels(),
+        no_types(),
+        no_levels(),
         Option(TypeValue).None,
         Option(TypeValue).None
       )
@@ -1919,7 +1919,7 @@ evaluate_anonymous_function_implementation :: (
     Rc(.Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _)) => {
       _l3nm := _l3m.*.clone();
       _l3nm.param_labels = actual_param_labels.clone();
-      rc(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), ArrayList(TypeValue).new()))
+      rc(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), no_types()))
     },
     _ => function_type.clone()
   );
@@ -2593,7 +2593,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // which codegen then lowered to `void*` once the id-keyed
                     // registry stopped carrying binder resolutions
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-                    rc(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), ArrayList(TypeValue).new()))
+                    rc(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), no_types()))
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
                 );
@@ -3101,10 +3101,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
                       String.from("__impl_fn"),
                       usize(0),
                       rc(TypeValueNode.TypeUni(usize(0))),
-                      impl_rtt,
-                      impl_rtl,
-                      ArrayList(TypeValue).new(),
-                      ArrayList(usize).new(),
+                      shared_list(impl_rtt),
+                      shared_list(impl_rtl),
+                      no_types(),
+                      no_levels(),
                       Option(TypeValue).None,
                       Option(TypeValue).Some(cap_t)
                     )

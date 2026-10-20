@@ -29,7 +29,7 @@
 } :: import("./model.yo");
 { DocExtractionResult } :: import("./extractor.yo");
 { parse_doc_comment } :: import("./sections.yo");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, no_types, no_labels } :: import("../types/definitions.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -3281,8 +3281,8 @@ _enum_variants_to_doc_variants :: (
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
         v_name := match(variant_names.get(i), .Some(n) => n, .None => String.new());
-        v_field_types := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+        v_field_types := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
+        v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
         (fields_opt : Option(ArrayList(DocField))) = Option(ArrayList(DocField)).None;
         if(v_field_types.len() > usize(0), {
           fields_opt = Option(ArrayList(DocField)).Some(_type_fields_to_doc_fields(&v_field_labels, &v_field_types, doc_lookup));

@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_where_constraints,
   copy_func_contract_exprs
 } :: import("../types/function.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_flags } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -112,7 +112,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
               param_labels : param_labels,
               implicit_labels : implicit_labels,
               result_is_comptime_only : true,
-              param_is_ref : ArrayList(bool).new(),
+              param_is_ref : no_flags(),
               // preserve the original's metadata below
               param_is_owning : match(func_type, Rc(.Func({ meta : m })) => m.*.param_is_owning, _ => ArrayList(bool).new()),
               result_is_ref : false,
@@ -124,7 +124,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
               variadic_comptime : false
             )
           ),
-          ArrayList(TypeValue).new()
+          no_types()
         )
       )
     )

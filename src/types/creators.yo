@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -204,7 +204,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         (cal_found2 : bool) = false;
         (cal_vi : usize) = usize(0);
         while((cal_vi < cal_vfs.len()) && !cal_found2, {
-          cal_vf := match(cal_vfs.get(cal_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          cal_vf := match(cal_vfs.get(cal_vi), .Some(f) => f, .None => no_types());
           (cal_vj : usize) = usize(0);
           while((cal_vj < cal_vf.len()) && !cal_found2, {
             match(
@@ -231,28 +231,28 @@ type_has_computed_array_len :: (fn(t : &TypeValue) -> bool)(_type_has_computed_a
 /// Create a simple function type (no generic, implicit, or where constraints).
 t_func_simple :: (
   fn(
-    param_labels : &ArrayList(String),
-    param_types : &ArrayList(TypeValue),
+    sink(param_labels) : ArrayList(String),
+    sink(param_types) : ArrayList(TypeValue),
     result : &TypeValue
   ) -> TypeValue
 )(
   rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       result,
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          param_labels : shared_list(param_labels),
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
           // simple (runtime) function type
-          param_is_ref : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
           // no ref params in a synthesized type
-          param_is_owning : ArrayList(bool).new(),
+          param_is_owning : no_flags(),
           // no own params in a synthesized type
           result_is_ref : false,
           has_variadic : false,
@@ -265,7 +265,7 @@ t_func_simple :: (
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   )
 );
@@ -273,32 +273,32 @@ t_func_simple :: (
 t_trait :: (
   fn(
     name : &String,
-    assoc_names : &ArrayList(String),
-    field_labels : &ArrayList(String),
-    field_types : &ArrayList(TypeValue)
+    sink(assoc_names) : ArrayList(String),
+    sink(field_labels) : ArrayList(String),
+    sink(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new()))
+  rc(TypeValueNode.TraitT(name, shared_list(assoc_names), shared_list(field_labels), shared_list(field_types), String.from(""), Option(TypeValue).None, no_types(), no_types(), no_labels(), no_types()))
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : &String) -> TypeValue)(
-  rc(TypeValueNode.TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new()))
+  rc(TypeValueNode.TraitT(name, no_labels(), no_labels(), no_types(), String.from(""), Option(TypeValue).None, no_types(), no_types(), no_labels(), no_types()))
 );
 /// Create a module type with field lists.
 t_module :: (
   fn(
     name : &String,
-    field_labels : &ArrayList(String),
-    field_types : &ArrayList(TypeValue)
+    sink(field_labels) : ArrayList(String),
+    sink(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
   // Source-namespace STRUCT — there is no separate module type.
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-  rc(TypeValueNode.Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true))
+  rc(TypeValueNode.Struct(String.from(""), name, shared_list(field_labels), shared_list(field_types), false, false, false, String.from(""), no_types(), true))
 );
 /// Create a named module type with no fields.
 t_module_simple :: (fn(name : &String) -> TypeValue)(
-  rc(TypeValueNode.Struct(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false, String.from(""), ArrayList(TypeValue).new(), true))
+  rc(TypeValueNode.Struct(String.from(""), name, no_labels(), no_types(), false, false, false, String.from(""), no_types(), true))
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for Phase 2f variants
@@ -307,8 +307,8 @@ t_expr_t :: (fn() -> TypeValue)(rc(TypeValueNode.ExprT));
 t_comptime_list :: (fn(child : &TypeValue) -> TypeValue)(
   rc(TypeValueNode.ComptimeListT(child))
 );
-t_type_app :: (fn(constructor : &TypeValue, args : &ArrayList(TypeValue)) -> TypeValue)(
-  rc(TypeValueNode.TypeAppT(constructor, args))
+t_type_app :: (fn(constructor : &TypeValue, sink(args) : ArrayList(TypeValue)) -> TypeValue)(
+  rc(TypeValueNode.TypeAppT(constructor, shared_list(args)))
 );
 t_iso :: (fn(child : &TypeValue) -> TypeValue)(
   rc(TypeValueNode.IsoT(child))
@@ -360,58 +360,54 @@ _sort_dyn_traits :: (fn(types : &mut ArrayList(TypeValue), levels : &mut ArrayLi
 /// are in the canonical order (`_sort_dyn_traits`).
 t_dyn :: (
   fn(
-    required_trait_types : &ArrayList(TypeValue),
-    required_trait_levels : &ArrayList(usize),
-    negative_trait_types : &ArrayList(TypeValue),
-    negative_trait_levels : &ArrayList(usize)
+    sink(required_trait_types) : ArrayList(TypeValue),
+    sink(required_trait_levels) : ArrayList(usize),
+    sink(negative_trait_types) : ArrayList(TypeValue),
+    sink(negative_trait_levels) : ArrayList(usize)
   ) -> TypeValue
 )({
-  rtt := required_trait_types.clone();
-  rtl := required_trait_levels.clone();
-  ntt := negative_trait_types.clone();
-  ntl := negative_trait_levels.clone();
-  _sort_dyn_traits(&mut rtt, &mut rtl);
-  _sort_dyn_traits(&mut ntt, &mut ntl);
-  rc(TypeValueNode.DynT(rtt, rtl, ntt, ntl))
+  _sort_dyn_traits(&mut required_trait_types, &mut required_trait_levels);
+  _sort_dyn_traits(&mut negative_trait_types, &mut negative_trait_levels);
+  rc(TypeValueNode.DynT(shared_list(required_trait_types), shared_list(required_trait_levels), shared_list(negative_trait_types), shared_list(negative_trait_levels)))
 });
-t_dyn_simple :: (fn(required_trait_types : &ArrayList(TypeValue)) -> TypeValue)(
+t_dyn_simple :: (fn(sink(required_trait_types) : ArrayList(TypeValue)) -> TypeValue)(
   t_dyn(required_trait_types, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new())
 );
 t_fn_trait :: (
   fn(
     base_name : &String,
-    call_param_labels : &ArrayList(String),
-    call_param_types : &ArrayList(TypeValue),
+    sink(call_param_labels) : ArrayList(String),
+    sink(call_param_types) : ArrayList(TypeValue),
     call_result : &TypeValue,
-    implicit_labels : &ArrayList(String),
-    implicit_types : &ArrayList(TypeValue),
-    call_param_is_ref : &ArrayList(bool),
-    call_param_is_owning : &ArrayList(bool)
+    sink(implicit_labels) : ArrayList(String),
+    sink(implicit_types) : ArrayList(TypeValue),
+    sink(call_param_is_ref) : ArrayList(bool),
+    sink(call_param_is_owning) : ArrayList(bool)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning))
+  rc(TypeValueNode.FnTraitT(base_name, shared_list(call_param_labels), shared_list(call_param_types), call_result, shared_list(implicit_labels), shared_list(implicit_types), shared_list(call_param_is_ref), shared_list(call_param_is_owning)))
 );
 t_fn_trait_simple :: (
   fn(
     base_name : &String,
-    call_param_types : &ArrayList(TypeValue),
+    sink(call_param_types) : ArrayList(TypeValue),
     call_result : &TypeValue
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new()))
+  rc(TypeValueNode.FnTraitT(base_name, no_labels(), shared_list(call_param_types), call_result, no_labels(), no_types(), no_flags(), no_flags()))
 );
 t_future_trait :: (
   fn(
     base_name : &String,
     output : &TypeValue,
-    effect_labels : &ArrayList(String),
-    effect_types : &ArrayList(TypeValue)
+    sink(effect_labels) : ArrayList(String),
+    sink(effect_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.FutureTraitT(base_name, output, effect_labels, effect_types))
+  rc(TypeValueNode.FutureTraitT(base_name, output, shared_list(effect_labels), shared_list(effect_types)))
 );
 t_future_trait_simple :: (fn(base_name : &String, output : &TypeValue) -> TypeValue)(
-  rc(TypeValueNode.FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new()))
+  rc(TypeValueNode.FutureTraitT(base_name, output, no_labels(), no_types()))
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
@@ -421,10 +417,10 @@ t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
       name,
       frame_level,
       rc(TypeValueNode.TypeUni(usize(0))),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
+      no_types(),
+      no_levels(),
+      no_types(),
+      no_levels(),
       Option(TypeValue).None,
       Option(TypeValue).None
     )
@@ -546,10 +542,10 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
       name,
       frame_level,
       rc(TypeValueNode.TypeUni(usize(0))),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
+      no_types(),
+      no_levels(),
+      no_types(),
+      no_levels(),
       Option(TypeValue).Some(kind),
       Option(TypeValue).None
     )
@@ -669,7 +665,7 @@ _contains_self_shell :: (
         (hit : bool) = false;
         (vi : usize) = usize(0);
         while((vi < variant_fields.len()) && !hit, {
-          inner := match(variant_fields.get(vi), .Some(x) => x, .None => ArrayList(TypeValue).new());
+          inner := match(variant_fields.get(vi), .Some(x) => x, .None => no_types());
           (fi : usize) = usize(0);
           while((fi < inner.len()) && !hit, {
             ft := match(inner.get(fi), .Some(x) => x, .None => t_unit());
@@ -758,10 +754,10 @@ _patch_self_shell_guarded :: (
           return(t);
         });
         visited.push(tok);
-        new_vfs := ArrayList(ArrayList(TypeValue)).new();
+        new_vfs := ArrayList(SharedList(TypeValue)).new();
         (vi : usize) = usize(0);
         while(vi < variant_fields.len(), {
-          inner := match(variant_fields.get(vi), .Some(x) => x, .None => ArrayList(TypeValue).new());
+          inner := match(variant_fields.get(vi), .Some(x) => x, .None => no_types());
           new_inner := ArrayList(TypeValue).new();
           (fi : usize) = usize(0);
           while(fi < inner.len(), {
@@ -769,7 +765,7 @@ _patch_self_shell_guarded :: (
             new_inner.push(recur(&ft, shell_id, final_ty, visited));
             fi = (fi + usize(1));
           });
-          new_vfs.push(new_inner);
+          new_vfs.push(shared_list(new_inner));
           vi = (vi + usize(1));
         });
         new_etas := ArrayList(TypeValue).new();
@@ -779,7 +775,7 @@ _patch_self_shell_guarded :: (
           new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
-        rc(TypeValueNode.EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas))
+        rc(TypeValueNode.EnumT(id, name, variant_names, shared_list(new_vfs), selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, shared_list(new_etas)))
       }
     ),
     Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
@@ -809,7 +805,7 @@ _patch_self_shell_guarded :: (
           new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
-        rc(TypeValueNode.Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace))
+        rc(TypeValueNode.Struct(id, name, field_labels, shared_list(new_fts), is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, shared_list(new_tas), is_source_namespace))
       }
     ),
     _ => t
@@ -930,7 +926,7 @@ enum_phantom_positions :: (fn(enum_id : &String) -> ArrayList(bool))(
 /// wins, matching the "innermost constructor that minted the enum" rule there.
 /// `phantom` flags the arguments no payload depends on (`ctor_phantom_flags`);
 /// they are recorded for the instance's id and for its finalized form's id.
-stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(TypeValue), phantom : &ArrayList(bool)) -> unit)({
+stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(TypeValue), phantom : &ArrayList(bool)) -> unit)({
   if((enum_id.len() == usize(0)) || (args.len() == usize(0)), {
     return(());
   });

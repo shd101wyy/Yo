@@ -33,7 +33,7 @@ import("std/fmt");
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -230,7 +230,7 @@ try_to_specialize_trait_type :: (
   specialized_trait_type := match(
     trait_type,
     Rc(.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _)) =>
-      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, atc_labels, atc_types)),
+      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, shared_list(atc_labels), shared_list(atc_types))),
     _ => trait_type
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)

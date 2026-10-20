@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -574,7 +574,7 @@ _type_has_array_len_var_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         (alv_found2 : bool) = false;
         (alv_vi : usize) = usize(0);
         while((alv_vi < alv_vfs.len()) && !alv_found2, {
-          alv_vf := match(alv_vfs.get(alv_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          alv_vf := match(alv_vfs.get(alv_vi), .Some(f) => f, .None => no_types());
           (alv_vj : usize) = usize(0);
           while((alv_vj < alv_vf.len()) && !alv_found2, {
             match(
@@ -681,7 +681,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
         );
         rf_i = (rf_i + usize(1));
       });
-      rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
+      rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, shared_list(new_rtt), rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
     },
     Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _refine_one_fn_trait_result(ty, new_result),
     _ => ty
@@ -1691,7 +1691,7 @@ ${ast_expr_to_string(&actual_arg)}`
           match(
             get_closure_body_type(cb_fvd.*.func_id.clone()),
             .Some(cb_body_ty) => {
-              arg_type_for_synth = rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta, ArrayList(TypeValue).new()));
+              arg_type_for_synth = rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta, no_types()));
             },
             .None => ()
           );
@@ -2678,12 +2678,12 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
           id : bk_id,
           name : bk_nm,
           field_labels : bk_fl,
-          field_types : bk_new_ft,
+          field_types : shared_list(bk_new_ft),
           is_reference_semantics : bk_ref,
           is_atomic_rc : bk_arc,
           is_newtype : bk_nt,
           constructor_func_id : bk_cfid,
-          type_arguments : bk_new_tas,
+          type_arguments : shared_list(bk_new_tas),
           is_source_namespace : bk_ns
         )
       )
@@ -3667,7 +3667,7 @@ create_specialized_function_inline :: (
                 ft_wt,
                 spec_ret_ty.clone(),
                 ft_meta,
-                ArrayList(TypeValue).new()
+                no_types()
               )
             ),
             _ => func_type
@@ -3962,7 +3962,7 @@ create_specialized_function_inline :: (
                                 fw_nm,
                                 fw_fl,
                                 fw_pt,
-                                fw_new_rtt,
+                                shared_list(fw_new_rtt),
                                 fw_rtl,
                                 fw_ntt,
                                 fw_ntl,
@@ -4867,7 +4867,7 @@ create_specialized_function_inline :: (
                                     ) => {
                                       register_func_type(
                                         cw_fid.clone(),
-                                        rc(TypeValueNode.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm, ArrayList(TypeValue).new()))
+                                        rc(TypeValueNode.Func(cw_fts, shared_list(cw_new_pts), cw_its, cw_wts, cw_ret_res, cw_fm, no_types()))
                                       );
                                     },
                                     _ => ()
@@ -5270,19 +5270,19 @@ create_specialized_function_inline :: (
               };
               spec_type := rc(
                 TypeValueNode.Func(
-                  ArrayList(TypeValue).new(),
-                  spec_param_types,
+                  no_types(),
+                  shared_list(spec_param_types),
                   sp_it,
                   sp_wt,
                   spec_result,
                   rc(
                     FuncMeta(
-                      forall_labels : ArrayList(String).new(),
-                      param_labels : sp_pl_f,
+                      forall_labels : no_labels(),
+                      param_labels : shared_list(sp_pl_f),
                       implicit_labels : sp_il,
                       result_is_comptime_only : sp_rico,
-                      param_is_ref : sp_pir_f,
-                      param_is_owning : sp_pio_f,
+                      param_is_ref : shared_list(sp_pir_f),
+                      param_is_owning : shared_list(sp_pio_f),
                       result_is_ref : sp_rir,
                       result_is_mut_ref : sp_rimr,
                       has_variadic : sp_hv,
@@ -5294,7 +5294,7 @@ create_specialized_function_inline :: (
                       param_is_sink : Option(ArrayList(bool)).Some(sp_pis_f)
                     )
                   ),
-                  ArrayList(TypeValue).new()
+                  no_types()
                 )
               );
               register_func_type(&specialized_func_id, &spec_type);
@@ -6824,16 +6824,16 @@ try_to_call_function_with_arguments :: (
         ftt,
         Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof)) => rc(
           TypeValueNode.Func(
-            ArrayList(TypeValue).new(),
+            no_types(),
             cpt,
-            ArrayList(TypeValue).new(),
-            ArrayList(TypeValue).new(),
+            no_types(),
+            no_types(),
             _impl_fn_callee_result(func_type, &cr_box),
             rc(
               FuncMeta(
-                forall_labels : ArrayList(String).new(),
+                forall_labels : no_labels(),
                 param_labels : cpl,
-                implicit_labels : ArrayList(String).new(),
+                implicit_labels : no_labels(),
                 result_is_comptime_only : false,
                 param_is_ref : cprf,
                 param_is_owning : cpof,
@@ -6846,7 +6846,7 @@ try_to_call_function_with_arguments :: (
                 variadic_comptime : false
               )
             ),
-            ArrayList(TypeValue).new()
+            no_types()
           )
         ),
         _ => func_type
@@ -7412,10 +7412,10 @@ try_to_call_function_with_arguments :: (
                     flabel.clone(),
                     usize(0),
                     t_type(),
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
+                    no_types(),
+                    no_levels(),
+                    no_types(),
+                    no_levels(),
                     Option(TypeValue).None,
                     Option(TypeValue).None
                   )

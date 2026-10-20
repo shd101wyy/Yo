@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
   is_extern_c_global,
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -802,7 +802,7 @@ evaluate_destructuring_assignment :: (
       .Some(_) => ()
     );
     vi := match(vi_opt, .Some(idx) => idx, .None => usize(0));
-    selected_fields := match(vfields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+    selected_fields := match(vfields.get(vi), .Some(vf) => vf, .None => no_types());
     if(selected_fields.len() == usize(0), {
       exn.throw(
         dyn(

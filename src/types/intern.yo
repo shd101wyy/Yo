@@ -53,13 +53,13 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, SharedList, no_types } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
 _append_b :: (fn(sb : &mut StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
-_append_strings :: (fn(sb : &mut StringBuilder, xs : &ArrayList(String)) -> unit)({
+_append_strings :: (fn(sb : &mut StringBuilder, xs : &SharedList(String)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -68,7 +68,7 @@ _append_strings :: (fn(sb : &mut StringBuilder, xs : &ArrayList(String)) -> unit
     i = (i + usize(1));
   });
 });
-_append_bools :: (fn(sb : &mut StringBuilder, xs : &ArrayList(bool)) -> unit)({
+_append_bools :: (fn(sb : &mut StringBuilder, xs : &SharedList(bool)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -76,7 +76,7 @@ _append_bools :: (fn(sb : &mut StringBuilder, xs : &ArrayList(bool)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_i64s :: (fn(sb : &mut StringBuilder, xs : &ArrayList(i64)) -> unit)({
+_append_i64s :: (fn(sb : &mut StringBuilder, xs : &SharedList(i64)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -85,7 +85,7 @@ _append_i64s :: (fn(sb : &mut StringBuilder, xs : &ArrayList(i64)) -> unit)({
     i = (i + usize(1));
   });
 });
-_append_usizes :: (fn(sb : &mut StringBuilder, xs : &ArrayList(usize)) -> unit)({
+_append_usizes :: (fn(sb : &mut StringBuilder, xs : &SharedList(usize)) -> unit)({
   n := xs.len();
   (i : usize) = usize(0);
   while(i < n, {
@@ -143,7 +143,7 @@ _append_meta_key :: (fn(sb : &mut StringBuilder, m : &FuncMeta) -> unit)({
 /// instance's token. A fresh set and depth 0 there recursed forever once enum
 /// tokens carried their arguments. `depth` bounds only how far a token spells
 /// nested arguments.
-_ik_node_token :: (fn(tag : str, sid : &String, tas : &ArrayList(TypeValue), depth : usize, abs_depth : usize, visited : &mut HashSet(String)) -> String)({
+_ik_node_token :: (fn(tag : str, sid : &String, tas : &SharedList(TypeValue), depth : usize, abs_depth : usize, visited : &mut HashSet(String)) -> String)({
   tok := String.from(tag);
   tok.push_string(sid);
   (i : usize) = usize(0);
@@ -376,7 +376,7 @@ _intern_key_into :: (
           nvf := evfs.len();
           (ivf : usize) = usize(0);
           while(ivf < nvf, {
-            inner := match(evfs.get(ivf), .Some(x) => x, .None => ArrayList(TypeValue).new());
+            inner := match(evfs.get(ivf), .Some(x) => x, .None => no_types());
             nin := inner.len();
             (iin : usize) = usize(0);
             while(iin < nin, {
@@ -767,7 +767,7 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
 /// Walk each element of a type list (a helper, because Yo forbids the mutual
 /// recursion an inline loop calling `_ti_walk` would need from inside a match
 /// Walk each element of a type list. Calls back into `_ti_walk`; see its note.
-_ti_walk_list :: (fn(xs : &ArrayList(TypeValue), depth : usize) -> unit)({
+_ti_walk_list :: (fn(xs : &SharedList(TypeValue), depth : usize) -> unit)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     match(

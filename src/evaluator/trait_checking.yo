@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -724,7 +724,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
     Rc(.EnumT({ variant_names : nc_vns, variant_fields : nc_vfs })) => {
       (vi : usize) = usize(0);
       while(vi < nc_vfs.len(), {
-        vf := match(nc_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(nc_vfs.get(vi), .Some(f) => f, .None => no_types());
         vn := match(nc_vns.get(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
@@ -1176,7 +1176,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       Rc(.EnumT({ variant_fields : bl_vfs })) => {
         (vi : usize) = usize(0);
         while(vi < bl_vfs.len(), {
-          vf := match(bl_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(bl_vfs.get(vi), .Some(f) => f, .None => no_types());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
             parts.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
@@ -1433,16 +1433,16 @@ type_implements_trait :: (
       trait_type,
       Rc(.FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns)) => rc(
         TypeValueNode.Func(
-          ArrayList(TypeValue).new(),
+          no_types(),
           param_types,
-          ArrayList(TypeValue).new(),
-          ArrayList(TypeValue).new(),
+          no_types(),
+          no_types(),
           result,
           rc(
             FuncMeta(
-              forall_labels : ArrayList(String).new(),
+              forall_labels : no_labels(),
               param_labels : param_labels,
-              implicit_labels : ArrayList(String).new(),
+              implicit_labels : no_labels(),
               result_is_comptime_only : false,
               // Fn-trait call type (runtime)
               param_is_ref : ft_refs,
@@ -1458,7 +1458,7 @@ type_implements_trait :: (
               variadic_comptime : false
             )
           ),
-          ArrayList(TypeValue).new()
+          no_types()
         )
       ),
       _ => {
@@ -1591,7 +1591,7 @@ type_implements_trait :: (
           flat := ArrayList(TypeValue).new();
           (vi : usize) = usize(0);
           while(vi < vfs.len(), {
-            vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+            vf := match(vfs.get(vi), .Some(f) => f, .None => no_types());
             (vj : usize) = usize(0);
             while(vj < vf.len(), {
               flat.push(match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
@@ -2868,7 +2868,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < variant_fields.len()) && !found, {
-        vf := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         (vj : usize) = usize(0);
         while((vj < vf.len()) && !found, {
           ft := match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit));

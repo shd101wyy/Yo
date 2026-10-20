@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text } :: import("../utils.yo");
@@ -471,7 +471,7 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2)),
+        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, fs_parent, shared_list(fs_req), shared_list(fs_req_lv), shared_list(fs_neg), shared_list(fs_neg_lv), fs_r1, fs_r2)),
         other => other
       );
       Option(EvalValue).Some(create_type_value(&stamped))

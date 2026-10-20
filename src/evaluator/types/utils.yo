@@ -20,7 +20,7 @@
 //! reference-semantics drop/dup is lowered directly in codegen (drop_dup.yo).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { Environment } :: import("../../env.yo");
 {
   begin_send_derivation,
@@ -202,7 +202,7 @@ _flatten_variant_fields :: (fn(variant_fields : &ArrayList(ArrayList(TypeValue))
   n := variant_fields.len();
   (i : usize) = usize(0);
   while(i < n, {
-    vf := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
+    vf := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
     m := vf.len();
     (j : usize) = usize(0);
     while(j < m, {

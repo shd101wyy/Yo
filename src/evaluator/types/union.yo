@@ -22,7 +22,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
@@ -68,8 +68,8 @@ evaluate_union_type :: (
   prelim_ty := rc(
     TypeValueNode.Union(
       union_id.clone(),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new()
+      no_labels(),
+      no_types()
     )
   );
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
@@ -159,8 +159,8 @@ evaluate_union_type :: (
   union_ty := rc(
     TypeValueNode.Union(
       union_id.clone(),
-      field_labels,
-      field_types
+      shared_list(field_labels),
+      shared_list(field_types)
     )
   );
   union_val := create_type_value(&union_ty);

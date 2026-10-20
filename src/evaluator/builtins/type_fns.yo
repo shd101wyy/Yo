@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   create_type_value,
   type_of_eval_value
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_type, t_comptime_string, t_comptime_int, t_comptime_float, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { is_some_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { is_type_hierarchy_type, is_trait_type } :: import("../../types/guards.yo");
@@ -856,8 +856,8 @@ _ti_bind_variant_info_list :: (
   n := variant_names.len();
   while(i < n, {
     v_name := match(variant_names.get(i), .Some(nm) => nm, .None => String.from(""));
-    v_fields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
-    v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
+    v_fields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
+    v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
     vi_val := _ti_build_variant_info(env_ptr, &v_name, &v_field_labels, &v_fields, enum_ty, i, ctx, exn);
     vi_vals.push(vi_val);
     i = (i + usize(1));
@@ -2039,8 +2039,8 @@ evaluate_type_map_variants :: (
   n_variants := variant_names.len();
   while(vi < n_variants, {
     v_name := match(variant_names.get(vi), .Some(nm) => nm, .None => String.from(""));
-    v_fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-    v_field_labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+    v_fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+    v_field_labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
     // Build VariantInfo value.
     vi_val := _ti_build_variant_info(&local_env, &v_name, &v_field_labels, &v_fields, &target_type, vi, ctx, exn);
     vi_type := match(vi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(&vi_val));

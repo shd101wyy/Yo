@@ -20,7 +20,7 @@
 //! Variant-shape predicates (`is_int_type`, …) live in `guards.yo`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList, ArrayListIter } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 /// The payload of a `SharedList`: one list, never written after it is built.
 /// It implements no `Clone` of its own, so the only copy of a `SharedList` is
@@ -35,8 +35,8 @@ SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// that keeps one, never copies the list (plans/VALUES_BY_DEFAULT.md V2b's
 /// B1 prerequisites: under unique buffers a copy of a plain `ArrayList`
 /// field read through the node's `Rc` is a deep copy). Build one with
-/// `shared_list(xs)`; read it with `len`/`get`/`is_empty`, or through
-/// `xs.items` (`&xs.items` lends the list, `xs.items(i)` indexes it).
+/// `shared_list(xs)`; read it with `len`/`get`/`is_empty`, `xs(i)` and `for(xs, ...)`,
+/// or lend the list itself as `&xs.items`.
 /// `Clone` is declared per element type below and in `TypeValue`'s block:
 /// the prelude's generic `Rc(T)` clone would copy the payload.
 SharedList :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(SharedListCell(T)));
@@ -53,6 +53,25 @@ impl(
   is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
   get : (fn(self : &Self, i : usize) -> Option(T))(self.*.items.get(i))
+);
+impl(
+  generic(T : Type),
+  SharedList(T),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : T,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  )
+);
+impl(
+  generic(T : Type),
+  SharedList(T),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : T,
+    IntoIter : ArrayListIter(T),
+    into_iter : (fn(self : &Self) -> ArrayListIter(T))(self.*.items.into_iter())
+  )
 );
 // A `SharedList` copy is one count bump (see `SharedList`). Each list is
 // built once and never written (no mutator reaches `items` through the
@@ -500,6 +519,21 @@ impl(SharedList(TypeValue), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(TypeValue), Acyclic());
 impl(SharedList(SharedList(TypeValue)), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(SharedList(TypeValue)), Acyclic());
+// The empty lists, one shared cell each: most nodes carry several empty
+// lists (`Func.where_types`, `Struct.type_arguments`, a `SomeT`'s bounds,
+// ...), and an empty list built per node is an allocation per list.
+(g_no_types : SharedList(TypeValue)) = shared_list(ArrayList(TypeValue).new());
+(g_no_labels : SharedList(String)) = shared_list(ArrayList(String).new());
+(g_no_flags : SharedList(bool)) = shared_list(ArrayList(bool).new());
+(g_no_levels : SharedList(usize)) = shared_list(ArrayList(usize).new());
+/// The shared empty type list.
+no_types :: (fn() -> SharedList(TypeValue))(g_no_types);
+/// The shared empty label list.
+no_labels :: (fn() -> SharedList(String))(g_no_labels);
+/// The shared empty flag list.
+no_flags :: (fn() -> SharedList(bool))(g_no_flags);
+/// The shared empty level list.
+no_levels :: (fn() -> SharedList(usize))(g_no_levels);
 // ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
@@ -526,4 +560,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, shared_list, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, shared_list, no_types, no_labels, no_flags, no_levels, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

@@ -41,7 +41,7 @@ import("std/fmt");
 { Environment, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -1083,15 +1083,15 @@ evaluate_trait_type :: (
   (trait_ty : TypeValue) = rc(
     TypeValueNode.TraitT(
       trait_name_str,
-      assoc_type_names,
-      field_labels,
-      field_types,
+      shared_list(assoc_type_names),
+      shared_list(field_labels),
+      shared_list(field_types),
       trait_id,
       Option(TypeValue).None,
-      self_constraints,
-      neg_self_constraints,
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new()
+      shared_list(self_constraints),
+      shared_list(neg_self_constraints),
+      no_labels(),
+      no_types()
     )
   );
   // Push a scoped env frame for trait evaluation

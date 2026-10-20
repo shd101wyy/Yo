@@ -33,7 +33,7 @@
   Environment,
   get_variables_from_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_key } :: import("../../types/type_key.yo");
@@ -1223,13 +1223,13 @@ create_capture_type_and_value :: (
         TypeValueNode.Struct(
           struct_id.clone(),
           String.from(""),
-          field_labels,
-          field_types,
+          shared_list(field_labels),
+          shared_list(field_types),
           false,
           false,
           false,
           String.from(""),
-          ArrayList(TypeValue).new(),
+          no_types(),
           false
         )
       );

@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
   create_type_value,
   is_type_value
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { is_trait_type, is_concrete_trait_type } :: import("../../types/guards.yo");
 { generate_some_type_id } :: import("../../types/creators.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
@@ -191,10 +191,10 @@ evaluate_impl_constraint :: (
       String.from("Impl"),
       fl,
       rc(TypeValueNode.TypeUni(usize(0))),
-      required_trait_types,
-      required_trait_levels,
-      negative_trait_types,
-      negative_trait_levels,
+      shared_list(required_trait_types),
+      shared_list(required_trait_levels),
+      shared_list(negative_trait_types),
+      shared_list(negative_trait_levels),
       Option(TypeValue).None,
       concrete_type
     )

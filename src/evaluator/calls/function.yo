@@ -58,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -2288,7 +2288,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
         );
         i = (i + usize(1));
       });
-      rc(TypeValueNode.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc))
+      rc(TypeValueNode.SomeT(fw_id, fw_nm, fw_fl, fw_pt, shared_list(new_rtt), fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc))
     },
     _ => wrapper
   )
@@ -4321,7 +4321,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           })
         ) => if(
           is_some_type(&cb_res) || (get_all_some_types(&cb_res).len() > usize(0)),
-          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new())),
+          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, no_types())),
           info.ty
         ),
         Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)) => {
@@ -4331,7 +4331,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
             match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
-          rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
+          rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, shared_list(new_rtt), rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
         },
         Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _fv_fn_trait_with_result(&info.ty, &body),
         _ => info.ty
@@ -4875,10 +4875,10 @@ _fv_bind_unbound_forall_placeholders :: (
             fname.clone(),
             usize(0),
             t_type(),
-            ArrayList(TypeValue).new(),
-            ArrayList(usize).new(),
-            ArrayList(TypeValue).new(),
-            ArrayList(usize).new(),
+            no_types(),
+            no_levels(),
+            no_types(),
+            no_levels(),
             Option(TypeValue).None,
             Option(TypeValue).None
           )
@@ -6470,7 +6470,7 @@ _evaluate_funcval_runtime_call :: (
           fx_wt,
           resolved_ret.clone(),
           fx_meta,
-          ArrayList(TypeValue).new()
+          no_types()
         )
       ),
       _ => base_spec_ty
@@ -8477,8 +8477,8 @@ Fix: wrap the call:
                 )
               );
             });
-            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => ArrayList(String).new());
+            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => no_types());
+            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => no_labels());
             tf_e := ArrayList(TypeField).new();
             (tfi_e : usize) = usize(0);
             while(tfi_e < fields_for_var.len(), {
@@ -8857,19 +8857,19 @@ Fix: wrap the call:
             );
             pa_new_ty := rc(
               TypeValueNode.Func(
-                ArrayList(TypeValue).new(),
-                pa_new_types,
-                ArrayList(TypeValue).new(),
-                ArrayList(TypeValue).new(),
+                no_types(),
+                shared_list(pa_new_types),
+                no_types(),
+                no_types(),
                 pa_res,
                 rc(
                   FuncMeta(
-                    forall_labels : ArrayList(String).new(),
-                    param_labels : pa_new_labels,
-                    implicit_labels : ArrayList(String).new(),
+                    forall_labels : no_labels(),
+                    param_labels : shared_list(pa_new_labels),
+                    implicit_labels : no_labels(),
                     result_is_comptime_only : true,
-                    param_is_ref : pa_new_flags,
-                    param_is_owning : pa_new_own,
+                    param_is_ref : shared_list(pa_new_flags),
+                    param_is_owning : shared_list(pa_new_own),
                     result_is_ref : false,
                     has_variadic : false,
                     is_extern : Option(String).None,
@@ -8879,7 +8879,7 @@ Fix: wrap the call:
                     variadic_comptime : false
                   )
                 ),
-                ArrayList(TypeValue).new()
+                no_types()
               )
             );
             pa_fid := `partial_${pa_id}`;

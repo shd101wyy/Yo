@@ -22,7 +22,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, register_struct_field_comptime_flags, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -100,14 +100,14 @@ evaluate_struct_type :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new(),
+      no_labels(),
+      no_types(),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
       String.from(""),
       // constructor_func_id — set later at the comptime-fn call site
-      ArrayList(TypeValue).new(),
+      no_types(),
       // type_arguments — set later at the comptime-fn call site
       false // is_source_namespace
     )
@@ -289,13 +289,13 @@ evaluate_struct_type :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      field_types,
+      shared_list(field_labels),
+      shared_list(field_types),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
       String.from(""),
-      ArrayList(TypeValue).new(),
+      no_types(),
       false
     )
   );
@@ -340,14 +340,14 @@ evaluate_struct_type :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      patched_types,
+      shared_list(field_labels),
+      shared_list(patched_types),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
       String.from(""),
       // constructor_func_id — set later at the comptime-fn call site
-      ArrayList(TypeValue).new(),
+      no_types(),
       // type_arguments — set later at the comptime-fn call site
       false // is_source_namespace
     )

@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -577,7 +577,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           recur(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), out, depth + u32(1));
@@ -630,7 +630,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           comps.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
@@ -842,7 +842,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
       Rc(.EnumT({ variant_fields : all_fields })) => {
         (vi : usize) = usize(0);
         while(vi < all_fields.len(), {
-          vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
             if(match(vf.get(fi), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
@@ -1014,7 +1014,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     Rc(.EnumT({ variant_names : vns, variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), {
-        vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
         vn := match(vns.get(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
@@ -1274,7 +1274,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
       is_ref => false,
       // A value reaches what its `?(*(E))` buffer's elements reach (V2b's
       // unique buffers: the elements are part of the value).
-      true => (_any_reaches_non_atomic_cell(&fields, depth + u32(1)) || _any_reaches_non_atomic_cell(&buffer_element_types(&fields), depth + u32(1)))
+      true => (_any_reaches_non_atomic_cell(&fields.items, depth + u32(1)) || _any_reaches_non_atomic_cell(&buffer_element_types(&fields.items), depth + u32(1)))
     ),
     Rc(.EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref, is_atomic_rc : e_is_atomic })) => cond(
       (e_is_ref && !e_is_atomic) => true,
@@ -1294,8 +1294,8 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
         false
       }
     ),
-    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_reaches_non_atomic_cell(&fields, depth + u32(1)),
-    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_reaches_non_atomic_cell(&fields, depth + u32(1)),
+    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_reaches_non_atomic_cell(&fields.items, depth + u32(1)),
+    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_reaches_non_atomic_cell(&fields.items, depth + u32(1)),
     Rc(.Array(element : elem, length : _)) => _reaches_non_atomic_cell_inner(&elem, depth + u32(1)),
     Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
@@ -1519,7 +1519,7 @@ value_acyclic_obligations :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(Ty
 value_type_owns_buffer :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && (buffer_element_types(&fields).len() > usize(0))),
+    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && (buffer_element_types(&fields.items).len() > usize(0))),
     _ => false
   )
 );
@@ -1639,7 +1639,7 @@ _type_refs_back_to_cyclic :: (
         // whose elements hold it again (`struct(kids : List(Self))`); the
         // struct id would not do, because every instantiation of a generic
         // struct shares it.
-        has_buffer := (!found && (buffer_element_types(&sfields).len() > usize(0)));
+        has_buffer := (!found && (buffer_element_types(&sfields.items).len() > usize(0)));
         buf_key := if(has_buffer, _buffer_cut_key(ty), String.new());
         if(has_buffer && !_id_already_visited(visited, &buf_key), {
           v2 := visited.clone();
@@ -2096,7 +2096,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
       });
       (evi : usize) = usize(0);
       while(evi < en_vfs.len(), {
-        vf := match(en_vfs.get(evi), .Some(fl) => fl, .None => ArrayList(TypeValue).new());
+        vf := match(en_vfs.get(evi), .Some(fl) => fl, .None => no_types());
         (efi : usize) = usize(0);
         while(efi < vf.len(), {
           if(recur(match(vf.get(efi), .Some(f) => f, .None => rc(TypeValueNode.Unit)), visited_ids), {
@@ -2446,7 +2446,7 @@ is_bound_closure_identity :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.SomeT({ name : bci_nm, required_trait_types : bci_rtt })) => (
-      (bci_nm == "Impl") && !_any_future_trait(&bci_rtt) && _resolves_to_concrete_type(t)
+      (bci_nm == "Impl") && !_any_future_trait(&bci_rtt.items) && _resolves_to_concrete_type(t)
     ),
     _ => false
   )
@@ -2594,7 +2594,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
         fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit)), true => fu_res);
         match(
           fu_t,
-          Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
+          Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt.items), {
             return(Option(TypeValue).Some(fu_t));
           }),
           Rc(.Func(_, _, _, _, _, _, _)) => match(
@@ -2833,12 +2833,12 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       cond(
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
         (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
-        true => _max_field_alignment(&sfts)
+        true => _max_field_alignment(&sfts.items)
       ),
     // Tuple: max field alignment.
-    Rc(.Tuple({ field_types : tfts })) => _max_field_alignment(&tfts),
+    Rc(.Tuple({ field_types : tfts })) => _max_field_alignment(&tfts.items),
     // Union: max field alignment.
-    Rc(.Union({ field_types : ufts })) => _max_field_alignment(&ufts),
+    Rc(.Union({ field_types : ufts })) => _max_field_alignment(&ufts.items),
     // Enum: reference-semantics (`ref(enum(…))`) → pointer-aligned (it is a heap
     // handle); otherwise the max alignment across all variants' fields. The
     // `e_ref` short-circuit matches the struct branch and prevents an infinite
@@ -2853,7 +2853,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         (vi : usize) = usize(0);
         n_v := evf.len();
         while((vi < n_v) && !unknown, {
-          vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(evf.get(vi), .Some(f) => f, .None => no_types());
           match(
             _max_field_alignment(&vf),
             .Some(a) => {
@@ -2921,7 +2921,7 @@ _enum_value_size :: (fn(evf : &ArrayList(ArrayList(TypeValue))) -> Option(usize)
     // Only the fields the data-union emitter keeps — see
     // `_variant_storage_field_types`.
     vf := _variant_storage_field_types(
-      match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new())
+      match(evf.get(vi), .Some(f) => f, .None => no_types())
     );
     match(
       _aggregate_size(&vf),
@@ -3057,7 +3057,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
           g_size_walk_stack.push(s_sz_id.clone());
           out := cond(
             (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
-            true => _c_aggregate_size(&sfts)
+            true => _c_aggregate_size(&sfts.items)
           );
           g_size_walk_stack.pop();
           out
@@ -3065,7 +3065,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       ),
     // Tuple: C-laid-out aggregate size (a member-less tuple carries the dummy
     // byte, see `_c_aggregate_size`).
-    Rc(.Tuple({ field_types : tfts })) => _c_aggregate_size(&tfts),
+    Rc(.Tuple({ field_types : tfts })) => _c_aggregate_size(&tfts.items),
     // Union: max field size (overlapping storage).
     Rc(.Union({ field_types : ufts })) => {
       (acc : usize) = usize(0);
@@ -3104,7 +3104,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
       true => {
         g_size_walk_stack.push(e_sz_id.clone());
-        out := _enum_value_size(&evf);
+        out := _enum_value_size(&evf.items);
         g_size_walk_stack.pop();
         out
       }
@@ -3286,7 +3286,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
-              vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              vf := match(vfs.get(vi), .Some(f) => f, .None => no_types());
               (fi : usize) = usize(0);
               while((fi < vf.len()) && !found, {
                 ft := match(vf.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -3402,7 +3402,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
-              vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+              vf := match(vfs.get(vi), .Some(f) => f, .None => no_types());
               (fi : usize) = usize(0);
               while((fi < vf.len()) && !found, {
                 ft := match(vf.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -3839,10 +3839,10 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
       ty,
       Rc(.Array(element : el, length : _, length_var : lv)) => ((lv.len() > usize(0)) || _type_mentions_generic_length(&el, depth + u32(1))),
       Rc(.Pointer(pointee : p)) => _type_mentions_generic_length(&p, depth + u32(1)),
-      Rc(.Tuple(_, fts)) => _any_mentions_generic_length(&fts, depth),
-      Rc(.Struct({ field_types : sfts })) => _any_mentions_generic_length(&sfts, depth),
-      Rc(.TypeAppT(_, args)) => _any_mentions_generic_length(&args, depth),
-      Rc(.Func({ param_types : pts, result : r })) => (_any_mentions_generic_length(&pts, depth) || _type_mentions_generic_length(&r, depth + u32(1))),
+      Rc(.Tuple(_, fts)) => _any_mentions_generic_length(&fts.items, depth),
+      Rc(.Struct({ field_types : sfts })) => _any_mentions_generic_length(&sfts.items, depth),
+      Rc(.TypeAppT(_, args)) => _any_mentions_generic_length(&args.items, depth),
+      Rc(.Func({ param_types : pts, result : r })) => (_any_mentions_generic_length(&pts.items, depth) || _type_mentions_generic_length(&r, depth + u32(1))),
       _ => false
     )
   )
