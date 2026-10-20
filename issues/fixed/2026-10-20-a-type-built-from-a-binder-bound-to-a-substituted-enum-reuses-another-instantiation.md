@@ -53,4 +53,4 @@ The `io.async` and `io.spawn` forms of the same body fail the same way. With `(h
 
 This splits only instantiations that were wrongly merged. The compiler's own C (`compile src/main.yo --emit-c`, same source) is byte-identical with and without the change (142,824,324 bytes).
 
-Regression test: `tests/async/combinators.test.yo`, "A4: a type built from the binder of a join future at two types is two types". It covers `JoinHandle(T)` in a spawning `io.async` body, `Option(T)` in an `io.async` body, and `Option(T)` in a plain function, each at `i32` and `bool`. Its file fails on develop.
+Regression test: `tests/async/combinators.test.yo`, "A4: a type built from the binder of a join future at two types is two types". It covers `JoinHandle(T)` in a spawning `io.async` body, `Option(T)` in an `io.async` body, and `Option(T)` in a plain function, each at `i32` and `bool`. It fails on develop `5111d0cce` (after #1501's enum-identity change and #1506) with `Cannot unify incompatible types: "bool" and "i32"`, and passes with the fix.
