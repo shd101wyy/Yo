@@ -1136,3 +1136,18 @@ test("A4: an effect-binder operand resolves through the future parameter", {
   got := io.await(_a4_id_exn(_a4_exn_int(io, throw_exn), bundle, io), bundle);
   assert(got == i32(5), "the bundle and the result resolve");
 });
+/// Two futures of ONE generic producer at two `T`s: every `JoinHandle(T).join`
+/// future is the producer's one declared wrapper, told apart only by the join
+/// specialization it resolves to, so each instantiation of a generic `io.async`
+/// body capturing the operand needs its own capture struct
+/// (issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md).
+test("A4: futures of one generic producer at two types each get their own capture struct", {
+  a := io.await(_a4_id_block(io.spawn(io.async((io : Io) => i32(3)), io).join(io), io), io);
+  assert(a == .Some(i32(3)), "the i32 join through the block form");
+  b := io.await(_a4_id_block(io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(b == .Some(true), "the bool join through the block form");
+  c := io.await(_a4_id(io.spawn(io.async((io : Io) => i32(4)), io).join(io), io), io);
+  assert(c == .Some(i32(4)), "the i32 join through the tail form");
+  d := io.await(_a4_id(io.spawn(io.async((io : Io) => false), io).join(io), io), io);
+  assert(d == .Some(false), "the bool join through the tail form");
+});
