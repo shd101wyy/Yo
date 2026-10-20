@@ -2188,7 +2188,25 @@ _find_specialization_cache :: (
                         ),
                         _ => false
                       );
-                      if((cached_is_some && !current_is_some) || (!cached_is_some && current_is_some) || cap_ids_differ, {
+                      // Two FUTURE WRAPPERS are one argument type only when
+                      // their resolution chains end in one future: two
+                      // producers' `Impl(Future(i32, Io))` results are
+                      // compat-equal by traits, but one may borrow (§3.13 A2)
+                      // and the other not. A combinator specialized for the
+                      // first-class one never registered its future as
+                      // borrowing the operand, so reusing that spec for a
+                      // borrowing operand skipped every check on the call's
+                      // future: a later argument could move or overwrite the
+                      // lent place (E0910), and the combinator's future could
+                      // be bound
+                      // (issues/fixed/2026-10-20-a-combinator-specialized-for-a-first-class-future-skips-the-borrow-checks-of-a-borrowing-one.md).
+                      fw_ends_differ := (
+                        cached_is_some && current_is_some &&
+                          extract_future_trait_from_type(&cached_ty).is_some() &&
+                            extract_future_trait_from_type(&current_ty).is_some() &&
+                              !(type_key(&resolution_chain_end(&cached_ty)) == type_key(&resolution_chain_end(&current_ty)))
+                      );
+                      if((cached_is_some && !current_is_some) || (!cached_is_some && current_is_some) || cap_ids_differ || fw_ends_differ, {
                         rt_match = false;
                       }, {
                         if(!are_types_compatible_exact(&cached_ty, &current_ty), {
