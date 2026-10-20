@@ -948,6 +948,24 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 | `license`     | SPDX 标识符                                                      |
 | `yo`          | 最低编译器版本（与 `.yo-version` 对应）                           |
 
+#### 在构建文件中读取 `[package]`：`build.manifest()`
+
+`build.manifest()` 返回正在求值的构建文件旁边那个 `yo.toml` 的 `[package]`
+表，类型为带 `name` 和 `version` 的 `Manifest`，这样产物或步骤可以直接用清单
+中的名字，而不必重复书写：
+
+```yo
+build :: import("std/build");
+
+exe :: build.executable({ name : build.manifest().name, root : "./src/main.yo" });
+
+install :: build.step("install", build.manifest().version);
+install.depend_on(exe);
+```
+
+清单未设置的字段读作 `""`。在依赖自己的 `build.yo` 中，`build.manifest()`
+是该依赖的 `[package]` 表，而不是项目的。
+
 ### 依赖条目
 
 一个依赖是一个表键（它的导入名）加一个内联表：

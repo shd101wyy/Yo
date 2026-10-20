@@ -981,6 +981,25 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
 | `license`     | SPDX identifier                                                                    |
 | `yo`          | Minimum compiler version (mirrors `.yo-version`)                                   |
 
+#### Reading `[package]` from a build file: `build.manifest()`
+
+`build.manifest()` returns the `[package]` table of the `yo.toml` beside the
+build file being evaluated, as a `Manifest` with `name` and `version`, so an
+artifact or step can be named by the manifest instead of repeating it:
+
+```yo
+build :: import("std/build");
+
+exe :: build.executable({ name : build.manifest().name, root : "./src/main.yo" });
+
+install :: build.step("install", build.manifest().version);
+install.depend_on(exe);
+```
+
+A field the manifest does not set reads as `""`. In a dependency's own
+`build.yo`, `build.manifest()` is that dependency's `[package]` table, not the
+project's.
+
 ### Dependency entries
 
 A dependency is a table key (its import name) with an inline table:
