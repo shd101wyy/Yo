@@ -2,7 +2,7 @@
 
 **Severity:** S2 — valid programs are rejected by the C compiler: some nested element accesses through generic `Index`/`IndexMut` impls (`mm(i)(k) = v` with a move-only inner key, `o(i)(j)` on a user impl whose `Output` is a generic struct) pass `yo check` and call a C function that is never declared.
 
-**Status:** open (write reproducer fixed; read reproducer narrowed — see Fix). Found 2026-10-17 while landing #1420 (a canary for the
+**Status:** FIXED 2026-10-20 (write reproducer fixed earlier; read reproducer fixed — see "Read half: root cause and fix"). Found 2026-10-17 while landing #1420 (a canary for the
 review's write through a move-only key). Both reproducers fail the same way
 with the develop-built `yo-dev-5425cd7bf`. Neither involves moving a named
 local, so this is not
@@ -132,3 +132,51 @@ registered, called, and never declared.
   before the instantiation's type arguments (candidate: a nominal-boundary
   or memo arm between the result node and the argument). Probe logs:
   `YO_DEBUG_SUBST=1 YO_DEBUG_DISPATCH=1`, `/tmp/probe6-run4.log`.
+
+## Read half: root cause and fix (2026-10-20)
+
+Measured with probe builds on the read reproducer and four narrowed
+variants:
+
+- **Neither nested nor `Index`-specific.** The single-level read
+  `o(i32(1)).v` fails the same way, and so does a user parameterized
+  trait `Getter(Idx)` whose `Output : Bag(K)` is returned by reference or
+  by value. A non-parameterized trait, a plain method `-> &Bag(K)`, and a
+  by-value `Index` read all compile.
+- **Phantom-only.** With `Bag :: struct(v : i32, _k : Option(K))` (a field
+  mentions `K`) every variant compiles. `K` lives only in `Bag(K)`'s type
+  arguments, and `get_all_some_types` does not walk type arguments
+  (`issues/generic-inference-ignores-phantom-type-arguments-of-structs.md`
+  is the same blind spot on the inference side).
+- **The generic-impl substitution is correct.** The method value's result
+  key rewrites from the raw `Bag(K)` to `Bag(i32)`, so the
+  resolution-cell diagnosis in "Root cause" above does not hold for this
+  reproducer.
+
+Two places in `create_specialized_function_inline`
+(`src/evaluator/calls/helper.yo`) decided "concrete" with
+`get_all_some_types` alone:
+
+1. The **return probe** that keys the specialization re-evaluated the
+   declared return only when `get_all_some_types` found a SomeT. For
+   `&Bag(K)` it found none, so the key kept the impl's binder:
+   `..._ret_gs_<Bag>_4231`. That is also wrong for a second instantiation
+   (`Outer(u8)` would share the `Outer(i32)` key).
+2. The **return-expression re-evaluation** (the `rte_era_suspect` path)
+   re-evaluated `&Self.Output` against the receiver, got the impl-era
+   `&Bag(K)`, and adopted it as the specialization's return because no
+   SomeT was visible. The specialization was then registered with a generic
+   result, and `should_skip_function_codegen` dropped it (skip2,
+   `has_generic_return`) while the call site still named it. With probe 1
+   fixed alone, the call named `..._ret_gs_<Bag>_i32` and nothing was
+   emitted under that name (`[skipfn] ... gr=true ret=gs_<Bag>_4231`).
+
+**Fix:** both places also collect the type-argument SomeTs
+(`_collect_type_arg_somes`). The probe re-evaluates when either list is
+non-empty, and the re-evaluated return is adopted only when neither is,
+except for the existing closure carve-out: a type argument that is this
+call's own closure-typed forall argument (`arc(f) -> Arc(V)`) still adopts.
+Regression tests: `tests/index.test.yo` ("Index: a nested read through
+generic impls whose Output has a phantom parameter", at `i32` and `u8`) and
+`tests/impl.test.yo` ("a trait method returning a phantom-parameter Output
+resolves per instantiation").
