@@ -28,7 +28,7 @@
   resolve_std_path
 } :: import("../../src/module_manager.yo");
 { type_trait_methods_entry_count, owned_id_log_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
-{ set_owner_logs_enabled, set_codegen_tables_enabled } :: import("../../src/utils.yo");
+{ set_owner_logs_enabled, set_codegen_tables_enabled, set_match_arms_table_enabled } :: import("../../src/utils.yo");
 { finished_walk_has_context, finished_walk_expr_info_count } :: import("../../src/evaluator/context.yo");
 { generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
 { funcval_cap_vars_entry_count, new_frame, make_capture_variable, CaptureSlice, cap_slices_materialize, cap_slices_prefix, frame_truncate_variables } :: import("../../src/env.yo");
@@ -482,11 +482,15 @@ test("match-arm registry: re-analysis keeps it flat", {
   assert(m3 == m2, `match-arm registry leaked: ${m2} -> ${m3}`);
 });
 
-test("match-arm registry: a command without codegen records nothing", {
-  /// `check`, `verify`, `doc` and the LSP switch the codegen-only tables off
-  /// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21). A fresh document is a
-  /// fresh set of match ids, so with the tables on it adds entries; with
-  /// them off the analysis still runs (and stays clean) but adds none.
+test("match-arm registry: a command that neither generates code nor verifies records nothing", {
+  /// `doc` and the LSP switch the match-arm table off with the codegen-only
+  /// tables (plans/EVALUATOR_MEMORY_REDUCTION.md §0.21). `check` switches only
+  /// the codegen-only tables off: it verifies, and the verifier's match walk
+  /// reads the arms
+  /// (issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md).
+  /// A fresh document is a fresh set of match ids, so with the table on it
+  /// adds entries; with it off the analysis still runs (and stays clean) but
+  /// adds none.
   exn := Exception(
     throw : (
       err -> {
@@ -505,11 +509,22 @@ test("match-arm registry: a command without codegen records nothing", {
   assert(match_arms_entry_count() > before_on, "codegen tables on: analyzing a document records its match arms");
   off_path := `${dir}/match_off.yo`;
   io.await(write_string(Path.new(off_path.clone()), String.from(_MATCH_DOC), io), ioexn);
+  // `check`: codegen-only tables off, match arms still recorded.
+  check_path := `${dir}/match_check.yo`;
+  io.await(write_string(Path.new(check_path.clone()), String.from(_MATCH_DOC), io), ioexn);
   set_codegen_tables_enabled(false);
+  before_check := match_arms_entry_count();
+  check_clean := _doc_round(check_path.clone(), String.from(_MATCH_DOC), &std_path, io);
+  after_check := match_arms_entry_count();
+  // `doc` / the LSP: both off.
+  set_match_arms_table_enabled(false);
   before_off := match_arms_entry_count();
   off_clean := _doc_round(off_path.clone(), String.from(_MATCH_DOC), &std_path, io);
   after_off := match_arms_entry_count();
+  set_match_arms_table_enabled(true);
   set_codegen_tables_enabled(true);
+  assert(check_clean, "the document analyzes clean with the codegen-only tables off");
+  assert(after_check > before_check, "codegen-only tables off (check): analyzing a document still records its match arms");
   assert(off_clean, "the document analyzes clean with the tables off");
-  assert(after_off == before_off, `codegen tables off: the match-arm registry grew ${before_off} -> ${after_off}`);
+  assert(after_off == before_off, `match-arm table off: the match-arm registry grew ${before_off} -> ${after_off}`);
 });

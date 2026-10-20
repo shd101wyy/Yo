@@ -77,7 +77,7 @@ pragma(Pragma.AllowUnsafe);
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build, expand_workspace_members, set_in_process_compile_fn } :: import("./build_runner.yo");
 { file_exists_sync } :: import("./manifest.yo");
-{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, canonical_module_path, display_module_path } :: import("./utils.yo");
+{ stable_occurrence_reset, emission_occurrence_reset, set_owner_logs_enabled, set_codegen_tables_enabled, set_match_arms_table_enabled, canonical_module_path, display_module_path } :: import("./utils.yo");
 { MANIFEST_FILENAME, find_manifest, load_manifest, read_file_sync } :: import("./manifest.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { run_skills_install } :: import("./skills_command.yo");
@@ -3808,7 +3808,9 @@ run_check :: (
   // Only the watch modes re-force definitions after a module's walk finished;
   // a one-shot check lets each finished walk release its context (F1), and
   // records no owner logs, since nothing will invalidate a module (§0.15).
-  // `check` never generates code, watch or not (§0.21).
+  // `check` never generates code, watch or not (§0.21). It does run the
+  // verifier on verify-mode files, so the compiled match arms the verifier's
+  // match walk reads stay on (`set_match_arms_table_enabled`, default on).
   set_retain_walk_contexts(watch || watch_once);
   set_owner_logs_enabled(watch || watch_once);
   set_codegen_tables_enabled(false);
@@ -12855,6 +12857,7 @@ main :: (fn(io : Io) -> unit)({
     // (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §4.4).
     set_color_enabled(false);
     set_codegen_tables_enabled(false);
+    set_match_arms_table_enabled(false);
     run_lsp_server(io, exn);
   }, if(subcmd == "compile", {
     // The Phase-4 warm gate intercepts before run_compile ever sees the
@@ -12917,6 +12920,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "doc", {
     set_owner_logs_enabled(false);
     set_codegen_tables_enabled(false);
+    set_match_arms_table_enabled(false);
     run_doc_cmd(&argv, io, exn);
   }, if(subcmd == "unsafe-report", {
     run_unsafe_report_cmd(&argv, io, exn);
