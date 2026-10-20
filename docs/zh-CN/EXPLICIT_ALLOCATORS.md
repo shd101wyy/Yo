@@ -91,6 +91,28 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 `current_allocator()` 返回作用域设置的当前分配器；没有作用域时返回 `.None`（即全局
 分配器）。
 
+## 放置单个单元：`alloc` 参数
+
+`box` 和 `arc` 接受可选的 `alloc : Option(Allocator)`，因此不需要作用域也能放置单个
+单元。`.Some(a)` 把单元放在 `a` 中；默认值 `.None` 跟随当前作用域，没有作用域时使用
+全局分配器。单元通过放置它的分配器释放，无论最后一个句柄在哪个线程上被 drop。Yo
+不会把值自动包装成 `Option`，所以调用方要写 `.Some(...)`：
+
+```yo
+{ Arena } :: import("std/arena");
+
+arena := Arena.new(usize(1) << usize(16));
+{
+  b := box(i32(1), alloc : .Some(arena.allocator()));
+  a := arc(i32(2), alloc : .Some(arena.allocator()));
+  assert(arena.live_blocks() == usize(2), "both cells are in the arena");
+};
+assert(arena.live_blocks() == usize(0), "both were freed into the arena");
+arena.deinit();
+```
+
+显式的 `alloc` 只对这一个单元优先于当前作用域，之后作用域保持不变。
+
 ## 容器
 
 可变容器跟随作用域。在 `with_allocator(a, …)` 内创建的 `ArrayList.new()`、

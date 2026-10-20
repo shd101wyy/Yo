@@ -99,6 +99,31 @@ These stay on the global allocator:
 `current_allocator()` returns the allocator a scope made current, or `.None`
 when no scope is active (the global allocator).
 
+## Placing one cell: the `alloc` parameter
+
+`box` and `arc` take an optional `alloc : Option(Allocator)`, so one cell can
+be placed without a scope. `.Some(a)` places the cell in `a`; the default,
+`.None`, follows the current scope, else the global allocator. The cell is
+freed through the allocator that placed it, on whichever thread drops the last
+handle. Yo does not wrap a value into an `Option`, so the caller writes
+`.Some(...)`:
+
+```yo
+{ Arena } :: import("std/arena");
+
+arena := Arena.new(usize(1) << usize(16));
+{
+  b := box(i32(1), alloc : .Some(arena.allocator()));
+  a := arc(i32(2), alloc : .Some(arena.allocator()));
+  assert(arena.live_blocks() == usize(2), "both cells are in the arena");
+};
+assert(arena.live_blocks() == usize(0), "both were freed into the arena");
+arena.deinit();
+```
+
+An explicit `alloc` wins over the current scope for that one cell, and the
+scope is unchanged afterwards.
+
 ## Containers
 
 The mutable containers follow the scope. `ArrayList.new()`,
