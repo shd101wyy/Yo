@@ -7762,7 +7762,7 @@ not an estimate.
      - Two pre-existing generic codegen bugs surfaced once `Channel(T)`'s
        state moved into a `RefCell`. Both are filed S2, and the channel
        works around both:
-       - `issues/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md`:
+       - `issues/fixed/2026-10-17-a-generic-impl-wrapping-arraylist-of-its-same-named-parameter-emits-an-uncompilable-instance.md`:
          the binder is spelled `Msg`;
        - `issues/fixed/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md` (fixed 2026-10-20; the split is reverted):
          the sender count sits in its own `Rc(RefCell(usize))`, so its
