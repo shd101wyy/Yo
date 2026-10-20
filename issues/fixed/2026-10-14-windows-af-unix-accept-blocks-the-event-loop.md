@@ -42,6 +42,10 @@ port, marks it a socket, and wakes the task.
   will post to it. Cleanup aborts every task parked on one through the
   ordinary abort path (`__yo_io_teardown_abort_waiters`), the way it handles
   timers.
+  A worker that has already posted for an ABANDONED op can still leave the
+  port open, because nothing dequeues its packet once the op stops counting
+  as pending: `issues/2026-10-20-an-abandoned-windows-blocking-accept-keeps-the-completion-port-open.md`
+  (S3, open).
 
 Verified on Windows by the PR's CI legs only. This macOS box cannot run the
 Windows runtime: the emitted C was cross-compiled with
