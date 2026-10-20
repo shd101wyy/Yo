@@ -600,7 +600,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 14. **The rest of the plan, in the 2026-10-13 handover's §3 order:**
     - V3 A4's future operands (§3.13 A4): `timeout` and two-way `select` accept a borrowing future, run it as a scoped child, and abort and join it on a deadline or a loss; decision 38 B's overlap check for two borrowing futures passed to one combinator lands with it.
       - The compiler half landed in #1432: a generic combinator's by-value future operand accepts a borrowing future, and decision 38 B's overlap check is E0910.
-      - The std half (`timeout`/`select` over futures) is parked on `wip/vbd-a4-std-half` (`a83d6ac8b`), blocked by `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`. Rebase it once that is fixed;
+      - The std half (`timeout`/`select` over futures) is parked on `wip/vbd-a4-std-half` (`a83d6ac8b`), blocked by `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`. Rebase it once that is fixed;
     - V3 A6's `Rc`-field half together with V2c;
     - decision 39's iterators (V2b): Generation A in #1429 (the cursor `for`, `indices()`, E0911 across the macro boundary); B7 proper remains;
     - the allocator interface version 2;
