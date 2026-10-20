@@ -30,6 +30,42 @@ register_type_decl_module :: (fn(type_id : &String, module_path : &String) -> un
 type_decl_module :: (fn(type_id : &String) -> Option(String))(
   match(g_type_decl_modules.get(type_id), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
 );
+// ---------------------------------------------------------------------------
+// enum id → DECLARATION identity (`stable_decl_key` of the `enum(...)` node),
+// recorded where `evaluate_enum_type` mints the id, for the final AND its
+// self-shell. Both id families — the module-level `enum_decl_…` and the
+// eval-fresh CTFE `enum_…_n<k>` of a generic constructor's instantiation —
+// map to the one declaration they were minted from, which no string
+// derivation from the ids can recover (each spells the anchor differently).
+// Consumers: type_key's structural enum dedup and the enum arm of type
+// compatibility — renditions of one declaration may merge, two declarations
+// never (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
+// An id with no entry (`create_option_type`'s synthesized `Option`, id "")
+// keeps the shape-only rules.
+// ---------------------------------------------------------------------------
+(g_enum_decl_identities : HashMap(String, String)) = HashMap(String, String).new();
+register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
+  if((enum_id.len() > usize(0)) && (decl.len() > usize(0)), {
+    g_enum_decl_identities.insert(enum_id, decl);
+  });
+  ()
+});
+/// The declaration identity recorded for enum id `enum_id` (a clone).
+enum_decl_identity :: (fn(enum_id : &String) -> Option(String))(
+  match(g_enum_decl_identities.get(enum_id), .Some(d) => Option(String).Some(d.clone()), .None => Option(String).None)
+);
+/// Whether two enum ids are renditions of two DIFFERENT recorded declarations.
+/// An id without a recorded declaration answers `false` (no evidence).
+enum_decls_differ :: (fn(a_id : &String, e_id : &String) -> bool)(
+  cond(
+    (a_id == e_id) => false,
+    true => match(
+      g_enum_decl_identities.get(a_id),
+      .Some(ad) => match(g_enum_decl_identities.get(e_id), .Some(ed) => (ad != ed), .None => false),
+      .None => false
+    )
+  )
+);
 /// Whether `t` is the prelude's `Io` struct: the effect bundle whose fields are
 /// the compiler's async builtins, never called through at run time. A future
 /// whose bundle is `Io` behaves the same whether or not the bundle was
@@ -1080,6 +1116,9 @@ export(
   is_function_type_generic,
   is_function_type_hard_generic,
   register_type_decl_module,
+  register_enum_decl_identity,
+  enum_decl_identity,
+  enum_decls_differ,
   type_decl_module,
   is_prelude_io_struct,
   AdoptedExternCType,

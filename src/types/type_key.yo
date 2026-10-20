@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode } :: import("./definitions.yo");
 { type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
-{ is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
+{ is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked, type_mentions_some_type } :: import("./utils.yo");
 { debug_knob } :: import("../utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
@@ -36,7 +36,7 @@ pragma(Pragma.AllowUnsafe);
 // fix as g_struct_cfid_keys above).
 //
 // The signature also carries the enum's DECLARATION identity
-// (`g_enum_decl_identities`): only renditions of ONE declaration may merge.
+// (`enum_decl_identity`, types/guards.yo): only renditions of ONE declaration may merge.
 // Without it two distinct declarations of one shape —
 // `A :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` and a `B` spelled
 // the same — had one signature, because a self-reference inside the
@@ -44,20 +44,6 @@ pragma(Pragma.AllowUnsafe);
 // `ArrayList(B)` keyed (and specialized) as `ArrayList(A)`
 // (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
 (g_enum_sig_keys : HashMap(String, String)) = HashMap(String, String).new();
-// enum id → declaration identity (`stable_decl_key` of the `enum(...)`
-// node), recorded where `evaluate_enum_type` mints the id, for the final AND
-// its self-shell. Both id families — the module-level `enum_decl_…` and the
-// eval-fresh CTFE `enum_…_n<k>` of a generic constructor's instantiation —
-// resolve to the one declaration they were minted from, which no string
-// derivation from the ids can recover (the anchor is spelled differently in
-// each).
-(g_enum_decl_identities : HashMap(String, String)) = HashMap(String, String).new();
-register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
-  if((enum_id.len() > usize(0)) && (decl.len() > usize(0)), {
-    g_enum_decl_identities.insert(enum_id, decl);
-  });
-  ()
-});
 // A rendition with NO declaration identity (`create_option_type`'s synthesized
 // `Option`, id "") must still collapse onto the real `Option(T)` of its shape,
 // as it did when the signature was shape-only. Per declaration-free signature
@@ -618,7 +604,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
           // discriminants, or field types. Discriminants are included so two
           // same-named/same-fielded variants with different tag values do NOT
           // merge. The lookup adds the declaration identity, so two
-          // DECLARATIONS of one shape never merge (g_enum_decl_identities).
+          // DECLARATIONS of one shape never merge (`enum_decl_identity`).
           sig := String.from("e");
           (si : usize) = usize(0);
           while(si < evns.len(), {
@@ -635,7 +621,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
             si = (si + usize(1));
           });
           sig.push_string(&field_part);
-          decl := match(g_enum_decl_identities.get(&eid), .Some(d) => d.clone(), .None => String.new());
+          decl := match(enum_decl_identity(&eid), .Some(d) => d, .None => String.new());
           _lookup_or_register_enum_sig(&sig, &decl, &key)
         })
       })
@@ -1056,5 +1042,5 @@ enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
     _ => String.new()
   )
 );
-export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id, register_enum_decl_identity);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);
 export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled);

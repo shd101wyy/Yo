@@ -42,14 +42,13 @@ import("std/fmt");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
-{ is_comptime_int_type, is_type_0, register_type_decl_module } :: import("../../types/guards.yo");
+{ is_comptime_int_type, is_type_0, register_type_decl_module, register_enum_decl_identity } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { Exception } :: import("std/error");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
 { stable_position_id, stable_type_id, stable_decl_key, parse_raw_int } :: import("../../utils.yo");
-{ register_enum_decl_identity } :: import("../../types/type_key.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -340,7 +339,7 @@ evaluate_enum_type :: (
   // Declaration identity for type_key's structural dedup: every rendition
   // minted from THIS `enum(...)` node — whichever id family — may merge with
   // another of the same shape, and a rendition of another declaration may
-  // not (types/type_key.yo, g_enum_decl_identities).
+  // not (types/guards.yo, `register_enum_decl_identity`).
   decl_key := stable_decl_key(&decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column));
   register_enum_decl_identity(&enum_id, &decl_key);
   register_enum_decl_identity(&shell_id, &decl_key);
