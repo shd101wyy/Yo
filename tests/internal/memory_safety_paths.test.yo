@@ -9,7 +9,9 @@
 // `--std-path ./std` rejected std files that define macros ("requires
 // 'pragma(Pragma.AllowMacroDef);'"), which made every seed-gated build of
 // this tree fail on Windows. See
-// issues/fixed/windows-lex-abs-path-voids-std-exemption.md.
+// issues/fixed/windows-lex-abs-path-voids-std-exemption.md. The macro-def
+// gate has no std exemption any more (std files declare the pragma,
+// plans/reference/MACRO_POLICY.md Part 2); the overload-set one remains.
 { String } :: import("std/string");
 { assert } :: import("std/assert");
 { cwd } :: import("std/env");
@@ -59,32 +61,24 @@ test("lex_abs_path: relative path joins the working directory", {
   );
 });
 
-test("macro-def gate: Windows std file under an absolute std path is exempt", {
-  ok := is_macro_def_capable_file(
-    Option(String).Some(String.from("file://C:/prj/std/collections/array_list.yo")),
-    String.from("C:/prj/std")
-  );
-  assert(ok, "std file under Windows std path may define macros");
-});
-
-test("macro-def gate: POSIX std file is exempt", {
-  ok := is_macro_def_capable_file(
-    Option(String).Some(String.from("file:///usr/lib/yo/std/prelude.yo")),
-    String.from("/usr/lib/yo/std")
-  );
-  assert(ok, "std file under POSIX std path may define macros");
+test("macro-def gate: a std file without the pragma is gated like any file", {
+  win := is_macro_def_capable_file(Option(String).Some(String.from("file://C:/prj/std/collections/array_list.yo")));
+  posix := is_macro_def_capable_file(Option(String).Some(String.from("file:///usr/lib/yo/std/prelude.yo")));
+  assert(!win && !posix, "being under a std root is no exemption: std files declare pragma(Pragma.AllowMacroDef)");
 });
 
 test("macro-def gate: non-std file stays gated", {
-  ok := is_macro_def_capable_file(
-    Option(String).Some(String.from("file:///home/u/proj/m.yo")),
-    String.from("/usr/lib/yo/std")
-  );
+  ok := is_macro_def_capable_file(Option(String).Some(String.from("file:///home/u/proj/m.yo")));
   assert(!ok, "user file without the pragma may not define macros");
 });
 
+test("macro-def gate: a compiler-synthesized expansion inherits its caller's policy", {
+  ok := is_macro_def_capable_file(Option(String).Some(String.from("auto-generated://derive/m.yo")));
+  assert(ok, "auto-generated:// code may define macros");
+});
+
 test("macro-def gate: no module path stays gated", {
-  ok := is_macro_def_capable_file(Option(String).None, String.from("/usr/lib/yo/std"));
+  ok := is_macro_def_capable_file(Option(String).None);
   assert(!ok, "no module path means no exemption");
 });
 

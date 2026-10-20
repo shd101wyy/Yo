@@ -54,6 +54,17 @@ paren-less prefix calls inside `src/`/`std/`
 release CONTAINING those features becomes the seed, i.e. typically the
 bump after next.
 
+**All three DONE.** The prelude `if` macro and its export were deleted in
+#374 (2026-08). Paren-less prefix calls in `src/`/`std/` have been allowed
+since v0.2.21 became the seed (`PREFIX_OPERATOR_OPERAND_RULE.md`, "Seed
+constraint: LIFTED 2026-09-02"). The `AllowMacroDef` std exemption was
+deleted 2026-10-20 on the v0.2.66 seed: `std/prelude.yo` and
+`std/collections/array_list.yo`, `hash_map.yo` and `hash_set.yo` now declare
+`pragma(Pragma.AllowMacroDef);` like `std/async/stream.yo` and
+`std/encoding/json.yo`, and `is_macro_def_capable_file` has no std branch. `yo build --std-path ./std`
+with the installed v0.2.66 seed (`yo 0.2.66`) builds the tree (rc=0, 417.8 s,
+max RSS 4.0 GB, Mac Mini M4), and `yo check ./std` with the result passes.
+
 **Added 2026-08-25, DONE 2026-08-28** (collapsed once v0.2.18 became the seed;
 verified by compiling a probe AND building the whole tree with the real v0.2.18
 bundle, both rc=0, and `tests/time/sleep.test.yo` 4/4): collapse

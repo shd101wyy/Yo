@@ -37,8 +37,9 @@ Definition-site, at the module-export choke point:
 
 - `is_overload_set_capable_file(module_path, std_path)` in
   `src/evaluator/memory_safety.yo` — true only for
-  `<std_path>/prelude.yo` (lexically absolutized both sides, same
-  machinery as the `AllowMacroDef` std exemption) and for
+  `<std_path>/prelude.yo` (lexically absolutized both sides, the
+  machinery the `AllowMacroDef` std exemption also used until std declared
+  that pragma itself, 2026-10-20) and for
   compiler-synthesized `auto-generated://` code, which inherits the
   privileged caller's policy exactly like the unsafe and macro gates.
 - Enforcement in `src/evaluator/values/anonymous_module.yo`'s export loop:

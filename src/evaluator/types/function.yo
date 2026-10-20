@@ -4569,11 +4569,11 @@ evaluate_function_type :: (
     );
   });
   // Gate macro DEFINITIONS behind `pragma(Pragma.AllowMacroDef);`
-  // (plans/reference/MACRO_POLICY.md Part 2). CALLING macros is ungated; std is
-  // exempt this generation (see is_macro_def_capable_file) and
-  // `auto-generated://` expansions inherit their caller's policy.
+  // (plans/reference/MACRO_POLICY.md Part 2). CALLING macros is ungated, and
+  // `auto-generated://` expansions inherit their caller's policy (see
+  // is_macro_def_capable_file).
   if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
-    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()), ctx.std_path.clone()), {
+    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
       exn.throw(
         dyn(
           format_error_message(
