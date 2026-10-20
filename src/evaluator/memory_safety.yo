@@ -146,14 +146,9 @@ is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
 /// / `unquote(...)` return types)? True if the file declared
 /// `pragma(Pragma.AllowMacroDef);`, OR the code is compiler-synthesized
 /// (`auto-generated://` inherits the privileged caller's policy, same as
-/// the unsafe gate), OR the file belongs to the standard library
-/// (`file://<std_path>/...`).
-///
-/// The std exemption is BOOTSTRAP-TRANSITIONAL: the seed binary's pragma
-/// handler predates `AllowMacroDef`, so std files cannot carry the pragma
-/// call until a release that knows the variant becomes the seed. Once one
-/// does, add `pragma(Pragma.AllowMacroDef);` to the std macro-defining
-/// files and drop the std branch (plans/reference/MACRO_POLICY.md Part 2).
+/// the unsafe gate). The standard library has no exemption: each std file
+/// that defines a macro declares the pragma like any other file
+/// (plans/reference/MACRO_POLICY.md Part 2).
 /// Lexically absolutize a path for the std-prefix comparison below: strip a
 /// `file://` scheme, then absolutize. Purely lexical — no symlink
 /// resolution — matching how the loaders build std module URIs (a join on
@@ -251,16 +246,12 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
     }
   )
 );
-is_macro_def_capable_file :: (fn(module_path : &Option(String), std_path : &String) -> bool)(
+is_macro_def_capable_file :: (fn(module_path : &Option(String)) -> bool)(
   match(
     module_path,
     .None => false,
     .Some(mp) => {
       if(mp.starts_with(String.from("auto-generated://")), {
-        return(true);
-      });
-      // std exemption (see _is_std_module_path).
-      if(_is_std_module_path(mp.clone(), std_path.clone()), {
         return(true);
       });
       file_has_pragma(Option(String).Some(mp.clone()), Pragma.AllowMacroDef)
