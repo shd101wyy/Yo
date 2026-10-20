@@ -10,7 +10,7 @@ not landed.
 
 Tag legend: `V2b`, `V2c`, `V5` are phases of
 [`plans/VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); `N1`–`N3` are phases
-of [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md);
+of [`plans/backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md);
 "Generation B" means the compiler accepts the feature in user code today and
 `std/` adopts it once a released seed carries it.
 
@@ -295,7 +295,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-(planned: NON_ESCAPABLE_TYPES N1) `n = (n + i32(1))` writes through the
+(planned: REFERENCES_AND_ORIGINS N1) `n = (n + i32(1))` writes through the
 `&mut` parameter today; once references are types, a whole-value read or
 write through one is spelled `n.*` (section 5).
 
@@ -361,7 +361,7 @@ export(main);
 ```
 
 Today a bare assignment to a `&mut` binding writes through it (`a = v`).
-(planned: NON_ESCAPABLE_TYPES N1) When references become types, a
+(planned: REFERENCES_AND_ORIGINS N1) When references become types, a
 whole-value read or write through a reference is spelled `a.* = v` and
 `tmp := a.*`; `.field` and `.method()` keep auto-dereferencing.
 
@@ -515,7 +515,7 @@ first_mut :: (fn(g : &mut Grid) -> &mut i32)(&mut g.a);
 
 Two live `&mut` projections into one container are rejected even for
 different indices: the checker reasons about places, not index arithmetic.
-(planned: NON_ESCAPABLE_TYPES) The disjoint case is a single call returning
+(planned: REFERENCES_AND_ORIGINS) The disjoint case is a single call returning
 both, with the disjointness as a precondition:
 
 ```yo
@@ -635,7 +635,7 @@ export(main);
 | Trait | The call takes | A closure gets it when its body |
 | --- | --- | --- |
 | `Fn` | `self : &Self` | only reads its captures |
-| `FnMut` (planned: NON_ESCAPABLE_TYPES N1) | `self : &mut Self` | writes a `&mut` capture or its own state |
+| `FnMut` (planned: REFERENCES_AND_ORIGINS N1) | `self : &mut Self` | writes a `&mut` capture or its own state |
 | `FnOnce` | `self` | moves a capture out |
 
 - `Fn` implies `FnMut`, which implies `FnOnce`.
@@ -667,7 +667,7 @@ export(main);
   the `io.async` body). Non-escaping call-once APIs (`Option.map`,
   `unwrap_or_else`) keep `&Impl(Fn(…))`, so their bodies cannot move a
   capture out.
-- (planned: NON_ESCAPABLE_TYPES N1) Until `FnMut` lands, a `&mut` capture
+- (planned: REFERENCES_AND_ORIGINS N1) Until `FnMut` lands, a `&mut` capture
   writes through its pointer under an `Fn` call, as in the capture-list
   example above. Afterwards that closure is an `FnMut`, the write is spelled
   `total.* = (total.* + x)`, and repeated-call slots (`for_each`,
@@ -679,7 +679,7 @@ export(main);
 - `for(&mut xs, x => …)` borrows `xs` exclusively; `x` is a `&mut` place
   into the element, so a write through it lands in the collection (the
   write-through spelling becomes `x.* = …` once references are types,
-  planned: NON_ESCAPABLE_TYPES N1).
+  planned: REFERENCES_AND_ORIGINS N1).
 - A plain `for(xs, x => …)` takes `xs` by value.
 
 ```yo
@@ -702,14 +702,14 @@ export(main);
 
 Growing or shrinking a collection while a borrowed `for` walks it panics
 at run time today; collect the changes and apply them after the loop.
-(planned: NON_ESCAPABLE_TYPES N2) For a container held by value, the same
+(planned: REFERENCES_AND_ORIGINS N2) For a container held by value, the same
 mistake becomes a compile error (E0911).
 
 (planned: V2b) Post-V2b iteration over a uniquely owned container is the
 borrowed `for`, or an index cursor: `xs.indices()` returns a `Copy` range
 and `xs(i)` is re-derived each step, so growth mid-walk is a bounds error,
 not undefined behaviour. `xs.into_iter()` consumes; a chain that must own
-its source writes `xs.clone().into_iter()`. (planned: NON_ESCAPABLE_TYPES
+its source writes `xs.clone().into_iter()`. (planned: REFERENCES_AND_ORIGINS
 N3) Borrowing iterators (`iter(self : &Self)` returning a cursor that holds
 `&xs`) and lazy adapter chains over a borrowed container follow.
 
@@ -746,7 +746,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-(planned: NON_ESCAPABLE_TYPES N1) The `.Leaf(v) => v` arm reads through the
+(planned: REFERENCES_AND_ORIGINS N1) The `.Leaf(v) => v` arm reads through the
 `&` binding today; once references are types, nothing coerces and the
 whole-value read is spelled `v.*`.
 
@@ -803,7 +803,7 @@ cross-thread forms stay `Arc(Mutex(T))` and `Arc(RwLock(T))`.
   its cell under a count.
 - (planned) A closure flowing into a `Dyn(Fn(…))` slot is spelled `dyn(f)`
   at every site; a bare `f` there becomes a type error.
-- (planned: NON_ESCAPABLE_TYPES N1) A borrowed trait object, with no
+- (planned: REFERENCES_AND_ORIGINS N1) A borrowed trait object, with no
   allocation, is `&Dyn(Trait)`, made by `dyn(&v)` or by lending an owned
   `Dyn` (`&d`). It follows the reference rules (until N2, the
   second-class ones). Narrowing
@@ -817,7 +817,7 @@ and collection buffers are part of their owner's value and are never
 tracked. An `Arc` payload must be `Acyclic`, so an `Arc` cannot close a
 cycle. See [`CYCLE_COLLECTION.md`](../docs/en-US/CYCLE_COLLECTION.md).
 
-## 11. References as values (planned: NON_ESCAPABLE_TYPES N1–N3)
+## 11. References as values (planned: REFERENCES_AND_ORIGINS N1–N3)
 
 Today a borrow lives in a parameter, a local binding, a capture or a
 projection result. The origin phase makes `&T` and `&mut T` **types** —
@@ -1016,7 +1016,7 @@ mutate on purpose becomes a value held in an `Rc`.
   `FnOnce`, 38 closure soundness, 39 iteration, 40 no `Pin`, 41 `RefCell`,
   42 borrow spelling, 43 references as types, 44 `Dyn`, 45 `Drop` (the
   `Dispose` rename).
-- [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md):
+- [`plans/backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md):
   origins (O1–O10, the `Origin` kind and `&(T, p)`); phases N0–N3.
 - Related docs: [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md),
   [`DYN_DESIGN.md`](../docs/en-US/DYN_DESIGN.md),

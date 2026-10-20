@@ -11,7 +11,7 @@
 1. Read this document, then the 2026-10-17 handover, then AGENTS.md. **Decision 43 was amended
    after both were written (#1483, §4.5): references are first-class `&(T, p)` types with origins.**
    Before touching anything about borrows, references, `Send` or `TypeValue`, read
-   `plans/backlog/NON_ESCAPABLE_TYPES.md` O1–O10; the 2026-10-17 handover's step 15 and every
+   `plans/backlog/REFERENCES_AND_ORIGINS.md` O1–O10; the 2026-10-17 handover's step 15 and every
    `R1`–`R7` / `depends(...)` citation in the backlog catalogs describe the superseded design.
 2. Confirm v0.2.66 is published: `gh release view v0.2.66`, `SEED_VERSION` bumped, release notes
    curated (§6 has the final state and anything left to check).
@@ -229,7 +229,7 @@ is silent.
 ### 4.5 Decision 43 amended: first-class references with origins (#1483, 2026-10-19/20)
 
 The amendment supersedes the `depends` clause and the R7 root-joining tracker that the 2026-10-17
-handover's step 15 still describes; its design is `plans/backlog/NON_ESCAPABLE_TYPES.md` O1–O10 and
+handover's step 15 still describes; its design is `plans/backlog/REFERENCES_AND_ORIGINS.md` O1–O10 and
 the PR sequence is the plan's §6 "Decision 43" (four steps, unchanged in count). What a resuming
 agent must know beyond the plan:
 

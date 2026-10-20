@@ -151,7 +151,7 @@ Lean-blaster posture with compensations Lean lacks; D2's reopen condition
 is incident-shaped), and the rejections it adds (in-kernel decision
 procedures like `omega`/`grind`, ambient rewrite automation and simp
 sets, proof-term tiers over the compiler).
-[`NON_ESCAPABLE_TYPES`](backlog/NON_ESCAPABLE_TYPES.md) is the design of
+[`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md) is the design of
 VALUES_BY_DEFAULT decisions 42 and 43 (2026-10-10, amended 2026-10-19 to
 the origin design, #1483): references are first-class types parameterized
 by an origin — a declared set of places, a new comptime kind beside `Type`

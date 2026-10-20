@@ -11,7 +11,7 @@
   2026-10-14; decision 47, immutable bindings with `mut(...)` and Zig's
   statics, added 2026-10-15, with two points to settle before its
   implementation; decision 43's amendment's one follow-up, the
-  `Escapable` bound, decided 2026-10-20 — `NON_ESCAPABLE_TYPES.md` O10).
+  `Escapable` bound, decided 2026-10-20 — `REFERENCES_AND_ORIGINS.md` O10).
   No other design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
@@ -1844,7 +1844,7 @@ and in git, not a silent edit.
     - The result is a `&T`/`&mut T` value (decision 43): a receiver, an
       argument, an operand, the left of `=`, a `for` source, bindable to a
       local, and returnable under the origin return rule
-      (`NON_ESCAPABLE_TYPES.md` O3). Its storage positions are the
+      (`REFERENCES_AND_ORIGINS.md` O3). Its storage positions are the
       no-origin rule's (O4): cells carry origins from N2.
     - While a `&mut` projection is live, its base is exclusively borrowed.
     - `Index.index` becomes `fn(self : &mut Self, idx : Idx) -> &mut Self.Output`
@@ -3251,7 +3251,7 @@ and in git, not a silent edit.
       - **The V3b sweep** leaves iterator-returning methods out of the
         mechanical conversion (§7's table); their signatures come from this
         decision.
-    - **From decision 43's phase (`NON_ESCAPABLE_TYPES.md` N2):** a struct
+    - **From decision 43's phase (`REFERENCES_AND_ORIGINS.md` N2):** a struct
       may hold `xs : &(ArrayList(T), p)` (O1), so
       `iter(self : &Self) -> Cursor(T, self)` returns a borrowing iterator
       under the return rule (O3),
@@ -3452,7 +3452,7 @@ and in git, not a silent edit.
       dangles what it contains; an async state machine is heap storage
       that never relocates (this decision's invariant), so its own locals
       and the borrows among them are stable and what its type names is
-      only its captures (`NON_ESCAPABLE_TYPES.md` O5). No `Pin`-like
+      only its captures (`REFERENCES_AND_ORIGINS.md` O5). No `Pin`-like
       marker is needed.
 
 41. **`RefCell(T)` is the one spelling of the dynamic exclusivity check;
@@ -3693,7 +3693,7 @@ and in git, not a silent edit.
     can follow, **storage included** — the second-class caste becomes the
     structural predicate "this position accepts no origin parameters"
     (`Send`/spawn, `extern`, module-level, self-referential; E0909
-    restated). The design is `plans/backlog/NON_ESCAPABLE_TYPES.md`
+    restated). The design is `plans/backlog/REFERENCES_AND_ORIGINS.md`
     (O1–O10), which supersedes the 2026-10-13 `depends`-clause and
     root-joining-tracker design of the same file (in git history): the
     clause grammar and the per-value flow tracker are not built —
@@ -3804,7 +3804,7 @@ and in git, not a silent edit.
       later time. No region variables, no outlives, no
       variance, no HRTB — after substitution an origin is a ground set of
       places, so the Polonius class of accept problems does not arise
-      (`NON_ESCAPABLE_TYPES.md` §4 has the cost table; §2 O7 the clause
+      (`REFERENCES_AND_ORIGINS.md` §4 has the cost table; §2 O7 the clause
       mapping; §8 the phases N0–N3).
     - **Verifier.** A `&T` parameter stays a lent, unchanged place and a
       `&mut T` a modifiable one; a bound `&T` local is modelled as an alias
@@ -3817,7 +3817,7 @@ and in git, not a silent edit.
       origin parameters" and name the origin's places; every borrow error
       names the two origin sets, the places in their intersection, the
       value holding the borrow and its last use
-      (`NON_ESCAPABLE_TYPES.md` §4).
+      (`REFERENCES_AND_ORIGINS.md` §4).
     - **Rejected.** Rust's abstract regions (outlives, variance, HRTB —
       origins are ground place sets, not region variables; the
       names-in-types half is adopted, the solving half is not); Ante's
@@ -7461,7 +7461,7 @@ RC and allocation traffic grew faster than the code. That points at copies the m
 
 ### Decision 43: references as types
 
-Decision 43 (§4) is the design, and `plans/backlog/NON_ESCAPABLE_TYPES.md`
+Decision 43 (§4) is the design, and `plans/backlog/REFERENCES_AND_ORIGINS.md`
 (O1–O10) the full statement — **amended 2026-10-19 to the origin design**
 (references are first-class `&(T, p)` types parameterized by an `Origin`
 kind; the `depends` clause and the R7 root-joining tracker of the previous
@@ -7473,7 +7473,7 @@ and must not be written twice. Each step is its own PR, with its own
 measured `check ./src` time and stage-2 RSS.
 
 0. **N0, no prerequisite (added 2026-10-20):** the negative-test corpus
-   and the reference checker (NON_ESCAPABLE_TYPES §8 N0) — an executable
+   and the reference checker (REFERENCES_AND_ORIGINS §8 N0) — an executable
    model of O1–O10 over a toy language that the corpus runs through. It
    can start now, before V2b finishes; the expected-hole list in §8 is
    its first input.
@@ -7489,7 +7489,7 @@ measured `check ./src` time and stage-2 RSS.
    - `TypeInfo` gains the `Reference` and `Origin` kinds here too, because
      reflection reads `TypeValue`.
    - Origins are not part of `type_key`, the memo keys or any
-     specialization identity (NON_ESCAPABLE_TYPES O1): the variant
+     specialization identity (REFERENCES_AND_ORIGINS O1): the variant
      carries the origin, the keys ignore it, and the gate's emit-diff is
      what proves it (added 2026-10-20).
 2. **Generation A: the kind and the rules in user code (N1).**
@@ -7500,7 +7500,7 @@ measured `check ./src` time and stage-2 RSS.
    - The elision defaults (fresh per reference parameter; result = union
      of the reference-holding parameters; per-field fresh in type
      definitions; flow-inferred in bodies), each checked against the body.
-   - The checking rules (NON_ESCAPABLE_TYPES O3): freeze/exclusivity by
+   - The checking rules (REFERENCES_AND_ORIGINS O3): freeze/exclusivity by
      origin intersection, the covariant/invariant coercion rule (exact
      through a `&mut` pointee, a `RefCell` payload, a `&mut` capture),
      the return rule (result origins name parameters only), place writes,
@@ -7514,7 +7514,7 @@ measured `check ./src` time and stage-2 RSS.
      capture structs, async state machines, effect handlers, `match`/`cond`
      arms, specialized bodies — because a rule the evaluator adds without
      its closure-side and macro-side checks is swallowed there
-     (NON_ESCAPABLE_TYPES §4).
+     (REFERENCES_AND_ORIGINS §4).
    - The tests are decision 43's list, minus the storage and `Rc` rows.
    - The compiler needs no seed for any of this: it is Generation A by
      construction.
@@ -7546,7 +7546,7 @@ handle (2026-10-20); it lands in step 2 with the other checking rules.
 #1483 raised): a `generic(...)` parameter admits origin-carrying arguments
 by default; the no-origin positions carry `where(T <: Escapable)`, a
 structurally derived prelude marker like `Send` and Rust's `T : 'static`
-(`NON_ESCAPABLE_TYPES.md` O10). The same day's second round filled three
+(`REFERENCES_AND_ORIGINS.md` O10). The same day's second round filled three
 gaps against Rust (O3 step 2 loan-vs-access, O9 handle-origin borrows,
 `Dyn(Trait, p)`; the design doc's §3.1 is the audit). Step 2 lands the
 rules, step 3 the `Dyn` storage.
@@ -8133,7 +8133,7 @@ Decision 18 was also amended to place-based exclusivity.
 **Decided 2026-10-20** (review of #1483, the maintainer delegating): the
 `Escapable` bound — no implicit bound on generic parameters, the no-origin
 positions require `where(T <: Escapable)`, a structural marker like `Send`
-and Rust's `T : 'static` (`plans/backlog/NON_ESCAPABLE_TYPES.md` O10);
+and Rust's `T : 'static` (`plans/backlog/REFERENCES_AND_ORIGINS.md` O10);
 and three fills against Rust the same day (loan-vs-access conflicts,
 handle-origin borrows through an `Rc`/`Arc` deref, `Dyn(Trait, p)` —
 §3.1 there). The review's other findings

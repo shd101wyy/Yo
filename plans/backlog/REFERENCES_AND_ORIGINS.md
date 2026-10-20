@@ -2,7 +2,10 @@
 
 **Status: BACKLOG — the design of VALUES_BY_DEFAULT decision 43, amended
 2026-10-19 by the maintainer: references become FIRST-CLASS types
-parameterized by origins.** An origin is a named set of places — a new
+parameterized by origins.** (This file was `NON_ESCAPABLE_TYPES.md` until
+2026-10-20; the old name described the second-class design, and
+"non-escapable" is now one bound, O10. `git log --follow` carries the
+history.) An origin is a named set of places — a new
 comptime kind beside `Type`, spelled `p : Origin` in `generic(...)`, and a
 trailing argument of the reference types: `&(T, p)`, `&mut(T, p)`. Yo keeps
 mutable value semantics for owned values (decision 42's spelling; decisions
@@ -753,6 +756,7 @@ controls mirror them, `words` and `get2_mut`'s pair among them.
 | Alternative | Verdict |
 | --- | --- |
 | Rust's lifetimes (`'a` as abstract regions, outlives, variance, HRTB) | **still rejected as regions** — the solving, the variance and the error-at-a-distance are what §4 refuses; the names-in-types half is now adopted as origins, which are ground place sets, not region variables |
+| the 2025 `FUTURE_ORIGINS.md` sketch (`&(T, R)`, `forall(R : Origin)`, `where(R1 < R2)` constraints, a solver, no `&`/`&mut` split, second-classness inferred) — rejected then as "Rust lifetimes wearing Yo's clothes" | **its vocabulary is kept, its machinery is not** (the sketch was deleted 2026-10-20; `git log -- plans/backlog/FUTURE_ORIGINS.md` has it): the kind beside `Type` and the trailing-argument spelling are this design's; the ordering constraints and the solver are replaced by ground place sets with subset coercion, the missing `&mut` split by decision 42's freeze model, and inference by declaration with checked defaults — which is what answers the 2025 rejection |
 | Mojo's origins (`ref [origin]`, parametric, inferred) | **adopted in modified form** — parametric origins with explicit spelling at contracts and checked defaults elsewhere; no inference at semantic distance |
 | Austral's regions | **adopted in modified form** — declared and explicit; its linear types stay rejected (affine moves + `Drop` are lighter) |
 | the 2026-10-13 `depends`-clause + root-joining-tracker design (this file's predecessor) | **superseded** — the clause grammar, its `Fn(...)` subtyping order and its per-value flow tracker (the design's one new analysis) all collapse into parametricity and declared unions (O7, O6); the mapping table shows nothing lost |

@@ -10,7 +10,7 @@ what does it cost?**
 It describes the model **at V5 with decisions 41–43 landed**: every
 declared type a value, sharing spelled `Rc`/`Arc`, the dynamic exclusivity
 check spelled `RefCell(T)`, references as first-class `&(T, p)` types
-parameterized by origins ([`NON_ESCAPABLE_TYPES.md`](NON_ESCAPABLE_TYPES.md),
+parameterized by origins ([`REFERENCES_AND_ORIGINS.md`](REFERENCES_AND_ORIGINS.md),
 O1–O10; rewritten to that design on 2026-10-20 — the R1–R7 rules it cited
 before are the superseded `depends` design). Sections that depend on that design or on V2b say so. At V5
 this document is the seed of the user-facing porting guide (`docs/en-US/`

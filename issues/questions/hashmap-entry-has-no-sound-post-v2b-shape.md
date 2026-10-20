@@ -56,9 +56,9 @@ has the same root (a stored borrow of a container in a returned value).
 since its 2026-10-19 amendment (#1483) the field is `_map : &mut(HashMap(K, V), p)`
 with `p` the entry type's origin parameter, `entry` returns
 `HashMapEntry(K, V, self)` and `or_insert` returns `&mut(V, p)` —
-`NON_ESCAPABLE_TYPES.md` §3's entry row:**
+`REFERENCES_AND_ORIGINS.md` §3's entry row:**
 `&T`/`&mut T` are reference types, a struct may hold one as a field
-(`NON_ESCAPABLE_TYPES.md` R1, now O4), and a function may return such a struct when
+(`REFERENCES_AND_ORIGINS.md` R1, now O4), and a function may return such a struct when
 its roots are the function's own parameters (R3, now O3's return rule). So `HashMapEntry` keeps
 its shape with the field spelled as what it is,
 `struct(_map : &mut HashMap(K, V), _key : K, _hash : u64, _slot : BucketProbe)`,

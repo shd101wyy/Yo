@@ -133,7 +133,7 @@ authorship from day one.
   regions, no outlives constraints, no variance, no higher-ranked bounds.
   An origin is a declared set of places; conflict is set intersection,
   coercion is subset, and checking is substitution plus intraprocedural
-  liveness ([`backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md)).
+  liveness ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
 - Runtime dependent types. Runtime properties go through the verifier
   ([`backlog/DEPENDENT_TYPES_POSITION.md`](backlog/DEPENDENT_TYPES_POSITION.md)).
 - A native or LLVM backend. Yo compiles to C, and compile-speed work stays
