@@ -6975,7 +6975,7 @@ try_to_call_function_with_arguments :: (
       // The arguments as written, for decision 33's bare-argument rule
       // (`check_call_site_borrow_marker`), which must tell `&x` from `x`.
       written_args := adjusted_args;
-      adjusted_args = apply_call_site_borrow_markers(&adjusted_args, &pt.items, &pref, &pio, &pl, is_method_call, exn);
+      adjusted_args = apply_call_site_borrow_markers(&adjusted_args, &pt.items, &pref.items, &pio.items, &pl.items, is_method_call, exn);
       // An operator's operands take no marker (decision 34).
       call_is_operator := match(expr, .FnCall(_, op_f, _, op_infix, _) => (op_infix || match(op_f, .Atom(_, op_t) => (op_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
       // ----------------------------------------------------------------
@@ -8035,14 +8035,14 @@ try_to_call_function_with_arguments :: (
       // arguments, so Step 2's re-evaluation of its parameter type sees the
       // binders they fixed. `arg_vals` and `rt_args` are put back in parameter
       // order after the loop.
-      s7_order := _step7_param_order(&adjusted_args, n_args, n_params, &pt.items, &fl);
+      s7_order := _step7_param_order(&adjusted_args, n_args, n_params, &pt.items, &fl.items);
       s7_permuted := _order_is_permuted(&s7_order);
       s7_argval_idx := ArrayList(usize).new();
       s7_rt_span_param := ArrayList(usize).new();
       s7_rt_span_start := ArrayList(usize).new();
       s7_rt_span_end := ArrayList(usize).new();
       (s7_k : usize) = usize(0);
-      s7_inout_roots := inout_argument_roots(&adjusted_args, &pref);
+      s7_inout_roots := inout_argument_roots(&adjusted_args, &pref.items);
       while(s7_k < n_params, {
         pi = match(s7_order.get(s7_k), .Some(o) => o, .None => s7_k);
         s7_k = (s7_k + usize(1));
@@ -8222,7 +8222,7 @@ try_to_call_function_with_arguments :: (
         );
         callee_env_m = pr.callee_env;
         caller_env_m = pr.caller_env;
-        _check_forall_bindings_after_arg(&fl, &callee_env_m, pi, &pl, &mut forall_seen, ast_expr_token(&parg), exn);
+        _check_forall_bindings_after_arg(&fl.items, &callee_env_m, pi, &pl.items, &mut forall_seen, ast_expr_token(&parg), exn);
         arg_vals.push(
           ArgEntry(
             value : pr.arg_value,
@@ -8400,7 +8400,7 @@ try_to_call_function_with_arguments :: (
       // (`cb : &Dyn(Fn(n : &mut i32) -> unit)`) is no `Func`, so `vrf_*` are
       // empty for it, and a borrowed place lent to its `&mut` parameter was
       // never judged.
-      require_no_inout_write_through_borrow(&mut d3_pending, &pl, &pref, &adjusted_args, is_pointer_type(&ret_b), &caller_env_m, ctx);
+      require_no_inout_write_through_borrow(&mut d3_pending, &pl.items, &pref.items, &adjusted_args, is_pointer_type(&ret_b), &caller_env_m, ctx);
       // Restore the io.async arg-eval context flag (set before Step 7).
       ctx.is_inside_io_async_call = h_prev_io_async_ctx;
       // ----------------------------------------------------------------
