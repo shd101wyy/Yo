@@ -219,11 +219,11 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
 _enum_variant_names :: (fn(t : &TypeValue) -> SharedList(String))(
   match(t, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
 );
-_enum_variant_labels :: (fn(t : &TypeValue, idx : usize) -> ArrayList(String))(
+_enum_variant_labels :: (fn(t : &TypeValue, idx : usize) -> SharedList(String))(
   match(
     t,
     Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(idx), .Some(l) => l, .None => no_labels()),
-    _ => ArrayList(String).new()
+    _ => no_labels()
   )
 );
 _find_str :: (fn(list : &ArrayList(String), s : &String) -> Option(usize))({
@@ -833,7 +833,7 @@ _compile_variant :: (
       });
       lbl := _atom_name(&label_expr);
       fidx = match(
-        _find_str(&labels, lbl.clone()),
+        _find_str(&labels.items, lbl.clone()),
         .Some(i) => i,
         .None => {
           available := String.new();
@@ -857,7 +857,7 @@ _compile_variant :: (
                 format_error_message_with_help(
                   ast_expr_token(&label_expr),
                   `Label "${lbl}" not found in variant "${vname}". Available labels: ${available}`,
-                  _did_you_mean(lbl.clone(), &labels)
+                  _did_you_mean(lbl.clone(), &labels.items)
                 ),
                 E_FIELD_NOT_FOUND
               )
@@ -913,7 +913,7 @@ _compile_variant :: (
           lbl := _atom_name(&param);
           curly_bind = true;
           fidx = match(
-            _find_str(&labels, lbl.clone()),
+            _find_str(&labels.items, lbl.clone()),
             .Some(i) => i,
             .None => {
               exn.throw(
@@ -922,7 +922,7 @@ _compile_variant :: (
                     format_error_message_with_help(
                       ast_expr_token(&param),
                       `Label "${lbl}" not found in variant "${vname}"`,
-                      _did_you_mean(lbl.clone(), &labels)
+                      _did_you_mean(lbl.clone(), &labels.items)
                     ),
                     E_FIELD_NOT_FOUND
                   )

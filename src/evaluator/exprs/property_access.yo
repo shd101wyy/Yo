@@ -1186,7 +1186,7 @@ Raw pointer operations may dereference invalid memory.`
         _ => no_types()
       );
       // Search field_labels.
-      fidx_su := find_last_field_index(&su_labels, prop_name_su.clone());
+      fidx_su := find_last_field_index(&su_labels.items, prop_name_su.clone());
       match(
         fidx_su,
         .Some(fi_su) => {
@@ -1347,7 +1347,7 @@ Raw pointer operations may dereference invalid memory.`
         Rc(.Struct({ field_types : types })) => types,
         _ => no_types()
       );
-      fidx_mt := find_first_field_index(&mt_labels, prop_name_mt.clone());
+      fidx_mt := find_first_field_index(&mt_labels.items, prop_name_mt.clone());
       match(
         fidx_mt,
         .Some(fi_mt) => {
@@ -1808,7 +1808,7 @@ Raw pointer operations may dereference invalid memory.`
       // --- Label name access ----------------------------------------------
       if(is_valid_variable_name(&property_expr), {
         label_str := ast_expr_token(&property_expr).value;
-        field_idx_lbl := find_first_field_index(&fields_labels, label_str.clone());
+        field_idx_lbl := find_first_field_index(&fields_labels.items, label_str.clone());
         match(
           field_idx_lbl,
           .None => {
@@ -1907,7 +1907,7 @@ Raw pointer operations may dereference invalid memory.`
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!pa_is_callee, {
-              exn.throw(dyn(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels)), unknown_field_code(&base_ty))));
+              exn.throw(dyn(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels.items)), unknown_field_code(&base_ty))));
               return(expr);
             });
             // A method call — return without setting ExprInfo.
@@ -2121,7 +2121,7 @@ Raw pointer operations may dereference invalid memory.`
           Rc(.Struct({ field_types : types })) => types,
           _ => no_types()
         );
-        mod_fidx := find_first_field_index(&mod_labels_rt, mod_label.clone());
+        mod_fidx := find_first_field_index(&mod_labels_rt.items, mod_label.clone());
         match(
           mod_fidx,
           .None => {
