@@ -3806,7 +3806,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
         if(to_fix.len() == usize(0), {
           return(false);
         });
-        fixed.param_is_owning = owns;
+        fixed.param_is_owning = shared_list(owns);
         if(!are_types_compatible(_with_receiver_mode_of(rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(fixed), avts)), expected), expected), {
           return(false);
         });
@@ -3880,8 +3880,8 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
             owns.push(match(src_meta.*.param_is_owning.get(ri), .Some(b) => b, .None => false));
             ri = (ri + usize(1));
           });
-          m.param_is_ref = refs;
-          m.param_is_owning = owns;
+          m.param_is_ref = shared_list(refs);
+          m.param_is_owning = shared_list(owns);
           rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(m), avts))
         },
         true => actual

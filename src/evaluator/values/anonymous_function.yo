@@ -1918,7 +1918,7 @@ evaluate_anonymous_function_implementation :: (
     function_type.clone(),
     Rc(.Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _)) => {
       _l3nm := _l3m.*.clone();
-      _l3nm.param_labels = actual_param_labels.clone();
+      _l3nm.param_labels = shared_list(actual_param_labels.clone());
       rc(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), no_types()))
     },
     _ => function_type.clone()
@@ -2501,7 +2501,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 function_type,
                 Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt)) => {
                   nrs_nm := nrs_m.*.clone();
-                  nrs_nm.param_labels = actual_param_labels.clone();
+                  nrs_nm.param_labels = shared_list(actual_param_labels.clone());
                   rc(TypeValueNode.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt))
                 },
                 _ => function_type
@@ -2585,7 +2585,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   corrected_func_type.clone(),
                   Rc(.Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _)) => {
                     _l4nm := _l4m.*.clone();
-                    _l4nm.param_labels = actual_param_labels.clone();
+                    _l4nm.param_labels = shared_list(actual_param_labels.clone());
                     // The parameter types are the SUBSTITUTED ones (`_l4pt`, from
                     // `corrected_func_type`): the local `param_types` predate the
                     // expected-env substitution above, and re-registering them
