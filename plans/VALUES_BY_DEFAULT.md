@@ -6813,7 +6813,8 @@ heavy run, the command is given in item 2.
      - The two tool guards (2026-10-20, branch `feat/explicit-copy-guards`,
        Tier 1 run 2026-10-20, results in the fixed issue doc): a copy out of a temporary that dies
        right after it (a `match` binding of a call's result such as
-       `m.get(k)`'s, a field of `make()`) is listed, not cloned
+       `m.get(k)`'s, a field of `make()` not read through a dereference)
+       is listed, not cloned
        (`ExplicitCopySite.src_dying`;
        `issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md`),
        and `--hot-path <path>` (repeatable) lists every copy in a file under

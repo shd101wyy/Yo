@@ -286,9 +286,13 @@ These sites are also left as written:
 - a binding a macro wrote;
 - a position copied at two types (a generic body);
 - a site whose source text does not print as the evaluated expression;
-- a copy out of a temporary that dies right after it (a `match` binding of a
-  call's result, such as `.Some(v) => v` over `m.get(k)`, or a field of one,
-  `make().name`): that copy is usually a move;
+- a copy out of a temporary that dies at the end of its statement (a `match`
+  binding of a call's result, such as `.Some(v) => v` over `m.get(k)`, or a
+  field of one, `make().name`): that copy is usually a move. Every copy of
+  such a binding is listed, including one made while the binding is still
+  read later in its arm; spell `.clone()` there by hand. A field read through
+  a dereference (`grab().*.name`) is not one: the pointee can outlive the
+  handle, so it is rewritten;
 - with `--hot-path <path>` (repeatable), every copy in a file under that path.
   On a hot path a deep copy per operation adds up, and the hand edit is
   usually a borrow or a shared value rather than a `.clone()`.

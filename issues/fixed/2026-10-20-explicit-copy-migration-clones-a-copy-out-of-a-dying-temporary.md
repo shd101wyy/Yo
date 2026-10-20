@@ -1,6 +1,6 @@
 # `yo fix --migrate explicit-copy` clones a copy out of a temporary that dies right after it
 
-**Severity:** S3. The migration writes `.clone()` calls nothing needs: a value taken out of a temporary that dies after the copy is a move, so each insertion is a wasted deep copy (no change in what the program computes). One shape also gets a misleading listing: a returned field of a temporary is described as "returned from a borrowed binding", with a projection (`-> &T`) suggested, which would borrow the dying temporary.
+**Severity:** S3. The migration writes `.clone()` calls nothing needs: a value taken out of a temporary that dies after the copy is usually a move, so each such insertion is a wasted deep copy (no change in what the program computes). One shape also gets a misleading listing: a returned field of a temporary is described as "returned from a borrowed binding", with a projection (`-> &T`) suggested, which would borrow the dying temporary.
 
 **Status:** fixed on `feat/explicit-copy-guards` (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). Tier 1 run 2026-10-20 on the branch rebased onto develop 7def2203b; results under "Gates" below.
 
@@ -48,14 +48,28 @@ driver (`_run_migrate_explicit_copy`, `src/main.yo`) checks this first and
 lists the site ("... a temporary that dies after the copy, so the copy is
 usually a move; left as written"). The audit's own output is unchanged.
 
-Not covered: an index of a temporary (`make().tags(usize(0))`) is not a `.`
-chain, so it is still classified by the old rules
-(`issues/2026-10-20-explicit-copy-return-split-calls-a-temporary-a-borrowed-binding.md`).
+A dereference ends the field walk with "not dying": `grab(&s).*.name`
+reads the pointee of the dying `Rc` handle, which `s.h` still owns, so it is
+a genuine copy and is cloned
+(`issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-calls-a-copy-through-a-dereference-a-move.md`,
+found by the branch's review).
+
+Not covered:
+
+- An index of a temporary (`make().tags(usize(0))`) is not a `.` chain, so
+  it is still classified by the old rules
+  (`issues/2026-10-20-explicit-copy-return-split-calls-a-temporary-a-borrowed-binding.md`).
+- A temp-rooted `match` binding is judged by its root alone, with no
+  liveness: every copy of it is listed, including one made while the binding
+  is still read later in its arm (`hs.push(z); hs.push(z); z`), where a
+  `.clone()` is the right edit
+  (`issues/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md`).
 
 ## Test
 
 `tests/cli-cases/fix-migrate-explicit-copy-dying-temp`: the five sites above
-are listed and only `d := h.name` (a field of a live local) is rewritten.
+are listed, and `d := h.name` (a field of a live local) and
+`e := grab(&s).*.name` (a field through a dereference) are rewritten.
 Before the fix the same fixture got five insertions (four of them out of a dying temporary) and one misleading listing.
 
 ## Gates

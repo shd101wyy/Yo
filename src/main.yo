@@ -2874,8 +2874,10 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// Two guards list sites a `.clone()` would serve badly
 /// (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). A copy out of a
 /// temporary that dies right after it (`ExplicitCopySite.src_dying`: a
-/// `match` binding of `m.get(k)`'s result, a field of `make()`) is usually a
-/// move, so nothing is inserted; it is checked first. A copy in a file under
+/// `match` binding of `m.get(k)`'s result, a field of `make()`, not one
+/// reached through a dereference) is usually a move, so nothing is inserted;
+/// it is checked first. Every copy of such a binding is listed, not only its
+/// last use: the guard sees no liveness. A copy in a file under
 /// one of `hot_paths` (`--hot-path`, repeatable; B1 passes `src/evaluator`)
 /// is listed for a hand edit instead of rewritten: there a per-operation deep
 /// copy compounds (the parked B1 sweep measured ~80x on the evaluator), and
@@ -3001,8 +3003,10 @@ _run_migrate_explicit_copy :: (
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
       // A copy out of a temporary that dies right after it is usually a
-      // move: the copy-trait audit's temporary-as-move rule. Listed, so a
-      // value read again (a genuine copy) is spelled by hand.
+      // move (for a `match` binding, the copy-trait audit's
+      // temporary-as-move rule; for a field read, `_ic_dying_temp_source`'s
+      // own). Listed, so a value read again (a genuine copy) is spelled by
+      // hand.
       match(
         dying.get(`${st.row.to_string()}:${st.col.to_string()}`),
         .Some(what) => {

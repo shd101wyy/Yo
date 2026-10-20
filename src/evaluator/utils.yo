@@ -2632,10 +2632,13 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// `src_dying` describes a source that is part of a temporary dying right
 /// after the copy (`_ic_dying_temp_source`: a `match` binding of an owned
 /// temporary such as `m.get(k)`'s result, or a field read whose receiver
-/// chain ends in one, `make().name`); empty otherwise. The copy-trait audit
-/// treats such a source as a move (`audit_record_copy_trait`); the
-/// explicit-copy audit still reports it, since today's dup is real, so the
-/// migration lists it instead of cloning a value nothing reads again.
+/// chain ends in one, `make().name`); empty otherwise. For the `match`
+/// binding this is the copy-trait audit's temporary-as-move rule
+/// (`audit_record_copy_trait`'s `temp` root); the field read is this guard's
+/// own rule, read through the ExprInfo table (that audit reports a field read
+/// as a copy). The explicit-copy audit still reports both, since today's dup
+/// is real, so the migration lists them instead of cloning a value that is
+/// usually read nowhere else.
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2792,6 +2795,12 @@ _ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
 /// `h.f().name`). Empty for anything else: a receiver that is a named
 /// variable, a non-owning temporary that is not itself a field read (an
 /// index, a borrow-returning call) or has no ExprInfo is not judged dying.
+/// A dereference (`grab().*.name`) also ends the walk with empty: the copy
+/// reads storage the dying handle only points to, which an `Rc`/`Arc`
+/// pointee or a pointer's target outlives, so the copy is genuine
+/// (issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-calls-a-copy-through-a-dereference-a-move.md).
+/// A `Box` pointee does die with its handle, but it is not told apart: the
+/// old rule (a `.clone()`) is never wrong, only wasted.
 _ic_dying_temp_source :: (fn(rhs : &AstExpr, source_name : &String, env : &Environment, ctx : &EvalContext) -> String)({
   // The match binding, classified exactly as `audit_record_implicit_copy`
   // classifies a `temp-payload` source.
@@ -2810,6 +2819,9 @@ _ic_dying_temp_source :: (fn(rhs : &AstExpr, source_name : &String, env : &Envir
   // temporary (another projection); an owning one is the dying temporary.
   (e : AstExpr) = rhs.clone();
   while(ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2))), {
+    if(_is_deref_place(&e), {
+      return(String.new());
+    });
     recv := match(
       e,
       .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => return(String.new())),

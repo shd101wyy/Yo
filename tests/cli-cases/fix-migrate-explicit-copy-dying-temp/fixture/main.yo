@@ -22,5 +22,12 @@ main :: (fn() -> unit)({
   h := make();
   d := h.name;
   println(`${a} ${b} ${c} ${d} ${h.name} ${n.to_string()} ${first_name()}`);
+  // A field read through a dereference of a dying `Rc` handle: the pointee
+  // outlives the handle in `s.h` and is read again, so this one is cloned.
+  s := Shelf(h : rc(make()));
+  e := grab(&s).*.name;
+  println(`${e} ${s.h.*.name}`);
 });
+Shelf :: struct(h : Rc(Holder));
+grab :: (fn(s : &Shelf) -> Rc(Holder))(s.h);
 export(main);
