@@ -105,7 +105,7 @@ on which tokens are uses of the borrow named `name`.
 
 All four helpers (`_lb_mentions`, `_lb_last_mention`, `_lb_region_end`, `_lb_has_repoint`) apply the Rule above through one predicate, `_lb_arrow_shadows`:
 
-- An arrow literal whose left side binds the name (a closure parameter list or a `match` arm pattern) is no use of the borrow. A named `fn` / `ctl` / `Fn` literal whose parameter list binds the name is no use either.
+- An arrow literal whose left side binds the name (a closure parameter list or a `match` arm pattern) is no use of the borrow. A named `fn` / `ctl` / `Fn` literal whose parameter list binds the name is no use either (`_lb_fn_literal_binds`). An applied literal `(fn(cur : T) -> R)(body)` has the infix `->` as its callee, with the parameter-list head `fn(cur : T)` as its left side, so the helper looks through the `->`. `_lb_mentions` asks it before scanning the callee, because the callee holds the parameter list. #1476's version tested the callee's own callee against `fn` / `ctl` / `Fn`, found `->` there, and so never matched.
 - An arrow literal that does not bind the name is scanned whole, left side included. #1476 scanned only the body, so a `match` guard `(p && (g))` that read the borrow was missed and the borrow looked dead while in use (the unsafe direction). The re-land fixes this.
 - A `cond` arm is never a shadowing site. `_lb_region_end` now passes the same cond-arm flag as `_lb_mentions`' own walk of a `cond`. This is the #1481 regression.
 
@@ -116,7 +116,9 @@ Tests, all in `tests/local_borrows.test.yo`:
 - a capturing closure that still extends the borrow;
 - a `cond` condition that still uses the borrow;
 - a `match` guard that still uses the borrow (new; accepted by #1476);
-- the compiler's switch-group shape: a `match(&obj.field, .V(b) => if(b == t, { obj.other = … }))` binding whose last use is the `if` condition (new; rejected by #1476).
+- the compiler's switch-group shape: a `match(&obj.field, .V(b) => if(b == t, { obj.other = … }))` binding whose last use is the `if` condition (new; rejected by #1476);
+- the same shape with a bare-identifier condition `if(b, { … })`. Only `_lb_region_end`'s cond-arm flag keeps this one green, because a binding-shaped left side would otherwise read as a parameter list (new);
+- a named `fn` literal parameter named like a live borrow: `f := (fn(cur : i32) -> i32)(cur + i32(1))` after the borrow's last use (new; rejected by #1476 and by seed v0.2.66).
 
 Measured 2026-10-20 on darwin arm64, with tree-built binaries:
 
