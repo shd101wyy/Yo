@@ -1,14 +1,14 @@
-# VALUES_BY_DEFAULT release schedule — draft (2026-10-20)
+# VALUES_BY_DEFAULT release schedule (2026-10-20)
 
-> **Status: DRAFT.** Written for the post-v0.2.67 handover. The coordinator folds it into that
-> document. `plans/VALUES_BY_DEFAULT.md` §6 stays authoritative. Where the plan and a handover
+> **Status: LIVING schedule** (adopted with the post-v0.2.67 handover, `plans/handover/VBD_HANDOVER_2026-10-20.md`;
+> update a row when its release ships). `plans/VALUES_BY_DEFAULT.md` §6 stays authoritative. Where the plan and a handover
 > disagreed, and wherever the draft left a question open, the maintainer delegated the pick
 > (2026-10-20); §5 "Decided 2026-10-20" records each pick and its reason, and the tables below
 > follow it. Checked against develop `fc15a6092` (2026-10-20), with SEED_VERSION at v0.2.66.
 > Plan line numbers cited here are develop's at `fc15a6092`, before this branch's dated notes in
 > `plans/VALUES_BY_DEFAULT.md` (which shift them by 3 to 21 lines).
 
-This draft maps every VBD step that has not landed to the release where it can land. It follows five rules:
+This schedule maps every VBD step that has not landed to the release where it can land. It follows five rules:
 
 - A Generation B needs a seed that carries its Generation A.
 - Independent Generation A pieces may share a release.
@@ -18,23 +18,18 @@ This draft maps every VBD step that has not landed to the release where it can l
 
 The macro/`Iso` campaign slots in as `plans/backlog/MACRO_AND_ISO_REMOVAL.md` "Schedule" says.
 
-## 0. Baseline: what v0.2.67 is assumed to carry
+## 0. Baseline: what v0.2.67 carries
 
-The following are on develop since the v0.2.66 tag, or in flight on pushed branches:
+v0.2.67 (cut 2026-10-20) carries everything merged since the v0.2.66 tag: #1484, #1485 (the #1476 re-land),
+#1487–#1509 (the Generation B halves on the v0.2.66 seed #1490/#1491/#1497/#1498, #1492, the recursive-enum
+identity fix #1501, the capture-struct fixes #1503/#1506, #1500/#1502/#1504/#1507, the S1 #1508, and A4's std
+half #1509). The ArrayList same-named-binder issue closed through #1504 (its exploration branches are deleted).
 
-- On develop:
-  - #1485, the #1476 re-land.
-  - The Generation B halves on the v0.2.66 seed: #1490, #1491, #1497 and #1498.
-  - #1492, std declares `pragma(Pragma.AllowMacroDef)` itself.
-  - #1501, the recursive-enum identity fix. This is the 2026-10-19 handover's §3.3, now landed.
-  - #1503, the capture struct keyed by call signature. This is gi2 issue 1.
-  - #1500, #1502 and #1504.
-- In flight:
-  - A4's std half: `feat/vbd-a4-std-half`, with the per-operand combinator spec on `fix/combinator-spec-per-operand-future`.
-  - #1486, the LinkedList cycles fix (`fix/linkedlist-managed-element-cycles`). It waits for the PR with the 48 `impl(X, Acyclic())` declarations, which that branch does not carry. **Both are deferred to v0.2.68** (§5, decision 10); they are not v0.2.67 candidates.
-  - The ArrayList same-named-binder fix (`fix/generic-impl-arraylist-binder-id`).
+Carried into v0.2.68 (none is a release boundary, so §3's count is unchanged):
 
-If any of the other in-flight items misses the v0.2.67 cut, it moves to v0.2.68. None of them is a release boundary, so the count in §3 does not change.
+- #1486, the LinkedList cycles fix (`fix/linkedlist-managed-element-cycles`, draft), stacked under
+  `perf/acyclic-compiler-containers` (the `impl(X, Acyclic())` declarations; §5 decision 9 / 10).
+- `feat/explicit-copy-guards` (the two tool guards; not yet built).
 
 ## 1. The schedule
 
@@ -131,7 +126,7 @@ The 10-17 list also lacked two boundaries that this schedule absorbs into the B1
 | Macro plan B3, B4 | MACRO_AND_ISO_REMOVAL Part B; B3 deletes `from_array` (§5 decision 8) | v0.2.68 (any time) | no; B3 runs the escape-hatch checklist |
 | `Acyclic` declarations, then #1486 | #1486's "Deferred"; §5 decision 10 | v0.2.68 | no |
 | `VcTerm` `Rc` children | decision 21 as amended 2026-10-18 | v0.2.68 | no; after V2c its copies need `.clone()` |
-| A4 std half + the capture-struct S2 | 2026-10-19 handover §3.2; `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` | v0.2.67 (in flight) or v0.2.68 | no |
+| A4 std half + the capture-struct S2 | 2026-10-19 handover §3.2; `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` | **landed in v0.2.67** (#1503, #1506, #1509) | no |
 | V1 leftover: `arc` takes `alloc` | plan V1 "Remaining, Generation A" | v0.2.68 | possibly (see the v0.2.68 row) |
 
 ## 5. Decided 2026-10-20
@@ -168,7 +163,7 @@ The maintainer delegated these picks ("pick the best solution that fits Yo"), an
 
 ### Records kept from the earlier §5
 
-These are not maintainer decisions. They are corrections of the sources that this draft verified:
+These are not maintainer decisions. They are corrections of the sources that this schedule verified:
 
 - **V1's "exclusivity assert moves to the write-through-`Rc` site"** is superseded. Decision 46 Generation B (#1421) makes a write through a plain `Rc` E0919 statically, and `RefCell` carries the dynamic check. The other V1 leftover, the auto-deref "payload has no field … either" message, has landed (`tests/deref_auto.test.yo:133`). Only `arc`'s `alloc` parameter remains.
 - **`VcTerm`.** "Any time" predates V2c. After V2c a value enum with `Rc` children is explicit-copy, so `vc.yo`'s 49 `HashMap.get` sites need B6's accessors or `.clone()`. Landing it at v0.2.68 is still fine; it just pays a small V2c sweep later.

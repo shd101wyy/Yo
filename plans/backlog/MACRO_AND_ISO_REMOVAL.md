@@ -568,7 +568,7 @@ Part C deletes the macros.
     `Array(i32, 3)(1, 2, 3)` (as in `tests/algebraic_effects.test.yo:993`),
     so a site reads `ArrayList(i32).from(Array(i32, 3)(1, 2, 3))`.
   - **`from_array` is DELETED** (decided 2026-10-20, maintainer-delegated;
-    `plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 8). The
+    `plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 8). The
     existing `ArrayList.from_array(arr : &Array(T, N))`
     (`std/collections/array_list.yo:229`) borrows the array and copies
     each element out of it. That is the implicit copy VBD removes, and it

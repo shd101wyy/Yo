@@ -1,6 +1,6 @@
 # VALUES_BY_DEFAULT handover — 2026-10-19
 
-> **Status: LIVING (draft PR, updated as the session progresses; merge after v0.2.66 is cut).**
+> **Status: CLOSED (superseded 2026-10-20 by `plans/handover/VBD_HANDOVER_2026-10-20.md`, written after v0.2.67).**
 > The next agent starts AFTER v0.2.66 is out, on a DIFFERENT machine. Everything this cycle learned
 > that is not derivable from the repo is in this document; it continues
 > `plans/handover/VBD_HANDOVER_2026-10-17.md` (its §1 process rules, §7 release-notes format and
