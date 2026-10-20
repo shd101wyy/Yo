@@ -52,8 +52,11 @@ the connect completes; that gap is the backend's, not this test's.
 - The leak does not reproduce here, for two reasons. This network answers a
   connect to TEST-NET-1 at once: a probe that spawns the connect, sleeps
   300 ms and reads `is_finished()` prints `true`. The box routes through a
-  TUN proxy (`utun1024`, 198.18.0.1), which takes the SYN. Apple clang's
-  AddressSanitizer also has no LeakSanitizer.
+  TUN proxy (`utun1024`, 198.18.0.1), which takes the SYN. LeakSanitizer is
+  not usable on this box either. Apple clang's AddressSanitizer has none, and
+  with nix's clang 21.1.7, `ASAN_OPTIONS=detect_leaks=1` on a 64-byte
+  `malloc` leak probe spun at 100% CPU for over two minutes without
+  reporting anything.
 - Aborting a connect that IS pending works as described: a probe binds a
   loopback listener that never accepts and spawns 400 connects to it. After
   300 ms, 272 were still pending: macOS drops SYNs once the listen backlog is
