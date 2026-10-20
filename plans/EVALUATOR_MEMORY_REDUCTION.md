@@ -2127,6 +2127,12 @@ joined, though, and only before that construct returns. So:
   `g_closure_await_analysis`. The match compilation, exhaustiveness, and
   the await analysis with its errors all still run; only the recording is
   skipped.
+  *Correction 2026-10-20:* `verify` never switched the tables off (its
+  `main.yo` dispatch keeps them on), and the match arms now have their own
+  switch (`set_match_arms_table_enabled`), which only `doc` and the LSP turn
+  off. `check` runs the verifier, whose match walk reads the arms, so it keeps
+  recording them: +6.1 MB (+0.5 %) on `check src/main.yo`
+  (issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md).
 
 Measured on stage-1 binaries built by the v0.2.45 seed, `check src/main.yo`
 max RSS: **1,198,268 → 1,164,304 kB (−33.9 MB, −2.8 %)**. That matches the

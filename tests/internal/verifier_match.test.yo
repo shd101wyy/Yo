@@ -32,6 +32,7 @@
 } :: import("../../src/verifier/driver.yo");
 { VerifyFnInput, verify_function_body } :: import("../../src/verifier/vc.yo");
 { encode_script, default_encode_options } :: import("../../src/verifier/encode.yo");
+{ set_codegen_tables_enabled } :: import("../../src/utils.yo");
 
 _have_z3 :: (fn() -> bool)(
   match(
@@ -191,4 +192,64 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   script := encode_script(res.obligations.get(usize(0)).unwrap().query, default_encode_options());
   assert(script.contains(String.from("declare-datatypes")), "the emitted SMT declares the datatype");
   assert(script.contains(String.from("is-")), "the emitted SMT carries the match testers");
+});
+
+test("the match walk has its arms under check's settings (codegen-only tables off, solver-free)", {
+  // `check` switches the codegen-only tables off but runs the verifier on a
+  // verify-mode file, whose match walk reads the compiled arms. With the arms
+  // gated on the codegen tables, every match-using function was a subset
+  // failure under `check` ("match arms not registered (the pattern table is
+  // off)") while `yo verify` proved it
+  // (issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_match: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  rel := String.from("./tests/spec/fixtures/valid/match_enum.yo");
+  targets := ArrayList(String).new();
+  targets.push(rel.clone());
+  targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
+  take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(&targets);
+  set_codegen_tables_enabled(false);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
+  set_codegen_tables_enabled(true);
+  assert(outcome.ok, "fixture must evaluate cleanly");
+  tasks := take_verify_tasks();
+  assert(tasks.len() == usize(2), `two tasks, got ${tasks.len().to_string()}`);
+  (mut(ti) : usize) = usize(0);
+  while(ti < tasks.len(), {
+    t := tasks.get(ti).unwrap();
+    res := verify_function_body(
+      VerifyFnInput(
+        fn_name : t.fn_id.clone(),
+        func_id : t.func_id.clone(),
+        body : t.body.clone(),
+        param_names : t.param_names.clone(),
+        param_types : t.param_types.clone(),
+        result_type : t.result_type.clone(),
+        requires_exprs : t.requires_exprs.clone(),
+        ensures_exprs : t.ensures_exprs.clone(),
+        return_label : t.return_label.clone(),
+        table : t.table,
+        requires_enforced : ArrayList(bool).new()
+      )
+    );
+    match(
+      res.error,
+      .Some(se) => {
+        assert(false, `${t.fn_id}: subset error under check's settings: ${se.construct}`);
+      },
+      .None => ()
+    );
+    assert(res.obligations.len() > usize(0), `${t.fn_id}: the ensures obligation exists`);
+    ti = (ti + usize(1));
+  });
 });

@@ -436,7 +436,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 >   - cli-diff 390, plus the re-recorded and new cases;
 >   - fmt, issue refs;
 >   - a per-file census over all 316 language test files, which evaluates `test(...)` bodies, found no stray E0916 or E0917.
->   - Not caused by this branch: `tests/spec/verify_match_patterns.test.yo` fails `yo check` identically on the v0.2.62 seed (`issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md`, S3).
+>   - Not caused by this branch: `tests/spec/verify_match_patterns.test.yo` fails `yo check` identically on the v0.2.62 seed (`issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md`, S3).
 > - **Known consequences:**
 >   - D1's mutation-mask distinction for a `&mut` lend of a value global is no longer reachable in user code: E0917 or E0916 fires first. A replacement cli-case for D1 on handle places may be wanted.
 >   - Rule B means a field written through a handle global cannot then be lent through a `&self` method on that field. Lend the handle and read the field inside the callee.
@@ -772,7 +772,7 @@ x :: 12;                           // a true constant
 - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 - `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed by #1402 (E0918).
-- `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
+- `issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
 - Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (filed with #1402, fixed by #1411), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
 - `issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md` (S2): found by #1388; **fixed** by #1428 (a deferred closure literal is judged by its capture struct; the stopgap `capture_of_caller_owned_sink_param` is gone).
