@@ -156,9 +156,85 @@ register with the collector.
   baseline is re-measured at merge. The macOS number above is not that
   baseline, so it was not written into the TSV.
 - **Recovery (follow-up, not this fix):** decision 21's declared
-  `impl(T, Acyclic())` on the compiler's tree-shaped container types, which
-  never close a cycle in practice. That is an evaluator-wide edit, so it
-  stays out of this change.
+  `impl(T, Acyclic())` on the compiler's tree node types. It is stacked on
+  this fix as branch `perf/acyclic-compiler-containers`; see the next section.
+
+## Recovery: declared `Acyclic` on the compiler's trees (stacked follow-up)
+
+A declared `impl(T, Acyclic())` is trusted, not checked. It needs
+`pragma(Pragma.AllowUnsafe)` in the declaring file and a `// SAFETY:`
+comment (`src/evaluator/values/impl.yo`). The impl records the type's id in
+`g_declared_acyclic_ids` (`src/types/utils.yo`), and the cycle walk stops at
+that id. A wrong declaration therefore leaks the cycles it hides. It is not
+a memory-safety hole, because `Acyclic` grants no `Send` or `Sync`. The
+declaration also makes `Type.impls(T, Acyclic)` true, so the `Acyclic`
+requirement of `iso()` and `Iso(T)` no longer rejects the type.
+
+The declaration goes on the tree's NODE type, never on a container
+instantiation. `_declared_acyclic` matches the struct id, and every
+instantiation of a generic struct shares that id. So
+`impl(ArrayList(AstExpr), Acyclic())` would exempt every `ArrayList(T)`,
+including the `ArrayList(Self)` cycles that `tests/cycle_collector.test.yo`
+checks. Declaring the node is enough: the walk stops there, so every
+container and holder whose only path to a cycle runs through the node stops
+registering too. `TypeValue` (#1329) uses the same pattern.
+
+A node type is tree-shaped by construction when two things hold. Its
+`Self` payloads are fixed when the node is built, because enum payloads
+cannot be assigned. And no code writes into a child list that a built node
+already holds. The audit (2026-10-20) checked every `.FnCall(…)`, `.App(…)`,
+`.Ctor(…)` and `.Quant(…)` destructure in `src/` for a mutating call on the
+list binder, on an alias of it, or on a `&mut` pass of it. It also checked
+every construction site for a later write to the list it was given.
+
+| Type | Declared? | Why |
+| --- | --- | --- |
+| `AstExpr` (`src/expr.yo`) | yes | `func` is a fixed payload, and each `args` list is filled before its `FnCall` is built. 1,083 destructures and 104 constructions were audited, and no write reaches a built node's `args`. The one in-place rewrite, `strip_proved_ensures_asserts` (`src/evaluator/builtins/contracts.yo`), refills a body's statement list with a subset of its own elements. A filter cannot close a cycle. |
+| `VcTerm` (`src/verifier/terms.yo`) | yes | The `args`/`triggers` lists are built fresh per node (`_app1`..`_app3`, `vc_eq`, …), and no write reaches a built term's list. Substitution shares subterms (decision 21's 2026-10-18 amendment), which adds no back edge. |
+| `VcSort` (`src/verifier/terms.yo`) | yes | Its only children are `Self` payloads, and it holds no list or cell. No `VcSort` can reach itself. |
+| `EvalValue` (`src/value.yo`) | no | Decision 21 gives `EvalValue` its own V4 PR. Its children include mutable comptime containers and `FuncVal` environment snapshots, which may name the function itself. Its holders (`PendingDef`, `ArrayList(EvalValue)`, …) stay registered. |
+| `JsonValue` (`std/encoding/json.yo`) | no | User-facing std, and it can form a cycle: `JsonValue.Array(items)` shares a mutable `ArrayList` cell, so `items.push(JsonValue.Array(items))` closes one. `ArrayList(JsonValue)` stays registered. |
+| `JsonObjBuilder` (`src/lsp/protocol.yo`) | no | `obj()` shares the builder's `values` list with the object it returns, so `b.put(k, &b.obj())` puts that list on a cycle. The builder cell itself cannot be on the cycle, so declaring it would be sound, but it is one cell type and not a tree, so it was skipped. |
+| `RegexNode` (`std/regex/node.yo`) | no | User-facing std (exported). `children : ArrayList(Self)` is a shared mutable cell that callers can push into. |
+
+The `Type.can_form_rc_cycle` answers below came from one-file probes. Each
+probe imports the module beside a `comptime_print` and runs `check`, at
+200–400 MB. The "v0.2.66" column is the seed, which has develop's
+predicate. The "#1486" column is this fix's binary on its own tree. The
+"declared" column is the same binary on the stacked branch:
+
+| Type | v0.2.66 | #1486 | declared |
+| --- | --- | --- | --- |
+| `AstExpr` | true | true | false |
+| `ArrayList(AstExpr)` | false | true | false |
+| `ArrayList(ArrayList(AstExpr))` | false | true | false |
+| `HashMap(String, ArrayList(AstExpr))` | false | true | false |
+| `SuspensionPoint` | false | true | false |
+| `ArrayList(SuspensionPoint)` | false | true | false |
+| `VcSort` | true | true | false |
+| `VcTerm` | true | true | false |
+| `ArrayList(VcTerm)` | false | true | false |
+| `VcQuery` | false | true | false |
+| `EvalValue`, `ArrayList(EvalValue)`, `PendingDef` | true, false, false | true, true, true | unchanged |
+| `ArrayList(JsonValue)`, `JsonObjBuilder` | false, false | true, true | unchanged |
+| `RegexNode`, `ArrayList(RegexNode)` | true, false | true, true | unchanged |
+| control: `LLNode`, `LinkedList(LLNode)`, `ArrayList(LLNode)` | false | true | true |
+| control: `LinkedList(i32)` | false | false | false |
+
+A small emit settles the question at codegen. The program imports
+`src/expr.yo` and `src/verifier/terms.yo`, builds an `ArrayList(AstExpr)`
+and a `VcTerm`, and is emitted with `--emit-c --skip-c-compiler`. Without
+the declarations it has 16 constructors calling `__yo_gc_register`: the
+`AstExpr.FnCall` cell, three `VcSort` and six `VcTerm` variant
+constructors, and six `ArrayList`/`HashMap` instantiations. With the
+declarations it has none. The `AstExpr`, `VcSort` and `VcTerm` nodes were
+already registering on develop, so the self-build count should fall below
+develop's 139, not merely back to it. The `EvalValue`, `JsonValue` and
+`RegexNode` families stay registered.
+
+Not measured yet: the self-build registering-constructor count, and stage-2
+`check ./src` max RSS against develop (1.28 GB) and #1486 (1.50 GB). Both
+need the compiler build.
 
 ## Fix direction (as filed)
 
