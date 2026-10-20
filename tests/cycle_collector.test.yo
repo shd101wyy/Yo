@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
 Gc :: import("std/gc");
 { ArrayList } :: import("std/collections/array_list");
+{ LinkedList } :: import("std/collections/linked_list");
 { VList } :: import("./fixtures/owned_buffer.yo");
 List :: ref(
   struct(
@@ -348,6 +349,33 @@ test("ArrayList(Self) two-node cycle collected", {
   do_test();
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "ArrayList(Self) cycle collected");
+});
+// --- the same through LinkedList(Self): the element sits one cell deeper ---
+// LinkedList(LLNode) holds Node(LLNode) cells whose `?*LLNode` element buffer
+// is the edge back, so the cycle analysis has to re-root at the Node, see
+// through its buffer and recognise the declaration's shell there. It read that
+// shell as a dead end, so neither LLNode nor the list cell registered and the
+// cycle leaked; Node's own Trace impl was already the right traversal
+// (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+LLNode :: ref(
+  struct(
+    value : i32,
+    children : LinkedList(Self)
+  )
+);
+test("LinkedList(Self) two-node cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := LLNode(1, LinkedList(LLNode).new());
+    b := LLNode(2, LinkedList(LLNode).new());
+    consume(a.children.push_back(b)); // a -> list -> node -> b
+    consume(b.children.push_back(a)); // b -> list -> node -> a : the cycle
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "LinkedList(Self) cycle collected");
+  assert(Type.can_form_rc_cycle(LLNode), "LLNode is cycle-capable");
+  assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "the list cell sits on the cycle");
+  assert(!Type.can_form_rc_cycle(LinkedList(i32)), "a list of plain values is no cycle root");
 });
 // --- dispose resurrection (PEP 442): a dispose that stores a cycle member into
 // a live object must keep that member, not free it under the live object's feet
