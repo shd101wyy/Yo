@@ -58,6 +58,13 @@ verifier's design, V1–V7 landed),
 (indexed types and existentials: what Yo has, what the verifier still needs),
 [`BEND_LAWS_AND_AGENT_LOOP_LESSONS`](backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md)
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
+[`MACRO_AND_ISO_REMOVAL`](backlog/MACRO_AND_ISO_REMOVAL.md) is the 2026-10-20
+maintainer decision record and campaign for deleting the macro layer (the nine
+std macros become parse-time desugars or plain functions, the `if` → `cond`
+precedent) and the builtin `Iso(T)`/`^v` (Rust's thread rule: cross-thread
+data is `Send`; `Rc.try_unwrap` is the bridge) — it reverses
+[`reference/MACRO_POLICY`](reference/MACRO_POLICY.md) and supersedes the `Iso`
+carve-outs in [`VALUES_BY_DEFAULT`](VALUES_BY_DEFAULT.md) §3.6/§3.8.
 Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
 verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
