@@ -176,6 +176,26 @@ test("windows sys runtime: the close path reaches the async section only through
   assert(!c.contains(String.from("__yo_win_unassociate_handle(fd);")), String.from("sys runtime calls an async-section function directly"));
   assert(c.contains(String.from("if (__yo_win_close_hook) __yo_win_close_hook(fd);")), String.from("close hook call missing"));
 });
+// An AF_UNIX listener (or one AcceptEx cannot serve) used to call a blocking
+// accept() on the event-loop thread, which deadlocked a spawned server whose
+// client was on the same loop
+// (issues/fixed/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md).
+// The accept start must hand that case to a pool worker, the op must be
+// cancellable, and the backend teardown must abort a task parked on one.
+test("windows runtime: an accept AcceptEx cannot serve runs on a pool worker, never on the loop", {
+  wem := Emitter.new();
+  generate_async_runtime_io_windows(&wem);
+  c := wem.print();
+  start := c.index_of(String.from("static __yo_io_future_t* __yo_async_accept_start(")).unwrap_or(usize(0));
+  end := c.index_of(String.from("static __yo_io_future_t* __yo_async_connect_start(")).unwrap_or(usize(0));
+  assert((start != usize(0)) && (start < end), String.from("the accept start is not emitted before the connect start"));
+  body := c.substring(start, end);
+  assert(!body.contains(String.from("= accept(")), String.from("the accept start still calls a blocking accept() on the loop thread"));
+  assert(body.contains(String.from("return __yo_win_blocking_accept_start(future, ls, addr, addrlen);")), String.from("the non-AcceptEx accept is not handed to the worker path"));
+  assert(c.contains(String.from("TrySubmitThreadpoolCallback(__yo_win_blocking_accept_work, ov, NULL)")), String.from("the blocking accept is not submitted to a pool worker"));
+  assert(c.contains(String.from("future->cancel_fn = __yo_win_blocking_accept_cancel;")), String.from("a worker accept has no cancel path"));
+  assert(c.contains(String.from("__yo_win_pipe_writes_inflight == 0 && __yo_win_blocking_accepts_inflight == 0")), String.from("the cleanup closes the port under a worker that will still post to it"));
+});
 test("macos runtime: a parked op is cancellable, FIFO-safe and found by (ident, filter)", {
   // issues/fixed/macos-an-aborted-tasks-parked-recv-keeps-its-place-and-takes-the-next-bytes.md,
   // issues/fixed/macos-an-inline-recv-overtakes-a-parked-recv.md
