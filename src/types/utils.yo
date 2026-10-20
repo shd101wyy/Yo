@@ -2368,6 +2368,21 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
 /// or gating on the raw SomeT rejected `Impl(Future(i32, Ctx))` annotations
 /// (the async_await arm-65 family).
 resolve_cell_chain :: (fn(t_in : &TypeValue) -> TypeValue)({
+  cur := resolution_chain_end(t_in);
+  if(is_some_type(&cur), t_in, cur)
+});
+/// The LAST link of a SomeT's `resolution` chain (cycle-guarded): the
+/// terminal concrete type, or the last SomeT when the chain ends unresolved
+/// (`resolve_cell_chain` returns its input then). A non-SomeT is its own end.
+///
+/// The end is the chain's C identity: an unresolved SomeT lowers through the
+/// type registry under its own id, so two chains that end in different SomeTs
+/// lower to different C types even where every link before prints alike. The
+/// futures of one generic producer at two `T`s are such a pair: both are the
+/// producer's ONE declared `Impl(Future(...))` wrapper, resolved per producer
+/// specialization to that specialization's own `io.async` future
+/// (issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md).
+resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
   (cur : TypeValue) = t_in;
   (seen : ArrayList(String)) = ArrayList(String).new();
   (walk : bool) = true;
@@ -2407,7 +2422,7 @@ resolve_cell_chain :: (fn(t_in : &TypeValue) -> TypeValue)({
       }
     );
   });
-  if(is_some_type(&cur), t_in, cur)
+  cur
 });
 /// A closure's capture struct (`capture_<hash>`, evaluator/utils/closure.yo):
 /// the layout of one closure literal's captured state, and, through closure
@@ -3478,7 +3493,7 @@ export(type_somes_all_resolve_concrete);
 export(type_has_no_open_some);
 export(is_bound_closure_identity);
 export(is_closure_capture_struct);
-export(resolve_cell_chain);
+export(resolve_cell_chain, resolution_chain_end);
 export(type_contains_some_type_deep);
 export(type_mentions_impl_fn_or_future, is_future_value_type);
 export(fn_type_unrepresentable_impl, fn_type_unrepresentable_impl_message, fn_type_unrepresentable_impl_help);

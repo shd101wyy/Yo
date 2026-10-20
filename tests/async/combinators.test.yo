@@ -12,6 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { sleep } :: import("std/sys/timer");
 { IoExn, Exception } :: import("std/error");
 { RefCell } :: import("std/sync/refcell");
+{ Channel } :: import("std/async/channel");
 
 /// A task that sleeps `ms` then returns `value`.
 sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
@@ -1135,4 +1136,40 @@ test("A4: an effect-binder operand resolves through the future parameter", {
   bundle := IoExn(io : io, exn : throw_exn);
   got := io.await(_a4_id_exn(_a4_exn_int(io, throw_exn), bundle, io), bundle);
   assert(got == i32(5), "the bundle and the result resolve");
+});
+/// Two futures of ONE generic producer at two `T`s: every `JoinHandle(T).join`
+/// future is the producer's one declared wrapper, told apart only by the join
+/// specialization it resolves to, so each instantiation of a generic `io.async`
+/// body capturing the operand needs its own capture struct
+/// (issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md).
+test("A4: futures of one generic producer at two types each get their own capture struct", {
+  a := io.await(_a4_id_block(io.spawn(io.async((io : Io) => i32(3)), io).join(io), io), io);
+  assert(a == .Some(i32(3)), "the i32 join through the block form");
+  b := io.await(_a4_id_block(io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(b == .Some(true), "the bool join through the block form");
+  c := io.await(_a4_id(io.spawn(io.async((io : Io) => i32(4)), io).join(io), io), io);
+  assert(c == .Some(i32(4)), "the i32 join through the tail form");
+  d := io.await(_a4_id(io.spawn(io.async((io : Io) => false), io).join(io), io), io);
+  assert(d == .Some(false), "the bool join through the tail form");
+});
+/// A consumer whose `io.async` body has ONE call signature at every `T`
+/// (`(io : Io) -> bool`), so the closure's signature in its capture key cannot
+/// tell the mints apart: only the captured future's resolution chain end does.
+_a4_ran :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(bool, Io)))(
+  io.async({ op }(io : Io) => {
+    _r := io.await(op, io);
+    true
+  })
+);
+test("A4: a consumer with one call signature at every T gets a capture struct per producer future", {
+  a := io.await(_a4_ran(io.spawn(io.async((io : Io) => i32(3)), io).join(io), io), io);
+  b := io.await(_a4_ran(io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(a && b, "the i32 and the bool join both ran");
+  c1 := Channel(i32).new(usize(2));
+  _s1 := c1.try_send(i32(3));
+  c2 := Channel(bool).new(usize(2));
+  _s2 := c2.try_send(true);
+  c := io.await(_a4_ran(c1.recv(io), io), io);
+  d := io.await(_a4_ran(c2.recv(io), io), io);
+  assert(c && d, "the i32 and the bool recv both ran");
 });

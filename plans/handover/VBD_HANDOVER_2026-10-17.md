@@ -270,7 +270,7 @@ On develop:
 - "a match through a borrowed element copies the element" (S2; its doc is on the #1439 branch until that merges: `match(&xs(i), …)` is E0901 although E0901 suggests that form)
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` (S2, from #1424: D9's documented workaround is E0601)
 - `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2, from #1424: passes `check`, fails in the C compiler; also a `Send` bypass)
-- `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
+- `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (S2; blocks A4's std half)
 - `issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md` (S2; found by #1409, also fails on develop with leak verdicts on)
 - `issues/fixed/2026-10-16-the-warnings-stash-test-leaks-under-leak-verdicts.md` (S3; found by #1409, the same test leaks on develop)
 - "the async mutex is not FIFO across event loops" (2026-10-16; the FIFO branch moves it)
@@ -369,7 +369,7 @@ Before pasting, add a bullet for any PR that lands before the cut (#1441 is CI-o
 - `issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md` (S1, not a regression; v0.2.63 does the same)
 - `issues/fixed/2026-10-17-a-store-in-a-comptime-parameterized-fn-is-dropped-when-its-first-call-is-an-operand-of-not.md` (S1)
 - `issues/fixed/2026-10-17-an-assignment-through-an-index-call-runs-the-call-twice.md` (S1)
-- `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`
+- `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`
 - `issues/fixed/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md`
 - `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md`
 - `issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`

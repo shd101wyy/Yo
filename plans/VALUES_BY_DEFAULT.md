@@ -180,7 +180,8 @@ Progress:
     "Decision 47" step 2's "as built").
 - **In progress:**
   - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
-    over futures, blocked on `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`)
+    over futures, blocked on `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`; the capture-struct half,
+    `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`, is fixed)
     and A6's `Rc`-field half (V2c).
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
@@ -1373,10 +1374,11 @@ instead.
       `rx.recv(io)` over two channel item types) give a generic body's
       `io.async` one capture struct and one closure, so the second
       `timeout` in a program fails to compile
-      (`issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`;
-      still open — the S1 fix resolves a future PARAMETER's carriers per
-      call, but a generic PRODUCER's returned wrapper still shares one
-      identity across its own `T`s).
+      (`issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`;
+      fixed 2026-10-20: the capture key and the future-wrapper rebuild read
+      the end of the resolution chain, which is per producer
+      specialization; a type built from the binder in such a body is the
+      remaining blocker, `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`).
       The reference implementation is `std/async/index.yo` and
       `std/http/client.yo` on the branch `wip/vbd-a4-std-half` (commit
       `a83d6ac8b`). `timeout(handle, …)` stays until that is fixed.
