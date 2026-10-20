@@ -917,10 +917,10 @@ _fold_scmp :: (fn(op : VcOp, a : u64, b : u64, w : usize) -> bool)({
 });
 /// Two-argument boolean connective over literal bools.
 _fold_bool2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  ab := match(a, .BoolLit(x) => x, _ => false);
-  a_is := match(a, .BoolLit(_) => true, _ => false);
-  bb := match(b, .BoolLit(x) => x, _ => false);
-  b_is := match(b, .BoolLit(_) => true, _ => false);
+  ab := match(a, Rc(.BoolLit(x)) => x, _ => false);
+  a_is := match(a, Rc(.BoolLit(_)) => true, _ => false);
+  bb := match(b, Rc(.BoolLit(x)) => x, _ => false);
+  b_is := match(b, Rc(.BoolLit(_)) => true, _ => false);
   if(!a_is || !b_is, {
     return(Option(VcTerm).None);
   });
@@ -934,11 +934,11 @@ _fold_bool2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
 });
 /// Eq / Distinct over literal bools or equal-width bitvector literals.
 _fold_eq :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  a_bool := match(a, .BoolLit(_) => true, _ => false);
-  b_bool := match(b, .BoolLit(_) => true, _ => false);
+  a_bool := match(a, Rc(.BoolLit(_)) => true, _ => false);
+  b_bool := match(b, Rc(.BoolLit(_)) => true, _ => false);
   if(a_bool && b_bool, {
-    ab := match(a, .BoolLit(x) => x, _ => false);
-    bb := match(b, .BoolLit(x) => x, _ => false);
+    ab := match(a, Rc(.BoolLit(x)) => x, _ => false);
+    bb := match(b, Rc(.BoolLit(x)) => x, _ => false);
     match(
       op,
       .EqOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(ab == bb))),
@@ -946,10 +946,10 @@ _fold_eq :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
       _ => Option(VcTerm).None
     );
   });
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
-  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  bv := match(b, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
+  bw := match(b, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if((aw == usize(0)) || (aw != bw), {
     return(Option(VcTerm).None);
   });
@@ -962,10 +962,10 @@ _fold_eq :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
 });
 /// Signed/unsigned comparisons over equal-width bitvector literals.
 _fold_cmp :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
-  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  bv := match(b, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
+  bw := match(b, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if((aw == usize(0)) || (aw != bw), {
     return(Option(VcTerm).None);
   });
@@ -987,10 +987,10 @@ _fold_cmp :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
 /// divisor is the AoRTE obligation itself (symbolic by design) and the
 /// SMT division semantics for zero/INT_MIN are what the proof talks about.
 _fold_bv2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
-  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  bv := match(b, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
+  bw := match(b, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if((aw == usize(0)) || (aw != bw), {
     return(Option(VcTerm).None);
   });
@@ -1011,8 +1011,8 @@ _fold_bv2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
 });
 /// One-argument bitvector folds: negation and bitwise not (wrapping).
 _fold_bv1 :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))({
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if(aw == usize(0), {
     return(Option(VcTerm).None);
   });
@@ -1030,8 +1030,8 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
   match(
     op,
     .SignExtendOp(k) => {
-      av := match(a, .BvLit(v, _) => v, _ => u64(0));
-      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+      aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
       if(((aw + k) > usize(64)) || (aw == usize(0)), {
         return(Option(VcTerm).None);
       });
@@ -1045,8 +1045,8 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
       Option(VcTerm).Some(rc(VcTermNode.BvLit(ext, aw + k)))
     },
     .ZeroExtendOp(k) => {
-      av := match(a, .BvLit(v, _) => v, _ => u64(0));
-      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+      aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
       if(((aw + k) > usize(64)) || (aw == usize(0)), {
         return(Option(VcTerm).None);
       });
@@ -1056,8 +1056,8 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
       hi,
       lo
     ) => {
-      av := match(a, .BvLit(v, _) => v, _ => u64(0));
-      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+      aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
       if((aw == usize(0)) || (lo > hi) || (hi >= aw), {
         return(Option(VcTerm).None);
       });
@@ -1077,7 +1077,7 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
 _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
   match(
     t,
-    .App(op, args) => {
+    Rc(.App(op, args)) => {
       folded := ArrayList(VcTerm).new();
       (all_lit : bool) = true;
       (ai : usize) = usize(0);
@@ -1089,8 +1089,8 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
             folded.push(f);
             match(
               f,
-              .BvLit(_, _) => (),
-              .BoolLit(_) => (),
+              Rc(.BvLit(_, _)) => (),
+              Rc(.BoolLit(_)) => (),
               _ => {
                 all_lit = false;
               }
@@ -1155,7 +1155,7 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
         c0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
         match(
           c0,
-          .BoolLit(cb) => match(
+          Rc(.BoolLit(cb)) => match(
             op,
             .IteOp => {
               t1 := match(folded.get(usize(1)), .Some(x) => x, .None => t);
@@ -1419,7 +1419,7 @@ _emit :: (
   // solver for it.
   pre := match(
     _fold_term(&q.goal),
-    .BoolLit(v) => if(
+    Rc(.BoolLit(v)) => if(
       v,
       Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
       Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted)
@@ -1542,15 +1542,15 @@ _sorted_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
 _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> unit)(
   match(
     t,
-    .Var(name, sort) => {
+    Rc(.Var(name, sort)) => {
       if(!out.contains_key(name.clone()), {
         out.insert(name.clone(), sort);
       });
     },
-    .BvLit(_, _) => (),
-    .BoolLit(_) => (),
-    .ArrConst(_, lit) => _collect_declared(&lit, out),
-    .App(_, args) => {
+    Rc(.BvLit(_, _)) => (),
+    Rc(.BoolLit(_)) => (),
+    Rc(.ArrConst(_, lit)) => _collect_declared(&lit, out),
+    Rc(.App(_, args)) => {
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -1563,7 +1563,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
         i = (i + usize(1));
       });
     },
-    .Ctor(_, cargs) => {
+    Rc(.Ctor(_, cargs)) => {
       (ci : usize) = usize(0);
       while(ci < cargs.len(), {
         match(
@@ -1579,13 +1579,13 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
     // Child bindings NOT named `t`: shadowing the scrutinee hit the
     // self-referential-initializer codegen UB (C11 6.2.1p4), which the
     // v0.2.29 seed still miscompiles.
-    .Test(_, child) => _collect_declared(&child, out),
-    .Proj(_, _, child) => _collect_declared(&child, out),
+    Rc(.Test(_, child)) => _collect_declared(&child, out),
+    Rc(.Proj(_, _, child)) => _collect_declared(&child, out),
     // A quantifier's BINDERS are not top-level declarations: collect the
     // body's free vars into a fresh map, drop the bound names, then merge
     // (an outer occurrence of the same name elsewhere in the goal still
     // declares it — the merge is insert-if-absent).
-    .Quant(_, names, _, body, triggers) => {
+    Rc(.Quant(_, names, _, body, triggers)) => {
       inner := HashMap(String, VcSort).new();
       _collect_declared(&body, &mut inner);
       (ti2 : usize) = usize(0);
@@ -1636,15 +1636,15 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
 _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
   match(
     t,
-    .Var(name, sort) => match(
+    Rc(.Var(name, sort)) => match(
       map.get(name.clone()),
       .Some(m) => rc(VcTermNode.Var(name : m.clone(), sort : sort)),
       .None => t
     ),
-    .BvLit(_, _) => t,
-    .BoolLit(_) => t,
-    .ArrConst(sort, lit) => rc(VcTermNode.ArrConst(sort : sort, lit : _rename_vars(&lit, map))),
-    .App(op, args) => {
+    Rc(.BvLit(_, _)) => t,
+    Rc(.BoolLit(_)) => t,
+    Rc(.ArrConst(sort, lit)) => rc(VcTermNode.ArrConst(sort : sort, lit : _rename_vars(&lit, map))),
+    Rc(.App(op, args)) => {
       out := ArrayList(VcTerm).new();
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -1659,7 +1659,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
       });
       rc(VcTermNode.App(op, out))
     },
-    .Ctor(name, cargs) => {
+    Rc(.Ctor(name, cargs)) => {
       out := ArrayList(VcTerm).new();
       (ci : usize) = usize(0);
       while(ci < cargs.len(), {
@@ -1674,11 +1674,11 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
       });
       rc(VcTermNode.Ctor(name : name.clone(), args : out))
     },
-    .Test(ctor, child) => rc(VcTermNode.Test(ctor : ctor.clone(), t : _rename_vars(&child, map))),
-    .Proj(ctor, idx, child) => rc(VcTermNode.Proj(ctor : ctor.clone(), idx : idx, t : _rename_vars(&child, map))),
+    Rc(.Test(ctor, child)) => rc(VcTermNode.Test(ctor : ctor.clone(), t : _rename_vars(&child, map))),
+    Rc(.Proj(ctor, idx, child)) => rc(VcTermNode.Proj(ctor : ctor.clone(), idx : idx, t : _rename_vars(&child, map))),
     // Bound names are NOT renamed (the binder keeps its raw spelling; a
     // coinciding outer name stays outer everywhere else).
-    .Quant(kind, names, sorts, body, triggers) => {
+    Rc(.Quant(kind, names, sorts, body, triggers)) => {
       inner_map := HashMap(String, String).new();
       mit := map.keys();
       (mgo : bool) = true;
@@ -1725,13 +1725,15 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
         );
         tri = (tri + usize(1));
       });
-      rc(VcTermNode.Quant(
-        kind : kind,
-        names : names,
-        sorts : sorts,
-        body : _rename_vars(&body, &inner_map),
-        triggers : renamed_triggers
-      ))
+      rc(
+        VcTermNode.Quant(
+          kind : kind,
+          names : names,
+          sorts : sorts,
+          body : _rename_vars(&body, &inner_map),
+          triggers : renamed_triggers
+        )
+      )
     }
   )
 );
@@ -1996,7 +1998,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
           return(Option(VcTerm).None);
         });
         ct := _expr_term(ctx, &cf);
-        les := match(ct, .Some(.Var(_, cs)) => _list_sort_elem(&cs), _ => Option(VcSort).None);
+        les := match(ct, .Some(Rc(.Var(_, cs))) => _list_sort_elem(&cs), _ => Option(VcSort).None);
         if(les.is_none(), {
           _fail_subset(ctx, String.from("call of a computed callee that is not a list"), e);
           return(Option(VcTerm).None);
@@ -3091,13 +3093,13 @@ _continue_obligations :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> bool)({
 _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
   match(
     old,
-    .Var(_, s) => s,
-    .Ctor(cn, _) => match(
+    Rc(.Var(_, s)) => s,
+    Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn),
       .Some(ls) => ls,
       .None => VcSort.BoolS
     ),
-    .App(.IteOp, iargs) => match(
+    Rc(.App(.IteOp, iargs)) => match(
       iargs.get(usize(1)),
       .Some(then_t) => _havoc_binding_sort(&then_t),
       .None => VcSort.BoolS
@@ -3712,13 +3714,15 @@ _quant_term :: (
   match(
     body,
     .Some(bt) => Option(VcTerm).Some(
-      rc(VcTermNode.Quant(
-        kind : kind,
-        names : qnames,
-        sorts : qsorts,
-        body : bt,
-        triggers : ArrayList(VcTerm).new()
-      ))
+      rc(
+        VcTermNode.Quant(
+          kind : kind,
+          names : qnames,
+          sorts : qsorts,
+          body : bt,
+          triggers : ArrayList(VcTerm).new()
+        )
+      )
     ),
     .None => Option(VcTerm).None
   )
@@ -4406,7 +4410,7 @@ _call_term :: (
       match(
         a,
         .Some(at) => {
-          es := match(at, .Var(_, s) => s, _ => _term_sort_of(&at));
+          es := match(at, Rc(.Var(_, s)) => s, _ => _term_sort_of(&at));
           empty := cond(
             (head == "ms_single") => rc(VcTermNode.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BvS(width : usize(64))), lit : rc(VcTermNode.BvLit(value : u64(0), width : usize(64))))),
             true => rc(VcTermNode.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BoolS), lit : rc(VcTermNode.BoolLit(false))))
@@ -4492,7 +4496,7 @@ _call_term :: (
       ctx.vars.get(head.clone()),
       .Some(lv) => match(
         lv,
-        .Var(_, lv_sort) => _list_sort_elem(&lv_sort),
+        Rc(.Var(_, lv_sort)) => _list_sort_elem(&lv_sort),
         _ => Option(VcSort).None
       ),
       .None => Option(VcSort).None
@@ -4732,7 +4736,7 @@ _list_len_read_by_var :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))(
     ctx.vars.get(ast_expr_token(&recv).value),
     .Some(rv) => match(
       rv,
-      .Var(_, rv_sort) => match(
+      Rc(.Var(_, rv_sort)) => match(
         _list_sort_elem(&rv_sort),
         .Some(les) => {
           len_t := _list_len_term(&les, &rv);
@@ -4814,7 +4818,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
       ctx.vars.get(ast_expr_token(&recv).value),
       .Some(rv) => match(
         rv,
-        .Var(_, rv_sort) => match(
+        Rc(.Var(_, rv_sort)) => match(
           _list_sort_elem(&rv_sort),
           .Some(les0) => {
             return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value, elem : les0)));
@@ -6382,7 +6386,7 @@ _callee_call_term :: (
               arg_terms.get(hvi),
               .Some(hpre) => match(
                 hpre,
-                .Var(_, hsort) => if(_list_sort_elem(&hsort).is_some(), {
+                Rc(.Var(_, hsort)) => if(_list_sort_elem(&hsort).is_some(), {
                   fresh_h := _next_fresh(ctx);
                   hnew := rc(VcTermNode.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort));
                   pre_map.insert(hcp.clone(), hpre);
@@ -6665,7 +6669,7 @@ _emit_binop_elision_obligation :: (
 _nonzero_term :: (fn(t : &VcTerm) -> VcTerm)(
   match(
     t,
-    .BoolLit(_) => t,
+    Rc(.BoolLit(_)) => t,
     _ => {
       w := _term_width(t);
       vc_distinct(t, rc(VcTermNode.BvLit(value : u64(0), width : w)))
@@ -6679,9 +6683,9 @@ _lt_unsigned_term :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, 
 _term_sort :: (fn(t : &VcTerm) -> Option(VcSort))(
   match(
     t,
-    .Var(_, sort) => Option(VcSort).Some(sort),
-    .BvLit(_, w) => Option(VcSort).Some(VcSort.BvS(width : w)),
-    .BoolLit(_) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.Var(_, sort)) => Option(VcSort).Some(sort),
+    Rc(.BvLit(_, w)) => Option(VcSort).Some(VcSort.BvS(width : w)),
+    Rc(.BoolLit(_)) => Option(VcSort).Some(VcSort.BoolS),
     _ => Option(VcSort).None
   )
 );
@@ -6726,41 +6730,41 @@ _sort_width :: (fn(s : &VcSort) -> usize)(
 _array_elem_width :: (fn(t : &VcTerm) -> usize)(
   match(
     t,
-    .Var(_, .ArrS(ael, _)) => _sort_width(&ael),
-    .Var(_, .FunS(_, frg)) => _sort_width(&frg),
-    .Proj(pacc, _, _) => match(
+    Rc(.Var(_, .ArrS(ael, _))) => _sort_width(&ael),
+    Rc(.Var(_, .FunS(_, frg))) => _sort_width(&frg),
+    Rc(.Proj(pacc, _, _)) => match(
       _list_elem_of_contents_acc(&pacc),
       .Some(pel) => _sort_width(&pel),
       .None => usize(1)
     ),
-    .App(aop, aargs) => match(
+    Rc(.App(aop, aargs)) => match(
       aop,
       .StoreOp => match(aargs.get(usize(0)), .Some(inner) => _array_elem_width(&inner), .None => usize(1)),
       .IteOp => match(aargs.get(usize(1)), .Some(inner) => _array_elem_width(&inner), .None => usize(1)),
       _ => usize(1)
     ),
-    .ArrConst(_, alit) => _term_width(&alit),
+    Rc(.ArrConst(_, alit)) => _term_width(&alit),
     _ => usize(1)
   )
 );
 _term_width :: (fn(t : &VcTerm) -> usize)(
   match(
     t,
-    .Var(_, .BvS(w)) => w,
-    .Var(_, _) => usize(1),
-    .BvLit(_, w) => w,
-    .BoolLit(_) => usize(1),
-    .App(op, args) => _app_width(op, &args),
-    .Ctor(_, _) => usize(1),
-    .Test(_, _) => usize(1),
+    Rc(.Var(_, .BvS(w))) => w,
+    Rc(.Var(_, _)) => usize(1),
+    Rc(.BvLit(_, w)) => w,
+    Rc(.BoolLit(_)) => usize(1),
+    Rc(.App(op, args)) => _app_width(op, &args),
+    Rc(.Ctor(_, _)) => usize(1),
+    Rc(.Test(_, _)) => usize(1),
     // A Proj carries no sort; the list `len` accessor is the one whose
     // width a caller consults (`xs.get(xs.len())`, `xs(xs.len() - 1)`).
-    .Proj(pacc, _, _) => cond(
+    Rc(.Proj(pacc, _, _)) => cond(
       _is_list_len_acc(&pacc) => usize(64),
       true => usize(1)
     ),
-    .Quant(_, _, _, _, _) => usize(1),
-    .ArrConst(_, _) => usize(1)
+    Rc(.Quant(_, _, _, _, _)) => usize(1),
+    Rc(.ArrConst(_, _)) => usize(1)
   )
 );
 // ============================================================================
