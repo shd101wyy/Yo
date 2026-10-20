@@ -152,9 +152,11 @@ register with the collector.
   should not move.
 - **RSS does move.** The +17% exceeds the `Evaluator memory ratchet` job's
   ±10% band (`scripts/bootstrap/memory-ratchet.tsv`, Linux max RSS of
-  `check src/main.yo`). That job is expected to go red until its Linux
-  baseline is re-measured at merge. The macOS number above is not that
-  baseline, so it was not written into the TSV.
+  `check src/main.yo`). That job was expected to go red for the fix alone,
+  until its Linux baseline was re-measured at merge. The macOS number above
+  is not that baseline, so it was not written into the TSV. With the stacked
+  declarations the Linux A/B is +0.12% ("Measured after the rebase" below),
+  so the stack needs no re-baseline.
 - **Recovery (follow-up, not this fix):** decision 21's declared
   `impl(T, Acyclic())` on the compiler's tree node types. It is stacked on
   this fix as branch `perf/acyclic-compiler-containers`; see the next section.
@@ -228,9 +230,11 @@ the declarations it has 16 constructors calling `__yo_gc_register`: the
 `AstExpr.FnCall` cell, three `VcSort` and six `VcTerm` variant
 constructors, and six `ArrayList`/`HashMap` instantiations. With the
 declarations it has none. The `AstExpr`, `VcSort` and `VcTerm` nodes were
-already registering on develop, so the self-build count should fall below
-develop's 139, not merely back to it. The `EvalValue`, `JsonValue` and
-`RegexNode` families stay registered.
+already registering on develop, so the self-build count was predicted to
+fall below develop's 139. That prediction was wrong: the self-build
+measured 158 (below). It counted only the removals and missed the
+constructors the fix newly registers in the families that stay registered
+(`EvalValue`, `JsonValue`, `RegexNode`, and their holders).
 
 The self-build registering-constructor count and the stage-2 `check` max
 RSS of the stacked branch were measured after the rebase; see "Measured
@@ -286,7 +290,11 @@ twice, alternating, under an exclusive heavy lock:
   5:38 and 4:33 on the stack.
 - Not measured here: the fix alone (#1486 without the declarations) on
   Linux, and the malloc-count work ratchet. `__yo_gc_register` makes no
-  allocation, so that count is not expected to move.
+  allocation. The runtime does collect on its own, though: a full
+  collection when the tracked count passes an adaptive threshold, and the
+  incremental pass over possible roots. More tracked cells therefore mean
+  more collector work, and the collector's scratch array grows by
+  `realloc`. The count may move slightly; it was not measured.
 
 One observation from the replicas: a reference-struct holder of a
 cycle-capable reference enum (`ref(struct(e : X))`) reads `false`, while a
