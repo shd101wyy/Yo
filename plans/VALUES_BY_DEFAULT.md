@@ -5105,8 +5105,9 @@ lands after V1 step 2, because its resource cells are the unique `Box`
   `Watcher`, the sockets, `TlsStream`, `HttpClient`, `Child*`, `Thread`)
   are their own step at v0.2.70, after V2b's flips. Every `atomic(...)`
   type (`Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`,
-  `WaitGroup`, `Once`, `OnceCell`, `ThreadPool`, the channel) rides V5
-  Generation A onto `__yo_atomic_cell`, so it is rewritten once.
+  `WaitGroup`, `Once`, `OnceCell`, `ThreadPool`, the `std/sync`
+  `Channel`/`Sender`/`Receiver`, the `Atomic*` types) rides V5 Generation A
+  onto `__yo_atomic_cell`, so it is rewritten once.
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
