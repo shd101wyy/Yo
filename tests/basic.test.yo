@@ -2493,7 +2493,7 @@ test("Test comptime match branch elimination", {
 });
 // Test: return in match branch should be treated as never type
 test("return in match branch type compatibility", {
-  { ArrayList, array_list } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array_list");
   test_fn :: (fn() -> unit)({
     (list : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(42));
@@ -2528,7 +2528,7 @@ test("single-expression function body without braces", {
 });
 // Test: indexing a function call result directly (temporary)
 test("index function call result", {
-  { ArrayList, array_list } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array_list");
   get_list :: (fn() -> ArrayList(u8))({
     (list : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(10));
@@ -2743,7 +2743,7 @@ test("the C type still resolves where it is NOT shadowed", {
 //
 // See issues/fixed/tuple-type-has-no-forward-declaration.md.
 test("a tuple element type inside a generic container declares its C name in time", {
-  { ArrayList, array_list } :: import("std/collections/array_list");
+  { ArrayList } :: import("std/collections/array_list");
   { String } :: import("std/string");
   xs := ArrayList(Tuple(String, String)).new();
   xs.push((`k`, `v`));
