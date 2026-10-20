@@ -57,10 +57,12 @@ the connect completes; that gap is the backend's, not this test's.
   with nix's clang 21.1.7, `ASAN_OPTIONS=detect_leaks=1` on a 64-byte
   `malloc` leak probe spun at 100% CPU for over two minutes without
   reporting anything.
-- Aborting a connect that IS pending works as described: a probe binds a
-  loopback listener that never accepts and spawns 400 connects to it. After
-  300 ms, 272 were still pending: macOS drops SYNs once the listen backlog is
-  full. `abort()` on every handle left 0 unfinished, measured in the same
-  tick (0 ms).
+- Aborting a connect that IS pending is prompt: a probe binds a loopback
+  listener that never accepts and spawns 400 connects to it. After 300 ms, 272
+  were still pending: macOS drops SYNs once the listen backlog is full.
+  `abort()` on every handle left 0 unfinished, measured in the same tick
+  (0 ms). That shows the handles go terminal at once. That the memory is also
+  freed at once rests on the `cancel_fn` reading of the runtime above, since
+  LeakSanitizer cannot run here.
 - `tests/net/tcp.test.yo` passes 25/25 under the default
   `--sanitize address` with the tree binary.
