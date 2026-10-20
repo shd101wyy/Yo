@@ -477,6 +477,20 @@ stable_position_id :: (
   });
   candidate
 });
+/// The declaration identity of the node at (`module_path`, `row`, `column`):
+/// the canonical module path plus the ABSOLUTE position. Pure — it mints and
+/// registers nothing, unlike `stable_position_id` / `stable_type_id` — so
+/// every evaluation of one declaration (module-level or CTFE, either spelling
+/// of the module path) gets the same string. Deliberately NOT anchored
+/// (`_anchored_position`): a module's anchor list can differ between two
+/// evaluations of it in one process — the prelude's `Option` body was minted
+/// both as `…_cast_s2_r8019c2_n0` and as `…_has_other_aliases_s2_r16c2_n63` —
+/// so an anchored key split one declaration in two
+/// (issues/2026-10-20-a-nested-impl-module-overwrites-its-files-identity-anchors.md).
+/// Never part of a C name.
+stable_decl_key :: (fn(module_path : &String, row : usize, column : usize) -> String)(
+  `${_stable_type_id_owner_key(module_path)}@${row.to_string()}:${column.to_string()}`
+);
 /// A function identity mint (Phase 2): `<prefix>yo_id_<h><occ>` where `h` is
 /// the FNV-1a 64 of the mint's anchored source position (`_anchored_position`)
 /// and `occ` is that position's
@@ -551,6 +565,7 @@ export(
   stable_func_id,
   stable_module_id,
   stable_sns_module_id,
+  stable_decl_key,
   stable_occurrence_reset,
   emission_occurrence_reset,
   fnv1a64,

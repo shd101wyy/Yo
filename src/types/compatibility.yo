@@ -22,7 +22,8 @@ pragma(Pragma.AllowUnsafe);
   is_comptime_string_type,
   is_u8_type,
   is_char_type,
-  is_c_compatible_type
+  is_c_compatible_type,
+  enum_decls_differ
 } :: import("./guards.yo");
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -1176,6 +1177,18 @@ _compat_impl :: (
         // (resolve_enum_shell), so the shell-identity case the id compare
         // once served compares structurally on the finalized forms.
         Rc(.EnumT(eid, ename, evns, evfs, _, evls, _, _, _, e_eta)) => cond(
+        // Renditions of two DIFFERENT declarations are different types under
+        // both rules, whatever their names and shapes. A nameless rendition
+        // (a recursive enum's `Self` inside its own `ArrayList(Self)`) was a
+        // wildcard against any same-shaped enum, and the self-reference
+        // compared equal through the cycle guard, so the CTFE memo served
+        // `ArrayList(A)`'s instance for `ArrayList(B)` of a second
+        // declaration of A's shape
+        // (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
+        // Keyed on the recorded declaration identity, never on the id
+        // spelling: a module-level and a CTFE-minted rendition of ONE
+        // declaration carry different ids and must keep comparing equal.
+        enum_decls_differ(&aid, &eid) => false, 
         // Lenient mode: equal (or empty) names, EXCEPT when the variant
         // payloads disagree concretely — `Result(i32, AErr)` and
         // `Result(i32, BErr)` are both "Result" but carry different error

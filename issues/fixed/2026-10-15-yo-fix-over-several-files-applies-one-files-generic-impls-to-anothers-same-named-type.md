@@ -119,7 +119,7 @@ evaluates, and its `MrE` has the same shape as `lazy_toplevel_bindings`'
 `Tree` (`enum(Leaf(v : i32), Node(kids : ArrayList(Self)))`), so the two share
 one `ArrayList(Self)` instantiation. That is a separate structural-key bug,
 not a printed-name one, and it reproduces in one file:
-`issues/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md`.
+`issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md`.
 
 ## Fix
 

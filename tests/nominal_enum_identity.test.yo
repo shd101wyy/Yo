@@ -9,6 +9,9 @@
 { assert } :: import("std/assert");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
+{ ArrayList } :: import("std/collections/array_list");
+{ ToString } :: import("std/fmt");
+{ Error, AnyError } :: import("std/error");
 AErr :: enum(Boom(code : i32), Quiet);
 derive(AErr, Copy, Clone);
 BErr :: enum(Boom(code : i32), Quiet);
@@ -82,4 +85,80 @@ test("HashMap and HashSet in one closure — error enums of the same shape", {
   });
   assert(m.len() == usize(100), "map grew");
   assert(s.len() == usize(100), "set grew");
+});
+// Two RECURSIVE enums of one shape keep their own `ArrayList(Self)`
+// (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
+// The type key's structural enum dedup merged the two declarations: the
+// self-reference inside each expansion renders through the cycle guard
+// without the enum's identity, so `ArrayList(RecB)` keyed — and specialized —
+// as `ArrayList(RecA)`. Its elements then dispatched as `RecA`: `RecA`'s
+// always-true `==` answered for `RecB`, and the C did not compile.
+RecA :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
+RecB :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
+impl(
+  RecA,
+  Eq(RecA)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(true),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(false)
+  )
+);
+_rec_b_kids_eq :: (fn(a : &ArrayList(RecB), b : &ArrayList(RecB)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  (mut(i) : usize) = usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    if(a(i) != b(i), {
+      return(false);
+    });
+  });
+  true
+});
+impl(
+  RecB,
+  Eq(RecB)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
+      match(
+        lhs,
+        .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
+        .Node(a) => match(rhs, .Node(b) => _rec_b_kids_eq(&a, &b), _ => false)
+      )
+    ),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs == rhs))
+  )
+);
+test("two recursive enums of one shape have distinct ArrayList(Self) instantiations", {
+  comptime_expect_error({
+    xs := ArrayList(RecB).new();
+    (ys : ArrayList(RecA)) = xs;
+    consume(ys);
+  });
+  xs := ArrayList(RecB).new();
+  xs.push(RecB.Leaf(v : i32(1)));
+  ys := ArrayList(RecB).new();
+  ys.push(RecB.Leaf(v : i32(2)));
+  assert(RecB.Node(kids : xs) != RecB.Node(kids : ys), "RecB compares its own elements structurally");
+  ra := ArrayList(RecA).new();
+  ra.push(RecA.Leaf(v : i32(1)));
+  bs := ArrayList(RecA).new();
+  bs.push(RecA.Leaf(v : i32(2)));
+  assert(RecA.Node(kids : ra) == RecA.Node(kids : bs), "RecA keeps its always-true ==");
+});
+// The undeclared `Option` a `downcast` returns (`create_option_type`) shares
+// its C type with the PRELUDE's `Option(T)` only. A user enum spelled like
+// `Option` and keyed first once captured it, so the downcast temp was typed
+// as `MaybeErr`'s struct while `downcast_my_err` returns `Option(MyErr)`:
+// `initializing ... with an expression of incompatible type` in clang.
+MyErr :: struct(code : i32);
+impl(MyErr, ToString(to_string : (self -> `my err`)));
+impl(MyErr, Error());
+MaybeErr :: enum(None, Some(value : MyErr));
+_maybe_err_code :: (fn(m : MaybeErr) -> i32)(match(m, .Some(e) => e.code, .None => i32(0)));
+downcast_my_err :: (fn(err : AnyError) -> Option(MyErr))(downcast(err, MyErr));
+test("a downcast's Option(T) is the prelude Option, not a same-shaped user enum", {
+  a := _maybe_err_code(MaybeErr.Some(value : MyErr(code : i32(3))));
+  (err : AnyError) = dyn(MyErr(code : i32(7)));
+  (o : Option(MyErr)) = downcast_my_err(err);
+  b := match(o, .Some(e) => e.code, .None => i32(-1));
+  assert((a + b) == i32(10), "downcast returns the prelude Option");
 });

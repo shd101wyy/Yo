@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode } :: import("./definitions.yo");
 { type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
-{ is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
+{ is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity, is_prelude_enum_decl } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked, type_mentions_some_type } :: import("./utils.yo");
 { debug_knob } :: import("../utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
@@ -34,21 +34,74 @@ pragma(Pragma.AllowUnsafe);
 // termination). See issues/fixed/yo-self-iterator-option-identity.md.
 // sig → canonical_key, FIRST registration wins (HashMap — same O(n²)-scan
 // fix as g_struct_cfid_keys above).
+//
+// The signature also carries the enum's DECLARATION identity
+// (`enum_decl_identity`, types/guards.yo): only renditions of ONE declaration may merge.
+// Without it two distinct declarations of one shape —
+// `A :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` and a `B` spelled
+// the same — had one signature, because a self-reference inside the
+// expansion renders through the cycle guard WITHOUT the enum's identity, so
+// `ArrayList(B)` keyed (and specialized) as `ArrayList(A)`
+// (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
 (g_enum_sig_keys : HashMap(String, String)) = HashMap(String, String).new();
-/// Look up the canonical key for a structural signature; register `full_key` as
-/// the canonical for `sig` on first sight.
-_lookup_or_register_enum_sig :: (fn(sig : &String, full_key : &String) -> String)(
-  match(
-    g_enum_sig_keys.get(sig),
-    // CLONE the stored canonical: a returned String shares the map value's
-    // buffer, so an in-place push by any caller would corrupt the canonical
-    // (the IoError stage-2 typedef split). Same hardening on the struct
-    // cfid-key returns below.
-    .Some(k) => k.clone(),
-    .None => {
-      g_enum_sig_keys.insert(sig.clone(), full_key.clone());
-      bump_type_key_epoch();
-      full_key
+// A rendition with NO declaration identity (`create_option_type`'s synthesized
+// `Option`, id "") must still collapse onto the real `Option(T)` of its shape,
+// as it did when the signature was shape-only. Per declaration-free signature
+// (`bare`): the canonical of the PRELUDE declaration of that shape
+// (`g_enum_bare_claims`), and the key an undeclared rendition registered
+// before the prelude declaration was keyed (`g_enum_bare_unclaimed`) — the
+// prelude declaration then adopts that key, so the pair merges whichever is
+// seen first. Only a std/prelude.yo declaration claims (`is_prelude_enum_decl`):
+// a user enum spelled `enum(None, Some(value : T))` keyed before the real
+// `Option(T)` once captured the synthetic rendition, and a downcast's
+// `Option(T)` temp got the user enum's C struct.
+(g_enum_bare_claims : HashMap(String, String)) = HashMap(String, String).new();
+(g_enum_bare_unclaimed : HashMap(String, String)) = HashMap(String, String).new();
+/// The canonical key for an enum of structural signature `bare` and
+/// declaration identity `decl` ("" = none recorded); registers `full_key`
+/// as the canonical on first sight.
+// The returned canonical is always a CLONE: a returned String shares the map
+// value's buffer, so an in-place push by any caller would corrupt the
+// canonical (the IoError stage-2 typedef split). Same hardening on the
+// struct cfid-key returns below.
+_lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &String) -> String)(
+  cond(
+    (decl.len() == usize(0)) => match(
+      g_enum_bare_claims.get(bare),
+      .Some(k) => k.clone(),
+      .None => match(
+        g_enum_bare_unclaimed.get(bare),
+        .Some(k) => k.clone(),
+        .None => {
+          g_enum_bare_unclaimed.insert(bare.clone(), full_key.clone());
+          bump_type_key_epoch();
+          full_key
+        }
+      )
+    ),
+    true => {
+      sig := `${bare}@${decl}`;
+      match(
+        g_enum_sig_keys.get(&sig),
+        .Some(k) => k.clone(),
+        .None => {
+          canonical := cond(
+            !is_prelude_enum_decl(decl) => full_key.clone(),
+            true => match(
+              g_enum_bare_claims.get(bare),
+              .Some(_) => full_key.clone(),
+              .None => {
+                adopted := match(g_enum_bare_unclaimed.get(bare), .Some(k) => k.clone(), .None => full_key.clone());
+                g_enum_bare_claims.insert(bare.clone(), adopted.clone());
+                adopted
+              }
+            )
+          );
+          g_enum_sig_keys.insert(sig, canonical.clone());
+          bump_type_key_epoch();
+          canonical
+        }
+      )
     }
   )
 );
@@ -556,7 +609,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
           // collapse to one C type; distinct enums differ in variant names,
           // discriminants, or field types. Discriminants are included so two
           // same-named/same-fielded variants with different tag values do NOT
-          // merge.
+          // merge. The lookup adds the declaration identity, so two
+          // DECLARATIONS of one shape never merge (`enum_decl_identity`).
           sig := String.from("e");
           (si : usize) = usize(0);
           while(si < evns.len(), {
@@ -573,7 +627,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
             si = (si + usize(1));
           });
           sig.push_string(&field_part);
-          _lookup_or_register_enum_sig(&sig, &key)
+          decl := match(enum_decl_identity(&eid), .Some(d) => d, .None => String.new());
+          _lookup_or_register_enum_sig(&sig, &decl, &key)
         })
       })
     },
