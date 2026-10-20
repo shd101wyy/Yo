@@ -620,8 +620,8 @@ in `std/async/index.yo` is a bare `match` again instead of the typed `out`
 local. With the v0.2.50 seed it broke stage 1, because std/http's `timeout`
 call is compiled into the compiler
 (`issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md`);
-`yo build --std-path ./std` with the installed v0.2.66 seed builds the tree,
-and `tests/async/combinators.test.yo` passes under the seed and the
+`yo build --std-path ./std` with the installed v0.2.66 seed (`yo 0.2.66`)
+builds the tree (rc=0, 438.7 s, max RSS 3.6 GB, Mac Mini M4), and `tests/async/combinators.test.yo` passes under the seed and the
 seed-built binary.
 
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
