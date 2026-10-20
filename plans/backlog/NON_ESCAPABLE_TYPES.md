@@ -144,7 +144,8 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   binding (decision 47: an unmarked module-level binding is never
   written after its initializer) — carries the empty set. The set
   algebra needs nothing new for it: `∅ ⊆ p`, so such a reference coerces
-  into every origin position, which is Rust's `'static`.
+  into every origin position that widens — the covariant positions of
+  O3-3, not an origin behind a `&mut` — which is Rust's `'static`.
 
 ### O2. Elision: defaults the checker verifies, never inference it trusts
 

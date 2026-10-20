@@ -10,7 +10,10 @@
   design before implementation; decision 46, `Rc` is Rust's `Rc`, added
   2026-10-14; decision 47, immutable bindings with `mut(...)` and Zig's
   statics, added 2026-10-15, with two points to settle before its
-  implementation). No other design question is open;
+  implementation; decision 43's amendment leaves ONE point open before
+  its N1 — whether a `generic(...)` parameter admits origin-carrying
+  arguments by default or by declaration, §9). No other design question
+  is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
