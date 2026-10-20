@@ -80,6 +80,17 @@ standalone bug with its own fix. The local leak-verdict failures of
 CI stays ratcheted off for them (`YO_TEST_LEAK_VERDICT=0` in the two
 self-hosted legs), which is the umbrella's interim state.**
 
+**Re-check 2026-10-20 (darwin, the v0.2.67 prep box): not measurable
+there.** On macOS 26.6 with the clang on that box's PATH (the nix
+clang-wrapper 21.1.7), an AddressSanitizer build of a three-line leaking C
+program spins at 90% CPU at start and never exits (a build with Apple's
+`/usr/bin/clang` hangs the same way, as the review reproduced), so no binary built there
+can produce a LeakSanitizer report (the compiler's `--sanitize address` probe
+in `src/main.yo` guards exactly this hang with a 3-second `kill -9`). That
+matches the umbrella's note that the debt is invisible on a macOS
+dev box. The four failures reproduce only where LeakSanitizer arms (Linux,
+as in the measurement above). Nothing in the verdict changed.
+
 ## Test
 
 The four cases above, run locally with the default leak verdict, are the
