@@ -42,7 +42,13 @@ import("std/fmt");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
-{ is_comptime_int_type, is_type_0, register_type_decl_module, register_enum_decl_identity } :: import("../../types/guards.yo");
+{
+  is_comptime_int_type,
+  is_type_0,
+  register_type_decl_module,
+  register_enum_decl_identity,
+  register_prelude_enum_decl
+} :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -50,6 +56,7 @@ import("std/fmt");
 { TypeField, EvalTypeFieldResult, evaluate_type_field } :: import("./field.yo");
 { stable_position_id, stable_type_id, stable_decl_key, parse_raw_int } :: import("../../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
+{ is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_enum_type } :: import("./utils.yo");
@@ -343,6 +350,12 @@ evaluate_enum_type :: (
   decl_key := stable_decl_key(&decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column));
   register_enum_decl_identity(&enum_id, &decl_key);
   register_enum_decl_identity(&shell_id, &decl_key);
+  // Only a declaration in std/prelude.yo itself (not compiler-generated
+  // code) may stand for an undeclared synthetic rendition of its shape
+  // (`create_option_type`'s `Option`, types/type_key.yo).
+  if(!decl_tok.module_path.starts_with(String.from("auto-generated://")) && is_prelude_or_generated_file(Option(String).Some(decl_tok.module_path.clone()), ctx.std_path.clone()), {
+    register_prelude_enum_decl(&decl_key);
+  });
   prelim_ty := rc(
     TypeValueNode.EnumT(
       shell_id.clone(),

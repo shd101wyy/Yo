@@ -41,7 +41,8 @@ type_decl_module :: (fn(type_id : &String) -> Option(String))(
 // compatibility — renditions of one declaration may merge, two declarations
 // never (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
 // An id with no entry (`create_option_type`'s synthesized `Option`, id "")
-// keeps the shape-only rules.
+// keeps the shape-only rules, against std/prelude.yo's declarations only in
+// type_key (`register_prelude_enum_decl`).
 // ---------------------------------------------------------------------------
 (g_enum_decl_identities : HashMap(String, String)) = HashMap(String, String).new();
 register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
@@ -50,6 +51,22 @@ register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
   });
   ()
 });
+/// Declaration identities of enums declared in std/prelude.yo itself
+/// (recorded by `evaluate_enum_type`). type_key lets only these stand for an
+/// undeclared synthetic rendition of the same shape: `create_option_type`'s
+/// `Option` is the prelude's `Option(T)`, never a user enum spelled
+/// `enum(None, Some(value : T))` that happens to be keyed first.
+(g_prelude_enum_decls : HashMap(String, bool)) = HashMap(String, bool).new();
+register_prelude_enum_decl :: (fn(decl : &String) -> unit)({
+  if(decl.len() > usize(0), {
+    g_prelude_enum_decls.insert(decl, true);
+  });
+  ()
+});
+/// Whether declaration identity `decl` names an enum declared in std/prelude.yo.
+is_prelude_enum_decl :: (fn(decl : &String) -> bool)(
+  match(g_prelude_enum_decls.get(decl), .Some(_) => true, .None => false)
+);
 /// The declaration identity recorded for enum id `enum_id` (a clone).
 enum_decl_identity :: (fn(enum_id : &String) -> Option(String))(
   match(g_enum_decl_identities.get(enum_id), .Some(d) => Option(String).Some(d.clone()), .None => Option(String).None)
@@ -1117,6 +1134,8 @@ export(
   is_function_type_hard_generic,
   register_type_decl_module,
   register_enum_decl_identity,
+  register_prelude_enum_decl,
+  is_prelude_enum_decl,
   enum_decl_identity,
   enum_decls_differ,
   type_decl_module,

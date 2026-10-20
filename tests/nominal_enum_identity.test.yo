@@ -10,6 +10,8 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { ArrayList } :: import("std/collections/array_list");
+{ ToString } :: import("std/fmt");
+{ Error, AnyError } :: import("std/error");
 AErr :: enum(Boom(code : i32), Quiet);
 derive(AErr, Copy, Clone);
 BErr :: enum(Boom(code : i32), Quiet);
@@ -141,4 +143,22 @@ test("two recursive enums of one shape have distinct ArrayList(Self) instantiati
   bs := ArrayList(RecA).new();
   bs.push(RecA.Leaf(v : i32(2)));
   assert(RecA.Node(kids : ra) == RecA.Node(kids : bs), "RecA keeps its always-true ==");
+});
+// The undeclared `Option` a `downcast` returns (`create_option_type`) shares
+// its C type with the PRELUDE's `Option(T)` only. A user enum spelled like
+// `Option` and keyed first once captured it, so the downcast temp was typed
+// as `MaybeErr`'s struct while `downcast_my_err` returns `Option(MyErr)`:
+// `initializing ... with an expression of incompatible type` in clang.
+MyErr :: struct(code : i32);
+impl(MyErr, ToString(to_string : (self -> `my err`)));
+impl(MyErr, Error());
+MaybeErr :: enum(None, Some(value : MyErr));
+_maybe_err_code :: (fn(m : MaybeErr) -> i32)(match(m, .Some(e) => e.code, .None => i32(0)));
+downcast_my_err :: (fn(err : AnyError) -> Option(MyErr))(downcast(err, MyErr));
+test("a downcast's Option(T) is the prelude Option, not a same-shaped user enum", {
+  a := _maybe_err_code(MaybeErr.Some(value : MyErr(code : i32(3))));
+  (err : AnyError) = dyn(MyErr(code : i32(7)));
+  (o : Option(MyErr)) = downcast_my_err(err);
+  b := match(o, .Some(e) => e.code, .None => i32(-1));
+  assert((a + b) == i32(10), "downcast returns the prelude Option");
 });
