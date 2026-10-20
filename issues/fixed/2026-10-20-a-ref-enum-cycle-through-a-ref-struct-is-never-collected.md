@@ -5,7 +5,7 @@ reference struct (`Kids(k : ArrayList(Self))`) is never registered with the
 cycle collector, so every such cycle a program builds leaks for the life of
 the process; and the type also reads `Acyclic`, so `Iso(T)` accepts it.
 
-**Status:** open. **Found:** 2026-10-20, while checking the cycle walk's
+**Status:** FIXED 2026-10-20 on `docs/cycle-walk-holder-asymmetry` (see "Fix"). **Found:** 2026-10-20, while checking the cycle walk's
 holder asymmetry reported by the `Acyclic` work on
 `perf/acyclic-compiler-containers`. The holder side of the same walk is
 `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.

@@ -14,7 +14,7 @@ cycle-capable reference enum reads acyclic, and `ref(struct(y : Y))` with `Y`
 a cycle-capable reference struct reads cyclic. The walk in
 `src/types/utils.yo` and the `^` macro in `std/prelude.yo` are the same on
 develop `7def2203b`. Related:
-`issues/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`
+`issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`
 (the same walk, root side).
 
 ## Reproducer

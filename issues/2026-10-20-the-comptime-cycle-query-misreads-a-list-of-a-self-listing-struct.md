@@ -6,7 +6,7 @@ that list registers with the cycle collector; only the introspection answer
 is wrong, the generated program is right.
 
 **Status:** open. **Found:** 2026-10-20 with the v0.2.66 seed, while probing
-`issues/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`.
+`issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`.
 Cause not established.
 
 ## Reproducer
