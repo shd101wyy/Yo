@@ -3492,14 +3492,14 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
       });
       // (name, level) pairs used OUTSIDE the return — do not freshen those.
       keep := ArrayList(String).new();
-      outside := ArrayList(ArrayList(TypeValue)).new();
+      outside := ArrayList(SharedList(TypeValue)).new();
       outside.push(fr_pts);
       outside.push(fr_fts);
       outside.push(fr_wts);
       outside.push(fr_its);
       (oi : usize) = usize(0);
       while(oi < outside.len(), {
-        tys := match(outside.get(oi), .Some(t) => t, .None => ArrayList(TypeValue).new());
+        tys := match(outside.get(oi), .Some(t) => t, .None => no_types());
         (ci : usize) = usize(0);
         while(ci < tys.len(), {
           match(

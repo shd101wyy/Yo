@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../expr.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, SharedList } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
@@ -2164,8 +2164,8 @@ _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExp
     Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
-      _variant_named(&q_names.items, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
-      _variant_named(&q_names.items, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
+      _variant_named(&q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
+      _variant_named(&q_names, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
       true => Option(AstExpr).None
     ),
     _ => Option(AstExpr).None
@@ -2231,7 +2231,7 @@ _enum_ctor_named :: (
 )(
   match(
     info.ty,
-    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names.items, &e_fields.items, variant, dot_args),
+    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -2244,8 +2244,8 @@ _build_enum_ctor :: (
     e : &AstExpr,
     ety : &TypeValue,
     e_id : &String,
-    e_names : &ArrayList(String),
-    e_fields : &ArrayList(ArrayList(TypeValue)),
+    e_names : &SharedList(String),
+    e_fields : &SharedList(SharedList(TypeValue)),
     variant : &String,
     dot_args : &ArrayList(AstExpr)
   ) -> Option(VcTerm)
@@ -2294,12 +2294,12 @@ _build_enum_ctor :: (
   )
 );
 /// Whether `vname` (bare, no dot) names a variant.
-_variant_named :: (fn(e_names : &ArrayList(String), vname : &String) -> bool)(
+_variant_named :: (fn(e_names : &SharedList(String), vname : &String) -> bool)(
   _variant_index_of(e_names, vname) < e_names.len()
 );
 /// The variant index for a BARE variant name; the list length when not
 /// found.
-_variant_index_of :: (fn(e_names : &ArrayList(String), vname : &String) -> usize)({
+_variant_index_of :: (fn(e_names : &SharedList(String), vname : &String) -> usize)({
   (i : usize) = usize(0);
   (hit : usize) = e_names.len();
   while((i < e_names.len()) && (hit == e_names.len()), {
@@ -2678,7 +2678,7 @@ _variant_accessors :: (fn(e_ty : &TypeValue, variant : &String, count : usize) -
   vls := match(
     e_ty,
     Rc(.EnumT({ variant_names : e_names, variant_field_labels : e_labels })) => match(
-      e_labels.get(_variant_index_of(&e_names.items, variant.clone())),
+      e_labels.get(_variant_index_of(&e_names, variant.clone())),
       .Some(l) => l,
       .None => ArrayList(String).new()
     ),
