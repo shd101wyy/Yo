@@ -1081,11 +1081,8 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) {
 extern int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t*, const char*) __attribute__((weak));
 #endif
 
-// The spawn shim with a working directory (NULL = inherit the parent's).
-//  Command.current_dir  (std/process) is the consumer; it is generation-gated
-// on this symbol existing in the SEED's emitted runtime, so std keeps calling
-// the 6-argument  __yo_async_spawn_start  wrapper below until the seed carries
-// this (plans/backlog/SEED_VERSION_AUTOMATION.md).
+// The spawn shim, with a working directory for the child (NULL = inherit the
+// parent's). std/sys/process's  spawn  and  spawn_cwd  both call it.
 static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t** argv, uint8_t** envp,
                                                   int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd,
                                                   const uint8_t* cwd) {
@@ -1143,13 +1140,6 @@ static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t
   atomic_init(&future->state, -1);
 
   return future;
-}
-
-// Inherit the parent's working directory. This is the symbol std declares
-// today; keep it until the seed emits __yo_async_spawn_start_cwd.
-static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
-                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
-  return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
 }
 
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {

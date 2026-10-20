@@ -26,7 +26,7 @@
 //! `std/process` already builds on top — so that is the stable surface.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
-{ __yo_async_spawn_start, __yo_async_spawn_start_cwd, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
+{ __yo_async_spawn_start_cwd, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
 /// Spawn a child process, inheriting the parent's working directory.
 /// Resolves to the child's pid, or a negative errno.
 ///
@@ -53,7 +53,7 @@ spawn :: (
     stderr_fd : i32
   ) -> IoFuture
 )(
-  __yo_async_spawn_start(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)
+  __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, .None)
 );
 /// `spawn` plus a working directory for the child (`.None` inherits the
 /// parent's) — what backs `Command.current_dir`.
