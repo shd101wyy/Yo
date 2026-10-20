@@ -1776,7 +1776,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               rm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
               // direct-call unit exit in generate_other_function_call).
-              rm_bc := _emit_borrow_acquires(&rm_runtime, &rm_pir, indent.clone(), context);
+              rm_bc := _emit_borrow_acquires(&rm_runtime, &rm_pir.items, indent.clone(), context);
               if(rm_may_unwind, {
                 rm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
@@ -1793,7 +1793,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               ei.variable_name,
               .Some(tv) => {
                 rm_em2 := context.base.emitter;
-                rm_bc2 := _emit_borrow_acquires(&rm_runtime, &rm_pir, indent.clone(), context);
+                rm_bc2 := _emit_borrow_acquires(&rm_runtime, &rm_pir.items, indent.clone(), context);
                 if(rm_may_unwind, {
                   rm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -2471,7 +2471,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // `inout` arg (`xs(i)`) points into, and release it right after the
             // call — BEFORE the deferred drops and the unwind check, so an
             // unwinding callee still releases.
-            ou_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+            ou_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
             // Clear __yo_effect_escaped before the call so a stale flag from
             // a previous unwind (already handled by a higher-level handler)
             // doesn't leak into this call's escape check.
@@ -2533,7 +2533,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 // a previous unwind (already handled by a higher-level handler)
                 // doesn't leak into this call's escape check.
                 // Interior-`inout` borrow flags around the call (see the unit exit).
-                ou_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+                ou_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
                 if(ou_may_unwind, {
                   em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -2721,7 +2721,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // and called an `int32_t*` function through a by-value pointer type,
           // truncating the address
           // (issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-          cast.push_string(_fn_pointer_param_type_string(&param_types.items, &param_is_ref, pi, context));
+          cast.push_string(_fn_pointer_param_type_string(&param_types.items, &param_is_ref.items, pi, context));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2754,7 +2754,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               fa_pt := match(
                 sig_param_types.get(fa_i),
                 .Some(spt_i) => if(sig_fn.is_some() && is_function_type(&spt_i), generate_function_prototype(&spt_i, String.from("(*)"), &context.base, Option(String).None, false), _fn_pointer_param_type_string(&sig_param_types, &sig_param_is_ref, fa_i, context)),
-                .None => _fn_pointer_param_type_string(&param_types.items, &param_is_ref, fa_i, context)
+                .None => _fn_pointer_param_type_string(&param_types.items, &param_is_ref.items, fa_i, context)
               );
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
@@ -2823,7 +2823,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   if(ou_result_is_void, {
     // Interior-`inout` borrow flags around the indirect call (see the
     // direct-call unit exit).
-    fp_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+    fp_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
     // Clear __yo_effect_escaped before an indirect call that may unwind.
     if(ou_may_unwind, {
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
@@ -2845,7 +2845,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       fpc := get_type_string(&result_type, &context.base);
       // Interior-`inout` borrow flags around the indirect call (see the
       // direct-call unit exit).
-      fp_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+      fp_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       if(ctl_generic_ret, {
