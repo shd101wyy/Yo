@@ -97,7 +97,9 @@ that can exist **only in a borrow position** is exactly a borrow: a
 43): `xs : &[T]` / `xs : &mut [T]` in parameters, locals, fields of
 second-class structs and `Option(&[T])`, never the payload of a cell, and
 returned only under the single-root rule (`NON_ESCAPABLE_TYPES.md` R1,
-R3). It is constructed at the call site from an
+R3 — since the 2026-10-19 amendment, #1483: a first-class `View(T, p)`
+whose origin `p` is spelled or elided, O3's return rule, storable where
+`p` follows, O4). It is constructed at the call site from an
 `ArrayList(T)`, an `Array(T, N)`, a `String` (as `[u8]`) or a sub-range
 (`&xs(a..b)`, zero-copy), lowers to the `RawSlice` ptr+len pair, carries
 `len()` and `Index` projections, and can be the source of the borrowed

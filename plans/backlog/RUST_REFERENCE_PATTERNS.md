@@ -20,6 +20,16 @@ filed with a recommendation and cited where it applies (a fourth, `Rc`'s
 `issues/questions/refcell-inside-a-plain-value.md`,
 `issues/retired/borrowed-for-over-user-defined-collections.md`.
 
+> **Read with the 2026-10-19 amendment (#1483):** decision 43 now makes
+> references FIRST-CLASS types parameterized by origins (`&(T, p)`,
+> `NON_ESCAPABLE_TYPES.md` O1–O9). The `R1`–`R7` rules and the
+> `depends(...)` clause this catalog cites are the superseded design;
+> translate as you read — `R3`'s single-root return is O3's return rule
+> over origin parameters, `R7`'s root-joining container is O6's declared
+> union, `depends` is a spelled origin (O7's table), and the "never in a
+> cell" rows relax to O4's no-origin positions (`Box`/`RefCell` payloads
+> are now legal). The catalog's gap analysis still stands.
+
 Decision numbers (`D18`, `D43`, …) refer to `VALUES_BY_DEFAULT.md` §4; bare
 `§`-references (`§3.10`, `§3.13 A2`) are that plan's sections; `R1`–`R7`
 are the design note's rules.

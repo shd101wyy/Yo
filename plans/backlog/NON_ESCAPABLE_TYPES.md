@@ -128,6 +128,23 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   reference-holding struct is a plain C struct of pointers, `RawSlice`'s
   shape; no count traffic, no header, no runtime mark. The only runtime
   borrow state in the language remains `RefCell`'s (§3.10).
+- **Origins are erased from every identity but the checker's** (added
+  2026-10-20, review of #1483). Two types that differ only in their origin
+  arguments are ONE type for specialization (the memo and `type_key` keys
+  V4 rebuilt in #1329, the clfid keys of `create_specialization_at_call`),
+  for C type identity, for trait coherence (`impl(&(T, p), Tr)` quantifies
+  over every origin; an impl may not name a concrete place) and for
+  reflection equality (`type_of(&x) == type_of(&y)`); they differ only for
+  the borrow checker. Without this rule every `f(&x)` / `f(&y)` pair would
+  mint a specialization and `ArrayList(&(T, x))` and `ArrayList(&(T, y))`
+  would be two C structs. Rust does the same: monomorphization sees erased
+  regions.
+- **The empty origin.** A borrow that names no place — `str`'s view of
+  static bytes (decision 36), a lend of a never-written module-level
+  binding (decision 47: an unmarked module-level binding is never
+  written after its initializer) — carries the empty set. The set
+  algebra needs nothing new for it: `∅ ⊆ p`, so such a reference coerces
+  into every origin position, which is Rust's `'static`.
 
 ### O2. Elision: defaults the checker verifies, never inference it trusts
 
@@ -150,6 +167,14 @@ signature that lies fails in the callee, not at a caller far away).
   Option(&T)` is the conservative lending reading (the item's origin is
   the union of the ref parameters = the cursor's place), exactly the old
   default.
+- **A `Fn(...)` type's elided parameter origins are per-call.**
+  `f : Impl(Fn(&(T, q)) -> &(U, q))` with `q` elided is a fresh origin at
+  EVERY call of `f`, universally quantified: a closure literal in that slot
+  is checked with `q` rigid (abstract), so it may not return a captured
+  `&(U, y)` (`y ⊆ q` fails for an abstract `q`), and each call inside the
+  callee instantiates `q` with that call's argument. This is what Rust
+  spells `for<'a>`; Yo has it, always elided, never spelled (§4's table
+  says so).
 - **std's `depends(self : ())` obligation disappears.** Distinct elided
   origins never unify: `map.remove(&k)` and `list.binary_search(&probe)`
   keep the key usable after the call with nothing spelled, because the
@@ -171,10 +196,32 @@ region solver:
    (E0911); two `&mut` arguments of one call with intersecting origins are
    E0910 (decision 28 restated); reads of `p` coexist — Ante's use-vs-
    mention distinction falls out of set algebra without an effect system.
-3. **Coercion is subset.** `&(T, p)` coerces into `&(T, (p, q))` (widening
-   a union) and into a fresh-elided parameter's position; nothing else
-   coerces. This is the whole subtyping story — there is no variance
-   lattice.
+3. **Coercion is subset — in covariant positions only.** `&(T, p)` coerces
+   into `&(T, (p, q))` (widening a union) and into a fresh-elided
+   parameter's position; so does the OUTER origin of a `&mut(T, p)`, a
+   `&`'s pointee, a result and an owned composite's field. **An origin
+   reached through a `&mut` pointee, a `RefCell` payload or a `&mut`
+   capture is invariant: it unifies exactly and never widens** (added
+   2026-10-20, review of #1483 — the first text said "nothing else
+   coerces; there is no variance lattice", one rule short). The hole it
+   closes:
+
+   ```yo ignore
+   store :: (fn(generic(T : Type, r : Origin), dst : &mut(Option(&(T, r))), v : &(T, r)) -> unit)(dst.* = .Some(v));
+   x := i32(1);
+   mut(slot) := Option(&(i32, x)).Some(&x);
+   {
+     y := i32(2);
+     store(&mut slot, &y);   // r := x from dst, so `&y : &(i32, y)` fails `y ⊆ x`: error.
+   }                         // Were `&mut slot` allowed to widen to `&mut(Option(&(i32, (x, y))))`,
+   slot                      // r := (x, y) would type and `slot` would hold `&y` past y's drop.
+   ```
+
+   A method call is safe by step 1 already (the receiver fixes the origin
+   arguments before the other arguments are matched); the rule matters for
+   free functions and for any `&mut`-lent argument whose origin a second
+   argument would otherwise widen. These two rows are the whole subtyping
+   story — no variance lattice beyond them.
 4. **Liveness** is decision 18's, unchanged: freezes end at last use,
    re-pointing is decision 25's, moves and drops are accesses.
 
@@ -242,26 +289,43 @@ async generator holding a borrow of its own saved local across an `await`),
 so moving the value after construction would dangle the pointer. Yo's
 design makes that state **unrepresentable**:
 
-- An origin may only name places that exist **before** the value:
+- A **declared** type — a signature, a type definition, a binding's
+  spelled type — may only name places that exist **before** the value:
   parameters, enclosing bindings, earlier origins. A type definition cannot
   name its own fields and a binding's type cannot name its own place (O1's
   well-formedness rule). Every reference inside a value points **outward**,
-  at a place owned by an enclosing frame.
+  at a place owned by an enclosing frame. Inside a body, a flow-inferred
+  set (O2) may come to hold a place declared LATER in the same or an inner
+  scope (`out := ArrayList(&i32).new(); x := i32(5); out.push(&x);`); what
+  keeps that sound is liveness, not scoping — a drop is an access
+  (decision 18) and bindings drop in reverse declaration order, so `x`'s
+  scope-end drop while `out` is still used is E0911, and `out`'s own later
+  drop is O3's `may_dangle` obligation (made precise 2026-10-20, review of
+  #1483; the first text stated the "exists before" rule for every origin,
+  which O2 and O3 contradicted).
 - Moving a value therefore never dangles anything it contains: the pointers
   aim at other frames' storage. This is the same trade Hylo and Swift make,
   and the same position the second-class design already had — nothing is
   lost relative to the landed baseline, and the escape it names is the
   existing one: a self-referential struct is not writable in safe Yo at all
   (Rust can, with `Pin` and `unsafe`).
-- **Async.** §3.13 A2 already restricts a borrowing future to borrows
-  rooted at its body's `&`/`&mut` parameters; the origin spelling is
-  `Future(T, p)` with `p` those parameters' places, and the state machine
-  (heap-allocated once cold) stores only outward pointers to the caller
-  frame. A borrow of an async body's **own local** living across an
-  `await` would need an origin naming the state machine's own field —
-  prohibited by the same rule; the await-point check (O8) rejects a live
-  body-local origin at the `await`. No `Pin`, no address-stability
-  reasoning, no projection-safe move analysis.
+- **Async.** §3.13 A2 already restricts what a borrowing future carries
+  OUT of its body to borrows rooted at the body's `&`/`&mut` parameters;
+  the origin spelling is `Future(T, p)` with `p` those parameters' places.
+  The body's **own locals** are a different matter (corrected 2026-10-20,
+  review of #1483 — the first text rejected a body-local borrow live at an
+  `await`, which is legal today: an `io.async` body that lends `&mut c` of
+  its own local `c` to an inner future and awaits it checks, compiles and
+  runs under v0.2.66). They live in the state machine, which is HEAP
+  storage allocated at `io.async` and never relocated (decision 40's
+  invariant; `docs/en-US/ASYNC_AWAIT.md`), so a borrow of one across an
+  `await` is an ordinary intraprocedural borrow (decision 18) over a
+  stable place; it never reaches the future's type, because `Future(T, p)`
+  names only what the body captures from the caller. The machine does
+  contain pointers into itself in Rust's sense, and that is harmless for
+  the reason decision 40 gives — a cell moves by its handle, never by its
+  bytes. No `Pin`, no address-stability reasoning, no projection-safe
+  move analysis.
 - `Box` gives the stable-address escape hatch FFI-style code needs: the
   payload never moves when the handle does. Holding `&(T, box_place)`
   across a move of the box is rejected anyway (the move is an access,
@@ -280,10 +344,21 @@ out.push(self.text.view(rng));                  // the view's origin is self ⊆
 both.push(&z);                                  // error naming {x, y} and {z}; yo fix widens
 ```
 
+- **Which set freezes** (made precise 2026-10-20, review of #1483): the
+  declared union is the type-level BOUND — every stored origin must be a
+  subset of it, and a callee receiving the container through `&mut` with
+  the union abstract treats the whole union as frozen in the mode of the
+  element reference. The LIVE freeze in a body is the flow-inferred actual
+  set (O2): the places that have entered the container, unioned over
+  reaching definitions, from the point each enters until the container's
+  last use. The declared union itself freezes nothing — otherwise
+  `both.push(&mut x)` would conflict with `both`'s own exclusive hold over
+  `x` and no `&mut` could ever be pushed.
 - Growth and reallocation are irrelevant to soundness: the elements are
-  pointers and the roots are frozen or exclusively borrowed for the
-  container's life (the elements never move within their buffer in a way
-  the references could miss — realloc copies pointers, not referents).
+  pointers and their roots are frozen (`&`) or exclusively borrowed
+  (`&mut`) from entry to the container's last use (the elements never move
+  within their buffer in a way the references could miss — realloc copies
+  pointers, not referents).
 - A push outside the declared union is a local, deterministic error — the
   friction of rigidity is accepted deliberately (maintainer, 2026-10-19:
   LLM authorship prefers a declaration to fix over an inference to
@@ -338,10 +413,10 @@ parameter):
   **forwarding works** — `f(c : &mut C, io)` returning `bump(&mut c, io)`
   is ordinary substitution, closing A2's recorded "forwarding is not
   accepted yet" gap.
-- **The await-point rule:** a live origin naming a body-local place at an
-  `await` is an error (O5); module-level places follow decision 18 rule 3
-  (no call or `await` in the live range), now visible in the type as the
-  named global.
+- **At an `await`:** a borrow of a body-local place may be live across
+  it — the local sits in the heap state machine (O5, decision 40); no new
+  rule. Module-level places follow decision 18 rule 3 (no call or `await`
+  in the live range), now visible in the type as the named global.
 - An origin-carrying type is not `Send` (structural), cannot be spawned,
   cannot be captured by an `io.spawn` body. `Arc` stays origin-free and
   read-only across threads (decision 46, D3).
@@ -396,7 +471,12 @@ Not unlocked, on purpose: a reference across threads, a reference in an
 `extern` signature, a reference inside an `Rc`/`Arc` cell (O9), a
 self-referential value (O5), mutable cycles without a runtime check
 (`Rc(RefCell(Node))`, as Rust). They keep their catalog
-answers (`RUST_REFERENCE_PATTERNS.md` §14).
+answers (`RUST_REFERENCE_PATTERNS.md` §14). Not expressible either, and
+recorded as a cost (2026-10-20): a collection of `&mut` items gathered
+from ONE base — Rust's `Vec<&mut T>` out of `iter_mut` — because every
+`&mut(T, p)` over one origin conflicts with the next (O3 step 2); the
+loop case is the lending `for`, and the only multi-item door is a single
+call's sibling sub-loans (`get2_mut`) with a verified `requires`.
 
 ## 4. What it costs — and why the checker is not Rust's
 
@@ -407,8 +487,8 @@ difficulty moves into places Yo already has machinery:
 | Rust's cost | Yo's corresponding mechanism |
 | --- | --- |
 | region-variable solving (NLL constraints, the Polonius class of accept problems) | none — after substitution an origin is a ground set of places; "do these conflict" is lookup, not constraint solving. Rust's accept problems were artifacts of regions being abstract |
-| variance and the subtyping lattice | one rule: subset coercion into a declared union (O3-3) |
-| higher-ranked trait bounds (`for<'a>`) | none — an origin parameter is an ordinary generic parameter, instantiated at application like `T` |
+| variance and the subtyping lattice | two rules: subset coercion in covariant positions; exact unification through a `&mut` pointee, a `RefCell` payload or a `&mut` capture (O3-3) |
+| higher-ranked trait bounds (`for<'a>`) | present but never spelled — a `Fn(...)` type's elided parameter origin is universally quantified per call (O2), which is what `for<'a>` writes; a named origin parameter is an ordinary generic parameter instantiated at application like `T` |
 | lifetime elision interacting with closures and traits | four stated defaults (O2), each checked against the body |
 
 What actually remains to build:
@@ -451,7 +531,10 @@ places its origin names. The mechanisms, and the escape routes they close:
 2. **Through storage** — origin parameters propagate through type
    application, so storing a reference-holding value grows the storing
    type's origin set by construction; a place write checks the subset
-   relation (O3). There is no tracker to fall out of sync with the type.
+   relation, and an origin behind a `&mut` or a `RefCell` is invariant
+   (O3-3), so a callee cannot slip a wider origin into a place the
+   caller's type does not cover. There is no tracker to fall out of sync
+   with the type.
 3. **Through a copy** — copies carry identical origins (all-`&` values are
    `Copy`); a `&mut`-holding value is move-only, so two exclusive borrows
    cannot exist.
@@ -485,10 +568,11 @@ only through `RefCell`'s dynamic marks (§3.10), which the origin system
 never bypasses. The collector handles cycles; leaks stay possible, as
 before.
 
-**Async:** the state machine's stored references point only at the
-caller-frame places named by `p` (A2), which the await/spawn site freezes
-for the future's life; body-local origins at an `await` are rejected
-(O8), so no pointer into the machine itself can exist (O5).
+**Async:** what a future's type names (`p`, A2) are caller-frame places
+the await site freezes for the future's life; the body's own locals, and
+the borrows among them, live in the heap-allocated machine that never
+relocates (decision 40), so a pointer into the machine is a pointer into
+stable heap storage (O5).
 
 The **negative-test corpus is written before the rules land** (N0) and
 includes, beside the superseded design's rows restated in origin terms: a
@@ -497,8 +581,10 @@ result naming a local's origin **or a by-value parameter's own place**
 (E0912's rule); a push outside the declared union; a
 `Box`/`RefCell` carrying origins crossing a `Send`/spawn/`extern`/
 module-level position; an elided `push` signature with unrelated fresh
-origins (the body check must reject it); a live body-local origin at an
-`await`; sibling sub-loans misused (a second
+origins (the body check must reject it); a widening through a `&mut`
+pointee (`store(&mut slot, &y)`, O3-3) and through a lent
+`&RefCell(&(T, p))`; a body-local borrow live across an `await` as a
+POSITIVE control (O5); sibling sub-loans misused (a second
 `get2_mut`-style call on the same base while the first pair lives);
 `swap` on referents of different origin types (a type error); a closure
 literal whose captures exceed a slot's origin parameters. Positive
@@ -546,6 +632,31 @@ higher-ranked bounds — and both make checking parametric. The name is
 shared; the shape is not: Mojo's origin is singular provenance the compiler
 writes, Yo's is a declared place set the author writes.
 
+### Is this still mutable value semantics? (maintainer's question, 2026-10-20)
+
+Hylo's mutable value semantics has two halves: owned values are
+independent (a copy is a new value, mutation is in place, no two names
+reach one object), and there are **no first-class references** — the
+second half is what keeps the first checkable without a borrow checker
+(the JOT paper `docs/en-US/DESIGN.md` cites). Decision 43 as first
+confirmed (2026-10-10) already stepped off that line to the point Swift's
+`Span` and Mojo's `ref` reached (second-class references); this
+amendment gives the second half up entirely, since `&(T, p)` is storable.
+So, honestly: **Yo is no longer MVS in Hylo's sense.** It is unique
+ownership with first-class, exclusivity-checked borrows — Rust's
+discipline — with ground place sets where Rust has regions. What survives
+is the half that carries the guarantees the language advertises: owned
+values are independent (decision 19's no partial moves, V2b's explicit
+copies), mutation is in place through `&mut` (decision 42), and the law of
+exclusivity holds (`&` means unchanged, `&mut` exclusive, §3.10), so a
+value read through one name is never changed through another — the
+observable property MVS was adopted for, kept by the freeze model with
+references first-class. The accurate phrase for the plan is "unique
+ownership with first-class, exclusivity-checked borrows"; "mutable value
+semantics for owned values" stays true as a description of the owned half
+and is kept where the plan says it. The positioning tagline's wording is
+the maintainer's call.
+
 ## 7. Open questions, with positions
 
 - **Field-path origins and the access clause.** `self._buf` as an origin
@@ -560,6 +671,23 @@ writes, Yo's is a declared place set the author writes.
   access clause waits for a counted need. Ante's convergence here (their
   motivating examples are the same cases) is a soft data point, not a
   counted need.
+- **Generic parameters and origin-carrying arguments** (filed 2026-10-20,
+  review of #1483). O4 checks the no-origin positions "at the declaration
+  and at every instantiation", so a generic body that puts `T` into an
+  `Rc(T)`, spawns it or stores it at module level compiles at its
+  declaration and fails only when some caller instantiates
+  `T := &(X, p)` — an error at the instantiation, not the declaration:
+  the inference-at-distance shape the explicit-contracts principle
+  rejects, and C++'s template failure mode. Position (a recommendation,
+  not decided): a `generic(...)` parameter admits origin-carrying
+  arguments only when its declaration says so — Swift's `~Escapable`
+  split, with the default origin-free so an unannotated generic body may
+  store `T` anywhere; `Option`, `Result`, tuples, `Array`, `ArrayList`,
+  `HashMap`, `Box`, `RefCell` and the `Fn` traits opt in; `Rc`, `Arc`,
+  `Dyn`, `spawn` and `Send` bounds do not. The spelling is the
+  maintainer's (a kind-level marker on `T : Type`, or a trait-shaped
+  bound). It is decided before N1 lands the syntax, because std's
+  constructors must carry it from the first Generation A.
 - **`Dyn` payloads with origin parameters.** Position: not initially — a
   no-origin position; revisit when a trait-object shape that borrows is
   asked for by a counted need (the catalog's §14 residue).
@@ -587,7 +715,7 @@ writes, Yo's is a declared place set the author writes.
 | Phase | Lands | Gate |
 | --- | --- | --- |
 | N0 | the negative-test corpus written and failing | the tests fail for the right reason |
-| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the return rule, place writes), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
+| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 

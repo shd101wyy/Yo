@@ -52,10 +52,14 @@ has the same root (a stored borrow of a container in a returned value).
 
 ## Recommendation
 
-**Answered by decision 43 (2026-10-10), which is option 3 made general:**
-`&T`/`&mut T` are second-class types, a struct may hold one as a field
-(`NON_ESCAPABLE_TYPES.md` R1), and a function may return such a struct when
-its roots are the function's own parameters (R3). So `HashMapEntry` keeps
+**Answered by decision 43 (2026-10-10), which is option 3 made general;
+since its 2026-10-19 amendment (#1483) the field is `_map : &mut(HashMap(K, V), p)`
+with `p` the entry type's origin parameter, `entry` returns
+`HashMapEntry(K, V, self)` and `or_insert` returns `&mut(V, p)` —
+`NON_ESCAPABLE_TYPES.md` §3's entry row:**
+`&T`/`&mut T` are reference types, a struct may hold one as a field
+(`NON_ESCAPABLE_TYPES.md` R1, now O4), and a function may return such a struct when
+its roots are the function's own parameters (R3, now O3's return rule). So `HashMapEntry` keeps
 its shape with the field spelled as what it is,
 `struct(_map : &mut HashMap(K, V), _key : K, _hash : u64, _slot : BucketProbe)`,
 `entry(self : &mut Self, k : K) -> HashMapEntry(K, V)` returns it rooted at

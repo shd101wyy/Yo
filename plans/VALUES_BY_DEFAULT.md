@@ -3447,9 +3447,11 @@ and in git, not a silent edit.
       and the relocation hazard does not return, because a type may never
       name its own fields and a binding's type never its own place — a
       self-referential value is unrepresentable, so moving a value never
-      dangles what it contains, and an async state machine stores only
-      caller-frame pointers (`NON_ESCAPABLE_TYPES.md` O5). No
-      `Pin`-like marker is needed.
+      dangles what it contains; an async state machine is heap storage
+      that never relocates (this decision's invariant), so its own locals
+      and the borrows among them are stable and what its type names is
+      only its captures (`NON_ESCAPABLE_TYPES.md` O5). No `Pin`-like
+      marker is needed.
 
 41. **`RefCell(T)` is the one spelling of the dynamic exclusivity check;
     outside it the check is static.** Confirmed 2026-10-10 by the maintainer
@@ -3742,16 +3744,23 @@ and in git, not a silent edit.
       type may never name its own fields, a binding's type never its own
       place), which is what keeps `Pin` out of Yo: every reference inside
       a value points outward, so moving a value never dangles what it
-      contains, and an async state machine stores only caller-frame
-      pointers (§3.13 A2 stated in the type as `Future(T, p)`).
+      contains, and an async state machine is a heap cell that never
+      relocates (decision 40), so a body-local borrow across an `await`
+      stays an ordinary local borrow while the future's type names only
+      its captures (§3.13 A2 stated in the type as `Future(T, p)`).
     - **Origins replace the `depends` clause and the R7 tracker**
       (amended 2026-10-19). An origin is a set of places: an origin
       parameter, a reference-holding parameter's place (`self`), or a
       declared union `(p, q)`. Checking is set algebra over declared
       things — conflict is origin intersection (E0910/E0911 restated),
-      coercion is subset into a union, application substitutes origin
-      arguments as it substitutes `Type` arguments, and liveness is
-      decision 18's. The result rule: an origin in a result type names
+      coercion is subset into a union in covariant positions and exact
+      through a `&mut` pointee, a `RefCell` payload or a `&mut` capture
+      (O3-3, the one invariance rule; added 2026-10-20 by the review of
+      #1483, which found the widening hole), application substitutes
+      origin arguments as it substitutes `Type` arguments, and liveness
+      is decision 18's. Origins are erased from every identity but the
+      checker's — specialization and `type_key` memos, C types, trait
+      coherence, reflection equality (O1). The result rule: an origin in a result type names
       only origin parameters or reference-typed parameters' places — a
       by-value parameter contributes its type's origin parameters, never
       its own place, which is the callee's frame slot (E0912's rule); a
@@ -3841,7 +3850,8 @@ and in git, not a silent edit.
       usable after `map.remove(&k)` (elided origins never unify), an
       elided `push` signature whose body stores an unrelated origin
       (rejected in the callee), a binding whose type names its own place,
-      a live body-local origin at an `await`, origins crossing a
+      a widening through a `&mut` pointee (rejected, O3-3), a body-local
+      borrow live across an `await` (accepted, as today), origins crossing a
       no-origin position (E0909), a place crossing an `Rc`/`Arc` deref
       (rejected, O9); the borrowed
       `for` by `impl(&C, IntoIterator)`.
@@ -7450,6 +7460,10 @@ measured `check ./src` time and stage-2 RSS.
    - It is the largest refactor in the plan, which is why it ships alone.
    - `TypeInfo` gains the `Reference` and `Origin` kinds here too, because
      reflection reads `TypeValue`.
+   - Origins are not part of `type_key`, the memo keys or any
+     specialization identity (NON_ESCAPABLE_TYPES O1): the variant
+     carries the origin, the keys ignore it, and the gate's emit-diff is
+     what proves it (added 2026-10-20).
 2. **Generation A: the kind and the rules in user code (N1).**
    - `generic(p : Origin)`; the `&(T, p)` / `&mut(T, p)` parse with its
      kind-directed disambiguation; `&(T, p)` bound (`r := &x` elides to
@@ -7459,8 +7473,10 @@ measured `check ./src` time and stage-2 RSS.
      of the reference-holding parameters; per-field fresh in type
      definitions; flow-inferred in bodies), each checked against the body.
    - The checking rules (NON_ESCAPABLE_TYPES O3): freeze/exclusivity by
-     origin intersection, the return rule (result origins name parameters
-     only), place writes, reborrows, sibling sub-loans; `.*` for
+     origin intersection, the covariant/invariant coercion rule (exact
+     through a `&mut` pointee, a `RefCell` payload, a `&mut` capture),
+     the return rule (result origins name parameters only), place writes,
+     reborrows, sibling sub-loans; `.*` for
      whole-value reads and writes, auto-deref, auto-borrow;
      `impl(&T, Trait(…))`; `FnMut` (decision 37).
    - The storage wall stays as today: E0909 keeps the second-class
@@ -7489,7 +7505,14 @@ the three doors, `RefCell` the one spelling of dynamic exclusivity, and
 no origin crossing an `Rc`/`Arc` deref (the `Rc(T, p)` extension was
 rejected — decision 43's "Rejected" list).
 
-**Open, not decided (noted 2026-10-13):**
+**Open, not decided (noted 2026-10-13; one item added 2026-10-20):**
+- **Whether a `generic(...)` parameter admits origin-carrying arguments
+  by default or by declaration** (`NON_ESCAPABLE_TYPES.md` §7, filed by
+  the review of #1483 with a recommendation: opt-in, Swift's
+  `~Escapable` split, std's inline containers and cells opting in). It
+  is decided before step 2, because std's constructors must carry the
+  spelling from the first Generation A; it blocks N1's spelling, not the
+  amendment.
 - **Handler (`ctl`) types could become structurally origin-carrying.**
   Decision 43 makes any type that contains a `&` origin-carrying (it
   stands only where its origins can follow). Treating a `ctl` handler type
@@ -8067,6 +8090,13 @@ Decision 18 was also amended to place-based exclusivity.
 - The borrowed `for` over user collections: `BorrowedWalk` stands until
   decision 43 step 3 (`issues/retired/borrowed-for-over-user-defined-collections.md`).
 - Decision 47 step 2's two as-built departures are accepted (below).
+
+**Parked with decision 43's step 2 (filed 2026-10-20, review of #1483):**
+whether a `generic(...)` parameter admits origin-carrying arguments by
+default or by declaration (`plans/backlog/NON_ESCAPABLE_TYPES.md` §7,
+recommendation: opt-in). Everything else the review found was folded into
+the design (O3-3's invariance rule, O5/O8's async correction, O6's freeze
+set, O1's identity erasure).
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:

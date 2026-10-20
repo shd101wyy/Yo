@@ -12,6 +12,15 @@ pattern covers (decision 43's recorded growth-path triggers). Rule numbers
 decision numbers (`D18`, `D43`, …) are `VALUES_BY_DEFAULT.md` §4; bare
 `§`-references are RUST_REFERENCE_PATTERNS sections.
 
+> **Read with the 2026-10-19 amendment (#1483):** decision 43 now adopts
+> explicit origins (`&(T, p)`, `NON_ESCAPABLE_TYPES.md` O1–O9), so the
+> "no-lifetimes position" this inventory was written behind is now "no
+> Rust-style REGION lifetimes"; the `R1`–`R7` numbers are the superseded
+> design's (translate per O7), the I3 row (`depends` narrowing) is a
+> spelled result origin, the I4 row (root-joining) is a declared union,
+> and the growth-path trigger of §8 is discharged (decision 43's
+> "Rejected" list). The patterns themselves are unchanged.
+
 ---
 
 ## The position

@@ -222,6 +222,17 @@ children, V2c, V4's remaining trees, decision 43 (four PRs), function-item types
 retirement of the `yo fix` migrations — all unchanged; the plan is authoritative where this document
 is silent.
 
+**Decision 43 was amended on 2026-10-19 (#1483, merged after this cycle):** references become
+FIRST-CLASS types parameterized by an `Origin` kind (`&(T, p)`), superseding the `depends` clause
+and the R7 root-joining tracker the 2026-10-17 handover's step 15 still describes. Read the plan's
+§6 "Decision 43" sequence and `plans/backlog/NON_ESCAPABLE_TYPES.md` O1–O9, not step 15's wording.
+The review of #1483 added O3-3's invariance rule (an origin behind a `&mut`/`RefCell` never widens),
+corrected O5/O8 (a body-local borrow across an `await` stays legal — the state machine is a heap
+cell, decision 40), made O6's freeze set precise and O1's identity erasure explicit, and filed ONE
+open design point that blocks step 2's spelling: whether a `generic(...)` parameter admits
+origin-carrying arguments by default or by declaration (§7 there, recommendation: opt-in). Ask the
+maintainer before N1.
+
 ## 5. Open bugs to know about (beyond §2.2 PENDING and §3)
 
 - The declared-`Send`-binding S2 (decision 43) and `arc(named fn)` — unchanged from 2026-10-17 §5.
