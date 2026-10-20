@@ -580,6 +580,15 @@ test("a match arm pattern that binds the name shadows the borrow", {
   );
   assert((o == i32(5)) && (v == i32(5)) && (w == i32(4)), "the arm bound its own cur");
 });
+test("a named fn literal parameter named like a live borrow does not extend the borrow", {
+  (mut(o) : i32) = i32(1);
+  cur := &mut o;
+  cur = i32(5);
+  v := (o + i32(0));
+  f := (fn(cur : i32) -> i32)(cur + i32(1));
+  w := f(i32(2));
+  assert((o == i32(5)) && (v == i32(5)) && (w == i32(3)), "the fn literal bound its own cur");
+});
 comptime_expect_error(
   a_closure_that_captures_the_borrow_still_extends_it :: (fn() -> unit)({
     (mut(o) : Option(i32)) = .Some(i32(2));
@@ -633,6 +642,21 @@ test("a match binding used only in an if condition ends at the condition", {
   match(
     &fa.pattern,
     .Some(fidx) => if(fidx == usize(1), {
+      fa.classic = false;
+    }),
+    .None => ()
+  );
+  assert(!fa.classic, "the arm wrote the sibling field after the binding's last use");
+});
+// The same shape with a bare-identifier condition: only the `cond`-arm flag
+// of `_lb_region_end` keeps `if(b, …)`'s condition a use (a binding-shaped
+// left side would otherwise read as a closure parameter list).
+GroupFlag :: ref(struct(flag : Option(bool), classic : bool));
+test("a match binding that is an if condition by itself ends at the condition", {
+  fa := GroupFlag(flag : .Some(true), classic : true);
+  match(
+    &fa.flag,
+    .Some(b) => if(b, {
       fa.classic = false;
     }),
     .None => ()

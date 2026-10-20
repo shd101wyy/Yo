@@ -6151,13 +6151,18 @@ _lb_arrow_shadows :: (fn(e : &AstExpr, name : &String, in_cond_arm : bool) -> bo
   )
 );
 /// A named `fn` / `ctl` / `Fn` literal's parameter list (the callee of the
-/// applied literal) binds `name`.
+/// applied literal) binds `name`. An applied literal `(fn(cur : T) -> R)(body)`
+/// has the infix `->` as its callee, whose left side is the parameter-list
+/// head `fn(cur : T)`; the head itself is matched when no `->` wraps it.
 _lb_fn_literal_binds :: (fn(callee : &AstExpr, name : &String) -> bool)(
   match(
     callee,
     .FnCall(_, fc, fargs, _, _) => match(
       fc,
-      .Atom(_, fct) => (((fct.value == BK_FN) || (fct.value == BK_CTL) || ((fct.value == BK_UNSAFE_FN) || (fct.value == BK_FN_TRAIT)) || (fct.value == BK_FN_ONCE_TRAIT)) && _lb_any_binds_name(&fargs, name.clone())),
+      .Atom(_, fct) => cond(
+        ((fct.value == "->") && (fargs.len() == usize(2))) => match(fargs.get(usize(0)), .Some(head) => _lb_fn_literal_binds(&head, name.clone()), .None => false),
+        true => (((fct.value == BK_FN) || (fct.value == BK_CTL) || ((fct.value == BK_UNSAFE_FN) || (fct.value == BK_FN_TRAIT)) || (fct.value == BK_FN_ONCE_TRAIT)) && _lb_any_binds_name(&fargs, name.clone()))
+      ),
       .FnCall(_, _, _, _, _) => false
     ),
     .Atom(_, _) => false
@@ -6180,13 +6185,14 @@ _lb_mentions :: (fn(e : &AstExpr, name : &String, (in_cond_arm : bool) ?= false)
       if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
         return(false);
       });
-      if(_lb_mentions(&callee, name.clone()), {
-        return(true);
-      });
       // A named `fn`/`ctl`/`Fn` literal whose parameter list binds `name`: its
-      // parameters and body are the new binding's scope.
+      // parameters and body are the new binding's scope (checked before the
+      // callee, which holds the parameter list).
       if(_lb_fn_literal_binds(&callee, name.clone()), {
         return(false);
+      });
+      if(_lb_mentions(&callee, name.clone()), {
+        return(true);
       });
       is_dot := ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).None);
       is_cond := ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None);
