@@ -483,8 +483,10 @@ assert(ha.await(io).is_none(), "the aborted task reads .None");
 
 `std/async` 的 `timeout(fut, d, io)` 建立在 `abort` 之上：它把 Future 作为一个有作用域的
 子任务运行；超时时，这个任务以及它所阻塞的一切都会被取消。已经 spawn 的任务通过它的 join
-Future 来设置超时，即 `timeout(h.join(io), d, io)`，结果为 `Ok(Option(T))`；到期时它会丢弃
-句柄，从而让任务脱离（detach），如果不再需要它的工作，请先通过句柄 abort 它。
+Future 来设置超时，即 `timeout(h.join(io), d, io)`，结果为 `Ok(Option(T))`。到期时它会丢弃
+join Future 以及其中的句柄，从而让任务脱离（detach）：任务会继续运行，与 Tokio 中被丢弃的
+`JoinHandle` 相同。若希望到期时取消这项工作，请直接把工作自己的 Future 交给 `timeout`，而不要
+先 spawn 它。在 §3.13 A4 之前，`timeout` 接受的是 `JoinHandle`，并在到期时 abort 该任务。
 
 **Future 状态机的状态：**
 
@@ -836,6 +838,12 @@ export(main);
 这条规则是结构性的：任何按值参数和结果都是 Future 的函数都在该参数处接受借用的 Future，并且
 像所有泛型一样按实例检查，所以它的函数体只能 await 这个操作数，或者把它捕获进自己返回的
 Future。结果不是 Future 的函数的按值 Future 参数仍然拒绝借用的 Future（E0909）。
+
+`timeout` 和 `select` 用 `unsafe(io.spawn(fut, io))` 启动它们的操作数。在安全代码中 spawn
+借用的 Future 是 E0909，因为任务可能比借用活得更久。在声明了 `pragma(Pragma.AllowUnsafe)`
+的文件中，`unsafe(...)` 区域内的 `io.spawn` 接受借用的 Future：由代码保证任务在借用结束之前
+结束，`std/async` 的有作用域子任务就是这样做的：在每条路径上 abort 并 join 该任务，并在组合器
+自己的 Future 被丢弃时 abort 它。
 
 ## 事件循环
 

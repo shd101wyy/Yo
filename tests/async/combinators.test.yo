@@ -1059,6 +1059,17 @@ test("A4: a combinator over a borrowing future is itself second-class", {
   comptime_expect_error(_a4_eat(_a4_bump_after(&mut c, u64(1), io)), "spawned or moved into a by-value parameter");
   comptime_expect_error(io.await(_a4_plus(_a4_bump_after(&mut c, u64(1), io), i32(1), io), io), "spawned or moved into a by-value parameter");
 });
+/// Under `unsafe(...)` in this unsafe-capable file, `io.spawn` accepts a
+/// borrowing future: the code vouches that the task ends before the borrow
+/// does, which is how `timeout` and `select` start their scoped operands.
+/// The safe spawn of the same future is E0909 (the test above).
+test("A4: io.spawn under unsafe accepts a borrowing future", {
+  mut(c) := _A4Counter(n : i32(0));
+  (h : JoinHandle(i32)) = unsafe(io.spawn(_a4_bump_after(&mut c, u64(1), io), io));
+  r := io.await(h.join(io), io);
+  assert(r == .Some(i32(1)), "the spawned borrowing future ran");
+  assert(c.n == i32(1), "it wrote through its borrow before the join resolved");
+});
 /// The same inside a task: the lent locals live in the task's state machine
 /// across the combinator's suspension.
 _a4_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(

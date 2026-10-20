@@ -384,13 +384,18 @@ derive(
 /// the future `timeout` returns is then a borrowing future too, awaited where
 /// it is made. The operand runs as a scoped child task, and is aborted and
 /// joined before `timeout` resolves, so no borrow outlives the call. The
-/// operand's effect type is `Io`, as `timeout`'s own is: an operand that
-/// needs a richer bundle is wrapped in an `io.async` that awaits it with one
-/// (`std/http`'s deadline does). A task that is already spawned is timed out
-/// through its join future, `timeout(h.join(io), d, io)`, which resolves to
-/// `.Ok(Option(T))`; on the deadline it drops the handle, which DETACHES the
-/// task (Tokio's semantics): abort the task through the handle first if its
-/// work is unwanted.
+/// operand's effect type is `Io`, as `timeout`'s own is; an operand with a
+/// richer bundle is not accepted yet
+/// (`issues/2026-10-20-an-io-async-bundle-parameter-typed-by-an-effect-binder-binds-as-io.md`).
+///
+/// To have the deadline abort the work, pass the work's future itself: it
+/// runs as `timeout`'s scoped child and is aborted when the deadline fires.
+/// A task that is already spawned is timed out through its join future,
+/// `timeout(h.join(io), d, io)`, which resolves to `.Ok(Option(T))`. On the
+/// deadline that drops the join future and with it the handle, which
+/// DETACHES the task: it keeps running (Tokio's semantics for a dropped
+/// `JoinHandle`). Before §3.13 A4, `timeout` took the `JoinHandle` and
+/// aborted the task on the deadline.
 ///
 /// An operand that finishes before the deadline leaves nothing behind:
 /// aborting the deadline task deregisters the armed timer in the I/O backend

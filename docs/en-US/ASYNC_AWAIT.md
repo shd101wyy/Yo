@@ -578,8 +578,11 @@ assert(ha.await(io).is_none(), "the aborted task reads .None");
 as a scoped child task; when it times out, that task and everything it is
 blocked on are cancelled. A task that is already spawned is timed out through
 its join Future, `timeout(h.join(io), d, io)`, which resolves to
-`Ok(Option(T))`; on the deadline that drops the handle, which detaches the
-task (abort it through the handle first if its work is unwanted).
+`Ok(Option(T))`. On the deadline that drops the join Future and the handle
+with it, which detaches the task: it keeps running, as a dropped Tokio
+`JoinHandle` does. To have the deadline cancel the work, pass the work's own
+Future to `timeout` instead of spawning it first. Before §3.13 A4, `timeout`
+took the `JoinHandle` and aborted the task on the deadline.
 
 **Future State Machine States:**
 
@@ -948,6 +951,14 @@ both Futures accepts a borrowing Future there, and is checked per
 instantiation like any generic, so its body can only await the operand or
 capture it into the Future it returns. A by-value Future parameter of a
 function that does not return a Future still rejects one (E0909).
+
+`timeout` and `select` start their operands with `unsafe(io.spawn(fut, io))`.
+Spawning a borrowing Future is E0909 in safe code, because the task could
+outlive the borrow. Inside an `unsafe(...)` region, in a file that declares
+`pragma(Pragma.AllowUnsafe)`, `io.spawn` accepts one: the code vouches that
+the task ends before the borrow does, as `std/async`'s scoped child tasks do
+by aborting and joining the task on every path and aborting it when the
+combinator's own Future is dropped.
 
 ## Event Loop
 
