@@ -51,4 +51,6 @@ The `io.async` and `io.spawn` forms of the same body fail the same way. With `(h
 
 `_ctfe_same_id_type_args_agree` reads `type_arguments` from an `EnumT` as well as a `Struct`, and both enum shortcuts call it. A recursive enum's `__self_shell` still unifies with its final, because the shell shares the arguments or records none, and a side with no recorded arguments still matches on the id alone.
 
+This splits only instantiations that were wrongly merged. The compiler's own C (`compile src/main.yo --emit-c`, same source) is byte-identical with and without the change (142,824,324 bytes).
+
 Regression test: `tests/async/combinators.test.yo`, "A4: a type built from the binder of a join future at two types is two types". It covers `JoinHandle(T)` in a spawning `io.async` body, `Option(T)` in an `io.async` body, and `Option(T)` in a plain function, each at `i32` and `bool`. Its file fails on develop.
