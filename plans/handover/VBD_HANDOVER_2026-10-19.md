@@ -194,8 +194,8 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
 1. Land every §2.2 PENDING row that did not make the cut (each already has a branch and gates).
 2. **Re-land #1476's scope-aware live-range scan** (reverted by #1481): the measured root cause and the
    failed decl-position-aware round are in
-   `issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md` (S1) and the re-opened
-   `issues/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`; the
+   `issues/fixed/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md` (S1) and the re-opened
+   `issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`; the
    un-designed piece is statement-internal evaluation order (a re-point token preceding the binding's
    last read).
 3. **End-triage leftovers (triaged 2026-10-19, both stay open, neither blocks a release):** the
@@ -298,7 +298,7 @@ with the honest number: the landable half re-checks `std/string/string.yo` in 8.
 full sweep took 430+ s / 45 GB); Compiler performance and memory (#1455, #1463's measurement).
 Known issues: rebuilt from what is open at the tag — the removal map in the machine-local draft tied
 every line to its fixer; re-derive with `ls issues/` at the tag; MUST include the re-opened
-`issues/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`
+`issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`
 (reverted by #1481 with a measured re-land plan). No Retracted claims this cycle (the #1476 revert
 removed nothing a release ever shipped).
 

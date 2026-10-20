@@ -2,19 +2,17 @@
 
 **Severity:** S2 — a valid program is rejected with a false E0911: a later closure whose parameter has the same name as an earlier local borrow keeps that borrow live, so a read of the borrowed place between the two is refused.
 
-**Status:** open again — its fix (#1476) was REVERTED from develop for
-v0.2.66: the scope-aware live-range scan's arrow-literal skip also hid the
-uses of a borrow BORN at that arm's pattern, so the statement-level range
-fell back to the whole binding statement and `yo check ./src` failed on 16
-files of the compiler's own tree (release-blocking;
-`issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
-Re-land in v0.2.67 with the scan refined: a binding at the tracked borrow's
-own declaration position is its BIRTH site (its arm's body uses count), not
-a shadow — and the cursor-walk interaction (a re-point whose token precedes
-the binding's last read inside one statement) needs the evaluation-order
-rule settled first.
+**Status:** fixed (re-landed for v0.2.67). The first fix (#1476) was
+reverted from develop for v0.2.66 (#1481) because `yo check ./src` failed on
+16 files of the compiler's own tree
+(`issues/fixed/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
+That failure was not in the shadowing rule: `_lb_region_end` walked a `cond`'s
+arms without the cond-arm flag the other helpers pass, so it read an
+`if(b == t, { … })` arm as a closure and skipped its condition. The re-land
+restores #1476 and fixes that, and the evaluation-order rule below is now
+written down. No declaration-position special case was needed.
 
-**Status (first finding):** open. Found 2026-10-18 while re-gating #1421 (decision 46 Generation B) on develop `00eddd3e4`. That branch rewrites #1419's `result.* = …` test writes as `result.with_mut(cur => { cur = … })`. In one test the closure parameter `cur` has the same name as an earlier `cur := &mut o`, and the batch failed to compile. It reproduces with the develop-built `yo-d47loc-3d1afa693` (src and std match `00eddd3e4`), so it is not caused by #1421. Renaming the closure parameter makes the program compile.
+**Found** on 2026-10-18 while re-gating #1421 (decision 46 Generation B) on develop `00eddd3e4`. That branch rewrites #1419's `result.* = …` test writes as `result.with_mut(cur => { cur = … })`. In one test the closure parameter `cur` has the same name as an earlier `cur := &mut o`, and the batch failed to compile. It reproduces with the develop-built `yo-d47loc-3d1afa693` (src and std match `00eddd3e4`), so it is not caused by #1421. Renaming the closure parameter makes the program compile.
 
 ## Symptom
 
@@ -101,8 +99,21 @@ on which tokens are uses of the borrow named `name`.
 
 ## Root cause
 
-`local_borrow_range_of` (`src/evaluator/utils.yo`) finds a local borrow's last use by scanning the statements after its binding for the last one that mentions its name (`_lb_mentions`, then `_lb_last_mention` and `_lb_region_end`). `_lb_mentions` only compares names. It does not know about scopes, so a closure parameter, or any inner binding, that shadows the borrow's name counts as a use of the borrow. The borrow then stays live until that closure, and every access to the borrowed place before it is checked against an exclusive borrow that has already ended.
+`local_borrow_range_of` (`src/evaluator/utils.yo`) finds a local borrow's last use by scanning the statements after its binding for the last one that mentions its name (`_lb_mentions`, then `_lb_last_mention` and `_lb_region_end`). `_lb_mentions` only compared names. It did not know about scopes, so a closure parameter, or any inner binding, that shadows the borrow's name counted as a use of the borrow. The borrow then stayed live until that closure, and every access to the borrowed place before it was checked against an exclusive borrow that had already ended.
 
-## Fix direction
+## Fix
 
-When the scan walks into a closure literal whose parameter list binds `name`, or into a block after a binding that redeclares `name`, it should stop treating later mentions of `name` in that scope as uses of the borrow. All three helpers (`_lb_mentions`, `_lb_last_mention`, `_lb_region_end`) need the same scope rule so that they agree on the borrow's range.
+All four helpers (`_lb_mentions`, `_lb_last_mention`, `_lb_region_end`, `_lb_has_repoint`) apply the Rule above through one predicate, `_lb_arrow_shadows`:
+
+- An arrow literal whose left side binds the name (a closure parameter list or a `match` arm pattern) is no use of the borrow. A named `fn` / `ctl` / `Fn` literal whose parameter list binds the name is no use either.
+- An arrow literal that does not bind the name is scanned whole, left side included. #1476 scanned only the body, so a `match` guard `(p && (g))` that read the borrow was missed and the borrow looked dead while in use (the unsafe direction). The re-land fixes this.
+- A `cond` arm is never a shadowing site. `_lb_region_end` now passes the same cond-arm flag as `_lb_mentions`' own walk of a `cond`. This is the #1481 regression.
+
+Tests, all in `tests/local_borrows.test.yo`:
+
+- the reproducer above;
+- a `match` arm pattern that binds the name;
+- a capturing closure that still extends the borrow;
+- a `cond` condition that still uses the borrow;
+- a `match` guard that still uses the borrow (new; accepted by #1476);
+- the compiler's switch-group shape: a `match(&obj.field, .V(b) => if(b == t, { obj.other = … }))` binding whose last use is the `if` condition (new; rejected by #1476).
