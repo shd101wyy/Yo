@@ -22,6 +22,52 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+/// The payload of a `SharedList`: one list, never written after it is built.
+/// It implements no `Clone` of its own, so the only copy of a `SharedList` is
+/// the handle's.
+SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(items : ArrayList(T))
+);
+/// An immutable list shared between every `TypeValue` that holds it: a
+/// type's label and type lists (`Struct.field_labels`, `Func.param_types`,
+/// `FuncMeta.param_labels`, ...). A copy is one count bump, as for
+/// `TypeValue` itself, so reading a list out of a node, or rebuilding a node
+/// that keeps one, never copies the list (plans/VALUES_BY_DEFAULT.md V2b's
+/// B1 prerequisites: under unique buffers a copy of a plain `ArrayList`
+/// field read through the node's `Rc` is a deep copy). Build one with
+/// `shared_list(xs)`; read it with `len`/`get`/`is_empty`, or through
+/// `xs.items` (`&xs.items` lends the list, `xs.items(i)` indexes it).
+/// `Clone` is declared per element type below and in `TypeValue`'s block:
+/// the prelude's generic `Rc(T)` clone would copy the payload.
+SharedList :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(SharedListCell(T)));
+/// Share `items` as a `SharedList`.
+shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T)) -> SharedList(T))(
+  rc(SharedListCell(T)(items : items))
+);
+impl(
+  generic(T : Type),
+  SharedList(T),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(T))(self.*.items.get(i))
+);
+// A `SharedList` copy is one count bump (see `SharedList`). Each list is
+// built once and never written (no mutator reaches `items` through the
+// read-only `Rc`, decision 46), so a cell points only at older values and
+// none reaches itself: `Acyclic` keeps the cells out of the cycle collector.
+impl(SharedList(String), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(String), Acyclic());
+impl(SharedList(bool), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(bool), Acyclic());
+impl(SharedList(usize), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(usize), Acyclic());
+impl(SharedList(i64), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(i64), Acyclic());
+impl(SharedList(SharedList(String)), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(SharedList(String)), Acyclic());
 /// Non-recursive ("meta") fields of a function type, factored out of the
 /// `TypeValue.Func` variant and stored behind an `Rc` (P2 memory: the inline
 /// Func variant set `sizeof(TypeValue)` to ~150 B — wasted in every small-type
@@ -31,11 +77,11 @@ pragma(Pragma.AllowUnsafe);
 /// (see the parallel-array note above). The Self-typed Func fields
 /// (`*_types`/`result`) stay inline on the variant.
 FuncMeta :: struct(
-  forall_labels : ArrayList(String),
+  forall_labels : SharedList(String),
   // generic type-var names (parallel to Func.forall_types)
-  param_labels : ArrayList(String),
+  param_labels : SharedList(String),
   // normal parameter labels (parallel to Func.param_types)
-  implicit_labels : ArrayList(String),
+  implicit_labels : SharedList(String),
   // implicit (`using`) parameter labels (parallel to Func.implicit_types)
   /// True when the declared return is `comptime(...)`. Gates
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
@@ -44,11 +90,11 @@ FuncMeta :: struct(
   /// Per-parameter `ref` flags (parallel to param labels/types). `name : &mut T`
   /// = by-reference borrow. Used by
   /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
-  param_is_ref : ArrayList(bool),
+  param_is_ref : SharedList(bool),
   /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
   /// Rc value. Used by
   /// `require_ref_own_argument_exclusivity`.
-  param_is_owning : ArrayList(bool),
+  param_is_owning : SharedList(bool),
   /// True when the return is a borrow, `-> &T` or `-> &mut T`: a projection
   /// (decision 24). It returns `T*` at the C ABI; `result_is_mut_ref` tells
   /// the two modes apart. `is_flowable_expr` requires a flowable return.
@@ -95,7 +141,7 @@ FuncMeta :: struct(
   /// moves the argument instead of sharing a still implicitly copyable kind.
   /// Caller-side only, so not part of the function type's identity; `.None`
   /// means none is `sink`.
-  (param_is_sink : Option(ArrayList(bool))) ?= Option(ArrayList(bool)).None,
+  (param_is_sink : Option(SharedList(bool))) ?= Option(SharedList(bool)).None,
   /// With `result_is_ref`: the result is `-> &mut T` (a mutable projection,
   /// decision 24) rather than `-> &T` (a read projection). Defaulted so a
   /// construction site that drops it degrades to the read projection, which
@@ -163,7 +209,7 @@ TypeValueNode :: enum(
   Array(element : Rc(Self), length : usize, length_var : String),
   /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
   /// field (empty `String` means positional). `field_types(i)` is the type.
-  Tuple(field_labels : ArrayList(String), field_types : ArrayList(Rc(Self))),
+  Tuple(field_labels : SharedList(String), field_types : SharedList(Rc(Self))),
   /// Function type. Phase 2b: generic type-vars, implicit (using) params,
   /// and where-clause constraint types.
   /// Self-typed (recursive) fields stay inline; the non-recursive metadata
@@ -172,10 +218,10 @@ TypeValueNode :: enum(
   /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
   /// parallel to the label arrays in `meta`; `result` is the return type.
   Func(
-    forall_types : ArrayList(Rc(Self)),
-    param_types : ArrayList(Rc(Self)),
-    implicit_types : ArrayList(Rc(Self)),
-    where_types : ArrayList(Rc(Self)),
+    forall_types : SharedList(Rc(Self)),
+    param_types : SharedList(Rc(Self)),
+    implicit_types : SharedList(Rc(Self)),
+    where_types : SharedList(Rc(Self)),
     result : Rc(Self),
     meta : Rc(FuncMeta),
     /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
@@ -183,7 +229,7 @@ TypeValueNode :: enum(
     /// a variant position).
     /// the label/comptime flags live in `FuncMeta.variadic_label` /
     /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
-    variadic_types : ArrayList(Rc(Self))
+    variadic_types : SharedList(Rc(Self))
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition.
@@ -204,8 +250,8 @@ TypeValueNode :: enum(
   Struct(
     id : String,
     name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(Rc(Self)),
+    field_labels : SharedList(String),
+    field_types : SharedList(Rc(Self)),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
     is_newtype : bool,
@@ -216,7 +262,7 @@ TypeValueNode :: enum(
     /// carried instantiation env: a method dispatched
     /// on this struct binds its `generic` params positionally from here. See
     /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
-    type_arguments : ArrayList(Rc(Self)),
+    type_arguments : SharedList(Rc(Self)),
     /// True for source-namespace structs — anonymous modules (`impl({...})`,
     /// extern blocks) and imported modules. There is NO separate module type;
     /// modules ARE structs with this marker. See
@@ -239,11 +285,11 @@ TypeValueNode :: enum(
   EnumT(
     id : String,
     name : String,
-    variant_names : ArrayList(String),
-    variant_fields : ArrayList(ArrayList(Rc(Self))),
+    variant_names : SharedList(String),
+    variant_fields : SharedList(SharedList(Rc(Self))),
     selected_variant_name : Option(String),
-    variant_field_labels : ArrayList(ArrayList(String)),
-    variant_discriminants : ArrayList(i64),
+    variant_field_labels : SharedList(SharedList(String)),
+    variant_discriminants : SharedList(i64),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
     /// Type arguments of the generic constructor call that minted this
@@ -259,12 +305,12 @@ TypeValueNode :: enum(
     /// index, a GADT index only `-> recur(...)` names) are structurally
     /// identical
     /// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-    type_arguments : ArrayList(Rc(Self))
+    type_arguments : SharedList(Rc(Self))
   ),
   Union(
     name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(Rc(Self))
+    field_labels : SharedList(String),
+    field_types : SharedList(Rc(Self))
   ),
   // Traits / modules --------------------------------------------------------
   /// Named trait type. Phase 2b: associated type names and method/field list.
@@ -273,23 +319,23 @@ TypeValueNode :: enum(
   /// where-clause / negative where-clause constraints on Self.
   TraitT(
     name : String,
-    assoc_type_names : ArrayList(String),
+    assoc_type_names : SharedList(String),
     // names of associated type members
-    field_labels : ArrayList(String),
+    field_labels : SharedList(String),
     // method / field names
-    field_types : ArrayList(Rc(Self)),
+    field_types : SharedList(Rc(Self)),
     // method / field types
     id : String,
     // unique identity string
     is_concrete : Option(Rc(Self)),
     // Some(T) when this is `Concrete(T)`
-    self_constraints : ArrayList(Rc(Self)),
+    self_constraints : SharedList(Rc(Self)),
     // where-clause constraints on Self
-    neg_self_constraints : ArrayList(Rc(Self)),
+    neg_self_constraints : SharedList(Rc(Self)),
     // negative where-clause constraints on Self
-    assoc_constraint_labels : ArrayList(String),
+    assoc_constraint_labels : SharedList(String),
     // labels of `Item := X` associated-type constraints
-    assoc_constraint_types : ArrayList(Rc(Self)) // constraint types
+    assoc_constraint_types : SharedList(Rc(Self)) // constraint types
   ),
   // Generic / unresolved ----------------------------------------------------
   /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
@@ -304,13 +350,13 @@ TypeValueNode :: enum(
     frame_level : usize,
     parent_type : Rc(Self),
     // meta-type (TypeUni(0) by default)
-    required_trait_types : ArrayList(Rc(Self)),
+    required_trait_types : SharedList(Rc(Self)),
     // required trait constraints
-    required_trait_levels : ArrayList(usize),
+    required_trait_levels : SharedList(usize),
     // frame-level of each constraint
-    negative_trait_types : ArrayList(Rc(Self)),
+    negative_trait_types : SharedList(Rc(Self)),
     // negative trait constraints
-    negative_trait_levels : ArrayList(usize),
+    negative_trait_levels : SharedList(usize),
     // frame-level of each negative constraint
     // When present, this SomeT represents a higher-kinded type variable
     // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
@@ -339,43 +385,43 @@ TypeValueNode :: enum(
   /// `constructor` is always a `SomeT` (the type-constructor variable).
   TypeAppT(
     constructor : Rc(Self),
-    args : ArrayList(Rc(Self))
+    args : SharedList(Rc(Self))
   ),
   /// Iso-wrapped type (linear / unique reference).
   IsoT(child : Rc(Self)),
   /// Dynamic-dispatch type with trait bounds.
   DynT(
-    required_trait_types : ArrayList(Rc(Self)),
-    required_trait_levels : ArrayList(usize),
-    negative_trait_types : ArrayList(Rc(Self)),
-    negative_trait_levels : ArrayList(usize)
+    required_trait_types : SharedList(Rc(Self)),
+    required_trait_levels : SharedList(usize),
+    negative_trait_types : SharedList(Rc(Self)),
+    negative_trait_levels : SharedList(usize)
   ),
   /// Fn-trait type (Fn / FnMut / FnOnce).
   FnTraitT(
     base_name : String,
-    call_param_labels : ArrayList(String),
-    call_param_types : ArrayList(Rc(Self)),
+    call_param_labels : SharedList(String),
+    call_param_types : SharedList(Rc(Self)),
     call_result : Rc(Self),
-    implicit_labels : ArrayList(String),
-    implicit_types : ArrayList(Rc(Self)),
+    implicit_labels : SharedList(String),
+    implicit_types : SharedList(Rc(Self)),
     /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
     /// call signature is FLATTENED into the variant, and dropping this
     /// flag made a closure typed against
     /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
     /// `with_lock` write-through failure). Empty = all by-value.
-    call_param_is_ref : ArrayList(bool),
+    call_param_is_ref : SharedList(bool),
     /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
     /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
     /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
     /// synthesized without a written `Fn(...)`).
-    call_param_is_owning : ArrayList(bool)
+    call_param_is_owning : SharedList(bool)
   ),
   /// Future-trait type with associated output and effects.
   FutureTraitT(
     base_name : String,
     output : Rc(Self),
-    effect_labels : ArrayList(String),
-    effect_types : ArrayList(Rc(Self))
+    effect_labels : SharedList(String),
+    effect_types : SharedList(Rc(Self))
   ),
   /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
   /// satisfies `p`". Distinct at the type level (two predicates over the
@@ -448,6 +494,12 @@ impl(
 // TypeValue node, and every `ArrayList(TypeValue)`, out of the cycle
 // collector (§3.12, V4).
 impl(TypeValue, Acyclic());
+// The type lists inside a node: a copy is one count bump, and they are
+// acyclic for the reason `TypeValue` is (see `SharedList`).
+impl(SharedList(TypeValue), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(TypeValue), Acyclic());
+impl(SharedList(SharedList(TypeValue)), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(SharedList(TypeValue)), Acyclic());
 // ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
@@ -474,4 +526,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, TypeValueNode, FuncMeta, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, shared_list, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
