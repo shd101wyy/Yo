@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_bool } :: import("../../types/creators.yo");
 { Environment, mark_function_frames_isolating } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -27,9 +27,9 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
   some_fields.push(inner_type);
-  variant_fields := ArrayList(ArrayList(TypeValue)).new();
-  variant_fields.push(none_fields);
-  variant_fields.push(some_fields);
+  variant_fields := ArrayList(SharedList(TypeValue)).new();
+  variant_fields.push(shared_list(none_fields));
+  variant_fields.push(shared_list(some_fields));
   none_labels := ArrayList(String).new();
   some_labels := ArrayList(String).new();
   // "value" — MUST match prelude Option's `Some(value : T)` label: the
@@ -39,9 +39,9 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   // — a "val"-labelled winner made the field designator miss (the lexer
   // batch "field designator 'value' does not refer to any field").
   some_labels.push(String.from("value"));
-  variant_field_labels := ArrayList(ArrayList(String)).new();
-  variant_field_labels.push(none_labels);
-  variant_field_labels.push(some_labels);
+  variant_field_labels := ArrayList(SharedList(String)).new();
+  variant_field_labels.push(shared_list(none_labels));
+  variant_field_labels.push(shared_list(some_labels));
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
