@@ -67,7 +67,7 @@ So one closure literal minted at two types (`func_id` is occurrence-indexed, `an
 - the per-node `ExprInfo` of the `with_mut` call in `_add`'s body, shared by the trial and concrete specializations of `_add`;
 - the specialization cache of `_add` itself, keyed so that `Ch(T_Tx)` and `Ch(i32)` meet.
 
-Related records: `issues/fixed/forwarded-closure-param-shares-specialization.md`, and the `arc-spawn-capture-split` repro named in helper.yo's closure-identity comment. Possibly the same family, open: `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (one capture struct across instantiations) and `issues/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`.
+Related records: `issues/fixed/forwarded-closure-param-shares-specialization.md`, and the `arc-spawn-capture-split` repro named in helper.yo's closure-identity comment. Possibly the same family, open: `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (one capture struct across instantiations) and `issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md`.
 
 ## Workaround in the tree
 
