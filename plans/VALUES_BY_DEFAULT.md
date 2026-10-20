@@ -179,10 +179,9 @@ Progress:
     `yo fix --migrate mut-bindings`, with the tests/ sweep (§6
     "Decision 47" step 2's "as built").
 - **In progress:**
-  - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
-    over futures; both compiler blockers are fixed,
-    `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` and `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`)
-    and A6's `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A6's `Rc`-field half (V2c). A4's
+    std half (`timeout`/`select` over futures) landed 2026-10-20, see A4's
+    "As built".
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step (Generation B), the allocator interface version 2
@@ -1364,12 +1363,12 @@ instead.
       (`require_capture_borrow_exclusivity`) now skips a borrow whose root is
       not in the caller's scope, since those roots are the callee's
       parameters, not the caller's places.
-    - **The std half is parked.** `timeout(fut, d, io)` and a two-way
+    - **The std half (landed 2026-10-20, `feat/vbd-a4-std-half`).** `timeout(fut, d, io)` and a two-way
       `select(a, b, io)` over futures, each operand a scoped child task
       (spawned under `unsafe`, held by a guard whose `Drop` aborts it, aborted
       and joined before the combinator resolves), were built and run
       (borrowing operands under a deadline and a loss, the loser's locals
-      dropped). They cannot ship on today's compiler: two futures of one
+      dropped). They waited on the compiler: two futures of one
       generic producer at different `T` (`h1.join(io)` and `h2.join(io)`,
       `rx.recv(io)` over two channel item types) give a generic body's
       `io.async` one capture struct and one closure, so the second
@@ -1379,9 +1378,11 @@ instead.
       the end of the resolution chain, which is per producer
       specialization; a type built from the binder in such a body was the
       second blocker, fixed the same day, `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`).
-      The reference implementation is `std/async/index.yo` and
-      `std/http/client.yo` on the branch `wip/vbd-a4-std-half` (commit
-      `a83d6ac8b`). `timeout(handle, …)` stays until that is fixed.
+      `std/async/index.yo` now takes futures in both (`timeout(h.join(io),
+      d, io)` times out a task that is already spawned), and
+      `std/http/client.yo` keeps a private handle race for its `IoExn`
+      exchange (an effect-generic `timeout` hit the same binder family with
+      the bundle's `E`).
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell
