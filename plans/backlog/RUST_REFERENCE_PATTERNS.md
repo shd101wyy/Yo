@@ -22,7 +22,7 @@ filed with a recommendation and cited where it applies (a fourth, `Rc`'s
 
 > **Read with the 2026-10-19 amendment (#1483):** decision 43 now makes
 > references FIRST-CLASS types parameterized by origins (`&(T, p)`,
-> `NON_ESCAPABLE_TYPES.md` O1–O9). The `R1`–`R7` rules and the
+> `NON_ESCAPABLE_TYPES.md` O1–O10). The `R1`–`R7` rules and the
 > `depends(...)` clause this catalog cites are the superseded design;
 > translate as you read — `R3`'s single-root return is O3's return rule
 > over origin parameters, `R7`'s root-joining container is O6's declared

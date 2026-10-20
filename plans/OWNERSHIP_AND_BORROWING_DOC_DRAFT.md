@@ -1015,7 +1015,7 @@ mutate on purpose becomes a value held in an `Rc`.
   42 borrow spelling, 43 references as types, 44 `Dyn`, 45 `Drop` (the
   `Dispose` rename).
 - [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md):
-  origins (O1–O9, the `Origin` kind and `&(T, p)`); phases N0–N3.
+  origins (O1–O10, the `Origin` kind and `&(T, p)`); phases N0–N3.
 - Related docs: [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md),
   [`DYN_DESIGN.md`](../docs/en-US/DYN_DESIGN.md),
   [`ARC.md`](../docs/en-US/ARC.md),

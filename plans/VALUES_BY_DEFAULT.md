@@ -3694,7 +3694,7 @@ and in git, not a silent edit.
     structural predicate "this position accepts no origin parameters"
     (`Send`/spawn, `extern`, module-level, self-referential; E0909
     restated). The design is `plans/backlog/NON_ESCAPABLE_TYPES.md`
-    (O1–O9), which supersedes the 2026-10-13 `depends`-clause and
+    (O1–O10), which supersedes the 2026-10-13 `depends`-clause and
     root-joining-tracker design of the same file (in git history): the
     clause grammar and the per-value flow tracker are not built —
     parametricity and declared origin unions do their work (the mapping is
@@ -7449,7 +7449,7 @@ RC and allocation traffic grew faster than the code. That points at copies the m
 ### Decision 43: references as types
 
 Decision 43 (§4) is the design, and `plans/backlog/NON_ESCAPABLE_TYPES.md`
-(O1–O9) the full statement — **amended 2026-10-19 to the origin design**
+(O1–O10) the full statement — **amended 2026-10-19 to the origin design**
 (references are first-class `&(T, p)` types parameterized by an `Origin`
 kind; the `depends` clause and the R7 root-joining tracker of the previous
 design are superseded and never built). This section is the PR sequence
