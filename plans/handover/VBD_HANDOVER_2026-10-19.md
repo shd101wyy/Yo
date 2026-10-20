@@ -183,8 +183,11 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
   closure-typed-field half landed (#1460).
 - `#1463`: the `compile.test.yo` leak classes are lexer-chain `Token` Rc cells (~59 KB per in-process
   compile), a measured sub-case of the self-hosted reference-hygiene S1 umbrella. No one-site fix.
-- LinkedList of managed elements forms uncollected cycles (S3) — believed a documented design
-  limitation of `ref(struct)` + the collector's reachability; triage, do not auto-fix.
+- LinkedList of managed elements forms uncollected cycles (S3): triaged 2026-10-20 as a real bug and
+  fixed (`issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`). The
+  cycle walk now resolves the self-declaration shell behind a nested instantiation. Cost: 48 compiler
+  containers become collector-tracked (`check` RSS up; recovery is decision 21's declared
+  `impl(T, Acyclic())` on the compiler's tree-shaped containers).
 - The non-routable connect-test leak doc is suspected network-environment; triage before believing.
 
 ## 4. What is next, in order

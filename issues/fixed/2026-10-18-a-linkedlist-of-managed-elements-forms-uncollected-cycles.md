@@ -111,6 +111,23 @@ the visited root, and the path closes. On the tree binary:
 The `Node` `Trace` impl that the move-only fix added (it visits `next`,
 `prev` and the element buffer) was already the correct traversal.
 
+## Visible change: such types no longer derive `Acyclic`
+
+`Acyclic` is derived as the negation of the same predicate, so a reference
+type of the nested shape stops deriving it. `iso()` rejects a variable of such
+a type on that predicate (`src/evaluator/calls/iso.yo`), and `Iso(T)`, `arc()`
+and `thread.spawn` require `Acyclic` (`std/prelude.yo`, `std/thread.yo`). A
+program that compiled on v0.2.66 is therefore rejected now. For example:
+
+```yo
+{ LinkedList } :: import("std/collections/linked_list");
+LLNode :: ref(struct(value : i32, children : LinkedList(Self)));
+comptime_assert(Type.impls(LLNode, Acyclic));
+```
+
+This passes on the v0.2.66 seed and fails on the fix with E1101. The rejection
+is correct: these values can form cycles.
+
 ## Cost (measured 2026-10-20, stage-2 A/B, aarch64 macOS)
 
 The fix also changes what the compiler's OWN types register. 48 container
