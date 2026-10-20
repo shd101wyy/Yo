@@ -3549,9 +3549,12 @@ create_specialized_function_inline :: (
                     // registered the spec with a generic result that codegen
                     // then skips while the call site still names it
                     // (issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
+                    // The closure carve-out above holds here too: `Arc(V)`'s
+                    // type argument is the closure's own `Impl(Fn...)`.
                     rte_tyarg_somes := ArrayList(TypeValue).new();
                     _collect_type_arg_somes(&rte_ty, &mut rte_tyarg_somes, ArrayList(String).new());
-                    if(((rte_somes.len() == usize(0)) || rte_only_closure_args) && (rte_tyarg_somes.len() == usize(0)) && !_type_has_array_len_var(&rte_ty) && !is_unit_type(&rte_ty), {
+                    rte_tyargs_ok := ((rte_tyarg_somes.len() == usize(0)) || _somes_are_closure_forall_args(&rte_tyarg_somes, &arg_values.forall_args));
+                    if(((rte_somes.len() == usize(0)) || rte_only_closure_args) && rte_tyargs_ok && !_type_has_array_len_var(&rte_ty) && !is_unit_type(&rte_ty), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
                     });
