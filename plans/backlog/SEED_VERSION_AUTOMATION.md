@@ -62,8 +62,8 @@ deleted 2026-10-20 on the v0.2.66 seed: `std/prelude.yo` and
 `std/collections/array_list.yo`, `hash_map.yo` and `hash_set.yo` now declare
 `pragma(Pragma.AllowMacroDef);` like `std/async/stream.yo` and
 `std/encoding/json.yo`, and `is_macro_def_capable_file` has no std branch. `yo build --std-path ./std`
-with the installed v0.2.66 seed builds the tree, and `yo check ./std` with
-the result passes.
+with the installed v0.2.66 seed (`yo 0.2.66`) builds the tree (rc=0, 417.8 s,
+max RSS 4.0 GB, Mac Mini M4), and `yo check ./std` with the result passes.
 
 **Added 2026-08-25, DONE 2026-08-28** (collapsed once v0.2.18 became the seed;
 verified by compiling a probe AND building the whole tree with the real v0.2.18
