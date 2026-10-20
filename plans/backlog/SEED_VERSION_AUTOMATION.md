@@ -393,8 +393,8 @@ Generation A, #1437):
   after its `Clone` derive. The v0.2.65 seed rejected this derive (measured
   2026-10-18); the v0.2.66 seed accepts it: `yo check` and `yo test
   tests/iterator_combinators.test.yo --std-path ./std` with the seed pass, and
-  `yo build --std-path ./std` with the installed v0.2.66 seed builds the tree
-  (evidence in the branch's report). `tests/iterator_combinators.test.yo`
+  `yo build --std-path ./std` with the installed v0.2.66 seed (`yo 0.2.66`)
+  builds the tree: rc=0, 440.7 s, max RSS 3.4 GB (Mac Mini M4, 2026-10-20). `tests/iterator_combinators.test.yo`
   ("iter.peekable is Copy exactly when its inner iterator and element are")
   fails against the previous prelude (`comptime_assert` "Copy inner, Copy
   element") and passes with it.
