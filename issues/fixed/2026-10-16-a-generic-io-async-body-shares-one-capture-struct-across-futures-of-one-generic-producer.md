@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a generic function whose `io.async` body captures its `Impl(Future(T, Io))` parameter fails to compile once it is called with two futures of one generic producer at different `T` (two `JoinHandle(T).join` futures, two `Channel(T).recv` futures): clang rejects the C, or the evaluator reports a unify error; this blocks `std/async`'s `timeout` and `select` over futures (VBD §3.13 A4's std half).
 
-**Status:** FIXED 2026-10-20 (`fix/async-capture-per-mint`): the capture key and the future-wrapper rebuild both read the END of the resolution chain, where the two instantiations do differ; see "Resolution". The evaluator-error variant (a type built from the binder, `timeout`'s `JoinHandle(T)`) is a different bug, split off to `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`.
+**Status:** FIXED 2026-10-20 (`fix/async-capture-per-mint`): the capture key and the future-wrapper rebuild both read the END of the resolution chain, where the two instantiations do differ; see "Resolution". The evaluator-error variant (a type built from the binder, `timeout`'s `JoinHandle(T)`) is a different bug, split off to `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md` (fixed on the stacked `fix/ctfe-enum-arg-type-args`).
 
 **Found:** 2026-10-16, building A4's future-taking `timeout`/`select` (`feat/vbd-v3-a4-future-operands`; the parked std half is on `wip/vbd-a4-std-half`). Seed v0.2.63 and develop at `1a4cf8df6` both fail.
 
@@ -110,7 +110,7 @@ The +241 bytes are the second capture struct, which is correct: the two instanti
 
 ### Split off: the evaluator variant is a different bug
 
-The doc's second symptom, `Cannot unify incompatible types: "i32" and "bool"`, persists under (b). Its body builds a type from the binder (`(h : JoinHandle(T)) = io.spawn(fut, io)`, `timeout`'s shape). It reproduces with NO capture and NO `io.async` at all: a plain generic function returning `Option(T).Some(io.await(op, io))`, called with two join futures, fails the same way on develop. The cause is the CTFE memo, not the capture struct: an enum argument with the same declaration id memo-hits regardless of its type arguments. Its own doc is `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`.
+The doc's second symptom, `Cannot unify incompatible types: "i32" and "bool"`, persists under (b). Its body builds a type from the binder (`(h : JoinHandle(T)) = io.spawn(fut, io)`, `timeout`'s shape). It reproduces with NO capture and NO `io.async` at all: a plain generic function returning `Option(T).Some(io.await(op, io))`, called with two join futures, fails the same way on develop. The cause is the CTFE memo, not the capture struct: an enum argument with the same declaration id memo-hits regardless of its type arguments. Its own doc is `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`.
 
 ### Re-verified after #1503 (develop `fc15a6092`)
 
