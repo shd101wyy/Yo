@@ -4,6 +4,8 @@ pragma(Pragma.AllowUnsafe);
 Gc :: import("std/gc");
 { ArrayList } :: import("std/collections/array_list");
 { LinkedList } :: import("std/collections/linked_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ String } :: import("std/string");
 { VList } :: import("./fixtures/owned_buffer.yo");
 List :: ref(
   struct(
@@ -553,6 +555,80 @@ test("a declared Acyclic tree's nodes are not cycle candidates", {
   c := CycTree.Node(CycTree.Leaf(1), CycTree.Leaf(2));
   assert(Gc.tracked_count() > before, "a CycTree node is registered");
   assert(match(t, .Node(_, _) => true, .Leaf(_) => false) && match(c, .Node(_, _) => true, .Leaf(_) => false));
+});
+// The compiler's own trees declare `Acyclic` the same way: `AstExpr`
+// (src/expr.yo), `VcSort` and `VcTerm` (src/verifier/terms.yo). A language
+// test cannot import src/, so these replicas copy the node shapes and the
+// declaration. Each declared node has an undeclared twin, which pins that the
+// declaration, not the shape, takes the node's containers and holders off the
+// cycle walk: #1486 made all of them cycle roots
+// (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md,
+// the probe table). A twin's leaf payload differs from its node's: before
+// #1501 keyed enum identity on the declaration, two enums of one shape
+// shared their container instances, so `ArrayList(RExprTwin)` was served
+// `ArrayList(RExpr)` and read as acyclic.
+RExpr :: ref(enum(Atom(n : i32), FnCall(func : Self, args : ArrayList(Self))));
+// SAFETY: an RExpr is built bottom-up and no `args` list is written after its
+// node is built, so no node can reach itself.
+impl(RExpr, Acyclic());
+RExprTwin :: ref(enum(Atom(n : i64), FnCall(func : Self, args : ArrayList(Self))));
+RSort :: ref(enum(BoolS, SeqS(elem : Self), FunS(domain : Self, range : Self)));
+// SAFETY: an RSort's only children are `Self` payloads fixed at construction.
+impl(RSort, Acyclic());
+RTerm :: ref(
+  enum(
+    Var(name : String, sort : RSort),
+    App(args : ArrayList(Self)),
+    Quant(sorts : ArrayList(RSort), body : Self, triggers : ArrayList(Self))
+  )
+);
+// SAFETY: as RExpr: each list is filled before its term is built.
+impl(RTerm, Acyclic());
+RTermTwin :: ref(
+  enum(
+    Var(id : i64, sort : RSort),
+    App(args : ArrayList(Self)),
+    Quant(sorts : ArrayList(RSort), body : Self, triggers : ArrayList(Self))
+  )
+);
+// Holders: `SuspensionPoint`'s shape (a node and an optional node list) and
+// `VcQuery`'s (a term list and a term). The list field matters: a twin
+// holder with only the node field reads false (measured on #1486's binary).
+RPoint :: ref(struct(index : usize, expr : RExpr, branch_exprs : Option(ArrayList(RExpr))));
+RPointTwin :: ref(struct(index : usize, expr : RExprTwin, branch_exprs : Option(ArrayList(RExprTwin))));
+RQuery :: ref(struct(name : String, assumptions : ArrayList(RTerm), goal : RTerm));
+RQueryTwin :: ref(struct(name : String, assumptions : ArrayList(RTermTwin), goal : RTermTwin));
+test("declared-Acyclic compiler trees keep their containers and holders off the cycle walk", {
+  // AstExpr's shape.
+  comptime_assert(!Type.can_form_rc_cycle(RExpr), "a declared AstExpr-shaped node");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RExpr)), "ArrayList(AstExpr)");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(ArrayList(RExpr))), "ArrayList(ArrayList(AstExpr))");
+  comptime_assert(!Type.can_form_rc_cycle(HashMap(String, ArrayList(RExpr))), "HashMap(String, ArrayList(AstExpr))");
+  comptime_assert(!Type.can_form_rc_cycle(RPoint), "SuspensionPoint");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RPoint)), "ArrayList(SuspensionPoint)");
+  comptime_assert(Type.can_form_rc_cycle(RExprTwin), "the undeclared twin can form a cycle");
+  comptime_assert(Type.can_form_rc_cycle(ArrayList(RExprTwin)), "and its list sits on that cycle (AstExpr shape)");
+  comptime_assert(Type.can_form_rc_cycle(RPointTwin), "and so does its holder");
+  // VcSort's and VcTerm's shapes.
+  comptime_assert(!Type.can_form_rc_cycle(RSort), "VcSort");
+  comptime_assert(!Type.can_form_rc_cycle(RTerm), "VcTerm");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RTerm)), "ArrayList(VcTerm)");
+  comptime_assert(!Type.can_form_rc_cycle(RQuery), "VcQuery");
+  comptime_assert(Type.can_form_rc_cycle(RTermTwin), "the undeclared term twin can form a cycle");
+  comptime_assert(Type.can_form_rc_cycle(ArrayList(RTermTwin)), "and its list sits on that cycle (VcTerm shape)");
+  comptime_assert(Type.can_form_rc_cycle(RQueryTwin), "and so does its query");
+  // The LinkedList controls stay cycle roots: no declaration covers them.
+  comptime_assert(Type.can_form_rc_cycle(LLNode), "LLNode");
+  comptime_assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "LinkedList(LLNode)");
+  comptime_assert(Type.can_form_rc_cycle(ArrayList(LLNode)), "ArrayList(LLNode)");
+  comptime_assert(!Type.can_form_rc_cycle(LinkedList(i32)), "LinkedList(i32)");
+  // At run time a declared node and its list never register.
+  before := Gc.tracked_count();
+  e := RExpr.FnCall(RExpr.Atom(1), ArrayList(RExpr).new());
+  assert(Gc.tracked_count() == before, "an RExpr node and its args list are never registered");
+  w := RExprTwin.FnCall(RExprTwin.Atom(1), ArrayList(RExprTwin).new());
+  assert(Gc.tracked_count() > before, "the twin's node and list are");
+  assert(match(e, .FnCall(_, _) => true, .Atom(_) => false) && match(w, .FnCall(_, _) => true, .Atom(_) => false));
 });
 // A cycle closed through a VALUE that owns a heap buffer (V2b's unique
 // buffers, plans/VALUES_BY_DEFAULT.md: after Generation B every collection is

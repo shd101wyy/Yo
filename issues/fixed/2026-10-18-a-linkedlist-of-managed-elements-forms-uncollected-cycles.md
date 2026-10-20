@@ -191,10 +191,10 @@ every construction site for a later write to the list it was given.
 | --- | --- | --- |
 | `AstExpr` (`src/expr.yo`) | yes | `func` is a fixed payload, and each `args` list is filled before its `FnCall` is built. 1,083 destructures and 104 constructions were audited, and no write reaches a built node's `args`. The one in-place rewrite, `strip_proved_ensures_asserts` (`src/evaluator/builtins/contracts.yo`), refills a body's statement list with a subset of its own elements. A filter cannot close a cycle. |
 | `VcTerm` (`src/verifier/terms.yo`) | yes | The `args`/`triggers` lists are built fresh per node (`_app1`..`_app3`, `vc_eq`, …), and no write reaches a built term's list. Substitution shares subterms (decision 21's 2026-10-18 amendment), which adds no back edge. |
-| `VcSort` (`src/verifier/terms.yo`) | yes | Its only children are `Self` payloads, and it holds no list or cell. No `VcSort` can reach itself. |
-| `EvalValue` (`src/value.yo`) | no | Decision 21 gives `EvalValue` its own V4 PR. Its children include mutable comptime containers and `FuncVal` environment snapshots, which may name the function itself. Its holders (`PendingDef`, `ArrayList(EvalValue)`, …) stay registered. |
+| `VcSort` (`src/verifier/terms.yo`) | yes | Its only children are `Self` payloads, and it holds no list or cell. No `VcSort` can reach itself. Whether the walk should infer this instead is `issues/questions/2026-10-20-should-the-cycle-walk-infer-acyclicity-for-self-only-ref-enums.md` (recommended: no; keep the declaration). |
+| `EvalValue` (`src/value.yo`) | no | Not this branch: its audit belongs to V4 (decision 21 gives `EvalValue` its own V4 PR, and decision 9 of 2026-10-20 confirms it). Its children include mutable comptime containers and `FuncVal` environment snapshots, which may name the function itself. Its holders (`PendingDef`, `ArrayList(EvalValue)`, …) stay registered. |
 | `JsonValue` (`std/encoding/json.yo`) | no | User-facing std, and it can form a cycle: `JsonValue.Array(items)` shares a mutable `ArrayList` cell, so `items.push(JsonValue.Array(items))` closes one. `ArrayList(JsonValue)` stays registered. |
-| `JsonObjBuilder` (`src/lsp/protocol.yo`) | no | `obj()` shares the builder's `values` list with the object it returns, so `b.put(k, &b.obj())` puts that list on a cycle. The builder cell itself cannot be on the cycle, so declaring it would be sound, but it is one cell type and not a tree, so it was skipped. |
+| `JsonObjBuilder` (`src/lsp/protocol.yo`) | no | `obj()` shares the builder's `values` list with the object it returns, so `b.put(k, &b.obj())` puts that list on a cycle. The builder cell itself cannot be on the cycle, so declaring it would be sound, but it is one cell type and not a tree. Skipped (decision 9 of 2026-10-20): measure its registration count first, and declare it only if that number justifies an unsafe declaration. |
 | `RegexNode` (`std/regex/node.yo`) | no | User-facing std (exported). `children : ArrayList(Self)` is a shared mutable cell that callers can push into. |
 
 The `Type.can_form_rc_cycle` answers below came from one-file probes. Each
@@ -236,6 +236,27 @@ Not measured yet: the self-build registering-constructor count, and stage-2
 `check ./src` max RSS against develop (1.28 GB) and #1486 (1.50 GB). Both
 need the compiler build.
 
+**Re-probe after the rebase, before reading RSS.** This branch and #1486
+sit on a develop older than #1501, which keys enum identity on the
+declaration. Before #1501, two enum declarations of one shape shared their
+container instances: in the regression test below, an undeclared twin
+spelled exactly like the declared `RExpr` had its `ArrayList(RExprTwin)`
+served `ArrayList(RExpr)` and read `false`, so the twins now differ in a
+leaf payload. #1501 therefore changes which instance a container
+specializes to. After rebasing onto develop, re-run the probe table above
+with the rebased binary BEFORE reading any RSS number. If
+`ArrayList(AstExpr)` still reads `true`, stop and understand why before
+going further.
+
+One observation from the replicas: a reference-struct holder of a
+cycle-capable reference enum (`ref(struct(e : X))`) reads `false`, while a
+holder of that enum's list (`ref(struct(xs : ArrayList(X)))`) reads `true`
+on #1486 and `false` on the v0.2.66 seed. A holder of a cycle-capable
+reference STRUCT (`ref(struct(y : Y))`) reads `true` on both, because the
+walk re-roots at every reference struct it reaches. That is why
+`SuspensionPoint` registers on #1486 through its
+`Option(ArrayList(AstExpr))` field, and why the declarations take it off.
+
 ## Fix direction (as filed)
 
 Make the constructor's `can_type_form_rc_cycle` ask and the runtime agree with
@@ -245,6 +266,17 @@ adds (it visits `next`, `prev` and the element buffer) is already the correct
 traversal.
 
 ## Test
+
+`tests/cycle_collector.test.yo` "declared-Acyclic compiler trees keep their
+containers and holders off the cycle walk" turns the probe table into a
+regression test (stacked branch). A language test cannot import `src/`, so it
+replicates `AstExpr`, `VcSort`, `VcTerm`, `SuspensionPoint` and `VcQuery`
+with the same `impl(T, Acyclic())` shape. It asserts `false` for each
+declared node, its lists, `HashMap(String, ArrayList(…))` and its holders. It
+asserts `true` for an undeclared twin of each and for the `LLNode` /
+`LinkedList(LLNode)` / `ArrayList(LLNode)` controls. At run time it checks
+that a declared node and its list never register and the twin's do. It
+passes with #1486's tree binary (24 of 24 in the file).
 
 `tests/cycle_collector.test.yo` "LinkedList(Self) two-node cycle collected",
 beside the `ArrayList(Self)` case. It collects the cycle and pins the three
