@@ -2,7 +2,7 @@
 
 **Severity:** S3. The migration writes `.clone()` calls nothing needs: a value taken out of a temporary that dies after the copy is a move, so each insertion is a wasted deep copy (no change in what the program computes). One shape also gets a misleading listing: a returned field of a temporary is described as "returned from a borrowed binding", with a projection (`-> &T`) suggested, which would borrow the dying temporary.
 
-**Status:** fixed on `feat/explicit-copy-guards` (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). The fix has been checked only with single-file probes: the Tier 1 gates (build, `check ./src`, the cli cases) run after the v0.2.67 cut.
+**Status:** fixed on `feat/explicit-copy-guards` (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). Tier 1 run 2026-10-20 on the branch rebased onto develop 7def2203b; results under "Gates" below.
 
 > Found 2026-10-19 by the `b1diag` investigation of the parked B1 sweep
 > (`issues/retired/2026-10-19-did-the-explicit-copy-migration-misread-moves-as-copies-on-env-carrying-sites.md`,
@@ -57,3 +57,35 @@ chain, so it is still classified by the old rules
 `tests/cli-cases/fix-migrate-explicit-copy-dying-temp`: the five sites above
 are listed and only `d := h.name` (a field of a live local) is rewritten.
 Before the fix the same fixture got five insertions (four of them out of a dying temporary) and one misleading listing.
+
+## Gates
+
+Run 2026-10-20 on the branch rebased onto develop 7def2203b, with the tree
+binary (`yo build --std-path ./std --cc clang`, rc 0) on the 64 GB Linux box:
+
+- `check ./src --std-path ./std`: 278/278 files, rc 0 (6:44 wall, 1,131,364 KB
+  max RSS under a shared heavy-lock slot, not a timing). `check ./std --std-path ./std`: 172/172, rc 0.
+- `scripts/cli-diff-test.sh` over the five explicit-copy cases: 5 PASS,
+  0 GOLDEN-DIFF. The three existing cases (`fix-migrate-explicit-copy`,
+  `-arm-tail`, `-generic`) are byte-identical to their goldens; the two new
+  cases' hand-computed goldens matched the run as written, so nothing was
+  re-recorded. The v0.2.66 seed on the dying-temp fixture (`--dry-run`) gives the
+  "before" in the Symptom: five insertions, `make().name` at 14:32 listed as a
+  borrowed binding.
+- `--hot-path` probes: `hot`, `./hot`, an absolute path and the file itself
+  all guard `hot/engine.yo` and leave a sibling `hotter/engine.yo` rewritten
+  (segment-wise); a missing path, a non-`explicit-copy` migration and a
+  missing argument are each rejected.
+- `tests/internal` files importing a changed module: `binding.test.yo` 7/7,
+  `evaluator_utils_is_valid_variable_name.test.yo` 6/6. `compile.test.yo`
+  fails 4/4 on LeakSanitizer verdicts. These are the pre-existing failures
+  in `issues/2026-10-18-four-compile-test-cases-fail-the-local-leak-verdict-on-develop.md`:
+  the probe and PATH-helper windows leak exactly that doc's develop numbers
+  (22,669 B in 340 allocations; 120 B in 4). The two emit windows leak
+  58,993 B / 874 and 59,121 B / 876, against the doc's 59,057 / 875 and 59,569 / 883.
+  The leaked classes are the same: 64-byte `Token` cells and 40-byte
+  `String`s. The changed evaluator code runs only under
+  `g_audit_implicit_copy || migrate_explicit_copy_on()`, and the `src/main.yo`
+  change only under `yo fix`, so these tests cannot reach either.
+- Tree-binary `yo fmt --check` on every changed `.yo`/`.md` file and
+  `scripts/check-issue-refs.sh`: clean.
