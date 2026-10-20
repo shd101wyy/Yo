@@ -534,9 +534,16 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   // HANGS — which in CI burns a job's whole timeout instead of reporting a
   // failure. Verified: with the impl removed this reports Elapsed in ~2s;
   // with it, the read finishes immediately.
+  // The read is an `IoExn` future and `timeout` takes an `Io` one, so it
+  // runs as a task spawned with `e` and is timed out through its join.
+  rh := io.spawn(r.read_to_string(io), e);
   text := match(
-    io.await(timeout(r.read_to_string(io), Duration.from_millis(i64(2000)), io), e),
-    .Ok(t) => t,
+    io.await(timeout(rh.join(io), Duration.from_millis(i64(2000)), io), io),
+    .Ok(.Some(t)) => t,
+    .Ok(.None) => {
+      assert(false, "the read task was aborted");
+      String.new()
+    },
     .Err(te) => {
       assert(false, `dropping the ChildStdin did not deliver EOF — ${te}`);
       String.new()
