@@ -3542,7 +3542,16 @@ create_specialized_function_inline :: (
                     // the return (issues/fixed/arc-of-a-send-closure-emits-two-capture-struct-typedefs.md).
                     rte_somes := get_all_some_types(&rte_ty);
                     rte_only_closure_args := ((rte_somes.len() > usize(0)) && _somes_are_closure_forall_args(&rte_somes, &arg_values.forall_args));
-                    if(((rte_somes.len() == usize(0)) || rte_only_closure_args) && !_type_has_array_len_var(&rte_ty) && !is_unit_type(&rte_ty), {
+                    // `get_all_some_types` does not walk an instance's TYPE
+                    // ARGUMENTS, so a phantom one (`Bag(K)`, no field mentions
+                    // `K`) looked concrete: an impl's `Self.Output : Bag(K)`
+                    // re-evaluates to the impl-era `Bag(K)`, and adopting it
+                    // registered the spec with a generic result that codegen
+                    // then skips while the call site still names it
+                    // (issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
+                    rte_tyarg_somes := ArrayList(TypeValue).new();
+                    _collect_type_arg_somes(&rte_ty, &mut rte_tyarg_somes, ArrayList(String).new());
+                    if(((rte_somes.len() == usize(0)) || rte_only_closure_args) && (rte_tyarg_somes.len() == usize(0)) && !_type_has_array_len_var(&rte_ty) && !is_unit_type(&rte_ty), {
                       spec_ret_ty = rte_ty;
                       rte_adopted = true;
                     });
