@@ -127,7 +127,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     },
     .Variant(_, vidx, field_idx, subs, enum_ty, through_ptr, _) => {
       cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
-      ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => ArrayList(TypeValue).new());
+      ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => no_types()), _ => no_types());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));

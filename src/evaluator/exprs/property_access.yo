@@ -245,7 +245,7 @@ _deref_chain_has_field :: (fn(t : &TypeValue, label : &String, env : &Environmen
       },
       .Some(payload) => {
         cur = resolve_struct_shell(&payload);
-        if(find_first_field_index(_field_labels_of(&cur), label.clone()).is_some(), {
+        if(find_first_field_index(&_field_labels_of(&cur).items, label.clone()).is_some(), {
           return(.Ok(()));
         });
       }
@@ -859,7 +859,7 @@ Raw pointer operations may dereference invalid memory.`
         .Some(deref_b_v) => if((deref_b_v.is_ref || deref_b_v.is_imm_borrow) &&
           !match(
             obj_ty_deref,
-            .Some(deref_b_ot) => find_first_field_index(_field_labels_of(&deref_b_ot), String.from("*")).is_some(),
+            .Some(deref_b_ot) => find_first_field_index(&_field_labels_of(&deref_b_ot).items, String.from("*")).is_some(),
             .None => false
           ), {
           deref_b_name := ast_expr_token(&object_expr).value.clone();
@@ -1889,7 +1889,7 @@ Raw pointer operations may dereference invalid memory.`
                       with_code(
                         format_error_message(
                           ast_expr_token(&property_expr),
-                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, _field_labels_of(&innermost))
+                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, &_field_labels_of(&innermost).items)
                         ),
                         unknown_field_code(&base_ty)
                       )
