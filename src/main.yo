@@ -3811,6 +3811,22 @@ run_fix :: (
     );
   });
 });
+/// May one of `check`'s target files run in verify mode? A file can only
+/// verify through its own `pragma(Pragma.Verify)` or
+/// `pragma(Pragma.VerifyOrAssert)` (`check` takes no `--verify-mode`), so a
+/// textual scan for the spelling decides it; a match in a comment or a
+/// string literal only keeps the arms table on, which is the safe side.
+_check_files_may_verify :: (fn(files : &ArrayList(String), exn : Exception) -> bool)({
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    text := String.from_bytes(read_file_sync(files(fi).clone(), exn));
+    if(text.contains(&String.from("pragma(Pragma.Verify")), {
+      return(true);
+    });
+    fi = (fi + usize(1));
+  });
+  false
+});
 run_check :: (
   fn(
     argv : &ArrayList(String),
@@ -3885,12 +3901,17 @@ run_check :: (
   // Only the watch modes re-force definitions after a module's walk finished;
   // a one-shot check lets each finished walk release its context (F1), and
   // records no owner logs, since nothing will invalidate a module (§0.15).
-  // `check` never generates code, watch or not (§0.21). It does run the
-  // verifier on verify-mode files, so the compiled match arms the verifier's
-  // match walk reads stay on (`set_match_arms_table_enabled`, default on).
+  // `check` never generates code, watch or not (§0.21). It runs the
+  // verifier on the verify-mode files among its targets, whose match walk
+  // reads the compiled match arms of ANY module (a spec-transparent callee
+  // can live anywhere), so the arms table stays on when a target may be in
+  // verify mode, and in the watch modes, where an edit can add the pragma.
+  // A run with no such target (`check src/main.yo`) records no arms: they
+  // cost +3.3 % of its max RSS (#1493).
   set_retain_walk_contexts(watch || watch_once);
   set_owner_logs_enabled(watch || watch_once);
   set_codegen_tables_enabled(false);
+  set_match_arms_table_enabled(watch || watch_once || _check_files_may_verify(&files, exn));
   // A std tree must be checked against ITSELF: when every entry lives inside
   // one std root while the resolver picked another (an installed binary
   // finds its bundled std beside the exe before ./std), the run evaluates
