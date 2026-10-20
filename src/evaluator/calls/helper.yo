@@ -3037,8 +3037,17 @@ create_specialized_function_inline :: (
       (ret_sig_ty : Option(TypeValue)) = Option(TypeValue).None;
       {
         declared_ret := match(func_type, Rc(.Func({ result : dr })) => dr, _ => t_unit());
+        // A SomeT can sit only in an instance's TYPE ARGUMENTS: `Bag(K)` with
+        // `K` phantom (no field mentions it), which `get_all_some_types` does
+        // not walk into. Left unresolved there, the probe kept the binder in
+        // the specialization's id (`_ret_gs_<Bag>_<K>`) while the
+        // specialization itself resolved its return to `Bag(i32)`, so the call
+        // named a function nothing declared
+        // (issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
+        ret_tyarg_somes := ArrayList(TypeValue).new();
+        _collect_type_arg_somes(&declared_ret, &mut ret_tyarg_somes, ArrayList(String).new());
         ret_probe := cond(
-          (get_all_some_types(&declared_ret).len() > usize(0)) =>
+          ((get_all_some_types(&declared_ret).len() > usize(0)) || (ret_tyarg_somes.len() > usize(0))) =>
             evaluate_function_return_type_again(&declared_ret, callee_env, ctx),
           true => declared_ret
         );
