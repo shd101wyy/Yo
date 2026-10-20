@@ -15,6 +15,7 @@ pragma(Pragma.SkipWasm32Wasi); // no AF_UNIX in standalone WASI
 { remove_file } :: import("std/fs/dir");
 { temp_dir } :: import("std/env");
 { sleep } :: import("std/sys/timer");
+{ yield } :: import("std/async");
 
 _sock :: (fn(name : str) -> Path)(
   Path.new(temp_dir() + `/yo_unix_`.to_string() + String.from(name))
@@ -195,4 +196,101 @@ test("a connected UnixStream write to an accepted peer that has closed throws in
   io.await(client.close(io), e);
   io.await(listener.close(io), e);
   io.await(remove_file(&path, io), e);
+});
+// The D6 shape for Unix-domain sockets
+// (issues/fixed/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md):
+// the server is a SPAWNED task whose `accept` is already pending when the
+// client connects. Every test above connects first, so the listen backlog
+// held the connection and a blocking accept returned at once. On Windows an
+// AF_UNIX listener has no AcceptEx, and its accept() used to block the
+// event-loop thread itself: the client's connect, on the same loop, never ran.
+_reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+  io.async(e => {
+    got := ArrayList(u8).new();
+    buf := ArrayList(u8).new();
+    mut(i) := usize(0);
+    while(runtime(i < want), {
+      buf.push(u8(0));
+      i = (i + usize(1));
+    });
+    mut(eof) := false;
+    while(runtime(!eof && (got.len() < want)), {
+      n := e.io.await(s.read(buf.ptr().unwrap(), want - got.len(), e.io), e);
+      cond(
+        (n == usize(0)) => {
+          eof = true;
+        },
+        true => {
+          mut(j) := usize(0);
+          while(runtime(j < n), {
+            got.push(buf(j));
+            j = (j + usize(1));
+          });
+        }
+      );
+    });
+    got
+  })
+);
+_pending_accept_server :: (fn(listener : &UnixListener, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    s := e.io.await(listener.accept(e.io), e);
+    req := e.io.await(_reads_exactly(&s, usize(4), e.io), e);
+    assert(req.len() == usize(4), "the server read the whole request");
+    _w := e.io.await(s.write_str("pong", e.io), e);
+    e.io.await(s.close(e.io), e);
+    return(());
+  })
+);
+test("accept pending in a spawned task before the client connects", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  path := _sock("pending.sock");
+  _remove_stale(&path, io);
+  listener := io.await(UnixListener.bind(&path, io), e);
+  server := io.spawn(_pending_accept_server(&listener, io), e);
+  // Let the server task run up to its accept before the client exists.
+  io.await(yield(io), io);
+  client := io.await(UnixStream.connect(&path, io), e);
+  _n := io.await(client.write_str("ping", io), e);
+  reply := io.await(_reads_exactly(&client, usize(4), io), e);
+  assert(reply.len() == usize(4), "the whole reply");
+  assert(reply(usize(0)) == u8(112), "p");
+  assert(reply(usize(3)) == u8(103), "g");
+  server.await(io);
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
+  io.await(remove_file(&path, io), e);
+});
+// The same pending accept, never answered: aborting its task must take the
+// accept back (on Windows it runs on a worker that cannot be recalled, so the
+// op is abandoned) instead of leaving the loop waiting for a peer that never
+// comes.
+test("aborting a task whose accept is pending releases it", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  path := _sock("abort.sock");
+  _remove_stale(&path, io);
+  listener := io.await(UnixListener.bind(&path, io), e);
+  server := io.spawn(_pending_accept_server(&listener, io), e);
+  io.await(yield(io), io);
+  server.abort();
+  _r := server.await(io);
+  io.await(listener.close(io), e);
+  io.await(remove_file(&path, io), e);
+  assert(true, "the aborted accept did not hold the loop");
 });
