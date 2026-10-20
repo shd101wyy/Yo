@@ -652,8 +652,23 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             found,
             .Some(replacement) => replacement,
             .None => {
-              new_rts := _subst_list(s, &rts);
-              new_nts := _subst_list(s, &nts);
+              // Always fresh lists: a SomeT's bound lists are stamped in place
+              // (`_add_where_clause_constraint`), so the substituted SomeT
+              // must not share them with the original.
+              new_rts := ArrayList(TypeValue).new();
+              i := usize(0);
+              while(i < rts.len(), {
+                elem := match(rts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                new_rts.push(_substitute_at(s, &elem, false));
+                i = (i + usize(1));
+              });
+              new_nts := ArrayList(TypeValue).new();
+              i = usize(0);
+              while(i < nts.len(), {
+                elem := match(nts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+                new_nts.push(_substitute_at(s, &elem, false));
+                i = (i + usize(1));
+              });
               rc(TypeValueNode.SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, Option(TypeValue).None, rcp))
             }
           )
@@ -731,18 +746,12 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             negative_trait_levels : ntl
           )
         ) =>
-          // Re-sorted: substituting a trait argument can change its key. A
-          // `Dyn` none of whose traits changed is already in order and kept.
-          match(
-            (_subst_list_changed(s, &rtt), _subst_list_changed(s, &ntt)),
-            (.None, .None) => ty,
-            (new_rtt, new_ntt) =>
-              t_dyn(
-                match(new_rtt, .Some(l) => l, .None => rtt.items.clone()),
-                rtl.items.clone(),
-                match(new_ntt, .Some(l) => l, .None => ntt.items.clone()),
-                ntl.items.clone()
-              )
+          // Re-sorted: substituting a trait argument can change its key.
+          t_dyn(
+            match(_subst_list_changed(s, &rtt), .Some(l) => l, .None => rtt.items.clone()),
+            rtl.items.clone(),
+            match(_subst_list_changed(s, &ntt), .Some(l) => l, .None => ntt.items.clone()),
+            ntl.items.clone()
           ),
         Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf, call_param_is_owning : cpof)) => {
           new_cpts := _subst_list(s, &cpts);

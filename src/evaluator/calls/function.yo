@@ -2288,7 +2288,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
         );
         i = (i + usize(1));
       });
-      rc(TypeValueNode.SomeT(fw_id, fw_nm, fw_fl, fw_pt, shared_list(new_rtt), fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc))
+      rc(TypeValueNode.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc))
     },
     _ => wrapper
   )
@@ -4331,7 +4331,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
             match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
-          rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, shared_list(new_rtt), rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
+          rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
         },
         Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _fv_fn_trait_with_result(&info.ty, &body),
         _ => info.ty
@@ -4875,10 +4875,10 @@ _fv_bind_unbound_forall_placeholders :: (
             fname.clone(),
             usize(0),
             t_type(),
-            no_types(),
-            no_levels(),
-            no_types(),
-            no_levels(),
+            ArrayList(TypeValue).new(),
+            ArrayList(usize).new(),
+            ArrayList(TypeValue).new(),
+            ArrayList(usize).new(),
             Option(TypeValue).None,
             Option(TypeValue).None
           )

@@ -681,7 +681,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
         );
         rf_i = (rf_i + usize(1));
       });
-      rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, shared_list(new_rtt), rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
+      rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
     },
     Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => _refine_one_fn_trait_result(ty, new_result),
     _ => ty
@@ -3962,7 +3962,7 @@ create_specialized_function_inline :: (
                                 fw_nm,
                                 fw_fl,
                                 fw_pt,
-                                shared_list(fw_new_rtt),
+                                fw_new_rtt,
                                 fw_rtl,
                                 fw_ntt,
                                 fw_ntl,
@@ -7412,10 +7412,10 @@ try_to_call_function_with_arguments :: (
                     flabel.clone(),
                     usize(0),
                     t_type(),
-                    no_types(),
-                    no_levels(),
-                    no_types(),
-                    no_levels(),
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
                     Option(TypeValue).None,
                     Option(TypeValue).None
                   )

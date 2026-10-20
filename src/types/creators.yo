@@ -278,11 +278,11 @@ t_trait :: (
     sink(field_types) : ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  rc(TypeValueNode.TraitT(name, shared_list(assoc_names), shared_list(field_labels), shared_list(field_types), String.from(""), Option(TypeValue).None, no_types(), no_types(), no_labels(), no_types()))
+  rc(TypeValueNode.TraitT(name, shared_list(assoc_names), shared_list(field_labels), shared_list(field_types), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : &String) -> TypeValue)(
-  rc(TypeValueNode.TraitT(name, no_labels(), no_labels(), no_types(), String.from(""), Option(TypeValue).None, no_types(), no_types(), no_labels(), no_types()))
+  rc(TypeValueNode.TraitT(name, no_labels(), no_labels(), no_types(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), no_labels(), no_types()))
 );
 /// Create a module type with field lists.
 t_module :: (
@@ -417,10 +417,10 @@ t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
       name,
       frame_level,
       rc(TypeValueNode.TypeUni(usize(0))),
-      no_types(),
-      no_levels(),
-      no_types(),
-      no_levels(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
       Option(TypeValue).None,
       Option(TypeValue).None
     )
@@ -449,10 +449,10 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
             String.from(""),
             frame_level,
             rc(TypeValueNode.TypeUni(usize(0))),
-            dpw_rtt,
-            dpw_rtl,
-            dpw_ntt,
-            dpw_ntl,
+            dpw_rtt.items,
+            dpw_rtl.items,
+            dpw_ntt.items,
+            dpw_ntl.items,
             Option(TypeValue).None,
             Option(TypeValue).None
           )
@@ -542,10 +542,10 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
       name,
       frame_level,
       rc(TypeValueNode.TypeUni(usize(0))),
-      no_types(),
-      no_levels(),
-      no_types(),
-      no_levels(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
       Option(TypeValue).Some(kind),
       Option(TypeValue).None
     )

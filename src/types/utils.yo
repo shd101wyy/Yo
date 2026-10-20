@@ -2446,7 +2446,7 @@ is_bound_closure_identity :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.SomeT({ name : bci_nm, required_trait_types : bci_rtt })) => (
-      (bci_nm == "Impl") && !_any_future_trait(&bci_rtt.items) && _resolves_to_concrete_type(t)
+      (bci_nm == "Impl") && !_any_future_trait(&bci_rtt) && _resolves_to_concrete_type(t)
     ),
     _ => false
   )
@@ -2594,7 +2594,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
         fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit)), true => fu_res);
         match(
           fu_t,
-          Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt.items), {
+          Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
             return(Option(TypeValue).Some(fu_t));
           }),
           Rc(.Func(_, _, _, _, _, _, _)) => match(
