@@ -389,6 +389,21 @@ test("iter.peekable clones a Clone-but-not-Copy inner iterator", {
   assert((p.next().unwrap() == i32(2)) && (q.next().unwrap() == i32(2)), "both continue");
   assert((p.count() == usize(1)) && (q.count() == usize(1)), "one element left each");
 });
+// --- peekable Copy -----------------------------------------------------------
+// IterPeekable is Copy exactly when its inner iterator and its element are
+// (the conditional derive beside the Clone one; its `Option(A)` field is a
+// conditional-Copy container of the parameter, issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md).
+test("iter.peekable is Copy exactly when its inner iterator and element are", {
+  comptime_assert(Type.impls(IterPeekable(MyRange, i32), Copy), "Copy inner, Copy element");
+  comptime_assert(!Type.impls(IterPeekable(ElemIter, PeekElem), Copy), "a Clone-but-not-Copy element");
+  comptime_assert(!Type.impls(IterPeekable(TaggedRange, i32), Copy), "a Clone-but-not-Copy inner iterator");
+  mut(p) := my_range(i32(1), i32(4)).peekable();
+  assert(p.peek().unwrap() == i32(1), "peek fills the slot");
+  mut(q) := p;
+  assert(q.next().unwrap() == i32(1), "the copy sees the peeked 1");
+  assert(p.next().unwrap() == i32(1), "the original keeps its own 1");
+  assert((p.count() == usize(2)) && (q.count() == usize(2)), "two elements left each");
+});
 test("filter predicate now takes the element by value (D3.4 symmetry)", {
   odd_sum := my_range(i32(0), i32(7)).filter(x => ((x % i32(2)) == i32(1))).sum();
   assert(odd_sum == i32(9), "1+3+5");
