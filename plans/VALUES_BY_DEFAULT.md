@@ -3741,12 +3741,16 @@ and in git, not a silent edit.
       E0909 is restated as "this position accepts no origin parameters":
       `Send` values and thread boundaries, spawned tasks, an escaping
       closure's capture, a `Dyn` payload
-      (initially), module-level bindings (initially), `extern`
-      signatures — spelled as the bound `where(T <: Escapable)` on those
-      positions' type parameters, `Escapable` a structurally derived
-      prelude marker like `Send`, with NO implicit bound on generic
-      parameters (a generic body passing an unbounded `T` there fails at
-      its declaration naming the bound; decided 2026-10-20, O10) — and a
+      written without an origin argument (`Dyn(Trait, p)` carries one;
+      N2), module-level bindings (initially), `extern`
+      signatures, `Rc`/`Arc` payloads — spelled as the bound
+      `where(T <: Escapable)` on those positions' type parameters,
+      `Escapable` a structurally derived prelude marker like `Send`
+      (Rust's `T : 'static`), with NO implicit bound on generic
+      parameters (an unbounded `T` reaching such a position fails inside
+      the specialization with the instantiation trace, as any missing
+      bound does; the bound moves the error to the caller's call; decided
+      2026-10-20, O10) — and a
       self-referential value is unrepresentable (a
       type may never name its own fields, a binding's type never its own
       place), which is what keeps `Pin` out of Yo: every reference inside
@@ -3788,9 +3792,16 @@ and in git, not a silent edit.
       elided origins never unify, so `map.remove(&k)` keeps `k` usable
       with nothing spelled. Elision is a default the checker verifies,
       never inference it trusts; std's load-bearing signatures
-      (`Iterator.next`) spell. `Rc` stays read-only (decision 46), and
-      no origin crosses an `Rc`/`Arc` deref (hold the handle, re-derive
-      at each use). No region variables, no outlives, no
+      (`Iterator.next`) spell. Conflict compares a loan to an ACCESS,
+      never two reference values (so `ArrayList(&mut(T, xs))` fills from
+      a `&mut` cursor and `get2_mut`'s pair needs no exception; the
+      callee owns disjointness, as in Rust — O3 step 2, restated
+      2026-10-20). `Rc` stays read-only (decision 46); a `&` borrow
+      through a handle's deref carries the HANDLE's place as its origin
+      (O9, Rust's `&*rc`, relaxed 2026-10-20 from R5's "re-derive at each
+      use"), a `&mut` through one stays E0919, and an `Rc`/`Arc` payload
+      stays `Escapable` because the collector runs drops at an unbounded
+      later time. No region variables, no outlives, no
       variance, no HRTB — after substitution an origin is a ground set of
       places, so the Polonius class of accept problems does not arise
       (`NON_ESCAPABLE_TYPES.md` §4 has the cost table; §2 O7 the clause
@@ -3861,9 +3872,11 @@ and in git, not a silent edit.
       (rejected in the callee), a binding whose type names its own place,
       a widening through a `&mut` pointee (rejected, O3-3), a body-local
       borrow live across an `await` (accepted, as today), origins crossing a
-      no-origin position (E0909), a generic body passing an unbounded `T`
-      to `Rc(T)` (error at the declaration, O10), a place crossing an `Rc`/`Arc` deref
-      (rejected, O9); the borrowed
+      no-origin position (E0909), `rc(v)` with a reference-holding `v`
+      (the `Escapable` bound, O10), `out.push(&h.*.x)` accepted with
+      origin `h` and `h` dropped while it lives rejected (O9), two items
+      of one `&mut` cursor held at once (accepted, O3 step 2),
+      `Dyn(Fn(Event), p)` holding a borrowing closure (N2); the borrowed
       `for` by `impl(&C, IntoIterator)`.
 
 44. **`Dyn(Trait)` stays the owned, boxed trait object; the borrowed form
@@ -7496,9 +7509,10 @@ measured `check ./src` time and stage-2 RSS.
    - The compiler needs no seed for any of this: it is Generation A by
      construction.
 3. **First-class storage (N2).**
-   - E0909 becomes the no-origin rule: cells (`Box`, `RefCell`) and buffer
-     containers carry origin parameters; `Send`/spawn, `extern`,
-     module-level bindings and `Dyn` payloads reject them.
+   - E0909 becomes the no-origin rule: cells (`Box`, `RefCell`,
+     `Dyn(Trait, p)`) and buffer containers carry origin parameters;
+     `Send`/spawn, `extern`, module-level bindings, `Rc`/`Arc` payloads
+     and a `Dyn(Trait)` written without an origin reject them.
    - Declared origin unions (`ArrayList(&(T, (x, y)))`), the
      subset-coercion join, and the `yo fix` widening.
    - The tests are the storage rows of decision 43's list.
@@ -7512,15 +7526,20 @@ measured `check ./src` time and stage-2 RSS.
      reuses V3b's borrow-site tooling.
 
 Decision 46's `Rc` rules are unchanged by all of this: `Rc(T)` read-only,
-the three doors, `RefCell` the one spelling of dynamic exclusivity, and
-no origin crossing an `Rc`/`Arc` deref (the `Rc(T, p)` extension was
-rejected — decision 43's "Rejected" list).
+the three doors, `RefCell` the one spelling of dynamic exclusivity (the
+`Rc(T, p)` extension was rejected — decision 43's "Rejected" list). What
+the origin design adds on top is O9's handle-origin rule: a `&` borrow
+through a handle's deref is an ordinary reference whose origin is the
+handle (2026-10-20); it lands in step 2 with the other checking rules.
 
 **Decided 2026-10-20** (the maintainer delegated the point the review of
 #1483 raised): a `generic(...)` parameter admits origin-carrying arguments
 by default; the no-origin positions carry `where(T <: Escapable)`, a
-structurally derived prelude marker like `Send` (`NON_ESCAPABLE_TYPES.md`
-O10). Step 2 lands it.
+structurally derived prelude marker like `Send` and Rust's `T : 'static`
+(`NON_ESCAPABLE_TYPES.md` O10). The same day's second round filled three
+gaps against Rust (O3 step 2 loan-vs-access, O9 handle-origin borrows,
+`Dyn(Trait, p)`; the design doc's §3.1 is the audit). Step 2 lands the
+rules, step 3 the `Dyn` storage.
 
 **Open, not decided (noted 2026-10-13):**
 - **Handler (`ctl`) types could become structurally origin-carrying.**
@@ -8104,7 +8123,10 @@ Decision 18 was also amended to place-based exclusivity.
 **Decided 2026-10-20** (review of #1483, the maintainer delegating): the
 `Escapable` bound — no implicit bound on generic parameters, the no-origin
 positions require `where(T <: Escapable)`, a structural marker like `Send`
-(`plans/backlog/NON_ESCAPABLE_TYPES.md` O10). The review's other findings
+and Rust's `T : 'static` (`plans/backlog/NON_ESCAPABLE_TYPES.md` O10);
+and three fills against Rust the same day (loan-vs-access conflicts,
+handle-origin borrows through an `Rc`/`Arc` deref, `Dyn(Trait, p)` —
+§3.1 there). The review's other findings
 were folded into the design (O3-3's invariance rule, O5/O8's async
 correction, O6's freeze set, O1's identity erasure).
 

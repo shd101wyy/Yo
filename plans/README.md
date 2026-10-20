@@ -159,10 +159,14 @@ by an origin — a declared set of places, a new comptime kind beside `Type`
 `&mut(T, p)` and elided only to defaults the checker verifies. A
 reference, and any type containing one, may stand anywhere its origins
 can follow, storage included (`Box`, `RefCell`, declared-union
-containers); the positions that accept no origins (`Send`/spawn,
-`extern`, module-level, `Dyn` initially, `Rc`/`Arc` payloads) are the
+containers, `Dyn(Trait, p)`); the positions that accept no origins
+(`Send`/spawn, `extern`, module-level, `Rc`/`Arc` payloads) are the
 restated E0909, spelled as a `where(T <: Escapable)` bound on them
-(a structural marker like `Send`, no implicit bound on generics; O10). Checking is substitution plus set algebra — conflict is
+(a structural marker like `Send`, Rust's `T : 'static`; no implicit
+bound on generics; O10). Conflict compares a loan to an access, never two
+reference values; a `&` through an `Rc` deref carries the handle's place
+(O9). §3.1 there is the audit against Rust: after 2026-10-20's fills the
+one remaining gap is lending stack data across threads. Checking is substitution plus set algebra — conflict is
 intersection, coercion is subset in covariant positions and exact
 through a `&mut` pointee — with no region variables, outlives, variance
 lattice or spelled HRTB; `impl(&T, …)`, `.*` with auto-deref on `.`,

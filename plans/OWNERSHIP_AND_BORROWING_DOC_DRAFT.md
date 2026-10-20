@@ -841,8 +841,9 @@ an enum payload, a tuple or array element, `Option(&T)`), and — from N2 —
 the payload of a `Box` or `RefCell`: the containing type carries the
 origin parameters, which must be in scope wherever it goes. The positions
 that accept no origin parameters at all are `Send` values and threads,
-spawned tasks, `extern` signatures, module-level bindings and a `Dyn`
-payload (initially) — E0909. A type may never name its own fields and a
+spawned tasks, `extern` signatures, module-level bindings, `Rc`/`Arc`
+payloads and a `Dyn(Trait)` written without an origin (`Dyn(Trait, p)`
+carries one) — E0909, the `Escapable` bound. A type may never name its own fields and a
 binding's type never its own place, so a value cannot contain a pointer
 into itself (section 14's pinning row).
 
@@ -892,9 +893,10 @@ both.push(&z);                            // error naming {x, y} and {z}; yo fix
 ```
 
 (N3) std's entry API, guards, parser remainders and the `FnMut` slots
-follow on the next seed. `Rc(T)` stays read-only, like Rust's, and no
-origin crosses an `Rc`/`Arc` dereference: hold the handle and re-derive
-the place at each use. Shared mutation keeps decision 46's doors —
+follow on the next seed. `Rc(T)` stays read-only, like Rust's; a `&`
+borrow through a handle's dereference (`&h.*.x`) is an ordinary reference
+whose origin is the handle, frozen while it lives, and a `&mut` through
+one is an error. Shared mutation keeps decision 46's doors —
 `RefCell(T)` (the one spelling of the runtime exclusivity check),
 `Rc.get_mut`, `Rc.make_mut` — and a `RefCell` payload may hold a
 reference, with the marks governing mutation and the origin governing

@@ -59,7 +59,7 @@ that owns the places.
 | `Fn`/`FnMut`/`FnOnce` | decision 37 | unchanged; `Fn(...)` types carry origin parameters |
 | the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | unchanged (a loop, not a value) |
 | a future may borrow when rooted at the body's `&`/`&mut` parameters | §3.13 A2 | the origin spelling of the same rule (O8); A2's wrapper-id registry is replaced by type-carried origins |
-| `Rc` is read-only through the handle; the three doors | decision 46 | unchanged, full stop — no origin crosses an `Rc`/`Arc` deref (O9) |
+| `Rc` is read-only through the handle; the three doors | decision 46 | unchanged; a `&` borrow through a handle's deref carries the handle's place (O9), a `&mut` through one stays E0919 |
 | `mut(G)`/`mut(x)` markers | decision 47 | unchanged; a marker grants writability of a binding, an origin names the places a borrow touches — orthogonal facts |
 
 ## 2. The design
@@ -121,6 +121,12 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   `xs : ArrayList(&(T, xs))` and `struct(next : &(Node, self.field))` are
   errors. This one rule is what makes self-reference unrepresentable and
   keeps `Pin` out of Yo (O5).
+- **A phantom origin parameter is legal.** A type constructor may declare
+  `p : Origin` and use it in no field — Rust's `PhantomData<&'a T>` — so
+  a `Copy` handle can be tied to an owner it does not point into:
+  `Id(T, arena)` is an index that cannot outlive `arena` (the
+  generational-arena harvest of `LIFETIME_REPLACEMENT_PATTERNS.md` §8
+  becomes a type, 2026-10-20).
 - **Origins are comptime values.** `TypeInfo` gains the `Origin` kind
   beside `Reference(T, mutable, origin)`; reflection reads them. Comptime
   algebra over them (an `overlaps` predicate for `where(...)` aliasing
@@ -193,11 +199,28 @@ region solver:
    `Type` arguments are substituted today (the receiver's type fixes the
    method's origin args; the arguments must match the substituted
    signature).
-2. **Conflict is origin intersection.** A `&mut(T, p)` live (decision 18's
-   live ranges) conflicts with any other live use of any place in `p`
-   (E0911); two `&mut` arguments of one call with intersecting origins are
-   E0910 (decision 28 restated); reads of `p` coexist — Ante's use-vs-
-   mention distinction falls out of set algebra without an effect system.
+2. **Conflict is a loan against an access, by origin intersection.** A
+   `&mut(T, p)` live (decision 18's live ranges) conflicts with any
+   **access** to a place in `p` — a read, write, move, drop, or the taking
+   of a new borrow of that place **by name** (E0911); a `&(T, p)` conflicts
+   with a write, move or drop of one; two `&mut` arguments of one call with
+   intersecting origins are E0910 (decision 28 restated); reads of `p`
+   coexist with `&` loans — Ante's use-vs-mention distinction falls out of
+   set algebra without an effect system. **The checker never compares two
+   reference values to each other** (restated 2026-10-20, review round 2;
+   the first text read as "two live `&mut` over one origin conflict", which
+   made `iter_mut` items and `get2_mut`'s pair need an exception): holding
+   two `&mut(T, p)` is not a conflict, obtaining a second one by an access
+   to `p` is. A write through a reference is an access to its referent,
+   not to `p`'s other paths. This is Rust's rule exactly, and it carries
+   Rust's division of labour: safe code cannot manufacture two overlapping
+   `&mut` into one place without an access conflict in its own body, so a
+   call that lends `&mut xs` once and returns several `&mut(T, xs)` is
+   accepted by construction, and the disjointness of what it returns is the
+   **callee's** obligation — a safe callee is checked by this same rule, an
+   `AllowUnsafe` std body (`get2_mut`, `split_at_mut`, a `&mut` cursor's
+   `next`) carries it as a `requires` or an invariant, as Rust's `unsafe`
+   does.
 3. **Coercion is subset — in covariant positions only.** `&(T, p)` coerces
    into `&(T, (p, q))` (widening a union) and into a fresh-elided
    parameter's position; so does the OUTER origin of a `&mut(T, p)`, a
@@ -248,12 +271,16 @@ Around them:
   `&mut(T, p)` requires the roots of `p` to be `mut`-marked at their
   bindings; an origin names where a borrow touches, a marker grants that a
   binding is writable.
-- **Sibling sub-loans** (from R4): the two `&mut(T, self._buf)` results of
-  `get2_mut` share one origin by construction — multiple `&mut` results of
-  one call are sibling sub-loans, disjoint by the callee's raw-pointer body
-  and its `requires(i != j)` (the verifier discharges it; the body's safety
-  assert stays in every build). This is the one place the checker accepts
-  two live `&mut` over one origin, and only from a single call's results.
+- **Several `&mut` out of one lend** (step 2's consequence, no longer an
+  exception): `get2_mut(&mut xs, i, j)` returns two `&mut(T, xs)` and
+  `it.next()` on a `&mut` cursor returns a fresh `&mut(T, xs)` each call
+  while earlier items are still held, because neither accesses `xs` by
+  name again — `xs` is lent once, exclusively, for as long as any of them
+  lives. The disjointness is the callee's: `requires(i != j)` on
+  `get2_mut` (the verifier discharges it; the body's safety assert stays
+  in every build), a monotone cursor index for `next`. A second
+  `get2_mut(&mut xs, …)` while the first pair lives IS an access to `xs`
+  and is E0911.
 - **Reborrows** (decision 43): a `&mut` passed to a `&mut` slot is
   reborrowed (`&mut r.*`); read through a `&` path a `&mut` component
   yields a `&` reborrow over the same origin — the holder stays frozen
@@ -271,7 +298,7 @@ Around them:
 | locals, parameters, results, block and arm results | yes |
 | fields of inline composites (named/anonymous structs, enums, tuples, `Array(T, N)`, `Option`, `Result`, any user constructor) | yes — the composite gains the origin parameters of its fields' types |
 | buffer containers (`ArrayList`, `HashMap`, …) | yes, over a declared union (O6) |
-| cells — `Box`, `RefCell`, `Dyn` payload, an escaping closure's capture, a spawned value | **`Box` and `RefCell`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5), **`Dyn`, spawn and an escaping closure's capture: no** (E0909, initially) |
+| cells — `Box`, `RefCell`, `Dyn`, an escaping closure's capture, a spawned value | **`Box`, `RefCell` and `Dyn`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5). `Dyn(Trait, p)` admits a payload whose origins are within `p` (Rust's `Box<dyn Trait + 'a>`), and `Dyn(Trait)` written without an origin is `Dyn(Trait, ∅)`, an `Escapable` payload (O10) — decided 2026-10-20, it was "initially no". An escaping closure's capture is the same thing: a closure whose capture list carries origins stands wherever they follow, including in a `Dyn(Fn(...), p)`. **Spawn: no** (E0909) |
 | `Send` values, thread boundaries | no — structurally: a type with origin parameters is not `Send` |
 | module-level bindings | no, initially (§7) |
 | `extern` signatures | no — FFI takes raw pointers, the existing unsafe boundary |
@@ -282,8 +309,9 @@ structural check off the type, replacing the per-position enumeration of the
 second-class wall; the bound a generic body writes to satisfy it is O10's
 `Escapable`. A `Box(&(T, p))` is legal wherever `p` is in scope; a
 `RefCell(&(T, p))` legal beside it (the cell's dynamic marks govern the
-payload's mutation, the origin governs the borrow — orthogonal); an
-`Rc`/`Arc` payload accepts none (O9).
+payload's mutation, the origin governs the borrow — orthogonal); a
+`Dyn(Trait, p)` payload may carry them; an `Rc`/`Arc` payload accepts
+none (O9's second rule, for the collector's reason).
 
 ### O5. No self-reference, therefore no `Pin`
 
@@ -399,8 +427,8 @@ parameter):
   literal's (the coercion rule, O3-3). A closure's parameters are fresh
   origins like any function's.
 - **`Impl(Fn(...))` types carry origin parameters** in their argument and
-  result positions; `Dyn(Fn(...))` payloads stay origin-free initially
-  (§7).
+  result positions; a `Dyn(Fn(...), p)` holds a closure whose captures'
+  origins are within `p` (O4).
 - **Effect handlers and `Dyn` dispatch:** a handler's `return(expr)` resume
   value is checked against the operation's signature — its result origins
   may name the operation's own parameters, never the handler's captures;
@@ -424,28 +452,48 @@ parameter):
   cannot be captured by an `io.spawn` body. `Arc` stays origin-free and
   read-only across threads (decision 46, D3).
 
-### O9. Origins stop at borrows: `Rc`/`Arc` stay read-only
+### O9. `Rc`/`Arc`: read-only, borrowable through the handle, never carrying origins inside
 
-Decision 46 is the whole rule and the amendment leaves it intact
-(maintainer, 2026-10-20: Rust's split makes sense — the runtime
-exclusivity check happens on `RefCell` only, and `Rc` stays read-only
-like Rust's):
+Decision 46 is the rule and the amendment leaves it intact (maintainer,
+2026-10-20: Rust's split makes sense — the runtime exclusivity check
+happens on `RefCell` only, and `Rc` stays read-only like Rust's). Two
+consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
 
-- **No origin names a place that crosses an `Rc`/`Arc` deref** (R5's
-  rule, kept): `View(T)(xs : &(ArrayList(T), h.*.items ...))` and
-  `out.push(&h.*.x)` are errors. Hold the handle (`r : &Rc(S)`) and
-  re-derive the place at each use (`r.*.items.len()`), as a capture list
-  already does (decision 38 D). The borrowed `for` over an `Rc`-rooted
-  container keeps its own pin (§3.10, decision 39).
-- `Rc(T)` and `Arc(T)` payloads accept **no origin parameters**; a plain
-  `Rc` carries no borrow marks (decision 41) and costs what Rust's
-  `Rc<T>` costs (CP2d).
+- **A `&` borrow through a read-only handle's deref has the handle's
+  place as its origin** — `&h.*.x : &(X, h)`, `View(T)(xs : &h.*.items)`
+  and `out.push(&h.*.x)` are legal, and `h` is frozen (not dropped,
+  moved or reassigned) while the borrow lives. This is Rust's
+  `let r = &*rc;`, and it is sound for the same reasons: the payload is
+  never written through a handle (decision 46; a `&mut` lend through an
+  `Rc`/`Arc` deref stays E0919), `Rc.get_mut`/`make_mut` take
+  `h : &mut Rc(T)` and so conflict with the freeze, the frozen handle
+  keeps the strong count above zero so neither the drop nor the cycle
+  collector (which restores everything reachable from a live handle)
+  frees the payload, and heap storage never relocates (decision 40). The
+  first text kept R5's "no origin crosses an `Rc`/`Arc` deref; hold the
+  handle and re-derive at each use", whose reason — a plain `Rc` holds no
+  marks for a borrow to take — was the pre-decision-46 model, and the
+  §3.13 A2 predicate `handle_payload_is_read_only` already made exactly
+  this move for borrowing futures (#1421). The borrowed `for` over an
+  `Rc`-rooted container keeps its pin until decision 39 is revisited on
+  the same ground.
+- **`Rc(T)` and `Arc(T)` payloads accept no origin parameters** —
+  `where(T <: Escapable)` (O10). Rust allows `Rc<&'a T>`; Yo does not,
+  and the reason is the cycle collector, not the borrow model: a leaked
+  cycle in Rust never runs `Drop`, while Yo's collector runs the
+  payloads' drops at an unbounded later time (`CYCLE_COLLECTION.md`,
+  CollectWhite), after the places an inner reference names may have
+  died — a user `Drop` on such a payload could dereference a dead place.
+  `Box` and `Dyn` have one owner and die at a known point, so they may
+  carry origins; a counted cell may not. A plain `Rc` carries no borrow
+  marks (decision 41) and costs what Rust's `Rc<T>` costs (CP2d).
 - **Shared mutation keeps the three doors**: `RefCell(T)` in the payload's
   type — the one spelling of the dynamic exclusivity check, unchanged —
   `Rc.get_mut` (`.None` unless the count is 1) and `Rc.make_mut`
   (clone-on-write). A `RefCell` payload may itself hold a reference
   (`RefCell(&(T, p))`, O4): the marks govern the payload's mutation, the
-  origin governs the borrow — orthogonal.
+  origin governs the borrow — orthogonal. A borrow INTO a `RefCell`'s
+  payload goes through its guard and carries the guard's place.
 - **Mutable cycles** stay `Rc(RefCell(Node))` with the runtime check, as
   in Rust and as today; immutable cycles stay plain `Rc` plus the cycle
   collector. The `Rc(T, p)` extension that would have made cycles
@@ -471,13 +519,21 @@ review of #1483; the alternatives are in §6).
   origin-carrying arguments by default, exactly as it admits non-`Send`
   ones: the restrictive contract is the one spelled, and the permissive
   default costs nothing because every other position propagates origins
-  structurally (O4). A generic body that passes an unbounded `T` to an
-  `Escapable`-requiring position is an error **at the declaration**,
-  naming the bound to add (`where(T <: Escapable)`), and `yo fix`
-  proposes it; a call then checks the bound at the instantiation like
-  any trait bound — `Rc(&(X, x))` fails at that call naming `Rc`'s bound.
-  Neither direction errors at a distance, which is what the open
-  question asked for.
+  structurally (O4). Yo checks a generic body per instantiation (the
+  evaluator defers a `generic(...)` body to call time), so the bound is
+  what makes the error local: with `where(T <: Escapable)` on `f`, a
+  caller's `f(&x)` fails at that call against `f`'s signature; without
+  it, the specialization fails inside `f`'s body at the `Rc(T)` with the
+  instantiation trace — the same shape as any missing trait bound in Yo
+  today — and `yo fix` proposes the bound. `Rc`, `Arc`, `Dyn` and
+  `io.spawn` carry it themselves, so `Rc(&(X, x))` always fails at the
+  user's call naming `Rc`'s bound (corrected 2026-10-20: the first text
+  said "at the declaration", which is Rust's abstract check, not Yo's).
+- **Rust has this bound: it is `T : 'static`** — "`T` holds no reference
+  shorter than the program", required by `thread::spawn`, implied by
+  `Box<dyn Trait>` (`+ 'static` by default). Swift spells it `Escapable`.
+  Yo needs it for the same positions and the same reason, and names the
+  property rather than the lifetime.
 - **Why not Swift's split** (implicit `Escapable`, `~Escapable` opt-in):
   Swift's default exists for source compatibility of pre-existing
   generics, which Yo has none of; a suppressed conformance is a negative
@@ -503,17 +559,53 @@ origin parameter, as O7's table does.)
 | §2.4 parser remainders | `parse_int(input : View(u8, p)) -> Result(((View(u8, p), T)), ParseError)` | nom's `IResult<&str, T>` |
 | §3.4 two-phase loans | `begin(self : &mut(Self, p)) -> Txn(S, p)` | `Loan<'a>` |
 | **storage behind owning pointers and dynamic cells** | `Box(View(T, p))`, `RefCell(&(T, p))` — the old E0909 wall | `Box<&'a T>` |
+| §5.2 collecting `iter_mut` items, `split_at_mut` | `ArrayList(&mut(T, xs))` filled from a `&mut` cursor; `split_at_mut(&mut xs, mid) -> (&mut(View(T), xs), &mut(View(T), xs))` (O3 step 2) | `Vec<&mut T>`, `split_at_mut` |
+| §7.2 / §8 `Box<dyn Fn(&Event) + 'a>`, `Box<dyn Iterator<Item = &T> + 'a>` | `Dyn(Fn(Event), p)`, `Dyn(Iterator(Item := &(T, p)), p)` (O4) | `dyn Trait + 'a` |
+| §4.1 / §5.1 a view or cursor into an `Rc`-held value | `&h.*.items : &(ArrayList(T), h)`, `h.*.items.iter()` with the handle's place as origin (O9) | `let r = &*rc;` |
+| §4.6 a typed handle tied to its owner | `Id(T, arena)` by a phantom origin parameter (O1) | `PhantomData<&'a T>` |
 
 Not unlocked, on purpose: a reference across threads, a reference in an
 `extern` signature, a reference inside an `Rc`/`Arc` cell (O9), a
 self-referential value (O5), mutable cycles without a runtime check
 (`Rc(RefCell(Node))`, as Rust). They keep their catalog
-answers (`RUST_REFERENCE_PATTERNS.md` §14). Not expressible either, and
-recorded as a cost (2026-10-20): a collection of `&mut` items gathered
-from ONE base — Rust's `Vec<&mut T>` out of `iter_mut` — because every
-`&mut(T, p)` over one origin conflicts with the next (O3 step 2); the
-loop case is the lending `for`, and the only multi-item door is a single
-call's sibling sub-loans (`get2_mut`) with a verified `requires`.
+answers (`RUST_REFERENCE_PATTERNS.md` §14, rewritten 2026-10-20 with
+§3.1's verdicts).
+
+### 3.1 Against Rust: what each expresses that the other does not
+
+Audited 2026-10-20 (the maintainer's question "is there anything Rust can
+express but Yo cannot, and can we fill the gap?"). The frame: Rust's
+lifetime is an abstract region solved by constraints, Yo's origin is a
+ground set of caller places substituted at the call; every Rust check has
+a Yo mechanism — NLL liveness is decision 18, two-phase borrows decision
+28, reborrows decision 43, `T : 'static` is `Escapable` (O10), variance
+is O3-3's one invariance rule, `for<'a>` is O2's per-call origin, `'a: 'b`
+is subset coercion into a union, `'static` is the empty origin.
+
+| Rust can write | Yo | Verdict |
+| --- | --- | --- |
+| `Vec<&mut T>` out of `iter_mut`, `split_at_mut` | `ArrayList(&mut(T, xs))`, two `&mut(View(T), xs)` | **filled 2026-10-20** — O3 step 2 compares loans to accesses, never two reference values (the first text did) |
+| `let r = &*rc;` held across calls | `&(X, h)` with the handle's place as origin | **filled 2026-10-20** — O9, sound under decision 46 |
+| `Box<dyn Trait + 'a>`, `Box<dyn Fn(&E) + 'a>` | `Dyn(Trait, p)` | **filled 2026-10-20** — O4; `Dyn(Trait)` is `Dyn(Trait, ∅)` |
+| `PhantomData<&'a T>` | a phantom origin parameter | **filled 2026-10-20** — O1 |
+| `let r = &make();` (temporary lifetime extension to the block) | rejected today ("a root that is a temporary") | **fills at decision 18's phase** — §7: the temporary is bound to a hidden local of the enclosing block, Rust's rule |
+| `Rc<&'a T>` | `Rc(T)` requires `T <: Escapable` | **stays closed** — the cycle collector runs drops at an unbounded later time (O9); Rust escapes only because leaked cycles never run `Drop` |
+| `thread::scope`, rayon over a local `Vec` | none: a borrow is never `Send` | **parked on decision 43's trigger 2** — the fill is a scoped spawn whose join is structural, with origins ⊆ the scope's lent places and `Sync` for `&`; a parallelism-runtime design, not a borrow-model one |
+| `type Item<'a>` (GATs) for lending iterators | not needed: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap**; an associated type constructor over `Origin` for other GAT shapes is §7 |
+| self-referential values via `Pin` + `unsafe` | unrepresentable in safe code (O5); `AllowUnsafe` raw pointers otherwise | **not a gap in safe code** — Rust's safe subset cannot either |
+| `static mut` | `mut(G)` with decision 18 rule 3 | **not a gap** — Rust's needs `unsafe` |
+
+| Yo can write | Rust |
+| --- | --- |
+| a lending iterator with no GAT: `next(self : &mut Self) -> Option(&(T, self))` by elision | needs `type Item<'a>` |
+| a borrow of an async body's own local across an `await`, with no `Pin` (O5) | `Pin` + the self-referential generator |
+| field-path origins in a signature, once §7 lands them (`-> &mut(V, self._buf)`) | view types, an RFC |
+| a projection (`-> &T` whose body yields a place, decision 24) checked without a region | the same thing spelled through lifetimes |
+| a declared union read off the type (`ArrayList(&(T, (x, y)))`) with a local, deterministic error on a push outside it | region inference, an error wherever the regions meet |
+
+After the fills, safe Rust and safe Yo express the same borrowing patterns
+except lending stack data across threads, and Yo adds lending iteration
+and (later) field paths for free.
 
 ## 4. What it costs — and why the checker is not Rust's
 
@@ -590,7 +682,8 @@ places its origin names. The mechanisms, and the escape routes they close:
    rule); this is also what removes any need for `Pin` (O5).
 8. **Through C, a thread, or a module-level binding** — no-origin
    positions, structural (`Escapable`, O10); a generic body cannot
-   smuggle a `T` into one without the bound, checked at its declaration.
+   smuggle a `T` into one — the bound is checked at the call, and an
+   unbounded `T` fails inside the specialization.
 
 **Over-approximation is the safety margin, never a hazard:** declared
 unions over-freeze (a container holding only `x`-borrows still freezes
@@ -600,12 +693,15 @@ the deliberate trade for checkability; unsoundness would require a place
 entering an origin set without passing through a spelled or defaulted
 position, and every such position is one of the eight above.
 
-**Shared cells:** no origin names a place that crosses an `Rc`/`Arc`
-deref (O9), so no reference can point into a shared cell that another
-handle might mutate or free unseen; mutation of a shared payload happens
-only through `RefCell`'s dynamic marks (§3.10), which the origin system
-never bypasses. The collector handles cycles; leaks stay possible, as
-before.
+**Shared cells:** a reference into a shared payload carries the handle it
+went through (O9), and that handle is frozen while the reference lives —
+so the payload cannot be freed (the count stays above zero; the collector
+restores what a live handle reaches) and cannot be written through any
+handle (decision 46; `&mut` through a deref is E0919). Mutation of a
+shared payload happens only through `RefCell`'s dynamic marks (§3.10),
+whose guard is the origin of any borrow into it. A payload never carries
+origins of its own (`Escapable`), because the collector runs drops at an
+unbounded later time. Leaks stay possible, as before.
 
 **Async:** what a future's type names (`p`, A2) are caller-frame places
 the await site freezes for the future's life; the body's own locals, and
@@ -623,11 +719,15 @@ module-level position; an elided `push` signature with unrelated fresh
 origins (the body check must reject it); a widening through a `&mut`
 pointee (`store(&mut slot, &y)`, O3-3) and through a lent
 `&RefCell(&(T, p))`; a body-local borrow live across an `await` as a
-POSITIVE control (O5); sibling sub-loans misused (a second
-`get2_mut`-style call on the same base while the first pair lives);
+POSITIVE control (O5); a second `get2_mut(&mut xs, …)` while the first
+pair lives (an access to `xs`, E0911) beside the POSITIVE control of two
+items from one `&mut` cursor held at once (O3 step 2); `&mut h.*.x`
+through an `Rc` (E0919) and a handle dropped or reassigned while
+`&(X, h)` lives (E0911), beside the POSITIVE `out.push(&h.*.x)` (O9);
+`rc(v)` with a reference-holding `v` (the `Escapable` bound, O10);
 `swap` on referents of different origin types (a type error); a closure
 literal whose captures exceed a slot's origin parameters; a generic body
-passing an unbounded `T` to `Rc(T)` (error at the declaration naming
+passing an unbounded `T` to `Rc(T)` (fails in the specialization naming
 `where(T <: Escapable)`) and `Rc(&(X, x))` at a call (error at the call,
 O10). Positive
 controls mirror them, `words` and `get2_mut`'s pair among them.
@@ -646,6 +746,7 @@ controls mirror them, `words` and `get2_mut`'s pair among them.
 | Ante's shared-mutable `ref`/`mut` kinds (exclusivity dropped single-threaded) | **rejected** — Yo keeps exclusivity everywhere; shared mutation stays behind `RefCell` (decision 46), and `Rc` remains read-only like Rust's |
 | `Rc(T, p)`: statically checked shared mutation through origin-tracked handles | **rejected** (maintainer, 2026-10-20: Rust's design makes sense — the runtime exclusivity check happens on `RefCell` only, and `Rc` stays read-only) — it would put a second mutation mechanism beside `RefCell` for the narrow statically-provable case `Rc.get_mut`'s count check already covers, while the genuinely shared cases (async channel and mutex states) are not statically provable and use `RefCell` anyway. Honest cost, recorded: mutable cycles keep the runtime check (`Rc(RefCell(Node))`), as in Rust |
 | Ante's body-inferred `Mutate` effect | **rejected** — signature-based checking keeps `Dyn` dispatch, effect handlers and the incremental checker sound; Ante's own handler interaction is their experimental part |
+| keeping R5's "no origin crosses an `Rc`/`Arc` deref; hold the handle, re-derive" | **rejected** (2026-10-20, review round 2) — its reason was the pre-decision-46 writable `Rc`; with the payload read-only through every handle the handle's place is a sound origin (O9), the A2 predicate already took that step for futures, and Rust's `&*rc` is the model |
 | Swift's `~Escapable` split (implicit `Escapable` bound on every generic parameter, suppressed by opt-in) | **rejected** (2026-10-20) — O10 takes the positive bound instead: no negative-bound spelling, fewer annotations over std, `Send`'s and Rust's `'static` shape |
 | elision-only surface (no explicit `Origin` kind) | **rejected** (maintainer, 2026-10-19) — LLM authorship wants contracts explicit; the failure mode of explicit systems is a local declaration mismatch, of implicit ones a distant inference surprise |
 
@@ -714,9 +815,15 @@ it in those words (2026-10-20).
   access clause waits for a counted need. Ante's convergence here (their
   motivating examples are the same cases) is a soft data point, not a
   counted need.
-- **`Dyn` payloads with origin parameters.** Position: not initially — a
-  no-origin position; revisit when a trait-object shape that borrows is
-  asked for by a counted need (the catalog's §14 residue).
+- **Temporary lifetime extension.** `r := &make()` is rejected today
+  (a root that is a temporary). Position: adopt Rust's rule at decision
+  18's phase — the temporary of a `:=` initializer's borrow is bound to a
+  hidden local of the enclosing block, so `r`'s origin is that local;
+  nothing in the origin model changes.
+- **Associated type constructors over `Origin`.** Rust's GATs
+  (`type Item<'a>`) are not needed for lending iterators (elision gives
+  the lending reading, O2). Position: an associated type may be a
+  comptime fn over `Origin` once a counted need appears; not in N1–N3.
 - **Module-level origins.** A global's place as an origin is well-formed
   (`&(ArrayList(i32), COUNTS)`), and decision 18 rule 3 (no call or
   `await` in the live range) is the checking rule; the open question is
@@ -741,8 +848,8 @@ it in those words (2026-10-20).
 | Phase | Lands | Gate |
 | --- | --- | --- |
 | N0 | the negative-test corpus written and failing | the tests fail for the right reason |
-| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
-| N2 | first-class storage: O4's table — cells and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
+| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), the handle-origin rule for borrows through an `Rc`/`Arc` deref (O9), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
+| N2 | first-class storage: O4's table — cells (`Box`, `RefCell`, `Dyn(Trait, p)`) and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 
 After decision 42's Generation B and V2b, as before; each phase is one PR

@@ -240,8 +240,16 @@ agent must know beyond the plan:
   v0.2.66, the first text rejected it); O6 (declared union = bound, live freeze = flow-inferred
   set); O1 (origins erased from every identity but the checker's); and O10, the `Escapable` bound
   (decided 2026-10-20 under the maintainer's delegation): a structurally derived prelude marker
-  like `Send`, `where(T <: Escapable)` on the no-origin positions, NO implicit bound on generic
-  parameters, Swift's `~Escapable` opt-in rejected. Nothing about decision 43 is open.
+  like `Send` (Rust's `T : 'static`), `where(T <: Escapable)` on the no-origin positions, NO
+  implicit bound on generic parameters, Swift's `~Escapable` opt-in rejected. A second round the
+  same day (the maintainer's "what can Rust express that Yo cannot?") filled three gaps: O3 step 2
+  compares a loan to an ACCESS, never two reference values (so `ArrayList(&mut(T, xs))` from a
+  `&mut` cursor works and `get2_mut` needs no exception); O9 lets a `&` borrow through an `Rc`/`Arc`
+  deref carry the HANDLE's place (Rust's `&*rc`; `&mut` stays E0919; payloads stay `Escapable`
+  because the collector runs drops late); `Dyn(Trait, p)` carries origins. The audit table is the
+  design doc's §3.1 and `RUST_REFERENCE_PATTERNS.md` was rewritten to origins (its §14 residue is
+  now one row: cross-thread lending, parked on decision 43's trigger 2). Nothing about decision 43
+  is open.
 - **Ordering consequences.** Step 1 of the sequence now adds TWO `TypeValue` variants
   (`Reference(T, mutable, origin)` and the `Origin` kind) and carries a new gate: origins are NOT
   part of `type_key`, the #1329 memos or any specialization key (the emit-diff proves it). The
