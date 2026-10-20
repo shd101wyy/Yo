@@ -2,8 +2,10 @@
 
 **Severity:** S2: PARALLELISM_RULES D9 tells you to write `(f : Impl(Fn(...), Send)) = count` to make a named function `Send`, and that line is rejected with E0601. A closure literal, `(f : Impl(Fn(...), Send)) = (() => count())`, works.
 
-**Status:** OPEN — waiting on decision 43's function-item types (step 2 of
-`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`).
+**Status:** OPEN — waiting on function-item types (step 2 of
+`issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`),
+which are scheduled after decision 43's step 1 (assessment 2026-10-20
+below).
 **Found:** 2026-10-17, probing the routes of
 `issues/arc-of-a-named-function-value-fails-its-send-bound.md`, on develop
 5425cd7bf.
@@ -21,6 +23,29 @@ the binding keep the declared SomeT — or a value — on the variable is
 exactly step 2's rework of `TypeValue` and `type_key`, so this doc stays open
 until then. D9's interim text already recommends the capture-free closure
 wrapper (`dyn(() => f())`, `arc(() => f())`), which works today.
+
+**Assessment 2026-10-20**, after decision 43's amendment to first-class
+references with origins (#1483, `plans/backlog/REFERENCES_AND_ORIGINS.md`
+O1–O10): the direction is unchanged and this doc stays open; only the
+ordering moved.
+- **Ordering.** Function-item types are their own step, not one of
+  decision 43's four. They follow decision 43 step 1 — the
+  `TypeValue.Reference(T, mutable, origin)` and `Origin` variants — because
+  both rework `TypeValue` and `type_key` (`plans/handover/VBD_HANDOVER_2026-10-19.md`
+  §4.5). They no longer wait for the whole decision-43 sequence, which the
+  2026-10-17 handover's step 16 ("after step 15") implied.
+- **Nothing in O1–O10 settles this case.** A named function captures
+  nothing, so its item type carries no origin parameters: it is `Escapable`
+  (O10) trivially, and the declared binding has no origin to check.
+  O1 keeps origins out of `type_key` and every specialization key, so the
+  function item's identity is still the one new key component. Whether the
+  value is `Send` is D9's value judgement, exactly as before. The amendment
+  adds `where(T <: Escapable)` on `Arc`'s and `Dyn`'s payloads (step 3,
+  N2), and a function-item type passes it without help.
+- **Interim spelling unchanged:** the capture-free closure wrapper that D9
+  recommends (`dyn(() => f())`, `arc(() => f())`). Re-measured on the v0.2.66
+  seed (2026-10-20): each of the repro's two `Send` bindings, `f` and `h`, is
+  still E0601 (checked one at a time, since `check` stops at the first).
 
 ## Repro
 
