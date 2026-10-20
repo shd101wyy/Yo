@@ -1489,3 +1489,22 @@ test("IndexMut: a nested write through a generic impl with a move-only key", {
   kr := _IxDk(n : i32(5));
   assert(mm(i32(1))(kr) == i32(60), "the nested write landed");
 });
+
+// A nested read through user generic impls whose `Output` is a generic
+// struct with a PHANTOM parameter (no field mentions `K`). The re-evaluated
+// `Self.Output` kept the impl's own `Bag(K)`, which looked concrete because
+// `K` sits only in the instance's type arguments, so the outer access's
+// specialization was registered with a generic result and never emitted
+// while its call site stood
+// (issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
+_IxPBag :: (fn(comptime(K) : Type) -> comptime(Type))(struct(v : i32));
+impl(generic(K : Type), _IxPBag(K), Index(K)(Output : i32, index : (fn(self : &Self, idx : K) -> &Self.Output)(&self.v)));
+_IxPOuter :: (fn(comptime(K) : Type) -> comptime(Type))(struct(inner : _IxPBag(K)));
+impl(generic(K : Type), _IxPOuter(K), Index(K)(Output : _IxPBag(K), index : (fn(self : &Self, idx : K) -> &Self.Output)(&self.inner)));
+test("Index: a nested read through generic impls whose Output has a phantom parameter", {
+  o := _IxPOuter(i32)(inner : _IxPBag(i32)(v : i32(9)));
+  assert(o(i32(1))(i32(2)) == i32(9), "nested read at i32");
+  assert(o(i32(1)).v == i32(9), "single read at i32");
+  ou := _IxPOuter(u8)(inner : _IxPBag(u8)(v : i32(4)));
+  assert(ou(u8(1))(u8(2)) == i32(4), "nested read at u8");
+});

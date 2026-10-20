@@ -510,3 +510,20 @@ test("a duplicate generic trait impl through an alias nested in the receiver is 
     "is already implemented"
   );
 });
+
+// A parameterized trait's method whose `Self.Output` is a generic struct
+// with a PHANTOM parameter resolves per instantiation, by reference and by
+// value (issues/fixed/2026-10-17-a-nested-index-call-on-generic-impls-calls-an-unspecialized-method.md).
+_PhGetRef :: (fn(comptime(Idx) : Type) -> comptime(Trait))(trait(Output : Type, get_ref : (fn(self : &Self, idx : Idx) -> &Self.Output)));
+_PhGetVal :: (fn(comptime(Idx) : Type) -> comptime(Trait))(trait(Output : Type, get_val : (fn(self : &Self, idx : Idx) -> Self.Output)));
+_PhBag :: (fn(comptime(K) : Type) -> comptime(Type))(struct(v : i32));
+_PhOuter :: (fn(comptime(K) : Type) -> comptime(Type))(struct(inner : _PhBag(K)));
+impl(generic(K : Type), _PhOuter(K), _PhGetRef(K)(Output : _PhBag(K), get_ref : (fn(self : &Self, idx : K) -> &Self.Output)(&self.inner)));
+impl(generic(K : Type), _PhOuter(K), _PhGetVal(K)(Output : _PhBag(K), get_val : (fn(self : &Self, idx : K) -> Self.Output)(_PhBag(K)(v : self.inner.v))));
+test("a trait method returning a phantom-parameter Output resolves per instantiation", {
+  o := _PhOuter(i32)(inner : _PhBag(i32)(v : i32(9)));
+  assert(o.get_ref(i32(1)).v == i32(9), "by reference at i32");
+  assert(o.get_val(i32(1)).v == i32(9), "by value at i32");
+  ou := _PhOuter(u8)(inner : _PhBag(u8)(v : i32(4)));
+  assert(ou.get_ref(u8(1)).v == i32(4), "by reference at u8");
+});
