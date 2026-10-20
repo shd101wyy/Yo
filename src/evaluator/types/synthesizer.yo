@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 { type_key } :: import("../../types/type_key.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, SharedList } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
 { type_value_tag, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -127,8 +127,8 @@ TypePair :: ref(
 /// (issues/fixed/generic-inference-ignores-phantom-type-arguments-of-enums.md).
 _synthesize_phantom_type_args :: (
   fn(
-    exp_tas : &ArrayList(TypeValue),
-    giv_tas : &ArrayList(TypeValue),
+    exp_tas : &SharedList(TypeValue),
+    giv_tas : &SharedList(TypeValue),
     flags : &ArrayList(bool),
     ee : &Environment,
     ge : &Environment,
