@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -673,31 +673,31 @@ _is_anonymous_record_type :: (fn(ty : &TypeValue) -> bool)(
 /// elements, an array's element, a closure's capture record, an anonymous
 /// record's fields, and none for a `fn` pointer (a code address). `.None`
 /// for every other type, which answers `Copy` through an impl.
-copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(ArrayList(TypeValue)))({
+copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(SharedList(TypeValue)))({
   ty := resolve_enum_shell(ty_in);
   if(is_bound_closure_identity(&ty), {
     return(
       match(
         resolve_cell_chain(&ty),
-        Rc(.Struct({ field_types : cs_fields })) => Option(ArrayList(TypeValue)).Some(cs_fields),
-        _ => Option(ArrayList(TypeValue)).None
+        Rc(.Struct({ field_types : cs_fields })) => Option(SharedList(TypeValue)).Some(cs_fields),
+        _ => Option(SharedList(TypeValue)).None
       )
     );
   });
   match(
     ty,
-    Rc(.Tuple({ field_types : tp_fields })) => Option(ArrayList(TypeValue)).Some(tp_fields),
+    Rc(.Tuple({ field_types : tp_fields })) => Option(SharedList(TypeValue)).Some(tp_fields),
     Rc(.Array(element : ar_elem, length : _, length_var : _)) => {
       parts := ArrayList(TypeValue).new();
       parts.push(ar_elem);
-      Option(ArrayList(TypeValue)).Some(parts)
+      Option(SharedList(TypeValue)).Some(shared_list(parts))
     },
-    Rc(.Func({ result : _ })) => Option(ArrayList(TypeValue)).Some(ArrayList(TypeValue).new()),
+    Rc(.Func({ result : _ })) => Option(SharedList(TypeValue)).Some(no_types()),
     Rc(.Struct({ field_types : rec_fields })) => cond(
-      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(ArrayList(TypeValue)).Some(rec_fields),
-      true => Option(ArrayList(TypeValue)).None
+      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(SharedList(TypeValue)).Some(rec_fields),
+      true => Option(SharedList(TypeValue)).None
     ),
-    _ => Option(ArrayList(TypeValue)).None
+    _ => Option(SharedList(TypeValue)).None
   )
 });
 /// True for the prelude `Clone` trait, by the same cheap name test first as
@@ -1151,9 +1151,10 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   if((depth > u32(6)) || is_some_type(&ty) || type_implements_trait(&ty, copy_tt, env).implemented, {
     return(());
   });
+  // A fresh list: the nominal arms below push onto it.
   parts := match(
     copy_structural_parts(&ty),
-    .Some(sp) => sp,
+    .Some(sp) => sp.items.clone(),
     .None => ArrayList(TypeValue).new()
   );
   if(is_value_nominal_type(&ty), {
