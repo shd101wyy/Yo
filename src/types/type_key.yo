@@ -34,21 +34,82 @@ pragma(Pragma.AllowUnsafe);
 // termination). See issues/fixed/yo-self-iterator-option-identity.md.
 // sig → canonical_key, FIRST registration wins (HashMap — same O(n²)-scan
 // fix as g_struct_cfid_keys above).
+//
+// The signature also carries the enum's DECLARATION identity
+// (`g_enum_decl_identities`): only renditions of ONE declaration may merge.
+// Without it two distinct declarations of one shape —
+// `A :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)))` and a `B` spelled
+// the same — had one signature, because a self-reference inside the
+// expansion renders through the cycle guard WITHOUT the enum's identity, so
+// `ArrayList(B)` keyed (and specialized) as `ArrayList(A)`
+// (issues/fixed/2026-10-17-two-recursive-enums-of-one-shape-share-their-arraylist-self-instantiation.md).
 (g_enum_sig_keys : HashMap(String, String)) = HashMap(String, String).new();
-/// Look up the canonical key for a structural signature; register `full_key` as
-/// the canonical for `sig` on first sight.
-_lookup_or_register_enum_sig :: (fn(sig : &String, full_key : &String) -> String)(
-  match(
-    g_enum_sig_keys.get(sig),
-    // CLONE the stored canonical: a returned String shares the map value's
-    // buffer, so an in-place push by any caller would corrupt the canonical
-    // (the IoError stage-2 typedef split). Same hardening on the struct
-    // cfid-key returns below.
-    .Some(k) => k.clone(),
-    .None => {
-      g_enum_sig_keys.insert(sig.clone(), full_key.clone());
-      bump_type_key_epoch();
-      full_key
+// enum id → declaration identity (`stable_decl_key` of the `enum(...)`
+// node), recorded where `evaluate_enum_type` mints the id, for the final AND
+// its self-shell. Both id families — the module-level `enum_decl_…` and the
+// eval-fresh CTFE `enum_…_n<k>` of a generic constructor's instantiation —
+// resolve to the one declaration they were minted from, which no string
+// derivation from the ids can recover (the anchor is spelled differently in
+// each).
+(g_enum_decl_identities : HashMap(String, String)) = HashMap(String, String).new();
+register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
+  if((enum_id.len() > usize(0)) && (decl.len() > usize(0)), {
+    g_enum_decl_identities.insert(enum_id, decl);
+  });
+  ()
+});
+// A rendition with NO declaration identity (`create_option_type`'s synthesized
+// `Option`, id "") must still collapse onto the real `Option(T)` of its shape,
+// as it did when the signature was shape-only. Per declaration-free signature
+// (`bare`): the canonical of the FIRST declared enum of that shape
+// (`g_enum_bare_claims`), and the key an undeclared rendition registered
+// before any declaration claimed the shape (`g_enum_bare_unclaimed`) — the
+// first declaration then adopts that key, so the pair merges whichever is
+// seen first. A SECOND declaration of the shape never merges with either.
+(g_enum_bare_claims : HashMap(String, String)) = HashMap(String, String).new();
+(g_enum_bare_unclaimed : HashMap(String, String)) = HashMap(String, String).new();
+/// The canonical key for an enum of structural signature `bare` and
+/// declaration identity `decl` ("" = none recorded); registers `full_key`
+/// as the canonical on first sight.
+// The returned canonical is always a CLONE: a returned String shares the map
+// value's buffer, so an in-place push by any caller would corrupt the
+// canonical (the IoError stage-2 typedef split). Same hardening on the
+// struct cfid-key returns below.
+_lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &String) -> String)(
+  cond(
+    (decl.len() == usize(0)) => match(
+      g_enum_bare_claims.get(bare),
+      .Some(k) => k.clone(),
+      .None => match(
+        g_enum_bare_unclaimed.get(bare),
+        .Some(k) => k.clone(),
+        .None => {
+          g_enum_bare_unclaimed.insert(bare.clone(), full_key.clone());
+          bump_type_key_epoch();
+          full_key
+        }
+      )
+    ),
+    true => {
+      sig := `${bare}@${decl}`;
+      match(
+        g_enum_sig_keys.get(&sig),
+        .Some(k) => k.clone(),
+        .None => {
+          canonical := match(
+            g_enum_bare_claims.get(bare),
+            .Some(_) => full_key.clone(),
+            .None => {
+              adopted := match(g_enum_bare_unclaimed.get(bare), .Some(k) => k.clone(), .None => full_key.clone());
+              g_enum_bare_claims.insert(bare.clone(), adopted.clone());
+              adopted
+            }
+          );
+          g_enum_sig_keys.insert(sig, canonical.clone());
+          bump_type_key_epoch();
+          canonical
+        }
+      )
     }
   )
 );
@@ -556,7 +617,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
           // collapse to one C type; distinct enums differ in variant names,
           // discriminants, or field types. Discriminants are included so two
           // same-named/same-fielded variants with different tag values do NOT
-          // merge.
+          // merge. The lookup adds the declaration identity, so two
+          // DECLARATIONS of one shape never merge (g_enum_decl_identities).
           sig := String.from("e");
           (si : usize) = usize(0);
           while(si < evns.len(), {
@@ -573,7 +635,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
             si = (si + usize(1));
           });
           sig.push_string(&field_part);
-          _lookup_or_register_enum_sig(&sig, &key)
+          decl := match(g_enum_decl_identities.get(&eid), .Some(d) => d.clone(), .None => String.new());
+          _lookup_or_register_enum_sig(&sig, &decl, &key)
         })
       })
     },
@@ -993,5 +1056,5 @@ enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
     _ => String.new()
   )
 );
-export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);
+export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id, register_enum_decl_identity);
 export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled);

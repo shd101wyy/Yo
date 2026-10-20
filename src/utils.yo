@@ -477,6 +477,16 @@ stable_position_id :: (
   });
   candidate
 });
+/// The declaration identity of the node at (`module_path`, `row`, `column`):
+/// the canonical module path plus the anchored position (`_anchored_position`).
+/// Pure — it mints nothing and registers nothing, unlike `stable_position_id`
+/// / `stable_type_id`, so every evaluation of one declaration (module-level
+/// or CTFE, any spelling of the module path) gets the same string. Never part
+/// of a C name.
+stable_decl_key :: (fn(module_path : &String, row : usize, column : usize) -> String)({
+  (pos_key, _pos_part) := _anchored_position(module_path, row, column);
+  `${_stable_type_id_owner_key(module_path)}@${pos_key}`
+});
 /// A function identity mint (Phase 2): `<prefix>yo_id_<h><occ>` where `h` is
 /// the FNV-1a 64 of the mint's anchored source position (`_anchored_position`)
 /// and `occ` is that position's
@@ -551,6 +561,7 @@ export(
   stable_func_id,
   stable_module_id,
   stable_sns_module_id,
+  stable_decl_key,
   stable_occurrence_reset,
   emission_occurrence_reset,
   fnv1a64,
