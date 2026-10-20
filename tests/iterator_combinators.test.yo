@@ -478,12 +478,12 @@ test("IntoIterator bound accepts ArrayList and Array", {
 });
 // --- D3.4: rev / DoubleEndedIterator (plans/archive/STD_API_AUDIT.md) ---------------
 test("rev on integer ranges", {
-  out := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  out := ArrayList(i32).from([i32(0),]);
   (i32(0) .. i32(5)).rev().for_each(x => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 4, 3, 2, 1, 0]`, "half-open range backwards");
-  inc := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  inc := ArrayList(i32).from([i32(0),]);
   (i32(1) ..= i32(4)).rev().for_each(x => {
     inc.push(x);
   });
@@ -497,12 +497,12 @@ test("rev on a range terminates at the type's MIN", {
 });
 test("rev on an ArrayList and on an Array", {
   xs := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
-  got := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  got := ArrayList(i32).from([i32(0),]);
   xs.into_iter().rev().for_each(x => {
     got.push(x);
   });
   assert(got.to_string() == `[0, 3, 2, 1]`, "ArrayList backwards");
-  arr_out := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  arr_out := ArrayList(i32).from([i32(0),]);
   [i32(7), i32(8)].into_iter().rev().for_each(x => {
     arr_out.push(x);
   });
@@ -512,14 +512,14 @@ test("rev on an ArrayList and on an Array", {
 // to mint two C type identities for one logical type and fail at the C compiler;
 // issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
 test("rev of rev is the identity", {
-  out := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  out := ArrayList(i32).from([i32(0),]);
   (i32(0) .. i32(4)).rev().rev().for_each(x => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "double rev restores source order");
 });
 test("three levels of rev", {
-  out := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  out := ArrayList(i32).from([i32(0),]);
   (i32(0) .. i32(4)).rev().rev().rev().for_each(x => {
     out.push(x);
   });
@@ -529,7 +529,7 @@ test("self-nesting through a VARIABLE-BOUND receiver", {
   // The chained form re-specializes on demand; the variable-bound form keeps
   // the stamp, and only the stamp was repaired — so both are covered.
   it := (i32(0) .. i32(4)).rev().rev();
-  out := ArrayList(i32).from(Array(i32, 1)(i32(0)));
+  out := ArrayList(i32).from([i32(0),]);
   it.for_each(x => {
     out.push(x);
   });

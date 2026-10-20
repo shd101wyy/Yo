@@ -590,6 +590,24 @@ Part C deletes the macros.
       - the `lsp-completion` and `lsp-member-definition` cli-cases list
         `from_array` as a member, so cli-diff must run and both goldens are
         re-recorded after reading their GOLDEN-DIFF.
+  - **Landed (B3, `feat/macro-b3-collection-constructors`).** The three
+    callers above were updated (the comment now names `ArrayList.from`; both
+    goldens re-recorded). The copying spelling `ArrayList(T).from(arr.clone())`
+    is blocked by a pre-existing S2: an inline dot-call argument misbinds a
+    `generic(N : usize)` binder
+    (`issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md`),
+    so until it is fixed the clone is bound to a local first
+    (`c := arr.clone(); ArrayList(T).from(c)`).
+  - **As built (B3).** `from` is an inherent static, not a `From` impl: the
+    prelude's `From(Source)` takes `value : &Source`, a borrow, so a
+    consuming constructor cannot implement it. `ArrayList.from` moves the
+    whole array into its buffer with one `__yo_ptr_write` (no per-element
+    copy or drop, so a move-only `T` works; that write needed the codegen fix
+    in `issues/fixed/2026-10-20-ptr-write-of-an-rc-element-array-emits-invalid-c.md`);
+    `HashMap.from`/`HashSet.from` go through it and `pop` each element out in
+    array order (a repeated key keeps the last value, as `insert` does). A
+    one-element array is `[x,]`: a bare `[x]` is the removed slice-type
+    syntax.
   - **Dependency: the fixed-array S2 — resolved.** A fixed-array literal of
     runtime `String`s emitted invalid C; #1496 (`400413ac3`) fixed it
     (`issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md`,

@@ -20,9 +20,9 @@ get2 :: (fn(w : &Wrap) -> Array(i32, 3))(w.a);
 main :: (fn() -> unit)({
   a := [i32(1), i32(2), i32(3)];
   w := Wrap(a : a);
-  (x1 : usize) = count(get2(&w));    // ok
+  (x1 : usize) = count(get2(&w)); // ok
   (x2 : usize) = count(Wrap.get(&w)); // ok
-  (x3 : usize) = count(w.get());      // E0604
+  (x3 : usize) = count(w.get()); // E0604
 });
 export(main);
 ```

@@ -33,7 +33,7 @@ test("ArrayList.from with several i32 elements keeps their order", {
   assert(xs.to_string() == `[10, 20, 30]`, "order");
 });
 test("ArrayList.from with a one-element array", {
-  xs := ArrayList(i32).from(Array(i32, 1)(i32(42)));
+  xs := ArrayList(i32).from([i32(42),]);
   assert(xs.len() == usize(1), "len");
   assert(xs(usize(0)) == i32(42), "value");
 });
@@ -60,10 +60,12 @@ test("ArrayList.from moves a named array, and a clone of it keeps the array", {
   assert(moved(usize(2)) == `c`, "moved elements");
 });
 test("ArrayList.from nested lists", {
-  outer := ArrayList(ArrayList(i32)).from([
-    ArrayList(i32).from([i32(1), i32(2)]),
-    ArrayList(i32).from([i32(3), i32(4), i32(5)])
-  ]);
+  outer := ArrayList(ArrayList(i32)).from(
+    [
+      ArrayList(i32).from([i32(1), i32(2)]),
+      ArrayList(i32).from([i32(3), i32(4), i32(5)])
+    ]
+  );
   assert(outer.len() == usize(2), "outer len");
   assert(outer(usize(0)).len() == usize(2), "first inner len");
   assert(outer(usize(1)).len() == usize(3), "second inner len");
@@ -122,10 +124,12 @@ test("HashMap.from keeps the last value of a repeated key", {
 test("HashMap.from moves move-only keys and values", {
   g_token_drops = i32(0);
   {
-    m := HashMap(Token, Token).from([
-      (Token(id : 1), Token(id : 10)),
-      (Token(id : 2), Token(id : 20))
-    ]);
+    m := HashMap(Token, Token).from(
+      [
+        (Token(id : 1), Token(id : 10)),
+        (Token(id : 2), Token(id : 20))
+      ]
+    );
     assert(g_token_drops == i32(0), "the move into the map drops nothing");
     assert(m.len() == usize(2), "len");
   };

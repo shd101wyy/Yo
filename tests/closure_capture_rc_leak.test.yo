@@ -32,7 +32,7 @@ test("for_each with String capture does not leak", {
 });
 test("fold with RC accumulator does not leak", {
   src := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
-  result := src.into_iter().fold(ArrayList(i32).from(Array(i32, 1)(i32(0))), (acc, x) => {
+  result := src.into_iter().fold(ArrayList(i32).from([i32(0),]), (acc, x) => {
     // A local: the closure's `acc` parameter is borrowed.
     grown := acc;
     grown.push(x);
@@ -42,13 +42,13 @@ test("fold with RC accumulator does not leak", {
   assert(result.len() == usize(4), "fold acc len=4");
 });
 test("any with RC capture does not leak", {
-  needle := ArrayList(i32).from(Array(i32, 1)(i32(7)));
+  needle := ArrayList(i32).from([i32(7),]);
   src := ArrayList(i32).from([i32(1), i32(5), i32(7), i32(9)]);
   found := src.into_iter().any(x => (x == needle(usize(0))));
   assert(found, "found 7");
 });
 test("all with RC capture does not leak", {
-  bound := ArrayList(i32).from(Array(i32, 1)(i32(100)));
+  bound := ArrayList(i32).from([i32(100),]);
   src := ArrayList(i32).from([i32(1), i32(2), i32(3)]);
   ok := src.into_iter().all(x => (x < bound(usize(0))));
   assert(ok, "all < 100");
