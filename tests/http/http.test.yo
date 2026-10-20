@@ -1412,12 +1412,12 @@ test("HttpClient: dispose closes every idle connection", {
   // Both sockets are shut: each server read its EOF and returned. Without the
   // drop above, both of these report `Elapsed`.
   match(
-    io.await(timeout(t1, Duration.from_secs(i64(10)), io), io),
+    io.await(timeout(t1.join(io), Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),
     .Err(err) => assert(false, `the first server never saw its connection close: ${err.to_string()}`)
   );
   match(
-    io.await(timeout(t2, Duration.from_secs(i64(10)), io), io),
+    io.await(timeout(t2.join(io), Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),
     .Err(err) => assert(false, `the second server never saw its connection close: ${err.to_string()}`)
   );

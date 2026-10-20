@@ -56,7 +56,8 @@ pragma(Pragma.AllowUnsafe);
 { Url, UrlError } :: import("../url");
 { Duration } :: import("../time/duration");
 { Instant } :: import("../time/instant");
-{ timeout } :: import("../async");
+IO_timer :: import("../sys/timer");
+{ __yo_join_wait_new, __yo_join_wait_add } :: import("../sys/externs.yo");
 { Reader } :: import("../io");
 { HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, HttpError, parse_response } :: import("./http.yo");
 { read_http_message_buffered, MessageKind } :: import("./wire.yo");
@@ -887,6 +888,46 @@ _fetch_follow :: (
 // ============================================================================
 // Internal: the deadline race
 // ============================================================================
+/// The request task `h` raced against `limit`: `.Done(response)`, or
+/// `.Elapsed` once the deadline fired first (the task is aborted and joined,
+/// so its connection is closed by its `Drop`), or `.Aborted` when the task
+/// was aborted on its own. `std/async`'s `timeout` takes an `Io` future, and
+/// the exchange needs this task's exception handler, which a closure cannot
+/// capture, so the request runs as a task spawned with this task's bundle
+/// and is raced here the way `timeout` races its operand.
+_DeadlineOutcome :: enum(Done(response : HttpResponse), Elapsed, Aborted);
+_deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -> Impl(Future(_DeadlineOutcome, Io)))({
+  ms := Rc(u64)(u64(limit.as_millis()));
+  io.async({ h, ms }(io : Io) => {
+    deadline_fut := io.async((io : Io) => {
+      io.await(IO_timer.sleep(ms.*), io);
+      return(());
+    });
+    dh := io.spawn(deadline_fut, io);
+    w := unsafe(__yo_join_wait_new());
+    unsafe(__yo_join_wait_add(&w, h.as_ptr()));
+    unsafe(__yo_join_wait_add(&w, dh.as_ptr()));
+    _w := io.await(w, io);
+    (elapsed : bool) = false;
+    cond(
+      h.is_finished() => (),
+      true => {
+        h.abort();
+        elapsed = true;
+      }
+    );
+    dh.abort();
+    _deadline_r := io.await(dh.join(io), io);
+    match(
+      io.await(h.join(io), io),
+      .Some(resp) => _DeadlineOutcome.Done(resp),
+      .None => cond(
+        elapsed => _DeadlineOutcome.Elapsed,
+        true => _DeadlineOutcome.Aborted
+      )
+    )
+  })
+});
 // The whole exchange — redirects included — against `opts.timeout`. Shared by
 // the free `fetch_with` and by `HttpClient.fetch_with`; the only difference
 // between them is `pool`.
@@ -902,33 +943,30 @@ _fetch_deadline :: (
         result = e.io.await(_fetch_follow(url_str, opts, pool, e.io), e);
       },
       .Some(limit) => {
-        // Run the whole exchange as a spawned TASK under `std/async`'s
-        // `timeout`, so the deadline can cut it off mid-connect or mid-read —
-        // an elapsed-time check inside the read loop could only fire BETWEEN
-        // awaits, which is exactly not the hung-server case a deadline exists
-        // for. `timeout` is a future that suspends this task (it does not
-        // nest the event loop), aborts the request on the deadline and
-        // cancels its own timer when the request wins
-        // (plans/ASYNC_IO_API_AUDIT.md A1). The body is the top-level
+        // Run the whole exchange as a spawned TASK raced against the
+        // deadline (`_deadline_join`), so the deadline can cut it off
+        // mid-connect or mid-read — an elapsed-time check inside the read
+        // loop could only fire BETWEEN awaits, which is exactly not the
+        // hung-server case a deadline exists for. The race is a future that
+        // suspends this task (it does not nest the event loop), aborts the
+        // request on the deadline and cancels its own timer when the request
+        // wins (plans/ASYNC_IO_API_AUDIT.md A1). The body is the top-level
         // `_fetch_follow`, not a closure nested here (C22).
         //
         // A connection cut off here is owned by the aborted state machine, so
         // its `Drop` closes it — it never reaches the pool.
         h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
         match(
-          e.io.await(timeout(h, limit, e.io), e.io),
-          .Ok(resp) => {
+          e.io.await(_deadline_join(h, limit, e.io), e.io),
+          .Done(resp) => {
             result = resp;
           },
-          .Err(te) => match(
-            te,
-            .Elapsed => {
-              e.exn.throw(dyn(HttpError.Timeout));
-            },
-            .Aborted => {
-              e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
-            }
-          )
+          .Elapsed => {
+            e.exn.throw(dyn(HttpError.Timeout));
+          },
+          .Aborted => {
+            e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
+          }
         );
       }
     );
