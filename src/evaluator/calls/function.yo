@@ -8855,6 +8855,7 @@ Fix: wrap the call:
               false,
               tok.clone()
             );
+            pa_new_labels_s := shared_list(pa_new_labels);
             pa_new_ty := rc(
               TypeValueNode.Func(
                 no_types(),
@@ -8865,7 +8866,7 @@ Fix: wrap the call:
                 rc(
                   FuncMeta(
                     forall_labels : no_labels(),
-                    param_labels : shared_list(pa_new_labels),
+                    param_labels : pa_new_labels_s.clone(),
                     implicit_labels : no_labels(),
                     result_is_comptime_only : true,
                     param_is_ref : shared_list(pa_new_flags),
@@ -8889,7 +8890,7 @@ Fix: wrap the call:
               rc(
                 FuncValData(
                   forall_names : ArrayList(String).new(),
-                  params : pa_new_labels,
+                  params : pa_new_labels_s.items,
                   param_type_names : pa_ptn,
                   evidence_params : ArrayList(String).new(),
                   body : pa_body,

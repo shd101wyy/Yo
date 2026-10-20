@@ -1219,12 +1219,14 @@ create_capture_type_and_value :: (
         .None => ()
       );
       // Build the capture struct TypeValue.
+      field_labels_s := shared_list(field_labels);
+      field_types_s := shared_list(field_types);
       capture_ty := rc(
         TypeValueNode.Struct(
           struct_id.clone(),
           String.from(""),
-          shared_list(field_labels),
-          shared_list(field_types),
+          field_labels_s.clone(),
+          field_types_s.clone(),
           false,
           false,
           false,
@@ -1236,7 +1238,7 @@ create_capture_type_and_value :: (
       // Auto-derive trait markers for the capture struct.
       auto_derive_traits_for_struct_type(
         struct_id.clone(),
-        &field_types,
+        &field_types_s.items,
         false,
         false,
         env,
@@ -1286,7 +1288,7 @@ create_capture_type_and_value :: (
         Option(EvalValue).Some(
           EvalValue.StructVal(
             struct_id.clone(),
-            field_labels,
+            field_labels_s.items,
             concrete_vals
           )
         )

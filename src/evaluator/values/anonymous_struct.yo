@@ -215,11 +215,12 @@ evaluate_anonymous_struct_value :: (
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType — no-op stub.
   // Build final struct TypeValue
+  field_labels_s := shared_list(field_labels);
   struct_ty := rc(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      shared_list(field_labels),
+      field_labels_s.clone(),
       shared_list(field_types),
       false,
       false,
@@ -255,9 +256,9 @@ evaluate_anonymous_struct_value :: (
       sv_names := ArrayList(String).new();
       sv_vals := ArrayList(EvalValue).new();
       (si : usize) = usize(0);
-      while(si < field_labels.len(), {
+      while(si < field_labels_s.len(), {
         match(
-          field_labels.get(si),
+          field_labels_s.get(si),
           .Some(l) => {
             sv_names.push(l);
           },
