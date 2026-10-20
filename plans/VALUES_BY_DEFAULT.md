@@ -6811,7 +6811,7 @@ heavy run, the command is given in item 2.
        sites becoming borrows or shares by hand (B4-style), few becoming
        clones.
      - The two tool guards (2026-10-20, branch `feat/explicit-copy-guards`,
-       Tier 1 green 2026-10-20): a copy out of a temporary that dies
+       Tier 1 run 2026-10-20, results in the fixed issue doc): a copy out of a temporary that dies
        right after it (a `match` binding of a call's result such as
        `m.get(k)`'s, a field of `make()`) is listed, not cloned
        (`ExplicitCopySite.src_dying`;

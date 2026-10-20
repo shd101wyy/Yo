@@ -84,7 +84,11 @@ binary (`yo build --std-path ./std --cc clang`, rc 0) on the 64 GB Linux box:
   (22,669 B in 340 allocations; 120 B in 4). The two emit windows leak
   58,993 B / 874 and 59,121 B / 876, against the doc's 59,057 / 875 and 59,569 / 883.
   The leaked classes are the same: 64-byte `Token` cells and 40-byte
-  `String`s. The changed evaluator code runs only under
+  `String`s. The comparison is against that doc's numbers (develop
+  5425cd7bf), not a same-day develop run: the borrowed binary meant as the
+  baseline did not compile develop's own `src/version.yo`, so it was not a
+  develop build. The four tests' assertions got no verdict of their own
+  under CI's `YO_TEST_LEAK_VERDICT=0` setting in this run. The changed evaluator code runs only under
   `g_audit_implicit_copy || migrate_explicit_copy_on()`, and the `src/main.yo`
   change only under `yo fix`, so these tests cannot reach either.
 - Tree-binary `yo fmt --check` on every changed `.yo`/`.md` file and
