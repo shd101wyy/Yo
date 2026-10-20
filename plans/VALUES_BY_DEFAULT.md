@@ -4471,6 +4471,12 @@ and in git, not a silent edit.
    `!(T <: Copy)`.
 7. **V2b:** projections, unique buffers, and the explicit-copy kind for
    `String`, the collections and `Dyn`. **V2c:** decision 17 for `Rc`/`Arc`.
+   - **`Iso` is deleted between B11 and B12** (decided 2026-10-20): Part A
+     of `plans/backlog/MACRO_AND_ISO_REMOVAL.md`, once `String` and the
+     collections are `Send` by move, and before V2c, decision 46 step 3,
+     decision 43 step 2 and V5. That plan's B1/B2 (`for`/`for_await` as
+     parse-time desugars) follow decision 43 step 3, its release is decision
+     43's step-2→4 release, and its Part C rides with step 4's Generation B.
 8. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
 
 ### V0: decisions — DONE 2026-10-03
@@ -7470,7 +7476,11 @@ design are superseded and never built). This section is the PR sequence
 references only mean something once collections are uniquely owned values,
 and V4's `TypeValue` conversion, because step 1 adds `TypeValue` variants
 and must not be written twice. Each step is its own PR, with its own
-measured `check ./src` time and stage-2 RSS.
+measured `check ./src` time and stage-2 RSS. `Iso` is gone before step 2
+(`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A), ahead of step 3 (N2), the
+step that lets references sit in fields, so no reference stored in a field
+can reach an `Iso` graph; that plan's `for` desugar follows step 3
+and its macro deletion rides with step 4.
 
 0. **N0, no prerequisite (added 2026-10-20):** the negative-test corpus
    and the reference checker (REFERENCES_AND_ORIGINS §8 N0) — an executable
