@@ -117,3 +117,13 @@ Tests, all in `tests/local_borrows.test.yo`:
 - a `cond` condition that still uses the borrow;
 - a `match` guard that still uses the borrow (new; accepted by #1476);
 - the compiler's switch-group shape: a `match(&obj.field, .V(b) => if(b == t, { obj.other = … }))` binding whose last use is the `if` condition (new; rejected by #1476).
+
+Measured 2026-10-20 on darwin arm64, with tree-built binaries:
+
+- On bare #1476 re-applied to develop `6ccddf25d` (`a9c57cd7b`), both new tests fail. The guard's `comptime_expect_error` raises nothing. The switch-group test is E0911 "Cannot write `fa.classic`". `check src/evaluator/exprs/match.yo` reports the E0911 at line 1827.
+- With the fix, everything passes:
+  - `check ./src` 278/278 and `check ./std`;
+  - `tests/local_borrows.test.yo` 19/19 and `tests/match_async_arms.test.yo`;
+  - 18 more borrow and E0911 language test files;
+  - the 20 borrow and E0911 cli-cases with no golden diff;
+  - `tests/internal/binding.test.yo` and `tests/internal/evaluator_utils_is_valid_variable_name.test.yo`.
