@@ -5,10 +5,12 @@ detail and its own status. History lives in the docs, not here.
 
 ## Positioning
 
-**Memory-safe without lifetimes, verifies gradually, compiles to readable
-C11, designed for the LLM era.** Yo takes Swift's memory model (RC + cycle
-collection + borrows as second-class `&T`/`&mut T` types with lifetimes
-elided), adds
+**Memory-safe without region lifetimes, verifies gradually, compiles to
+readable C11, designed for the LLM era.** Yo takes Swift's memory model
+(RC + cycle collection) and Rust's ownership discipline — unique
+ownership with first-class, exclusivity-checked borrows, `&(T, p)` types
+parameterized by explicit origins (place sets, elided to checked
+defaults) rather than region lifetimes — adds
 algebraic effects and comptime, and aims at two niches the incumbents leave
 open: humane verified systems programming, and a language designed for LLM
 authorship from day one.
@@ -125,10 +127,13 @@ authorship from day one.
 
 - Competing with Rust on zero-overhead abstractions or with C on manual
   control. RC + cycle collection is the identity.
-- Named lifetimes. References are second-class types (`&T`, `&mut T`,
-  VALUES_BY_DEFAULT decisions 42 and 43) with lifetimes elided: no `'a` in a
-  type, no lifetime-polymorphic types; a signature selects among its own
-  roots at most (`depends`, [`backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md)).
+- Rust-style region lifetimes. References are first-class types
+  parameterized by origins (`Origin` kind, `&(T, p)` with checked elision —
+  VALUES_BY_DEFAULT decision 43, amended 2026-10-19): no abstract `'a`
+  regions, no outlives constraints, no variance, no higher-ranked bounds.
+  An origin is a declared set of places; conflict is set intersection,
+  coercion is subset, and checking is substitution plus intraprocedural
+  liveness ([`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)).
 - Runtime dependent types. Runtime properties go through the verifier
   ([`backlog/DEPENDENT_TYPES_POSITION.md`](backlog/DEPENDENT_TYPES_POSITION.md)).
 - A native or LLVM backend. Yo compiles to C, and compile-speed work stays

@@ -32,8 +32,9 @@ proving**, and **linear types with views**.
   shows every inductive obligation over a list is `unknown` to Z3 until a
   lemma is supplied. That is the most valuable thing left to take.
 - **Linear types with views.** Yo decided against linear types (RC +
-  `Dispose` + `own` is the model; `plans/backlog/FUTURE_ORIGINS.md`,
-  `plans/reference/MEMORY_SAFETY.md`), and this audit does not reopen that.
+  `Dispose` + `own` is the model; `plans/reference/MEMORY_SAFETY.md`, and
+  decision 43's `plans/backlog/REFERENCES_AND_ORIGINS.md` §6 for the
+  origin-vs-linearity verdict), and this audit does not reopen that.
   But two things linearity buys in ATS are missing from Yo, both measured:
   - a result you must not silently drop (`Result`, an unawaited `Future`);
   - a proof token that gates claiming memory initialized. Its absence is a
@@ -213,8 +214,8 @@ A4's token is exactly the view that model would reason about.
 - **Linear types, and a type-level view language** (`vtype`, `T @ l` as
   types). Already decided: RC + `Dispose` + `own` is the memory model.
   "Use after move" confusion is the stated cost
-  (`plans/backlog/FUTURE_ORIGINS.md`; `plans/reference/MEMORY_SAFETY.md`
-  rejects `&T` and per-function `unsafe fn`). A2 and A4 take the two
+  (`plans/reference/MEMORY_SAFETY.md` rejects per-function `unsafe fn`;
+  references are decision 43's, `plans/backlog/REFERENCES_AND_ORIGINS.md`). A2 and A4 take the two
   benefits that do not need linearity.
 - **`dataprop` / user-declared index sorts.** Rejected in the indexed-types
   plan; A1's lemmas over ghost values cover what they are used for.
@@ -287,6 +288,6 @@ Left, by design:
   (PADL 2005): at-views as proofs of memory ownership.
 - In-tree: `backlog/ATS_STYLE_INDEXED_TYPES.md`, `DEPENDENT_TYPES_POSITION.md`,
   `FORMAL_VERIFICATION.md`, `plans/reference/MEMORY_SAFETY.md`,
-  `plans/backlog/FUTURE_ORIGINS.md`, `plans/reference/MATCH_PATTERN_MATCHING.md`,
+  `plans/backlog/REFERENCES_AND_ORIGINS.md`, `plans/reference/MATCH_PATTERN_MATCHING.md`,
   `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`,
   `docs/en-US/ISOLATED.md`, `docs/en-US/CYCLE_COLLECTION.md`.

@@ -8,9 +8,18 @@ that catalog is organized by **Rust idiom** ("what replaces
 has or has planned that covers a job a lifetime does, what each costs,
 the selection rules for choosing among them, and the exact boundary no
 pattern covers (decision 43's recorded growth-path triggers). Rule numbers
-(`R1`–`R7`) are [`NON_ESCAPABLE_TYPES.md`](NON_ESCAPABLE_TYPES.md)'s;
+(`R1`–`R7`) are [`REFERENCES_AND_ORIGINS.md`](REFERENCES_AND_ORIGINS.md)'s;
 decision numbers (`D18`, `D43`, …) are `VALUES_BY_DEFAULT.md` §4; bare
 `§`-references are RUST_REFERENCE_PATTERNS sections.
+
+> **Read with the 2026-10-19 amendment (#1483):** decision 43 now adopts
+> explicit origins (`&(T, p)`, `REFERENCES_AND_ORIGINS.md` O1–O10), so the
+> "no-lifetimes position" this inventory was written behind is now "no
+> Rust-style REGION lifetimes"; the `R1`–`R7` numbers are the superseded
+> design's (translate per O7), the I3 row (`depends` narrowing) is a
+> spelled result origin, the I4 row (root-joining) is a declared union,
+> and the growth-path trigger of §8 is discharged (decision 43's
+> "Rejected" list). The patterns themselves are unchanged.
 
 ---
 
@@ -74,7 +83,7 @@ Group I dies at the frame's end, everything in Group II survives it.
 
 ## 1. Group I — within a frame (jobs E and V)
 
-The reference machinery of decision 43 and NON_ESCAPABLE_TYPES. Each row
+The reference machinery of decision 43 and REFERENCES_AND_ORIGINS. Each row
 replaces a lifetime-parameterized Rust form with the same machine code
 and no name:
 
@@ -310,7 +319,7 @@ it).
 
 Parked in `backlog/` as the toolbox companion to the catalog. Detail
 lives in one home per fact: RUST_REFERENCE_PATTERNS holds idiom-level
-mapping and costs (§12, §14); NON_ESCAPABLE_TYPES holds the rules; this
+mapping and costs (§12, §14); REFERENCES_AND_ORIGINS holds the rules; this
 document holds the inventory, the selection table and the boundary. When
 a decision 43 phase lands (N1–N3) or a Group II candidate ships, update
 the affected rows here and drop the corresponding "(planned)" markers in

@@ -151,18 +151,30 @@ Lean-blaster posture with compensations Lean lacks; D2's reopen condition
 is incident-shaped), and the rejections it adds (in-kernel decision
 procedures like `omega`/`grind`, ambient rewrite automation and simp
 sets, proof-term tiers over the compiler).
-[`NON_ESCAPABLE_TYPES`](backlog/NON_ESCAPABLE_TYPES.md) is the design of
-VALUES_BY_DEFAULT decisions 42 and 43 (2026-10-10): references `&T`/`&mut T`
-are types, second-class, with lifetimes elided — they may live anywhere laid
-out inline (fields, enum payloads, tuples, arrays, `Option(&T)`) and in
-root-joining buffer containers (`ArrayList(&T)`, whose roots grow with
-every `&` pushed in), never in a cell; a function returns one only when
-every root is its own parameter, inferred, narrowed by `depends(...)`
-(§3.13 A2's rule for borrowing futures, generalized); `impl(&T, …)`, `.*`
-with auto-deref on `.`, `FnMut`. It unlocks zero-copy views, borrowing
-iterators, the entry API, guards, `Cow` and parser remainders, keeps
-mutable value semantics for owned values, and rejects named regions and
-origins. Its own phase after decision 42's Generation B and V2b.
+[`REFERENCES_AND_ORIGINS`](backlog/REFERENCES_AND_ORIGINS.md) is the design of
+VALUES_BY_DEFAULT decisions 42 and 43 (2026-10-10, amended 2026-10-19 to
+the origin design, #1483): references are first-class types parameterized
+by an origin — a declared set of places, a new comptime kind beside `Type`
+(`generic(p : Origin)`), written as a trailing argument `&(T, p)` /
+`&mut(T, p)` and elided only to defaults the checker verifies. A
+reference, and any type containing one, may stand anywhere its origins
+can follow, storage included (`Box`, `RefCell`, declared-union
+containers, `Dyn(Trait, p)`); the positions that accept no origins
+(`Send`/spawn, `extern`, module-level, `Rc`/`Arc` payloads) are the
+restated E0909, spelled as a `where(T <: Escapable)` bound on them
+(a structural marker like `Send`, Rust's `T : 'static`; no implicit
+bound on generics; O10). Conflict compares a loan to an access, never two
+reference values; a `&` through an `Rc` deref carries the handle's place
+(O9). §3.1 there is the audit against Rust: after 2026-10-20's fills the
+one remaining gap is lending stack data across threads. Checking is substitution plus set algebra — conflict is
+intersection, coercion is subset in covariant positions and exact
+through a `&mut` pointee — with no region variables, outlives, variance
+lattice or spelled HRTB; `impl(&T, …)`, `.*` with auto-deref on `.`,
+`FnMut`. It unlocks zero-copy views, borrowing iterators, the entry API,
+guards, `Cow`, parser remainders and storage behind owning pointers; the
+2026-10-13 `depends`-clause and root-joining-tracker design is superseded
+(its mapping is O7; the R1–R7 numbers other docs cite are that
+predecessor's). Its own phase after decision 42's Generation B and V2b.
 [`LIFETIME_REPLACEMENT_PATTERNS`](backlog/LIFETIME_REPLACEMENT_PATTERNS.md)
 is the toolbox companion to the catalog (2026-10-10): the complete
 inventory of mechanisms that cover a lifetime's three jobs — express

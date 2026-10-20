@@ -28,7 +28,7 @@ A candidate survives only if it passes all four:
    backward compatibility, single user).
 2. **Fits the model.** Mutable value semantics for owned values;
    references `&T`/`&mut T` as second-class types with lifetimes elided
-   (decisions 42 and 43, `NON_ESCAPABLE_TYPES.md`); sharing spelled
+   (decisions 42 and 43, `REFERENCES_AND_ORIGINS.md`); sharing spelled
    `Rc`/`Arc` and the dynamic check `RefCell(T)` (decision 41); `Fn`/
    `FnMut`/`FnOnce` (decision 37); comptime as the metaprogramming layer;
    everything lowers to portable C11.
@@ -96,8 +96,10 @@ that can exist **only in a borrow position** is exactly a borrow: a
 `[T]` type that is a second-class reference type like any other (decision
 43): `xs : &[T]` / `xs : &mut [T]` in parameters, locals, fields of
 second-class structs and `Option(&[T])`, never the payload of a cell, and
-returned only under the single-root rule (`NON_ESCAPABLE_TYPES.md` R1,
-R3). It is constructed at the call site from an
+returned only under the single-root rule (`REFERENCES_AND_ORIGINS.md` R1,
+R3 — since the 2026-10-19 amendment, #1483: a first-class `View(T, p)`
+whose origin `p` is spelled or elided, O3's return rule, storable where
+`p` follows, O4). It is constructed at the call site from an
 `ArrayList(T)`, an `Array(T, N)`, a `String` (as `[u8]`) or a sub-range
 (`&xs(a..b)`, zero-copy), lowers to the `RawSlice` ptr+len pair, carries
 `len()` and `Index` projections, and can be the source of the borrowed

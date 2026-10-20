@@ -10,7 +10,7 @@ not landed.
 
 Tag legend: `V2b`, `V2c`, `V5` are phases of
 [`plans/VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md); `N1`–`N3` are phases
-of [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md);
+of [`plans/backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md);
 "Generation B" means the compiler accepts the feature in user code today and
 `std/` adopts it once a released seed carries it.
 
@@ -32,10 +32,12 @@ of [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md);
 - **Borrows are spelled.** `x : &T` lends a value read-only, `x : &mut T`
   lends it exclusively, and the call site says the same thing: `f(&x)`,
   `f(&mut x)`.
-- **Borrows are second-class.** A borrow can be used, passed and (as a
-  projection) returned from a function that received it, but it is never
-  stored past its source. Every check stays inside one function, and no
-  lifetimes appear in the language.
+- **Borrows are references carrying an origin** (planned: N1–N2). A
+  borrow can be used, passed and (as a projection) returned from a
+  function that received it today; once the origin phase lands it is a
+  first-class type `&(T, p)` parameterized by a named set of places,
+  storable anywhere those places are in scope. No Rust-style region
+  lifetime appears in the language.
 
 ```yo
 Point :: struct(x : i32, y : i32);
@@ -293,7 +295,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-(planned: NON_ESCAPABLE_TYPES N1) `n = (n + i32(1))` writes through the
+(planned: REFERENCES_AND_ORIGINS N1) `n = (n + i32(1))` writes through the
 `&mut` parameter today; once references are types, a whole-value read or
 write through one is spelled `n.*` (section 5).
 
@@ -359,7 +361,7 @@ export(main);
 ```
 
 Today a bare assignment to a `&mut` binding writes through it (`a = v`).
-(planned: NON_ESCAPABLE_TYPES N1) When references become types, a
+(planned: REFERENCES_AND_ORIGINS N1) When references become types, a
 whole-value read or write through a reference is spelled `a.* = v` and
 `tmp := a.*`; `.field` and `.method()` keep auto-dereferencing.
 
@@ -507,13 +509,13 @@ first_mut :: (fn(g : &mut Grid) -> &mut i32)(&mut g.a);
   planned: Generation B)
 - (planned: V2b) Today a projection is reached only through the subscript;
   a direct call such as `first(&g)` is an error. Once the rest of the
-  projection design lands, the result is a second-class value: a receiver,
-  an argument, an operand, the left of `=`, or a local binding, never
-  stored in a cell or captured by an escaping closure.
+  projection design lands, the result is a reference value: a receiver,
+  an argument, an operand, the left of `=`, or a local binding — and,
+  once N2 lets cells carry origin parameters, storable there too.
 
 Two live `&mut` projections into one container are rejected even for
 different indices: the checker reasons about places, not index arithmetic.
-(planned: NON_ESCAPABLE_TYPES) The disjoint case is a single call returning
+(planned: REFERENCES_AND_ORIGINS) The disjoint case is a single call returning
 both, with the disjointness as a precondition:
 
 ```yo
@@ -617,10 +619,12 @@ export(main);
   module-level binding, nothing through an `Rc`/`Arc` dereference. To use
   a place inside an `Rc`, capture the handle (`{ &r }`) and derive
   `r.*.items` in the body.
-- A closure holding a borrow is second-class: it can be bound, called and
-  lent, but returning it, storing it, putting it in a `Dyn`, passing it to a
-  by-value parameter or spawning it is E0909. A `&mut` capture also makes it
-  move-only.
+- A closure holding a borrow is second-class today: it can be bound,
+  called and lent, but returning it, storing it, putting it in a `Dyn`,
+  passing it to a by-value parameter or spawning it is E0909 (from N1 the
+  restriction restates as the no-origin positions of section 11; a lent
+  `Impl(Fn(...))` slot stays the non-escaping form). A `&mut` capture
+  also makes it move-only.
 - The places a closure borrows are frozen while it lives (E0910). Today the
   freeze lasts to the end of the binding's scope; ending it at the
   closure's last use is planned (Generation B). (std adoption planned:
@@ -631,7 +635,7 @@ export(main);
 | Trait | The call takes | A closure gets it when its body |
 | --- | --- | --- |
 | `Fn` | `self : &Self` | only reads its captures |
-| `FnMut` (planned: NON_ESCAPABLE_TYPES N1) | `self : &mut Self` | writes a `&mut` capture or its own state |
+| `FnMut` (planned: REFERENCES_AND_ORIGINS N1) | `self : &mut Self` | writes a `&mut` capture or its own state |
 | `FnOnce` | `self` | moves a capture out |
 
 - `Fn` implies `FnMut`, which implies `FnOnce`.
@@ -663,7 +667,7 @@ export(main);
   the `io.async` body). Non-escaping call-once APIs (`Option.map`,
   `unwrap_or_else`) keep `&Impl(Fn(…))`, so their bodies cannot move a
   capture out.
-- (planned: NON_ESCAPABLE_TYPES N1) Until `FnMut` lands, a `&mut` capture
+- (planned: REFERENCES_AND_ORIGINS N1) Until `FnMut` lands, a `&mut` capture
   writes through its pointer under an `Fn` call, as in the capture-list
   example above. Afterwards that closure is an `FnMut`, the write is spelled
   `total.* = (total.* + x)`, and repeated-call slots (`for_each`,
@@ -675,7 +679,7 @@ export(main);
 - `for(&mut xs, x => …)` borrows `xs` exclusively; `x` is a `&mut` place
   into the element, so a write through it lands in the collection (the
   write-through spelling becomes `x.* = …` once references are types,
-  planned: NON_ESCAPABLE_TYPES N1).
+  planned: REFERENCES_AND_ORIGINS N1).
 - A plain `for(xs, x => …)` takes `xs` by value.
 
 ```yo
@@ -698,15 +702,15 @@ export(main);
 
 Growing or shrinking a collection while a borrowed `for` walks it panics
 at run time today; collect the changes and apply them after the loop.
-(planned: NON_ESCAPABLE_TYPES N2) For a container held by value, the same
+(planned: REFERENCES_AND_ORIGINS N2) For a container held by value, the same
 mistake becomes a compile error (E0911).
 
 (planned: V2b) Post-V2b iteration over a uniquely owned container is the
 borrowed `for`, or an index cursor: `xs.indices()` returns a `Copy` range
 and `xs(i)` is re-derived each step, so growth mid-walk is a bounds error,
 not undefined behaviour. `xs.into_iter()` consumes; a chain that must own
-its source writes `xs.clone().into_iter()`. (planned: NON_ESCAPABLE_TYPES
-N2) Borrowing iterators (`iter(self : &Self)` returning a cursor that holds
+its source writes `xs.clone().into_iter()`. (planned: REFERENCES_AND_ORIGINS
+N3) Borrowing iterators (`iter(self : &Self)` returning a cursor that holds
 `&xs`) and lazy adapter chains over a borrowed container follow.
 
 ## 10. Heap and sharing
@@ -742,7 +746,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-(planned: NON_ESCAPABLE_TYPES N1) The `.Leaf(v) => v` arm reads through the
+(planned: REFERENCES_AND_ORIGINS N1) The `.Leaf(v) => v` arm reads through the
 `&` binding today; once references are types, nothing coerces and the
 whole-value read is spelled `v.*`.
 
@@ -799,9 +803,10 @@ cross-thread forms stay `Arc(Mutex(T))` and `Arc(RwLock(T))`.
   its cell under a count.
 - (planned) A closure flowing into a `Dyn(Fn(…))` slot is spelled `dyn(f)`
   at every site; a bare `f` there becomes a type error.
-- (planned: NON_ESCAPABLE_TYPES N1) A borrowed trait object, with no
+- (planned: REFERENCES_AND_ORIGINS N1) A borrowed trait object, with no
   allocation, is `&Dyn(Trait)`, made by `dyn(&v)` or by lending an owned
-  `Dyn` (`&d`). It is second-class like every reference. Narrowing
+  `Dyn` (`&d`). It follows the reference rules (until N2, the
+  second-class ones). Narrowing
   `&Dyn(A, B)` to `&Dyn(A)` is `upcast(r, Dyn(A))`.
 
 ### Cycles
@@ -812,13 +817,15 @@ and collection buffers are part of their owner's value and are never
 tracked. An `Arc` payload must be `Acyclic`, so an `Arc` cannot close a
 cycle. See [`CYCLE_COLLECTION.md`](../docs/en-US/CYCLE_COLLECTION.md).
 
-## 11. References as values (planned: NON_ESCAPABLE_TYPES N1–N3)
+## 11. References as values (planned: REFERENCES_AND_ORIGINS N1–N3)
 
 Today a borrow lives in a parameter, a local binding, a capture or a
-projection result. The next phase makes `&T` and `&mut T` second-class
-**types** with elided lifetimes: they can appear inside other values, and a
-function can return a value holding one when its roots are among the
-function's parameters.
+projection result. The origin phase makes `&T` and `&mut T` **types** —
+first-class, parameterized by an origin: a named set of places, declared
+in the signature's `generic(p : Origin)` clause and written as a trailing
+argument of the reference types, `&(T, p)` / `&mut(T, p)`. Elision is
+allowed and is a default the checker still verifies, never inference it
+trusts.
 
 - `&T` is `Copy`; `&mut T` is not. Passed to a `&mut T` parameter it is
   reborrowed; passed to a generic `T` it moves.
@@ -827,13 +834,18 @@ function's parameters.
 - `impl(&T, Trait(…))` is distinct from `impl(T, Trait(…))`.
 - There is no `&String` to `str` coercion, and no other deref coercion.
 
-### Where a reference may live (N1)
+### Where a reference may live (N2)
 
 A reference may be a component of anything laid out inline (a struct field,
-an enum payload, a tuple or array element, `Option(&T)`), which makes the
-containing type second-class. It may never be the payload of a cell:
-`Rc(&T)`, `Box(&T)`, `RefCell(&T)` and a `Dyn` payload are E0909. It is
-never `Send`, never spawned and never captured by an escaping closure.
+an enum payload, a tuple or array element, `Option(&T)`), and — from N2 —
+the payload of a `Box` or `RefCell`: the containing type carries the
+origin parameters, which must be in scope wherever it goes. The positions
+that accept no origin parameters at all are `Send` values and threads,
+spawned tasks, `extern` signatures, module-level bindings, `Rc`/`Arc`
+payloads and a `Dyn(Trait)` written without an origin (`Dyn(Trait, p)`
+carries one) — E0909, the `Escapable` bound. A type may never name its own fields and a
+binding's type never its own place, so a value cannot contain a pointer
+into itself (section 14's pinning row).
 
 ```yo
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -845,59 +857,50 @@ StrArg :: enum(Borrowed(s : &String), Owned(s : String));
 Building a `View(T)(xs : &xs, lo : lo, hi : hi)` lends `xs` until the
 view's last use. A `&mut` component makes the value move-only.
 
-- A reference stored in a value never reaches through an `Rc`/`Arc`
-  dereference: `View(T)(xs : &h.*.items, …)` is an error. Hold the handle
-  (`r : &Rc(S)`) and re-derive `r.*.items` at each use, as a capture list
-  does.
 - A value holding a borrow of a module-level binding may not be live
   across a call or an `await`, as a local borrow of one may not.
 
-### Returning references: roots among the parameters (N1)
+### Returning references: the origin in the result type (N1)
 
-A function may return a reference-holding value only when every root it
-borrows comes through its own reference-holding parameters. By default the
-result may borrow from every such parameter; a `depends(target : sources)`
-clause, written right after `where(...)`, narrows it:
+A function may return a reference-holding value when every origin in its
+result type names an origin parameter or one of its reference-typed
+parameters' places (a by-value parameter contributes its type's origins,
+never its own place — that slot is the callee's frame, E0912's rule); the
+caller freezes those places until the result's last use.
 
-```yo
-pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(view : a)) -> (view : View(u8)))(...);
+```yo ignore
+// borrows a only: r is declared, and the result names it (b's elided origin is a fresh, unrelated one)
+pick :: (fn(generic(r : Origin), a : &(ArrayList(u8), r), b : &ArrayList(u8)) -> View(u8, r))(...);
+// the item shares the origin the cursor carries, not the cursor: two items may be live at once
+next :: (fn(generic(T : Type, p : Origin), self : &mut Cursor(T, p)) -> Option(&(T, p)))(...);
 ```
 
-`pick` may return a view of `a` and not of `b`, so the caller's `b` is free
-again after the call.
-
-- A target is the return label or a parameter that can grow: `&mut` over a
-  reference-holding type, or by value with a `&mut` component.
-- A source is a parameter `p` (its whole borrow set, the lent place
-  included) or `p.*` (only what `p`'s referent carries). `()` says nothing
-  flows in.
-- The clause is part of the function type, and a call is checked from the
-  signature alone, never from the callee's body.
-
-```yo
-// the item borrows what the cursor carries, not the cursor: two items may be live at once
-next :: (fn(generic(T : Type), self : &mut Cursor(T), depends(item : self.*)) -> (item : Option(&T)))(...);
-// a pushed value's roots join the list's
-push :: (fn(generic(T : Type), self : &mut ArrayList(T), value : T, depends(self : value)) -> unit)(...);
-// a lookup that stores nothing: the probe key is free after the call
-remove :: (fn(generic(T : Type), self : &mut ArrayList(T), key : &T, depends(self : (), item : self.*)) -> (item : Option(T)))(...);
-```
+Elided, a result's origin is the union of the reference-holding parameters
+(the conservative reading: an elided `next` lends the cursor, so std's
+`Iterator` spells the origin). A call is checked from the signature alone,
+never from the callee's body.
 
 ### Containers of references (N2)
 
-`ArrayList(&T)` and other buffer containers over a reference are legal and
-second-class, and their borrow set grows: each element pushed in brings its
-roots, which stay frozen until the container's last use.
+`ArrayList(&(T, p))` and other buffer containers over a reference are
+legal, and their origin union is declared up front:
 
 ```yo ignore
-out := ArrayList(&i32).new();
-out.push(&x); // x is frozen while out lives
-x = i32(2); // error[E0911]: x is frozen: out holds &x (joined by out.push(&x))
+out := ArrayList(&(View(u8), self))(...); // may ever hold views rooted at self
+out.push(self.text.view(r));              // accepted: the pushed origin is a subset
+both := ArrayList(&(T, (x, y)))(...);     // two roots, declared
+both.push(&z);                            // error naming {x, y} and {z}; yo fix widens
 ```
 
-Elements rooted through an `Rc`/`Arc` dereference are rejected, and
-`Rc(ArrayList(&T))` is E0909. (N3) std's entry API, guards, parser
-remainders and the `FnMut` slots follow on the next seed.
+(N3) std's entry API, guards, parser remainders and the `FnMut` slots
+follow on the next seed. `Rc(T)` stays read-only, like Rust's; a `&`
+borrow through a handle's dereference (`&h.*.x`) is an ordinary reference
+whose origin is the handle, frozen while it lives, and a `&mut` through
+one is an error. Shared mutation keeps decision 46's doors —
+`RefCell(T)` (the one spelling of the runtime exclusivity check),
+`Rc.get_mut`, `Rc.make_mut` — and a `RefCell` payload may hold a
+reference, with the marks governing mutation and the origin governing
+the borrow.
 
 ## 12. Async and threads
 
@@ -910,12 +913,15 @@ remainders and the `FnMut` slots follow on the next seed.
 - **The `io.async` body is a by-value `FnOnce`**, so it owns its
   captures. An implicit capture that the body moves out is E0913; list it
   (`io.async({ f }(io : Io) => io.await(f, io))`).
-- **A future may borrow, and is then second-class.** A function whose
+- **A future may borrow, and is then second-class today.** A function whose
   returned future captures one of its `&`/`&mut` parameters returns a
   borrowing future. It may be the direct operand of `io.await`, or be
   returned when every borrow is rooted at the returning function's own
   borrow parameters; binding it to a local, storing it or spawning it is
   E0909. This is what lets `Stream.next(self : &mut Self, io)` exist.
+  (planned: N3) The future's type carries its origins (`Future(T, p)`),
+  forwarding works, and what stays E0909 narrows to the no-origin
+  positions — spawn and `Send`.
 - A borrowing future may not borrow through an `Rc`/`Arc` dereference: own
   the value in the task, or share `Rc(Mutex(S))`.
 - A `JoinHandle` is move-only: `join(self, io)` consumes it, and a dropped
@@ -950,9 +956,9 @@ The async runtime stays single-threaded.
 | E0901 | use of a moved value; the note names `derive(T, Copy, Clone)`, `x.clone()`, `match(&x, …)` or `x : &T` |
 | E0907 | a value moved on some ways out of a loop and not on others |
 | E0908 | a write through a `&` borrow |
-| E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N1 also a reference in a cell |
-| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves a place an earlier argument lends to the call |
-| E0911 | an access conflicts with a live local borrow, or a re-point while a derived borrow is live; (planned: V2b) overlapping call arguments; (planned: N2) a root frozen by a container of references |
+| E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N2 a reference whose origins cannot follow it into the position (a `Send` value, a spawn, an `extern` signature, a module-level binding, a `Dyn` payload) |
+| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves a place an earlier argument lends to the call; (from N1) two `&mut` arguments of one call with intersecting origins |
+| E0911 | an access conflicts with a live local borrow, or a re-point while a derived borrow is live; (planned: V2b) overlapping call arguments; (from N1) an access conflicting with a live origin; (from N2) a push outside a container's declared origin union |
 | E0912 | a local borrow crosses the function boundary |
 | E0913 | a closure moves a capture out where its call cannot consume it |
 | E0914 | a call-site marker does not match the parameter's mode |
@@ -970,11 +976,11 @@ The async runtime stays single-threaded.
 | move | implicit at last use; E0901 after | implicit; error after | `consume` |
 | shared ownership | `Rc(T)`, `Arc(T)`; `Rc.clone(r)` | `Rc<T>`, `Arc<T>`; `Rc::clone(&r)` | classes |
 | dynamic borrow check | `RefCell(T)` (planned) | `RefCell<T>` | exclusivity enforcement at run time |
-| lifetimes | none: borrows are second-class; `depends(...)` (planned) narrows | named lifetimes | none (`~Escapable`) |
+| lifetimes | none: references carry origins — declared place sets, `&(T, p)` with checked elision (planned N1) | named lifetimes | none (`~Escapable`) |
 | match on an owned value | consumes; `match(&x, …)` borrows | default binding modes | copies |
 | closure capture | capture list `{ x, &y, &mut z }` | `move` or inferred | capture list `[x]` |
 | trait object | `Dyn(Trait)` (owned), `&Dyn(Trait)` (planned) | `Box<dyn T>`, `&dyn T` | existential `any P` |
-| pinning | none needed: heap cells never move, and a borrowed value is frozen, so nothing that points into it can see it move | `Pin` | none |
+| pinning | none needed (planned N1): a type may never borrow from itself, so moving a value never dangles what it contains | `Pin` | none |
 
 ## 15. What happened to compile-time reference counting
 
@@ -1010,8 +1016,8 @@ mutate on purpose becomes a value held in an `Rc`.
   `FnOnce`, 38 closure soundness, 39 iteration, 40 no `Pin`, 41 `RefCell`,
   42 borrow spelling, 43 references as types, 44 `Dyn`, 45 `Drop` (the
   `Dispose` rename).
-- [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md):
-  R1–R7 and the `depends` clause; phases N0–N3.
+- [`plans/backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md):
+  origins (O1–O10, the `Origin` kind and `&(T, p)`); phases N0–N3.
 - Related docs: [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md),
   [`DYN_DESIGN.md`](../docs/en-US/DYN_DESIGN.md),
   [`ARC.md`](../docs/en-US/ARC.md),

@@ -14,7 +14,7 @@ This is Swift's model. It's Go's model. It's Java's model. All three are widely 
 
 ## Non-Goals
 
-- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](../backlog/FUTURE_ORIGINS.md) for the deferred design.
+- **No `&(T)` reference type, no Origins, no lifetimes** — as landed. Amended by VALUES_BY_DEFAULT decision 43 (2026-10-10, origins added 2026-10-19): references become first-class `&(T, p)` types parameterized by origins, designed in [`REFERENCES_AND_ORIGINS.md`](../backlog/REFERENCES_AND_ORIGINS.md); until its phase lands, this document's rules stand.
 - **No `unsafe fn` (function coloring).** Only `unsafe(...)` expression calls at the use site. Unsafety doesn't propagate to callers.
 - **No borrow checker, no aliasing rules.**
 - **No changes to `&(x)` semantics.** `&(x)` still returns `*(T)` exactly as today (and is forbidden in safe code by the privilege gate, not by a semantic change).
@@ -680,9 +680,18 @@ The user-facing `parse` takes a bounds-checked `Slice(u8)`; the internal `parse_
 
 ## Alternatives Considered
 
-### Origins / lifetimes (`FUTURE_ORIGINS.md`)
+### Origins / lifetimes
 
-Considered and deferred. Adds expressiveness for multi-ref returns and library APIs at the cost of constraint-solver complexity, annotation surface, and LLM struggle. The privilege-gate approach in this document gets equivalent practical safety with far less implementation cost. See `FUTURE_ORIGINS.md` for the deferred design.
+Considered and deferred here in 2025 (the `FUTURE_ORIGINS.md` sketch:
+`&(T, R)` with `where(R1 < R2)` constraints and a solver — rejected as
+"Rust lifetimes wearing Yo's clothes"; deleted 2026-10-20, in git
+history). **Adopted in modified form by VALUES_BY_DEFAULT decision 43**
+(2026-10-19): the `Origin` kind and the `&(T, p)` spelling survive, the
+solver does not — origins are ground place sets, coercion is subset, the
+`&`/`&mut` split is the freeze model, second-classness is a declared bound
+(`Escapable`). [`REFERENCES_AND_ORIGINS.md`](../backlog/REFERENCES_AND_ORIGINS.md)
+§6 records what was kept and dropped. The privilege gate in this document
+is unchanged by it.
 
 ### `unsafe(...)` marker alone (no privilege gate)
 

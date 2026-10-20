@@ -49,7 +49,7 @@ lowering (`CODEGEN_PERFORMANCE.md` CP2b) applies to std only.
 `impl(&C, IntoIterator(Item := &T, …))` and `impl(&mut C, IntoIterator(…))`
 are legal once `&C` is a type, the borrowed `for(&xs, …)` dispatches to
 them, and the iterator they return is a second-class value rooted in `xs`
-(`NON_ESCAPABLE_TYPES.md` R3, R4). Option 2's `Collection` trait remains
+(`REFERENCES_AND_ORIGINS.md` R3, R4). Option 2's `Collection` trait remains
 available as a fallback for a container that only wants a plain index
 walk. Lands with the design note's phase N2.
 
@@ -91,7 +91,7 @@ the same pragma (decision 39), so the requirement is the same either way.
 
 **Recommendation for the gap:** let a projection body forward a projection
 whose root is `self` or one of its own `&`/`&mut` parameters (decision 24's
-result positions, the single-root rule `NON_ESCAPABLE_TYPES.md` R3 states
+result positions, the single-root rule `REFERENCES_AND_ORIGINS.md` R3 states
 for decision 43's phase). That lowers to returning the inner call's pointer
 instead of dereferencing it. It is a small compiler Generation A and does
 not wait for reference types. Until it lands, user collections implement
