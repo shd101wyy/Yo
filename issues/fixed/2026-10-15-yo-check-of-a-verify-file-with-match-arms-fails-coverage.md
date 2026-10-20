@@ -65,8 +65,10 @@ measure.
 **Tests:** `tests/internal/verifier_match.test.yo` gets "the match walk has
 its arms under check's settings (codegen-only tables off, solver-free)". It
 loads `tests/spec/fixtures/valid/match_enum.yo` with the codegen-only tables
-off and asserts that the VC walk reports no subset error; before the fix that
-walk fails with "match arms not registered". A cli-case cannot carry this
+off and asserts that the VC walk reports no subset error. Measured
+fails-before: the same test file run against develop's `src/` (worktree at
+`6ccddf25d`, its tree binary) passes the two older cases and fails this one
+(exit code 6, the assert); with the fix, all three pass. A cli-case cannot carry this
 test: the sandbox `HOME` has no solver, so `check` returns before the walk
 runs. `tests/internal/module_invalidation.test.yo`'s registry test now covers
 both settings: `check`'s still records arms, `doc`/LSP's records none.
