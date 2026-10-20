@@ -45,8 +45,7 @@ that is still in progress has a `cancel_fn` on all three POSIX backends: epoll
 `__yo_kq_cancel`). The task's state machine and its connect future are
 therefore freed at the abort, before the test returns. Windows has no cancel
 path for `ConnectEx`, so there the task stays `Aborted` and is released when
-the connect completes. CI's Windows leg runs without LeakSanitizer, so this
-gap does not show up there.
+the connect completes; that gap is the backend's, not this test's.
 
 ### Measured on the Mac Mini (darwin arm64, Apple clang)
 
