@@ -49,9 +49,17 @@ Confirmed the suspected root cause: `evaluate_array_value` now counts a
 `Some(UnknownVal)` element as unknown, exactly as the tuple literal does, so a
 literal with any runtime element carries no `ArrayVal` and codegen emits it
 through `generate_anonymous_array` from its runtime element expressions. A
-runtime `i32` element was never affected (its value is `None`); the hole was
-specific to elements whose evaluation records a typed unknown, such as a
-`String.from(...)` call.
+runtime element whose value is `None` (a bare runtime `i32` local) was never
+affected; the hole was specific to elements whose evaluation records a typed
+unknown, such as a `String.from(...)` call.
+
+Scope: the check looks at each element's TOP-LEVEL value only, as the tuple
+literal's does. An element that is a struct or enum literal with a runtime
+field inside (`[P(x : mk(i32(1)), y : i32(2)), …]`, `[.Some(mk(i32(1))), .None]`)
+is a `StructVal` / `EnumVal` shell with an `UnknownVal` hole one level down and
+still emits `/* skip generating value */`, in array and tuple literals alike.
+That is pre-existing and filed separately:
+`issues/2026-10-20-an-array-or-tuple-literal-whose-element-holds-a-runtime-field-emits-invalid-c.md`.
 
 Regression test: `tests/array.test.yo`, "A fixed-array literal of runtime
 Strings builds its elements at run time" (a local binding, a struct field and
