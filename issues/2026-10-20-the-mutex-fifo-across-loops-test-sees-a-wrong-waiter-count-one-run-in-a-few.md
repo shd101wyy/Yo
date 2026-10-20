@@ -12,8 +12,10 @@ Each run is one `yo test tests/async/mutex_threads.test.yo --std-path ./std --pa
 | --- | --- |
 | develop `6ccddf25d`, tree-built | 1 of 6, and 1 in the first 3 of a run-until-fail loop |
 | the A4 std-half branch's tree build | 1 of 3 |
+| the combinator spec-cache branch's tree build, with a compiler build running beside it (load average about 5) | 3 of 7 |
+| the CTFE enum-argument branch's tree build, interleaved with the row above | 1 of 3 |
 
-The failure is always the same assertion:
+The rate rises under load. The failure is always the same assertion:
 
 ```text
 ✗ Test the lock is handed FIFO across loops, ahead of a later same-loop waiter
