@@ -25,7 +25,7 @@ Still copy-only, as decision 20 defers for every collection: `front`, `back`,
 `get`, the by-value `into_iter()` (E0901 at the std line for a move-only
 element), and `insert` of a move-only element at a middle index, which hits the
 cond-arm E0907 rule (`value` moves in some arms only) exactly as it did before
-this fix. `issues/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`
+this fix. `issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`
 (S3, pre-existing, develop behaves the same) covers that a `LinkedList(Self)`
 cycle is never collected.
 

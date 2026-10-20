@@ -67,7 +67,51 @@ pinned down. The instantiation-identity family
 (`issues/fixed/yo-self-specialization-signature-type-identity.md`,
 `src/codegen/exprs/gc.yo`'s DIVERGENCE note) is the likely place to look.
 
-## Fix direction
+## Root cause (pinned 2026-10-20)
+
+**Fixed 2026-10-20.** This is a real bug, not a design limitation.
+`docs/en-US/CYCLE_COLLECTION.md` promises that a container which hand-writes a
+`Trace` impl for its buffer is collected, and nothing there exempts
+`LinkedList`. The evaluator's own predicate shows the gap at comptime, so no
+codegen copy is involved. On the v0.2.66 seed, `Type.can_form_rc_cycle`
+answers:
+- `false` for `LNode` and `false` for `LinkedList(LNode)`;
+- `true` for the `ArrayList(Self)` twin.
+
+Both constructors therefore emit no `__yo_gc_register`. The two cells
+`tracked_count()` reports are the `Node(LNode)` cells, which register on
+their own `next : Option(Self)` self-loop. This corrects the earlier finding,
+which named the `LNode` and `Node` cells: `LNode` was never tracked.
+
+The emitted C names the cause: `LinkedList(<struct:struct_decl_…LNode…>)`.
+The list inside `LNode` is instantiated over LNode's declaration SHELL, an
+empty placeholder struct, and the shell patch walk's shared-node guard leaves
+it unpatched behind `Node(Self)`. Here is how `_type_refs_back_to_cyclic`
+(`src/types/utils.yo`) walks it:
+1. It starts at `LNode`, re-roots at `LinkedList`, and re-roots again at
+   `Node`.
+2. Through Node's `?*T` element buffer it reaches the shell.
+3. The shell carries no fields, and the walk does not recognise it as the
+   `LNode` root already on its path, so it is a dead end.
+
+In the `ArrayList(Self)` case the shell sits directly under the root, where
+the "same id as the root" test catches it before the reference-struct test.
+That is why only the nested case missed.
+
+## Fix
+
+`_type_refs_back_to_cyclic` resolves its argument through the finals
+registries first, with `resolve_enum_shell(resolve_struct_shell(·))`. Four
+other walks in the same file already do this. The resolved `LNode` is then
+the visited root, and the path closes. On the tree binary:
+- `LNode` is `true`, `LinkedList(LNode)` is `true`, and `LinkedList(i32)`
+  stays `false`;
+- the repro has 6 tracked cells inside and 0 after `Gc.collect()`.
+
+The `Node` `Trace` impl that the move-only fix added (it visits `next`,
+`prev` and the element buffer) was already the correct traversal.
+
+## Fix direction (as filed)
 
 Make the constructor's `can_type_form_rc_cycle` ask and the runtime agree with
 the structural walk: the list cell is a cycle root exactly when its element
@@ -77,5 +121,7 @@ traversal.
 
 ## Test
 
-The reproducer above, in `tests/cycle_collector.test.yo` beside the
-`ArrayList(Self)` case: it fails on develop today and must pass once fixed.
+`tests/cycle_collector.test.yo` "LinkedList(Self) two-node cycle collected",
+beside the `ArrayList(Self)` case. It collects the cycle and pins the three
+predicate answers. It fails on the v0.2.66 seed (exit code 6) and passes on
+the tree binary.
