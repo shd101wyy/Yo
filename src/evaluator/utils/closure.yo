@@ -1008,15 +1008,6 @@ propagate_captures_to_enclosing :: (fn(caps : &HashMap(String, CapturedVarInfo),
 // ---------------------------------------------------------------------------
 // create_capture_type_and_value
 // ---------------------------------------------------------------------------
-/// Create the capture struct type (and optional value) for a closure from
-/// its captured variables.
-///
-/// Phase 3 simplified inference path:
-///   - If `expected_capture_type` is None (the common case), create an
-///     anonymous struct from the captured variables' names and types.
-///   - If there are no captured variables, create an empty struct.
-///   - Explicit capture struct types (expected_capture_type = Some(T)) are
-///     deferred to Phase 4.
 /// The part of a closure's capture-struct key that names its CALL signature:
 /// the codegen identity (`type_key`) of each parameter type and of the result.
 /// One closure literal is minted once per instantiation of the code around it
@@ -1045,6 +1036,15 @@ closure_signature_key :: (fn(fn_ty : &TypeValue) -> String)(
     _ => String.new()
   )
 );
+/// Create the capture struct type (and optional value) for a closure from
+/// its captured variables.
+///
+/// Phase 3 simplified inference path:
+///   - If `expected_capture_type` is None (the common case), create an
+///     anonymous struct from the captured variables' names and types.
+///   - If there are no captured variables, create an empty struct.
+///   - Explicit capture struct types (expected_capture_type = Some(T)) are
+///     deferred to Phase 4.
 create_capture_type_and_value :: (
   fn(
     expected_capture_type : &Option(TypeValue),

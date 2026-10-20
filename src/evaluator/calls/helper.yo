@@ -4433,15 +4433,16 @@ create_specialized_function_inline :: (
             .Some(rec_caps) => if(spec_is_closure && (rec_caps.len() > usize(0)), {
               enr_caps := enrich_captured_variables(&rec_caps, callee_env);
               if(enr_caps.len() > usize(0), {
-                // The token already names THIS specialization, so the key is
-                // distinct per specialized signature without a signature part.
-                spec_no_sig := String.new();
+                // The synthetic token carries no position (row, column and
+                // character are 0) and the key never reads its value, so the
+                // specialization's id is this key's signature part: every
+                // specialized closure in one module gets its own struct.
                 spec_cap_res := create_capture_type_and_value(
                   Option(TypeValue).None,
                   Option(HashMap(String, FuncCapturedVarInfo)).Some(enr_caps),
                   callee_env,
                   synthetic_token(specialized_func_id.clone(), &callee_env.module_path),
-                  &spec_no_sig
+                  &specialized_func_id
                 );
                 match(
                   spec_cap_res.capture_type,
