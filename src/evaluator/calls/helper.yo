@@ -4673,7 +4673,7 @@ create_specialized_function_inline :: (
                 meta : __fm5
               })
             ) => {
-              (sp_pl : ArrayList(String)) = __fm5.*.param_labels;
+              (sp_pl : SharedList(String)) = __fm5.*.param_labels;
               // The spec's C params must be named after the FuncVal's OWN
               // (source) labels — the body references those. `func_type` here
               // can be the DECLARED variable's type whose labels differ:
@@ -4682,7 +4682,7 @@ create_specialized_function_inline :: (
               // (clang: undeclared identifier) — the anon fn's original
               // parameter names must be kept (the function body uses them).
               if(params.len() == sp_pl.len(), {
-                sp_pl = params.clone();
+                sp_pl = shared_list(params.clone());
               });
               sp_il := __fm5.*.implicit_labels;
               sp_rico := __fm5.*.result_is_comptime_only;
