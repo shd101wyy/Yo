@@ -986,7 +986,7 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
-        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf, clone_tt, visited, depth), .None => true), {
+        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf.items, clone_tt, visited, depth), .None => true), {
           return(false);
         });
       });

@@ -1284,7 +1284,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
         while(vi < all_fields.len(), {
           match(
             all_fields.get(vi),
-            .Some(v_fields) => if(_any_reaches_non_atomic_cell(&v_fields, depth + u32(1)), {
+            .Some(v_fields) => if(_any_reaches_non_atomic_cell(&v_fields.items, depth + u32(1)), {
               return(true);
             }),
             .None => ()
@@ -2855,7 +2855,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         while((vi < n_v) && !unknown, {
           vf := match(evf.get(vi), .Some(f) => f, .None => no_types());
           match(
-            _max_field_alignment(&vf),
+            _max_field_alignment(&vf.items),
             .Some(a) => {
               acc = _max_usize(acc, a);
             },

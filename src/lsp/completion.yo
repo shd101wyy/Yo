@@ -305,7 +305,7 @@ _type_member_items :: (
         vfields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
         vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
         if(vname.len() > usize(0), {
-          _push_variant(&vname, &vfields, &vlabels, false, out, seen);
+          _push_variant(&vname, &vfields.items, &vlabels.items, false, out, seen);
         });
         i = (i + usize(1));
       });
@@ -1221,7 +1221,7 @@ handle_completion :: (
                   vfields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
                   vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
                   if(vname.len() > usize(0), {
-                    _push_variant(&vname, &vfields, &vlabels, true, &mut items, &mut seen2);
+                    _push_variant(&vname, &vfields.items, &vlabels.items, true, &mut items, &mut seen2);
                   });
                   vi = (vi + usize(1));
                 });

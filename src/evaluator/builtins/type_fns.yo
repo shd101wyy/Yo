@@ -858,7 +858,7 @@ _ti_bind_variant_info_list :: (
     v_name := match(variant_names.get(i), .Some(nm) => nm, .None => String.from(""));
     v_fields := match(variant_fields.get(i), .Some(f) => f, .None => no_types());
     v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => no_labels());
-    vi_val := _ti_build_variant_info(env_ptr, &v_name, &v_field_labels, &v_fields, enum_ty, i, ctx, exn);
+    vi_val := _ti_build_variant_info(env_ptr, &v_name, &v_field_labels.items, &v_fields.items, enum_ty, i, ctx, exn);
     vi_vals.push(vi_val);
     i = (i + usize(1));
   });
@@ -2042,7 +2042,7 @@ evaluate_type_map_variants :: (
     v_fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
     v_field_labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
     // Build VariantInfo value.
-    vi_val := _ti_build_variant_info(&local_env, &v_name, &v_field_labels, &v_fields, &target_type, vi, ctx, exn);
+    vi_val := _ti_build_variant_info(&local_env, &v_name, &v_field_labels.items, &v_fields.items, &target_type, vi, ctx, exn);
     vi_type := match(vi_declared_ty_opt, .Some(dt) => dt, .None => type_of_eval_value(&vi_val));
     // Bind VariantInfo to temp var, then call mapper(vi_var_name).
     vi_name := stable_module_id(String.from("__dvi_"), &local_env.module_path);

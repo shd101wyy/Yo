@@ -2324,7 +2324,7 @@ Raw pointer operations may dereference invalid memory.`
               while(dv_i < ev_vflabels.len(), {
                 dv_fl := match(ev_vflabels.get(dv_i), .Some(fl) => fl, .None => no_labels());
                 match(
-                  find_first_field_index(&dv_fl, prop_name_ev.clone()),
+                  find_first_field_index(&dv_fl.items, prop_name_ev.clone()),
                   .Some(_) => {
                     n_dv = (n_dv + usize(1));
                     dv_idx = dv_i;
@@ -2336,7 +2336,7 @@ Raw pointer operations may dereference invalid memory.`
               if(n_dv == usize(1), {
                 dv_vfl := match(ev_vflabels.get(dv_idx), .Some(fl) => fl, .None => no_labels());
                 dv_vft := match(ev_vfields.get(dv_idx), .Some(ft) => ft, .None => no_types());
-                dv_pfi := match(find_first_field_index(&dv_vfl, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
+                dv_pfi := match(find_first_field_index(&dv_vfl.items, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
                 dv_ft := match(dv_vft.get(dv_pfi), .Some(t) => t, .None => t_unit());
                 dv_pc := ArrayList(ArrayList(String)).new();
                 dv_path := ArrayList(String).new();
