@@ -415,6 +415,43 @@ test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
   assert(Type.can_form_rc_cycle(KNode), "the walk finds the cycle back through the list");
   assert(!Type.impls(KNode, Acyclic), "so the node is not Acyclic");
 });
+// The common cons-list shape had the same defect: `Rc` is itself a
+// ref(struct), so `Cons`'s `Rc(Self)` tail is the only edge back to the enum,
+// and the walk re-roots at the `Rc` before it meets the enum again.
+// `a.tail = rc(a)` closes a cycle that used to stay tracked (100 of 100 with
+// the v0.2.67 seed)
+// (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
+(mut(g_rcons_disposed) : i32) = i32(0);
+RCons :: ref(
+  enum(
+    RNil,
+    Cons(head : i32, tail : Rc(Self))
+  )
+);
+impl(
+  RCons,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rcons_disposed = (g_rcons_disposed + i32(1));
+    })
+  )
+);
+test("A cons-list cycle closed through its Rc(Self) tail is collected", {
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    a := RCons.Cons(i32(1), rc(RCons.RNil));
+    a.tail = rc(a); // a -> Rc -> a : the only edge back to the enum is the Rc's payload
+  });
+  do_test();
+  // The replaced `RNil` tail is dropped by the store; only the collector can
+  // release the cell on the cycle.
+  before := g_rcons_disposed;
+  Gc.collect();
+  assert(g_rcons_disposed == (before + i32(1)), "the cons cell on the Rc-closed cycle was disposed");
+  assert(Gc.tracked_count() == base, "and neither it nor its Rc stays tracked");
+  assert(Type.can_form_rc_cycle(RCons), "the walk finds the cycle back through the Rc");
+  assert(!Type.impls(RCons, Acyclic), "so the cons cell is not Acyclic");
+});
 // The comptime query must answer for a spelled instantiation what codegen
 // does: `ArrayList(QNode)` holds `QNode`s, each of which holds such a list, and
 // the emitted constructor registers the list with the collector. The query read
