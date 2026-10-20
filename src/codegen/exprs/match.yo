@@ -17,7 +17,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_BEGIN, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
 {
   has_any_control_flow,
   expr_info_case_executed,
@@ -1882,7 +1882,7 @@ _variant_field_code :: (fn(enum_ty : &TypeValue, vname : &String, label : &Strin
 /// A struct type's DECLARED field labels in declaration order (a struct
 /// pattern's `field_idx` indexes these, comptime fields included; unlike
 /// `get_runtime_struct_fields`, which skips them).
-_struct_pattern_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
+_struct_pattern_labels :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
     t,
     Rc(.Struct({ field_labels : fls })) => fls,
@@ -1890,7 +1890,7 @@ _struct_pattern_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
   )
 );
 /// A struct type's DECLARED field types in declaration order.
-_struct_pattern_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
+_struct_pattern_field_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
   match(
     t,
     Rc(.Struct({ field_types : fts })) => fts,

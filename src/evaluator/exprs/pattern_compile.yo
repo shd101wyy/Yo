@@ -46,7 +46,7 @@
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
 { is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -216,7 +216,7 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
     .None => false
   )
 });
-_enum_variant_names :: (fn(t : &TypeValue) -> ArrayList(String))(
+_enum_variant_names :: (fn(t : &TypeValue) -> SharedList(String))(
   match(t, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
 );
 _enum_variant_labels :: (fn(t : &TypeValue, idx : usize) -> ArrayList(String))(
@@ -710,7 +710,7 @@ _compile_variant :: (
   });
   vns := _enum_variant_names(&enum_ty);
   vidx := match(
-    _find_str(&vns, vname.clone()),
+    _find_str(&vns.items, vname.clone()),
     .Some(i) => i,
     .None => {
       exn.throw(
@@ -1113,7 +1113,7 @@ _compile_struct :: (
       });
       lbl := _atom_name(&label_expr);
       fidx = match(
-        _find_str(&labels, lbl.clone()),
+        _find_str(&labels.items, lbl.clone()),
         .Some(i) => i,
         .None => {
           exn.throw(
@@ -1122,7 +1122,7 @@ _compile_struct :: (
                 format_error_message_with_help(
                   ast_expr_token(&label_expr),
                   `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
-                  _did_you_mean(lbl.clone(), &labels)
+                  _did_you_mean(lbl.clone(), &labels.items)
                 ),
                 E_FIELD_NOT_FOUND
               )
@@ -1162,7 +1162,7 @@ _compile_struct :: (
         lbl := _atom_name(&param);
         bare_bind = true;
         fidx = match(
-          _find_str(&labels, lbl.clone()),
+          _find_str(&labels.items, lbl.clone()),
           .Some(i) => i,
           .None => {
             exn.throw(
@@ -1171,7 +1171,7 @@ _compile_struct :: (
                   format_error_message_with_help(
                     ast_expr_token(&param),
                     `Label "${lbl}" not found in ${_struct_type_name_for_err(struct_ty, ty_named)}`,
-                    _did_you_mean(lbl.clone(), &labels)
+                    _did_you_mean(lbl.clone(), &labels.items)
                   ),
                   E_FIELD_NOT_FOUND
                 )

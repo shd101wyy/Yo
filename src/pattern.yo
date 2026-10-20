@@ -19,7 +19,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_to_string } :: import("./expr.yo");
 { Token } :: import("./token.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
 { is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./types/creators.yo");
@@ -406,7 +406,7 @@ variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeV
 /// A struct type's field types (empty for a non-struct). Expression-bodied:
 /// a case whose pattern carries a curly `{…}` destructuring cannot take a
 /// brace-block body (E0007).
-_struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
+_struct_field_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
   match(
     t,
     Rc(.Struct({ field_types : fts })) => fts,
@@ -414,7 +414,7 @@ _struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   )
 );
 /// A struct type's field labels (empty for a non-struct).
-_struct_field_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
+_struct_field_labels :: (fn(t : &TypeValue) -> SharedList(String))(
   match(
     t,
     Rc(.Struct({ field_labels : fls })) => fls,
@@ -430,14 +430,14 @@ _struct_type_name :: (fn(t : &TypeValue) -> String)(
   )
 );
 /// A tuple type's element types (empty for a non-tuple).
-_tuple_elem_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
+_tuple_elem_tys :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
   match(
     t,
     Rc(.Tuple({ field_types : fts })) => fts,
     _ => no_types()
   )
 );
-_enum_variant_names :: (fn(enum_ty : &TypeValue) -> ArrayList(String))(
+_enum_variant_names :: (fn(enum_ty : &TypeValue) -> SharedList(String))(
   match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
 );
 _enum_id :: (fn(enum_ty : &TypeValue) -> String)(
@@ -1658,7 +1658,7 @@ _useful_head :: (
         _useful(
           &spec,
           _extend_cloned(_variant_full_subs(&fidx, &subs, arity), &q_rest, usize(0)),
-          _concat_types(&ftys, &tys_rest),
+          _concat_types(&ftys.items, &tys_rest),
           gadt_exact
         ),
         .Some(w) => {
@@ -1793,7 +1793,7 @@ _useful_head :: (
         ftys := _tuple_elem_tys(&ty0);
         spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys, &tys_rest), gadt_exact),
+          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys.items, &tys_rest), gadt_exact),
           .Some(w) => {
             return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, ftys.len())));
           },
@@ -1806,7 +1806,7 @@ _useful_head :: (
         ftys := _struct_field_tys(&ty0);
         spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys, &tys_rest), gadt_exact),
+          _useful(&spec, _extend_cloned(_wildcards(ftys.len()), &q_rest, usize(0)), _concat_types(&ftys.items, &tys_rest), gadt_exact),
           .Some(w) => {
             return(Option(ArrayList(String)).Some(_render_struct_witness(&ty0, &w, ftys.len())));
           },
