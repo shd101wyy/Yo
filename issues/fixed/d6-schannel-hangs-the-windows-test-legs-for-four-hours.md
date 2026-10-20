@@ -4,7 +4,7 @@
 
 ## Resolution (2026-10-14)
 
-Fixed for TCP by #443 (be3b42aa6, 2026-09-06): an overlapped `AcceptEx` replaced the blocking `accept()` on the event-loop thread. Schannel was re-landed by #442, and `connect` uses `ConnectEx` since 2026-09-12. The HTTP and TLS suites run on Windows again. The class the Severity line names is still present for AF_UNIX listeners, which fall through to the historical blocking `accept()` because Windows supports neither `AcceptEx` nor `GetAcceptExSockaddrs` on AF_UNIX. That gap is tracked in `issues/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md`. (2026-10-14 triage: the first agent called this doc stale; the skeptic found the AF_UNIX residual.)
+Fixed for TCP by #443 (be3b42aa6, 2026-09-06): an overlapped `AcceptEx` replaced the blocking `accept()` on the event-loop thread. Schannel was re-landed by #442, and `connect` uses `ConnectEx` since 2026-09-12. The HTTP and TLS suites run on Windows again. The class the Severity line names is still present for AF_UNIX listeners, which fall through to the historical blocking `accept()` because Windows supports neither `AcceptEx` nor `GetAcceptExSockaddrs` on AF_UNIX. That gap was tracked in `issues/fixed/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md` and is fixed: the blocking `accept()` now runs on a thread-pool worker. (2026-10-14 triage: the first agent called this doc stale; the skeptic found the AF_UNIX residual.)
 
 **Status: FIXED for TCP by #443 (moved 2026-10-14, see Resolution); #413 was REVERTED from develop 2026-09-06.** The Schannel work
 itself is not known to be wrong; the Windows test legs never completed, so it
