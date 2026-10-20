@@ -4,6 +4,14 @@
 follow-up branch after the closed-operator-set / prefix-operand-rule PR
 lands.
 
+**Audit 2026-10-20 (SEED_VERSION v0.2.66):** every entry below was checked
+against the tree and the seed. Each one whose Generation A shipped in a
+release up to v0.2.66 is either DONE (marked in its section, with the PR or
+the branch) or says why it is not actionable. The only entries still open
+are the decision 36 `Copy`-flip leftovers, which are tracked in
+`plans/VALUES_BY_DEFAULT.md`, and `__yo_build_doc`'s dead slot, whose
+Generation A never landed.
+
 ## Problem
 
 `SEED_VERSION` (the previous-release bootstrap root) is hand-duplicated in
@@ -121,6 +129,9 @@ references); it is verified locally with a stage-1 built by a feature-carrying
 compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
 usual way before merging**: `yo build` the tree with the actual seed bundle.
 
+**DONE 2026-09-05** (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`: "P0–P5
+LANDED"). Forward references are ordinary in `std/` and `src/`.
+
 ## DONE (2026-10-01): delete `ArrayList.set_len`
 
 `issues/fixed/safe-code-reaches-freed-memory-through-arraylist-set-len.md` (S1).
@@ -204,6 +215,11 @@ called with parameters. Nothing in `std/` or `src/` uses the form.
   (`for_each`/`with_lock` call sites in `std/` and the compiler) may switch to a
   `mut` capture, and the docs' and skills' examples may use the form; the
   skill-tree cli goldens move with any skill edit.
+- **Gate open since v0.2.54** (it carries #1259, the capture-list Generation
+  A). Nothing flips: `std/` already writes capture lists
+  (`io.async({ handle, ms }(io : Io) => ...)` in `std/async/index.yo`,
+  `std/net/tcp.yo`, `std/thread.yo`), and further adoption is ordinary
+  editing, not a seed-gated step.
 
 ## Seed-gated follow-up (2026-10-06): the `Send`/`Sync` split's std bounds
 
@@ -271,11 +287,14 @@ structural `Copy` and `Clone`, the raw-pointer clone clash, and the
 - **Next seed (once `SEED_VERSION` carries the sweep PR):** add
   `derive(Io, Copy, Clone)` to the prelude. `Io`'s derived `Clone` calls
   `.clone()` on its `fn` fields, which only the structural `clone()` resolves.
+  **DONE** (`std/prelude.yo`, `derive(Io, Copy, Clone)`).
 - The flip: `type_requires_explicit_copy(T)` becomes `!(T <: Copy)`, with
   control-bound records, C opaque types and compile-time-only types outside
   it; after the function-body `derive` fix and `markdown_yo`'s upstream
-  derives.
-- Delete `MoveOnly`.
+  derives. **The flip itself DONE in #1280** (v0.2.56: a plain type without
+  `Copy` copies only explicitly). What is left of it is tracked by
+  `plans/VALUES_BY_DEFAULT.md` decision 36 and V2b, not by a seed gate.
+- Delete `MoveOnly`. **DONE in #1281** (v0.2.56).
 ## Seed-gated follow-up (2026-10-05): rename the shared cell `Box` to `Rc`
 
 `plans/VALUES_BY_DEFAULT.md` §6 V1 step 1. The rename is NOT plain std code
@@ -317,6 +336,9 @@ to resolve in the tree's prelude.
 - **Part 2 (once `SEED_VERSION` ≥ the release carrying part 1):**
   - delete the prelude `Box`/`box`;
   - delete the `Box` row from `shared_cell_names_at`.
+- **Part 2 DONE in #1273** (v0.2.56). `shared_cell_names_at` has the `Rc` row
+  only. The prelude `Box(V)` defined today is V1 step 2's unique cell, a
+  different type (see "`src/` moves back to the unique `Box`" below).
 
 ## Seed-gated follow-up (2026-10-13): rename `Dispose` to `Drop` (VALUES_BY_DEFAULT decision 45)
 
@@ -447,6 +469,11 @@ before then:
 - `tests/index.test.yo` moves its local `VIndex`/`VIndexMut` cases onto the
   prelude traits.
 
+**Generation B DONE in #1361** (v0.2.63; `plans/VALUES_BY_DEFAULT.md` V2b):
+the prelude `Index`/`IndexMut` and `IndexUnchecked`/`IndexUncheckedMut` have
+the projection shapes, every std impl is split, and `String` has a read-only
+byte index.
+
 ## Seed-gated follow-up (2026-10-12): `src/` moves back to the unique `Box`
 
 `plans/VALUES_BY_DEFAULT.md` §6 V1 step 2. Generation A
@@ -472,6 +499,12 @@ use one yet.
   `evaluator/exprs/runtime.yo` (and its twin in
   `evaluator/effects/mutation_summary.yo`) gets a re-pointed borrow.
 
+**Generation B DONE in #1354** (v0.2.63), as built rather than as listed. The
+verifier's local cells are the unique `Box`. The ref-handle owner chains and
+`consumed_at_token` drop their cell entirely (`Option(Self)`,
+`Option(Token)`). `FuncMeta` and `DocModule` stay `Rc` (V1 Step 2's "as
+built" in `plans/VALUES_BY_DEFAULT.md` says why).
+
 ## Seed-gated follow-up (2026-10-06): local borrows (VALUES_BY_DEFAULT V3)
 
 **Generation A DONE 2026-10-06** (feat/vbd-local-borrows): the compiler
@@ -487,6 +520,9 @@ nothing to flip. `std/` and `src/` may then write `imm(y) :=` and re-points
 evaluates `mut(cur) = place` as a call of an unknown `mut`). No `std/` or
 `src/` site uses a local borrow today, so the new exclusivity rules need no
 migration there.
+
+**Gate open since v0.2.54** (it carries #1255). Nothing flips. Decision 42
+has since respelled the forms (`y := &place`, `cur = &mut place`).
 
 ## Seed-gated follow-up (2026-10-01): `ArrayList.push` states its elements
 
@@ -675,6 +711,10 @@ std's spawn against ITS runtime, which has both symbols).
   nine-argument builtin, drop the literal from `std/build.yo` and the slot from
   `evaluate_yo_build_functions`. Failure mode if early: LOUD (`build.doc`
   reports too few arguments while the seed evaluates the build file).
+  **Not actionable (2026-10-20):** the nine-argument builtin was never built.
+  The tree's `evaluate_yo_build_functions` still requires ten arguments
+  (`__yo_build_doc expects 10 arguments`) and reads slot 5. A Generation A
+  that accepts nine has to land and ship first.
 
 - **`TestSuite.verbose/bail/parallel` (B13, 2026-09-12):** `std/build.yo` passes
   seven arguments to `__yo_build_test`; `_build_require_args` is a MINIMUM
@@ -698,4 +738,6 @@ std's spawn against ITS runtime, which has both symbols).
   fixed in the tree). `src/codegen/chunk_assembly.yo` imports BOTH collections,
   so `yo build` under that seed would hit the collision. Apply the trim once
   the seed carries the fix; failure mode if early: LOUD (`Type mismatch for
-  type member "error"` in `HashSet._resize`).
+  type member "error"` in `HashSet._resize`). **DONE in #374** (v0.2.21;
+  first landed as #370, reverted by #371): neither variant exists in
+  `std/collections/`.
