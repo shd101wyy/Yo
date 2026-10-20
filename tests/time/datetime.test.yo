@@ -338,17 +338,23 @@ test("Ord compares instants", {
   assert(early >= early, "reflexive >=");
   assert(early <= early, "reflexive <=");
 });
-test("DateTime.now honours TZ: Asia/Tokyo is +09:00", {
+test("DateTime.now honours TZ: JST-9 is +09:00", {
   // issues/fixed/datetime-now-returned-utc-and-called-it-local.md — `now()`
   // returned `now_utc()`. This must be the FIRST local-time call in the
   // batch: the C library reads TZ once, on its first conversion.
+  //
+  // `JST-9` is a POSIX TZ rule (name, offset west of UTC), which the C library
+  // parses without a zone database. A zone NAME (`Asia/Tokyo`) needs the
+  // database where that libc looks, and a nix-built glibc looks under its own
+  // store path, so the offset came back 0 there
+  // (issues/fixed/2026-10-18-three-language-tests-fail-in-a-nix-shell-sandbox.md).
   cond(
     (platform == Platform.Windows) => (),
-    // MSVC's TZ syntax differs ("JST-9"); the consistency test below covers Windows
+    // the MSVC CRT's TZ handling is not exercised here; the consistency test below covers Windows
     (arch == Arch.Wasm32) => (),
     // wasi-libc / emscripten ship no zone database: the offset is 0 there by design
     true => {
-      env.set("TZ", "Asia/Tokyo");
+      env.set("TZ", "JST-9");
       local := DateTime.now();
       assert(local.utc_offset_secs == i32(32400), "+09:00");
       assert(local.to_string().ends_with(`+09:00`), "rendered with the offset, not Z");
