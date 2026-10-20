@@ -9076,7 +9076,7 @@ Fix: wrap the call:
         // before any rule reads the arguments (helper.yo's shared rule).
         // The arguments as written, for decision 33's bare-argument rule.
         fv_written_args := fv_args;
-        fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types, &fv_param_is_ref.items, &fv_param_is_owning.items, &fv_param_labels.items, false, exn);
+        fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types.items, &fv_param_is_ref.items, &fv_param_is_owning.items, &fv_param_labels.items, false, exn);
         // An operator's operands take no marker (decision 34).
         fv_call_is_operator := match(expr, .FnCall(_, fop_f, _, fop_infix, _) => (fop_infix || match(fop_f, .Atom(_, fop_t) => (fop_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
         // Per-param `comptime(...)` flags (side table by fid) — the generic
@@ -9531,7 +9531,7 @@ Fix: wrap the call:
                 cond(
                   (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types, &forall_names)) => match(
                     resolved_param_types.get(ai),
-                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(&r_apt, &forall_names, &param_type_names, &fv_param_types, &evaled_arg_infos, &fv_eai_idx, &fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
+                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(&r_apt, &forall_names, &param_type_names, &fv_param_types.items, &evaled_arg_infos, &fv_eai_idx, &fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
                     .None => Option(TypeValue).None
                   ),
                   true => resolved_param_types.get(ai)
@@ -10006,7 +10006,7 @@ Fix: wrap the call:
           &mut fa_bound_names,
           &mut fa_bound_types,
           if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
-          &fv_param_types,
+          &fv_param_types.items,
           &fv_param_ct,
           match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => no_types()),
           &fv_pre_forall_names,
