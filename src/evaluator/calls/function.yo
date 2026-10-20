@@ -58,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -2784,7 +2784,7 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
 /// rejected (2026-10-14, the maintainer: the async `Mutex` follows Rust's
 /// `Arc<Mutex<T>>` and `lock(&self)`).
 _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
-  (labels : ArrayList(String)) = ArrayList(String).new();
+  (labels : SharedList(String)) = no_labels();
   (self_ty : Option(TypeValue)) = Option(TypeValue).None;
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
@@ -4917,8 +4917,8 @@ _fv_bind_unbound_forall_placeholders :: (
 /// `i32`), appended to `out`.
 _phantom_binder_args :: (fn(decl : &TypeValue, arg : &TypeValue, name : &String, out : &mut ArrayList(TypeValue)) -> unit)({
   (flags : ArrayList(bool)) = ArrayList(bool).new();
-  (d_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-  (a_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  (d_tas : SharedList(TypeValue)) = no_types();
+  (a_tas : SharedList(TypeValue)) = no_types();
   match(
     decl,
     Rc(.EnumT({ id : d_id, type_arguments : dt })) => match(

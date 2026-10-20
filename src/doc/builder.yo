@@ -29,7 +29,7 @@
 } :: import("./model.yo");
 { DocExtractionResult } :: import("./extractor.yo");
 { parse_doc_comment } :: import("./sections.yo");
-{ TypeValue, no_types, no_labels } :: import("../types/definitions.yo");
+{ TypeValue, no_types, no_labels, SharedList } :: import("../types/definitions.yo");
 {
   is_struct_type,
   is_enum_type,
@@ -3419,8 +3419,8 @@ build_doc_module :: (
   if(!is_module_type(module_type), {
     return(result);
   });
-  (ns_field_labels : ArrayList(String)) = ArrayList(String).new();
-  (ns_field_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  (ns_field_labels : SharedList(String)) = no_labels();
+  (ns_field_types : SharedList(TypeValue)) = no_types();
   match(
     module_type,
     Rc(.Struct({ field_labels, field_types })) => {

@@ -56,7 +56,7 @@
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, is_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue, no_labels, SharedList } :: import("../../types/definitions.yo");
+{ TypeValue, no_labels, SharedList, no_types } :: import("../../types/definitions.yo");
 { get_func_type, is_control_fn, is_closure_fn } :: import("../../function_value.yo");
 { is_function_type, is_pointer_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
@@ -533,8 +533,8 @@ impl(
           });
           callee_ty := get_func_type(fid.clone());
           (callee_extern : Option(String)) = Option(String).None;
-          (callee_ptypes : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-          (callee_vtypes : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+          (callee_ptypes : SharedList(TypeValue)) = no_types();
+          (callee_vtypes : SharedList(TypeValue)) = no_types();
           match(
             callee_ty,
             Rc(.Func({ param_types : cpt, meta : cm, variadic_types : cvt })) => {
@@ -547,7 +547,7 @@ impl(
           match(
             callee_extern,
             .Some(en) => {
-              if(_ms_extern_may_mutate(&en, &callee_ptypes, &callee_vtypes), {
+              if(_ms_extern_may_mutate(&en, &callee_ptypes.items, &callee_vtypes.items), {
                 return(true);
               });
             },
@@ -3170,8 +3170,8 @@ impl(
             return(m);
           });
           (callee_extern : Option(String)) = Option(String).None;
-          (cpt : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-          (cvt : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+          (cpt : SharedList(TypeValue)) = no_types();
+          (cvt : SharedList(TypeValue)) = no_types();
           match(
             get_func_type(fid.clone()),
             Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => {
@@ -3185,11 +3185,11 @@ impl(
             callee_extern,
             .Some(en) => {
               cond(
-                _msp_extern_has_callback(&cpt, &cvt) => {
+                _msp_extern_has_callback(&cpt.items, &cvt.items) => {
                   m.all = true;
                   _msp_debug_all(String.from("walk"), e);
                 },
-                _ms_extern_may_mutate(&en, &cpt, &cvt) => _MsP.roots_of_args(m, &func_expr, &args, ctx),
+                _ms_extern_may_mutate(&en, &cpt.items, &cvt.items) => _MsP.roots_of_args(m, &func_expr, &args, ctx),
                 _msp_extern_writes_first_arg(&en) => match(
                   args.get(usize(0)),
                   .Some(a0) => {
