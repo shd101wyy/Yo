@@ -2366,27 +2366,6 @@ register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)(
 lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
   g_trait_ctor_fids.get(trait_id)
 );
-/// The type arguments a parameterized trait was instantiated with, by trait
-/// id (the companion of `g_trait_ctor_fids`). A constructor call whose
-/// arguments mention a `SomeT` is not memoized (`comptime_fn.yo`'s
-/// checking-phase guard), so every evaluation of `Ord(K)` mints a TraitT with a
-/// FRESH id; (constructor funcId, arguments) is the identity those mints share
-/// (`_wcc_has_trait`, src/evaluator/types/function.yo). First stamp wins.
-(g_trait_type_args : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
-/// Record the instantiation arguments of the trait with `trait_id` (first wins).
-register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
-  match(
-    g_trait_type_args.get(trait_id.clone()),
-    .Some(_) => (),
-    .None => {
-      g_trait_type_args.insert(trait_id, args);
-    }
-  );
-});
-/// The instantiation arguments stamped for `trait_id`, if any.
-lookup_trait_type_args :: (fn(trait_id : &String) -> Option(ArrayList(TypeValue)))(
-  g_trait_type_args.get(trait_id)
-);
 /// Effective constructor func_id of a struct type: the carried
 /// `constructor_func_id`, falling back to the id-keyed stamp table (a
 /// self-recursive shell or memoized instantiation may predate the ctor
@@ -2737,8 +2716,6 @@ export(
   BranchInitRecord,
   register_trait_ctor_fid,
   lookup_trait_ctor_fid,
-  register_trait_type_args,
-  lookup_trait_type_args,
   lookup_struct_ctor_fid,
   struct_effective_ctor_fid,
   struct_fully_concrete_instance,

@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
+{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
@@ -1191,6 +1191,23 @@ _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
     _ => String.from("")
   )
 );
+/// The type arguments a parameterized trait was instantiated with, by trait
+/// id (the companion of `expr_info.yo`'s `g_trait_ctor_fids`). A constructor
+/// call whose arguments mention a `SomeT` is not memoized
+/// (`evaluate_comptime_fn_call`'s checking-phase guard), so every evaluation of
+/// `Ord(K)` mints a TraitT with a FRESH id; (constructor funcId, arguments) is
+/// the identity those mints share (`_wcc_same_instantiation`). First stamp wins.
+(g_trait_type_args : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
+/// Record the instantiation arguments of the trait with `trait_id` (first wins).
+register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
+  match(
+    g_trait_type_args.get(trait_id.clone()),
+    .Some(_) => (),
+    .None => {
+      g_trait_type_args.insert(trait_id, args);
+    }
+  );
+});
 /// Whether the traits with ids `a` and `b` are one instantiation of one
 /// parameterized trait: the same constructor funcId and pairwise equal
 /// (`type_key`) arguments. Every evaluation of `Ord(K)` with `K` a `SomeT`
@@ -1205,14 +1222,14 @@ _wcc_same_instantiation :: (fn(a : &String, b : &String) -> bool)({
     return(false);
   });
   a_args := match(
-    lookup_trait_type_args(a),
+    g_trait_type_args.get(a),
     .Some(l) => l,
     .None => {
       return(false);
     }
   );
   b_args := match(
-    lookup_trait_type_args(b),
+    g_trait_type_args.get(b),
     .Some(l) => l,
     .None => {
       return(false);
@@ -5473,7 +5490,7 @@ export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
 export(collect_wrapper_trait_somes, _substitute_wrapper_carriers, _resolve_wrapper_carriers_from_env);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
-export(_add_where_clause_constraint, _trait_has_receiver);
+export(_add_where_clause_constraint, _trait_has_receiver, register_trait_type_args);
 export(
   register_macro_quoted_params,
   register_macro_return_is_unquote,

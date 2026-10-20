@@ -37,7 +37,7 @@ body's TraitT with an occurrence-indexed id. Each method's `Ord(K)` therefore
 had a fresh id, and `_wcc_has_trait`'s id comparison never matched.
 
 **Fix:** a trait mint now records its instantiation arguments beside its
-constructor funcId (`register_trait_type_args`, `src/expr_info.yo`, stamped in
+constructor funcId (`register_trait_type_args`, `src/evaluator/types/function.yo`, stamped in
 `evaluate_comptime_fn_call` next to `register_trait_ctor_fid`), and
 `_wcc_has_trait` (`src/evaluator/types/function.yo`) also treats two traits as
 one when they share the constructor funcId and their arguments are pairwise
