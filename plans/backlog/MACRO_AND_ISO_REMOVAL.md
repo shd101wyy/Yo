@@ -21,9 +21,13 @@ Position: Yo's extension mechanisms are comptime functions, the type layer
 (comptime kinds, HKT, GADTs) and the quote/reflection layer. The macro layer —
 the two signature flags (`quote(p) : Expr` parameters, `-> unquote(Expr)`
 returns), the func-id registries, the call dispatch, and
-`Pragma.AllowMacroDef` — is deleted. What the nine live std macros do survives
-as parse-time desugars or ordinary functions, following the `if` → `cond`
-precedent (landed 2026-08-21; prelude `if` macro deleted 2026-08-30).
+`Pragma.AllowMacroDef` — is deleted. What the live std macros do survives as
+parse-time desugars or ordinary functions, following the `if` → `cond`
+precedent (landed 2026-08-21; prelude `if` macro deleted 2026-08-30) — except
+the three collection literals, whose call surface is deleted outright (B3):
+Yo is written by LLMs, and terse literals are human ergonomics an LLM author
+does not need (the `plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md`
+direction).
 
 Why the 2026-08-21 "keep" verdict no longer holds — every load-bearing fact
 behind `MACRO_POLICY.md` §1.5 has since changed direction:
@@ -108,9 +112,9 @@ mechanism left in a language moving everything else to compile-time proof.
 | `(^)` | `std/prelude.yo:10075-10131` | 0 src, 0 std; the Iso test files (A6) | deleted with Iso (A1) |
 | `Var.is_owning_the_rc_value` / `Var.has_other_aliases` | `std/prelude.yo:8239-8248` | 2, inside `(^)` itself | deleted with Iso (A1) |
 | `unsafe.drop` | `std/prelude.yo:247` | 12, all std — 11 after A1 (one sits inside `(^)`'s quoted body) | plain fn or desugar (B4) |
-| `array_list` | `std/collections/array_list.yo:1848` | 8 in `src/parser.yo` (:1235, :1585, :1586, :1603, :1754, :1783, :1824, :1915), 47 in tests | desugar (B3) |
-| `hash_map` | `std/collections/hash_map.yo:1514` | tests only | desugar (B3) |
-| `hash_set` | `std/collections/hash_set.yo:473` | tests only | desugar (B3) |
+| `array_list` | `std/collections/array_list.yo:1848` | 8 in `src/parser.yo` (:1235, :1585, :1586, :1603, :1754, :1783, :1824, :1915), 47 in tests | deleted, surface removed (B3) |
+| `hash_map` | `std/collections/hash_map.yo:1514` | tests only | deleted, surface removed (B3) |
+| `hash_set` | `std/collections/hash_set.yo:473` | tests only | deleted, surface removed (B3) |
 
 Gated user-macro fixtures (deleted or rewritten in C5): `tests/macro_def_pragma.test.yo`,
 `tests/macro_def_gate.test.yo`, `tests/internal/macro_expansion.test.yo`,
@@ -251,11 +255,13 @@ the call before name resolution, so the std names themselves stop mattering).
 
 **The retained-macro rule** (the `if` → `cond` precedent, MACRO_POLICY "What
 actually landed" item 3): the desugars land in the tree now, but the prelude
-macros STAY until a desugar-bearing release is the seed — the seed compiles
-`src/parser.yo`'s eight `array_list` sites and must keep expanding them. The
-macros also remain the fallback for anything a desugar leaves alone (odd
-arity, mismatched labels, dynamically built ASTs), so a missed path degrades
-to today's behavior instead of breaking. Part C deletes them.
+macros STAY until a desugar-bearing release is the seed. After B3 migrates
+the parser's literal sites, nothing the seed BUILDS calls any macro — the
+retention driver is the CI and tooling that runs test files with the SEED
+(the #1440 failure mode: the FV job runs Generation A test files with the
+seed, which cannot know a tree-side desugar), plus the fallback role: a
+desugar path missed (odd arity, mismatched labels, dynamically built ASTs)
+degrades to today's behavior instead of breaking. Part C deletes them.
 
 - **B1 — `for` → `desugar_for_calls`.** Add to the `desugar_if_calls` pass
   family in `src/expr.yo`, hooked at the same choke points (`parse()` in
@@ -288,13 +294,22 @@ to today's behavior instead of breaking. Part C deletes them.
   expansions (single-pass lowering); after the desugar it sees a plain
   `while` + await, which REMOVES a macro-awareness requirement rather than
   adding one.
-- **B3 — collection literals → desugar.** Rewrite `array_list(e0, e1, ...)`
-  calls to the macro's expansion shape: bind the first element to a fresh
-  local, `ArrayList(type_of(<first>)).new()`, then the pushes (the macro's
-  `__array_list_build_pushes`). `hash_map` / `hash_set` analogously; their
-  `k => v` arguments arrive as the same unevaluated AST the macro sees.
-  Non-call uses of the names (none exist) are unaffected; the exported names
-  stay until Part C.
+- **B3 — delete the collection literals outright** (maintainer, 2026-10-20:
+  Yo is written by LLMs, not humans; terse literals are human ergonomics).
+  Delete the three macros AND the call surface — no desugar. `array_list(...)`,
+  `hash_map(...)`, `hash_set(...)` become ordinary unresolved names (and
+  `hash_map`'s `k => v` argument form, the one call-argument shape that is
+  not a valid expression, leaves the language with them). Migrate every
+  caller to explicit construction: the eight `src/parser.yo` sites
+  (`ArrayList(T).with_capacity(n)` + pushes, or an ADDITIVE plain helper such
+  as an `ArrayList.from(Array(T, N))` if the churn wants one — a function,
+  never a macro), the ~47 test sites, and any docs examples or cli-case
+  fixtures (grep the whole tree). Because the surface goes away in this PR,
+  it MUST run the parse-surface escape-hatch checklist from Part C: grep
+  `.github/workflows/` for `yo test` steps a SEED runs over files that call
+  the literals and migrate those files too, and put the tree binary first on
+  `PATH` for tests embedding Yo source in string literals. No emit-diff gate
+  — there is no desugar to prove equivalent; the migrated suite is the gate.
 - **B4 — `unsafe.drop`.** It is a pure rename of `___drop`
   (`std/prelude.yo:247`). First try a plain module-value export
   (`drop :: ___drop;` in the `unsafe` impl — the same shape as the existing
@@ -314,7 +329,8 @@ to today's behavior instead of breaking. Part C deletes them.
 construct's tests one per invocation (`tests/for_macro_borrow.test.yo`,
 `for_macro_borrow_strict`, `for_macro_borrow_user_collection`, the async
 stream/channel tests, the collections suites, `tests/rc.test.yo`,
-`tests/arc.test.yo`); the emit-diff gate proving desugar ≡ macro output;
+`tests/arc.test.yo`); the emit-diff gate proving desugar ≡ macro output
+(B1/B2 only — B3 has no desugar; the migrated suite is its gate);
 `yo fmt` with the tree binary. Full fast suite before merge (this touches
 every `for` in 41 test files). Bootstrap gates (`gates_fast.sh`,
 `fixpoint_only.sh`) since the parser and prelude both changed.
@@ -337,8 +353,10 @@ every `for` in 41 test files). Bootstrap gates (`gates_fast.sh`,
   field). `macro_expand`'s wiring goes with its file: the dispatch arm
   (`src/evaluator/exprs/_expr.yo:1239-1240`), `BF_MACRO_EXPAND`
   (`src/expr.yo:70` + the `:1057` export list), and the lexer fast path
-  (`src/token.yo:143`). Delete the nine std macro
-  definitions and their exports; the desugars own the call syntax now.
+  (`src/token.yo:143`). Delete the remaining std macro
+  definitions (`for`, `for_await`, `unsafe.drop` — the literals went in B3,
+  `(^)` and `Var.*` in Part A) and their exports; the desugars own the call
+  syntax now.
 - **C3 — the lowering channel.** `pointer_type.yo:135-179` and
   `numeric_type.yo:431-461` reuse `record_macro_expansion` as a generic
   lowering channel. Convert both to an in-place AST rewrite — replace the
