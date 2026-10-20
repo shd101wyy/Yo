@@ -83,7 +83,7 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
   pc-windows-msvc and unknown-linux-gnu, and `yolang-0.2.67.vsix`. The 63 diagnostic codes are unique at the tag.
 - **SEED bump:** `d18b3a274` (`ci: bump SEED_VERSION to v0.2.67`) moved all five pins (`test.yml`, `release.yml`, `ubsan.yml`,
   `fixpoint-arm64.yml`, `leak-verdict.yml`); its battery, run 39450161481, is the first to run S1 on the new codegen and ran
-  uncancelled: SEED-BATTERY-RESULT.
+  uncancelled; every job was green except three macOS-intel suite shards still running when this handover merged (maintainer, 2026-10-21: do not wait for it).
 
 ### 2.2 Merge ledger (v0.2.66 tag → v0.2.67)
 
