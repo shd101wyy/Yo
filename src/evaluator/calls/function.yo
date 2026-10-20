@@ -9164,7 +9164,7 @@ Fix: wrap the call:
         // infer enum variant type".
         fv_func_type := fv_callee_ty;
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
-        (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
+        (resolved_param_types : SharedList(TypeValue)) = fv_param_types;
         (rpt_from_expected : bool) = false;
         // The binders the expected type alone fixes (bound below when no
         // argument binds them).
@@ -9177,7 +9177,7 @@ Fix: wrap the call:
               rpt_holder := ArrayList(TypeValue).new();
               resolve_param_types_from_expected(&fv_func_type, &fv_exp.ty, &fv_exp.env, env, ctx, &mut rpt_holder, &mut fv_exp_forall_names, &mut fv_exp_forall_types);
               if(rpt_holder.len() == fv_param_types.len(), {
-                resolved_param_types = rpt_holder;
+                resolved_param_types = shared_list(rpt_holder);
                 rpt_from_expected = true;
               });
             },
@@ -9220,7 +9220,7 @@ Fix: wrap the call:
         // bool result for T = i32
         // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
         // The per-argument lists are put back in source order after the loop.
-        fv_eval_order := _fv_argument_eval_order(&fv_args, n_p, &resolved_param_types, &forall_names);
+        fv_eval_order := _fv_argument_eval_order(&fv_args, n_p, &resolved_param_types.items, &forall_names);
         fv_reordered := _fv_order_is_permuted(&fv_eval_order);
         // An `undefined` argument pins source order AND disables refinement
         // (see _fv_argument_eval_order).
@@ -9529,7 +9529,7 @@ Fix: wrap the call:
               .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
               .None => match(
                 cond(
-                  (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types, &forall_names)) => match(
+                  (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types.items, &forall_names)) => match(
                     resolved_param_types.get(ai),
                     .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(&r_apt, &forall_names, &param_type_names, &fv_param_types.items, &evaled_arg_infos, &fv_eai_idx, &fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
                     .None => Option(TypeValue).None
@@ -10005,7 +10005,7 @@ Fix: wrap the call:
           n_forall,
           &mut fa_bound_names,
           &mut fa_bound_types,
-          if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
+          if(rpt_from_expected, resolved_param_types.items, ArrayList(TypeValue).new()),
           &fv_param_types.items,
           &fv_param_ct,
           match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => no_types()),
