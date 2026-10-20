@@ -144,7 +144,8 @@ The holder rows do not change. The fix touches only an enum ROOT that the
 walk meets again after a re-root. A holder's answer is the other defect,
 `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
 
-The compiler's own C does not change. The only reference enums in `src/` and
+The compiler's own C should not change (argued, not measured: no emitted-C diff or
+stage-2 RSS was run). The only reference enums in `src/` and
 `std/` are `EvalValue`, `AstExpr`, `VcTerm` and `VcSort`. Each has a direct
 `Self` payload, so the walk already answered `true` for them before the fix.
 
