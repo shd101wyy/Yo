@@ -248,6 +248,15 @@ with the rebased binary BEFORE reading any RSS number. If
 `ArrayList(AstExpr)` still reads `true`, stop and understand why before
 going further.
 
+**Re-probed after the rebase (2026-10-20, Linux x86_64).** The stack was
+rebased onto develop `7def2203b` (after #1501) and the table re-run with
+the rebased tree-built binary. The "#1486" column is that binary on
+develop's own tree, which carries no declarations; the "declared" column
+is the same binary on the rebased branch. Every row reads as above, so
+#1501 changed no verdict. `ArrayList(AstExpr)` reads `true` without the
+declaration and `false` with it, and the same holds for the other declared
+families. `JsonObjBuilder` and `PendingDef` read `true` in both columns.
+
 One observation from the replicas: a reference-struct holder of a
 cycle-capable reference enum (`ref(struct(e : X))`) reads `false`, while a
 holder of that enum's list (`ref(struct(xs : ArrayList(X)))`) reads `true`
