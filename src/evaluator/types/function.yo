@@ -1208,6 +1208,17 @@ register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)
     }
   );
 });
+/// Forget every recorded instantiation. Called where a COLD compile resets
+/// the id counters (`stable_occurrence_reset`, `run_compile`): trait ids are
+/// occurrence-shaped, so a later compile in the same process (the LSP,
+/// `check --watch`) can re-mint an id this table already holds, and first
+/// stamp wins would answer it with the earlier compile's arguments. A trait
+/// minted before the reset and compared after it finds no entry, which only
+/// keeps a duplicate bound (`_wcc_same_instantiation` answers false).
+reset_trait_type_args :: (fn() -> unit)({
+  g_trait_type_args.clear();
+  ()
+});
 /// Whether the traits with ids `a` and `b` are one instantiation of one
 /// parameterized trait: the same constructor funcId and pairwise equal
 /// (`type_key`) arguments. Every evaluation of `Ord(K)` with `K` a `SomeT`
@@ -5490,7 +5501,7 @@ export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
 export(collect_wrapper_trait_somes, _substitute_wrapper_carriers, _resolve_wrapper_carriers_from_env);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
-export(_add_where_clause_constraint, _trait_has_receiver, register_trait_type_args);
+export(_add_where_clause_constraint, _trait_has_receiver, register_trait_type_args, reset_trait_type_args);
 export(
   register_macro_quoted_params,
   register_macro_return_is_unquote,
