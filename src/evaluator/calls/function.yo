@@ -2671,7 +2671,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     labels := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
       .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
-      .None => ArrayList(String).new()
+      .None => no_labels()
     );
     tok := ast_expr_token(expr);
     // A field holding a function value called as `s.f(args)` has no
@@ -2855,10 +2855,10 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
     .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
-    .None => ArrayList(String).new()
+    .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
-  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
@@ -2940,10 +2940,10 @@ _future_call_lends_into :: (
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
     .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
-    .None => ArrayList(String).new()
+    .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
-  arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels);
+  arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels.items);
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(leaf_bs, &self_label), {
@@ -2985,9 +2985,9 @@ _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(As
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
     .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
-    .None => ArrayList(String).new()
+    .None => no_labels()
   );
-  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
   // The lends of each argument, and whether it is a future operand.
   lends := ArrayList(ArrayList(_FutureLend)).new();
   is_operand := ArrayList(bool).new();
@@ -3098,10 +3098,10 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
     .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
-    .None => ArrayList(String).new()
+    .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
-  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
@@ -9018,7 +9018,7 @@ Fix: wrap the call:
               _ => no_labels()
             )
           ),
-          .None => ArrayList(String).new()
+          .None => no_labels()
         );
         fv_param_is_ref := match(
           callee_info_opt,
@@ -9037,7 +9037,7 @@ Fix: wrap the call:
               .None => no_flags()
             )
           ),
-          .None => ArrayList(bool).new()
+          .None => no_flags()
         );
         // Aliasing Stage 0: drops synthesized for projection args in THIS
         // call's inline arg loop; merged into the call's ExprInfo below.
@@ -9061,7 +9061,7 @@ Fix: wrap the call:
               _ => no_flags()
             )
           ),
-          .None => ArrayList(bool).new()
+          .None => no_flags()
         );
         fv_param_is_sink := match(
           callee_info_opt,
@@ -9076,7 +9076,7 @@ Fix: wrap the call:
         // before any rule reads the arguments (helper.yo's shared rule).
         // The arguments as written, for decision 33's bare-argument rule.
         fv_written_args := fv_args;
-        fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types, &fv_param_is_ref, &fv_param_is_owning, &fv_param_labels, false, exn);
+        fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types, &fv_param_is_ref.items, &fv_param_is_owning.items, &fv_param_labels.items, false, exn);
         // An operator's operands take no marker (decision 34).
         fv_call_is_operator := match(expr, .FnCall(_, fop_f, _, fop_infix, _) => (fop_infix || match(fop_f, .Atom(_, fop_t) => (fop_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
         // Per-param `comptime(...)` flags (side table by fid) — the generic
@@ -9705,7 +9705,7 @@ Fix: wrap the call:
                   env,
                   ctx,
                   exn,
-                  argument_is_aliased_by_inout(&arg_expr_eff, fv_p_is_ref, inout_argument_roots(&fv_args, &fv_param_is_ref)),
+                  argument_is_aliased_by_inout(&arg_expr_eff, fv_p_is_ref, inout_argument_roots(&fv_args, &fv_param_is_ref.items)),
                   fv_p_sink,
                   _param_accepts_second_class(
                     expr,
@@ -9982,7 +9982,7 @@ Fix: wrap the call:
         recv_type_args := match(
           _static_dot_receiver_self_type(&func_expr, ctx),
           .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => no_types()),
-          .None => ArrayList(TypeValue).new()
+          .None => no_types()
         );
         // Infer generic type params from argument types.
         n_forall := forall_names.len();
@@ -9999,7 +9999,7 @@ Fix: wrap the call:
           &evaled_arg_infos,
           fv_capture_source(&__fvm7.*),
           &cap_vals,
-          &recv_type_args,
+          &recv_type_args.items,
           &fresh_env,
           env,
           n_forall,
@@ -10057,18 +10057,18 @@ Fix: wrap the call:
         // evaluation so the chain types are resolved); this inline FuncVal
         // arm is a second call path, so the gate runs here too.
         require_ref_own_argument_exclusivity(
-          &fv_param_labels,
-          &fv_param_is_ref,
-          &fv_param_is_owning,
+          &fv_param_labels.items,
+          &fv_param_is_ref.items,
+          &fv_param_is_owning.items,
           &fv_args,
           env,
           ctx,
           exn
         );
-        require_valid_ref_argument_places(&fv_param_is_ref, &fv_args, env, ctx, exn);
-        require_capture_borrow_exclusivity(&fv_param_is_ref, &fv_param_is_owning, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
+        require_valid_ref_argument_places(&fv_param_is_ref.items, &fv_args, env, ctx, exn);
+        require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
         fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
-        require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels, &fv_param_is_ref, &fv_args, fv_returns_place, env, ctx);
+        require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
         // its recorded default value (typed by its declared type) so the
@@ -10770,7 +10770,7 @@ Fix: wrap the call:
                 _ => rl_t
               )
             );
-            resolved_ret_ct = _rlv(&resolved_ret_ct, &fv_param_labels, &evaled_arg_infos);
+            resolved_ret_ct = _rlv(&resolved_ret_ct, &fv_param_labels.items, &evaled_arg_infos);
           };
           out_ct := new_expr_info(&ct_result.caller_env, &resolved_ret_ct);
           // A RUNTIME-ONLY UnknownVal here means the CTFE body was NOT

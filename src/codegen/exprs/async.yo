@@ -4011,8 +4011,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     // capture struct's field labels — each captured field is the same-named
     // variable in scope at the io.async call site. (The closure `value` is a
     // function reference, not a capture struct, so it cannot be used here.)
-    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels()), .None => ArrayList(String).new());
-    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => no_types()), .None => ArrayList(TypeValue).new());
+    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels()), .None => no_labels());
+    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => no_types()), .None => no_types());
     lit := String.from("(");
     lit.push_string(ccn.clone());
     lit.push_str("){ ");
