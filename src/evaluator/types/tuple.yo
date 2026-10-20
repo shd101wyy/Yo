@@ -17,7 +17,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -158,7 +158,7 @@ evaluate_tuple_type :: (
     j = (j + usize(1));
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForTupleType stub — no-op for now.
-  tuple_ty := rc(TypeValueNode.Tuple(result.field_labels, result.field_types));
+  tuple_ty := rc(TypeValueNode.Tuple(shared_list(result.field_labels), shared_list(result.field_types)));
   tuple_val := create_type_value(&tuple_ty);
   meta_ty := type_of_type(&tuple_ty);
   out_info := new_expr_info(&env, &meta_ty);

@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
   add_variable_to_env,
   synthetic_token
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_with_resolution } :: import("../../types/creators.yo");
 { are_types_compatible }
 :: import("../../types/compatibility.yo");
@@ -192,7 +192,7 @@ try_to_implement_closure_by_fn_module_type :: (
     TypeValueNode.Func(
       no_types(),
       // forall_types
-      param_types.clone(),
+      shared_list(param_types.clone()),
       no_types(),
       // implicit_types
       no_types(),
@@ -201,11 +201,11 @@ try_to_implement_closure_by_fn_module_type :: (
       rc(
         FuncMeta(
           forall_labels : no_labels(),
-          param_labels : param_labels.clone(),
+          param_labels : shared_list(param_labels.clone()),
           implicit_labels : no_labels(),
           result_is_comptime_only : false,
           // a runtime closure call type; `inout` call params carry through
-          param_is_ref : param_is_ref_flags.clone(),
+          param_is_ref : shared_list(param_is_ref_flags.clone()),
           param_is_owning : no_flags(),
           // no `own` params in synthesized closure call type
           result_is_ref : false,

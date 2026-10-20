@@ -6928,7 +6928,7 @@ _instantiate_struct_over_closure_args :: (
       if(rep_ids.len() == usize(0), {
         return(st);
       });
-      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts.items, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas.items, &rep_ids, &rep_tys), ic_sns))
+      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, shared_list(_replace_some_ids(&ic_fts.items, &rep_ids, &rep_tys)), ic_ref, ic_at, ic_nt, ic_cfid, shared_list(_replace_some_ids(&ic_tas.items, &rep_ids, &rep_tys)), ic_sns))
     },
     _ => st
   )
@@ -9066,10 +9066,10 @@ Fix: wrap the call:
           callee_info_opt,
           .Some(ci_s) => match(
             ci_s.ty,
-            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new()),
-            _ => ArrayList(bool).new()
+            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => no_flags()),
+            _ => no_flags()
           ),
-          .None => ArrayList(bool).new()
+          .None => no_flags()
         );
         // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
         // before any rule reads the arguments (helper.yo's shared rule).

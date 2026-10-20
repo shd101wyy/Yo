@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -4731,16 +4731,16 @@ evaluate_function_type :: (
       return_type,
       rc(
         FuncMeta(
-          shared_list(forall_labels) : forall_labels,
-          shared_list(param_labels) : param_labels,
-          shared_list(implicit_labels) : implicit_labels,
+          forall_labels : shared_list(forall_labels),
+          param_labels : shared_list(param_labels),
+          implicit_labels : shared_list(implicit_labels),
           // result_is_comptime_only — set from the `comptime(...)` wrapper on
           // the declared return.
           result_is_comptime_only : is_return_comptime_only,
-          // shared_list(param_is_ref) / param_is_owning / result_is_ref — the per-parameter
+          // param_is_ref / param_is_owning / result_is_ref — the per-parameter
           // ref/own flags and the return ref flag.
-          param_is_ref : param_is_ref,
-          shared_list(param_is_owning) : param_is_owning,
+          param_is_ref : shared_list(param_is_ref),
+          param_is_owning : shared_list(param_is_owning),
           result_is_ref : is_return_type_ref,
           result_is_mut_ref : is_return_type_mut_ref,
           // has_variadic — set from the trailing `...` marker (C-style
@@ -4767,7 +4767,7 @@ evaluate_function_type :: (
           // does explicitly.
           origin_id : Option(String).Some(ast_expr_id(expr).to_string()),
           // param_is_sink — the `sink(x)` flags, read by callers only.
-          param_is_sink : Option(ArrayList(bool)).Some(param_is_sink)
+          param_is_sink : Option(SharedList(bool)).Some(shared_list(param_is_sink))
         )
       ),
       shared_list(vts_mint)

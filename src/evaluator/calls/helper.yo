@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -4688,7 +4688,7 @@ create_specialized_function_inline :: (
               sp_rico := __fm5.*.result_is_comptime_only;
               sp_pir := __fm5.*.param_is_ref;
               sp_pio := __fm5.*.param_is_owning;
-              sp_pis := match(__fm5.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new());
+              sp_pis := match(__fm5.*.param_is_sink, .Some(l) => l, .None => no_flags());
               sp_rir := __fm5.*.result_is_ref;
               sp_rimr := __fm5.*.result_is_mut_ref;
               sp_hv := __fm5.*.has_variadic;
@@ -5291,7 +5291,7 @@ create_specialized_function_inline :: (
                       is_control : sp_ic,
                       variadic_label : Option(String).None,
                       variadic_comptime : false,
-                      param_is_sink : Option(ArrayList(bool)).Some(sp_pis_f)
+                      param_is_sink : Option(SharedList(bool)).Some(shared_list(sp_pis_f))
                     )
                   ),
                   no_types()
@@ -6908,7 +6908,7 @@ try_to_call_function_with_arguments :: (
       fl := __fm8.*.forall_labels;
       pl := __fm8.*.param_labels;
       pio := __fm8.*.param_is_owning;
-      pis := match(__fm8.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new());
+      pis := match(__fm8.*.param_is_sink, .Some(l) => l, .None => no_flags());
       pref := __fm8.*.param_is_ref;
       il := __fm8.*.implicit_labels;
       fn_has_variadic := __fm8.*.has_variadic;
