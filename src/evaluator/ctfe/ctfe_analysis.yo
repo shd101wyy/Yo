@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_where_constraints,
   copy_func_contract_exprs
 } :: import("../types/function.yo");
-{ TypeValue, TypeValueNode, FuncMeta, no_types, no_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_flags, no_labels } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -87,11 +87,11 @@ _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// Returns `.None` when the return type cannot be promoted, which is one of the
 /// ways CTFE is simply not available for a function.
 create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue))({
-  forall_labels := match(func_type, Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels, _ => ArrayList(String).new());
+  forall_labels := match(func_type, Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels, _ => no_labels());
   forall_types := match(func_type, Rc(.Func({ forall_types : ft })) => ft, _ => no_types());
-  param_labels := match(func_type, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels, _ => ArrayList(String).new());
+  param_labels := match(func_type, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels, _ => no_labels());
   param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
-  implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
+  implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.*.implicit_labels, _ => no_labels());
   implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => it, _ => no_types());
   where_types := match(func_type, Rc(.Func({ where_types : wt })) => wt, _ => no_types());
   result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
@@ -114,7 +114,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
               result_is_comptime_only : true,
               param_is_ref : no_flags(),
               // preserve the original's metadata below
-              param_is_owning : match(func_type, Rc(.Func({ meta : m })) => m.*.param_is_owning, _ => ArrayList(bool).new()),
+              param_is_owning : match(func_type, Rc(.Func({ meta : m })) => m.*.param_is_owning, _ => no_flags()),
               result_is_ref : false,
               has_variadic : match(func_type, Rc(.Func({ meta : m })) => m.*.has_variadic, _ => false),
               is_extern : match(func_type, Rc(.Func({ meta : m })) => m.*.is_extern, _ => Option(String).None),
@@ -407,7 +407,7 @@ analyze_ctfe_capability :: (
     _ => false
   );
   // Skip generic functions — they need specialisation first.
-  forall_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.forall_labels, _ => ArrayList(String).new());
+  forall_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.forall_labels, _ => no_labels());
   param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
   result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   // Any param type or the return type prohibiting the comptime modifier
@@ -455,7 +455,7 @@ analyze_ctfe_capability :: (
           // The body sees every capture's value; the clone keeps the original's
           // (empty when it reads its handles, §0.16).
           cap_val_list := match(func_value, .FuncVal(__fvd4, cv4) => fv_capture_vals(&__fvd4.*, &cv4), _ => ArrayList(EvalValue).new());
-          param_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.param_labels, _ => ArrayList(String).new());
+          param_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.param_labels, _ => no_labels());
           ok := ArrayList(bool).new();
           // SAVE/RESTORE THE CTFE CONTEXT FLAGS HERE, not only inside
           // `_eval_body_for_ctfe`. That function restores them after the body

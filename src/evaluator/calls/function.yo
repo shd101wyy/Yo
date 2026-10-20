@@ -2670,7 +2670,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // The callee's parameter labels name the assumed borrows.
     labels := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
-      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
       .None => ArrayList(String).new()
     );
     tok := ast_expr_token(expr);
@@ -2854,7 +2854,7 @@ _future_call_receiver_offset :: (fn(op_callee : &AstExpr, op_args : &ArrayList(A
 _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
     .None => ArrayList(String).new()
   );
   labels_known := (labels.len() > usize(0));
@@ -2939,7 +2939,7 @@ _future_call_lends_into :: (
 )({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
     .None => ArrayList(String).new()
   );
   labels_known := (labels.len() > usize(0));
@@ -2984,7 +2984,7 @@ _future_call_lends_into :: (
 _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
     .None => ArrayList(String).new()
   );
   arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
@@ -3097,7 +3097,7 @@ _lent_place_string :: (fn(lp : &_LentPlace) -> String)({
 _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
     .None => ArrayList(String).new()
   );
   labels_known := (labels.len() > usize(0));
@@ -11172,7 +11172,7 @@ Fix: wrap the call:
           // own binder list; the gate inside the helper is unchanged.
           m_callee_ty := _freshen_generic_closure_callee(
             &method_info.method_ty,
-            match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => ArrayList(String).new())
+            match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => no_labels())
           );
           all_args := ArrayList(AstExpr).new();
           if(!method_info.is_static, {

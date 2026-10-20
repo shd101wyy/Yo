@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -1266,12 +1266,12 @@ evaluate_anonymous_function_implementation :: (
   forall_labels := match(
     function_type,
     Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   param_labels := match(
     function_type,
     Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   (param_types : ArrayList(TypeValue)) = match(
     function_type,
@@ -1288,7 +1288,7 @@ evaluate_anonymous_function_implementation :: (
   param_is_ref := match(
     function_type,
     Rc(.Func({ meta : __fm3 })) => __fm3.*.param_is_ref,
-    _ => ArrayList(bool).new()
+    _ => no_flags()
   );
   // The expected type's by-value flags (V3b's flip, decision 30): a closure
   // parameter typed by value owns its argument, exactly as a `fn`
@@ -1296,12 +1296,12 @@ evaluate_anonymous_function_implementation :: (
   param_is_owning := match(
     function_type,
     Rc(.Func({ meta : __fm3o })) => __fm3o.*.param_is_owning,
-    _ => ArrayList(bool).new()
+    _ => no_flags()
   );
   implicit_labels := match(
     function_type,
     Rc(.Func({ meta : __fm4 })) => __fm4.*.implicit_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   implicit_types := match(
     function_type,

@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -3759,7 +3759,7 @@ create_specialized_function_inline :: (
           decl_param_is_ref := match(
             func_type,
             Rc(.Func({ meta : __fm_rb })) => __fm_rb.*.param_is_ref,
-            _ => ArrayList(bool).new()
+            _ => no_flags()
           );
           // The re-bind is NON-owning even for an `own(p)` parameter, and
           // that is load-bearing, not an oversight: it re-binds only a
@@ -5631,7 +5631,7 @@ evaluate_ctl_function_body_inline :: (
   forall_labels := match(
     func_type,
     Rc(.Func({ meta : __fm6 })) => __fm6.*.forall_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   forall_types_list := match(
     func_type,
@@ -6097,7 +6097,7 @@ resolve_param_types_from_expected :: (
   ) -> unit
 )({
   default_pts := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
-  forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => __fm7.*.forall_labels, _ => ArrayList(String).new());
+  forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => __fm7.*.forall_labels, _ => no_labels());
   ret_b := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   if(forall_lbls.len() == usize(0), {
     return(());
@@ -8371,17 +8371,17 @@ try_to_call_function_with_arguments :: (
       vrf_param_labels := match(
         func_type,
         Rc(.Func({ meta : __fm9 })) => __fm9.*.param_labels,
-        _ => ArrayList(String).new()
+        _ => no_labels()
       );
       vrf_param_is_ref := match(
         func_type,
         Rc(.Func({ meta : __fm10 })) => __fm10.*.param_is_ref,
-        _ => ArrayList(bool).new()
+        _ => no_flags()
       );
       vrf_param_is_owning := match(
         func_type,
         Rc(.Func({ meta : __fm11 })) => __fm11.*.param_is_owning,
-        _ => ArrayList(bool).new()
+        _ => no_flags()
       );
       require_ref_own_argument_exclusivity(
         &vrf_param_labels,
@@ -8692,7 +8692,7 @@ try_to_call_function_with_arguments :: (
                   rte9_labels := match(
                     func_type,
                     Rc(.Func({ meta : __fm9b })) => __fm9b.*.param_labels,
-                    _ => ArrayList(String).new()
+                    _ => no_labels()
                   );
                   rte9_p0_is_self := match(rte9_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false);
                   if(rte9_p0_is_self, {
