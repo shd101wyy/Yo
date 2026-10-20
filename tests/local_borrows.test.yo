@@ -598,7 +598,7 @@ comptime_expect_error(
     cur := &mut flag;
     probe := flag;
     cond(
-      (cur.* == true) => (),
+      (cur == true) => (),
       true => ()
     );
     probe;
@@ -606,6 +606,39 @@ comptime_expect_error(
   }),
   "with `&mut` and is still live"
 );
+comptime_expect_error(
+  a_match_guard_still_uses_the_borrow :: (fn() -> unit)({
+    (mut(flag) : bool) = true;
+    cur := &mut flag;
+    probe := flag;
+    other := Option(i32).Some(i32(1));
+    match(
+      other,
+      (.Some(x) && (cur == true)) => (),
+      _ => ()
+    );
+    probe;
+    ()
+  }),
+  "with `&mut` and is still live"
+);
+// A `match` binding whose only use is an `if` condition in its arm (the
+// compiler's own switch-group lowering, `src/evaluator/exprs/match.yo`):
+// `if` desugars to a `cond`, the condition is the binding's last use, and
+// the arm body may write a field of the object the scrutinee lives in
+// (`issues/fixed/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
+GroupArm :: ref(struct(pattern : Option(usize), classic : bool));
+test("a match binding used only in an if condition ends at the condition", {
+  fa := GroupArm(pattern : .Some(usize(1)), classic : true);
+  match(
+    &fa.pattern,
+    .Some(fidx) => if(fidx == usize(1), {
+      fa.classic = false;
+    }),
+    .None => ()
+  );
+  assert(!fa.classic, "the arm wrote the sibling field after the binding's last use");
+});
 
 // `.*` on a borrow names no place: a borrow is a mode on the binding, not a
 // type, and it reads as its value; `.*` on a borrow arrives with decision 43.

@@ -6147,6 +6147,23 @@ _lb_binds_name_from :: (fn(args : &ArrayList(AstExpr), from : usize, name : &Str
 _lb_is_arrow_literal :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "->", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, "=>>", Option(usize).Some(usize(2)))
 );
+/// `e` is an arrow literal whose left side binds `name` (a closure parameter
+/// list or a `match` arm pattern): its mentions of `name` are of that new
+/// binding, so the whole literal is no use of the borrow. A `cond` arm
+/// (`in_cond_arm`) never shadows: its left side is a condition. An arrow
+/// literal that does not bind `name` is scanned whole, left side included, so
+/// a `match` guard `(p && (g))` that reads the borrow is a use
+/// (the rule in
+/// `issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`).
+_lb_arrow_shadows :: (fn(e : &AstExpr, name : &String, in_cond_arm : bool) -> bool)(
+  !in_cond_arm && (
+    _lb_is_arrow_literal(e) && match(
+      e,
+      .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(lhs) => _lb_binds_name(&lhs, name.clone()), .None => false),
+      .Atom(_, _) => false
+    )
+  )
+);
 /// A named `fn` / `ctl` / `Fn` literal's parameter list (the callee of the
 /// applied literal) binds `name`.
 _lb_fn_literal_binds :: (fn(callee : &AstExpr, name : &String) -> bool)(
@@ -6173,21 +6190,9 @@ _lb_mentions :: (fn(e : &AstExpr, name : &String, (in_cond_arm : bool) ?= false)
     e,
     .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == name)),
     .FnCall(_, callee, args, _, _) => {
-      // An arrow literal (a closure, or a `match` arm): the left side binds.
-      if(_lb_is_arrow_literal(e), {
-        if(!in_cond_arm, {
-          return(
-            match(
-              args.get(usize(0)),
-              .Some(lhs) => if(
-                !_lb_binds_name(&lhs, name.clone()),
-                match(args.get(usize(1)), .Some(body) => _lb_mentions(&body, name.clone()), .None => false),
-                false
-              ),
-              .None => false
-            )
-          );
-        });
+      // An arrow literal (a closure, or a `match` arm) whose left side binds.
+      if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
+        return(false);
       });
       if(_lb_mentions(&callee, name.clone()), {
         return(true);
@@ -6227,23 +6232,8 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
       true => best
     ),
     .FnCall(_, callee, args, _, _) => {
-      if(_lb_is_arrow_literal(e), {
-        if(!in_cond_arm, {
-          match(
-            args.get(usize(0)),
-            .Some(lhs) => if(!_lb_binds_name(&lhs, name.clone()), {
-              match(
-                args.get(usize(1)),
-                .Some(body) => {
-                  return(_lb_last_mention(&body, name.clone(), best));
-                },
-                .None => ()
-              );
-            }, ()),
-            .None => ()
-          );
-          return(best);
-        });
+      if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
+        return(best);
       });
       if(_lb_fn_literal_binds(&callee, name.clone()), {
         return(best);
@@ -6273,7 +6263,8 @@ _lb_last_mention :: (fn(e : &AstExpr, name : &String, best : &Option(Token), (in
 _lb_region_end :: (fn(e : &AstExpr, name : &String, root : &Token) -> Token)({
   args := match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   is_block := ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None);
-  is_branch := (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
+  is_cond := ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None);
+  is_branch := (is_cond || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
   if(!(is_block || is_branch), {
     return(_last_token_of(e, root));
   });
@@ -6281,7 +6272,11 @@ _lb_region_end :: (fn(e : &AstExpr, name : &String, root : &Token) -> Token)({
   while(j > usize(0), {
     j = (j - usize(1));
     child := match(args.get(j), .Some(c) => c, .None => make_err_expr());
-    if(_lb_mentions(&child, name.clone()), {
+    // A `cond` arm's condition is a use, as in `_lb_mentions`' own walk of a
+    // `cond`: without the flag the arm reads as a closure, its condition is
+    // skipped, and an `if(b == t, { … })` whose only mention is the condition
+    // falls back to the whole `cond` (`issues/fixed/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`).
+    if(_lb_mentions(&child, name.clone(), is_cond && _lb_is_arrow_literal(&child)), {
       // A branch arm `pattern => body`: the body, or the pattern/condition.
       if(is_branch && ast_expr_is_fn_call_of(&child, "=>", Option(usize).Some(usize(2))), {
         arm_args := match(child, .FnCall(_, _, aa, _, _) => aa, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -6302,20 +6297,8 @@ _lb_has_repoint :: (fn(e : &AstExpr, name : &String, (in_cond_arm : bool) ?= fal
     e,
     .Atom(_, _) => false,
     .FnCall(_, callee, args, _, _) => {
-      if(_lb_is_arrow_literal(e), {
-        if(!in_cond_arm, {
-          return(
-            match(
-              args.get(usize(0)),
-              .Some(lhs) => if(
-                !_lb_binds_name(&lhs, name.clone()),
-                match(args.get(usize(1)), .Some(body) => _lb_has_repoint(&body, name.clone()), .None => false),
-                false
-              ),
-              .None => false
-            )
-          );
-        });
+      if(_lb_arrow_shadows(e, name.clone(), in_cond_arm), {
+        return(false);
       });
       if(_lb_fn_literal_binds(&callee, name.clone()), {
         return(false);
