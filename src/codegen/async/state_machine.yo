@@ -7,7 +7,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_flags } :: import("../../types/definitions.yo");
 { is_some_type, is_struct_type, is_function_type, is_dyn_type, is_unit_type } :: import("../../types/guards.yo");
 { type_implements_future, extract_future_trait_from_type, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { lookup_macro_expansion, lookup_method_callee_value, expr_info_deferred_dup_expressions, some_resolution, scope_variables, scope_release_note_hard, lookup_local_borrow_step_pin, is_fnonce_capture_drop } :: import("../../expr_info.yo");
@@ -279,7 +279,7 @@ _lv_call_abi_ptr_flags :: (fn(call : &AstExpr, callee : &AstExpr, context : &Fun
       .Some(ci) => match(
         ci.ty,
         Rc(.Func({ result : _ })) => fn_abi_param_is_ptr(&ci.ty),
-        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf, _ => ArrayList(bool).new())
+        _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, cprf, _))) => cprf, _ => no_flags())
       ),
       .None => ArrayList(bool).new()
     )
@@ -1145,8 +1145,8 @@ _build_combined_sm_variables :: (
   match(
     capture_type,
     .Some(ct) => {
-      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-      ftypes := match(ct, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+      ftypes := match(ct, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
         lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
@@ -1182,7 +1182,7 @@ find_bundle_field_name :: (
     state_machine_field_aliases : &Option(HashMap(String, String))
   ) -> Option(String)
 )({
-  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => no_types());
   (eff_id : Option(String)) = Option(String).None;
   (ei : usize) = usize(0);
   while((ei < eff_types.len()) && eff_id.is_none(), {
@@ -1250,8 +1250,8 @@ emit_effect_record_injection_for_sm :: (
     expr : &AstExpr
   ) -> unit
 )({
-  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
     flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
@@ -1421,8 +1421,8 @@ emit_effect_injection_for_sm :: (
         match(
           extract_future_trait_from_type(&fut_ty),
           .Some(ftrait) => {
-            eff_labels := match(ftrait, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => ArrayList(String).new());
-            eff_types := match(ftrait, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+            eff_labels := match(ftrait, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => no_labels());
+            eff_types := match(ftrait, Rc(.FutureTraitT({ effect_types : et })) => et, _ => no_types());
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
               elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));

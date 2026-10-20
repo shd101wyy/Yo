@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_bool, t_never, resolve_enum_shell } :: import("../../types/creators.yo");
 {
   is_bool_type,
@@ -745,7 +745,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
       cell := (in_cell || pattern_position_is_cell(ty));
-      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => fts, _ => ArrayList(TypeValue).new());
+      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => fts, _ => no_types());
       new_idx := ArrayList(usize).new();
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);

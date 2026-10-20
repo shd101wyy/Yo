@@ -317,8 +317,8 @@ _resolved_or_self :: (fn(t : &TypeValue) -> TypeValue)(
 future_view_drops_a_bundle :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
-  e_types := match(ef, Rc(.FutureTraitT(effect_types : ets)) => ets, _ => ArrayList(TypeValue).new());
-  a_types := match(af, Rc(.FutureTraitT(effect_types : ats)) => ats, _ => ArrayList(TypeValue).new());
+  e_types := match(ef, Rc(.FutureTraitT(effect_types : ets)) => ets, _ => no_types());
+  a_types := match(af, Rc(.FutureTraitT(effect_types : ats)) => ats, _ => no_types());
   if((e_types.len() != usize(0)) || (a_types.len() == usize(0)), {
     return(false);
   });
@@ -450,12 +450,12 @@ _compat_impl :: (
     artt := match(
       actual,
       Rc(.SomeT(required_trait_types : rtt)) => rtt,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     drtt := match(
       expected,
       Rc(.DynT(required_trait_types : rtt)) => rtt,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     i := usize(0);
     while(i < artt.len(), {
@@ -492,12 +492,12 @@ _compat_impl :: (
     erts := match(
       expected,
       Rc(.SomeT(required_trait_types : rtt)) => rtt,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     adrtt := match(
       actual,
       Rc(.DynT(required_trait_types : rtt)) => rtt,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     i := usize(0);
     while(i < erts.len(), {
@@ -578,7 +578,7 @@ _compat_impl :: (
     erts2 := match(
       expected,
       Rc(.SomeT(required_trait_types : rtt2)) => rtt2,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     if(erts2.len() == usize(0), {
       return(true);
@@ -646,7 +646,7 @@ _compat_impl :: (
           // such pairs one level up without looking inside
           // (plans/reference/TYPE_IDENTITY.md).
           .None => if(!require_exact, {
-            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => ArrayList(TypeValue).new());
+            a_reqs := match(actual, Rc(.SomeT(required_trait_types : a_rq)) => a_rq, _ => no_types());
             if(a_reqs.len() == usize(0), {
               return(true);
             });

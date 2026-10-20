@@ -84,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
@@ -5871,7 +5871,7 @@ evaluate_module_value :: (
                             ast_expr_token(&d_fvd.*.body).module_path
                           );
                           ___df := d_env.push_frame(false);
-                          d_pts := match(d_sub_ty, Rc(.Func({ param_types : d_ppts })) => d_ppts, _ => ArrayList(TypeValue).new());
+                          d_pts := match(d_sub_ty, Rc(.Func({ param_types : d_ppts })) => d_ppts, _ => no_types());
                           // The declared `inout` flags, read off the same
                           // Self-substituted type the signature is emitted
                           // from. Pointer-ness travels through TWO channels

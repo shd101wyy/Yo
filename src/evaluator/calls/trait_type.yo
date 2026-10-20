@@ -33,7 +33,7 @@ import("std/fmt");
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -75,12 +75,12 @@ try_to_specialize_trait_type :: (
   field_labels := match(
     trait_type,
     Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   assoc_type_names := match(
     trait_type,
     Rc(.TraitT(_, an, _, _, _, _, _, _, _, _)) => an,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   trait_name := match(
     trait_type,
@@ -254,12 +254,12 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   field_labels := match(
     trait_type,
     Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   field_types := match(
     trait_type,
     Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   trait_name := match(
     trait_type,

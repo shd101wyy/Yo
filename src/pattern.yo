@@ -19,7 +19,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_to_string } :: import("./expr.yo");
 { Token } :: import("./token.yo");
-{ TypeValue, TypeValueNode, no_types } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
 { is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./types/creators.yo");
@@ -410,7 +410,7 @@ _struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
     Rc(.Struct({ field_types : fts })) => fts,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   )
 );
 /// A struct type's field labels (empty for a non-struct).
@@ -418,7 +418,7 @@ _struct_field_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
   match(
     t,
     Rc(.Struct({ field_labels : fls })) => fls,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   )
 );
 /// A struct type's declared name (empty for a non-struct).
@@ -434,11 +434,11 @@ _tuple_elem_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
     Rc(.Tuple({ field_types : fts })) => fts,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   )
 );
 _enum_variant_names :: (fn(enum_ty : &TypeValue) -> ArrayList(String))(
-  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => ArrayList(String).new())
+  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => no_labels())
 );
 _enum_id :: (fn(enum_ty : &TypeValue) -> String)(
   match(enum_ty, Rc(.EnumT({ id : eid })) => eid, _ => String.new())

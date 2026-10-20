@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
@@ -2305,8 +2305,8 @@ use_id :: (fn(generic(T : Type),
 /// (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md, option 3).
 _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Environment) -> String)({
   base := `Type ${type_to_string(concrete)} does not implement required trait ${type_to_string(tv)}`;
-  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l, _ => ArrayList(String).new());
-  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t, _ => ArrayList(TypeValue).new());
+  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l, _ => no_labels());
+  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t, _ => no_types());
   (i : usize) = usize(0);
   while(i < labels.len(), {
     label := match(labels.get(i), .Some(l) => l, .None => String.new());
@@ -4806,7 +4806,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
   rtts := match(
     wrapper,
     Rc(.SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _)) => rts,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   (i : usize) = usize(0);
   while(i < rtts.len(), {

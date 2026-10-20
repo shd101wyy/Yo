@@ -88,12 +88,12 @@ _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// ways CTFE is simply not available for a function.
 create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue))({
   forall_labels := match(func_type, Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels, _ => ArrayList(String).new());
-  forall_types := match(func_type, Rc(.Func({ forall_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  forall_types := match(func_type, Rc(.Func({ forall_types : ft })) => ft, _ => no_types());
   param_labels := match(func_type, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels, _ => ArrayList(String).new());
-  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
   implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
-  implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => it, _ => ArrayList(TypeValue).new());
-  where_types := match(func_type, Rc(.Func({ where_types : wt })) => wt, _ => ArrayList(TypeValue).new());
+  implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => it, _ => no_types());
+  where_types := match(func_type, Rc(.Func({ where_types : wt })) => wt, _ => no_types());
   result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   match(
     _to_comptime_type(&result_box),
@@ -408,7 +408,7 @@ analyze_ctfe_capability :: (
   );
   // Skip generic functions — they need specialisation first.
   forall_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.forall_labels, _ => ArrayList(String).new());
-  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
   result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   // Any param type or the return type prohibiting the comptime modifier
   // (runtime-only types like Ptr, Slice, Void) rules CTFE out.

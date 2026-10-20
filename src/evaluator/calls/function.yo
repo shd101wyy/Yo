@@ -1937,8 +1937,8 @@ _try_expand_call_overload :: (
   if(sns_parts.is_none(), {
     return(());
   });
-  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f, _ => ArrayList(String).new());
-  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t, _ => ArrayList(TypeValue).new());
+  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f, _ => no_labels());
+  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t, _ => no_types());
   (call_idx : Option(usize)) = Option(usize).None;
   (li : usize) = usize(0);
   while((li < s_fls.len()) && call_idx.is_none(), {
@@ -6149,7 +6149,7 @@ _evaluate_funcval_runtime_call :: (
       _func_type_has_closure_param(&spec_ft) => true,
       true => {
         (ou_sg_all_concrete : bool) = true;
-        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => ArrayList(TypeValue).new());
+        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => no_types());
         (ou_sg_i : usize) = usize(0);
         while(ou_sg_i < ou_sg_pts.len(), {
           ou_sg_pt := match(ou_sg_pts.get(ou_sg_i), .Some(t) => t, .None => t_unit());
@@ -8792,7 +8792,7 @@ Fix: wrap the call:
           pa_fty := match(callee_info_opt, .Some(pa_ci) => pa_ci.ty, .None => t_unit());
           pa_ret_ct := match(pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
-            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt, _ => ArrayList(TypeValue).new());
+            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt, _ => no_types());
             pa_res := match(pa_fty, Rc(.Func({ result : pr })) => pr, _ => t_unit());
             if(n_a != pa_pt.len(), {
               exn.throw(
@@ -8996,7 +8996,7 @@ Fix: wrap the call:
           _ => match(
             extract_fn_trait_from_type(&fv_callee_ty),
             .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _, _, _))) => fv_cpt,
-            _ => ArrayList(TypeValue).new()
+            _ => no_types()
           )
         );
         // Per-parameter `ref` flags, parallel to `fv_param_types`. A
@@ -9014,7 +9014,7 @@ Fix: wrap the call:
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
               .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _, _, _))) => fv_cpl,
-              _ => ArrayList(String).new()
+              _ => no_labels()
             )
           ),
           .None => ArrayList(String).new()
@@ -9980,7 +9980,7 @@ Fix: wrap the call:
         // issues/fixed/self-dispatch-loses-type-args.md.
         recv_type_args := match(
           _static_dot_receiver_self_type(&func_expr, ctx),
-          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new()),
+          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => no_types()),
           .None => ArrayList(TypeValue).new()
         );
         // Infer generic type params from argument types.
@@ -10007,7 +10007,7 @@ Fix: wrap the call:
           if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
           &fv_param_types,
           &fv_param_ct,
-          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => ArrayList(TypeValue).new()),
+          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => no_types()),
           &fv_pre_forall_names,
           &fv_pre_forall_vals,
           &fv_pre_forall_tys,

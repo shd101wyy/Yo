@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
   is_extern_c_global,
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -742,8 +742,8 @@ evaluate_destructuring_assignment :: (
   // Tuple destructuring
   // -------------------------------------------------------------------
   if(is_tuple_type(&rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
-    field_labels := match(rhs_type, Rc(.Tuple(fl, _)) => fl, _ => ArrayList(String).new());
-    field_types := match(rhs_type, Rc(.Tuple(_, ft)) => ft, _ => ArrayList(TypeValue).new());
+    field_labels := match(rhs_type, Rc(.Tuple(fl, _)) => fl, _ => no_labels());
+    field_types := match(rhs_type, Rc(.Tuple(_, ft)) => ft, _ => no_types());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
@@ -784,7 +784,7 @@ evaluate_destructuring_assignment :: (
     );
     svn := match(svn_opt, .Some(s) => s, .None => String.from(""));
     // Find the variant index.
-    vnames := match(rhs_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => ArrayList(String).new());
+    vnames := match(rhs_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => no_labels());
     vfields := match(rhs_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
     vi_opt := _find_field_index(&vnames, svn.clone());
     match(

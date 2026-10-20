@@ -33,7 +33,7 @@ import("std/fmt");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { t_dyn, t_i32 } :: import("../../types/creators.yo");
 { is_trait_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -295,7 +295,7 @@ evaluate_dyn_type :: (
     scs := match(
       cur_trait,
       Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     k := usize(0);
     while(k < scs.len(), {

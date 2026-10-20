@@ -12,7 +12,7 @@
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
 { Emitter } :: import("../../emitter.yo");
 { should_skip_function_codegen, generate_function_prototype } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -372,7 +372,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
       .Some(impl_entry) => {
         data_type := impl_entry.data_type.clone();
         is_boxed := is_boxed_type(data_type.clone());
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
         nt := req_traits.len();
         // Pass 1: Fn synthetic `call` slot.
         (ti : usize) = usize(0);
@@ -821,7 +821,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         data_atomic := _dyn_data_is_atomic(impl_entry.data_type.clone());
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_retain = __yo_incr_rc_atomic,`, `  .__yo_retain = __yo_incr_rc,`));
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_release = __yo_decr_rc_atomic,`, `  .__yo_release = __yo_decr_rc,`));
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
         nt := req_traits.len();
         processed := HashSet(String).new();
         (mi : usize) = usize(0);

@@ -228,7 +228,7 @@ _field_labels_of :: (fn(t : &TypeValue) -> ArrayList(String))(
     Rc(.Tuple(labels, _)) => labels,
     Rc(.Struct({ field_labels : labels })) => labels,
     Rc(.Union(_, labels, _)) => labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   )
 );
 /// Where auto-dereference of `w.label` lands, for a `w` of `Deref` type `t`
@@ -1177,13 +1177,13 @@ Raw pointer operations may dereference invalid memory.`
         type_val_inner,
         Rc(.Struct({ field_labels : labels })) => labels,
         Rc(.Union(_, labels, _)) => labels,
-        _ => ArrayList(String).new()
+        _ => no_labels()
       );
       su_types := match(
         type_val_inner,
         Rc(.Struct({ field_types : types })) => types,
         Rc(.Union(_, _, types)) => types,
-        _ => ArrayList(TypeValue).new()
+        _ => no_types()
       );
       // Search field_labels.
       fidx_su := find_last_field_index(&su_labels, prop_name_su.clone());
@@ -1340,12 +1340,12 @@ Raw pointer operations may dereference invalid memory.`
       mt_labels := match(
         type_val_inner,
         Rc(.Struct({ field_labels : labels })) => labels,
-        _ => ArrayList(String).new()
+        _ => no_labels()
       );
       mt_types := match(
         type_val_inner,
         Rc(.Struct({ field_types : types })) => types,
-        _ => ArrayList(TypeValue).new()
+        _ => no_types()
       );
       fidx_mt := find_first_field_index(&mt_labels, prop_name_mt.clone());
       match(
@@ -1463,12 +1463,12 @@ Raw pointer operations may dereference invalid memory.`
       tt_labels := match(
         type_val_inner,
         Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
-        _ => ArrayList(String).new()
+        _ => no_labels()
       );
       tt_types := match(
         type_val_inner,
         Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
-        _ => ArrayList(TypeValue).new()
+        _ => no_types()
       );
       fidx_tt := find_first_field_index(&tt_labels, prop_name_tt.clone());
       match(
@@ -1508,7 +1508,7 @@ Raw pointer operations may dereference invalid memory.`
         st_rtt := match(
           type_val_inner,
           Rc(.SomeT(_, _, _, _, rtt, _, _, _, _, _)) => rtt,
-          _ => ArrayList(TypeValue).new()
+          _ => no_types()
         );
         // Build the list of candidate traits: explicit
         // required_trait_types first, then ctx.self_trait_type as
@@ -1541,12 +1541,12 @@ Raw pointer operations may dereference invalid memory.`
             st_labels := match(
               st_trait,
               Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
-              _ => ArrayList(String).new()
+              _ => no_labels()
             );
             st_types := match(
               st_trait,
               Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
-              _ => ArrayList(TypeValue).new()
+              _ => no_types()
             );
             st_fidx := find_first_field_index(&st_labels, st_prop_name.clone());
             match(
@@ -1687,14 +1687,14 @@ Raw pointer operations may dereference invalid memory.`
       Rc(.Tuple(labels, _)) => labels,
       Rc(.Struct({ field_labels : labels })) => labels,
       Rc(.Union(_, labels, _)) => labels,
-      _ => ArrayList(String).new()
+      _ => no_labels()
     );
     fields_types := match(
       base_ty,
       Rc(.Tuple(_, types)) => types,
       Rc(.Struct({ field_types : types })) => types,
       Rc(.Union(_, _, types)) => types,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     // MEMBER VISIBILITY: the declared type behind this access, for the
     // `_`-prefixed field check below. Tuples and source-namespace module
@@ -2114,12 +2114,12 @@ Raw pointer operations may dereference invalid memory.`
         mod_labels_rt := match(
           base_ty,
           Rc(.Struct({ field_labels : labels })) => labels,
-          _ => ArrayList(String).new()
+          _ => no_labels()
         );
         mod_types_rt := match(
           base_ty,
           Rc(.Struct({ field_types : types })) => types,
-          _ => ArrayList(TypeValue).new()
+          _ => no_types()
         );
         mod_fidx := find_first_field_index(&mod_labels_rt, mod_label.clone());
         match(

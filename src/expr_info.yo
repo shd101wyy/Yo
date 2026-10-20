@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 // `expr_info_paths_for_write` detects the SHARED empty PathCollection before a
 // push with the prelude's pointer-identity builtin `__yo_ptr_eq` (the same
 // direct call as env.yo / std/string/string.yo).
-{ TypeValue, TypeValueNode } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("./types/definitions.yo");
 { type_intern_probe_record, type_intern_probe_report } :: import("./types/intern.yo");
 { get_all_some_types, type_is_control_bound } :: import("./types/utils.yo");
 { is_some_type, is_function_type } :: import("./types/guards.yo");
@@ -2431,8 +2431,8 @@ adopt_receiver_struct_instance :: (
   // positionally (compared by rendered type). Without this a stale
   // ctx.self_type of the SAME ctor but a DIFFERENT instantiation
   // (List(u8) vs List(i32)) would mis-adopt.
-  ret_tas := match(ret, Rc(.Struct({ type_arguments : ai_rtas })) => ai_rtas, _ => ArrayList(TypeValue).new());
-  recv_tas := match(recv, Rc(.Struct({ type_arguments : ai_vtas })) => ai_vtas, _ => ArrayList(TypeValue).new());
+  ret_tas := match(ret, Rc(.Struct({ type_arguments : ai_rtas })) => ai_rtas, _ => no_types());
+  recv_tas := match(recv, Rc(.Struct({ type_arguments : ai_vtas })) => ai_vtas, _ => no_types());
   if((ret_tas.len() > usize(0)) && (recv_tas.len() > usize(0)), {
     if(ret_tas.len() != recv_tas.len(), {
       return(Option(TypeValue).None);

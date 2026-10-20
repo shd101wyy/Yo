@@ -1769,12 +1769,12 @@ evaluate_type_join_fields :: (
   struct_labels := match(
     target_type,
     Rc(.Struct({ field_labels : ls })) => ls,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   struct_types := match(
     target_type,
     Rc(.Struct({ field_types : ts })) => ts,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   n_fields := struct_labels.len();
   if(n_fields == usize(0), {
@@ -2017,7 +2017,7 @@ evaluate_type_map_variants :: (
     synthetic_token(mapper_name.clone(), &local_env.module_path)
   );
   // Extract enum variant data.
-  variant_names := match(target_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => ArrayList(String).new());
+  variant_names := match(target_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => no_labels());
   variant_fields := match(target_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
   variant_field_labels := match(target_type, Rc(.EnumT(_, _, _, _, _, vfl, _, _, _, _)) => vfl, _ => ArrayList(ArrayList(String)).new());
   // Resolve the DECLARED `VariantInfo` struct type from the env once — the

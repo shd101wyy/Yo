@@ -17,7 +17,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
 {
   is_enum_type,
   is_function_type,
@@ -181,8 +181,8 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
 /// capture struct. Resolves each fn field from SM captures, caller evidence
 /// params, or `given` bindings.
 emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> unit)({
-  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
     flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));

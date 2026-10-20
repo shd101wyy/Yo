@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("./definitions.yo");
 { type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity, is_prelude_enum_decl } :: import("./guards.yo");
@@ -468,7 +468,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       rs := resolve_enum_shell(t);
       eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
       evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs);
-      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => ArrayList(String).new());
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => no_labels());
       evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => false);
       evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls, _ => ArrayList(ArrayList(String)).new());
@@ -481,7 +481,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // guard cut the inner one to its bare id. That gave the outer instance a
       // second C type beside the declared `Option(Option(i32))`
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => nd_tas, _ => ArrayList(TypeValue).new());
+      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => nd_tas, _ => no_types());
       e_node := _tk_node_id(&eid, &e_node_targs);
       if((eid.len() > usize(0)) && _tk_seen(&e_node), {
         return(eid.clone());
@@ -576,7 +576,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         // plus a type-variable argument no payload mentions. A resolved variable keys as its resolution, and a
         // non-type argument (`Unit`) adds nothing; an enum with no phantom
         // position keys exactly as before.
-        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => rtas, _ => ArrayList(TypeValue).new());
+        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => rtas, _ => no_types());
         if(e_targs.len() > usize(0), {
           e_mask := enum_phantom_positions(&eid);
           e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
@@ -935,7 +935,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       // `Option(Option(String))` alike, so collect_type aliased the second
       // onto the first's C type
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node := _tk_node_id(&eid, match(rs, Rc(.EnumT({ type_arguments : sti_tas })) => sti_tas, _ => ArrayList(TypeValue).new()));
+      e_node := _tk_node_id(&eid, match(rs, Rc(.EnumT({ type_arguments : sti_tas })) => sti_tas, _ => no_types()));
       if((eid.len() > usize(0)) && _sti_seen(&e_node), {
         out_cyc := pfx.clone();
         out_cyc.push_string(&eid);

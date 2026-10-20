@@ -119,12 +119,12 @@ try_to_implement_closure_by_fn_module_type :: (
   param_labels := match(
     fn_module_type,
     Rc(.FnTraitT(_, pls, _, _, _, _, _, _)) => pls,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   param_types := match(
     fn_module_type,
     Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => pts,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   result_type := match(
     fn_module_type,
@@ -134,7 +134,7 @@ try_to_implement_closure_by_fn_module_type :: (
   param_is_ref_flags := match(
     fn_module_type,
     Rc(.FnTraitT(_, _, _, _, _, _, prf, _)) => prf,
-    _ => ArrayList(bool).new()
+    _ => no_flags()
   );
   // Push a new env frame for the closure parameters.
   (env : Environment) = caller_env;

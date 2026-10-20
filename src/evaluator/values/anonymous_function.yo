@@ -1276,7 +1276,7 @@ evaluate_anonymous_function_implementation :: (
   (param_types : ArrayList(TypeValue)) = match(
     function_type,
     Rc(.Func({ param_types : pt })) => pt,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   // The expected type's per-param ref-ness. A `self : &mut Self` trait-method
   // param (e.g. Iterator's `next : fn(self : &mut Self) -> Option(Self.Item)`) makes `self` a
@@ -1306,7 +1306,7 @@ evaluate_anonymous_function_implementation :: (
   implicit_types := match(
     function_type,
     Rc(.Func({ implicit_types : it })) => it,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   result_box := match(
     function_type,

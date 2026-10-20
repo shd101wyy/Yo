@@ -3199,7 +3199,7 @@ create_specialized_function_inline :: (
           {
             (zb_i : usize) = usize(0);
             n_zb := forall_names.len();
-            zb_ft := match(func_type, Rc(.Func({ forall_types : zft })) => zft, _ => ArrayList(TypeValue).new());
+            zb_ft := match(func_type, Rc(.Func({ forall_types : zft })) => zft, _ => no_types());
             while((zb_i < n_zb) && (zb_i < arg_values.forall_args.len()), {
               zb_name := match(forall_names.get(zb_i), .Some(n) => n, .None => String.from(""));
               // VALUE-generic binders (`generic(N : usize)` — declared kind is
@@ -3244,7 +3244,7 @@ create_specialized_function_inline :: (
                       // THAT so the body eval sees the same concrete `V` the
                       // registered spec type carries.
                       if(is_some_type(&zb_tb) && is_type_0(&zb_kind), {
-                        zb_pt := match(func_type, Rc(.Func({ param_types : zpt })) => zpt, _ => ArrayList(TypeValue).new());
+                        zb_pt := match(func_type, Rc(.Func({ param_types : zpt })) => zpt, _ => no_types());
                         (zbp : usize) = usize(0);
                         (zb_done : bool) = false;
                         while((zbp < zb_pt.len()) && !zb_done, {
@@ -3483,7 +3483,7 @@ create_specialized_function_inline :: (
                   );
                 });
               };
-              pte_decl_pts := match(func_type, Rc(.Func({ param_types : pdp })) => pdp, _ => ArrayList(TypeValue).new());
+              pte_decl_pts := match(func_type, Rc(.Func({ param_types : pdp })) => pdp, _ => no_types());
               (pte_i : usize) = usize(0);
               while(pte_i < runtime_param_tys.len(), {
                 pte_ct := match(spec_param_ct_flags.get(pte_i), .Some(f) => f, .None => false);
@@ -3746,7 +3746,7 @@ create_specialized_function_inline :: (
           // placeholders.
           // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
           // used below to keep a closure param CALLABLE during body eval.
-          decl_param_types := match(func_type, Rc(.Func({ param_types : dpt })) => dpt, _ => ArrayList(TypeValue).new());
+          decl_param_types := match(func_type, Rc(.Func({ param_types : dpt })) => dpt, _ => no_types());
           // The declared `inout(p)` flags. The runtime-placeholder re-bind below
           // MUST carry them onto the new binding: `add_variable_to_env`
           // hardcodes `is_ref : false`, and the re-bound Variable SHADOWS the
@@ -5636,7 +5636,7 @@ evaluate_ctl_function_body_inline :: (
   forall_types_list := match(
     func_type,
     Rc(.Func({ forall_types : ft })) => ft,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   n_forall := forall_labels.len();
   (fi2 : usize) = usize(0);
@@ -6096,7 +6096,7 @@ resolve_param_types_from_expected :: (
     forall_out_types : &mut ArrayList(TypeValue)
   ) -> unit
 )({
-  default_pts := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  default_pts := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
   forall_lbls := match(func_type, Rc(.Func({ meta : __fm7 })) => __fm7.*.forall_labels, _ => ArrayList(String).new());
   ret_b := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   if(forall_lbls.len() == usize(0), {

@@ -159,8 +159,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
     a_cf := match(lookup_struct_ctor_fid(&a_sid), .Some(f) => f, .None => String.from(""));
     b_cf := match(lookup_struct_ctor_fid(&b_sid), .Some(f) => f, .None => String.from(""));
     if((a_cf.len() > usize(0)) && (a_cf == b_cf), {
-      a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
-      b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
+      a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, _ => no_types());
+      b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, _ => no_types());
       if((a_ta.len() == b_ta.len()) && (a_ta.len() > usize(0)), {
         (tai : usize) = usize(0);
         (ta_ok : bool) = true;
@@ -210,8 +210,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
         // Era instances of ONE instantiation also agree on its recorded
         // type arguments: `P(i32)` and `P(bool)` of a phantom-indexed enum
         // have identical variant fields and must still be two memo keys.
-        a_eta := match(aty, Rc(.EnumT({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
-        b_eta := match(bty, Rc(.EnumT({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
+        a_eta := match(aty, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
+        b_eta := match(bty, Rc(.EnumT({ type_arguments : t })) => t, _ => no_types());
         if(vf_ok && (a_eta.len() > usize(0)) && (a_eta.len() == b_eta.len()), {
           (etai : usize) = usize(0);
           while((etai < a_eta.len()) && vf_ok, {
@@ -450,7 +450,7 @@ canonicalize_instantiation_via_ctfe_memo :: (fn(ty : &TypeValue) -> TypeValue)({
   if(sid.len() == usize(0), {
     return(ty);
   });
-  tyargs := match(ty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
+  tyargs := match(ty, Rc(.Struct({ type_arguments : t })) => t, _ => no_types());
   if(tyargs.len() == usize(0), {
     return(ty);
   });
