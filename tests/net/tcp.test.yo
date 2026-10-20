@@ -705,10 +705,17 @@ test("connecting to a non-routable address does not park the event loop", {
   // like send/recv; io_uring platforms were never parked, so this pins the
   // shared shape. On a network that refuses TEST-NET immediately the
   // connect resolves fast and the assert still passes, just less
-  // discriminatingly. The connect task is left un-awaited on purpose: the
-  // harness does not drain still-pending tasks at exit (a 30 s sleep task
-  // left un-awaited does not hold the binary), and awaiting it would bill
-  // this test the full retry window.
+  // discriminatingly. The connect task is ABORTED, not awaited, once the
+  // assert has run: awaiting it would bill this test the full retry window,
+  // and a task left pending at exit kept its state machine allocated, which
+  // LeakSanitizer reports wherever the network leaves the SYN unanswered
+  // (issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md).
+  // A pending connect is cancellable on the epoll, io_uring and kqueue
+  // backends: epoll and kqueue release it at the abort, io_uring once the
+  // loop reaps the queued cancel's completion, which the ticks after this
+  // test give it. On Windows (no cancel path for ConnectEx yet) the task
+  // stays `Aborted` and is released when the connect completes. A connect
+  // that already finished is left alone.
   exn := Exception(
     throw : (
       err -> {
@@ -740,6 +747,7 @@ test("connecting to a non-routable address does not park the event loop", {
     sleep_ms < i64(900),
     `the 300 ms sleep took ${sleep_ms} ms — the loop was parked inside connect()`
   );
+  h.abort();
 });
 // A write to a peer that has closed must THROW (EPIPE, or ECONNRESET once the
 // peer's RST has arrived), not raise SIGPIPE: the signal's default action

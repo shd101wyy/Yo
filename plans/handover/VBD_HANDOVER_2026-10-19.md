@@ -198,7 +198,7 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
    statement-internal evaluation-order rule is written in the `## Rule` section of
    `issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`.
 3. **End-triage leftovers (triaged 2026-10-19, both stay open, neither blocks a release):** the
-   non-routable connect LSan leak (`issues/2026-10-17-the-non-routable-connect-test-leaks…`, S3,
+   non-routable connect LSan leak (`issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md`, S3,
    network-env — CI's network rejects TEST-NET instantly so CI is green; the one-line fix is
    `h.abort()` on the spawned connect in `tests/net/tcp.test.yo`, or a harness drain of pending tasks);
    and the LinkedList move-only pop/clear (`issues/2026-10-16-…`, S2, pre-cycle, needs an std API shape
