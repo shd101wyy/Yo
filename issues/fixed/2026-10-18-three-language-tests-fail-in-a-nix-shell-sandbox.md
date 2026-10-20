@@ -4,7 +4,7 @@
 the machine, not the compiler, so a local Tier 1 run has to tell them apart by
 hand.
 
-**Status:** FIXED 2026-10-20 (branch `fix/nix-shell-env-tests`; the `tcp` case on its own branch, below). Found 2026-10-18 while running the full suite for
+**Status:** FIXED 2026-10-20 for the `env` and `datetime` cases (branch `fix/nix-shell-env-tests`). The `tcp` case is tracked by the still-open `issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md` (mitigated, unverified; below). Found 2026-10-18 while running the full suite for
 `issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`
 (Linux x86_64 under WSL2, inside `nix-shell`). The `tcp` case fails the same
 way with the develop binary `5425cd7bf`; the other two depend only on the
@@ -42,8 +42,9 @@ Test: the three cases above, run inside `nix-shell`.
 
 ## Resolution (2026-10-20)
 
-All three cases depended on the environment, not the compiler. Each test now
-supplies the condition it relies on instead of reading it from the shell.
+All three cases depended on the environment, not the compiler. The `env` and
+`datetime` tests now supply the condition they rely on instead of reading it
+from the shell; the `tcp` case is tracked by its own open doc.
 
 - **`env.test.yo`**: the test is "temp_dir is $TMPDIR when set and /tmp
   otherwise on Unix". It clears `TMPDIR` and asserts `/tmp`, sets it and
@@ -57,10 +58,12 @@ supplies the condition it relies on instead of reading it from the shell.
   no zone database, so the result no longer depends on where that libc looks
   for one. The property under test is unchanged: `now()` is local time, not
   UTC.
-- **`tcp.test.yo`**: this is the same leak as the non-routable-connect issue
-  doc filed 2026-10-17. It is fixed on its own branch,
-  `fix/tcp-nonroutable-connect-leak`, which aborts the pending connect once
-  its assertion has run.
+- **`tcp.test.yo`**: this is the same leak as
+  `issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md`,
+  which stays open. Its branch, `fix/tcp-nonroutable-connect-leak`, aborts the
+  pending connect once its assertion has run; that is a mitigation, not yet
+  confirmed by a Linux LeakSanitizer run on a network where TEST-NET-1 stays
+  pending (the open doc says why, and what would close it).
 
 ### Measured on the Mac Mini (darwin arm64, inside a nix shell)
 
