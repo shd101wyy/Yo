@@ -263,7 +263,7 @@ evaluate_upcast :: (
   (ri : usize) = usize(0);
   while(ri < tgt_req.len(), {
     rt := match(tgt_req.get(ri), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    if(!_trait_in(&rt, &src_req), {
+    if(!_trait_in(&rt, &src_req.items), {
       exn.throw(
         dyn(
           with_code(
@@ -281,7 +281,7 @@ evaluate_upcast :: (
   (ni : usize) = usize(0);
   while(ni < tgt_neg.len(), {
     nt := match(tgt_neg.get(ni), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    if(!_trait_in(&nt, &src_neg), {
+    if(!_trait_in(&nt, &src_neg.items), {
       exn.throw(
         dyn(
           with_code(

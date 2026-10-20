@@ -891,7 +891,7 @@ _synthesize_future_traits :: (
   // Synthesize effects
   exp_et := match(expected_ty, Rc(.FutureTraitT(_, _, _, ets)) => ets, _ => no_types());
   giv_et := match(given_ty, Rc(.FutureTraitT(_, _, _, ets)) => ets, _ => no_types());
-  _synthesize_implicit_params(&exp_et, &giv_et, &ee, &ge, checked, opts, exn);
+  _synthesize_implicit_params(&exp_et.items, &giv_et.items, &ee, &ge, checked, opts, exn);
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
 // ---------------------------------------------------------------------------
@@ -1739,7 +1739,7 @@ _synthesize_types_impl :: (
         pi = (pi + usize(1));
       });
       // Synthesize implicit params
-      _synthesize_implicit_params(&exp_it, &giv_it, &ee, &ge, checked, opts, exn);
+      _synthesize_implicit_params(&exp_it.items, &giv_it.items, &ee, &ge, checked, opts, exn);
       // Synthesize return type
       res := _synthesize_types_impl(&exp_ret, &ee, &giv_ret, &ge, checked, opts, exn);
       ee = res.expected_env;

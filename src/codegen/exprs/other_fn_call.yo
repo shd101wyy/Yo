@@ -1629,10 +1629,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // issues/retired/yo-self-stage2-unwind-check-coverage.md).
             // Method dispatch: the callee is a property access, not an atom,
             // so the atom fallback in _call_may_unwind is false here.
-            cm_may_unwind := _call_may_unwind(&method_fv, &cm_mft, &cm_ptypes, false, context);
+            cm_may_unwind := _call_may_unwind(&method_fv, &cm_mft, &cm_ptypes.items, false, context);
             cm_install_ei := new_expr_info(&ei.env, &cm_mft);
             cm_install_ei.value = method_fv;
-            cm_is_install := _call_is_handler_installation(ast_expr_id(expr), &cm_install_ei, &cm_mft, &cm_ptypes, &dm_runtime, context, Option(String).None);
+            cm_is_install := _call_is_handler_installation(ast_expr_id(expr), &cm_install_ei, &cm_mft, &cm_ptypes.items, &dm_runtime, context, Option(String).None);
             // A projection method (decision 24; a generic impl's, resolved by
             // this dispatch) is the place `(*m(args))`, as on the direct-call
             // path below: never a `T` temp.
@@ -1768,10 +1768,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             rm_call.push_str("(");
             rm_call.push_string(_join_args(&rm_args));
             rm_call.push_str(")");
-            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), &rm_mft, &rm_ptypes, false, context);
+            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), &rm_mft, &rm_ptypes.items, false, context);
             rm_install_ei := new_expr_info(&ei.env, &rm_mft);
             rm_install_ei.value = Option(EvalValue).Some(rmv);
-            rm_is_install := _call_is_handler_installation(ast_expr_id(expr), &rm_install_ei, &rm_mft, &rm_ptypes, &rm_runtime, context, Option(String).None);
+            rm_is_install := _call_is_handler_installation(ast_expr_id(expr), &rm_install_ei, &rm_mft, &rm_ptypes.items, &rm_runtime, context, Option(String).None);
             if(is_unit_type(&ei.ty), {
               rm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
@@ -2406,13 +2406,13 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // `emit_effect_unwind_check` is emitted after it: at the install frame the
   // unwound value is extracted + returned; elsewhere the escape propagates.
   ou_callee_atom := match(expr, .FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(&__ouf), _ => false);
-  ou_may_unwind := _call_may_unwind(&func_ei.value, &function_type, &param_types, ou_callee_atom, context);
+  ou_may_unwind := _call_may_unwind(&func_ei.value, &function_type, &param_types.items, ou_callee_atom, context);
   ou_callee_name := match(
     expr,
     .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(&__ouf2), Option(String).Some(ast_expr_token(&__ouf2).value), Option(String).None),
     _ => Option(String).None
   );
-  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(&func_expr), &func_ei, &function_type, &param_types, &runtime_args, context, &ou_callee_name), false);
+  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(&func_expr), &func_ei, &function_type, &param_types.items, &runtime_args, context, &ou_callee_name), false);
   // Registered (named) function call. A cc_early_hit callee (closure value
   // whose type resolved to a registered capture struct) must NOT take this
   // route: its FuncVal's direct C call would omit the closure_context arg —
@@ -2438,7 +2438,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(should_skip_function_codegen(fid.clone(), c_func_name.clone(), &fv, &context.base) && !is_io_async_sm_closure(fid.clone()), {
             return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
           });
-          casted := _per_arg_cast(args_list.clone(), &param_types, &abi_is_ptr, context);
+          casted := _per_arg_cast(args_list.clone(), &param_types.items, &abi_is_ptr, context);
           // A direct projection call (decision 24) returns its place's
           // address (`T*`), and the call IS the place: `(*f(args))`. It is
           // never materialized into a `T` temp, which would be a copy that a
@@ -2721,7 +2721,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // and called an `int32_t*` function through a by-value pointer type,
           // truncating the address
           // (issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-          cast.push_string(_fn_pointer_param_type_string(&param_types, &param_is_ref, pi, context));
+          cast.push_string(_fn_pointer_param_type_string(&param_types.items, &param_is_ref, pi, context));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -2754,7 +2754,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               fa_pt := match(
                 sig_param_types.get(fa_i),
                 .Some(spt_i) => if(sig_fn.is_some() && is_function_type(&spt_i), generate_function_prototype(&spt_i, String.from("(*)"), &context.base, Option(String).None, false), _fn_pointer_param_type_string(&sig_param_types, &sig_param_is_ref, fa_i, context)),
-                .None => _fn_pointer_param_type_string(&param_types, &param_is_ref, fa_i, context)
+                .None => _fn_pointer_param_type_string(&param_types.items, &param_is_ref, fa_i, context)
               );
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");

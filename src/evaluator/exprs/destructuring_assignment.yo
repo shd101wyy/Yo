@@ -750,8 +750,8 @@ evaluate_destructuring_assignment :: (
       handle_member_destructuring(
         &lhs_func,
         &lhs_args,
-        &field_labels,
-        &field_types,
+        &field_labels.items,
+        &field_types.items,
         &rhs_value,
         &rhs_type,
         lhs,
@@ -786,7 +786,7 @@ evaluate_destructuring_assignment :: (
     // Find the variant index.
     vnames := match(rhs_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => no_labels());
     vfields := match(rhs_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-    vi_opt := _find_field_index(&vnames, svn.clone());
+    vi_opt := _find_field_index(&vnames.items, svn.clone());
     match(
       vi_opt,
       .None => {
