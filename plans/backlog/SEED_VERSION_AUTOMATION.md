@@ -602,8 +602,9 @@ spelling: `build.manifest()`, a function, instead of the planned module-level
   `build-manifest` reads `build.manifest()`; the new cli-case
   `build-manifest-in-dependency` pins the dependency case (it fails with the
   value spelling). `docs/*/BUILD_SYSTEM.md` document it under `[package]`.
-  `yo build --std-path ./std` with the installed v0.2.66 seed builds the tree,
-  which evaluates the new `std/build.yo`.
+  `yo build --std-path ./std` with the installed v0.2.66 seed (`yo 0.2.66`)
+  builds the tree, which evaluates the new `std/build.yo`: rc=0, 440.3 s, max
+  RSS 3.6 GB (Mac Mini M4).
 
 ## Seed-gated follow-up (2026-10-03): `JoinHandle.join` at the three hand-rolled wait loops
 
