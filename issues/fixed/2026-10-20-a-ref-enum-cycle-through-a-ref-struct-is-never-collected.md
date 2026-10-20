@@ -3,9 +3,9 @@
 **Severity:** S1 — a `ref(enum)` whose only edge back to itself runs through a
 reference struct (`Kids(k : ArrayList(Self))`) is never registered with the
 cycle collector, so every such cycle a program builds leaks for the life of
-the process; and the type also reads `Acyclic`, so `Iso(T)` accepts it.
+the process; and the type also read `Acyclic`, so `Iso(T)` accepted it.
 
-**Status:** FIXED 2026-10-20 on `docs/cycle-walk-holder-asymmetry` (see "Fix"). **Found:** 2026-10-20, while checking the cycle walk's
+**Status:** FIXED 2026-10-20 on `docs/cycle-walk-holder-asymmetry` (`d31c21c57`, see "Fix"). **Found:** 2026-10-20, while checking the cycle walk's
 holder asymmetry reported by the `Acyclic` work on
 `perf/acyclic-compiler-containers`. The holder side of the same walk is
 `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
@@ -126,6 +126,27 @@ the root call agree with the per-variant gate. A direct `Self` edge is still
 found by `eid == original_id`, which precedes the visited guard. A path that
 re-roots and comes back pushes the enum once and walks it, so it terminates
 the same way.
+
+Measured with the tree binary built from `d31c21c57` (the fix on develop
+`7def2203b`):
+
+| Probe                                            | Seed v0.2.66 | Fixed   |
+| ------------------------------------------------ | ------------ | ------- |
+| 1000 `LE` cycles, tracked after `Gc.collect()`   | 1000         | 0       |
+| one `ME` / `Holder(ME)` cycle, tracked after collect | 1        | 0       |
+| `Type.can_form_rc_cycle(LE)`                     | `false`      | `true`  |
+| `Type.impls(LE, Acyclic)`                        | `true`       | `false` |
+| `Type.impls(Iso(LE), Acyclic)`                   | `true`       | `false` |
+| `Type.can_form_rc_cycle(HX)` (holder of `X`)     | `false`      | `false` |
+| `Type.can_form_rc_cycle(HY)` (holder of `Y`)     | `true`       | `true`  |
+
+The holder rows do not change. The fix touches only an enum ROOT that the
+walk meets again after a re-root. A holder's answer is the other defect,
+`issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
+
+The compiler's own C does not change. The only reference enums in `src/` and
+`std/` are `EvalValue`, `AstExpr`, `VcTerm` and `VcSort`. Each has a direct
+`Self` payload, so the walk already answered `true` for them before the fix.
 
 ## Test
 
