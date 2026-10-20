@@ -304,7 +304,10 @@ stable_occurrence_key :: (fn(key : &String) -> usize)({
 });
 /// Memo of `canonical_module_path` for type-id owners and identity anchors: a
 /// type id is minted per instantiation, and canonicalizing reads the cwd.
-(g_stable_type_id_owner_memo : HashMap(String, String)) = HashMap(String, String).new();
+/// The value is an `Rc(String)` so a hit shares the path instead of copying
+/// it: once `String` is a value (VALUES_BY_DEFAULT V2b) a copy out of the map
+/// is a byte copy per mint (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
+(g_stable_type_id_owner_memo : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
 /// A top-level statement of a module, as an anchor for identity mints
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3): where it starts, and a label
 /// that does not depend on where it is — the bound name (`P` for
@@ -314,10 +317,12 @@ TopLevelAnchor :: struct(row : usize, column : usize, label : String);
 /// Anchors per module, keyed by the CANONICAL module path, ordered by
 /// position. Written by the module walk before it evaluates anything
 /// (`register_top_level_anchors`); a re-walk of the same module (an LSP edit,
-/// `--watch`) replaces its entry.
-(g_top_level_anchors : HashMap(String, ArrayList(TopLevelAnchor))) = HashMap(String, ArrayList(TopLevelAnchor)).new();
+/// `--watch`) replaces its entry. Each list is an `Rc`, so every mint's
+/// lookup shares it rather than copying it.
+(g_top_level_anchors : HashMap(String, Rc(ArrayList(TopLevelAnchor)))) = HashMap(String, Rc(ArrayList(TopLevelAnchor))).new();
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
-  g_top_level_anchors.insert(_stable_type_id_owner_key(module_path), anchors);
+  owner := _stable_type_id_owner_key(module_path);
+  g_top_level_anchors.insert(owner.*, rc(anchors));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -329,11 +334,12 @@ register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(To
 /// exactly one enclosing anchor (the last one starting at or before it), labels
 /// are unique within a module, and `(row offset, column)` is unique within one
 /// anchor.
-_anchored_position :: (fn(module_path : &String, row : usize, column : usize) -> Tuple(String, String))(
+_anchored_position :: (fn(module_path : &String, row : usize, column : usize) -> Tuple(String, String))({
+  // Canonical: a module's tokens carry one spelling of its path and codegen
+  // may pass the other (AGENTS.md), and both must find the same anchors.
+  owner := _stable_type_id_owner_key(module_path);
   match(
-    // Canonical: a module's tokens carry one spelling of its path and codegen
-    // may pass the other (AGENTS.md), and both must find the same anchors.
-    g_top_level_anchors.get(_stable_type_id_owner_key(module_path)),
+    g_top_level_anchors.get(&owner.*),
     .Some(list) => {
       (lo : usize) = usize(0);
       (hi : usize) = list.len();
@@ -364,7 +370,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
       `_r${row.to_string()}c${column.to_string()}`
     )
   )
-);
+});
 /// A stable, unique-per-emission label for `prefix` at a source position:
 /// `<prefix>r<row>c<col>_n<k>`, where k is that position's occurrence index.
 /// The codegen label/temp mints that used to embed the global `random_id`
@@ -378,9 +384,9 @@ stable_label_id :: (
   `${prefix}${pos_part.substring(usize(1), pos_part.len())}_n${k.to_string()}`
 });
 /// Type-id mint registry: id → the canonical path of the module that minted
-/// it (`stable_type_id`). A module's two path spellings (AGENTS.md) share one
-/// owner.
-(g_stable_type_id_owner : HashMap(String, String)) = HashMap(String, String).new();
+/// it (`stable_type_id`), shared with `g_stable_type_id_owner_memo`. A
+/// module's two path spellings (AGENTS.md) share one owner.
+(g_stable_type_id_owner : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
 /// A TYPE identity mint at a source position:
 /// `<prefix><module_stem>_<anchor>_r<row offset>c<col>_n<k>`, the position
 /// relative to the enclosing top-level statement (`_anchored_position`), so a
@@ -420,7 +426,7 @@ stable_type_id :: (
     match(
       g_stable_type_id_owner.get(&candidate),
       .Some(prev) => {
-        if(prev == owner, {
+        if(prev.* == owner.*, {
           return(candidate);
         });
         suffix = (suffix + usize(1));
@@ -434,13 +440,13 @@ stable_type_id :: (
   });
   candidate
 });
-_stable_type_id_owner_key :: (fn(module_path : &String) -> String)(
+_stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
   match(
     g_stable_type_id_owner_memo.get(module_path),
     .Some(c) => c,
     .None => {
-      c := canonical_module_path(module_path);
-      g_stable_type_id_owner_memo.insert(module_path.clone(), c.clone());
+      c := rc(canonical_module_path(module_path));
+      g_stable_type_id_owner_memo.insert(module_path, c);
       c
     }
   )
@@ -489,7 +495,7 @@ stable_position_id :: (
 /// (issues/2026-10-20-a-nested-impl-module-overwrites-its-files-identity-anchors.md).
 /// Never part of a C name.
 stable_decl_key :: (fn(module_path : &String, row : usize, column : usize) -> String)(
-  `${_stable_type_id_owner_key(module_path)}@${row.to_string()}:${column.to_string()}`
+  `${_stable_type_id_owner_key(module_path).*}@${row.to_string()}:${column.to_string()}`
 );
 /// A function identity mint (Phase 2): `<prefix>yo_id_<h><occ>` where `h` is
 /// the FNV-1a 64 of the mint's anchored source position (`_anchored_position`)
