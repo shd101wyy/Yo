@@ -21,7 +21,7 @@ import("std/fmt");
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
-{ EvalValue } :: import("../../value.yo");
+{ EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_array, t_usize } :: import("../../types/creators.yo");
 { is_array_type } :: import("../../types/guards.yo");
@@ -175,13 +175,24 @@ evaluate_array_value :: (
   );
   array_type := t_array(&array_elem_type, array_len);
   // Build a compile-time ArrayVal if every element has a compile-time value.
+  // A runtime element is `Some(UnknownVal)` and counts as NOT known, as in
+  // the tuple literal (`values/tuple.yo`): an ArrayVal with an UnknownVal hole
+  // sends codegen's comptime short-cut down a path that renders each hole as
+  // `/* skip generating value */` inside the C initializer
+  // (issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md).
   (all_have_values : bool) = true;
   (check_i : usize) = usize(0);
   while((check_i < element_values.len()) && all_have_values, {
     opt_v := match(element_values.get(check_i), .Some(x) => x, .None => Option(EvalValue).None);
-    if(opt_v.is_none(), {
-      all_have_values = false;
-    });
+    match(
+      opt_v,
+      .Some(kv) => if(is_unknown_val(&kv), {
+        all_have_values = false;
+      }),
+      .None => {
+        all_have_values = false;
+      }
+    );
     check_i = (check_i + usize(1));
   });
   (array_value_opt : Option(EvalValue)) = cond(

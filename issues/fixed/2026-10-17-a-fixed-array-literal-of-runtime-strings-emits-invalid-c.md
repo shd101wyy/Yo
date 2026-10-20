@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid program fails to compile: `[String.from("a"), String.from("b")]` as a `[String ; 2]` emits `/* skip generating value */` inside a C initializer.
 
-**Status:** open. Found 2026-10-17 while writing `tests/shared_borrow_write.test.yo`
+**Status:** fixed 2026-10-20 (branch `fix/fixed-array-literal-runtime-strings`). Found 2026-10-17 while writing `tests/shared_borrow_write.test.yo`
 (`issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
 
 ## Reproducer
@@ -42,3 +42,26 @@ had the same hole and treats `Some(UnknownVal)` as unknown
 Count a `Some(UnknownVal)` element as unknown in `evaluate_array_value`, as the
 tuple literal does, so the literal goes through `generate_anonymous_array`
 with its runtime element expressions; add the reproducer above as a test.
+
+## Fix (2026-10-20)
+
+Confirmed the suspected root cause: `evaluate_array_value` now counts a
+`Some(UnknownVal)` element as unknown, exactly as the tuple literal does, so a
+literal with any runtime element carries no `ArrayVal` and codegen emits it
+through `generate_anonymous_array` from its runtime element expressions. A
+runtime element whose value is `None` (a bare runtime `i32` local) was never
+affected; the hole was specific to elements whose evaluation records a typed
+unknown, such as a `String.from(...)` call.
+
+Scope: the check looks at each element's TOP-LEVEL value only, as the tuple
+literal's does. An element that is a struct or enum literal with a runtime
+field inside (`[P(x : mk(i32(1)), y : i32(2)), …]`, `[.Some(mk(i32(1))), .None]`)
+is a `StructVal` / `EnumVal` shell with an `UnknownVal` hole one level down and
+still emits `/* skip generating value */`, in array and tuple literals alike.
+That is pre-existing and filed separately:
+`issues/2026-10-20-an-array-or-tuple-literal-whose-element-holds-a-runtime-field-emits-invalid-c.md`.
+
+Regression test: `tests/array.test.yo`, "A fixed-array literal of runtime
+Strings builds its elements at run time" (a local binding, a struct field and
+a module-level global — the global had the same hole); before the fix its batch
+fails in the C compiler with `expected expression` at all three initializers.
