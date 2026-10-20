@@ -12,6 +12,13 @@
 { t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
 { assert, panic } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+{ analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
+{ mm_set_open_document, mm_forget_open_document, resolve_std_path } :: import("../../src/module_manager.yo");
+{ generic_impl_binder_bound_counts } :: import("../../src/evaluator/values/impl.yo");
 {
   Environment,
   add_where_clause_constraint_for_type_application,
@@ -757,4 +764,40 @@ test("clear_type_trait_methods: wipes state", {
   clear_type_trait_methods();
   list := get_type_trait_methods_for_type(String.from("ty_e"));
   assert(list.len() == usize(0), "empty after clear");
+});
+
+// A where-bound restated on every method of a generic impl is ONE required
+// trait of the impl's binder. Each `where(Kw <: Ord(Kw))` evaluates `Ord(Kw)`
+// again, and with `Kw` a type variable that constructor call is not memoized,
+// so every method minted a TraitT with a fresh id and the id-only dedup kept
+// them all — `BTreeMap`'s `K` carried fifteen `Ord(K)`
+// (issues/fixed/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md).
+_WHERE_DOC :: "Wb :: (fn(comptime(Kw) : Type) -> comptime(Type))(struct(k : Kw));\nimpl(\n  generic(Kw : Type),\n  Wb(Kw),\n  lt : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k < o),\n  gt : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k > o),\n  le : (fn(self : &Self, o : &Kw, where(Kw <: Ord(Kw))) -> bool)(self.k <= o)\n);\nmain :: (fn() -> unit)({\n  w := Wb(i32)(k : i32(1));\n  _a := w.lt(&i32(2));\n});\nexport(main);\n";
+test("a where-bound restated on each method of a generic impl is recorded once", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_where_bound_dedup_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/where_doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_WHERE_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  mm_set_open_document(doc_path.clone(), String.from(_WHERE_DOC));
+  out := ArrayList(AnalyzeOutcome).new();
+  _diags := analyze_document(doc_path.clone(), String.from(_WHERE_DOC), std_path.clone(), io, &mut out);
+  assert(match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false), "the fixture analyzes clean");
+  counts := generic_impl_binder_bound_counts(&String.from("Kw"));
+  assert(counts.len() > usize(0), "the fixture's generic impl is registered");
+  (i : usize) = usize(0);
+  while(i < counts.len(), {
+    n := match(counts.get(i), .Some(c) => c, .None => usize(0));
+    assert(n == usize(1), `Kw carries ${n.to_string()} required traits, want one Ord(Kw)`);
+    i = (i + usize(1));
+  });
+  mm_forget_open_document(doc_path.clone());
 });

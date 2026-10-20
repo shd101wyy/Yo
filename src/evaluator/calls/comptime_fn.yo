@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, ast_expr_is_atom_of, make_err_expr, clone_expr_fresh_ids, next_global_expr_id } :: import("../../expr.yo");
 { register_type_display_name } :: import("../../types/string.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, register_trait_type_args, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
@@ -1432,6 +1432,7 @@ evaluate_comptime_fn_call :: (
       // fid field; first stamp wins inside the register fn.
       Rc(.TraitT(_, _, _, _, ct_trait_id, _, _, _, _, _)) => {
         register_trait_ctor_fid(ct_trait_id.clone(), func_id_str.clone());
+        register_trait_type_args(ct_trait_id.clone(), inst_type_args.clone());
         return_value
       },
       _ => return_value
