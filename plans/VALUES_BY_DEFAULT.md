@@ -602,6 +602,9 @@ cannot be copied.
   discipline statically:
   - `__yo_cell(V)`, with plain `++`/`--`, backs `Rc`;
   - `__yo_atomic_cell(V)` backs `Arc` and `std/imm`.
+  - **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 5):** both
+    primitives land as one named, compiler-only Generation A PR in the
+    v0.2.71 (B12) cut, with no std use; V5 Generation A adopts them.
 - **Who may use them.** Both are builtins usable only in a file with
   `pragma(Pragma.AllowUnsafe)` (decision 6). Safe code gets a reference
   type only by writing `Rc`/`Arc`.
@@ -5097,6 +5100,13 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
 Generation B for methods that need the seed to enforce move-only). This half
 lands after V1 step 2, because its resource cells are the unique `Box`
 (§3.4, §6):
+- **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 4): this half splits.**
+  The cell-free `ref(...)` resources (`File`, `TempDir`, `TempFile`,
+  `Watcher`, the sockets, `TlsStream`, `HttpClient`, `Child*`, `Thread`)
+  are their own step at v0.2.70, after V2b's flips. Every `atomic(...)`
+  type (`Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`,
+  `WaitGroup`, `Once`, `OnceCell`, `ThreadPool`, the channel) rides V5
+  Generation A onto `__yo_atomic_cell`, so it is rewritten once.
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
@@ -6852,7 +6862,11 @@ heavy run, the command is given in item 2.
        ```
 
      - Needs: B0 in `SEED_VERSION` (the projections), decision 47 globals
-       Generation B. Valid before the flip.
+       Generation B. Valid before the flip. **Decided 2026-10-20
+       (`plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 3): B5 uses `with`/`with_mut` only and
+       does not wait for the projections; `get()`/`get_mut()` wait for
+       decision 43 step 2 with `Rc.get_mut`. The `get_mut()` example above
+       is superseded.**
      - Tier 1: build; `tests/global_lend.test.yo`; in-process internal; N5
        (a `RefCell` mark is a flag check, not an allocation).
    - **B6 (c). Decision 20's accessors.**
@@ -7241,6 +7255,8 @@ heavy run, the command is given in item 2.
     since #1241, so the rule in the compiler, `yo fix <path> --migrate
     rc-clone` and the sweep of `std/`, `src/` and `tests/` can land together,
     as decision 42 did. The seed builds a swept `src/` unchanged.
+    **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 1): one PR, no release
+    boundary, scheduled in the v0.2.71 cut after Part A.**
   - **Measure** the dup/drop pair optimizer's emit diff on `src/` before and
     after. Each explicit clone replaces an implicit dup that the optimizer
     used to cancel, so a rise in `___dup` calls in the self-build is the
@@ -7867,7 +7883,9 @@ once `SEED_VERSION` parses it.
    - Generation B: sweep the tree, the docs and `markdown_yo`, then enforce
      everywhere.
    - Order: after V2b Generation B and before decision 43, so that
-     decision 43's `&mut` rules can assume `mut`.
+     decision 43's `&mut` rules can assume `mut`. **Decided 2026-10-20
+     (`plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 2): Generation B at v0.2.72, after B8–B11
+     and before decision 43 step 2.**
    - **Census (2026-10-18, `YO_AUDIT_MUT_BINDINGS=1` with the Generation A
      binary on `feat/vbd-d47-locals-gena`, `check ./src` and `check ./std`;
      the tests row is the migration's own count).** Unique write sites of a
@@ -7947,6 +7965,9 @@ once `SEED_VERSION` parses it.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
+- **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 6):** Generation A
+  targets v0.2.72, serialized after decision 43 step 1 merges; v0.2.73 is
+  the hard ceiling (later, Generation B needs a release of its own).
 - **Generation A.** The parser accepts both, and the evaluator warns on each
   use. `std/` and `src/` stop using them:
   - the ~60 context objects become `Rc(struct(...))`, and the ~135 result

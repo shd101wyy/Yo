@@ -567,11 +567,26 @@ Part C deletes the macros.
     array; nothing is copied. An `Array` value is spelled
     `Array(i32, 3)(1, 2, 3)` (as in `tests/algebraic_effects.test.yo:993`),
     so a site reads `ArrayList(i32).from(Array(i32, 3)(1, 2, 3))`.
-  - **Decide `from_array`.** The existing `ArrayList.from_array(arr : &Array(T, N))`
-    (`std/collections/array_list.yo:228`) borrows and copies each element,
-    which becomes E0901 for non-`Copy` elements after V2b's B8 flip. B3
-    keeps it as a `where(T <: Clone)`-bounded copy that calls `.clone()`
-    per element, or deletes it in favor of `from`; record the choice here.
+  - **`from_array` is DELETED** (decided 2026-10-20, maintainer-delegated;
+    `plans/handover/VBD_RELEASE_SCHEDULE_DRAFT.md` §5 decision 8). The
+    existing `ArrayList.from_array(arr : &Array(T, N))`
+    (`std/collections/array_list.yo:229`) borrows the array and copies
+    each element out of it. That is the implicit copy VBD removes, and it
+    becomes E0901 for non-`Copy` elements after V2b's B8 flip. A
+    `where(T <: Clone)`-bounded copy would keep a second spelling of what
+    `from` plus an explicit clone already says. `Array(T, N)` implements
+    `Clone` element-wise (`std/prelude.yo:7315`, `where(T <: Clone)`), so a
+    caller that keeps its array writes `ArrayList(T).from(arr.clone())`,
+    and one that does not writes `ArrayList(T).from(arr)`, which moves.
+    - Callers: **none.** `git grep -n "from_array"` outside `plans/` and
+      `issues/` at `fc15a6092` finds only the definition, one comment and
+      two goldens. The B3 PR still touches all three:
+      - the `src/evaluator/calls/function_type.yo:923` comment names
+        `from_array` as its `generic(N : usize)` value-binder example;
+        repoint it at `from`, which carries the same binder;
+      - the `lsp-completion` and `lsp-member-definition` cli-cases list
+        `from_array` as a member, so cli-diff must run and both goldens are
+        re-recorded after reading their GOLDEN-DIFF.
   - **Dependency: the fixed-array S2 — resolved.** A fixed-array literal of
     runtime `String`s emitted invalid C; #1496 (`400413ac3`) fixed it
     (`issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md`,
