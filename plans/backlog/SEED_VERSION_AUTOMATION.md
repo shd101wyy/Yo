@@ -384,15 +384,20 @@ Generation A, #1437):
   does not — a separate hardening item, not a seed defect). The seed also
   compiles + runs a Clone-of-a-peekable probe (element Clone-but-not-Copy,
   inner Clone-but-not-Copy).
-- **Still parked:** its matching `where(I <: Copy, A <: Copy)` `Copy` derive.
-  The tree-side blocker is FIXED
-  (`issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`:
-  `_first_non_copy_part` now discharges a conditional-Copy container field
-  through the open-pattern coverage query), but the v0.2.65 seed still
-  REJECTS the derive — measured 2026-10-18, seed `check` on a prelude with
-  the derive errors before the tree fix can matter (the seed's evaluator
-  lacks it). Unpark only after a seed carrying the fix: add the derive,
-  then the same seed verification as the Clone entry above.
+- **The matching `Copy` derive: DONE 2026-10-20** on the v0.2.66 seed
+  (`git tag --contains 9e7c6f9b7` = v0.2.66: the seed carries #1466's
+  `_first_non_copy_part` fix,
+  `issues/fixed/2026-10-17-a-generic-copy-impl-rejects-a-field-that-is-a-conditional-copy-container-of-its-parameter.md`).
+  `IterPeekable(I, A)` takes
+  `derive(generic(I : Type, A : Type), where(I <: Copy, A <: Copy), IterPeekable(I, A), Copy)`
+  after its `Clone` derive. The v0.2.65 seed rejected this derive (measured
+  2026-10-18); the v0.2.66 seed accepts it: `yo check` and `yo test
+  tests/iterator_combinators.test.yo --std-path ./std` with the seed pass, and
+  `yo build --std-path ./std` with the installed v0.2.66 seed builds the tree
+  (evidence in the branch's report). `tests/iterator_combinators.test.yo`
+  ("iter.peekable is Copy exactly when its inner iterator and element are")
+  fails against the previous prelude (`comptime_assert` "Copy inner, Copy
+  element") and passes with it.
 
 ## Seed-gated follow-up (2026-10-14): the standard streams stop tracking an offset
 
