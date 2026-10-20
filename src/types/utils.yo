@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { HashSet } :: import("std/collections/hash_set");
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
-{ TypeValue, TypeValueNode, t_refine_inner, no_types } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, SharedList } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
@@ -2911,7 +2911,7 @@ _size_walk_stack_has :: (fn(id : &String) -> bool)({
 /// The value-enum size computation (tag + largest variant payload), factored
 /// out of `get_size_of_type`'s `.EnumT` arm so the arm can bracket it with the
 /// cycle stack push/pop.
-_enum_value_size :: (fn(evf : &ArrayList(ArrayList(TypeValue))) -> Option(usize))({
+_enum_value_size :: (fn(evf : &SharedList(SharedList(TypeValue))) -> Option(usize))({
   (max_data : usize) = usize(0);
   (max_align_bits : usize) = usize(0);
   (unknown : bool) = false;

@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { register_type_display_name } :: import("../../types/string.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, register_struct_ctor_fid, lookup_struct_ctor_fid, register_trait_ctor_fid, ComptimeRef, expr_info_adopt_env, expr_info_comptime_ref, purge_executed_clone_metadata } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_type_lists } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, stamp_enum_final_type_arguments, ctor_phantom_flags } :: import("../../types/creators.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 { is_some_type, is_type_hierarchy_type, is_type_0, is_struct_type, is_shared_cell_type_name } :: import("../../types/guards.yo");
@@ -184,8 +184,8 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
     a_ecf := lookup_enum_cfid(&a_eid);
     b_ecf := lookup_enum_cfid(&b_eid);
     if((a_ecf.len() > usize(0)) && (a_ecf == b_ecf), {
-      a_vf := match(aty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      b_vf := match(bty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      a_vf := match(aty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
+      b_vf := match(bty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
       if(a_vf.len() == b_vf.len(), {
         (vfi : usize) = usize(0);
         (vf_ok : bool) = true;

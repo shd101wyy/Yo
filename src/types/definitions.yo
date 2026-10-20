@@ -526,6 +526,8 @@ impl(SharedList(SharedList(TypeValue)), Acyclic());
 (g_no_labels : SharedList(String)) = shared_list(ArrayList(String).new());
 (g_no_flags : SharedList(bool)) = shared_list(ArrayList(bool).new());
 (g_no_levels : SharedList(usize)) = shared_list(ArrayList(usize).new());
+(g_no_type_lists : SharedList(SharedList(TypeValue))) = shared_list(ArrayList(SharedList(TypeValue)).new());
+(g_no_label_lists : SharedList(SharedList(String))) = shared_list(ArrayList(SharedList(String)).new());
 /// The shared empty type list.
 no_types :: (fn() -> SharedList(TypeValue))(g_no_types);
 /// The shared empty label list.
@@ -534,6 +536,10 @@ no_labels :: (fn() -> SharedList(String))(g_no_labels);
 no_flags :: (fn() -> SharedList(bool))(g_no_flags);
 /// The shared empty level list.
 no_levels :: (fn() -> SharedList(usize))(g_no_levels);
+/// The shared empty list of type lists (an enum's `variant_fields`).
+no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(g_no_type_lists);
+/// The shared empty list of label lists (an enum's `variant_field_labels`).
+no_label_lists :: (fn() -> SharedList(SharedList(String)))(g_no_label_lists);
 // ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
@@ -560,4 +566,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, shared_list, no_types, no_labels, no_flags, no_levels, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, shared_list, no_types, no_labels, no_flags, no_levels, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

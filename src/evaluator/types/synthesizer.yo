@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 { type_key } :: import("../../types/type_key.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { in_def_time_trial } :: import("../context.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { lookup_struct_ctor_fid, some_resolution } :: import("../../expr_info.yo");
 { type_value_tag, t_usize, resolve_enum_shell, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -1394,8 +1394,8 @@ _synthesize_types_impl :: (
         )
       );
     }, {
-      exp_vf := match(exp_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-      giv_vf := match(giv_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+      exp_vf := match(exp_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
+      giv_vf := match(giv_en_ty, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
       n_v := exp_vf.len();
       (vi : usize) = usize(0);
       while(vi < n_v, {

@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   create_type_value,
   type_of_eval_value
 } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_type_lists, no_label_lists } :: import("../../types/definitions.yo");
 { t_unit, t_bool, t_type, t_comptime_string, t_comptime_int, t_comptime_float, t_expr_t, t_comptime_list } :: import("../../types/creators.yo");
 { is_some_type, is_struct_type, is_enum_type } :: import("../../types/guards.yo");
 { is_type_hierarchy_type, is_trait_type } :: import("../../types/guards.yo");
@@ -2018,8 +2018,8 @@ evaluate_type_map_variants :: (
   );
   // Extract enum variant data.
   variant_names := match(target_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => no_labels());
-  variant_fields := match(target_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  variant_field_labels := match(target_type, Rc(.EnumT(_, _, _, _, _, vfl, _, _, _, _)) => vfl, _ => ArrayList(ArrayList(String)).new());
+  variant_fields := match(target_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => no_type_lists());
+  variant_field_labels := match(target_type, Rc(.EnumT(_, _, _, _, _, vfl, _, _, _, _)) => vfl, _ => no_label_lists());
   // Resolve the DECLARED `VariantInfo` struct type from the env once — the
   // type each per-variant temp var is bound with. EvalValues do not carry
   // their evaluated type, and the `type_of_eval_value(vi_val)` stand-in

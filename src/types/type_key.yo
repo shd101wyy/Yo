@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode, no_types, no_labels } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, no_label_lists } :: import("./definitions.yo");
 { type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type, enum_decl_identity, is_prelude_enum_decl } :: import("./guards.yo");
@@ -471,7 +471,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => no_labels());
       evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds, _ => ArrayList(i64).new());
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => false);
-      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls, _ => ArrayList(ArrayList(String)).new());
+      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls, _ => no_label_lists());
       // Cycle guard (see g_tk_visited): an enum already on the expansion
       // path renders id-only rather than re-expanding its variant fields. The
       // node is the id AND its type arguments' identities, as the Struct arm's:
