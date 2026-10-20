@@ -141,7 +141,8 @@ substitutes.
   (Schedule), so the hole never widens before it is deleted.
 
 **Why not first.** Today `Iso` is the only safe way to move a `String` or a
-collection to or from another thread. On v0.2.66, `Thread(ArrayList(String))`
+collection to or from another thread. On develop `8203bd867` (re-checked
+with a tree binary), `Thread(ArrayList(String))`
 and `arc(String.from(...))` are E0602, and a spawn closure capturing a
 `String` is rejected with "wrap it in Arc/Iso". `PARALLELISM_RULES.md` D10
 says why: "Until V2b gives `String` and the collections unique buffers, they
@@ -410,11 +411,13 @@ deletes the literal surface and migrates every caller.
   retained, a missed desugar fails silently: `desugar_if_calls` returns a
   subtree unchanged unless `_contains_desugar_target` (`src/expr.yo:1748`)
   knows the target (:1867), and the prelude macro then expands the call, so
-  the emit-diff reads clean. B1/B2 (and B4's sites, which stop calling the
-  macro) add `for`/`for_await` predicates to `_contains_desugar_target`,
-  and add a debug assertion (or counter, `YO_DEBUG_*`) at the macro dispatch
+  the emit-diff reads clean. B1/B2 add `for`/`for_await` predicates to
+  `_contains_desugar_target`, and add a debug assertion (or counter,
+  `YO_DEBUG_*`) at the macro dispatch
   (`src/evaluator/calls/function.yo:10569` path) that fails when a macro
-  named `for` or `for_await` is dispatched. The corpus runs with it on.
+  named `for` or `for_await` is dispatched. The corpus runs with it on. No
+  `unsafe.drop` predicate is needed: B4 has no desugar, its sites call
+  `___drop` directly, and the assertion covers `for`/`for_await` only.
 - Token synthesis reuses `_synth_desugar_tok` (`src/expr.yo:1212`) and never
   clones `Token.input`: the first `if` desugar did, and cost 4× wall time
   and 2.8× RSS (`issues/desugar-token-clones-evaluator-regression.md`).
