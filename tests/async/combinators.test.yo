@@ -1173,3 +1173,35 @@ test("A4: a consumer with one call signature at every T gets a capture struct pe
   d := io.await(_a4_ran(c2.recv(io), io), io);
   assert(c && d, "the i32 and the bool recv both ran");
 });
+/// A combinator that SPAWNS its operand, annotating the handle with a type
+/// built from the binder (`timeout`'s shape).
+_a4_respawn :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(Option(T), Io)))(
+  io.async({ op }(io : Io) => {
+    (h : JoinHandle(T)) = io.spawn(op, io);
+    io.await(h.join(io), io)
+  })
+);
+/// The plain-function form: a type built from the binder, no `io.async` body.
+_a4_some_sync :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Option(T))({
+  r := io.await(op, io);
+  Option(T).Some(r)
+});
+/// The binder bound to a join future's `Option(i32)`, then to its
+/// `Option(bool)`: both are one substituted `Option` declaration, so a type
+/// built from the binder (`JoinHandle(T)`, `Option(T)`) must be told apart by
+/// its arguments
+/// (issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md).
+test("A4: a type built from the binder of a join future at two types is two types", {
+  e := io.await(_a4_respawn(io.spawn(io.async((io : Io) => i32(5)), io).join(io), io), io);
+  assert(e == .Some(.Some(i32(5))), "the i32 join spawned again");
+  f := io.await(_a4_respawn(io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(f == .Some(.Some(true)), "the bool join spawned again");
+  g := io.await(_a4_some(io.spawn(io.async((io : Io) => i32(6)), io).join(io), io), io);
+  assert(g == .Some(.Some(i32(6))), "Option(T) around the i32 join");
+  h := io.await(_a4_some(io.spawn(io.async((io : Io) => false), io).join(io), io), io);
+  assert(h == .Some(.Some(false)), "Option(T) around the bool join");
+  i := _a4_some_sync(io.spawn(io.async((io : Io) => i32(7)), io).join(io), io);
+  assert(i == .Some(.Some(i32(7))), "the plain-function form at i32");
+  j := _a4_some_sync(io.spawn(io.async((io : Io) => true), io).join(io), io);
+  assert(j == .Some(.Some(true)), "the plain-function form at bool");
+});

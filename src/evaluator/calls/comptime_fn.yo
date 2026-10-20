@@ -114,14 +114,18 @@ _has_abstract_some :: (fn(ty : &TypeValue) -> bool)({
 /// falls back to pairwise era-equal variant FIELD lists. Concrete same-shape
 /// but different-ctor types still take the EXACT fallback (the MapEntry/ME
 /// cache-collision hazard).
-/// Equal struct ids decide identity only when the two sides' recorded type
-/// arguments agree pairwise: `substitute()` keeps the declaration's id on every
-/// instantiation, so `Iter(usize)` and `Iter(String)` share one
-/// (issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md). A recursive
-/// struct's self-shell shares both the id and the arguments, so it still unifies.
+/// Equal struct or enum ids decide identity only when the two sides' recorded
+/// type arguments agree pairwise: `substitute()` keeps the declaration's id on
+/// every instantiation, so `Iter(usize)` and `Iter(String)` share one
+/// (issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md), and so do
+/// `Option(i32)` and `Option(bool)` built from one generic producer's
+/// `Option(T)` (`JoinHandle(T).join`'s result at two `T`s,
+/// issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md).
+/// A recursive declaration's self-shell shares both the id and the arguments
+/// (or records none), so it still unifies.
 _ctfe_same_id_type_args_agree :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> bool)({
-  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
-  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
+  a_ta := match(aty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
+  b_ta := match(bty, Rc(.Struct({ type_arguments : t })) => t, Rc(.EnumT({ type_arguments : t })) => t, _ => ArrayList(TypeValue).new());
   if(a_ta.len() != b_ta.len(), {
     // One era recorded its arguments and the other did not (a pattern-era
     // copy): the id is all there is to go on.
@@ -148,7 +152,7 @@ _ctfe_types_era_equal :: (fn(aty : &TypeValue, bty : &TypeValue, d : usize) -> b
   a_eid := match(aty, Rc(.EnumT(x, _, _, _, _, _, _, _, _, _)) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
   b_eid := match(bty, Rc(.EnumT(x, _, _, _, _, _, _, _, _, _)) => x.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
   if((a_eid.len() > usize(0)) && (a_eid == b_eid), {
-    return(true);
+    return(_ctfe_same_id_type_args_agree(aty, bty, d));
   });
   // Struct era instances: same ctor fid + era-equal type arguments.
   if((a_sid.len() > usize(0)) && (b_sid.len() > usize(0)), {
@@ -266,7 +270,7 @@ _ctfe_args_equal :: (
         b_enum_id := match(bty, Rc(.EnumT(be_id, _, _, _, _, _, _, _, _, _)) => be_id.replace(String.from("__self_shell"), String.from("")), _ => String.from(""));
         cond(
           ((a_struct_id.len() > usize(0)) && (a_struct_id == b_struct_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
-          ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => true,
+          ((a_enum_id.len() > usize(0)) && (a_enum_id == b_enum_id)) => _ctfe_same_id_type_args_agree(&aty, &bty, usize(0)),
           // Two closure identities are one type exactly when their
           // resolutions are (plans/reference/TYPE_IDENTITY.md). The id says
           // nothing: every `(k : Impl(Fn() -> unit))` annotation evaluates to

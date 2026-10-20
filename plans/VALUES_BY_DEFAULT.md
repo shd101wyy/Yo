@@ -180,8 +180,8 @@ Progress:
     "Decision 47" step 2's "as built").
 - **In progress:**
   - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
-    over futures, blocked on `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`; the capture-struct half,
-    `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`, is fixed)
+    over futures; both compiler blockers are fixed,
+    `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` and `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`)
     and A6's `Rc`-field half (V2c).
 - **Next:** the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
@@ -1377,8 +1377,8 @@ instead.
       (`issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`;
       fixed 2026-10-20: the capture key and the future-wrapper rebuild read
       the end of the resolution chain, which is per producer
-      specialization; a type built from the binder in such a body is the
-      remaining blocker, `issues/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`).
+      specialization; a type built from the binder in such a body was the
+      second blocker, fixed the same day, `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`).
       The reference implementation is `std/async/index.yo` and
       `std/http/client.yo` on the branch `wip/vbd-a4-std-half` (commit
       `a83d6ac8b`). `timeout(handle, …)` stays until that is fixed.

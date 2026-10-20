@@ -2,7 +2,7 @@
 
 **Severity:** S2: a generic function that builds a type from its binder (`Option(T)`, `JoinHandle(T)`) is rejected when it is called with futures of one generic producer at two types (two `JoinHandle(T).join` futures). The second call reuses the first call's type, and the evaluator reports `Cannot unify incompatible types: "bool" and "i32"` or `Incompatible types for field "value" … These are two different declarations with the same name`. This blocks `std/async`'s future-taking `timeout`, whose body is `(h : JoinHandle(T)) = io.spawn(fut, io)` (VBD §3.13 A4's std half).
 
-**Status:** OPEN (fix on `fix/ctfe-enum-arg-type-args`, stacked on `fix/async-capture-per-mint`). **Found:** 2026-10-20, while fixing `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`, whose "evaluator error instead" symptom this is. v0.2.66 and develop `6ccddf25d` both fail.
+**Status:** FIXED 2026-10-20 (`fix/ctfe-enum-arg-type-args`). **Found:** 2026-10-20, while fixing `issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`, whose "evaluator error instead" symptom this is. v0.2.66 and develop `6ccddf25d` both fail.
 
 ## Reproducer
 
@@ -47,8 +47,10 @@ The `io.async` and `io.spawn` forms of the same body fail the same way. With `(h
 
 `_ctfe_types_era_equal` has the same shortcut one level down. So the second call's `Option(Option(bool))` memo-hit the first call's `Option(Option(i32))`. Structs got exactly this guard in `issues/fixed/ctfe-memo-shared-struct-id-fast-path-smell.md` (`_ctfe_same_id_type_args_agree`). Enums kept the shortcut because the guard's doc said "enums carry no type_arguments", which stopped being true once `EnumT` recorded them.
 
-## Direction
+## Fix
 
-Make `_ctfe_same_id_type_args_agree` read `type_arguments` from an `EnumT` as well as a `Struct`, and route both enum shortcuts through it. A recursive enum's `__self_shell` still unifies with its final, since it shares the arguments or records none.
+`_ctfe_same_id_type_args_agree` reads `type_arguments` from an `EnumT` as well as a `Struct`, and both enum shortcuts call it. A recursive enum's `__self_shell` still unifies with its final, because the shell shares the arguments or records none, and a side with no recorded arguments still matches on the id alone.
 
-The regression test belongs with the fix: `JoinHandle(T)` in a spawning `io.async` body, `Option(T)` in an `io.async` body, and `Option(T)` in a plain function, each at `i32` and `bool`.
+This splits only instantiations that were wrongly merged. The compiler's own C (`compile src/main.yo --emit-c`, same source) is byte-identical with and without the change (142,824,324 bytes).
+
+Regression test: `tests/async/combinators.test.yo`, "A4: a type built from the binder of a join future at two types is two types". It covers `JoinHandle(T)` in a spawning `io.async` body, `Option(T)` in an `io.async` body, and `Option(T)` in a plain function, each at `i32` and `bool`. It fails on develop `5111d0cce` (after #1501's enum-identity change and #1506) with `Cannot unify incompatible types: "bool" and "i32"`, and passes with the fix.
