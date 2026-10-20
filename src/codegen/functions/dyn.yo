@@ -636,7 +636,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
                                   slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref, _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
-                                  params := _wrapper_params(slot_params_tys.clone(), slot_param_is_ref.clone(), usize(1), context);
+                                  params := _wrapper_params(slot_params_tys.items.clone(), slot_param_is_ref.items.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
                                   while(ac_j < param_types.len(), {
