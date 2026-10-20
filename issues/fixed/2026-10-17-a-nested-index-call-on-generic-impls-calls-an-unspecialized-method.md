@@ -173,7 +173,9 @@ Two places in `create_specialized_function_inline`
 
 **Fix:** both places also collect the type-argument SomeTs
 (`_collect_type_arg_somes`). The probe re-evaluates when either list is
-non-empty, and the re-evaluated return is adopted only when neither is.
+non-empty, and the re-evaluated return is adopted only when neither is,
+except for the existing closure carve-out: a type argument that is this
+call's own closure-typed forall argument (`arc(f) -> Arc(V)`) still adopts.
 Regression tests: `tests/index.test.yo` ("Index: a nested read through
 generic impls whose Output has a phantom parameter", at `i32` and `u8`) and
 `tests/impl.test.yo` ("a trait method returning a phantom-parameter Output
