@@ -1379,7 +1379,8 @@ instead.
       specialization; a type built from the binder in such a body was the
       second blocker, fixed the same day, `issues/fixed/2026-10-20-a-type-built-from-a-binder-bound-to-a-substituted-enum-reuses-another-instantiation.md`).
       `std/async/index.yo` now takes futures in both (`timeout(h.join(io),
-      d, io)` times out a task that is already spawned), and
+      d, io)` times out a task that is already spawned, and on the deadline
+      DETACHES it, where `timeout(handle, …)` used to abort it), and
       `std/http/client.yo` keeps a private handle race for its `IoExn`
       exchange: an effect-generic `timeout` is blocked because an effect binder
       `E` bound only through the future parameter resolves to `Io`

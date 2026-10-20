@@ -18,7 +18,13 @@ _mk_i32 :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => i32(7))
 );
 main :: (fn(io : Io) -> unit)({
-  exn := Exception(throw : (_err -> { unwind(()); }));
+  exn := Exception(
+    throw : (
+      _err -> {
+        unwind(());
+      }
+    )
+  );
   e := IoExn(io : io, exn : exn);
   a := io.await(wrap_e(_mk_i32(io), io), e);
   assert(a == i32(7), "a");
