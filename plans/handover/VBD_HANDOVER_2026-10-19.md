@@ -8,7 +8,11 @@
 
 ## 0. Where to start (v0.2.66 IS OUT — this is now the v0.2.67 handover)
 
-1. Read this document, then the 2026-10-17 handover, then AGENTS.md.
+1. Read this document, then the 2026-10-17 handover, then AGENTS.md. **Decision 43 was amended
+   after both were written (#1483, §4.5): references are first-class `&(T, p)` types with origins.**
+   Before touching anything about borrows, references, `Send` or `TypeValue`, read
+   `plans/backlog/NON_ESCAPABLE_TYPES.md` O1–O10; the 2026-10-17 handover's step 15 and every
+   `R1`–`R7` / `depends(...)` citation in the backlog catalogs describe the superseded design.
 2. Confirm v0.2.66 is published: `gh release view v0.2.66`, `SEED_VERSION` bumped, release notes
    curated (§6 has the final state and anything left to check).
 3. Your first actions are in §4.1 (land anything the release did not include) — the PENDING table in
@@ -222,16 +226,40 @@ children, V2c, V4's remaining trees, decision 43 (four PRs), function-item types
 retirement of the `yo fix` migrations — all unchanged; the plan is authoritative where this document
 is silent.
 
-**Decision 43 was amended on 2026-10-19 (#1483, merged after this cycle):** references become
-FIRST-CLASS types parameterized by an `Origin` kind (`&(T, p)`), superseding the `depends` clause
-and the R7 root-joining tracker the 2026-10-17 handover's step 15 still describes. Read the plan's
-§6 "Decision 43" sequence and `plans/backlog/NON_ESCAPABLE_TYPES.md` O1–O9, not step 15's wording.
-The review of #1483 added O3-3's invariance rule (an origin behind a `&mut`/`RefCell` never widens),
-corrected O5/O8 (a body-local borrow across an `await` stays legal — the state machine is a heap
-cell, decision 40), made O6's freeze set precise and O1's identity erasure explicit, and filed ONE
-open design point that blocks step 2's spelling: whether a `generic(...)` parameter admits
-origin-carrying arguments by default or by declaration (§7 there, recommendation: opt-in). Ask the
-maintainer before N1.
+### 4.5 Decision 43 amended: first-class references with origins (#1483, 2026-10-19/20)
+
+The amendment supersedes the `depends` clause and the R7 root-joining tracker that the 2026-10-17
+handover's step 15 still describes; its design is `plans/backlog/NON_ESCAPABLE_TYPES.md` O1–O10 and
+the PR sequence is the plan's §6 "Decision 43" (four steps, unchanged in count). What a resuming
+agent must know beyond the plan:
+
+- **The review of #1483 changed the design in five places**, all folded into the docs: O3-3's
+  invariance rule (an origin behind a `&mut` pointee / `RefCell` payload / `&mut` capture never
+  widens — the first text had a dangling-alias hole); O5/O8 (a body-local borrow across an `await`
+  stays legal: the state machine is a heap cell, decision 40 — verified with a repro under
+  v0.2.66, the first text rejected it); O6 (declared union = bound, live freeze = flow-inferred
+  set); O1 (origins erased from every identity but the checker's); and O10, the `Escapable` bound
+  (decided 2026-10-20 under the maintainer's delegation): a structurally derived prelude marker
+  like `Send`, `where(T <: Escapable)` on the no-origin positions, NO implicit bound on generic
+  parameters, Swift's `~Escapable` opt-in rejected. Nothing about decision 43 is open.
+- **Ordering consequences.** Step 1 of the sequence now adds TWO `TypeValue` variants
+  (`Reference(T, mutable, origin)` and the `Origin` kind) and carries a new gate: origins are NOT
+  part of `type_key`, the #1329 memos or any specialization key (the emit-diff proves it). The
+  function-item-types step (2026-10-17 §4 step 16) reworks `type_key` too and stays AFTER step 1
+  for that reason. N0's negative corpus (§5 of the design doc lists every row) can be written at
+  any time before step 2 — it is the one piece of decision 43 with no prerequisite.
+- **What is unchanged by it:** V2b's reshaped order (§4.2), the §3 verdicts, the parked branches,
+  decision 46 (`Rc` read-only; `Rc(T, p)` was considered and rejected), decision 47, §3.13 A2's
+  substance (the registry is replaced by `Future(T, p)` in N3), `BorrowedWalk` standing until
+  step 3, and the releases list (§4.4 of the 2026-10-17 handover: decision 43 step 2 → step 4 is
+  still one Generation A/B boundary).
+- **Vocabulary for notes and issue docs:** say "origin", "no-origin position", "`Escapable`",
+  "declared union"; never "root-joining", "single-root rule" or "second-class" for anything after
+  N1 (today's compiler is still second-class — say so with "today" when describing it).
+- **Framing:** Yo is no longer mutable value semantics in Hylo's sense (first-class references are
+  what MVS forbids); the ROADMAP positioning now says "unique ownership with first-class,
+  exclusivity-checked borrows". Use that phrase; "MVS for owned values" is acceptable only for the
+  owned half.
 
 ## 5. Open bugs to know about (beyond §2.2 PENDING and §3)
 

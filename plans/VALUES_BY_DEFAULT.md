@@ -10,10 +10,9 @@
   design before implementation; decision 46, `Rc` is Rust's `Rc`, added
   2026-10-14; decision 47, immutable bindings with `mut(...)` and Zig's
   statics, added 2026-10-15, with two points to settle before its
-  implementation; decision 43's amendment leaves ONE point open before
-  its N1 — whether a `generic(...)` parameter admits origin-carrying
-  arguments by default or by declaration, §9). No other design question
-  is open;
+  implementation; decision 43's amendment's one follow-up, the
+  `Escapable` bound, decided 2026-10-20 — `NON_ESCAPABLE_TYPES.md` O10).
+  No other design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
@@ -3743,7 +3742,12 @@ and in git, not a silent edit.
       `Send` values and thread boundaries, spawned tasks, an escaping
       closure's capture, a `Dyn` payload
       (initially), module-level bindings (initially), `extern`
-      signatures — and a self-referential value is unrepresentable (a
+      signatures — spelled as the bound `where(T <: Escapable)` on those
+      positions' type parameters, `Escapable` a structurally derived
+      prelude marker like `Send`, with NO implicit bound on generic
+      parameters (a generic body passing an unbounded `T` there fails at
+      its declaration naming the bound; decided 2026-10-20, O10) — and a
+      self-referential value is unrepresentable (a
       type may never name its own fields, a binding's type never its own
       place), which is what keeps `Pin` out of Yo: every reference inside
       a value points outward, so moving a value never dangles what it
@@ -3809,7 +3813,9 @@ and in git, not a silent edit.
       unstable-place invalidation (`!`) and shared-mutable `ref`/`mut`
       kinds (both contradict "`&` means unchanged"); a body-inferred mutation
       effect; `&String → &str` and every other deref coercion; Austral's
-      linear types.
+      linear types; Swift's `~Escapable` split (an implicit `Escapable`
+      bound suppressed by opt-in — O10 takes the positive bound,
+      2026-10-20).
       - **The "bites" gate is discharged** (2026-10-19): the maintainer
         adopted origins ahead of any counted trigger, on the
         design-it-right-for-LLM-authors argument — explicit contracts a
@@ -3855,7 +3861,8 @@ and in git, not a silent edit.
       (rejected in the callee), a binding whose type names its own place,
       a widening through a `&mut` pointee (rejected, O3-3), a body-local
       borrow live across an `await` (accepted, as today), origins crossing a
-      no-origin position (E0909), a place crossing an `Rc`/`Arc` deref
+      no-origin position (E0909), a generic body passing an unbounded `T`
+      to `Rc(T)` (error at the declaration, O10), a place crossing an `Rc`/`Arc` deref
       (rejected, O9); the borrowed
       `for` by `impl(&C, IntoIterator)`.
 
@@ -7479,7 +7486,8 @@ measured `check ./src` time and stage-2 RSS.
      origin intersection, the covariant/invariant coercion rule (exact
      through a `&mut` pointee, a `RefCell` payload, a `&mut` capture),
      the return rule (result origins name parameters only), place writes,
-     reborrows, sibling sub-loans; `.*` for
+     reborrows, sibling sub-loans; the `Escapable` prelude marker and
+     `where(T <: Escapable)` on the no-origin positions (O10); `.*` for
      whole-value reads and writes, auto-deref, auto-borrow;
      `impl(&T, Trait(…))`; `FnMut` (decision 37).
    - The storage wall stays as today: E0909 keeps the second-class
@@ -7508,14 +7516,13 @@ the three doors, `RefCell` the one spelling of dynamic exclusivity, and
 no origin crossing an `Rc`/`Arc` deref (the `Rc(T, p)` extension was
 rejected — decision 43's "Rejected" list).
 
-**Open, not decided (noted 2026-10-13; one item added 2026-10-20):**
-- **Whether a `generic(...)` parameter admits origin-carrying arguments
-  by default or by declaration** (`NON_ESCAPABLE_TYPES.md` §7, filed by
-  the review of #1483 with a recommendation: opt-in, Swift's
-  `~Escapable` split, std's inline containers and cells opting in). It
-  is decided before step 2, because std's constructors must carry the
-  spelling from the first Generation A; it blocks N1's spelling, not the
-  amendment.
+**Decided 2026-10-20** (the maintainer delegated the point the review of
+#1483 raised): a `generic(...)` parameter admits origin-carrying arguments
+by default; the no-origin positions carry `where(T <: Escapable)`, a
+structurally derived prelude marker like `Send` (`NON_ESCAPABLE_TYPES.md`
+O10). Step 2 lands it.
+
+**Open, not decided (noted 2026-10-13):**
 - **Handler (`ctl`) types could become structurally origin-carrying.**
   Decision 43 makes any type that contains a `&` origin-carrying (it
   stands only where its origins can follow). Treating a `ctl` handler type
@@ -8094,12 +8101,12 @@ Decision 18 was also amended to place-based exclusivity.
   decision 43 step 3 (`issues/retired/borrowed-for-over-user-defined-collections.md`).
 - Decision 47 step 2's two as-built departures are accepted (below).
 
-**Parked with decision 43's step 2 (filed 2026-10-20, review of #1483):**
-whether a `generic(...)` parameter admits origin-carrying arguments by
-default or by declaration (`plans/backlog/NON_ESCAPABLE_TYPES.md` §7,
-recommendation: opt-in). Everything else the review found was folded into
-the design (O3-3's invariance rule, O5/O8's async correction, O6's freeze
-set, O1's identity erasure).
+**Decided 2026-10-20** (review of #1483, the maintainer delegating): the
+`Escapable` bound — no implicit bound on generic parameters, the no-origin
+positions require `where(T <: Escapable)`, a structural marker like `Send`
+(`plans/backlog/NON_ESCAPABLE_TYPES.md` O10). The review's other findings
+were folded into the design (O3-3's invariance rule, O5/O8's async
+correction, O6's freeze set, O1's identity erasure).
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:

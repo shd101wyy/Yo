@@ -11,7 +11,8 @@ mutable value semantics for owned values (decision 42's spelling; decisions
 containing one, may now stand anywhere its origins can follow, storage
 included. The second-class caste of the 2026-10-10 decision becomes one
 structural predicate: **this position accepts no origin parameters** (E0909
-restated; the positions are §2 O4's list). This amendment supersedes the
+restated; the positions are §2 O4's list, the bound behind them O10's
+`Escapable`, decided 2026-10-20). This amendment supersedes the
 2026-10-13 `depends`-clause and root-joining-tracker design (this file
 before the amending PR, in git history); the mapping from every clause form
 to an origin spelling is §2 O7, and the reason each half was retired is
@@ -278,7 +279,8 @@ Around them:
 
 E0909 is restated: **"this position accepts no origin parameters"** — one
 structural check off the type, replacing the per-position enumeration of the
-second-class wall. A `Box(&(T, p))` is legal wherever `p` is in scope; a
+second-class wall; the bound a generic body writes to satisfy it is O10's
+`Escapable`. A `Box(&(T, p))` is legal wherever `p` is in scope; a
 `RefCell(&(T, p))` legal beside it (the cell's dynamic marks govern the
 payload's mutation, the origin governs the borrow — orthogonal); an
 `Rc`/`Arc` payload accepts none (O9).
@@ -450,6 +452,40 @@ like Rust's):
   writable without runtime checks was considered and rejected — §6's row
   records why.
 
+### O10. `Escapable`: the no-origin positions as a bound
+
+Decided 2026-10-20 (the maintainer delegated the point raised by the
+review of #1483; the alternatives are in §6).
+
+- **`Escapable` is a prelude marker trait, structurally derived like
+  `Send`** (§3.8): a type holds it iff it carries no origin parameters.
+  `&(T, p)`, any type containing one, a borrowing closure and a borrowing
+  future are not `Escapable`; `Send` implies `Escapable`. `TypeInfo`
+  answers it from the origin list; no impl is ever written by hand.
+- **O4's no-origin positions are where the language requires it.** The
+  payload parameter of `Rc`, `Arc` and `Dyn`, `io.spawn`'s task, an
+  `extern` signature and a module-level binding carry
+  `where(T <: Escapable)`; E0909's message is "this position requires an
+  `Escapable` type; `X` carries origin `p`".
+- **No implicit bound.** A `generic(T : Type)` parameter admits
+  origin-carrying arguments by default, exactly as it admits non-`Send`
+  ones: the restrictive contract is the one spelled, and the permissive
+  default costs nothing because every other position propagates origins
+  structurally (O4). A generic body that passes an unbounded `T` to an
+  `Escapable`-requiring position is an error **at the declaration**,
+  naming the bound to add (`where(T <: Escapable)`), and `yo fix`
+  proposes it; a call then checks the bound at the instantiation like
+  any trait bound — `Rc(&(X, x))` fails at that call naming `Rc`'s bound.
+  Neither direction errors at a distance, which is what the open
+  question asked for.
+- **Why not Swift's split** (implicit `Escapable`, `~Escapable` opt-in):
+  Swift's default exists for source compatibility of pre-existing
+  generics, which Yo has none of; a suppressed conformance is a negative
+  bound Yo has no precedent for; and counted over std, the positive bound
+  is written at a handful of cell constructors, spawn and the globals,
+  where the opt-in would be written on every container, view and
+  adapter. Rust's `T : 'static` is the same shape and reads the same way.
+
 ## 3. What it unlocks, mapped to the catalog
 
 (The signatures abbreviate the `generic(...)` clause that declares each
@@ -509,8 +545,9 @@ What actually remains to build:
 - **Diagnostics.** Every origin error names the two sets and the places in
   their intersection or difference; `yo doc` prints elided defaults (§7).
   New error codes: the self-origin well-formedness rule, the
-  no-origin-position escape, the return of a local origin, the
-  await-point rule, the union-violating push.
+  no-origin-position escape (and its generic form: the missing
+  `where(T <: Escapable)` at a generic's declaration, O10), the return of
+  a local origin, the union-violating push.
 - **Tooling.** `yo fix` proposes widened unions; LSP hover shows a value's
   origin set; signature help shows a call's origin substitution.
 - **Seed gating.** Generation A lands the kind, the parse and the rules in
@@ -552,7 +589,8 @@ places its origin names. The mechanisms, and the escape routes they close:
 7. **Through self-reference** — unrepresentable (O1's well-formedness
    rule); this is also what removes any need for `Pin` (O5).
 8. **Through C, a thread, or a module-level binding** — no-origin
-   positions, structural.
+   positions, structural (`Escapable`, O10); a generic body cannot
+   smuggle a `T` into one without the bound, checked at its declaration.
 
 **Over-approximation is the safety margin, never a hazard:** declared
 unions over-freeze (a container holding only `x`-borrows still freezes
@@ -588,7 +626,10 @@ pointee (`store(&mut slot, &y)`, O3-3) and through a lent
 POSITIVE control (O5); sibling sub-loans misused (a second
 `get2_mut`-style call on the same base while the first pair lives);
 `swap` on referents of different origin types (a type error); a closure
-literal whose captures exceed a slot's origin parameters. Positive
+literal whose captures exceed a slot's origin parameters; a generic body
+passing an unbounded `T` to `Rc(T)` (error at the declaration naming
+`where(T <: Escapable)`) and `Rc(&(X, x))` at a call (error at the call,
+O10). Positive
 controls mirror them, `words` and `get2_mut`'s pair among them.
 
 ## 6. Alternatives considered
@@ -605,6 +646,7 @@ controls mirror them, `words` and `get2_mut`'s pair among them.
 | Ante's shared-mutable `ref`/`mut` kinds (exclusivity dropped single-threaded) | **rejected** — Yo keeps exclusivity everywhere; shared mutation stays behind `RefCell` (decision 46), and `Rc` remains read-only like Rust's |
 | `Rc(T, p)`: statically checked shared mutation through origin-tracked handles | **rejected** (maintainer, 2026-10-20: Rust's design makes sense — the runtime exclusivity check happens on `RefCell` only, and `Rc` stays read-only) — it would put a second mutation mechanism beside `RefCell` for the narrow statically-provable case `Rc.get_mut`'s count check already covers, while the genuinely shared cases (async channel and mutex states) are not statically provable and use `RefCell` anyway. Honest cost, recorded: mutable cycles keep the runtime check (`Rc(RefCell(Node))`), as in Rust |
 | Ante's body-inferred `Mutate` effect | **rejected** — signature-based checking keeps `Dyn` dispatch, effect handlers and the incremental checker sound; Ante's own handler interaction is their experimental part |
+| Swift's `~Escapable` split (implicit `Escapable` bound on every generic parameter, suppressed by opt-in) | **rejected** (2026-10-20) — O10 takes the positive bound instead: no negative-bound spelling, fewer annotations over std, `Send`'s and Rust's `'static` shape |
 | elision-only surface (no explicit `Origin` kind) | **rejected** (maintainer, 2026-10-19) — LLM authorship wants contracts explicit; the failure mode of explicit systems is a local declaration mismatch, of implicit ones a distant inference surprise |
 
 Adopted from the post beyond the foundation: union places (O1), place
@@ -655,8 +697,8 @@ observable property MVS was adopted for, kept by the freeze model with
 references first-class. The accurate phrase for the plan is "unique
 ownership with first-class, exclusivity-checked borrows"; "mutable value
 semantics for owned values" stays true as a description of the owned half
-and is kept where the plan says it. The positioning tagline's wording is
-the maintainer's call.
+and is kept where the plan says it. `plans/ROADMAP.md`'s positioning says
+it in those words (2026-10-20).
 
 ## 7. Open questions, with positions
 
@@ -672,23 +714,6 @@ the maintainer's call.
   access clause waits for a counted need. Ante's convergence here (their
   motivating examples are the same cases) is a soft data point, not a
   counted need.
-- **Generic parameters and origin-carrying arguments** (filed 2026-10-20,
-  review of #1483). O4 checks the no-origin positions "at the declaration
-  and at every instantiation", so a generic body that puts `T` into an
-  `Rc(T)`, spawns it or stores it at module level compiles at its
-  declaration and fails only when some caller instantiates
-  `T := &(X, p)` — an error at the instantiation, not the declaration:
-  the inference-at-distance shape the explicit-contracts principle
-  rejects, and C++'s template failure mode. Position (a recommendation,
-  not decided): a `generic(...)` parameter admits origin-carrying
-  arguments only when its declaration says so — Swift's `~Escapable`
-  split, with the default origin-free so an unannotated generic body may
-  store `T` anywhere; `Option`, `Result`, tuples, `Array`, `ArrayList`,
-  `HashMap`, `Box`, `RefCell` and the `Fn` traits opt in; `Rc`, `Arc`,
-  `Dyn`, `spawn` and `Send` bounds do not. The spelling is the
-  maintainer's (a kind-level marker on `T : Type`, or a trait-shaped
-  bound). It is decided before N1 lands the syntax, because std's
-  constructors must carry it from the first Generation A.
 - **`Dyn` payloads with origin parameters.** Position: not initially — a
   no-origin position; revisit when a trait-object shape that borrows is
   asked for by a counted need (the catalog's §14 residue).
@@ -716,7 +741,7 @@ the maintainer's call.
 | Phase | Lands | Gate |
 | --- | --- | --- |
 | N0 | the negative-test corpus written and failing | the tests fail for the right reason |
-| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
+| N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 

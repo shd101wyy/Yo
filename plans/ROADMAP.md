@@ -7,9 +7,10 @@ detail and its own status. History lives in the docs, not here.
 
 **Memory-safe without region lifetimes, verifies gradually, compiles to
 readable C11, designed for the LLM era.** Yo takes Swift's memory model
-(RC + cycle collection) with borrows as first-class `&(T, p)` types
+(RC + cycle collection) and Rust's ownership discipline — unique
+ownership with first-class, exclusivity-checked borrows, `&(T, p)` types
 parameterized by explicit origins (place sets, elided to checked
-defaults), adds
+defaults) rather than region lifetimes — adds
 algebraic effects and comptime, and aims at two niches the incumbents leave
 open: humane verified systems programming, and a language designed for LLM
 authorship from day one.

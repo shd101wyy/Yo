@@ -161,7 +161,8 @@ reference, and any type containing one, may stand anywhere its origins
 can follow, storage included (`Box`, `RefCell`, declared-union
 containers); the positions that accept no origins (`Send`/spawn,
 `extern`, module-level, `Dyn` initially, `Rc`/`Arc` payloads) are the
-restated E0909. Checking is substitution plus set algebra — conflict is
+restated E0909, spelled as a `where(T <: Escapable)` bound on them
+(a structural marker like `Send`, no implicit bound on generics; O10). Checking is substitution plus set algebra — conflict is
 intersection, coercion is subset in covariant positions and exact
 through a `&mut` pointee — with no region variables, outlives, variance
 lattice or spelled HRTB; `impl(&T, …)`, `.*` with auto-deref on `.`,
