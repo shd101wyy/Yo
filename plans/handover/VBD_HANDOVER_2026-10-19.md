@@ -192,12 +192,11 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
 ### 4.1 Right after v0.2.66
 
 1. Land every §2.2 PENDING row that did not make the cut (each already has a branch and gates).
-2. **Re-land #1476's scope-aware live-range scan** (reverted by #1481): the measured root cause and the
-   failed decl-position-aware round are in
-   `issues/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md` (S1) and the re-opened
-   `issues/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`; the
-   un-designed piece is statement-internal evaluation order (a re-point token preceding the binding's
-   last read).
+2. **DONE for v0.2.67: #1476's scope-aware live-range scan is re-landed** (it was reverted by #1481).
+   The S1 root cause was `_lb_region_end` missing the `cond`-arm flag, not evaluation order; see
+   `issues/fixed/2026-10-19-borrow-liveness-rejects-the-match-switch-group-lowering.md`. The
+   statement-internal evaluation-order rule is written in the `## Rule` section of
+   `issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`.
 3. **End-triage leftovers (triaged 2026-10-19, both stay open, neither blocks a release):** the
    non-routable connect LSan leak (`issues/2026-10-17-the-non-routable-connect-test-leaks…`, S3,
    network-env — CI's network rejects TEST-NET instantly so CI is green; the one-line fix is
@@ -297,9 +296,9 @@ a copy inside a generic specialization left as written — plus the E0916 struct
 with the honest number: the landable half re-checks `std/string/string.yo` in 8.9 s where the parked
 full sweep took 430+ s / 45 GB); Compiler performance and memory (#1455, #1463's measurement).
 Known issues: rebuilt from what is open at the tag — the removal map in the machine-local draft tied
-every line to its fixer; re-derive with `ls issues/` at the tag; MUST include the re-opened
-`issues/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`
-(reverted by #1481 with a measured re-land plan). No Retracted claims this cycle (the #1476 revert
+every line to its fixer; re-derive with `ls issues/` at the tag; MUST include the closure-parameter
+borrow doc, open at the v0.2.66 tag (reverted by #1481 with a measured re-land plan; fixed for v0.2.67,
+now `issues/fixed/2026-10-18-a-closure-parameter-named-like-a-live-local-borrow-extends-the-borrow.md`). No Retracted claims this cycle (the #1476 revert
 removed nothing a release ever shipped).
 
 ## 7. Machine-specific notes (this cycle's box; ignore elsewhere)
