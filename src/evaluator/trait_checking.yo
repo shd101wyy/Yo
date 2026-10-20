@@ -982,7 +982,7 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
   );
   match(
     ty,
-    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields), clone_tt, visited, depth)),
+    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields.items, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields.items), clone_tt, visited, depth)),
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
@@ -992,7 +992,7 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
       });
       true
     },
-    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs, clone_tt, visited, depth),
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs.items, clone_tt, visited, depth),
     Rc(.Array(element : el, length : _, length_var : _)) => _clone_runs_no_user_code_inner(&el, clone_tt, visited, depth + u32(1)),
     Rc(.DynT(required_trait_types : _)) => false,
     Rc(.Func({ result : _ })) => false,

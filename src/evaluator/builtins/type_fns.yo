@@ -1231,12 +1231,12 @@ evaluate_yo_type_get_info :: (
       String.from("TypeInfo.ComptimeList(") + cn + String.from(")")
     },
     Rc(.Tuple(labels, types)) => {
-      fl_name := _ti_bind_type_field_list(&local_env, &labels, &types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(&local_env, &labels.items, &types.items, ctx, exn);
       String.from("TypeInfo.Tuple(") + fl_name + String.from(")")
     },
     Rc(.Str) => String.from("TypeInfo.Str"),
     Rc(.Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype })) => {
-      fl_name := _ti_bind_type_field_list(&local_env, &labels, &types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(&local_env, &labels.items, &types.items, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
         is_atomic => String.from("StructKind.AtomicObject"),
@@ -1246,18 +1246,18 @@ evaluate_yo_type_get_info :: (
       String.from("TypeInfo.Struct(") + fl_name + String.from(", ") + kind_str + String.from(")")
     },
     Rc(.EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _, _)) => {
-      vl_name := _ti_bind_variant_info_list(&local_env, &type_val, &variant_names, &variant_fields, &variant_field_labels, ctx, exn);
+      vl_name := _ti_bind_variant_info_list(&local_env, &type_val, &variant_names.items, &variant_fields.items, &variant_field_labels.items, ctx, exn);
       String.from("TypeInfo.Enum(") + vl_name + String.from(")")
     },
     Rc(.Union(_, labels, types)) => {
-      fl_name := _ti_bind_type_field_list(&local_env, &labels, &types, ctx, exn);
+      fl_name := _ti_bind_type_field_list(&local_env, &labels.items, &types.items, ctx, exn);
       String.from("TypeInfo.Union(") + fl_name + String.from(")")
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
     //
     Rc(.SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolution : st_res })) => {
-      req_name := _ti_bind_trait_info_list(&local_env, &st_req, String.from("req"), ctx, exn);
-      neg_name := _ti_bind_trait_info_list(&local_env, &st_neg, String.from("neg"), ctx, exn);
+      req_name := _ti_bind_trait_info_list(&local_env, &st_req.items, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(&local_env, &st_neg.items, String.from("neg"), ctx, exn);
       res_name := match(
         st_res,
         .Some(rt) => _ti_bind_type(&local_env, &rt, ctx),
@@ -1278,8 +1278,8 @@ evaluate_yo_type_get_info :: (
     },
     // === Dyn(required_traits, negative_traits) ===
     Rc(.DynT(dt_req, _, dt_neg, _)) => {
-      req_name := _ti_bind_trait_info_list(&local_env, &dt_req, String.from("req"), ctx, exn);
-      neg_name := _ti_bind_trait_info_list(&local_env, &dt_neg, String.from("neg"), ctx, exn);
+      req_name := _ti_bind_trait_info_list(&local_env, &dt_req.items, String.from("req"), ctx, exn);
+      neg_name := _ti_bind_trait_info_list(&local_env, &dt_neg.items, String.from("neg"), ctx, exn);
       {
         dc := String.from("TypeInfo.Dyn(");
         dc.push_string(&req_name);
@@ -1292,7 +1292,7 @@ evaluate_yo_type_get_info :: (
     // === Trait(fields, kind) ===. Traits split into
     // TraitT / FnTraitT / FutureTraitT — one arm each.
     Rc(.TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _)) => {
-      fl_name := _ti_bind_trait_field_info_list(&local_env, &tt_flabels, &tt_ftypes, &tt_assoc_names, ctx, exn);
+      fl_name := _ti_bind_trait_field_info_list(&local_env, &tt_flabels.items, &tt_ftypes.items, &tt_assoc_names.items, ctx, exn);
       {
         tc := String.from("TypeInfo.Trait(");
         tc.push_string(&fl_name);
@@ -1303,12 +1303,12 @@ evaluate_yo_type_get_info :: (
     Rc(.FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _)) => {
       fni_name := _ti_bind_function_info(
         &local_env,
-        &ft_plabels,
-        &ft_ptypes,
+        &ft_plabels.items,
+        &ft_ptypes.items,
         ArrayList(String).new(),
         ArrayList(TypeValue).new(),
-        &ft_ilabels,
-        &ft_itypes,
+        &ft_ilabels.items,
+        &ft_itypes.items,
         &ft_result,
         ArrayList(TypeValue).new(),
         String.from("..."),
@@ -1328,7 +1328,7 @@ evaluate_yo_type_get_info :: (
     },
     Rc(.FutureTraitT(_, fut_output, _, fut_etypes)) => {
       out_name := _ti_bind_type(&local_env, &fut_output, ctx);
-      eff_name := _ti_bind_trait_info_list(&local_env, &fut_etypes, String.from("eff"), ctx, exn);
+      eff_name := _ti_bind_trait_info_list(&local_env, &fut_etypes.items, String.from("eff"), ctx, exn);
       empty_fields := _ti_bind_comptime_list(&local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
       {
         uc := String.from("TypeInfo.Trait(");
@@ -1345,14 +1345,14 @@ evaluate_yo_type_get_info :: (
     Rc(.Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts })) => {
       fni_name := _ti_bind_function_info(
         &local_env,
-        &fn_meta.*.param_labels,
-        &fn_pts,
-        &fn_meta.*.forall_labels,
-        &fn_fts,
-        &fn_meta.*.implicit_labels,
-        &fn_its,
+        &fn_meta.*.param_labels.items,
+        &fn_pts.items,
+        &fn_meta.*.forall_labels.items,
+        &fn_fts.items,
+        &fn_meta.*.implicit_labels.items,
+        &fn_its.items,
         &fn_res,
-        &fn_vts,
+        &fn_vts.items,
         match(fn_meta.*.variadic_label, .Some(vl) => vl.clone(), .None => String.from("...")),
         fn_meta.*.variadic_comptime,
         ctx,

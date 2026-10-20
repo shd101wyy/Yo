@@ -253,8 +253,8 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
   t := resolve_struct_shell(resolve_enum_shell(t_in));
   match(
     t,
-    Rc(.Struct({ id : sh_sid, type_arguments : sh_tas })) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    Rc(.EnumT({ id : sh_eid, type_arguments : sh_etas })) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas, depth + usize(1)), `e:${sh_eid}`),
+    Rc(.Struct({ id : sh_sid, type_arguments : sh_tas })) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas.items, depth + usize(1)), `s:${sh_sid}`),
+    Rc(.EnumT({ id : sh_eid, type_arguments : sh_etas })) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas.items, depth + usize(1)), `e:${sh_eid}`),
     Rc(.SomeT({ id : sh_tid })) => {
       sh_end := resolve_cell_chain(&t);
       match(sh_end, Rc(.SomeT({ id : _ })) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
@@ -1044,7 +1044,7 @@ stable_type_identity :: (fn(t : &TypeValue) -> String)({
 enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    Rc(.EnumT({ id : ein_id, type_arguments : ein_tas })) => _tk_node_id(&ein_id, &ein_tas),
+    Rc(.EnumT({ id : ein_id, type_arguments : ein_tas })) => _tk_node_id(&ein_id, &ein_tas.items),
     _ => String.new()
   )
 );

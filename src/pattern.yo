@@ -359,7 +359,7 @@ _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     Rc(.Struct({ field_labels : fls, field_types : fts })) => cond(
-      _box_shaped(&fls, &fts) => match(
+      _box_shaped(&fls.items, &fts.items) => match(
         fts.get(usize(0)),
         .Some(ft) => Option(TypeValue).Some(ft),
         .None => Option(TypeValue).None

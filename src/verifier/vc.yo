@@ -341,7 +341,7 @@ _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
     Rc(.Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs })) => cond(
-      (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls)) => ls_targs.get(usize(0)),
+      (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls.items)) => ls_targs.get(usize(0)),
       true => Option(TypeValue).None
     ),
     _ => Option(TypeValue).None
@@ -2164,8 +2164,8 @@ _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExp
     Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
-      _variant_named(&q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
-      _variant_named(&q_names, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
+      _variant_named(&q_names.items, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
+      _variant_named(&q_names.items, ast_expr_token(dot_args.get(usize(1)).unwrap()).value) => dot_args.get(usize(1)),
       true => Option(AstExpr).None
     ),
     _ => Option(AstExpr).None
@@ -2231,7 +2231,7 @@ _enum_ctor_named :: (
 )(
   match(
     info.ty,
-    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
+    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names.items, &e_fields.items, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -2678,7 +2678,7 @@ _variant_accessors :: (fn(e_ty : &TypeValue, variant : &String, count : usize) -
   vls := match(
     e_ty,
     Rc(.EnumT({ variant_names : e_names, variant_field_labels : e_labels })) => match(
-      e_labels.get(_variant_index_of(&e_names, variant.clone())),
+      e_labels.get(_variant_index_of(&e_names.items, variant.clone())),
       .Some(l) => l,
       .None => ArrayList(String).new()
     ),

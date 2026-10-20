@@ -6975,7 +6975,7 @@ try_to_call_function_with_arguments :: (
       // The arguments as written, for decision 33's bare-argument rule
       // (`check_call_site_borrow_marker`), which must tell `&x` from `x`.
       written_args := adjusted_args;
-      adjusted_args = apply_call_site_borrow_markers(&adjusted_args, &pt, &pref, &pio, &pl, is_method_call, exn);
+      adjusted_args = apply_call_site_borrow_markers(&adjusted_args, &pt.items, &pref, &pio, &pl, is_method_call, exn);
       // An operator's operands take no marker (decision 34).
       call_is_operator := match(expr, .FnCall(_, op_f, _, op_infix, _) => (op_infix || match(op_f, .Atom(_, op_t) => (op_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
       // ----------------------------------------------------------------
@@ -8035,7 +8035,7 @@ try_to_call_function_with_arguments :: (
       // arguments, so Step 2's re-evaluation of its parameter type sees the
       // binders they fixed. `arg_vals` and `rt_args` are put back in parameter
       // order after the loop.
-      s7_order := _step7_param_order(&adjusted_args, n_args, n_params, &pt, &fl);
+      s7_order := _step7_param_order(&adjusted_args, n_args, n_params, &pt.items, &fl);
       s7_permuted := _order_is_permuted(&s7_order);
       s7_argval_idx := ArrayList(usize).new();
       s7_rt_span_param := ArrayList(usize).new();

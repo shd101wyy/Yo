@@ -547,7 +547,7 @@ evaluate_property_access :: (
           resolve_enum_shell(&exp_ctx_1.ty),
           Rc(.EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1, en_irs_1, en_iar_1, en_tas_1)) => {
             // Find the variant.
-            fidx_1 := find_first_field_index(&en_vnames_1, variant_name_1.clone());
+            fidx_1 := find_first_field_index(&en_vnames_1.items, variant_name_1.clone());
             match(
               fidx_1,
               .None => {
@@ -555,9 +555,9 @@ evaluate_property_access :: (
                   dyn(
                     format_error_message_with_help(
                       ast_expr_token(&prop_expr_1),
-                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1),
+                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1.items),
                       match(
-                        suggest_name(&variant_name_1, &en_vnames_1),
+                        suggest_name(&variant_name_1, &en_vnames_1.items),
                         .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
                         .None => Option(String).None
                       )
@@ -1056,7 +1056,7 @@ Raw pointer operations may dereference invalid memory.`
         // Same Self-shell resolution as the shorthand path above.
         resolve_enum_shell(&type_val_inner),
         Rc(.EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs, tv_en_irs, tv_en_iar, tv_en_tas)) => {
-          fidx_tv_en := find_first_field_index(&tv_en_vnames, variant_name_tv.clone());
+          fidx_tv_en := find_first_field_index(&tv_en_vnames.items, variant_name_tv.clone());
           match(
             fidx_tv_en,
             .None => {
@@ -1101,9 +1101,9 @@ Raw pointer operations may dereference invalid memory.`
                 dyn(
                   format_error_message_with_help(
                     ast_expr_token(&property_expr),
-                    unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames),
+                    unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames.items),
                     match(
-                      suggest_name(&variant_name_tv, &tv_en_vnames),
+                      suggest_name(&variant_name_tv, &tv_en_vnames.items),
                       .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
                       .None => Option(String).None
                     )
@@ -2241,7 +2241,7 @@ Raw pointer operations may dereference invalid memory.`
           match(
             ev_sel,
             .Some(sel_vname) => {
-              sel_vi_opt := find_first_field_index(&ev_vnames, sel_vname.clone());
+              sel_vi_opt := find_first_field_index(&ev_vnames.items, sel_vname.clone());
               match(
                 sel_vi_opt,
                 .Some(sel_vi) => {

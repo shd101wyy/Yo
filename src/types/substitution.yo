@@ -576,7 +576,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         // _mask_func_own_binders (capture avoidance); the root node is exempt
         // (see the `substitute` wrapper).
         Rc(.Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts })) => {
-          s_in := if(is_root, s, _mask_func_own_binders(s, &__fm1.*.forall_labels));
+          s_in := if(is_root, s, _mask_func_own_binders(s, &__fm1.*.forall_labels.items));
           new_fts := _subst_list(&s_in, &fts);
           new_pts := _subst_list(&s_in, &pts);
           new_its := _subst_list(&s_in, &its);

@@ -597,7 +597,7 @@ impl(
           match(
             tm.*.extern_name,
             .Some(ten) => {
-              if(_ms_extern_may_mutate(&ten, &tpt, &tvt), {
+              if(_ms_extern_may_mutate(&ten, &tpt.items, &tvt.items), {
                 return(true);
               });
               if(_MsW.walk(&func_expr, table, touched), {
@@ -3347,11 +3347,11 @@ impl(
           tm.*.extern_name,
           .Some(ten) => {
             cond(
-              _msp_extern_has_callback(&tpt, &tvt) => {
+              _msp_extern_has_callback(&tpt.items, &tvt.items) => {
                 m.all = true;
                 _msp_debug_all(String.from("walk"), e);
               },
-              _ms_extern_may_mutate(&ten, &tpt, &tvt) => _MsP.roots_of_args(&m, &func_expr, &args, ctx),
+              _ms_extern_may_mutate(&ten, &tpt.items, &tvt.items) => _MsP.roots_of_args(&m, &func_expr, &args, ctx),
               _msp_extern_writes_first_arg(&ten) => match(
                 args.get(usize(0)),
                 .Some(a0) => {

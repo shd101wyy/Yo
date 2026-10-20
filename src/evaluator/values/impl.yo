@@ -1317,7 +1317,7 @@ _is_marker_trait :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     Rc(.TraitT({ field_types : mt_fts, assoc_constraint_types : mt_acts })) => (
-      !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts)
+      !_any_type_has_some_type(&mt_fts.items) && !_any_type_has_some_type(&mt_acts.items)
     ),
     _ => false
   )
@@ -2086,18 +2086,18 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
       t,
       Rc(.Struct({ id : di_sid, type_arguments : di_tas, is_source_namespace : di_sns })) => cond(
         di_sns => `|ns:${di_sid.clone()}`,
-        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas, depth + usize(1))}`
+        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas.items, depth + usize(1))}`
       ),
-      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas, depth + usize(1))}`,
+      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas.items, depth + usize(1))}`,
       Rc(.Union(name : di_uname)) => `|u:${di_uname.clone()}`,
       // A trait contributes its own base key plus its method signatures'
       // types, where a trait instance's arguments live (`From(Meters)` is
       // `from : fn(value : Meters) -> Self`).
-      Rc(.TraitT(field_types : di_trfts)) => `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`,
-      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts, depth + usize(1))};${_decl_identity_key_of_list(&di_fits, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
+      Rc(.TraitT(field_types : di_trfts)) => `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts.items, depth + usize(1))}`,
+      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
       Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
       Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem, depth + usize(1))}]`,
-      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts, depth + usize(1))})`,
+      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.items, depth + usize(1))})`,
       Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
       _ => type_to_string(t)
     )

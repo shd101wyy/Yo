@@ -2972,9 +2972,9 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
         (display == "String") => String.from("String"),
         display.starts_with("Arc(") => String.from("Arc"),
         (is_ref && is_atomic) => String.from("Arc"),
-        (is_ref && _implicit_copy_plain_members(&field_types)) => String.from("ref-object(plain)"),
+        (is_ref && _implicit_copy_plain_members(&field_types.items)) => String.from("ref-object(plain)"),
         is_ref => String.from("ref-object"),
-        true => _implicit_copy_via(_implicit_copy_first_member(&field_types, depth))
+        true => _implicit_copy_via(_implicit_copy_first_member(&field_types.items, depth))
       )
     ),
     Rc(.EnumT({ variant_fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => {
@@ -3001,8 +3001,8 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
         true => _implicit_copy_via(_implicit_copy_first_member(&all_fields, depth))
       )
     },
-    Rc(.Tuple(field_labels : _, field_types : tfs)) => _implicit_copy_via(_implicit_copy_first_member(&tfs, depth)),
-    Rc(.Union(name : _, field_labels : _, field_types : ufs)) => _implicit_copy_via(_implicit_copy_first_member(&ufs, depth)),
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _implicit_copy_via(_implicit_copy_first_member(&tfs.items, depth)),
+    Rc(.Union(name : _, field_labels : _, field_types : ufs)) => _implicit_copy_via(_implicit_copy_first_member(&ufs.items, depth)),
     Rc(.Array(element : el, length : _, length_var : _)) => {
       els := ArrayList(TypeValue).new();
       els.push(el);
@@ -5452,7 +5452,7 @@ _lb_contains :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
 _lb_is_value_field_step :: (fn(recv_ty : &TypeValue, step : &String) -> bool)(
   match(
     t_refine_inner(recv_ty),
-    Rc(.Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns })) => (!r && (!sns && _lb_contains(&fl, step))),
+    Rc(.Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns })) => (!r && (!sns && _lb_contains(&fl.items, step))),
     Rc(.Tuple(_, _)) => true,
     _ => false
   )

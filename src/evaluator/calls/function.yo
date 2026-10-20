@@ -520,7 +520,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
     cur := match(recv_ty, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     recv_ty = Option(TypeValue).None;
     // A field of that name: `x.drop` reads the field, never a method.
-    if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl, &name), _ => false), {
+    if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl.items, &name), _ => false), {
       return(());
     });
     if(!is_pointer_type(&cur), {
@@ -6928,7 +6928,7 @@ _instantiate_struct_over_closure_args :: (
       if(rep_ids.len() == usize(0), {
         return(st);
       });
-      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas, &rep_ids, &rep_tys), ic_sns))
+      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts.items, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas.items, &rep_ids, &rep_tys), ic_sns))
     },
     _ => st
   )
@@ -8313,7 +8313,7 @@ Fix: wrap the call:
             if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[call-struct] id=${struct_id} name=${struct_name}`);
             });
-            _reject_private_construction(struct_id.clone(), struct_name.clone(), &struct_field_labels, &tok, exn);
+            _reject_private_construction(struct_id.clone(), struct_name.clone(), &struct_field_labels.items, &tok, exn);
             call_result_s := try_to_call_type_with_arguments(&fields_subst, &func_expr, &args, &callee_env, ctx, false, exn);
             // Propagate io-builtin markers from extern function VALUES to the
             // constructed struct's FIELDS: constructing
@@ -11218,7 +11218,7 @@ Fix: wrap the call:
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
                 match(args.get(usize(0)), .Some(a0) => uc_head.push(a0), .None => ());
-                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts, &uc_fm.*.param_is_ref, &uc_fm.*.param_is_owning, &uc_fm.*.param_labels, false, exn);
+                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts.items, &uc_fm.*.param_is_ref.items, &uc_fm.*.param_is_owning.items, &uc_fm.*.param_labels.items, false, exn);
                 uc_out := ArrayList(AstExpr).new();
                 (uci : usize) = usize(0);
                 while(uci < args.len(), {
