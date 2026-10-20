@@ -2762,7 +2762,7 @@ _c_aggregate_size :: (fn(fts : &ArrayList(TypeValue)) -> Option(usize))({
 /// Since `unit` became a true zero-sized type this filter changes no size (a
 /// unit field measures 0 either way); it is kept because it is exactly the
 /// predicate the emitter filters on, so the two stay visibly in step.
-_variant_storage_field_types :: (fn(fts : &ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+_variant_storage_field_types :: (fn(fts : &SharedList(TypeValue)) -> ArrayList(TypeValue))({
   kept := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
   n := fts.len();
@@ -2920,9 +2920,7 @@ _enum_value_size :: (fn(evf : &SharedList(SharedList(TypeValue))) -> Option(usiz
   while((vi < n_v) && !unknown, {
     // Only the fields the data-union emitter keeps — see
     // `_variant_storage_field_types`.
-    vf := _variant_storage_field_types(
-      match(evf.get(vi), .Some(f) => f, .None => no_types())
-    );
+    vf := _variant_storage_field_types(&match(evf.get(vi), .Some(f) => f, .None => no_types()));
     match(
       _aggregate_size(&vf),
       .Some(vbits) => match(
@@ -3104,7 +3102,7 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
       true => {
         g_size_walk_stack.push(e_sz_id.clone());
-        out := _enum_value_size(&evf.items);
+        out := _enum_value_size(&evf);
         g_size_walk_stack.pop();
         out
       }
