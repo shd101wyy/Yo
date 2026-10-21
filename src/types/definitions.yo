@@ -64,33 +64,149 @@ shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T), where(T <: Sha
     true => rc(SharedListCell(T)(items : items))
   )
 );
+// The reads, declared per element type rather than once for every `T`: a
+// call of a generic impl's method on the `Rc` costs the checker about twice
+// what a concrete one does, and these are called wherever a type's lists are
+// read (`check src/main.yo` measured both; the generic form was +6% of all
+// allocations).
 impl(
-  generic(T : Type),
-  SharedList(T),
+  SharedList(TypeValue),
   /// Number of elements.
   len : (fn(self : &Self) -> usize)(self.*.items.len()),
   /// True when the list holds no elements.
   is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
   /// The element at `i`, or `.None` past the end.
-  get : (fn(self : &Self, i : usize) -> Option(T))(self.*.items.get(i))
-);
-impl(
-  generic(T : Type),
-  SharedList(T),
+  get : (fn(self : &Self, i : usize) -> Option(TypeValue))(self.*.items.get(i)),
   /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
   Index(usize)(
-    Output : T,
+    Output : TypeValue,
     index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : TypeValue,
+    IntoIter : ArrayListIter(TypeValue),
+    into_iter : (fn(self : &Self) -> ArrayListIter(TypeValue))(self.*.items.into_iter())
   )
 );
 impl(
-  generic(T : Type),
-  SharedList(T),
+  SharedList(String),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(String))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : String,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
   /// `for(xs, x => ...)` walks the list's elements.
   IntoIterator(
-    Item : T,
-    IntoIter : ArrayListIter(T),
-    into_iter : (fn(self : &Self) -> ArrayListIter(T))(self.*.items.into_iter())
+    Item : String,
+    IntoIter : ArrayListIter(String),
+    into_iter : (fn(self : &Self) -> ArrayListIter(String))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(bool),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(bool))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : bool,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : bool,
+    IntoIter : ArrayListIter(bool),
+    into_iter : (fn(self : &Self) -> ArrayListIter(bool))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(usize),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(usize))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : usize,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : usize,
+    IntoIter : ArrayListIter(usize),
+    into_iter : (fn(self : &Self) -> ArrayListIter(usize))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(i64),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(i64))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : i64,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : i64,
+    IntoIter : ArrayListIter(i64),
+    into_iter : (fn(self : &Self) -> ArrayListIter(i64))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(SharedList(TypeValue)),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(SharedList(TypeValue)))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : SharedList(TypeValue),
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : SharedList(TypeValue),
+    IntoIter : ArrayListIter(SharedList(TypeValue)),
+    into_iter : (fn(self : &Self) -> ArrayListIter(SharedList(TypeValue)))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(SharedList(String)),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(SharedList(String)))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : SharedList(String),
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : SharedList(String),
+    IntoIter : ArrayListIter(SharedList(String)),
+    into_iter : (fn(self : &Self) -> ArrayListIter(SharedList(String)))(self.*.items.into_iter())
   )
 );
 // A `SharedList` copy is one count bump (see `SharedList`). Each list is
