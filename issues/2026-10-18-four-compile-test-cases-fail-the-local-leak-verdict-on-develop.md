@@ -111,13 +111,18 @@ much of this is develop's own debt is verified for six of the 86 only:
 The other 80 are attributed to develop only because every failing name
 also fails in another develop-based branch's leak-verdict-on run (the
 same names or a superset per file), and that branch is a different tree.
-They are NOT yet verified against develop's own binary. That matters for
+They are NOT yet verified against develop's own binary. That mattered for
 `lsp_protocol` and `check_watch` in particular: the branch changes which
 `JsonObjBuilder` (`src/lsp/protocol.yo`) and `EvalValue`-holding cells
-register with the collector, which can move a LeakSanitizer verdict. A
-develop-vs-branch A/B of `lsp_protocol`, `type_trait_methods` and
-`check_watch` is queued (`vbd-logs/acyclic/leakab-rest.sh` on the Linux
-box). CI stays off for all of them, as for the four cases above.
+register with the collector, which can move a LeakSanitizer verdict. So
+those two and `type_trait_methods` were run alone, with the default leak
+verdict, on develop's stage 1 (a `7def2203b` worktree) and on the branch's
+(2026-10-21, Linux x86_64). Each fails the same number of tests on both,
+every failure a `Memory leak detected:` verdict: `lsp_protocol` 19 and 19,
+`check_watch` 12 and 12, `type_trait_methods` 1 and 1 (and
+`recursive_enum` 2 and 2 again). That makes 38 of the 86 verified as
+develop's own; the other 48 keep the indirect attribution above. CI stays
+off for all of them, as for the four cases above.
 
 ## Test
 
