@@ -3051,8 +3051,9 @@ and in git, not a silent edit.
       (`ArrayList(&(T, p))`, `HashMap(&(K, p), V)`); the containing type is
       then origin-carrying too. A **cell** payload follows the amended
       rule (O4): `Box` and `RefCell` may carry origins (the pointer points
-      outward; N2), `Rc`, `Arc` and a
-      `Dyn` payload never (E0909).
+      outward; N2), `Rc` and `Arc` never (E0909, the `Escapable` bound,
+      O10), and a `Dyn(Trait, p)` payload carries origins within `p` —
+      `Dyn(Trait)` is `Dyn(Trait, ∅)` (O4; corrected 2026-10-21).
       `type_of(f)` names closure types, so `Rc(type_of(f))` is checked
       too. The check runs at the declaration and at every instantiation.
     - **Transitive freezes.** A borrow, or any second-class value built
@@ -3139,7 +3140,9 @@ and in git, not a silent edit.
       payload (D3), so there is no write for a mark to catch. `&mut` through
       an `Arc`, and any path that also crosses an `Rc`, a `ref` object, a
       pointer or an index, keep the rule. Closure borrow captures keep it
-      whole.
+      whole until decision 43's N1: a `&` capture through a read-only
+      handle's deref then carries the handle's place (O9), as A2's future
+      captures do since #1421 (noted 2026-10-21).
 
     **E. Threads.**
     - **Borrows.** A borrow capture is never `Send`.
@@ -3739,7 +3742,8 @@ and in git, not a silent edit.
       the exact receiver type, then `&`/`&mut` of it, then each deref, so
       `impl(&T, M)` wins over `impl(T, M)` for a `&T` receiver. A `&mut T`
       reached through a `&` path (an element of `&ArrayList(&mut T)`, a
-      `&mut` field through `&S`) is read-only, a `&T`.
+      `&mut` field through `&S`) is read-only, a `&T` whose origin unions
+      the path's place (O3's reborrow rule, 2026-10-21).
     - **First-class, structurally** (amended 2026-10-19 from decision 38
       A's second-class wall). Any type containing a `&` carries origin
       parameters and may stand anywhere they can follow: inline
@@ -3747,10 +3751,12 @@ and in git, not a silent edit.
       and `RefCell(&(T, p))` are legal, because the pointer points
       outward and moving the cell moves the pointer, never its target.
       E0909 is restated as "this position accepts no origin parameters":
-      `Send` values and thread boundaries, spawned tasks, an escaping
-      closure's capture, a `Dyn` payload
+      `Send` values and thread boundaries, spawned tasks, a `Dyn` payload
       written without an origin argument (`Dyn(Trait, p)` carries one;
-      N2), module-level bindings (initially), `extern`
+      N2; an escaping closure's captures carry origins like fields and
+      stand wherever they follow, a `Dyn(Fn(...), p)` included — dropped
+      from this list 2026-10-21, it contradicted O4), module-level
+      bindings (initially), `extern`
       signatures, `Rc`/`Arc` payloads — spelled as the bound
       `where(T <: Escapable)` on those positions' type parameters,
       `Escapable` a structurally derived prelude marker like `Send`
@@ -3771,7 +3777,9 @@ and in git, not a silent edit.
       (amended 2026-10-19). An origin is a set of places: an origin
       parameter, a reference-holding parameter's place (`self`), or a
       declared union `(p, q)`. Checking is set algebra over declared
-      things — conflict is origin intersection (E0910/E0911 restated),
+      things — conflict is a loan against an access, by origin
+      intersection (E0911 restated; E0910 stays decision 28's by-name
+      argument overlap, corrected 2026-10-21),
       coercion is subset into a union in covariant positions and exact
       through a `&mut` pointee, a `RefCell` payload or a `&mut` capture
       (O3-3, the one invariance rule; added 2026-10-20 by the review of
@@ -3885,7 +3893,14 @@ and in git, not a silent edit.
       origin `h` and `h` dropped while it lives rejected (O9), two items
       of one `&mut` cursor held at once (accepted, O3 step 2),
       `Dyn(Fn(Event), p)` holding a borrowing closure (N2); the borrowed
-      `for` by `impl(&C, IntoIterator)`.
+      `for` by `impl(&C, IntoIterator)`. Added by the 2026-10-21 audit:
+      `f(&mut xs, &xs)` E0910 by name beside `swap(a, b)` on `get2_mut`'s
+      pair accepted; a `&` reborrow of a `&mut` component returned through
+      `&Holder` keeps the holder frozen (E0911 on a `&mut` lend of it); a
+      generic body valid only under its first caller's origins rejected
+      with origins rigid; a task holding `&(Rc(X), ∅)` is not `Send` while
+      `Rc(&(T, ∅))` is accepted; `a.y = &a.x` rejected; `{ x : &h.*.x }`
+      captured with `h` frozen.
 
 44. **`Dyn(Trait)` stays the owned, boxed trait object; the borrowed form
     is `&Dyn(Trait)`; there is no DST.** Confirmed 2026-10-10 by the
@@ -3902,8 +3917,10 @@ and in git, not a silent edit.
       move-only otherwise; sharing is `Rc(Dyn(Trait))` /
       `Arc(Dyn(Trait, Send))`.
     - **Borrowed form, with decision 43.** `&Dyn(Trait)` / `&mut Dyn(Trait)`
-      are borrowed trait objects, Rust's `&dyn Trait`: a second-class fat
-      reference (data pointer, vtable), with no allocation. It is made by
+      are borrowed trait objects, Rust's `&dyn Trait`: a fat reference
+      (data pointer, vtable), with no allocation — first-class and
+      origin-carrying under amended decision 43 (the "second-class"
+      wording below is the pre-amendment reasoning; noted 2026-10-21). It is made by
       `dyn(&v)` / `dyn(&mut v)` over a borrow of a concrete value, or by
       lending an owned `Dyn` (`&d`, `&mut d`), which lends its payload.
       It follows every rule decision 43 gives a reference (origin-carrying,

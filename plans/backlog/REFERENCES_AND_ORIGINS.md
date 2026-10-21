@@ -21,6 +21,12 @@ before the amending PR, in git history); the mapping from every clause form
 to an origin spelling is §2 O7, and the reason each half was retired is
 §6.
 
+**Audited 2026-10-21** against decisions 18, 28, 38, 43, 44, 46 and 47 and
+the N0 model's §7 findings. The corrections are dated in place (O1, O3,
+O4, O6, O9, O10, §3.1, §5), each as an audit finding, not a maintainer
+decision; the two that change what the checker accepts are O3's reborrow
+origin and O4's `Send` rule for references.
+
 The design follows Ante's place-based borrow checker
 (<https://antelang.org/blog/safe_cyclic_mutability/>, read 2026-10-19):
 places rather than abstract regions, a place parameter on `Rc`, union
@@ -123,7 +129,9 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   binding's own place, and a type definition may not name its own fields:
   `xs : ArrayList(&(T, xs))` and `struct(next : &(Node, self.field))` are
   errors. This one rule is what makes self-reference unrepresentable and
-  keeps `Pin` out of Yo (O5).
+  keeps `Pin` out of Yo (O5). It covers flow-inferred sets too (added
+  2026-10-21): a place write `a.y = &a.x` would put a place under `a` into
+  `a`'s own set and is the same error.
 - **A phantom origin parameter is legal.** A type constructor may declare
   `p : Origin` and use it in no field — Rust's `PhantomData<&'a T>` — so
   a `Copy` handle can be tied to an owner it does not point into:
@@ -148,7 +156,14 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   the borrow checker. Without this rule every `f(&x)` / `f(&y)` pair would
   mint a specialization and `ArrayList(&(T, x))` and `ArrayList(&(T, y))`
   would be two C structs. Rust does the same: monomorphization sees erased
-  regions.
+  regions. **So a body is checked with its origin parameters rigid** (added
+  2026-10-21): a generic body is checked once per TYPE instantiation, with
+  its declared and elided origin parameters abstract in that check — what
+  O2 already states for a `Fn` literal's per-call origins, now for every
+  body; substitution happens only at call sites (O3 step 1). Checking a
+  body against its first caller's ground places, with the memo hiding
+  every later caller, would accept whatever holds for that one
+  substitution.
 - **The empty origin.** A borrow that names no place — `str`'s view of
   static bytes (decision 36), a lend of a never-written module-level
   binding (decision 47: an unmarked module-level binding is never
@@ -156,6 +171,8 @@ longest :: (fn(generic(q : Origin, r : Origin), a : &(ArrayList(u8), q), b : &(A
   algebra needs nothing new for it: `∅ ⊆ p`, so such a reference coerces
   into every origin position that widens — the covariant positions of
   O3-3, not an origin behind a `&mut` — which is Rust's `'static`.
+  `&(T, ∅)` is `Escapable` (O10, Rust's `&'static T`) but `Send` only
+  when `T <: Sync` (O4, added 2026-10-21).
 
 ### O2. Elision: defaults the checker verifies, never inference it trusts
 
@@ -206,8 +223,17 @@ region solver:
    `&mut(T, p)` live (decision 18's live ranges) conflicts with any
    **access** to a place in `p` — a read, write, move, drop, or the taking
    of a new borrow of that place **by name** (E0911); a `&(T, p)` conflicts
-   with a write, move or drop of one; two `&mut` arguments of one call with
-   intersecting origins are E0910 (decision 28 restated); reads of `p`
+   with a write, move, drop or `&mut` borrow by name of one (places are
+   paths and "a place in `p`" means prefix overlap with one, decision 18's
+   rule, so `&mut x.f` beside a loan over `x.g` stays free; made precise
+   2026-10-21); two arguments of one call conflict by decision 28's rule —
+   by-name place overlap between a `&mut` or moved argument and any other
+   argument — which is this same loan-against-access check applied at the
+   call (E0910; §7's N0 finding states it as one rule for V2b and N1),
+   never by origin intersection (corrected 2026-10-21: the first text said
+   "two `&mut` arguments of one call with intersecting origins are E0910",
+   which contradicts the sentence after it — under it `swap(a, b)` on
+   `get2_mut`'s pair would be rejected); reads of `p`
    coexist with `&` loans — Ante's use-vs-mention distinction falls out of
    set algebra without an effect system. **The checker never compares two
    reference values to each other** (restated 2026-10-20, review round 2;
@@ -250,6 +276,12 @@ region solver:
    free functions and for any `&mut`-lent argument whose origin a second
    argument would otherwise widen. These two rows are the whole subtyping
    story — no variance lattice beyond them.
+   A type constructor's origin parameter takes its variance from its
+   fields (added 2026-10-21): invariant iff some field places it under a
+   `&mut` pointee, a `RefCell` payload or a `&mut` capture, covariant
+   otherwise — `Cursor(T, p)` over `xs : &mut(ArrayList(T), p)` is
+   covariant in `p` (the outer origin of a `&mut`), while
+   `Slot(T, p) :: struct(dst : &mut(Option(&(T, p))))` is invariant.
 4. **Liveness** is decision 18's, unchanged: freezes end at last use,
    re-pointing is decision 25's, moves and drops are accesses.
 
@@ -286,8 +318,16 @@ Around them:
   and is E0911.
 - **Reborrows** (decision 43): a `&mut` passed to a `&mut` slot is
   reborrowed (`&mut r.*`); read through a `&` path a `&mut` component
-  yields a `&` reborrow over the same origin — the holder stays frozen
-  while the reborrow lives.
+  yields a `&` reborrow whose origin is the UNION of the component's
+  origin and the path's place — for `c : &Holder` over an element
+  `&mut(T, xs)`, the reborrow is `&(T, (xs, c))`, Rust's
+  `&'b &'a mut T → &'b T` (corrected 2026-10-21: the first text said
+  "over the same origin", which named `xs` alone, so a projection
+  returning it as `&(T, xs)` ended the caller's freeze of the holder at
+  the call, and the holder could be lent `&mut` and written through its
+  element while the reborrow lived). The union is what keeps the holder
+  frozen while the reborrow lives; the first text asserted that in prose,
+  the type now carries it.
 - **Drops that use no root** (R4's `may_dangle` obligation): std's buffer
   containers free their buffer without touching the joined roots'
   referents, so `x`'s scope-end drop after `out`'s last use is not a
@@ -302,7 +342,7 @@ Around them:
 | fields of inline composites (named/anonymous structs, enums, tuples, `Array(T, N)`, `Option`, `Result`, any user constructor) | yes — the composite gains the origin parameters of its fields' types |
 | buffer containers (`ArrayList`, `HashMap`, …) | yes, over a declared union (O6) |
 | cells — `Box`, `RefCell`, `Dyn`, an escaping closure's capture, a spawned value | **`Box`, `RefCell` and `Dyn`: yes** (the pointer points outward; moving the cell moves the pointer, never its target — O5). `Dyn(Trait, p)` admits a payload whose origins are within `p` (Rust's `Box<dyn Trait + 'a>`), and `Dyn(Trait)` written without an origin is `Dyn(Trait, ∅)`, an `Escapable` payload (O10) — decided 2026-10-20, it was "initially no". An escaping closure's capture is the same thing: a closure whose capture list carries origins stands wherever they follow, including in a `Dyn(Fn(...), p)`. **Spawn: no** (E0909) |
-| `Send` values, thread boundaries | no — structurally: a type with origin parameters is not `Send` |
+| `Send` values, thread boundaries | no — structurally: a type with origin parameters is not `Send`, and a reference type is `Send` only when its pointee is `Sync` (`&(T, ∅) : Send ⇔ T <: Sync`, Rust's rule; corrected 2026-10-21 — the first text covered only origin PARAMETERS, so `&(Rc(X), ∅)`, a lend of an unmarked global holding an `Rc`, was `Send` and its non-atomic count could race) |
 | module-level bindings | no, initially (§7) |
 | `extern` signatures | no — FFI takes raw pointers, the existing unsafe boundary |
 | self-referential (an origin naming the value's own fields or its own place) | never — the well-formedness rule of O1 |
@@ -387,7 +427,11 @@ both.push(&z);                                  // error naming {x, y} and {z}; 
   reaching definitions, from the point each enters until the container's
   last use. The declared union itself freezes nothing — otherwise
   `both.push(&mut x)` would conflict with `both`'s own exclusive hold over
-  `x` and no `&mut` could ever be pushed.
+  `x` and no `&mut` could ever be pushed. What the caller knows AFTER
+  lending the container `&mut` to a callee — the declared bound at a
+  spelled position, the solved set at a flow-inferred one, so
+  `fill(&mut both, &mut y)` puts `y` into `both`'s live set — is §7's N0
+  finding "A local's flow set after a `&mut` lend" (2026-10-21).
 - Growth and reallocation are irrelevant to soundness: the elements are
   pointers and their roots are frozen (`&`) or exclusively borrowed
   (`&mut`) from entry to the container's last use (the elements never move
@@ -471,9 +515,15 @@ consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
   `Rc`/`Arc` deref stays E0919), `Rc.get_mut`/`make_mut` take
   `h : &mut Rc(T)` and so conflict with the freeze, the frozen handle
   cannot be dropped, moved or reassigned, so its strong count is never
-  decremented while the borrow lives — the payload is therefore neither
-  freed nor a collection candidate (the collector considers only objects
-  whose count was decremented, `CYCLE_COLLECTION.md`) — and heap storage
+  decremented while the borrow lives — the payload is therefore never
+  freed: not by `h`, and not by a collection some OTHER handle's drop
+  triggers (`h2 := h; r := &h.*.x; drop(h2)` is legal), because the frozen
+  `h` is a reference from outside any cycle, so the collector's trial
+  deletion leaves the payload's count above zero and ScanBlack restores
+  it (`CYCLE_COLLECTION.md`; restated 2026-10-21 on the premise of §7's
+  N0 finding "O9's 'never a collection candidate' is too strong" — the
+  first text said the payload was never a candidate, which another
+  handle's drop makes false) — and heap storage
   never relocates (decision 40). The
   first text kept R5's "no origin crosses an `Rc`/`Arc` deref; hold the
   handle and re-derive at each use", whose reason — a plain `Rc` holds no
@@ -481,7 +531,11 @@ consequences, one relaxed on 2026-10-20 (review round 2) to Rust's rule:
   §3.13 A2 predicate `handle_payload_is_read_only` already made exactly
   this move for borrowing futures (#1421). The borrowed `for` over an
   `Rc`-rooted container keeps its pin until decision 39 is revisited on
-  the same ground.
+  the same ground. A capture-list entry follows the same rule (added
+  2026-10-21): `{ x : &h.*.x }` is a `&(X, h)` capture with `h` frozen
+  while the closure lives, so decision 38 D's "closure borrow captures
+  keep the rule whole" narrows with the predicate at N1 exactly as A2's
+  future captures did at #1421.
 - **`Rc(T)` and `Arc(T)` payloads accept no origin parameters** —
   `where(T <: Escapable)` (O10). Rust allows `Rc<&'a T>`; Yo does not,
   and the reason is the cycle collector, not the borrow model: a leaked
@@ -516,16 +570,19 @@ review of #1483; the alternatives are in §6).
   future are not `Escapable`; `Send` implies `Escapable`. `TypeInfo`
   answers it from the origin list; no impl is ever written by hand.
 - **O4's no-origin positions are where the language requires it.** The
-  payload parameter of `Rc`, `Arc` and `Dyn`, `io.spawn`'s task, an
-  `extern` signature and a module-level binding carry
-  `where(T <: Escapable)`; E0909's message is "this position requires an
+  payload parameter of `Rc` and `Arc`, `io.spawn`'s task, an `extern`
+  signature and a module-level binding carry `where(T <: Escapable)`;
+  `Dyn(Trait, p)` bounds its payload's origins by `p` instead, and
+  `Dyn(Trait)` is `Dyn(Trait, ∅)`, whose bound is the same `Escapable`
+  (O4; made consistent 2026-10-21); E0909's message is "this position requires an
   `Escapable` type; `X` carries origin `p`".
 - **No implicit bound.** A `generic(T : Type)` parameter admits
   origin-carrying arguments by default, exactly as it admits non-`Send`
   ones: the restrictive contract is the one spelled, and the permissive
   default costs nothing because every other position propagates origins
-  structurally (O4). Yo checks a generic body per instantiation (the
-  evaluator defers a `generic(...)` body to call time), so the bound is
+  structurally (O4). Yo checks a generic body per TYPE instantiation (the
+  evaluator defers a `generic(...)` body to call time; origin parameters
+  stay rigid in that check, O1), so the bound is
   what makes the error local: with `where(T <: Escapable)` on `f`, a
   caller's `f(&x)` fails at that call against `f`'s signature; without
   it, the specialization fails inside `f`'s body at the `Rc(T)` with the
@@ -564,7 +621,7 @@ origin parameter, as O7's table does.)
 | §2.4 parser remainders | `parse_int(input : View(u8, p)) -> Result(((View(u8, p), T)), ParseError)` | nom's `IResult<&str, T>` |
 | §3.4 two-phase loans | `begin(self : &mut(Self, p)) -> Txn(S, p)` | `Loan<'a>` |
 | **storage behind owning pointers and dynamic cells** | `Box(View(T, p))`, `RefCell(&(T, p))` — the old E0909 wall | `Box<&'a T>` |
-| §5.2 collecting `iter_mut` items, `split_at_mut` | `ArrayList(&mut(T, xs))` filled from a `&mut` cursor; `split_at_mut(&mut xs, mid) -> (&mut(View(T), xs), &mut(View(T), xs))` (O3 step 2) | `Vec<&mut T>`, `split_at_mut` |
+| §5.2 collecting `iter_mut` items, `split_at_mut` | `ArrayList(&mut(T, xs))` filled from a `&mut` cursor; `split_at_mut(&mut xs, mid) -> (View(T, xs), View(T, xs))`, two by-value mutable views each holding `&mut(…, xs)` (not `&mut(View(T), xs)`, a reference to a view nobody owns; corrected 2026-10-21; O3 step 2) | `Vec<&mut T>`, `split_at_mut` |
 | §7.2 / §8 `Box<dyn Fn(&Event) + 'a>`, `Box<dyn Iterator<Item = &T> + 'a>` | `Dyn(Fn(Event), p)`, `Dyn(Iterator(Item := &(T, p)), p)` (O4) | `dyn Trait + 'a` |
 | §4.1 / §5.1 a view or cursor into an `Rc`-held value | `&h.*.items : &(ArrayList(T), h)`, `h.*.items.iter()` with the handle's place as origin (O9) | `let r = &*rc;` |
 | §4.6 a typed handle tied to its owner | `Id(T, arena)` by a phantom origin parameter (O1) | `PhantomData<&'a T>` |
@@ -596,13 +653,13 @@ is subset coercion into a union, `'static` is the empty origin.
 | `let r = &make();` (temporary lifetime extension to the block) | rejected today ("a root that is a temporary") | **fills at decision 18's phase** — §7: the temporary is bound to a hidden local of the enclosing block, Rust's rule |
 | `Rc<&'a T>` | `Rc(T)` requires `T <: Escapable` | **stays closed** — the cycle collector runs drops at an unbounded later time (O9); Rust escapes only because leaked cycles never run `Drop` |
 | `thread::scope`, rayon over a local `Vec` | none: a borrow is never `Send` | **parked on decision 43's trigger 2** — the fill is a scoped spawn whose join is structural, with origins ⊆ the scope's lent places and `Sync` for `&`; a parallelism-runtime design, not a borrow-model one |
-| `type Item<'a>` (GATs) for lending iterators | not needed: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap**; an associated type constructor over `Origin` for other GAT shapes is §7 |
+| `type Item<'a>` (GATs) for lending iterators | not needed for an inherent `next`, or a trait whose `next` signature spells the origin: the elided `next(self : &mut Self) -> Option(&T)` IS the lending reading (O2) | **not a gap for inherent cursors**; a lending `next` dispatched through `Iterator`'s fixed `Self.Item` still needs §7's associated type constructor over `Origin` (narrowed 2026-10-21) |
 | self-referential values via `Pin` + `unsafe` | unrepresentable in safe code (O5); `AllowUnsafe` raw pointers otherwise | **not a gap in safe code** — Rust's safe subset cannot either |
 | `static mut` | `mut(G)`, a safe lend with decision 18 rule 3 (no call or `await` in the live range) | **Yo is safe where Rust is `unsafe`** — every access to a `static mut` is unsafe in Rust; the trade is the live-range restriction |
 
 | Yo can write | Rust |
 | --- | --- |
-| a lending iterator with no GAT: `next(self : &mut Self) -> Option(&(T, self))` by elision | needs `type Item<'a>` |
+| a lending iterator with no GAT: `next(self : &mut Self) -> Option(&(T, self))` by elision (inherent, or a trait spelling it; the `Iterator`-dispatched form is §7) | needs `type Item<'a>` |
 | a borrow of an async body's own local across an `await`, with no `Pin` (O5) | `Pin` + the self-referential generator |
 | field-path origins in a signature, once §7 lands them (`-> &mut(V, self._buf)`) | view types, an RFC |
 | a projection (`-> &T` whose body yields a place, decision 24) checked without a region | the same thing spelled through lifetimes |
@@ -689,8 +746,10 @@ places its origin names. The mechanisms, and the escape routes they close:
    produce overlapping ones without an access conflict in its own body.
 4. **Through a closure** — capture entries spell origins into the
    closure's type; a slot's parameters subsume the literal's (coercion);
-   an escaping closure's capture and a `Dyn` payload are no-origin
-   positions (E0909).
+   an escaping closure's captures and a `Dyn(Trait, p)` payload must lie
+   within the slot's origin parameters, `Dyn(Trait)` being
+   `Dyn(Trait, ∅)` (O4; corrected 2026-10-21 — the first text listed both
+   as no-origin positions, which O4 and O10 had already relaxed).
 5. **Through an unknown callee** — a `Dyn`/function-value call is checked
    from the signature it dispatches on (traits carry origin parameters;
    every impl was checked against them); an `extern` takes no origins.
@@ -715,7 +774,8 @@ position, and every such position is one of the eight above.
 **Shared cells:** a reference into a shared payload carries the handle it
 went through (O9), and that handle is frozen while the reference lives —
 so the payload cannot be freed (the handle's count is never decremented,
-so it is neither dropped nor a collection candidate) and cannot be written through any
+so it is not dropped, and a collection another handle's drop triggers
+scans it black — O9) and cannot be written through any
 handle (decision 46; `&mut` through a deref is E0919). Mutation of a
 shared payload happens only through `RefCell`'s dynamic marks (§3.10),
 whose guard is the origin of any borrow into it. A payload never carries
@@ -749,7 +809,17 @@ literal whose captures exceed a slot's origin parameters; a generic body
 passing an unbounded `T` to `Rc(T)` (fails in the specialization naming
 `where(T <: Escapable)`) and `Rc(&(X, x))` at a call (error at the call,
 O10). Positive
-controls mirror them, `words` and `get2_mut`'s pair among them.
+controls mirror them, `words` and `get2_mut`'s pair among them. The
+2026-10-21 audit adds rows, to be written into `tests/origins/corpus/`
+with the model's support as N0's follow-up (`call-arg-overlap` and
+`swap-declared-union` already pin O3 step 2's corrected reading): a `&`
+reborrow of a `&mut` component returned through `c : &Holder`, with `c`
+then lent `&mut` while it lives (E0911, the union origin); a generic body
+that type-checks only under its first caller's origin substitution
+(rejected in the body, origins rigid); `io.spawn` of a task holding
+`&(Rc(X), ∅)` (not `Send`) beside the POSITIVE `Rc(&(T, ∅))`;
+`a.y = &a.x` (the self-origin rule over an inferred set); `{ x : &h.*.x }`
+as a closure capture with `h` frozen (O9).
 
 ## 6. Alternatives considered
 
