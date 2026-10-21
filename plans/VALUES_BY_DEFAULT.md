@@ -7440,8 +7440,10 @@ stage-2 RSS):
     | emitted C (`src/main.yo`) | 143,072,744 B | 143,190,745 B |
 
     Check RSS is +0.2% (the node's per-type dup and drop functions), and
-    check time is flat. `yo verify` gives byte-identical output with both
-    binaries on every `tests/spec` path that evaluates.
+    check time is flat. `yo verify --format json --no-cache` prints the
+    same output with both binaries, apart from `elapsed_ms`, on every
+    `tests/spec` path that evaluates (the `*.test.yo` files,
+    `fixtures/valid`, `fixtures/elision` with and without `--elision`).
   - **`VcSort`:** not converted. It lives in `HashMap(String, VcSort)`,
     which cannot hold a move-only value and whose `get` copies. It takes
     `Box` children after V2b B6
