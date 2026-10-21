@@ -7425,9 +7425,9 @@ stage-2 RSS):
     `ArrayList(Rc(Self))` lists. Constructions are
     `rc(VcTermNode.X(...))` (144 sites), and the 88 arms spell the handle,
     `Rc(.X(...))` (`yo fix --migrate rc-pattern`). A copy of a term is one
-    count bump, as the `ref(enum)` was, so the walk's snapshots and `ite`
-    merges cost what they did. The map fields and the 49 `HashMap.get`
-    sites in `vc.yo` are unchanged; after V2c each copy of the handle is
+    count bump, as the `ref(enum)` was; the `yo verify` row below is what
+    the walk's snapshots and `ite` merges measured. The map fields and the
+    49 `HashMap.get` sites in `vc.yo` are unchanged; after V2c each copy of the handle is
     an explicit `.clone()`. Measured on Linux x86_64 (exclusive heavy lock,
     two runs each; develop 7def2203b against this tree, each stage 1 built
     by the v0.2.66 seed with clang, each checking its own tree; stage 2 is
@@ -7438,12 +7438,21 @@ stage-2 RSS):
     | `check ./src` (stage 1) | 198.6 / 198.9 s, 1,143,368 / 1,143,476 KB | 192.7 / 194.3 s, 1,146,084 / 1,145,964 KB |
     | `check src/main.yo` (stage 2) | 184.3 / 184.5 s, 1,104,264 / 1,103,900 KB | 187.2 / 183.8 s, 1,106,196 / 1,106,328 KB |
     | emitted C (`src/main.yo`) | 143,072,744 B | 143,190,745 B |
+    | `yo verify` over `tests/spec` (stage 1, round 2) | 605.9 s, max 140,756 KB | 609.5 s, max 141,408 KB |
 
-    Check RSS is +0.2% (the node's per-type dup and drop functions), and
-    check time is flat. `yo verify --format json --no-cache` prints the
-    same output with both binaries, apart from `elapsed_ms`, on every
-    `tests/spec` path that evaluates (the `*.test.yo` files,
-    `fixtures/valid`, `fixtures/elision` with and without `--elision`).
+    Check RSS is +0.2% and check time is flat; what the extra RSS is was
+    not measured. The `yo verify` row runs `yo verify --format json
+    --no-cache` once per path, 65 paths (every `tests/spec/*.test.yo`,
+    `fixtures/valid`, `fixtures/elision` with and without `--elision`, and
+    each `fixtures/negative` and `fixtures/invalid` file), two rounds per
+    binary, summing wall time and taking the largest max RSS. Both rounds
+    print the same JSON and stderr with both binaries, apart from
+    `elapsed_ms`, and the same exit codes (53 JSON documents: 252 ok,
+    53 refuted, 39 outside-subset, 14 subset-error, 5 unproven, 3 assumed);
+    the whole-directory `yo verify ./tests/spec --format json` prints the
+    same output with both. Round 1 ran the develop binary first and it took
+    393.7 s against 594.9 s; round 2, in the other order, is 605.9 against
+    609.5 s. The round-1 gap does not reproduce, so the table shows round 2.
   - **`VcSort`:** not converted. It lives in `HashMap(String, VcSort)`,
     which cannot hold a move-only value and whose `get` copies. It takes
     `Box` children after V2b B6
