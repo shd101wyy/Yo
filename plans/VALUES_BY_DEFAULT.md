@@ -4390,8 +4390,10 @@ and in git, not a silent edit.
     `impl(T, Acyclic())` are deleted with the collector, and `Acyclic`
     stays as a derived-only marker** (maintainer, 2026-10-21, agreeing
     with the staged recommendation; the design is
-    `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`, the user text
-    `plans/CYCLE_COLLECTION_DOC_DRAFT.md`). It amends decision 46's
+    `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; the user text is written
+    with W3, as a `Weak` page, and `docs/en-US/CYCLE_COLLECTION.md` serves
+    unchanged until W6 deletes it — a transitional draft was written and
+    withdrawn the same day, 2026-10-21). It amends decision 46's
     "No `Weak`" and retires its step 3 (the predicate narrowing), and it
     settles the `UnsafeRc`/`UnsafeArc` question: no second handle type.
     - **The rule.** Rust's model exactly: an `Rc`/`Arc` cell is freed by

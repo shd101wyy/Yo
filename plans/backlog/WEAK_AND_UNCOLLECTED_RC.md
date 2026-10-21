@@ -310,6 +310,10 @@ exclusion of `Rc`-reaching values keeps its other reason (aliasing).
 | W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, the declared `Acyclic` form, the large header and the knob are deleted (the derived `Acyclic` marker stays); docs in both languages; the origins plan's O9/O10 amended | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
 
 Each phase is one PR; W3 is Generation A (the prelude gains the types; std
-uses them on the next seed). `CYCLE_COLLECTION_DOC_DRAFT.md` carries the
-user-facing text for W1, W3 and W4 as planned sections and is promoted with
-them.
+uses them on the next seed). The user-facing text is written with the
+phases, not ahead of them: W1 adds a section to `docs/en-US/CYCLE_COLLECTION.md`
+(both languages), W3/W4 add a `Weak` page beside `ARC.md`, and W6 deletes
+`CYCLE_COLLECTION.md` and moves what survives (leaks, `Weak`, the oracle)
+into `MEMORY_SAFETY.md`. A transitional draft of the collector page was
+written and withdrawn on 2026-10-21: it would have documented only what
+W6 removes.
