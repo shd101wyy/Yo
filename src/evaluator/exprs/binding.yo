@@ -132,7 +132,6 @@ evaluate_binding :: (
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
   // Rhs must evaluate to a TypeValue.
   if(!is_type_value(&rhs_info.value), {
     exn.throw(
@@ -444,7 +443,7 @@ evaluate_binding :: (
       // expr_info.yo g_module_level_globals).
       new_binding_var.is_module_level = is_module_level;
       if(is_module_level, {
-        register_module_level_global(ast_expr_token(&lhs).module_path.clone(), variable_name.clone());
+        register_module_level_global(&ast_expr_token(&lhs).module_path, variable_name.clone());
       });
     },
     .None => ()

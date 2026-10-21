@@ -93,7 +93,6 @@ User code should normally call stdlib wrappers (e.g. functions in
     env.frames = lang_info.env.frames;
     env.module_path = lang_info.env.module_path;
     env.function_declaration_frame_level = lang_info.env.function_declaration_frame_level;
-    env.input_string = lang_info.env.input_string;
     raw_lang := match(
       lang_info.value,
       .Some(v) => match(
@@ -247,7 +246,6 @@ User code should normally call stdlib wrappers (e.g. functions in
     env.frames = result.env.frames;
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env.input_string = result.env.input_string;
     // An `extern("Yo", X : Type)` member declares an opaque FFI type: its
     // value IS that type, a nominal `ExternOpaqueT` (types/definitions.yo),
     // not a placeholder the uses turn into a SomeT.
@@ -284,7 +282,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // The module value — see c_include.yo for the id scheme. An `extern`
   // module is not recorded as a c_include module: its globals are not
   // extern-C globals (no header, no reserved-name exemption).
-  sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(env.module_path.clone()).to_string()}_`, env.module_path.clone());
+  sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(&env.module_path.*).to_string()}_`, &env.module_path.*);
   module_type := rc(
     TypeValueNode.Struct(
       sns_id.clone(),

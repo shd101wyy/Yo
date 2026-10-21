@@ -2258,7 +2258,7 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
         if(is_tail, {
           tail = code;
         }, {
-          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path, code.clone()), .None => true));
+          skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path.*, code.clone()), .None => true));
           if(!skip, {
             em.emit_string_line(`${indent}${code};`);
           });
@@ -2478,7 +2478,7 @@ _emit_fused_statements_no_tail :: (fn(stmts : &ArrayList(AstExpr), indent : &Str
       stmts.get(i),
       .Some(st) => {
         code := _call_generate_expr(&st, indent.clone(), context);
-        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path, code.clone()), .None => true));
+        skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path.*, code.clone()), .None => true));
         if(!skip, {
           em.emit_string_line(`${indent}${code};`);
         });

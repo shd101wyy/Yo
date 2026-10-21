@@ -1201,7 +1201,7 @@ _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
   _scope_type_installs(&info.ty) || _scope_value_installs(&info.value) || _scope_value_installs(lookup_method_callee_value(id))
 );
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
-  husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : entry.input_string.clone(), frozen : true);
+  husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path, function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
@@ -1230,7 +1230,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       // This info object was released by an earlier body (logged again
       // there): its records stand.
       g_scope_rereleased = (g_scope_rereleased + usize(1));
-    }, if(!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, &info) || !shares_husk, {
+    }, if(!(info.env.module_path.* == entry.module_path.*) || _scope_keeps_env(id, &info) || !shares_husk, {
       if(!shares_husk, {
         g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
       });

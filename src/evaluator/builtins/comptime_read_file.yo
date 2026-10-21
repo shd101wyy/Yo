@@ -148,7 +148,7 @@ evaluate_comptime_read_file :: (
     }
   );
   // Resolve against the IMPORTING FILE's directory (never the process cwd).
-  module_file := env.module_path.replace(String.from("file://"), String.new());
+  module_file := env.module_path.*.replace(String.from("file://"), String.new());
   module_dir := match(Path.new(module_file.clone()).parent(), .Some(d) => d.to_string(), .None => String.from("."));
   resolved := _abs_norm(module_dir.clone(), rel.clone());
   root := _package_root_for(module_dir.clone());

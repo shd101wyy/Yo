@@ -140,7 +140,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
               // flag-on).
               is_bare_temp := match(
                 context.base.get_expr_info(&arg),
-                .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), code.clone()),
+                .Some(aei) => is_temp_variable_name(&aei.env.module_path.*, code.clone()),
                 .None => false
               );
               if(!is_bare_temp, {
@@ -177,7 +177,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
                   get_deferred_drop_target_atom_name(&de),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(&nm, false);
-                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.*.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
                   },
                   .None => false
                 );

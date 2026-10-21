@@ -236,7 +236,7 @@ _bind_some_type :: (
     exn : Exception
   ) -> unit
 )({
-  token := match(tok, .Some(t) => t, .None => synthetic_token(name, &env.module_path));
+  token := match(tok, .Some(t) => t, .None => synthetic_token(name, &env.module_path.*));
   // The bound VARIABLE's declared type is the KIND of the bound value —
   // a type binder `T` always carries `Type`/`Trait` as its variable type.
   // Passing the bound TYPE ITSELF (a SomeT or concrete) made a later read
@@ -775,11 +775,9 @@ _synthesize_implicit_params :: (
           expected_env.frames = res.expected_env.frames;
           expected_env.module_path = res.expected_env.module_path;
           expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
-          expected_env.input_string = res.expected_env.input_string;
           given_env.frames = res.given_env.frames;
           given_env.module_path = res.given_env.module_path;
           given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
-          given_env.input_string = res.given_env.input_string;
           matched_given(gj) = true;
           gj = n_giv; // break
         });
@@ -1075,7 +1073,7 @@ _synthesize_types_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                _anchor(&tok, &exp_name, &ee.module_path),
+                _anchor(&tok, &exp_name, &ee.module_path.*),
                 `Cannot unify type variable "${exp_name}" with type "${type_to_string(given_ty)}" because it would create an infinite type.`
               )
             )
@@ -1143,7 +1141,7 @@ _synthesize_types_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                _anchor(&tok, &giv_name, &ge.module_path),
+                _anchor(&tok, &giv_name, &ge.module_path.*),
                 `Cannot unify type variable "${giv_name}" with type "${type_to_string(expected_ty)}" because it would create an infinite type.`
               )
             )
@@ -1165,7 +1163,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("tuple"), &ee.module_path),
+              _anchor(&tok, String.from("tuple"), &ee.module_path.*),
               `Cannot unify incompatible tuple types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
             ),
             expected_ty,
@@ -1290,7 +1288,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("struct"), &ee.module_path),
+              _anchor(&tok, String.from("struct"), &ee.module_path.*),
               `Cannot unify incompatible struct types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
             ),
             expected_ty,
@@ -1385,7 +1383,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("enum"), &ee.module_path),
+              _anchor(&tok, String.from("enum"), &ee.module_path.*),
               `Cannot unify incompatible enum types: "${type_to_string(&exp_en_ty)}" and "${type_to_string(&giv_en_ty)}"`
             ),
             &exp_en_ty,
@@ -1659,7 +1657,7 @@ _synthesize_types_impl :: (
           false,
           false,
           false,
-          synthetic_token(&exp_lvar, &ee.module_path)
+          synthetic_token(&exp_lvar, &ee.module_path.*)
         );
       });
     });
@@ -1922,7 +1920,7 @@ _synthesize_types_impl :: (
         dyn(
           mark_generic_independent(
             format_error_message(
-              _anchor(&tok, String.from("type"), &ee.module_path),
+              _anchor(&tok, String.from("type"), &ee.module_path.*),
               `Cannot unify incompatible types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
             ),
             expected_ty,

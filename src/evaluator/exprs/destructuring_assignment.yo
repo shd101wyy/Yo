@@ -98,7 +98,7 @@ _record_destructured_read :: (fn(env : &Environment, rhs_type : &TypeValue, labe
     Rc(.Struct({ id : dr_sns, is_source_namespace : dr_flag })) => if(dr_flag, {
       match(
         sns_module_of(dr_sns.clone()),
-        .Some(dr_target) => record_module_member_read(&env.module_path, &dr_target, label),
+        .Some(dr_target) => record_module_member_read(&env.module_path.*, &dr_target, label),
         .None => ()
       );
     }),
@@ -121,7 +121,7 @@ _reject_private_destructure :: (
     Rc(.Union(pv_uid, _, _)) => pv_uid.clone(),
     _ => String.new()
   );
-  if(private_member_blocked(label.clone(), type_decl_module(&pv_type_id), tok.module_path.clone()), {
+  if(private_member_blocked(label.clone(), type_decl_module(&pv_type_id), &tok.module_path), {
     exn.throw(
       dyn(
         format_error_message(

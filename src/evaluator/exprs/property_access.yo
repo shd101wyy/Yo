@@ -332,7 +332,7 @@ _reject_private_static_member :: (
     (entry_owner.len() > usize(0)) => Option(String).Some(entry_owner),
     true => type_decl_module(type_id)
   );
-  if(private_member_blocked(prop_name.clone(), &decl, ast_expr_token(property_expr).module_path.clone()), {
+  if(private_member_blocked(prop_name.clone(), &decl, &ast_expr_token(property_expr).module_path), {
     exn.throw(
       dyn(
         format_error_message(
@@ -680,7 +680,6 @@ evaluate_property_access :: (
       env.frames = oi.env.frames;
       env.module_path = oi.env.module_path;
       env.function_declaration_frame_level = oi.env.function_declaration_frame_level;
-      env.input_string = oi.env.input_string;
     },
     .None => ()
   );
@@ -1917,7 +1916,7 @@ Raw pointer operations may dereference invalid memory.`
             // The access site is the label TOKEN's module (lexical) — never
             // `env.module_path`, which inside a generic impl body evaluated at
             // call time is the CALLER's module.
-            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(&property_expr).module_path.clone()), {
+            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), &ast_expr_token(&property_expr).module_path), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -2105,7 +2104,7 @@ Raw pointer operations may dereference invalid memory.`
           Rc(.Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns })) => if(pa3_is_sns, {
             match(
               sns_module_of(pa3_sns.clone()),
-              .Some(pa3_target) => record_module_member_read(&env.module_path, &pa3_target, mod_label.clone()),
+              .Some(pa3_target) => record_module_member_read(&env.module_path.*, &pa3_target, mod_label.clone()),
               .None => ()
             );
           }),

@@ -318,8 +318,8 @@ _build_module_val_from_env :: (fn(env : &Environment) -> EvalValue)({
     );
     fi = (fi + usize(1));
   });
-  sns_id2 := stable_sns_module_id(env.module_path.clone());
-  register_sns_module(sns_id2.clone(), env.module_path.clone());
+  sns_id2 := stable_sns_module_id(&env.module_path.*);
+  register_sns_module(sns_id2.clone(), &env.module_path.*);
   EvalValue.StructVal(sns_id2, names, values)
 });
 // ---------------------------------------------------------------------------
@@ -395,7 +395,6 @@ evaluate_import :: (
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
-  env.input_string = arg_info.env.input_string;
   // Extract the comptime string value.
   // StrLit.raw includes the surrounding quotes (e.g., `"std/string"`).
   // Strip the leading and trailing quote character to get the raw path.
@@ -447,7 +446,7 @@ evaluate_import :: (
   // Path resolution
   // ---------------------------------------------------------------------------
   // Strip `file://` from the current module path to get the raw file-system path.
-  current_file := env.module_path.replace(String.from("file://"), String.from(""));
+  current_file := env.module_path.*.replace(String.from("file://"), String.from(""));
   current_dir := match(
     Path.new(current_file.clone()).parent(),
     .Some(p) => p.to_string(),
