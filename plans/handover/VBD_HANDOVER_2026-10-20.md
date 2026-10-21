@@ -42,6 +42,11 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
    The `Acyclic` stack must be rebased onto develop (#1501 re-keyed enum identity) and its probe table
    re-run BEFORE any RSS number is read; then the Linux `check src/main.yo` RSS against
    `scripts/bootstrap/memory-ratchet.tsv` decides whether #1486 lands as-is.
+   **Done 2026-10-21 (rebase, re-probe, build, RSS):** rebased onto develop; #1501 changed no probe verdict;
+   the stack's Linux stage-2 `check src/main.yo` max RSS is +0.12% over develop's (1,110,116/1,110,328 vs
+   1,108,756/1,109,004 kB), inside the 1,099,472 kB ±10% band, so no further declaration and no re-baseline
+   of that row. The allocation-count and compile-peak rows: see the issue doc's "Measured after the rebase"
+   (`issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`).
 3. **The B1 regeneration** (listing-heavy, `--hot-path src/evaluator`, from a clean-tree binary) — **moved to
    v0.2.69 on 2026-10-21** (`VBD_RELEASE_SCHEDULE.md` §5a decision 11). It needs
    ~45 GB of headroom if it regresses again — only this box can run it.
@@ -57,7 +62,8 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
   (S2). `Iso(T)` is `Send` for every `T`, so `^w` moves a graph holding `Io`/`JoinHandle` across threads.
   The window is accepted until Part A; it never widens, because Part A precedes decision 43 step 2.
 - **#1486 deferred past v0.2.67**: +20 % `check src/main.yo` RSS (48 compiler containers newly registered with
-  the collector; the ratchet job failed). Recover with the `Acyclic` declarations first.
+  the collector; the ratchet job failed). Recover with the `Acyclic` declarations first. Measured 2026-10-21:
+  with the declarations stacked, the Linux RSS delta against develop is +0.12% (§0.2 step 2).
 - **Open schedule questions were delegated** ("consult with your advisor to pick the best solution that fits
   Yo"): the picks are `VBD_RELEASE_SCHEDULE.md` §5 "Decided 2026-10-20" — V2c one PR; decision 47 locals
   Gen B at v0.2.72; `RefCell.get`/`get_mut` wait for decision 43 step 2; the V3 std half splits (cell-free
@@ -108,7 +114,7 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
 | Branch | State | Next |
 | --- | --- | --- |
 | `fix/linkedlist-managed-element-cycles` (draft #1486) | correct, Tier 1 green; +20 % check RSS | lands with the `Acyclic` stack |
-| `perf/acyclic-compiler-containers` | stacked on #1486; decision-21 declarations on the AstExpr/VcSort/VcTerm families; regression test 24/24 with #1486's binary; never built | rebase onto develop, re-probe, build, measure (§0.2 step 2) |
+| `perf/acyclic-compiler-containers` | stacked on #1486 (a rebased copy of its four commits); decision-21 declarations on the AstExpr/VcSort/VcTerm node types; rebased onto develop, re-probed (#1501 changed nothing), built, Tier 1 run; stage-2 `check` RSS +0.12% vs develop | land as one stack (§0.2 step 2); the issue doc records the gates and the ratchet rows |
 | `feat/explicit-copy-guards` | dying-temporary-as-move + explicit `--hot-path <path>`; hand-computed cli goldens; never built | build, `check ./src`, the six explicit-copy cli cases (one must stay byte-identical), the internal files importing `src/main.yo`/`evaluator/utils.yo`. Its issue doc is already in `issues/fixed/` with gates unrun, and it edits the 2026-10-19 handover §4.2 — expect a conflict |
 | `feat/v2b-genb-b1-migration` @ `e556161b0` | the parked explicit-copy sweeps (2026-10-19 handover §2.3) | do not regenerate before §0.2 step 1 lands |
 | `tss/phase6-step4` (#1162) | unchanged, type-soundness track | — |
@@ -119,7 +125,10 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
   with `X` a cycle-capable ref ENUM reads acyclic, while `ref(struct(y : Y))` with `Y` a ref STRUCT reads
   cyclic — the walk re-roots at ref structs only. If the enum answer is wrong it is an uncollected-cycle
   bug. Decide the predicate (VBD §3.12 "reaches an Rc") and file an issue or an `issues/questions/` doc first
-  thing; it is why `SuspensionPoint` registers on #1486.
+  thing; it is why `SuspensionPoint` registers on #1486. **Filed 2026-10-20/21 on the pushed branch
+  `docs/cycle-walk-holder-asymmetry`** (no PR yet): the enum-root side was an S1 uncollected cycle, fixed there;
+  the holder side is the `^`/`Iso` S1 "`^` sends collector-tracked objects to another thread" (accepted until
+  `Iso` is deleted), whose recommendation narrows the re-root once `^` has its own reach predicate.
 - The `Acyclic` branch (`perf/acyclic-compiler-containers`) carries an `issues/questions/` doc on whether the cycle
   walk should infer acyclicity for Self-only ref enums; it recommends NOT inferring (it lands with that branch).
 - The S2/S3 issues filed this cycle are the v0.2.67 notes' known-issues list (§5).

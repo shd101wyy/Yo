@@ -100,13 +100,24 @@ assertion. Besides this file's four, the failing files were
 `lsp_protocol` (19), `check_watch` (12), `module_invalidation` (11), the
 `verifier_*` files (28 in all), `module_prelude_outcome` (3),
 `doc_command` (3), `recursive_enum` (2), `context_index` (2),
-`type_trait_methods` (1) and `diagnostics_registry_examples` (1). They
-are develop's, not that branch's: every failing name is also failing in
-another develop-based branch's leak-verdict-on run (the same names or a
-superset per file); `recursive_enum`, `verifier_assumed` and
-`verifier_contract_splice` fail identically when run alone with develop's
-own `7def2203b` stage 1. They belong to the same debt as the four cases
-above, and CI stays off for them.
+`type_trait_methods` (1) and `diagnostics_registry_examples` (1). How
+much of this is develop's own debt is verified for six of the 86 only:
+
+- `recursive_enum` (2) fails the same two tests, run alone, with
+  develop's `7def2203b` stage 1 and with the branch's;
+- `verifier_assumed` (3) and `verifier_contract_splice` (1) fail by the
+  same test names with another session's develop `7def2203b` stage 1.
+
+The other 80 are attributed to develop only because every failing name
+also fails in another develop-based branch's leak-verdict-on run (the
+same names or a superset per file), and that branch is a different tree.
+They are NOT yet verified against develop's own binary. That matters for
+`lsp_protocol` and `check_watch` in particular: the branch changes which
+`JsonObjBuilder` (`src/lsp/protocol.yo`) and `EvalValue`-holding cells
+register with the collector, which can move a LeakSanitizer verdict. A
+develop-vs-branch A/B of `lsp_protocol`, `type_trait_methods` and
+`check_watch` is queued (`vbd-logs/acyclic/leakab-rest.sh` on the Linux
+box). CI stays off for all of them, as for the four cases above.
 
 ## Test
 

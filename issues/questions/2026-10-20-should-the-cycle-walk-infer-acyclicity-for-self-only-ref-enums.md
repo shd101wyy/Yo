@@ -25,13 +25,23 @@ reach the enum through a written edge is not a cycle root.
 
 Measured 2026-10-20 with #1486's tree binary:
 
-- A `Self`-only reference enum cannot close a cycle in the shipped
-  language. `mut(s) := T.Leaf(1); s2 := s; s = T.Node(s2, s2);` rebinds
-  `s`, and `s2` still reads `Leaf`. `s.* = T.Node(s, s)` is rejected
-  ("Failed to evaluate left-hand side of assignment"). Two module-level
-  bindings `a :: T.Node(b, b); b :: T.Node(a, a);` are a "cyclic
-  definition" error. A node can only point at nodes that existed before
-  it.
+- A `Self`-only reference enum CAN close a cycle in the shipped
+  language, through a variant-field write. This bullet first said it
+  could not, from probes that tried only rebinding and whole-value
+  writes: `mut(s) := T.Leaf(1); s2 := s; s = T.Node(s2, s2);` rebinds `s`
+  (`s2` still reads `Leaf`), `s.* = T.Node(s, s)` is rejected ("Failed to
+  evaluate left-hand side of assignment"), and two module-level bindings
+  `a :: T.Node(b, b); b :: T.Node(a, a);` are a "cyclic definition"
+  error. The write those probes missed was found on the
+  `docs/cycle-walk-holder-asymmetry` branch and re-measured here
+  (2026-10-21, this branch's tree binary): with
+  `X :: ref(enum(Leaf(n : i32), Node(l : Self, r : Self)))`,
+  `t := X.Node(X.Leaf(1), X.Leaf(2)); t.l = t;` compiles, ten such cycles
+  leave 10 objects tracked, and `Gc.collect()` reclaims all 10. So the
+  walk's `true` for a `Self`-only enum is the correct answer for the
+  language today, and the three declarations rest on their SAFETY
+  audits (no variant-field write on a built node in `src/`), not on a
+  language rule.
 - The authoritative reference doc says the opposite.
   `plans/reference/REF_REFERENCE_SEMANTICS.md` §2.4: "a `ref(enum)` can be
   re-assigned to a different variant in place; all handles observe the
@@ -56,9 +66,9 @@ Measured 2026-10-20 with #1486's tree binary:
 ## Options
 
 1. **Infer now, for the narrow `Self`-only case.** This removes one
-   unsafe declaration. Its soundness rests on an invariant that
-   REF_REFERENCE_SEMANTICS §2.4 contradicts and decision 43 step 2 has not
-   ruled on. It flips the `CycTree` test and widens `Acyclic`.
+   unsafe declaration. It is unsound today: a variant-field write closes
+   a cycle through a `Self` payload (see above), and REF_REFERENCE_SEMANTICS
+   §2.4 admits more ways to close one. It flips the `CycTree` test and widens `Acyclic`.
 2. **Keep the declarations; generalize later.** The precise rule is
    that a cycle needs at least one write after construction. The test file
    already uses this argument for a value enum with `Rc(Self)` children,
@@ -70,7 +80,9 @@ Measured 2026-10-20 with #1486's tree binary:
 
 ## Recommendation
 
-Option 2. Do not add a `Self`-only special case to the walk.
+Option 2. Do not add a `Self`-only special case to the walk. The
+variant-field write measured above makes option 1 unsound as well as
+implicit, so the recommendation is firmer than when it was filed.
 
 - An inferred answer that depends on an invariant the authoritative doc
   contradicts is the implicit behavior Yo's "be explicit" principle

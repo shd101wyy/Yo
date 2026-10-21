@@ -413,11 +413,13 @@ AstExpr :: ref(
     FnCall(id : ExprId, func : Self, args : ArrayList(Self), is_infix : bool, token : Token)
   )
 );
-// SAFETY: an AstExpr tree has no back edges. `func` is an enum payload,
-// fixed at construction, and every `args` list is filled before its FnCall
-// is built: an audit of src/ (2026-10-20) found no push, insert or set into
-// the `args` of a node that already exists, through a destructured binder,
-// an alias of one, or a `&mut` pass. The one in-place rewrite,
+// SAFETY: an AstExpr tree has no back edges. Nothing in src/ writes a payload
+// of a built node: the language admits a variant-field write (`e.func = e`
+// closes a cycle), and an audit of src/ (2026-10-21) found no `.func =` or
+// `.args =` assignment. Every `args` list is filled before its FnCall is
+// built: the audit (2026-10-20) found no push, insert or set into the `args`
+// of a node that already exists, through a destructured binder, an alias of
+// one, or a `&mut` pass. The one in-place rewrite,
 // `strip_proved_ensures_asserts` in evaluator/builtins/contracts.yo, refills a
 // body's statement list with a subset of its own elements, which cannot
 // close a cycle. So no node reaches itself. Declaring `Acyclic` keeps

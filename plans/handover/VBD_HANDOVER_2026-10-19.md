@@ -187,7 +187,7 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
   fixed (`issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`). The
   cycle walk now resolves the self-declaration shell behind a nested instantiation. Cost: 48 compiler
   containers become collector-tracked (`check` RSS up; recovery is decision 21's declared
-  `impl(T, Acyclic())` on the compiler's tree-shaped containers).
+  `impl(T, Acyclic())` on the compiler's tree node types, never on a container instantiation).
 - The non-routable connect-test leak doc is suspected network-environment; triage before believing.
 
 ## 4. What is next, in order

@@ -152,11 +152,15 @@ register with the collector.
   should not move.
 - **RSS does move.** The +17% exceeds the `Evaluator memory ratchet` job's
   ±10% band (`scripts/bootstrap/memory-ratchet.tsv`, Linux max RSS of
-  `check src/main.yo`). That job was expected to go red for the fix alone,
-  until its Linux baseline was re-measured at merge. The macOS number above
-  is not that baseline, so it was not written into the TSV. With the stacked
-  declarations the Linux A/B is +0.12% ("Measured after the rebase" below),
-  so the stack needs no re-baseline.
+  `check src/main.yo`). On CI the fix alone failed that job: PR #1486's run
+  39368492680 (head `2b3ade79a`, 2026-10-20) measured 1,273,168 kB against
+  the then-baseline 973,268 kB, +20% over develop's 1,061,416 kB at
+  `e40dc17ac`. The work-ratchet step after it did not run. The macOS
+  number above is not the Linux baseline, so it was not written into the
+  TSV. With the stacked declarations the Linux A/B of this RSS row is
+  +0.12% ("Measured after the rebase" below), so the stack needs no
+  re-baseline of `check_src_main_max_rss_kb`. The TSV's other two rows
+  (the allocation count and the 8 GB compile peak) are addressed there.
 - **Recovery (follow-up, not this fix):** decision 21's declared
   `impl(T, Acyclic())` on the compiler's tree node types. It is stacked on
   this fix as branch `perf/acyclic-compiler-containers`; see the next section.
@@ -181,10 +185,15 @@ checks. Declaring the node is enough: the walk stops there, so every
 container and holder whose only path to a cycle runs through the node stops
 registering too. `TypeValue` (#1329) uses the same pattern.
 
-A node type is tree-shaped by construction when two things hold. Its
-`Self` payloads are fixed when the node is built, because enum payloads
-cannot be assigned. And no code writes into a child list that a built node
-already holds. The audit (2026-10-20) checked every `.FnCall(…)`, `.App(…)`,
+A node type is tree-shaped when two things hold. No code writes a `Self`
+payload of a built node. And no code writes into a child list that a built
+node already holds. Neither is a language rule: a variant-field write
+(`t.l = t` on `ref(enum(Leaf(n : i32), Node(l : Self, r : Self)))`)
+compiles and closes a cycle, which the collector reclaims (measured
+2026-10-21 with this branch's tree binary; an earlier version of this
+paragraph said enum payloads cannot be assigned). A grep of `src/` for a
+payload assignment (`.func =`, `.args =`, `.t =`, `.elem =`, `.domain =`,
+`.range =`, `.lit =`, `.body =`, `.triggers =`, 2026-10-21) found none. The audit (2026-10-20) checked every `.FnCall(…)`, `.App(…)`,
 `.Ctor(…)` and `.Quant(…)` destructure in `src/` for a mutating call on the
 list binder, on an alias of it, or on a `&mut` pass of it. It also checked
 every construction site for a later write to the list it was given.
@@ -304,6 +313,14 @@ reference STRUCT (`ref(struct(y : Y))`) reads `true` on both, because the
 walk re-roots at every reference struct it reaches. That is why
 `SuspensionPoint` registers on #1486 through its
 `Option(ArrayList(AstExpr))` field, and why the declarations take it off.
+A holder is never on the cycle it reaches, so its `true` only
+over-registers: the collector stays sound, and the cost is tracking work.
+This holder asymmetry is filed on the pushed branch
+`docs/cycle-walk-holder-asymmetry` (not yet merged), as "`^` sends
+collector-tracked objects to another thread" (S1, the `^`/`Iso` side;
+its recommendation narrows the re-root after `^` gets its own reach
+predicate) and "A ref-enum cycle through a ref struct is never collected"
+(S1, the enum-root side, fixed there).
 
 ## Fix direction (as filed)
 
@@ -316,15 +333,28 @@ traversal.
 ## Test
 
 `tests/cycle_collector.test.yo` "declared-Acyclic compiler trees keep their
-containers and holders off the cycle walk" turns the probe table into a
-regression test (stacked branch). A language test cannot import `src/`, so it
-replicates `AstExpr`, `VcSort`, `VcTerm`, `SuspensionPoint` and `VcQuery`
-with the same `impl(T, Acyclic())` shape. It asserts `false` for each
+containers and holders off the cycle walk" pins the MECHANISM (stacked
+branch). It replicates `AstExpr`, `VcSort`, `VcTerm`, `SuspensionPoint`
+and `VcQuery` with the same `impl(T, Acyclic())` shape, so it stays green
+if a `src/` declaration is deleted. It asserts `false` for each
 declared node, its lists, `HashMap(String, ArrayList(…))` and its holders. It
 asserts `true` for an undeclared twin of each and for the `LLNode` /
 `LinkedList(LLNode)` / `ArrayList(LLNode)` controls. At run time it checks
 that a declared node and its list never register and the twin's do. It
 passes with #1486's tree binary (24 of 24 in the file).
+
+The compiler's own DECLARATIONS are pinned by two `tests/internal` cases,
+which import `src/`:
+
+- `tests/internal/suspension_analysis_types.test.yo`, "AstExpr is declared
+  Acyclic: its lists and SuspensionPoint stay off the cycle walk":
+  `Type.impls(AstExpr, Acyclic)`, and `false` for `AstExpr`,
+  `ArrayList(AstExpr)`, `ArrayList(ArrayList(AstExpr))`,
+  `HashMap(String, ArrayList(AstExpr))`, `SuspensionPoint` and
+  `ArrayList(SuspensionPoint)`.
+- `tests/internal/verifier.test.yo`, "VcSort and VcTerm are declared
+  Acyclic: term lists and VcQuery stay off the cycle walk": both impls, and
+  `false` for `VcSort`, `VcTerm`, `ArrayList(VcTerm)` and `VcQuery`.
 
 `tests/cycle_collector.test.yo` "LinkedList(Self) two-node cycle collected",
 beside the `ArrayList(Self)` case. It collects the cycle and pins the three

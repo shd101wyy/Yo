@@ -56,8 +56,10 @@ VcSort :: ref(
 );
 derive(VcSort, Eq(VcSort));
 // SAFETY: a VcSort has no back edges. Its only children are `Self`
-// payloads (`SeqS`, `FunS`, `ArrS`), fixed when the node is built, and it
-// holds no list or cell, so a node only points at nodes older than itself.
+// payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
+// language admits a variant-field write (`s.elem = s` would close a cycle),
+// but an audit of src/ (2026-10-21) found none on a VcSort, so a node only
+// points at nodes older than itself.
 // Declaring `Acyclic` keeps VcSort nodes out of the cycle collector
 // (plans/VALUES_BY_DEFAULT.md §3.12, decision 21's trees).
 impl(VcSort, Acyclic());
@@ -197,10 +199,11 @@ VcTerm :: ref(
     ArrConst(sort : VcSort, lit : Self)
   )
 );
-// SAFETY: a VcTerm has no back edges. Its `Self` payloads are fixed at
-// construction, and each `args`/`triggers` list is filled before its node is
-// built (`_app1`..`_app3`, `vc_eq` and the rest build a fresh list per
-// node): an audit of src/ (2026-10-20) found no push, insert or set into the
+// SAFETY: a VcTerm has no back edges. No code in src/ writes a `Self`
+// payload of a built term (the language admits a variant-field write; an
+// audit of src/ (2026-10-21) found none), and each `args`/`triggers` list
+// is filled before its node is built (`_app1`..`_app3`, `vc_eq` and the
+// rest build a fresh list per node): an audit of src/ (2026-10-20) found no push, insert or set into the
 // list of a term that already exists. Substitution shares subterms, which is
 // why the children are `Rc` (decision 21's 2026-10-18 amendment); sharing a
 // subterm adds no back edge. So no term reaches itself. Declaring `Acyclic`

@@ -664,3 +664,18 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
   assert(_z3_exists_sync(&own), "the verdict is cached under the run's own budget");
   assert(!_z3_exists_sync(&default_slot), "and NOT under the default budget's key, where a default run would reuse it");
 });
+// src/verifier/terms.yo declares `impl(VcSort, Acyclic())` and
+// `impl(VcTerm, Acyclic())` (decision 21's trees). The declarations keep the
+// terms, their lists and `VcQuery` off the cycle walk, so none of them
+// registers with the collector; deleting either turns this test red
+// (tests/cycle_collector.test.yo pins the mechanism on replicas, this test
+// pins the compiler's own declarations;
+// issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+test("VcSort and VcTerm are declared Acyclic: term lists and VcQuery stay off the cycle walk", {
+  comptime_assert(Type.impls(VcSort, Acyclic), "VcSort");
+  comptime_assert(Type.impls(VcTerm, Acyclic), "VcTerm");
+  comptime_assert(!Type.can_form_rc_cycle(VcSort), "VcSort");
+  comptime_assert(!Type.can_form_rc_cycle(VcTerm), "VcTerm");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(VcTerm)), "ArrayList(VcTerm)");
+  comptime_assert(!Type.can_form_rc_cycle(VcQuery), "VcQuery");
+});
