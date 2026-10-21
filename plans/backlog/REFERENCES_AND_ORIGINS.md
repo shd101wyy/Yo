@@ -981,10 +981,10 @@ rows that pin it.
   object a candidate (`docs/en-US/CYCLE_COLLECTION.md`). The conclusion
   holds on a different premise: the frozen `h` is a reference from outside
   any cycle, so trial deletion leaves the payload's count above zero and
-  ScanBlack restores it. Position: restate O9's argument on that premise
-  when N1 lands the handle-origin rule. The model does not run a
-  collector, so this is a correction to the prose, not something the
-  model checks. Rows: `rc-guard-and-clone`, `rc-guard-handle-dropped`.
+  ScanBlack restores it. Position: O9's argument is restated on that
+  premise (done by the 2026-10-21 audit, O9 and §5 "Shared cells"). The
+  model does not run a collector, so this is a correction to the prose,
+  not something the model checks. Rows: `rc-guard-and-clone`, `rc-guard-handle-dropped`.
 - **`f(&mut xs, &xs)` is accepted today because decision 28's value-root
   rule has not landed, not because decision 28 allows it.** Decision 28's
   "Value roots" makes a `&mut` argument that overlaps any other argument a
