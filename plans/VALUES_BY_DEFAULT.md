@@ -11,8 +11,10 @@
   2026-10-14; decision 47, immutable bindings with `mut(...)` and Zig's
   statics, added 2026-10-15, with two points to settle before its
   implementation; decision 43's amendment's one follow-up, the
-  `Escapable` bound, decided 2026-10-20 — `REFERENCES_AND_ORIGINS.md` O10).
-  No other design question is open;
+  `Escapable` bound, decided 2026-10-20 — `REFERENCES_AND_ORIGINS.md` O10;
+  decision 48, the cycle collector is removed in stages behind `Weak` and
+  the debug-allocator leak oracle, with `Acyclic` and `Trace`, added
+  2026-10-21). No other design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
@@ -976,6 +978,9 @@ and every free routes through the owner prefix.
   "reaches a `RefCell`/`Mutex`/`RwLock` whose payload reaches an `Rc`".
   That narrowing is a follow-up of decision 46's Generation B, measured on
   its own; until it lands, the predicate stays "reaches an `Rc`".
+  **Superseded by decision 48 (2026-10-21):** the collector is removed in
+  stages behind `Weak` and the debug-allocator leak oracle; the predicate
+  is deleted, not narrowed.
   - The compiler's trees have `Rc` children (decision 21), so V4 makes
     `can_type_form_rc_cycle` honour a declared `Acyclic`. Trees with no
     back edges then stay untracked.
@@ -4380,6 +4385,55 @@ and in git, not a silent edit.
       Globals go first, as the fix for
       `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`
       (S1, branch `feat/global-lend-to-call-is-an-error`).
+48. **The cycle collector is removed, in stages; `Weak(T)`/`ArcWeak(T)`
+    replace it; `Arc` loses its `Acyclic` bound; `Acyclic` and `Trace`
+    are deleted with the collector** (maintainer, 2026-10-21, agreeing
+    with the staged recommendation; the design is
+    `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`, the user text
+    `plans/CYCLE_COLLECTION_DOC_DRAFT.md`). It amends decision 46's
+    "No `Weak`" and retires its step 3 (the predicate narrowing), and it
+    settles the `UnsafeRc`/`UnsafeArc` question: no second handle type.
+    - **The rule.** Rust's model exactly: an `Rc`/`Arc` cell is freed by
+      its last strong handle and its payload's `Drop` runs there and
+      nowhere else; a cycle leaks; a back edge is a `Weak`/`ArcWeak`
+      read through `upgrade`; `yo test --allocator debug` fails a test
+      that leaks. Arenas do not replace the collector (they cover
+      phase-structured data, the collector long-lived mutable graphs);
+      `Weak` does, by making the author name the back edge.
+    - **Why.** Under decision 46 a cycle needs a write through
+      `RefCell`/`Mutex`/`RwLock`, so the collector covers one shape, and
+      it was not even covering that shape when the decision was made
+      (`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`,
+      S1). Its cost is the 56-byte header, `traverse_fn` per tracked
+      type, the possible-roots buffer on every decrement, the
+      resurrection rule, `Trace` on every buffer-owning collection, the
+      `Acyclic` marker and its derivation, and the design consequence that
+      an `Rc` payload may not carry a reference (O9/O10: drops at an
+      unbounded later time). Removing it gives deterministic `Drop`,
+      one 16-byte header everywhere, and `Rc(&(T, p))` as in Rust.
+    - **Staged, three preconditions before the deletion:** `Weak` and
+      `ArcWeak` shipped in a seed; the `--allocator debug` leak oracle
+      under every allocator (`ZIG_ADOPTION_CANDIDATES.md` Z11); one
+      release with `--cycle-collector off` as the default, with the
+      tracked-type count and the oracle's report recorded. Then the
+      runtime, `std/gc`, the env knobs, the large header,
+      `compute_needs_cycle_gc`/`can_type_form_rc_cycle`, `Trace` and its
+      impls, the `Acyclic` trait with its derivation, registry, pragma
+      rule and every remaining bound, and the knob itself are deleted;
+      `CYCLE_COLLECTION.md`, `ARC.md` and `MEMORY_SAFETY.md` follow in
+      both languages, and `REFERENCES_AND_ORIGINS.md` O9/O10 and §3.1's
+      "`Rc<&'a T>` stays closed" row are amended to Rust's rule.
+    - **Consequences inside this plan.** §3.12's collector paragraph and
+      decision 46 step 3 are superseded (the predicate is deleted, not
+      narrowed); decision 21's `impl(TypeValue, Acyclic())` and the 48
+      declarations on the compiler's containers (`VBD_RELEASE_SCHEDULE.md`
+      §5 decision 10) become dead code the deletion removes, so they are
+      worth landing only if #1486 needs them before W6; the verifier's
+      exclusion of `Rc`-reaching values keeps its aliasing reason;
+      `Escapable` keeps its other positions (spawn, `extern`, globals).
+    - **Rollout:** the phase "Decision 48: `Weak` and the collector's
+      removal" in §6; the release placement is the VBD session's
+      (`plans/handover/VBD_RELEASE_SCHEDULE.md`, to be re-evaluated).
 
 ## 5. Prerequisites, gates and the seed
 
@@ -7900,9 +7954,43 @@ not an estimate.
          closures do not mention the binder.
      - Not built: `Rc.get_mut` and `RefCell.get()` (decision 43 step 2, as
        step 1 recorded), so their two tests wait with them.
-3. **Follow-up: the cycle collector's predicate** narrows to
+3. ~~**Follow-up: the cycle collector's predicate** narrows to
    `RefCell`/`Mutex`/`RwLock`-reaching cells (§3.12), measured on the
-   collector's own benchmarks.
+   collector's own benchmarks.~~ Superseded by decision 48 (2026-10-21):
+   the predicate is deleted with the collector, not narrowed.
+
+### Decision 48: `Weak` and the collector's removal
+
+Decision 48 (§4) is the design; `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`
+§6–§7 are the full statement. Each phase is one PR; W3 is Generation A
+(the prelude gains the types, std uses them on the next seed). The
+release placement is the VBD session's call in
+`plans/handover/VBD_RELEASE_SCHEDULE.md`; the ordering constraints are:
+
+1. **W1 — `--cycle-collector off`** and `build.cycle_collector`
+   (compiler-only; the lightweight runtime forced, `Gc` no-ops, docs).
+   Any time; it is the measurement instrument.
+2. **W2 — `Arc`, `Mutex`, `RwLock`, `Channel` and the thread APIs
+   without `Acyclic`** (std and docs; the S2 issue retired). Any time
+   after Part A deletes `Iso`, so no `Acyclic` user is left behind it.
+3. **W3 — `Weak(T)`** (the weak count in decision 46's freed header bits,
+   the dead flag, the two free paths, `traverse_fn`/`Trace` skip `Weak`),
+   **W4 — `ArcWeak(T)`.** Generation A; W3 needs V2c's explicit handle
+   copies to be the rule so `Weak`'s own copy is `.clone()` from its
+   first commit.
+4. **Z11 — `--allocator debug` and `yo test --allocator debug`**, the
+   leak oracle under every allocator (the precondition that replaces the
+   safety net; `ZIG_ADOPTION_CANDIDATES.md`).
+5. **W6a — `Off` becomes the default** for one release, with the
+   tracked-type count over std and `src/` and the oracle's leak report
+   over the corpus recorded in the plan.
+6. **W6b — the deletion**: runtime, `std/gc`, knobs, the large header,
+   the two predicates, `Trace`, `Acyclic` (trait, derivation, registry,
+   pragma rule, decision 21's declarations, remaining bounds), the
+   `--cycle-collector` knob; docs in both languages; O9/O10 amended. It
+   needs a seed carrying W3/W4 and Z11, and it is best placed with V5
+   Generation B or later, when `ref(...)` is gone and the header is
+   rewritten once.
 
 ### Decision 47: immutable bindings
 

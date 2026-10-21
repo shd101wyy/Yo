@@ -6,8 +6,10 @@ detail and its own status. History lives in the docs, not here.
 ## Positioning
 
 **Memory-safe without region lifetimes, verifies gradually, compiles to
-readable C11, designed for the LLM era.** Yo takes Swift's memory model
-(RC + cycle collection) and Rust's ownership discipline — unique
+readable C11, designed for the LLM era.** Yo takes Rust's memory model
+(`Rc`/`Arc` with `Weak` for back edges; the cycle collector is being
+removed, VALUES_BY_DEFAULT decision 48, 2026-10-21) and Rust's ownership
+discipline — unique
 ownership with first-class, exclusivity-checked borrows, `&(T, p)` types
 parameterized by explicit origins (place sets, elided to checked
 defaults) rather than region lifetimes — adds
@@ -117,6 +119,16 @@ authorship from day one.
   B4–B5, plus
   [`backlog/AGENT_LOOP_NEXT.md`](backlog/AGENT_LOOP_NEXT.md);
   [`backlog/LLM_AUTHORING_AUDIT_2026-09-19.md`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md)).
+- **Rust's `Rc`/`Arc` without a collector.** `Weak(T)`/`ArcWeak(T)`, a
+  `--cycle-collector off` build, `Arc` without `Acyclic`, a leak oracle
+  under every allocator, then the collector, `Trace` and `Acyclic`
+  deleted in stages
+  ([`backlog/WEAK_AND_UNCOLLECTED_RC.md`](backlog/WEAK_AND_UNCOLLECTED_RC.md),
+  VALUES_BY_DEFAULT decision 48 and its §6 phase; release placement in
+  the VBD schedule).
+- **Zig's allocator catalog and the real arena.** `std/heap` on the
+  version-2 interface, and bump arenas typed by origins
+  ([`backlog/ZIG_STYLE_ALLOCATORS.md`](backlog/ZIG_STYLE_ALLOCATORS.md)).
 - **Package registry.** A registry and `yo publish` on top of the git and
   path dependencies that exist today; deferred when the build campaign
   closed.
@@ -129,7 +141,11 @@ authorship from day one.
 ## Non-goals
 
 - Competing with Rust on zero-overhead abstractions or with C on manual
-  control. RC + cycle collection is the identity.
+  control. Unique ownership with counted sharing (`Rc`/`Arc`/`Weak`) is
+  the identity; the cycle collector that once completed it is being
+  removed (decision 48), with arenas as values and as origins
+  ([`backlog/ZIG_STYLE_ALLOCATORS.md`](backlog/ZIG_STYLE_ALLOCATORS.md))
+  for phase-structured data.
 - Rust-style region lifetimes. References are first-class types
   parameterized by origins (`Origin` kind, `&(T, p)` with checked elision —
   VALUES_BY_DEFAULT decision 43, amended 2026-10-19): no abstract `'a`
