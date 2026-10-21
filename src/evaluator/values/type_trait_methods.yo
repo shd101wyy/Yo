@@ -305,22 +305,23 @@ take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
 /// itself included. Installed by module_loader.yo (`register_loading`),
 /// which owns the edge lists — importing it from here would close the
 /// module_loader → env → type_trait_methods cycle.
-ImportClosureFn :: (fn(module : &String) -> HashSet(String));
+ImportClosureFn :: (fn(module : &String) -> Rc(HashSet(String)));
 (mut(g_import_closure_fn) : Option(ImportClosureFn)) = Option(ImportClosureFn).None;
 set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
   g_import_closure_fn = Option(ImportClosureFn).Some(f);
 });
 /// Owner tags are loading keys (`file://<abs>`, or the entry path as typed);
 /// comparisons go through their canonical spelling, memoized because this
-/// sits on the method-resolution path.
-(_canonical_owner_memo : HashMap(String, String)) = HashMap(String, String).new();
-_canonical_owner :: (fn(owner : &String) -> String)(
+/// sits on the method-resolution path. A hit shares the stored `Rc` rather
+/// than copying the path (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
+(_canonical_owner_memo : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
+_canonical_owner :: (fn(owner : &String) -> Rc(String))(
   match(
-    _canonical_owner_memo.get(owner.clone()),
+    _canonical_owner_memo.get(owner),
     .Some(c) => c,
     .None => {
-      c := canonical_module_path(owner.clone());
-      _canonical_owner_memo.insert(owner, c.clone());
+      c := rc(canonical_module_path(owner));
+      _canonical_owner_memo.insert(owner, c);
       c
     }
   )
@@ -355,7 +356,11 @@ owner_visible_from_current :: (fn(owner : &String) -> bool)({
   match(
     g_import_closure_fn,
     .None => true,
-    .Some(f) => f(cur_owner.clone()).contains(_canonical_owner(owner))
+    .Some(f) => {
+      closure := f(&cur_owner);
+      owner_c := _canonical_owner(owner);
+      closure.contains(&owner_c.*)
+    }
   )
 });
 /// Append `entry` to the method list for `type_id`. The list is
