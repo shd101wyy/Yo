@@ -1046,11 +1046,6 @@ impl(isize, Default(default : (fn() -> Self)(isize(0))));
 impl(usize, Default(default : (fn() -> Self)(usize(0))));
 impl(f32, Default(default : (fn() -> Self)(f32(0.0))));
 impl(f64, Default(default : (fn() -> Self)(f64(0.0))));
-/// Isolation trait — runtime check whether a value can be safely transferred.
-Isolation :: trait(
-  can_isolate : (fn(self : &Self) -> bool)
-);
-export(Isolation);
 /// ComptimeToString trait — compile-time string conversion.
 ComptimeToString :: trait(
   to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_str)),
@@ -8017,7 +8012,6 @@ TypeInfo :: enum(
   ),
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
-  Iso(child : Type),
   Dyn(
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo)
@@ -8234,23 +8228,6 @@ impl(
     return(__yo_type_map_variants(self, mapper));
   })
 );
-/// `Var` — compile-time variable introspection utilities.
-///
-/// Provides macros for querying metadata about a variable at compile-time,
-/// such as ownership status and alias information.
-Var :: impl({
-  /// Returns whether the variable is the owner of a reference-counted value.
-  is_owning_the_rc_value :: (fn(quote(variable) : Expr) -> unquote(Expr))({
-    return(quote(__yo_var_is_owning_the_rc_value(unquote(variable))));
-  });
-  export(is_owning_the_rc_value);
-  /// Returns whether the variable has other aliases pointing to the same value.
-  has_other_aliases :: (fn(quote(variable) : Expr) -> unquote(Expr))({
-    return(quote(__yo_var_has_other_aliases(unquote(variable))));
-  });
-  export(has_other_aliases);
-});
-export(Var);
 /// Option — a value that may or may not be present.
 ///
 /// `Option(T)` has two variants:
@@ -9766,13 +9743,6 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
 impl(
   generic(T : Type),
-  Rc(T),
-  Isolation(
-    can_isolate : (self -> (ref_count(self) == 1))
-  )
-);
-impl(
-  generic(T : Type),
   where(T <: Hash),
   Rc(T),
   Hash(
@@ -10049,89 +10019,6 @@ export(
   Box,
   box
 );
-/// Iso — an isolated reference-counted value that can be sent across threads.
-// SAFETY (rule D2, plans/reference/PARALLELISM_RULES.md): Iso(T) is
-// unconditionally Send (no `T <: Send` bound — moving a non-Send graph to ONE
-// other thread is the feature) because
-//   * safe code constructs it only with `^v`, which proves at runtime that
-//     every non-atomic object reachable from `v` has ref_count == 1
-//     (`__yo_iso_unique`), so nothing else on the sending thread can reach the
-//     graph after the hand-off; the raw `Iso(T)(v)` constructor is pragma-only;
-//   * the public API exposes no operation on the inner T except extract(),
-//     whose atomic one-shot flag hands the value out exactly once.
-// If you add any new method to Iso(T) that touches the inner T (map, peek,
-// read, &self borrow, etc.), this Send claim becomes unsound and must be
-// revoked.
-impl(generic(T : Type), Iso(T), Send());
-impl(generic(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
-impl(
-  generic(T : Type),
-  Iso(T),
-  /// Take the isolated value out. The first `extract` on an `Iso` (any copy of
-  /// the handle) returns it; every later one panics — the atomic one-shot flag
-  /// is what makes the value have exactly one owner after a hand-off.
-  extract : (fn(self : &Self) -> T)(
-    __yo_iso_extract(self)
-  )
-);
-(^) :: (fn(quote(v) : Expr) -> unquote(Expr))({
-  temp :: cond(
-    v.is_atom() => v,
-    true => gensym("iso_extract_temp")
-  );
-  temp_type :: gensym("iso_extract_temp_type");
-  assignment :: cond(
-    v.is_atom() => quote(()),
-    true => quote(unquote(temp) := unquote(v))
-  );
-  return(
-    quote({
-      unquote(assignment);
-      unquote(temp_type) :: type_of(unquote(temp));
-      cond(
-        Type.contains_rc_type(unquote(temp_type)) => // compile-time check
-        cond(
-          Type.can_form_rc_cycle(unquote(temp_type)) => {
-            // compile-time check
-            consume(unquote(temp));
-            comptime_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
-            Option(Iso(unquote(temp_type))).None
-          },
-          !Var.is_owning_the_rc_value(unquote(temp)) => {
-            // compile-time check
-            consume(unquote(temp));
-            comptime_assert(false, "Cannot isolate value of type that is not owned");
-            Option(Iso(unquote(temp_type))).None
-          },
-          Var.has_other_aliases(unquote(temp)) => {
-            // compile-time check
-            consume(unquote(temp));
-            comptime_assert(false, "Cannot isolate value of type that has other aliases");
-            Option(Iso(unquote(temp_type))).None
-          },
-          // run-time check (rule D2): every non-atomic object reachable from
-          // the value, itself included, has exactly one reference — a deep
-          // walk, not just the root's count (an aliased interior was a
-          // cross-thread data race:
-          // issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md).
-          __yo_iso_unique(unquote(temp)) =>
-            Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
-          true => {
-            // run-time check
-            ___drop(unquote(temp));
-            Option(Iso(unquote(temp_type))).None
-          }
-        ),
-        true => {
-          // compile-time check
-          comptime_assert(false, "Cannot isolate value type that does not contain Rc type");
-          Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
-        }
-      )
-    })
-  );
-});
-export(^);
 /// === Arc ===
 /// Arc — an atomically reference-counted, thread-safe container for a single value.
 ///

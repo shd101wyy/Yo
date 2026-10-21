@@ -45,7 +45,7 @@
 { generate_sys_runtime, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
-{ generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_iso_uniqueness_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
+{ generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal, codegen_report_error } :: import("../constants.yo");
 
 // Insert `attr_line` on its own line immediately before the FIRST declaration
@@ -1169,8 +1169,6 @@ generate_all_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
   ctor_block_start := if(context.base.chunk_mode, em.code.len(), usize(0));
   generate_ref_struct_constructor_functions(context);
   generate_ref_enum_constructor_functions(context);
-  // After both traversal passes: the Iso walk calls the traversal functions.
-  generate_iso_uniqueness_functions(context);
   generate_closure_constructor_functions(context);
   if(context.base.chunk_mode, {
     cg_base := context.base;

@@ -58,7 +58,6 @@ _is_runtime_numeric :: (fn(t : &TypeValue) -> bool)(
   is_enum_type,
   is_tuple_type,
   is_union_type,
-  is_iso_type,
   is_array_type,
   is_comptime_list_type,
   is_module_type,
@@ -511,7 +510,6 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
     Rc(.ComptimeListT(child)) => recur(some_type_id, some_type_name, &child, visited, exn),
     // Don't check inside pointer types (valid indirection)
     Rc(.Pointer(_)) => false,
-    Rc(.IsoT(child)) => recur(some_type_id, some_type_name, &child, visited, exn),
     Rc(.Func({ param_types, implicit_types, result, meta : __fm1 })) => {
       forall_labels := __fm1.*.forall_labels;
       // A generic declared by this Func's OWN signature SHADOWS the
@@ -1574,15 +1572,6 @@ _synthesize_types_impl :: (
   if(is_pointer_type(expected_ty) && is_pointer_type(given_ty), {
     exp_child := match(expected_ty, Rc(.Pointer(c)) => c, _ => rc(TypeValueNode.Unit));
     giv_child := match(given_ty, Rc(.Pointer(c)) => c, _ => rc(TypeValueNode.Unit));
-    res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
-    ee = res.expected_env;
-    ge = res.given_env;
-    return(SynthesizeResult(expected_env : ee, given_env : ge));
-  });
-  // Case: Iso + Iso
-  if(is_iso_type(expected_ty) && is_iso_type(given_ty), {
-    exp_child := match(expected_ty, Rc(.IsoT(c)) => c, _ => rc(TypeValueNode.Unit));
-    giv_child := match(given_ty, Rc(.IsoT(c)) => c, _ => rc(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;

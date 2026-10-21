@@ -170,7 +170,7 @@ prefix_operator_needs_leading_space :: (
       ((p.kind == TokenKind.LCurlyBracket) && (p.row == token.row)) => true,
       ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
         prev_is_prefix_capable := (
-          (p.value == "-") || (p.value == "!") || (p.value == "~") || (p.value == "&") || (p.value == "*") || (p.value == "?") || (p.value == "^") || (p.value == "&mut")
+          (p.value == "-") || (p.value == "!") || (p.value == "~") || (p.value == "&") || (p.value == "*") || (p.value == "?") || (p.value == "&mut")
         );
         // `prev` is a postfix deref (`.` then `*`/`&`) when prev_prev is a
         // Dot — that ends an rvalue, never starts a chain.
@@ -912,7 +912,7 @@ is_prefix_capable_operator :: (fn(t : &Token) -> bool)(
       (t.value == "-") ||
         (t.value == "!") ||
           (t.value == "~") ||
-            (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^") || (t.value == "&mut")
+            (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "&mut")
     )
 );
 /// The elision-relevant shape of a paren group's content
@@ -1936,7 +1936,7 @@ is_tightly_bound_operator :: (
   // before comes from prefix_operator_needs_leading_space). Canonicalizes
   // regardless of source spacing: `- 1` and `-1` are the same tokens.
   is_prefix_capable := (
-    (token.value == "-") || (token.value == "!") || (token.value == "~") || (token.value == "&") || (token.value == "*") || (token.value == "?") || (token.value == "^")
+    (token.value == "-") || (token.value == "!") || (token.value == "~") || (token.value == "&") || (token.value == "*") || (token.value == "?")
   );
   // A postfix DEREF (`.*` / `.&` — a `*`/`&` operator directly after a
   // Dot) ENDS an rvalue, so an operator following it is INFIX, not prefix:
@@ -1964,7 +1964,7 @@ is_tightly_bound_operator :: (
     .Some(n) => (
       is_atom_like_token(n.kind) || (
         (n.kind == TokenKind.Operator) && (
-          (n.value == "-") || (n.value == "!") || (n.value == "~") || (n.value == "&") || (n.value == "*") || (n.value == "?") || (n.value == "^")
+          (n.value == "-") || (n.value == "!") || (n.value == "~") || (n.value == "&") || (n.value == "*") || (n.value == "?")
         )
       )
     )

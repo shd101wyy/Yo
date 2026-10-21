@@ -6,7 +6,7 @@
 //!   * `t_ptr` / `t_array` — pointer/array constructors
 //!   * `t_func_simple` / `t_trait` / `t_trait_simple` / `t_module` / `t_module_simple`
 //!   * `t_some_t` — SomeType constructor (consumes a fresh id from the counter)
-//!   * `t_expr_t` / `t_comptime_list` / `t_type_app` / `t_iso`
+//!   * `t_expr_t` / `t_comptime_list` / `t_type_app`
 //!   * `t_dyn` / `t_dyn_simple` / `t_fn_trait` / `t_fn_trait_simple`
 //!   * `t_future_trait` / `t_future_trait_simple`
 //!   * `type_value_tag` — extract the `TypeTag` discriminator from a TypeValue
@@ -169,7 +169,6 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         true => recur(&cal_elem, d + usize(1))
       ),
       Rc(.Pointer(cal_p)) => recur(&cal_p, d + usize(1)),
-      Rc(.IsoT(cal_i)) => recur(&cal_i, d + usize(1)),
       Rc(.Tuple(_, cal_tts)) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
@@ -309,9 +308,6 @@ t_comptime_list :: (fn(child : &TypeValue) -> TypeValue)(
 );
 t_type_app :: (fn(constructor : &TypeValue, args : &ArrayList(TypeValue)) -> TypeValue)(
   rc(TypeValueNode.TypeAppT(constructor, args))
-);
-t_iso :: (fn(child : &TypeValue) -> TypeValue)(
-  rc(TypeValueNode.IsoT(child))
 );
 /// The sort key of one trait in a `Dyn`'s trait list: its declaration id,
 /// which is fixed when the trait is built. NOT its printed name: a trait is
@@ -613,7 +609,6 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
     Rc(.ExprT) => TypeTag.TExpr,
     Rc(.ComptimeListT(_)) => TypeTag.TComptimeList,
     Rc(.TypeAppT(_, _)) => TypeTag.TTypeApplication,
-    Rc(.IsoT(_)) => TypeTag.TIso,
     Rc(.DynT(_, _, _, _)) => TypeTag.TDyn,
     Rc(.FnTraitT(base_name : _)) => TypeTag.TTrait,
     Rc(.FutureTraitT(base_name : _)) => TypeTag.TTrait,
@@ -1133,7 +1128,6 @@ export(
   t_expr_t,
   t_comptime_list,
   t_type_app,
-  t_iso,
   t_dyn,
   t_dyn_simple,
   t_fn_trait,

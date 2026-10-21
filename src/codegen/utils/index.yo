@@ -4,9 +4,9 @@
 //! base for FunctionGenerationContext — Yo has no struct inheritance) and the
 //! context- and type-model-independent helpers. The following are still
 //! unimplemented and tracked in issues/retired/codegen-port-type-model-gaps.md:
-//!   * `getTypeString`'s SomeType/Future/Dyn/Iso branches — these panic with
+//!   * `getTypeString`'s SomeType/Future/Dyn branches — these panic with
 //!     a phase marker; they need the env+substitute SomeType resolution
-//!     (`SomeT` carries no `resolvedConcreteType`; `DynT`/`IsoT` carry no id).
+//!     (`SomeT` carries no `resolvedConcreteType`; `DynT` carries no id).
 //!   * `isComptimeFunction` — `FuncVal` does not store the function's
 //!     `TypeValue`; the return-comptime flag is reached via a func_id
 //!     side-table (Gap 2).
@@ -127,20 +127,6 @@ ImplClosureCallInfo :: ref(
   )
 );
 ArrayStructInfo :: ref(struct(child_type : String, length : i64));
-IsoTypeInfo :: ref(
-  struct(
-    child_type_c_name : String,
-    iso_type : TypeValue,
-    // Per-pass "already emitted" guards, mutated
-    // in place by generate_iso_type_declarations.
-    struct_generated : bool,
-    // The struct body, emitted after every other type declaration.
-    body_generated : bool,
-    create_generated : bool,
-    extract_generated : bool,
-    dispose_generated : bool
-  )
-);
 /// A `dyn()` usage: a concrete type used with a specific dyn trait. `dyn_type`
 /// is the DynT; `concrete_type` is the user type; `data_type` is what is
 /// stored in Dyn.data (object/Rc); `trait_values` are the TraitVal evidence
@@ -182,8 +168,6 @@ CodeGenContext :: ref(
     extern_functions : HashMap(String, CodegenExternFnEntry),
     /// Array struct types that need to be generated (keyed by C name).
     array_struct_types : HashMap(String, ArrayStructInfo),
-    /// Iso struct types that need to be generated (keyed by Iso C name).
-    iso_types : HashMap(String, IsoTypeInfo),
     /// C header files that need to be included.
     c_includes : HashSet(String),
     /// Emitter for generating C code.
@@ -387,7 +371,6 @@ impl(
       function_order : ArrayList(String).new(),
       extern_functions : HashMap(String, CodegenExternFnEntry).new(),
       array_struct_types : HashMap(String, ArrayStructInfo).new(),
-      iso_types : HashMap(String, IsoTypeInfo).new(),
       c_includes : HashSet(String).new(),
       emitter : emitter,
       info_table : info_table,
@@ -673,28 +656,6 @@ impl(
   /// True if an array struct type with this C name is registered.
   has_array_struct_type : (fn(self : &Self, c_name : &String) -> bool)(
     self.array_struct_types.contains_key(c_name)
-  ),
-  /// Register an Iso struct type (idempotent).
-  register_iso_type : (
-    fn(self : &Self, c_name : &String, child_type_c_name : &String, iso_type : &TypeValue) -> unit
-  )({
-    self.iso_types.insert(
-      c_name,
-      IsoTypeInfo(
-        child_type_c_name : child_type_c_name,
-        iso_type : iso_type,
-        struct_generated : false,
-        body_generated : false,
-        create_generated : false,
-        extract_generated : false,
-        dispose_generated : false
-      )
-    );
-    ()
-  }),
-  /// True if an Iso struct type with this C name is registered.
-  has_iso_type : (fn(self : &Self, c_name : &String) -> bool)(
-    self.iso_types.contains_key(c_name)
   ),
   /// Add a C include header.
   add_c_include : (fn(self : &Self, include : &String) -> unit)({
@@ -1511,21 +1472,6 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
-/// Remove all `*` bytes from a C type string (a by-value C
-/// identifier can't contain `*`; sanitize would otherwise turn it into `_u42_`).
-_strip_stars :: (fn(s : &String) -> String)({
-  out := String.from("");
-  n := s.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    b := s.byte_at(i);
-    if(b != u8(42), {
-      out.push_byte(b);
-    });
-    i = (i + usize(1));
-  });
-  out
-});
 /// get_type_string's SomeT-RESOLUTION cycle guard. The `.SomeT` arm hops to
 /// the resolved concrete (`recur(rct)`); a resolution CYCLE — a SomeT whose
 /// resolution/global entry resolves (directly or via a chain) back to a type
@@ -1744,20 +1690,6 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       (eo_c == "__yo_io_future_t") => String.from("__yo_io_future_t*"),
       true => eo_c.clone()
     ),
-    // Iso type (reference-counted isolated value): the C name is
-    // `Iso_<cleanChild>` and the type is registered (idempotent) so its
-    // struct + runtime helpers
-    // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
-    Rc(.IsoT(c)) => {
-      child_c_name := recur(&c, context);
-      clean := _strip_stars(child_c_name.clone()).trim();
-      iso_name := String.from("Iso_");
-      iso_name.push_string(c_symbol_name(&clean));
-      if(!context.has_iso_type(iso_name.clone()), {
-        context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
-      });
-      iso_name
-    },
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value: return the registered fat-pointer C type name (keyed by
     // type_key).
@@ -2376,7 +2308,6 @@ export(
   CodegenExternFnEntry,
   DynImplEntry,
   ArrayStructInfo,
-  IsoTypeInfo,
   RuntimeStructField,
   get_runtime_struct_fields,
   type_key,

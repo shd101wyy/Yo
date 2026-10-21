@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, is_fnonce_capture_frame } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -1417,7 +1417,7 @@ _optimize_dup_drop_pairs :: (
               // A `ref` holding a `ref` is cycle-capable and therefore
               // GC-TRACKED, so `__yo_decr_rc` buffers a possible root instead
               // of freeing on the spot and the fault reads as a correct
-              // answer; an `atomic(ref(…))` is an Iso type, never tracked, and
+              // answer; an `atomic(ref(…))` is atomically counted, never tracked, and
               // faults immediately. That asymmetry is why this survived
               // (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md).
               //
@@ -3247,8 +3247,6 @@ _evaluate_begin_expression_impl :: (
   // the M3 driver below attaches their early-return-only drops.
   match(
     current_frame_opt,
-    // Not in a function that isolates a value (`^v`): the uniqueness walk
-    // needs every count to equal its live handles (`frame_is_isolating`).
     // Whether the block awaits decides the local-move case (see `slot_move`).
     .Some(opt_fr) => {
       (awaits : bool) = false;
@@ -3263,7 +3261,7 @@ _evaluate_begin_expression_impl :: (
         );
         ai = (ai + usize(1));
       });
-      if(!frame_is_isolating(&opt_fr), _optimize_dup_drop_pairs(&opt_fr, &begin_args, &last_info.variable_name, &last_expr, awaits, ctx));
+      _optimize_dup_drop_pairs(&opt_fr, &begin_args, &last_info.variable_name, &last_expr, awaits, ctx);
     },
     .None => ()
   );
