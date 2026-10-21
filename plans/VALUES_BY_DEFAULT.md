@@ -4252,8 +4252,11 @@ and in git, not a silent edit.
         2026-10-21 by the maintainer** ("I also want to introduce Weak"):
         `Weak(T)` and `ArcWeak(T)`, a per-program `--cycle-collector off`
         build, and `Arc` without its `Acyclic` bound are
-        `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; the collector stays the
-        default, and `Rc`/`Arc` stay the only handle types.
+        `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; `Rc`/`Arc` stay the
+        only handle types, and the collector is deleted at that plan's W6
+        (with `Trace` and `Acyclic`) once `Weak` and the `--allocator
+        debug` leak oracle have shipped and one release has run with it
+        off (maintainer, 2026-10-21).
     - **What it buys.**
       - A `&` borrow whose place crosses an `Rc` deref can no longer be
         invalidated by a write through another handle. So E0909's rule for

@@ -34,10 +34,24 @@ settles the `UnsafeRc`/`UnsafeArc` question the maintainer raised first:
    the last handle of either kind. They are not an edge for the collector.
    The one interaction with the collector, an `upgrade` of a cell the
    collector is freeing, is answered by a dead flag, not by the count (§3.4).
-5. **Per-type exemption stays what it is:** a declared `impl(T, Acyclic())`
-   keeps `T`'s cells out of the collector. With `Weak` available the
-   declaration stops needing `pragma(Pragma.AllowUnsafe)` (a wrong claim
-   leaks, it never dangles; §4).
+5. **Per-type exemption stays what it is until W6:** a declared
+   `impl(T, Acyclic())` keeps `T`'s cells out of the collector. With
+   `Weak` available the declaration stops needing
+   `pragma(Pragma.AllowUnsafe)` (a wrong claim leaks, it never dangles;
+   §4).
+6. **The end state is Rust's: no cycle collector** (maintainer,
+   2026-10-21, agreeing with the staged recommendation). Arenas do not
+   replace the collector — they cover phase-structured data, the
+   collector covers long-lived mutable graphs with back edges — but
+   `Weak` does, by making the author name the back edge, and that is the
+   model the rest of the language has converged on. The deletion is
+   staged (§7, W6): `Weak`/`ArcWeak` and a leak oracle that works under
+   every allocator land first, `Off` becomes the default for one release
+   to measure what is left, then the collector, `Trace`, `Acyclic` and
+   the large header are deleted. What the deletion buys beyond the
+   runtime: deterministic `Drop` everywhere, and an `Rc` payload may
+   carry a reference (`Rc(&(T, p))`, Rust's `Rc<&'a T>`), because O9's
+   reason — drops at an unbounded later time — is gone.
 
 ## 1. The uncollected build: `--cycle-collector off`
 
@@ -76,7 +90,11 @@ settles the `UnsafeRc`/`UnsafeArc` question the maintainer raised first:
 - The S2 issue above is retired by this step with a note: the `Acyclic`
   derivation's coinductive answer through an atomic cell is still wrong for
   `Acyclic`'s remaining user, the declared exemption (§4), and keeps its
-  reproducer as a derivation test, not as a leak.
+  reproducer as a derivation test, not as a leak — until W6 deletes the
+  trait, when the test goes with it.
+- This holds with or without the collector: an `Arc` cycle and an `Rc`
+  cycle are the same leak once the collector is gone, broken the same way,
+  and a bound on one handle but not the other would be incoherent.
 - Docs: `docs/en-US/ARC.md` and `DESIGN.md` §"Arc" in both languages lose
   the `Acyclic` sentence and gain the `ArcWeak` one.
 
@@ -174,9 +192,9 @@ with atomic access. Open question 3 records the 32-bit alternative.
   which freezes the upgraded `Rc`, not the `Weak`.
 - **Patterns.** `(c := Rc(p))` binds a cell; there is no `Weak(p)` pattern.
 
-## 4. The declared `Acyclic` exemption
+## 4. The declared `Acyclic` exemption (until W6)
 
-Unchanged in mechanism (`impl(T, Acyclic())` keeps `T` out of
+Unchanged in mechanism until the trait is deleted (§7) (`impl(T, Acyclic())` keeps `T` out of
 `can_type_form_rc_cycle`; `src/types/utils.yo` `g_declared_acyclic_ids`).
 Two changes in policy:
 
@@ -192,12 +210,14 @@ Two changes in policy:
 
 ## 5. Open questions, with positions
 
-1. **The default.** `Auto` (the collector) or `Off` (Rust)? Position: `Auto`
-   stays the default. Yo is written by models, and a leaked cycle is the
-   mistake a model makes most quietly; the collector turns it into a cost,
-   `Off` turns it into a leak. The compiler's own build may choose `Off`
-   once its trees are declared acyclic (decision 21), measured by the
-   memory ratchet.
+1. **The default.** `Auto` (the collector) or `Off` (Rust)? Position
+   (revised 2026-10-21 with the maintainer's agreement to delete the
+   collector): `Auto` stays the default only until W3 and W4 land; then
+   `Off` is the default for one release, and W6 deletes `Auto`. Yo is
+   written by models, and a leaked cycle is the mistake a model makes
+   most quietly, which is why the safety net is replaced before it is
+   removed: `yo test --allocator debug` fails a leaking test, and the
+   oracle names the cycle.
 2. **Spelling: `Weak(T)` and `ArcWeak(T)`, or `Weak(Rc(T))` and
    `Weak(Arc(T))`.** The second reads as one type constructor over the
    handle kind and keeps one name. Position: `Weak(T)` and `ArcWeak(T)`,
@@ -213,7 +233,53 @@ Two changes in policy:
    An optional lint ("a type can form an `Rc` cycle with no `Weak` on any
    back edge") is a `yo check` warning under `Off`, position: later.
 
-## 6. Phases
+## 6. Deleting the collector, and `Acyclic` with it (W6)
+
+**Preconditions, all three:**
+
+1. `Weak(T)` and `ArcWeak(T)` have shipped in a seed (W3, W4), so every
+   parent pointer and back edge in std, the compiler and the tests has its
+   remedy.
+2. A leak oracle that works under every allocator: `--allocator debug`
+   and `yo test --allocator debug` (`ZIG_ADOPTION_CANDIDATES.md` Z11;
+   today's `--debug-heap` needs `--allocator fixed`). It is what makes a
+   leaked cycle a failing test rather than a silent cost.
+3. One release with `Off` as the default (W1's knob flipped), with the
+   count of tracked types left in std and `src/` and the oracle's leak
+   report over the test corpus recorded in this file. If what remains is
+   parent pointers, delete.
+
+**What the deletion removes:**
+
+- the emitted collector (`src/codegen/functions/gc_runtime.yo`'s tracking
+  lists, possible roots, trial deletion, CollectWhite, resurrection),
+  `__yo_gc_register`, the `traverse_fn` derivation and the `Trace`
+  trait with its hand-written impls on the buffer-owning collections,
+  `std/gc` (`collect`, `tracked_count`), `YO_GC_THRESHOLD` and
+  `YO_GC_FULL_PCT`;
+- the large header: every cell gets the 16-byte header
+  (`RC_HEADER_SPLIT.md` becomes the only layout), `compute_needs_cycle_gc`
+  and `can_type_form_rc_cycle` go;
+- the `Acyclic` trait: its prelude definition and primitive impls, the
+  structural derivation in `trait_checking.yo`, `g_declared_acyclic_ids`,
+  the pragma rule in `values/impl.yo`, decision 21's
+  `impl(TypeValue, Acyclic())`, and every `where(T <: Acyclic)` left after
+  W2 (`Iso`'s goes with `Iso`, `MACRO_AND_ISO_REMOVAL.md`); `Send` and
+  `Sync` are the only structural markers left beside `Copy`, `Escapable`
+  and `TrivialDrop`;
+- `--cycle-collector` itself, once `Off` is the only mode;
+- the docs: `CYCLE_COLLECTION.md` (both languages) is replaced by the
+  draft's end state (a page on `Weak`, leaks and the oracle), `ARC.md`
+  loses its `Acyclic` paragraph, `MEMORY_SAFETY.md`'s collector sentences
+  go.
+
+**What it changes in the design:** `Drop` runs at one deterministic point,
+the last handle's drop; O9's `Escapable` bound on `Rc`/`Arc` payloads
+loses its reason, so `REFERENCES_AND_ORIGINS.md` O9/O10 and §3.1's
+"`Rc<&'a T>` stays closed" row are amended to Rust's rule; the verifier's
+exclusion of `Rc`-reaching values keeps its other reason (aliasing).
+
+## 7. Phases
 
 | Phase | Lands | Gate |
 | --- | --- | --- |
@@ -222,6 +288,7 @@ Two changes in policy:
 | W3 | `Weak(T)`: the weak count in the freed 16 bits, `downgrade`/`upgrade`/`new`/counts/`ptr_eq`, `Clone`, the dead flag, the two free paths, `traverse_fn` skipping `Weak` | upgrade after the last strong is `.None`; the allocation is freed at the last `Weak` (`--debug-heap` count); a parent pointer through `Weak(RefCell(Node))`; a cycle broken by a `Weak` is untracked under `Auto` and leak-free under `Off`; an `upgrade` from a `Drop` during CollectWhite returns `.None`; ASan on all of it |
 | W4 | `ArcWeak(T)` with atomic counts; `Send`/`Sync` | the W3 rows across a `Thread.spawn`; TSan |
 | W5 | the declared `Acyclic` exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/internal` rows for the derivation; the S2 reproducer as a derivation test |
+| W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, `Acyclic`, the large header and the knob are deleted; docs in both languages; the origins plan's O9/O10 amended | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
 
 Each phase is one PR; W3 is Generation A (the prelude gains the types; std
 uses them on the next seed). `CYCLE_COLLECTION_DOC_DRAFT.md` carries the
