@@ -124,6 +124,25 @@ every failure a `Memory leak detected:` verdict: `lsp_protocol` 19 and 19,
 develop's own; the other 48 keep the indirect attribution above. CI stays
 off for all of them, as for the four cases above.
 
+**Re-check 2026-10-20 (Linux x86_64): the verifier tests that drive the
+compiler in process show the same class.** A run of the 20
+`tests/internal/verifier*.test.yo` files
+(`YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000`) reports 28 of 143 tests
+failed, every one `Memory leak detected:` and nothing else: `verifier.test.yo`
+(which never evaluates a fixture through the compiler) passes, and the failures
+sit in the files that evaluate a fixture through the compiler
+(13 files: `verifier_assumed` 3, `_contract_splice` 1, `_ghost` 3,
+`_law` 4, `_list_len` 1, `_loops` 2, `_match` 2, `_negative` 3,
+`_quantifiers` 2, `_refine` 2, `_spec_refine` 1, `_strip` 2,
+`_twostate` 2). The develop binary at
+7def2203b, run per file in the default mode on `verifier_assumed` and
+`verifier_contract_splice`, gives the same verdicts and byte-identical leak
+reports (the assumed-argument case: 151 + 130 + 43 objects of 64 B, the
+Token cells above; `SUMMARY: 22549 byte(s) leaked in 336 allocation(s)`).
+The perf/acyclic-compiler-containers branch's full in-process run gives the
+same 143 verdicts. Nothing in the verdict changed; these tests join the
+expected local failures.
+
 ## Test
 
 The four cases above, run locally with the default leak verdict, are the
