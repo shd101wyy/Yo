@@ -1,0 +1,33 @@
+//! `yo fix --migrate explicit-copy` lists a copy out of a temporary that dies
+//! right after it instead of cloning it: a `match` binding of a call's result
+//! (`make_opt()`, `m.get(k)`) and a field of one (`make().name`), returned
+//! from a function too. Such a copy is usually a move. A field of a live local
+//! (`h.name`) still gets its `.clone()`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ println } :: import("std/fmt");
+Holder :: struct(name : String, tags : ArrayList(String));
+make :: (fn() -> Holder)(Holder(name : String.from("m"), tags : ArrayList(String).new()));
+make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
+hold :: (fn(sink(s) : String) -> usize)(s.len());
+first_name :: (fn() -> String)(make().name);
+main :: (fn() -> unit)({
+  a := make().name;
+  b := match(make_opt(), .Some(z) => z, .None => String.new());
+  m := HashMap(String, String).new();
+  m.insert(String.from("k"), String.from("v"));
+  c := match(m.get(String.from("k")), .Some(v) => v, .None => String.new());
+  n := hold(match(make_opt(), .Some(w) => w, .None => String.new()));
+  h := make();
+  d := h.name;
+  println(`${a} ${b} ${c} ${d} ${h.name} ${n.to_string()} ${first_name()}`);
+  // A field read through a dereference of a dying `Rc` handle: the pointee
+  // outlives the handle in `s.h` and is read again, so this one is cloned.
+  s := Shelf(h : rc(make()));
+  e := grab(&s).*.name;
+  println(`${e} ${s.h.*.name}`);
+});
+Shelf :: struct(h : Rc(Holder));
+grab :: (fn(s : &Shelf) -> Rc(Holder))(s.h);
+export(main);

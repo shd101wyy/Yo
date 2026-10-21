@@ -12,6 +12,7 @@
 //!   unsat    ⇒ the goal is PROVED under the assumptions
 //!   sat      ⇒ REFUTED — the model is the counter-example
 //!   unknown  ⇒ Unproven (budget)
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { ToString } :: import("std/fmt/to_string");
@@ -54,6 +55,14 @@ VcSort :: ref(
   )
 );
 derive(VcSort, Eq(VcSort));
+// SAFETY: a VcSort has no back edges. Its only children are `Self`
+// payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
+// language admits a variant-field write (`s.elem = s` would close a cycle),
+// but an audit of src/ (2026-10-21) found none on a VcSort, so a node only
+// points at nodes older than itself.
+// Declaring `Acyclic` keeps VcSort nodes out of the cycle collector
+// (plans/VALUES_BY_DEFAULT.md §3.12, decision 21's trees).
+impl(VcSort, Acyclic());
 impl(
   VcSort,
   ToString(
@@ -153,43 +162,64 @@ derive(VcOp, Eq(VcOp));
 /// encoder and goldens are stable across phases).
 VcQuantKind :: enum(Forall, Exists);
 derive(VcQuantKind, Copy, Clone);
-/// A VC term. Variables reference DECLARED constants (SSA-style: every
-/// Yo binding/renaming introduces a fresh declared name — no let binders).
-VcTerm :: ref(
-  enum(
-    /// Reference to a declared constant.
-    Var(name : String, sort : VcSort),
-    /// Bitvector literal as its unsigned two's-complement bit pattern
-    /// (covers every value of widths <= 64).
-    BvLit(value : u64, width : usize),
-    /// Boolean literal.
-    BoolLit(value : bool),
-    /// Operator application. Arity/widths are the BUILDER's responsibility
-    /// (checked at VC-construction time in V3, not re-checked here).
-    App(op : VcOp, args : ArrayList(Self)),
-    /// Datatype constructor application (`.Variant(args...)`).
-    Ctor(name : String, args : ArrayList(Self)),
-    /// Datatype tester `(is-<Ctor> t)` — a match arm's discriminator.
-    Test(ctor : String, t : Self),
-    /// Datatype field projection `(<Ctor>-<idx> t)` — a match arm's
-    /// pattern binding.
-    Proj(ctor : String, idx : usize, t : Self),
-    /// Quantifier with explicitly-typed bound variables. `triggers`
-    /// carries E-matching patterns (each rendered as its own `:pattern`
-    /// attribute — an OR of independently sufficient patterns); empty =
-    /// solver-default instantiation (MBQI).
-    Quant(
-      kind : VcQuantKind,
-      names : ArrayList(String),
-      sorts : ArrayList(VcSort),
-      body : Self,
-      triggers : ArrayList(Self)
-    ),
-    /// `(const <sort> <lit>)` — the everywhere-constant array (an empty
-    /// Set / Multiset). `lit` is a BoolLit or a BvLit.
-    ArrConst(sort : VcSort, lit : Self)
-  )
+/// One node of a VC term: the payload behind a `VcTerm` handle. Variables
+/// reference DECLARED constants (SSA-style: every Yo binding/renaming
+/// introduces a fresh declared name — no let binders).
+///
+/// `VcTerm` is `Rc(VcTermNode)` (plans/VALUES_BY_DEFAULT.md decision 21, as
+/// amended 2026-10-18): the symbolic walk snapshots its environment at every
+/// branch and merges the snapshots with `ite` terms, so subterms are shared,
+/// and every child is an `Rc(Self)` handle. A node is never copied and a
+/// copy of a term is one count bump. Build a term with
+/// `rc(VcTermNode.X(...))`; a `match` on a `VcTerm` spells the handle,
+/// `Rc(.X(...))`.
+VcTermNode :: enum(
+  /// Reference to a declared constant.
+  Var(name : String, sort : VcSort),
+  /// Bitvector literal as its unsigned two's-complement bit pattern
+  /// (covers every value of widths <= 64).
+  BvLit(value : u64, width : usize),
+  /// Boolean literal.
+  BoolLit(value : bool),
+  /// Operator application. Arity/widths are the BUILDER's responsibility
+  /// (checked at VC-construction time in V3, not re-checked here).
+  App(op : VcOp, args : ArrayList(Rc(Self))),
+  /// Datatype constructor application (`.Variant(args...)`).
+  Ctor(name : String, args : ArrayList(Rc(Self))),
+  /// Datatype tester `(is-<Ctor> t)` — a match arm's discriminator.
+  Test(ctor : String, t : Rc(Self)),
+  /// Datatype field projection `(<Ctor>-<idx> t)` — a match arm's
+  /// pattern binding.
+  Proj(ctor : String, idx : usize, t : Rc(Self)),
+  /// Quantifier with explicitly-typed bound variables. `triggers`
+  /// carries E-matching patterns (each rendered as its own `:pattern`
+  /// attribute — an OR of independently sufficient patterns); empty =
+  /// solver-default instantiation (MBQI).
+  Quant(
+    kind : VcQuantKind,
+    names : ArrayList(String),
+    sorts : ArrayList(VcSort),
+    body : Rc(Self),
+    triggers : ArrayList(Rc(Self))
+  ),
+  /// `(const <sort> <lit>)` — the everywhere-constant array (an empty
+  /// Set / Multiset). `lit` is a BoolLit or a BvLit.
+  ArrConst(sort : VcSort, lit : Rc(Self))
 );
+/// A VC term: a shared, immutable handle to a `VcTermNode`.
+VcTerm :: Rc(VcTermNode);
+// SAFETY: a VcTerm has no back edges. No code in src/ writes a `Self`
+// payload of a built term (the language admits a variant-field write; an
+// audit of src/ (2026-10-21) found none), and each `args`/`triggers` list
+// is filled before its node is built (`_app1`..`_app3`, `vc_eq` and the
+// rest build a fresh list per node): an audit of src/ (2026-10-20) found no push, insert or set into the
+// list of a term that already exists. Substitution shares subterms, which is
+// why the children are `Rc` (decision 21's 2026-10-18 amendment); sharing a
+// subterm adds no back edge. So no term reaches itself. Declaring `Acyclic`
+// keeps terms, `ArrayList(VcTerm)` and `VcQuery` out of the cycle collector
+// (plans/VALUES_BY_DEFAULT.md §3.12;
+// issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+impl(VcTerm, Acyclic());
 /// One declared constant of a query.
 VcDecl :: struct(name : String, sort : VcSort);
 /// One uninterpreted function symbol (R2: a recursive `ghost_fn`), rendered
@@ -257,7 +287,7 @@ new_vc_query :: (fn(name : &String) -> VcQuery)(
     name : name,
     declarations : ArrayList(VcDecl).new(),
     assumptions : ArrayList(VcAssumption).new(),
-    goal : VcTerm.BoolLit(true),
+    goal : rc(VcTermNode.BoolLit(true)),
     fundecls : ArrayList(VcSort).new(),
     axioms : ArrayList(VcTerm).new(),
     fun_decls : ArrayList(VcFunDecl).new(),
@@ -272,53 +302,54 @@ new_vc_query :: (fn(name : &String) -> VcQuery)(
 vc_not :: (fn(t : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(t);
-  VcTerm.App(VcOp.NotOp, args)
+  rc(VcTermNode.App(VcOp.NotOp, args))
 });
 /// N-ary conjunction.
 vc_and :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(0), {
-    return(VcTerm.BoolLit(true));
+    return(rc(VcTermNode.BoolLit(true)));
   });
   if(ts.len() == usize(1), {
-    return(match(ts.get(usize(0)), .Some(t) => t, .None => VcTerm.BoolLit(true)));
+    return(match(ts.get(usize(0)), .Some(t) => t, .None => rc(VcTermNode.BoolLit(true))));
   });
-  VcTerm.App(VcOp.AndOp, ts)
+  rc(VcTermNode.App(VcOp.AndOp, ts))
 });
 /// N-ary disjunction.
 vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   if(ts.len() == usize(0), {
-    return(VcTerm.BoolLit(false));
+    return(rc(VcTermNode.BoolLit(false)));
   });
   if(ts.len() == usize(1), {
-    return(match(ts.get(usize(0)), .Some(t) => t, .None => VcTerm.BoolLit(false)));
+    return(match(ts.get(usize(0)), .Some(t) => t, .None => rc(VcTermNode.BoolLit(false))));
   });
-  VcTerm.App(VcOp.OrOp, ts)
+  rc(VcTermNode.App(VcOp.OrOp, ts))
 });
 /// Implication `a => b` (right-associative chain when built pairwise).
 vc_imp :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
-  VcTerm.App(VcOp.ImpOp, args)
+  rc(VcTermNode.App(VcOp.ImpOp, args))
 });
 /// Equality `a = b`.
 vc_eq :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
-  VcTerm.App(VcOp.EqOp, args)
+  rc(VcTermNode.App(VcOp.EqOp, args))
 });
 /// Distinctness `a != b`.
 vc_distinct :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
-  VcTerm.App(VcOp.DistinctOp, args)
+  rc(VcTermNode.App(VcOp.DistinctOp, args))
 });
 export(
   VcSort,
   VcOp,
   VcTerm,
+  VcTermNode,
   VcQuantKind,
   VcDecl,
   VcFunDecl,

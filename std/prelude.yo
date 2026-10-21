@@ -242,11 +242,8 @@ extern(
   __yo_process_arch : (fn() -> comptime(comptime_str))
 );
 export(__yo_as);
-/// The `unsafe` module — provides low-level unwind hatches.
+/// The `unsafe` module: one low-level escape hatch, `cast` (a reinterpret cast via `__yo_as`).
 unsafe :: impl({
-  /// Manually drop `value`, running its destructor immediately.
-  drop :: (fn(quote(value) : Expr) -> unquote(Expr))(quote(___drop(unquote(value))));
-  export(drop);
   cast :: __yo_as;
   export(cast);
 });
@@ -9921,7 +9918,11 @@ extern(
   __yo_scope_ctx :
     (fn() -> ?*void),
   __yo_scope_vtable :
-    (fn() -> ?*void)
+    (fn() -> ?*void),
+  // Sets the thread's allocation scope: `std/allocator.yo`'s
+  // `with_allocator`, and `arc`'s explicit `alloc`.
+  __yo_scope_set :
+    (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );
 // A `Box` cell's owner prefix: `{ctx, vtable}`, the layout of
 // `std/allocator.yo`'s `_AllocPrefix` and codegen's `__yo_alloc_prefix_t`,
@@ -9988,7 +9989,7 @@ impl(
     /// Drops the payload, then frees the cell through its owner prefix.
     drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: the box is the cell's only owner, and this runs once.
-      unsafe.drop(unsafe(self._cell.*));
+      ___drop(unsafe(self._cell.*));
       block := _box_owner_of((*void)(self._cell));
       owner := unsafe(block.*);
       match(
@@ -10117,7 +10118,7 @@ impl(
             Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
           true => {
             // run-time check
-            unsafe.drop(unquote(temp));
+            ___drop(unquote(temp));
             Option(Iso(unquote(temp_type))).None
           }
         ),
@@ -10150,8 +10151,41 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
     )
   )
 );
-/// Allocate a value inside an Arc, returning an `Arc(V)`.
-arc :: (fn(generic(V : Type), sink(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(Arc(V)(value));
+/// Move `value` into a new atomically counted cell, returning an `Arc(V)`
+/// whose `ref_count` is 1. `alloc : .Some(a)` places the cell in `a`; the
+/// default, `.None`, places it in the current `with_allocator` scope, else
+/// the global allocator. The last handle's drop, on whichever thread, frees
+/// the cell through that allocator. Panics when the allocator is out of
+/// memory.
+///
+/// Unlike `box`, which calls `a`'s `alloc` under the caller's scope, `arc`
+/// makes `a` the current scope for the construction (as `with_allocator`
+/// does), so `a`'s callbacks must not allocate through the scope
+/// (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own allocator").
+///
+/// ```yo
+/// a := arc(i32(42));
+/// assert(a.* == i32(42), "the payload");
+/// ```
+arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
+  match(
+    alloc,
+    // The cell constructor allocates from the thread's current scope, so an
+    // explicit allocator is that scope for the one construction
+    // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_atomic_cell`, the
+    // explicit path goes through the scope). Nothing between the two sets
+    // can unwind: an allocation failure aborts.
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      cell := Arc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      cell
+    },
+    .None => Arc(V)(value)
+  )
+);
 // `Sync` because every handle reads the payload from its own thread; `Send`
 // because the last handle may be dropped on any thread, and the payload's
 // `Drop` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's

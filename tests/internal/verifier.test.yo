@@ -10,7 +10,7 @@
 { assert } :: import("std/assert");
 { env } :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
-{ VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
+{ VcSort, VcOp, VcTerm, VcTermNode, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
 { mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, encode_fundecl, default_encode_options } :: import("../../src/verifier/encode.yo");
 { Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
 { default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test, VerifyFnReport, VerifyFnObligation, verify_report_is_vacuous, verify_outcome_names, is_verify_outcome_name, verify_report_is_failure, verify_report_is_degraded, summarize_verify_reports, verify_summary_count } :: import("../../src/verifier/driver.yo");
@@ -24,14 +24,14 @@
 // Small term-construction helpers (shared by the golden tests below)
 // ---------------------------------------------------------------------------
 _bv32_var :: (fn(name : &String) -> VcTerm)(
-  VcTerm.Var(name : name, sort : VcSort.BvS(width : usize(32)))
+  rc(VcTermNode.Var(name : name, sort : VcSort.BvS(width : usize(32))))
 );
-_bv32_lit :: (fn(v : u64) -> VcTerm)(VcTerm.BvLit(value : v, width : usize(32)));
+_bv32_lit :: (fn(v : u64) -> VcTerm)(rc(VcTermNode.BvLit(value : v, width : usize(32))));
 _app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
-  VcTerm.App(op, args)
+  rc(VcTermNode.App(op, args))
 });
 // ---------------------------------------------------------------------------
 // Sorts
@@ -58,8 +58,8 @@ test("mangle_vc_name: stable across calls (cache/golden requirement)", {
 // ---------------------------------------------------------------------------
 test("encode_term: literals and operators", {
   assert(encode_term(_bv32_lit(u64(5))) == "(_ bv5 32)", "bv literal");
-  assert(encode_term(VcTerm.BoolLit(true)) == "true", "bool literal true");
-  assert(encode_term(VcTerm.BoolLit(false)) == "false", "bool literal false");
+  assert(encode_term(rc(VcTermNode.BoolLit(true))) == "true", "bool literal true");
+  assert(encode_term(rc(VcTermNode.BoolLit(false))) == "false", "bool literal false");
   assert(
     encode_term(_app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))) == "(bvadd (_ bv1 32) (_ bv1 32))",
     "bvadd application"
@@ -71,7 +71,7 @@ test("encode_term: literals and operators", {
 });
 test("encode_term: indexed operators (casts)", {
   assert(
-    encode_term(_app2(VcOp.SignExtendOp(extra : usize(32)), _bv32_var(String.from("x")), VcTerm.BoolLit(true))) ==
+    encode_term(_app2(VcOp.SignExtendOp(extra : usize(32)), _bv32_var(String.from("x")), rc(VcTermNode.BoolLit(true)))) ==
       "((_ sign_extend 32) x true)",
     "sign_extend shape (arity is the builder's concern in V2)"
   );
@@ -79,13 +79,13 @@ test("encode_term: indexed operators (casts)", {
 test("encode_term: a zero-field constructor is the bare symbol, not (Name)", {
   // issues/fixed/verifier-a-zero-field-variant-encodes-as-an-invalid-application.md
   assert(
-    encode_term(VcTerm.Ctor(name : String.from("Opt_None"), args : ArrayList(VcTerm).new())) == "Opt_None",
+    encode_term(rc(VcTermNode.Ctor(name : String.from("Opt_None"), args : ArrayList(VcTerm).new()))) == "Opt_None",
     "nullary constructor"
   );
   one := ArrayList(VcTerm).new();
   one.push(_bv32_var(String.from("x")));
   assert(
-    encode_term(VcTerm.Ctor(name : String.from("Opt_Some"), args : one)) == "(Opt_Some x)",
+    encode_term(rc(VcTermNode.Ctor(name : String.from("Opt_Some"), args : one))) == "(Opt_Some x)",
     "constructor with a field"
   );
 });
@@ -94,8 +94,8 @@ test("encode_term: quantifier shape", {
   names.push(String.from("i"));
   sorts := ArrayList(VcSort).new();
   sorts.push(VcSort.BvS(width : usize(64)));
-  body := vc_eq(VcTerm.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64))), VcTerm.BvLit(value : u64(0), width : usize(64)));
-  q := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body, ArrayList(VcTerm).new());
+  body := vc_eq(rc(VcTermNode.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64)))), rc(VcTermNode.BvLit(value : u64(0), width : usize(64))));
+  q := rc(VcTermNode.Quant(VcQuantKind.Forall, names, sorts, body, ArrayList(VcTerm).new()));
   assert(
     encode_term(&q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
     "forall with typed binder"
@@ -105,20 +105,22 @@ test("encode_term: quantifier shape", {
   // one attribute per trigger (V5 task 6: the ms_of definition axioms).
   trigs := ArrayList(VcTerm).new();
   trigs.push(body);
-  qt := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body, trigs);
+  qt := rc(VcTermNode.Quant(VcQuantKind.Forall, names, sorts, body, trigs));
   assert(
     encode_term(&qt) == "(forall ((i (_ BitVec 64))) (! (= i (_ bv0 64)) :pattern ((= i (_ bv0 64)))))",
     "forall with an explicit :pattern trigger"
   );
 });
 test("encode_term: the ms_of function + its declare-fun (V5 task 6)", {
-  arr := VcTerm.Var(
-    name : String.from("a"),
-    sort : VcSort.ArrS(elem : VcSort.BvS(width : usize(64)), len : usize(8))
+  arr := rc(
+    VcTermNode.Var(
+      name : String.from("a"),
+      sort : VcSort.ArrS(elem : VcSort.BvS(width : usize(64)), len : usize(8))
+    )
   );
   msf_args := ArrayList(VcTerm).new();
   msf_args.push(arr);
-  msf := VcTerm.Ctor(name : String.from("__yo_msof_bv64"), args : msf_args);
+  msf := rc(VcTermNode.Ctor(name : String.from("__yo_msof_bv64"), args : msf_args));
   assert(encode_term(&msf) == "(__yo_msof_bv64 a)", "ms_of application head (a Ctor-named uninterpreted application)");
   assert(
     encode_fundecl(VcSort.BvS(width : usize(64))) ==
@@ -663,4 +665,19 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
   default_slot := `${verify_cache_dir()}/${verify_cache_key(&q, &base)}.json`;
   assert(_z3_exists_sync(&own), "the verdict is cached under the run's own budget");
   assert(!_z3_exists_sync(&default_slot), "and NOT under the default budget's key, where a default run would reuse it");
+});
+// src/verifier/terms.yo declares `impl(VcSort, Acyclic())` and
+// `impl(VcTerm, Acyclic())` (decision 21's trees). The declarations keep the
+// terms, their lists and `VcQuery` off the cycle walk, so none of them
+// registers with the collector; deleting either turns this test red
+// (tests/cycle_collector.test.yo pins the mechanism on replicas, this test
+// pins the compiler's own declarations;
+// issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+test("VcSort and VcTerm are declared Acyclic: term lists and VcQuery stay off the cycle walk", {
+  comptime_assert(Type.impls(VcSort, Acyclic), "VcSort");
+  comptime_assert(Type.impls(VcTerm, Acyclic), "VcTerm");
+  comptime_assert(!Type.can_form_rc_cycle(VcSort), "VcSort");
+  comptime_assert(!Type.can_form_rc_cycle(VcTerm), "VcTerm");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(VcTerm)), "ArrayList(VcTerm)");
+  comptime_assert(!Type.can_form_rc_cycle(VcQuery), "VcQuery");
 });

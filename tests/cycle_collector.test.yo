@@ -3,6 +3,9 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
 Gc :: import("std/gc");
 { ArrayList } :: import("std/collections/array_list");
+{ LinkedList } :: import("std/collections/linked_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ String } :: import("std/string");
 { VList } :: import("./fixtures/owned_buffer.yo");
 List :: ref(
   struct(
@@ -349,6 +352,121 @@ test("ArrayList(Self) two-node cycle collected", {
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "ArrayList(Self) cycle collected");
 });
+// --- the same through LinkedList(Self): the element sits one cell deeper ---
+// LinkedList(LLNode) holds Node(LLNode) cells whose `?*LLNode` element buffer
+// is the edge back, so the cycle analysis has to re-root at the Node, see
+// through its buffer and recognise the declaration's shell there. It read that
+// shell as a dead end, so neither LLNode nor the list cell registered and the
+// cycle leaked; Node's own Trace impl was already the right traversal
+// (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+LLNode :: ref(
+  struct(
+    value : i32,
+    children : LinkedList(Self)
+  )
+);
+test("LinkedList(Self) two-node cycle collected", {
+  do_test :: (fn() -> unit)({
+    a := LLNode(1, LinkedList(LLNode).new());
+    b := LLNode(2, LinkedList(LLNode).new());
+    consume(a.children.push_back(b)); // a -> list -> node -> b
+    consume(b.children.push_back(a)); // b -> list -> node -> a : the cycle
+  });
+  do_test();
+  Gc.collect();
+  assert(Gc.tracked_count() == u64(0), "LinkedList(Self) cycle collected");
+  assert(Type.can_form_rc_cycle(LLNode), "LLNode is cycle-capable");
+  assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "the list cell sits on the cycle");
+  assert(!Type.can_form_rc_cycle(LinkedList(i32)), "a list of plain values is no cycle root");
+});
+// A ref(enum) whose only way back to itself runs through a ref(struct):
+// `KNode`'s `Kids` payload is an `ArrayList(Self)` and no variant holds `Self`
+// directly. The cycle walk re-roots at the list, so it meets the enum again
+// only as an already-visited id, and the enum root used to seed its own id
+// there and read "acyclic". The node was then never registered, and the
+// collector, which descends only into tracked objects, could not see the
+// list's back edge (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
+(mut(g_knode_disposed) : i32) = i32(0);
+KNode :: ref(
+  enum(
+    KLeaf(n : i32),
+    Kids(k : ArrayList(Self))
+  )
+);
+impl(
+  KNode,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_knode_disposed = (g_knode_disposed + i32(1));
+    })
+  )
+);
+test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    k := ArrayList(KNode).new();
+    e := KNode.Kids(k);
+    k.push(e); // e -> k -> e : the only edge back to the enum is the list's slot
+  });
+  do_test();
+  Gc.collect();
+  assert(g_knode_disposed == i32(1), "the node of the list-closed cycle was disposed");
+  assert(Gc.tracked_count() == base, "and neither it nor its list stays tracked");
+  assert(Type.can_form_rc_cycle(KNode), "the walk finds the cycle back through the list");
+  assert(!Type.impls(KNode, Acyclic), "so the node is not Acyclic");
+});
+// The common cons-list shape had the same defect: `Rc` is itself a
+// ref(struct), so `Cons`'s `Rc(Self)` tail is the only edge back to the enum,
+// and the walk re-roots at the `Rc` before it meets the enum again.
+// `a.tail = rc(a)` closes a cycle that used to stay tracked (100 of 100 with
+// the v0.2.67 seed)
+// (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
+(mut(g_rcons_disposed) : i32) = i32(0);
+RCons :: ref(
+  enum(
+    RNil,
+    Cons(head : i32, tail : Rc(Self))
+  )
+);
+impl(
+  RCons,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rcons_disposed = (g_rcons_disposed + i32(1));
+    })
+  )
+);
+test("A cons-list cycle closed through its Rc(Self) tail is collected", {
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    a := RCons.Cons(i32(1), rc(RCons.RNil));
+    a.tail = rc(a); // a -> Rc -> a : the only edge back to the enum is the Rc's payload
+  });
+  do_test();
+  // The replaced `RNil` tail is dropped by the store; only the collector can
+  // release the cell on the cycle.
+  before := g_rcons_disposed;
+  Gc.collect();
+  assert(g_rcons_disposed == (before + i32(1)), "the cons cell on the Rc-closed cycle was disposed");
+  assert(Gc.tracked_count() == base, "and neither it nor its Rc stays tracked");
+  assert(Type.can_form_rc_cycle(RCons), "the walk finds the cycle back through the Rc");
+  assert(!Type.impls(RCons, Acyclic), "so the cons cell is not Acyclic");
+});
+// The comptime query must answer for a spelled instantiation what codegen
+// does: `ArrayList(QNode)` holds `QNode`s, each of which holds such a list, and
+// the emitted constructor registers the list with the collector. The query read
+// `false` unless a query of the field's own type (`type_of(q.k)`) ran first
+// (issues/fixed/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md).
+QNode :: ref(
+  struct(
+    value : i32,
+    k : ArrayList(Self)
+  )
+);
+test("Type.can_form_rc_cycle reads a spelled ArrayList(Self) instantiation as codegen does", {
+  assert(Type.can_form_rc_cycle(ArrayList(QNode)), "a list of nodes that hold such lists can form a cycle");
+  assert(Type.can_form_rc_cycle(QNode), "and so can the node");
+});
 // --- dispose resurrection (PEP 442): a dispose that stores a cycle member into
 // a live object must keep that member, not free it under the live object's feet
 // (issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md).
@@ -525,6 +643,80 @@ test("a declared Acyclic tree's nodes are not cycle candidates", {
   c := CycTree.Node(CycTree.Leaf(1), CycTree.Leaf(2));
   assert(Gc.tracked_count() > before, "a CycTree node is registered");
   assert(match(t, .Node(_, _) => true, .Leaf(_) => false) && match(c, .Node(_, _) => true, .Leaf(_) => false));
+});
+// The compiler's own trees declare `Acyclic` the same way: `AstExpr`
+// (src/expr.yo), `VcSort` and `VcTerm` (src/verifier/terms.yo). A language
+// test cannot import src/, so these replicas copy the node shapes and the
+// declaration. Each declared node has an undeclared twin, which pins that the
+// declaration, not the shape, takes the node's containers and holders off the
+// cycle walk: #1486 made all of them cycle roots
+// (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md,
+// the probe table). A twin's leaf payload differs from its node's: before
+// #1501 keyed enum identity on the declaration, two enums of one shape
+// shared their container instances, so `ArrayList(RExprTwin)` was served
+// `ArrayList(RExpr)` and read as acyclic.
+RExpr :: ref(enum(Atom(n : i32), FnCall(func : Self, args : ArrayList(Self))));
+// SAFETY: an RExpr is built bottom-up and no `args` list is written after its
+// node is built, so no node can reach itself.
+impl(RExpr, Acyclic());
+RExprTwin :: ref(enum(Atom(n : i64), FnCall(func : Self, args : ArrayList(Self))));
+RSort :: ref(enum(BoolS, SeqS(elem : Self), FunS(domain : Self, range : Self)));
+// SAFETY: an RSort's only children are `Self` payloads fixed at construction.
+impl(RSort, Acyclic());
+RTerm :: ref(
+  enum(
+    Var(name : String, sort : RSort),
+    App(args : ArrayList(Self)),
+    Quant(sorts : ArrayList(RSort), body : Self, triggers : ArrayList(Self))
+  )
+);
+// SAFETY: as RExpr: each list is filled before its term is built.
+impl(RTerm, Acyclic());
+RTermTwin :: ref(
+  enum(
+    Var(id : i64, sort : RSort),
+    App(args : ArrayList(Self)),
+    Quant(sorts : ArrayList(RSort), body : Self, triggers : ArrayList(Self))
+  )
+);
+// Holders: `SuspensionPoint`'s shape (a node and an optional node list) and
+// `VcQuery`'s (a term list and a term). The list field matters: a twin
+// holder with only the node field reads false (measured on #1486's binary).
+RPoint :: ref(struct(index : usize, expr : RExpr, branch_exprs : Option(ArrayList(RExpr))));
+RPointTwin :: ref(struct(index : usize, expr : RExprTwin, branch_exprs : Option(ArrayList(RExprTwin))));
+RQuery :: ref(struct(name : String, assumptions : ArrayList(RTerm), goal : RTerm));
+RQueryTwin :: ref(struct(name : String, assumptions : ArrayList(RTermTwin), goal : RTermTwin));
+test("declared-Acyclic compiler trees keep their containers and holders off the cycle walk", {
+  // AstExpr's shape.
+  comptime_assert(!Type.can_form_rc_cycle(RExpr), "a declared AstExpr-shaped node");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RExpr)), "ArrayList(AstExpr)");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(ArrayList(RExpr))), "ArrayList(ArrayList(AstExpr))");
+  comptime_assert(!Type.can_form_rc_cycle(HashMap(String, ArrayList(RExpr))), "HashMap(String, ArrayList(AstExpr))");
+  comptime_assert(!Type.can_form_rc_cycle(RPoint), "SuspensionPoint");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RPoint)), "ArrayList(SuspensionPoint)");
+  comptime_assert(Type.can_form_rc_cycle(RExprTwin), "the undeclared twin can form a cycle");
+  comptime_assert(Type.can_form_rc_cycle(ArrayList(RExprTwin)), "and its list sits on that cycle (AstExpr shape)");
+  comptime_assert(Type.can_form_rc_cycle(RPointTwin), "and so does its holder");
+  // VcSort's and VcTerm's shapes.
+  comptime_assert(!Type.can_form_rc_cycle(RSort), "VcSort");
+  comptime_assert(!Type.can_form_rc_cycle(RTerm), "VcTerm");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RTerm)), "ArrayList(VcTerm)");
+  comptime_assert(!Type.can_form_rc_cycle(RQuery), "VcQuery");
+  comptime_assert(Type.can_form_rc_cycle(RTermTwin), "the undeclared term twin can form a cycle");
+  comptime_assert(Type.can_form_rc_cycle(ArrayList(RTermTwin)), "and its list sits on that cycle (VcTerm shape)");
+  comptime_assert(Type.can_form_rc_cycle(RQueryTwin), "and so does its query");
+  // The LinkedList controls stay cycle roots: no declaration covers them.
+  comptime_assert(Type.can_form_rc_cycle(LLNode), "LLNode");
+  comptime_assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "LinkedList(LLNode)");
+  comptime_assert(Type.can_form_rc_cycle(ArrayList(LLNode)), "ArrayList(LLNode)");
+  comptime_assert(!Type.can_form_rc_cycle(LinkedList(i32)), "LinkedList(i32)");
+  // At run time a declared node and its list never register.
+  before := Gc.tracked_count();
+  e := RExpr.FnCall(RExpr.Atom(1), ArrayList(RExpr).new());
+  assert(Gc.tracked_count() == before, "an RExpr node and its args list are never registered");
+  w := RExprTwin.FnCall(RExprTwin.Atom(1), ArrayList(RExprTwin).new());
+  assert(Gc.tracked_count() > before, "the twin's node and list are");
+  assert(match(e, .FnCall(_, _) => true, .Atom(_) => false) && match(w, .FnCall(_, _) => true, .Atom(_) => false));
 });
 // A cycle closed through a VALUE that owns a heap buffer (V2b's unique
 // buffers, plans/VALUES_BY_DEFAULT.md: after Generation B every collection is

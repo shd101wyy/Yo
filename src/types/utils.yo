@@ -1557,10 +1557,19 @@ _buffer_cut_key :: (fn(ty : &TypeValue) -> String)({
   `buffer:${type_intern_key(ty, usize(0), &mut seen)}`
 });
 _type_refs_back_to_cyclic :: (
-  fn(ty : &TypeValue, original_id : &String, visited : &ArrayList(String)) -> bool
-)(
+  fn(ty_in : &TypeValue, original_id : &String, visited : &ArrayList(String)) -> bool
+)({
+  // A self-referential declaration's shell can survive inside a nested
+  // instantiation — `LinkedList(Self)` reaches `Self` only through
+  // `Node(Self)`'s `?*Self` element buffer, behind the shell patch walk's
+  // shared-node guard — and a shell is an empty placeholder struct, so the
+  // walk read the path back to a re-rooted cycle as a dead end. Resolve it
+  // through the finals registries first, as this file's other structural
+  // walks do
+  // (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // A declared-`Acyclic` type reaches no cycle, whatever its fields hold.
-  !_declared_acyclic(ty) && match(
+  !_declared_acyclic(&ty) && match(
     ty,
     Rc(.Struct({ id : sid, field_types : sfields, is_reference_semantics : sref })) => cond(
       // Direct self-reference back to the current root.
@@ -1610,12 +1619,12 @@ _type_refs_back_to_cyclic :: (
       // The unique `Box` (V1 step 2): its payload is part of its owner's
       // value, so a cycle closes through it like through an inline field.
       // A recursive payload (`Option(Box(Self))`) is cut by the Box's id.
-      unique_box_payload_type(ty).is_some() => cond(
+      unique_box_payload_type(&ty).is_some() => cond(
         _id_already_visited(visited, &sid) => false,
         true => {
           v2 := visited.clone();
           v2.push(sid);
-          match(unique_box_payload_type(ty), .Some(payload) => recur(&payload, original_id, &v2), .None => false)
+          match(unique_box_payload_type(&ty), .Some(payload) => recur(&payload, original_id, &v2), .None => false)
         }
       ),
       // Value-type struct (struct / newtype): stored inline but may hold RC
@@ -1640,7 +1649,7 @@ _type_refs_back_to_cyclic :: (
         // struct id would not do, because every instantiation of a generic
         // struct shares it.
         has_buffer := (!found && (buffer_element_types(&sfields).len() > usize(0)));
-        buf_key := if(has_buffer, _buffer_cut_key(ty), String.new());
+        buf_key := if(has_buffer, _buffer_cut_key(&ty), String.new());
         if(has_buffer && !_id_already_visited(visited, &buf_key), {
           v2 := visited.clone();
           v2.push(buf_key);
@@ -1708,7 +1717,7 @@ _type_refs_back_to_cyclic :: (
     // resolution, the capture struct, so the struct is what is judged
     // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
     Rc(.SomeT(name : _)) => cond(
-      is_bound_closure_identity(ty) => recur(resolve_cell_chain(ty), original_id, visited),
+      is_bound_closure_identity(&ty) => recur(resolve_cell_chain(&ty), original_id, visited),
       true => true
     ),
     Rc(.ExternOpaqueT(_, _)) => false,
@@ -1748,7 +1757,7 @@ _type_refs_back_to_cyclic :: (
     // Raw pointers/references and primitives do not participate in ARC.
     _ => false
   )
-);
+});
 /// Return `true` if `ty` can form an RC reference cycle — used to decide which
 /// reference-semantics types need cycle-collecting GC. Structural DFS with an
 /// id-keyed visited set. A type with a DECLARED `impl(T, Acyclic())` is not a
@@ -1803,12 +1812,18 @@ can_type_form_rc_cycle :: (fn(ty : &TypeValue) -> bool)(
     ),
     // A reference-semantics enum can also form an RC cycle (e.g. a recursive
     // `Self`-valued variant field), so it is a cycle root too. Walk every
-    // variant's fields, keyed on the enum's own id.
+    // variant's fields, keyed on the enum's own id. The root's id is NOT
+    // seeded into `visited`, as in the per-variant registration gate
+    // (codegen/functions/constructors.yo): the walk re-roots at a reference
+    // struct, and an enum met again after that re-root (`Kids(k :
+    // ArrayList(Self))`: enum -> list -> enum) must be walked, not answered
+    // `false` by the visited guard. A direct `Self` edge is still found by
+    // the `eid == original_id` check, which precedes that guard
+    // (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
     is_reference_enum_type(ty) => match(
       ty,
       Rc(.EnumT({ id : eid, variant_fields : vfs })) => {
         visited := ArrayList(String).new();
-        visited.push(eid);
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {

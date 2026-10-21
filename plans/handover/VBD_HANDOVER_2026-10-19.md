@@ -183,8 +183,11 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
   closure-typed-field half landed (#1460).
 - `#1463`: the `compile.test.yo` leak classes are lexer-chain `Token` Rc cells (~59 KB per in-process
   compile), a measured sub-case of the self-hosted reference-hygiene S1 umbrella. No one-site fix.
-- LinkedList of managed elements forms uncollected cycles (S3) — believed a documented design
-  limitation of `ref(struct)` + the collector's reachability; triage, do not auto-fix.
+- LinkedList of managed elements forms uncollected cycles (S3): triaged 2026-10-20 as a real bug and
+  fixed (`issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`). The
+  cycle walk now resolves the self-declaration shell behind a nested instantiation. Cost: 48 compiler
+  containers become collector-tracked (`check` RSS up; recovery is decision 21's declared
+  `impl(T, Acyclic())` on the compiler's tree node types, never on a container instantiation).
 - The non-routable connect-test leak doc is suspected network-environment; triage before believing.
 
 ## 4. What is next, in order
@@ -210,7 +213,9 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
 The borrow/share-conversion work (B3/B4 territory) comes BEFORE any src re-sweep: shared
 module-path/source strings, shared envs, shared TypeValue lists, non-cloning memo reads; the
 explicit-copy tool gains the temporary-as-move rule and a hot-path guard that LISTS evaluator sites
-for hand edits instead of cloning. Then B1 regenerates over an already-sharing tree. B2 (tests/build
+for hand edits instead of cloning. Then B1 regenerates over an already-sharing tree. (Both guards are written on
+`feat/explicit-copy-guards`, 2026-10-20, and await their Tier 1 gates; the regeneration passes
+`--hot-path src/evaluator`. Plan B1, "Path to a landable B1".) B2 (tests/build
 scripts/markdown_yo sweep) may proceed independently — it has no evaluator hot-path exposure.
 
 ### 4.3 The one-decision unblocks

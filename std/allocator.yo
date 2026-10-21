@@ -58,7 +58,10 @@ size_would_overflow ::
   });
 extern(
   "Yo",
-  // `__yo_malloc` and `__yo_free` are declared in the prelude (`box`).
+  // `__yo_malloc` and `__yo_free` are declared in the prelude (`box`), and so
+  // are the thread's allocation-scope hooks (codegen's
+  // `__yo_current_allocator`): `__yo_scope_ctx`/`__yo_scope_vtable` read it,
+  // `__yo_scope_set` sets it (`with_allocator` below, and `arc`'s `alloc`).
   __yo_calloc :
     (fn(nmemb : usize, size : usize) -> ?*void),
   __yo_realloc :
@@ -68,12 +71,7 @@ extern(
       fn(alignment : usize, size : usize) -> ?*void
     ),
   __yo_aligned_free :
-    (fn(ptr : ?*void) -> unit),
-  // The thread's allocation scope (codegen's `__yo_current_allocator`):
-  // `with_allocator` below sets it. `__yo_scope_ctx` and `__yo_scope_vtable`,
-  // which read it, are declared in the prelude, whose `box` reads it too.
-  __yo_scope_set :
-    (fn(ctx : ?*void, vtable : ?*void) -> unit)
+    (fn(ptr : ?*void) -> unit)
 );
 /// The process-wide global allocator: the one `--allocator` selects (`system`
 /// by default, `mimalloc` or `fixed`).

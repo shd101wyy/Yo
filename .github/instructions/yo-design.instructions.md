@@ -117,6 +117,16 @@ below it borrow), the GC/`Iso` walk traces its payload in place
 the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
 `SEED_VERSION` carries this (the v0.2.59 seed rejects `b.*` on it, E0406).
 
+`arc(v, (alloc : Option(Allocator)) ?= .None)` takes the same parameter. Its `.Some(a)` arm
+sets the thread's allocation scope to `a` around the `Arc(V)(v)` constructor (which allocates
+from the current scope) and restores it, through the prelude's `__yo_scope_set` extern: no
+codegen, and the default path is unchanged. That swap is the stopgap until V5's
+`__yo_atomic_cell` takes the allocator itself (VALUES_BY_DEFAULT §3.2). Unlike `box`'s
+explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
+allocator whose callbacks allocate through the scope recurses until the stack overflows
+(`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+`rc` has no `alloc` parameter yet.
+
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
 not automatically as a pointer dereference; pointer dereference still applies
@@ -148,10 +158,11 @@ named `rc` shadows it in its scope. `ref_count` is not in
 
 ## Unsafe operations
 
-The `unsafe` module in `prelude.yo` provides low-level escape hatches:
+The `unsafe` module in `prelude.yo` provides one low-level escape hatch:
 
-- `unsafe.drop(value)` — manually drop `value`, running its destructor immediately.
 - `unsafe.cast(value, TargetType)` — reinterpret cast (alias for the internal `__yo_as` builtin).
+
+To end a value before its scope does, call the prelude function `drop(x)` (it moves `x` in). Collection code that must run a destructor on a slot it owns through a raw pointer calls the `___drop` builtin on the place directly: `___drop(element_ptr.*)`. `___drop` is dispatched by the callee's spelling, so it is not a bindable value. `unsafe.drop` was a macro forwarding to it and is deleted (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` B4).
 
 ```yo
 // Cast between types (use sparingly)

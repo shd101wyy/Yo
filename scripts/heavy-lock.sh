@@ -36,9 +36,12 @@
 # those slots nor let it finish (the backdating deadlock). The order lives in
 # the ticket NAME, so waiters running an older copy of this script, which sort
 # the same names, honour it too. A running job is never preempted.
-# A slot whose owner line contains EXCLUSIVE, "timed", "A/B", "measure",
-# "profile" or "sample" counts as exclusive, which also covers an
-# old-protocol timing gate that cannot declare a weight.
+# A held slot counts as exclusive only when its ticket declared it: the owner
+# line carries the "[EXCLUSIVE]" marker heavy_take writes for `exclusive`. A
+# label is free text and never decides it (until 2026-10-21 any owner line
+# naming "timed", "A/B", "measure", "profile" or "sample" serialized the
+# machine, which a weight-1 "leak A/B" test run did for 30 minutes on a
+# 64 GB box with six slots).
 #
 # Configuration: every session on the machine must agree on it, so it lives in
 # `$HEAVY_ROOT/heavy-lock.conf`, which the script re-reads on every pass of
@@ -147,7 +150,7 @@ _heavy_priority_name() {
   if [ -n "$last_excl" ]; then echo "$last_excl.p$(_heavy_now_ns)"; else echo "0$(_heavy_now_ns)"; fi
 }
 _heavy_slot_exclusive() {
-  grep -qiE 'EXCLUSIVE|timed|A/B|measure|profile|sample' "$1/owner" 2>/dev/null
+  grep -qF '[EXCLUSIVE]' "$1/owner" 2>/dev/null
 }
 _heavy_claim() {
   if mkdir "$1" 2>/dev/null; then

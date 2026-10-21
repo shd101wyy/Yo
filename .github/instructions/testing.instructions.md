@@ -981,10 +981,15 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
 - **Heavy:** `yo build`, `check ./src`, `compile src/main.yo`, the language
   suite, any `tests/internal` file, fixpoint. **Light, no lock:** single small
   test files, `fmt`, `check` of one small module.
-- **Take `exclusive`** for anything timed (an owner line containing `timed`,
-  `A/B`, `measure`, `profile` or `sample` is treated as exclusive too) and for
-  steps that grow past ~5 GB, such as `tests/internal/macro_expansion.test.yo`
-  (6.5 GB). The free-memory check (`HEAVY_MIN_AVAIL_MB`, 6 GB) only runs when a
+- **Take `exclusive`** for anything timed (a timing or A/B comparison) and,
+  on a machine with little headroom, for steps that grow past ~5 GB, such as
+  `tests/internal/macro_expansion.test.yo` (6.5 GB). Only the `exclusive`
+  argument makes a job exclusive: the label is free text, and words like
+  `A/B` or `measure` in it no longer serialize the machine (2026-10-21). On a
+  64 GB box, memory-heavy test runs (`YO_TEST_IN_PROCESS=1` with
+  `YO_TEST_MAX_RSS_MB=12000`, `macro_expansion`) take an ordinary slot: the
+  admission check (`HEAVY_MIN_AVAIL_MB`) covers them, and exclusive tickets
+  behind single-core jobs left 32 cores idle for hours. The free-memory check (`HEAVY_MIN_AVAIL_MB`, 6 GB) only runs when a
   job is admitted beside another, so it cannot catch a job that grows later.
 - **Size the slots per machine in `~/Workspace/Yo-wt/heavy-lock.conf`**, never
   per session: `HEAVY_SLOTS=N` (1–26, default 3) and `HEAVY_MIN_AVAIL_MB=M`.

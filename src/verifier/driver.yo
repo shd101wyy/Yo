@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
-{ VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
+{ VcQuery, VcSort, VcTerm, VcTermNode, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, encode_term, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body, register_recursion_cliques, GuardSite } :: import("./vc.yo");
 { take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure, ProvedGuardSite, record_proved_guard_site } :: import("../evaluator/builtins/contracts.yo");
@@ -437,12 +437,12 @@ resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
 /// The self-test assumption `x == (bvadd 1 1)` over a fresh 32-bit x.
 _self_test_sum_assumption :: (fn() -> VcTerm)({
   eq_args := ArrayList(VcTerm).new();
-  eq_args.push(VcTerm.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32))));
+  eq_args.push(rc(VcTermNode.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32)))));
   add_args := ArrayList(VcTerm).new();
-  add_args.push(VcTerm.BvLit(value : u64(1), width : usize(32)));
-  add_args.push(VcTerm.BvLit(value : u64(1), width : usize(32)));
-  eq_args.push(VcTerm.App(VcOp.BvAdd, add_args));
-  VcTerm.App(VcOp.EqOp, eq_args)
+  add_args.push(rc(VcTermNode.BvLit(value : u64(1), width : usize(32))));
+  add_args.push(rc(VcTermNode.BvLit(value : u64(1), width : usize(32))));
+  eq_args.push(rc(VcTermNode.App(VcOp.BvAdd, add_args)));
+  rc(VcTermNode.App(VcOp.EqOp, eq_args))
 });
 /// Build one self-test obligation: `x := 1+1 ⊢ x == goal_val`.
 _self_test_query :: (fn(name : &String, goal_val : u64) -> VcQuery)({
@@ -450,8 +450,8 @@ _self_test_query :: (fn(name : &String, goal_val : u64) -> VcQuery)({
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume(_self_test_sum_assumption());
   q.goal = vc_eq(
-    VcTerm.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32))),
-    VcTerm.BvLit(value : goal_val, width : usize(32))
+    rc(VcTermNode.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32)))),
+    rc(VcTermNode.BvLit(value : goal_val, width : usize(32)))
   );
   q
 });
