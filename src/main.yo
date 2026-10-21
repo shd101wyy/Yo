@@ -2870,8 +2870,21 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// owned there (`ExplicitCopySite.src_borrow`: a `&`/`&mut` parameter or
 /// borrow, a module-level binding, a borrowed binding): a write through the
 /// result is out of sight, and the hand edit is usually a projection.
+///
+/// Two guards list sites a `.clone()` would serve badly
+/// (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). A copy out of a
+/// temporary that dies right after it (`ExplicitCopySite.src_dying`: a
+/// `match` binding of `m.get(k)`'s result, a field of `make()`, not one
+/// reached through a dereference) is usually a move, so nothing is inserted;
+/// it is checked first. Every copy of such a binding is listed, not only its
+/// last use: the guard sees no liveness. A copy in a file under
+/// one of `hot_paths` (`--hot-path`, repeatable; B1 passes `src/evaluator`)
+/// is listed for a hand edit instead of rewritten: there a per-operation deep
+/// copy compounds (the parked B1 sweep measured ~80x on the evaluator), and
+/// the edit is usually a borrow or a share. It is checked last, so a more
+/// specific reason is printed when one applies.
 _run_migrate_explicit_copy :: (
-  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+  fn(files : &ArrayList(String), std_path : &String, hot_paths : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit
 )({
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -2904,6 +2917,11 @@ _run_migrate_explicit_copy :: (
   while(spi < sites.len(), spi = (spi + usize(1)), {
     site_paths.push(canonical_module_path(sites(spi).path.clone()));
   });
+  hot_canon := ArrayList(String).new();
+  (hpi : usize) = usize(0);
+  while(hpi < hot_paths.len(), hpi = (hpi + usize(1)), {
+    hot_canon.push(canonical_module_path(hot_paths(hpi).clone()));
+  });
   (n_inserted : usize) = usize(0);
   (n_skipped : usize) = usize(0);
   (ti : usize) = usize(0);
@@ -2914,9 +2932,19 @@ _run_migrate_explicit_copy :: (
     // and by several evaluations: keep one per position. A position recorded
     // at two types is a generic body, which one `.clone()` cannot serve.
     mine := ArrayList(ExplicitCopySite).new();
+    // The `--hot-path` this file lies under, segment-wise, or none.
+    (hot : Option(String)) = Option(String).None;
+    (hci : usize) = usize(0);
+    while((hci < hot_canon.len()) && hot.is_none(), hci = (hci + usize(1)), {
+      if(Path.new(canon.clone()).strip_prefix(Path.new(hot_canon(hci).clone())).is_some(), {
+        hot = Option(String).Some(hot_paths(hci).clone());
+      });
+    });
     pos_type := HashMap(String, String).new();
     generic := HashSet(String).new();
     in_generic := HashSet(String).new();
+    // A position any evaluation saw copied out of a dying temporary.
+    dying := HashMap(String, String).new();
     (si : usize) = usize(0);
     while(si < sites.len(), si = (si + usize(1)), {
       if(site_paths(si) == canon, {
@@ -2924,6 +2952,9 @@ _run_migrate_explicit_copy :: (
         key := `${st.row.to_string()}:${st.col.to_string()}`;
         if(st.in_generic, {
           in_generic.insert(key.clone());
+        });
+        if(!st.src_dying.is_empty() && !dying.contains_key(key.clone()), {
+          dying.insert(key.clone(), st.src_dying.clone());
         });
         match(
           pos_type.get(key.clone()),
@@ -2971,6 +3002,20 @@ _run_migrate_explicit_copy :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      // A copy out of a temporary that dies right after it is usually a
+      // move (for a `match` binding, the copy-trait audit's
+      // temporary-as-move rule; for a field read, `_ic_dying_temp_source`'s
+      // own). Listed, so a value read again (a genuine copy) is spelled by
+      // hand.
+      match(
+        dying.get(`${st.row.to_string()}:${st.col.to_string()}`),
+        .Some(what) => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: \`${st.expect}\` is ${what} that dies after the copy, so the copy is usually a move; left as written (spell \`.clone()\` by hand if the value is read again)`);
+          continue;
+        },
+        .None => ()
+      );
       if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied at more than one type (a generic body); left as written`);
@@ -3001,6 +3046,17 @@ _run_migrate_explicit_copy :: (
         .Some(which) => {
           n_skipped = (n_skipped + usize(1));
           println(`fix: ${at}: \`${st.expect}\` is copied and ${which} is written afterwards, so the two may share a buffer on purpose; spell a borrow (\`&mut\`) or the copy (\`.clone()\`) by hand`);
+          continue;
+        },
+        .None => ()
+      );
+      // A hot path: a deep copy per operation compounds there, and the hand
+      // edit is usually a borrow or a share, not a clone.
+      match(
+        hot,
+        .Some(hp) => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` is copied under the hot path \`${hp}\`; left as written for a hand edit (a borrow \`&\`/\`&mut\`, a share, or \`.clone()\` where the copy is meant)`);
           continue;
         },
         .None => ()
@@ -3391,13 +3447,14 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy] [--hot-path PATH]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
   (migrate : String) = String.new();
   (target_triple : String) = String.new();
   excludes := ArrayList(String).new();
+  hot_paths := ArrayList(String).new();
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -3431,8 +3488,16 @@ run_fix :: (
           ai = (ai + usize(1));
         });
       },
+      (a == "--hot-path") => {
+        next_h := (ai + usize(1));
+        if(next_h >= argv.len(), {
+          exn.throw(dyn(`fix: --hot-path takes a file or directory whose copies --migrate explicit-copy lists instead of rewriting`));
+        });
+        hot_paths.push(argv(next_h));
+        ai = (ai + usize(2));
+      },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|mut-bindings|explicit-copy] [--hot-path PATH]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -3442,6 +3507,17 @@ run_fix :: (
   });
   if(target_paths.len() == usize(0), {
     exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--dry-run]`));
+  });
+  // `--hot-path` scopes one guard of one migration: anywhere else it would
+  // be ignored, and a misspelled path would silently guard nothing.
+  if((hot_paths.len() > usize(0)) && (migrate != "explicit-copy"), {
+    exn.throw(dyn(`fix: --hot-path applies to --migrate explicit-copy only`));
+  });
+  (hpi : usize) = usize(0);
+  while(hpi < hot_paths.len(), hpi = (hpi + usize(1)), {
+    if(!io.await(exists(Path.new(hot_paths(hpi).clone()), io), io), {
+      exn.throw(dyn(`fix: --hot-path ${hot_paths(hpi)} does not exist`));
+    });
   });
   // Evaluate for TARGET, as `compile --target` does: std's
   // `cond(platform == ...)` arms are selected during evaluation, so a repair
@@ -3573,7 +3649,7 @@ run_fix :: (
     return(());
   });
   if(migrate == "explicit-copy", {
-    _run_migrate_explicit_copy(&files, std_path.clone(), dry_run, io, exn);
+    _run_migrate_explicit_copy(&files, std_path.clone(), &hot_paths, dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -11820,6 +11896,9 @@ Options:
                             writes), or explicit-copy (.clone() on an
                             implicit copy of a String or collection
                             whose source is used again)
+  --hot-path <path>         With --migrate explicit-copy: list the copies
+                            in this file or directory for a hand edit
+                            instead of rewriting them (repeatable)
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -11853,6 +11932,9 @@ Examples:
                             mut-bindings（给程序写入的每个局部、模式或
                             编译期绑定加上 mut(x)），或 explicit-copy（源值之后仍被使用的
                             String / 集合隐式复制加上 .clone()）
+  --hot-path <path>         与 --migrate explicit-copy 一起使用：列出该文件
+                            或目录中的拷贝留待手工修改，而不是改写它们
+                            （可重复）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

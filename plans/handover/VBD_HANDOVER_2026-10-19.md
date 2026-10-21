@@ -213,7 +213,9 @@ time (`evaluator/types/enum.yo`), with both rules keyed on that. Scheduled as it
 The borrow/share-conversion work (B3/B4 territory) comes BEFORE any src re-sweep: shared
 module-path/source strings, shared envs, shared TypeValue lists, non-cloning memo reads; the
 explicit-copy tool gains the temporary-as-move rule and a hot-path guard that LISTS evaluator sites
-for hand edits instead of cloning. Then B1 regenerates over an already-sharing tree. B2 (tests/build
+for hand edits instead of cloning. Then B1 regenerates over an already-sharing tree. (Both guards are written on
+`feat/explicit-copy-guards`, 2026-10-20, and await their Tier 1 gates; the regeneration passes
+`--hot-path src/evaluator`. Plan B1, "Path to a landable B1".) B2 (tests/build
 scripts/markdown_yo sweep) may proceed independently — it has no evaluator hot-path exposure.
 
 ### 4.3 The one-decision unblocks
