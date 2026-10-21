@@ -709,7 +709,6 @@ _build_def_time_body_env :: (
     strip_outer_runtime : bool
   ) -> Environment
 )({
-  module_path := caller_env.module_path.*;
   // ENV SHARING (plans/backlog/YO_SELF_ENV_SHARING.md §3) — the body env
   // shares the caller env's VARIABLE handles (when nested, only frame 0 and
   // the comptime variables; else the caller env itself). The
@@ -827,7 +826,7 @@ _build_def_time_body_env :: (
             rk_r,
             false,
             false,
-            synthetic_token(&rk_n, &module_path)
+            synthetic_token(&rk_n, &caller_env.module_path.*)
           );
           match(
             rk_var_opt,
@@ -941,7 +940,7 @@ _build_def_time_body_env :: (
           false,
           false,
           false,
-          synthetic_token(&fa_name, &module_path)
+          synthetic_token(&fa_name, &caller_env.module_path.*)
         );
       });
       fa_i = (fa_i + usize(1));
@@ -978,7 +977,7 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, synthetic_token(&pn, &module_path), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, synthetic_token(&pn, &caller_env.module_path.*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
     pi = (pi + usize(1));
   });
   fresh_env

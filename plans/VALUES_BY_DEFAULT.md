@@ -6844,6 +6844,27 @@ heavy run, the command is given in item 2.
        path is an explicit flag, not a default: the tool cannot know which
        directories are hot, and the measurement that named `src/evaluator/`
        (1,268 of the 3,271 `src/` insertions) is this plan's, not the tool's.
+     - Step 1 done (2026-10-21, `perf/share-module-path-input-string`):
+       - `Environment.module_path` is an `Rc(String)`. Each root env
+         (module, evaluator, `main`) gets one cell, and every env derived
+         from it shares that cell (`clone_env`, `snapshot_env`, the adopt
+         sites, `capture_env_for`). Readers spell `env.module_path.*`, and a
+         `&String` position takes `&env.module_path.*` rather than a clone.
+       - Why `Rc` and not an interned id: an id is a global-table read on
+         every access, the decision-47 read-by-clone class D this campaign
+         removes. It would also keep `auto-generated://` paths alive for
+         the process lifetime (`EVALUATOR_MEMORY_REDUCTION.md` §0.24). An
+         `Rc` copy is a count bump today and stays one after B8.
+       - `Environment.input_string` was dead: every write was `""` or a
+         copy of another env's field, and its only reader compared two
+         empty strings. The branch deletes it. This explains the b1diag
+         result above: reverting the "whole-module-source `input_string`"
+         clones recovered no memory because those clones copied empty
+         strings.
+       - Memory is unchanged on today's tree (`String` is still a ref type
+         until B8). The numbers are in the branch's commit messages.
+       - Still open: `Token.module_path` / `Token.input` (shared per lexing
+         today, a byte copy per owned read after B8).
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
