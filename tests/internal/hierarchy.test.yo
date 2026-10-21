@@ -4,7 +4,7 @@
 //! universe level) of any TypeValue.  Mirrors `src/types/hierarchy.ts`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_discriminants } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_discriminants, SharedList, no_label_lists } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_i32, t_usize, t_some_t } :: import("../../src/types/creators.yo");
 { type_of_type } :: import("../../src/types/hierarchy.yo");
 { assert, panic } :: import("std/assert");
@@ -123,10 +123,10 @@ test("EnumT with primitive variants → TypeUni(0)", {
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
   some_fields.push(t_i32());
-  vfields := ArrayList(ArrayList(TypeValue)).new();
-  vfields.push(none_fields);
-  vfields.push(some_fields);
-  result := type_of_type(rc(TypeValueNode.EnumT(String.from(""), String.from("Option"), shared_list(vnames), shared_list(vfields), Option(String).None, shared_list(ArrayList(ArrayList(String)).new()), no_discriminants(), false, false, no_types())));
+  vfields := ArrayList(SharedList(TypeValue)).new();
+  vfields.push(shared_list(none_fields));
+  vfields.push(shared_list(some_fields));
+  result := type_of_type(rc(TypeValueNode.EnumT(String.from(""), String.from("Option"), shared_list(vnames), shared_list(vfields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types())));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "EnumT with i32 variant → TypeUni(0)");
 });
 // ---------------------------------------------------------------------------

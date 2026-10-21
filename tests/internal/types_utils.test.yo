@@ -2,7 +2,7 @@
 /// integer range, and comptime cast checks.
 { String } :: import("std/string");
 import("std/fmt");
-{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, SharedList } :: import("../../src/types/definitions.yo");
 { t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_iso, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../src/types/creators.yo");
 { Environment } :: import("../../src/env.yo");
 { type_intern_key } :: import("../../src/types/intern.yo");
@@ -570,12 +570,12 @@ test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   vnames := ArrayList(String).new();
   vnames.push(String.from("None"));
   vnames.push(String.from("Some"));
-  vfields := ArrayList(ArrayList(TypeValue)).new();
-  vfields.push(ArrayList(TypeValue).new());
-  vfields.push(_trp_types1(t_ptr(t_u8())));
-  vlabels := ArrayList(ArrayList(String)).new();
-  vlabels.push(ArrayList(String).new());
-  vlabels.push(_trp_labels1(String.from("0")));
+  vfields := ArrayList(SharedList(TypeValue)).new();
+  vfields.push(no_types());
+  vfields.push(shared_list(_trp_types1(t_ptr(t_u8()))));
+  vlabels := ArrayList(SharedList(String)).new();
+  vlabels.push(no_labels());
+  vlabels.push(shared_list(_trp_labels1(String.from("0"))));
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
@@ -586,12 +586,12 @@ test("raw-ptr predicate: enum with only primitive variants is false", {
   vnames := ArrayList(String).new();
   vnames.push(String.from("A"));
   vnames.push(String.from("B"));
-  vfields := ArrayList(ArrayList(TypeValue)).new();
-  vfields.push(ArrayList(TypeValue).new());
-  vfields.push(_trp_types1(t_i32()));
-  vlabels := ArrayList(ArrayList(String)).new();
-  vlabels.push(ArrayList(String).new());
-  vlabels.push(_trp_labels1(String.from("0")));
+  vfields := ArrayList(SharedList(TypeValue)).new();
+  vfields.push(no_types());
+  vfields.push(shared_list(_trp_types1(t_i32())));
+  vlabels := ArrayList(SharedList(String)).new();
+  vlabels.push(no_labels());
+  vlabels.push(shared_list(_trp_labels1(String.from("0"))));
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
@@ -637,22 +637,32 @@ test("type_intern_key: nested empty-id structs of different depth key apart", {
   assert(_tk(&two) != _tk(&three), "Nest(Nest(*u8)) vs Nest(Nest(Nest(*u8)))");
   assert(_tk(&two) == _tk(&two.clone()), "a type keys like its clone");
 });
+// A type's lists are never written after the node is built, so no TypeValue
+// the compiler makes contains itself. This test writes a node's field list
+// through the list handle on purpose, to build the cycle the predicate's
+// depth cap must survive. `fields` must not be empty: `shared_list` of an
+// empty list is the shared empty list, which this would write.
+_trp_looped_struct :: (fn(name : &String, sink(labels) : ArrayList(String), sink(fields) : ArrayList(TypeValue), at : usize) -> TypeValue)({
+  shared_fields := shared_list(fields);
+  looped := rc(TypeValueNode.Struct(String.from(""), name, shared_list(labels), shared_fields.clone(), false, false, false, String.from(""), no_types(), false));
+  items := shared_fields.*.items;
+  items.insert(at, looped.clone());
+  looped
+});
 test("raw-ptr predicate: a type object that contains itself terminates", {
   labels := ArrayList(String).new();
   labels.push(String.from("a"));
   labels.push(String.from("b"));
   fields := ArrayList(TypeValue).new();
   fields.push(t_i32());
-  looped := _trp_struct(String.from("Loop"), &labels, &fields, false, false, false);
-  fields.push(looped.clone());
+  looped := _trp_looped_struct(String.from("Loop"), labels, fields, usize(1));
   assert(!type_representation_contains_raw_ptr(&looped), "struct(a : i32, b : <itself>)");
   ptr_labels := ArrayList(String).new();
   ptr_labels.push(String.from("a"));
   ptr_labels.push(String.from("b"));
   ptr_fields := ArrayList(TypeValue).new();
-  looped_ptr := _trp_struct(String.from("LoopPtr"), &ptr_labels, &ptr_fields, false, false, false);
-  ptr_fields.push(looped_ptr.clone());
   ptr_fields.push(t_ptr(t_u8()));
+  looped_ptr := _trp_looped_struct(String.from("LoopPtr"), ptr_labels, ptr_fields, usize(0));
   assert(type_representation_contains_raw_ptr(&looped_ptr), "struct(a : <itself>, b : *(u8))");
 });
 // Distinct types that share an id (here all empty) are not a cycle.
