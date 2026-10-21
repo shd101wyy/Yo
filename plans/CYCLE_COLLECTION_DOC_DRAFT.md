@@ -39,6 +39,12 @@ Tag legend: `V2b`, `V2c`, `V5` are phases of
 - (planned: W1) **The collector can be turned off per program**
   (`--cycle-collector off`): every `Rc` is then Rust's `Rc`, and a cycle
   leaks unless a `Weak` breaks it.
+- (planned: W6) **The collector is removed.** Once `Weak` and the leak
+  oracle (`yo test --allocator debug`) have shipped, `off` becomes the
+  default for one release and then the only mode: every cell has the
+  small header, `Drop` runs at exactly one point, `Acyclic` and `Trace`
+  no longer exist, and this page becomes a page about `Weak`, leaks and
+  the oracle (section 12).
 
 ```yo
 pragma(Pragma.AllowUnsafe);
@@ -181,17 +187,17 @@ the last handle. It is never tracked: a collector is thread-local, and an
   in Rust, and `ArcWeak` (section 7) is the way to avoid one. The
   `--debug-heap` report shows a leaked `Arc` cycle at exit.
 
-## 6. Turning the collector off (planned: W1)
+## 6. Turning the collector off (planned: W1; the default from W6)
 
 `--cycle-collector off` (and `cycle_collector : .Off` in `build.yo`) makes
 every `Rc` Rust's `Rc`: no cell is registered, no collector code is
 emitted, every cell has the small header, `Gc.collect()` does nothing and
 `Gc.tracked_count()` is 0. A cycle leaks unless a `Weak` breaks it; the
-`--debug-heap` report is how to find one. The default stays the collector:
-a leaked cycle is the quietest mistake a program can make, and the
-collector turns it into a cost instead. `YO_GC_THRESHOLD=0` is the
-run-time form of the same choice: it keeps the tracking and disables the
-trigger.
+`--debug-heap` report is how to find one. The collector stays the default
+until `Weak` and `yo test --allocator debug` have shipped: a leaked cycle
+is the quietest mistake a program can make, and the safety net is
+replaced before it is removed. `YO_GC_THRESHOLD=0` is the run-time form
+of the same choice: it keeps the tracking and disables the trigger.
 
 ## 7. `Weak` and `ArcWeak` (planned: W3, W4)
 
@@ -272,7 +278,22 @@ not visited.
 | `--allocator fixed --debug-heap` | the exit leak report, which lists leaked cycles |
 | (planned: W1) `--cycle-collector off` | section 6 |
 
-## 11. Design records
+## 11. The end state (planned: W6)
+
+With the collector deleted, this page shrinks to the model Rust documents:
+
+- `Rc` and `Arc` cells are freed by their last strong handle; their
+  payload's `Drop` runs there and nowhere else.
+- A cycle leaks. A back edge is a `Weak` or an `ArcWeak`; `upgrade` is
+  how it is read.
+- `yo test --allocator debug` fails a test that leaks, and `--allocator
+  debug`'s exit report names the leaked cells and their allocation sites.
+- Every cell has one 16-byte header; `Acyclic`, `Trace`, `Gc`,
+  `YO_GC_THRESHOLD` and `--cycle-collector` no longer exist.
+- An `Rc` payload may hold a reference (`Rc(&(T, p))`), as in Rust: there
+  is no later moment at which its `Drop` could run.
+
+## 12. Design records
 
 - [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md): §3.2 `Box`/`Rc`/`Arc`;
   §3.8 `Send`/`Sync`; §3.10 exclusivity and `RefCell`; §3.12 the
@@ -281,7 +302,7 @@ not visited.
   read-only; `Weak` reopened 2026-10-21).
 - [`backlog/WEAK_AND_UNCOLLECTED_RC.md`](backlog/WEAK_AND_UNCOLLECTED_RC.md):
   `Weak`/`ArcWeak`, the uncollected build, `Arc` without `Acyclic`,
-  phases W1–W5.
+  phases W1–W6 (W6 deletes the collector, `Trace` and `Acyclic`).
 - [`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)
   O9 and O10: borrows through a handle; `Escapable` and why an `Rc`
   payload carries no reference.
