@@ -4386,8 +4386,9 @@ and in git, not a silent edit.
       `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`
       (S1, branch `feat/global-lend-to-call-is-an-error`).
 48. **The cycle collector is removed, in stages; `Weak(T)`/`ArcWeak(T)`
-    replace it; `Arc` loses its `Acyclic` bound; `Acyclic` and `Trace`
-    are deleted with the collector** (maintainer, 2026-10-21, agreeing
+    replace it; `Arc` loses its `Acyclic` bound; `Trace` and the declared
+    `impl(T, Acyclic())` are deleted with the collector, and `Acyclic`
+    stays as a derived-only marker** (maintainer, 2026-10-21, agreeing
     with the staged recommendation; the design is
     `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`, the user text
     `plans/CYCLE_COLLECTION_DOC_DRAFT.md`). It amends decision 46's
@@ -4418,8 +4419,14 @@ and in git, not a silent edit.
       tracked-type count and the oracle's report recorded. Then the
       runtime, `std/gc`, the env knobs, the large header,
       `compute_needs_cycle_gc`/`can_type_form_rc_cycle`, `Trace` and its
-      impls, the `Acyclic` trait with its derivation, registry, pragma
-      rule and every remaining bound, and the knob itself are deleted;
+      impls, the declared `Acyclic` form (registry, pragma rule, decision
+      21's declarations) and the knob itself are deleted; the derived
+      `Acyclic` marker stays, with `Weak` edges excluded from its walk,
+      so `where(T <: Acyclic)` means "no strong cycle is reachable from
+      `T`" — the one static way to say a type cannot leak by cycle
+      (maintainer, 2026-10-21: "in some cases we might want to define a
+      type that disallows forming a reference cycle"); nothing in std
+      requires it after W2;
       `CYCLE_COLLECTION.md`, `ARC.md` and `MEMORY_SAFETY.md` follow in
       both languages, and `REFERENCES_AND_ORIGINS.md` O9/O10 and §3.1's
       "`Rc<&'a T>` stays closed" row are amended to Rust's rule.
@@ -7964,9 +7971,11 @@ release placement is the VBD session's call in
    tracked-type count over std and `src/` and the oracle's leak report
    over the corpus recorded in the plan.
 6. **W6b — the deletion**: runtime, `std/gc`, knobs, the large header,
-   the two predicates, `Trace`, `Acyclic` (trait, derivation, registry,
-   pragma rule, decision 21's declarations, remaining bounds), the
-   `--cycle-collector` knob; docs in both languages; O9/O10 amended. It
+   the two predicates, `Trace`, the declared `Acyclic` form (registry,
+   pragma rule, decision 21's declarations), the `--cycle-collector`
+   knob; docs in both languages; O9/O10 amended. The derived `Acyclic`
+   marker stays (W5 makes its walk ignore `Weak` edges and fixes the
+   cell-recursion answer). It
    needs a seed carrying W3/W4 and Z11, and it is best placed with V5
    Generation B or later, when `ref(...)` is gone and the header is
    rewritten once.

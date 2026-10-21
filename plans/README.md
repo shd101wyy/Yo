@@ -131,8 +131,9 @@ guards, `Cow`, `Deref` coercions).
 reopening decision 46's "No `Weak`") is Rust's `Rc`/`Arc` model on Yo's
 one handle pair: `Weak(T)`/`ArcWeak(T)` with a weak count in the bits
 decision 46 freed, a per-program `--cycle-collector off` build, `Arc`
-without its `Acyclic` bound, and the declared `Acyclic` exemption without
-the pragma; the collector is deleted at W6, once `Weak` and the
+without its `Acyclic` bound, and `Acyclic` kept as a derived-only marker
+(`Weak` edges excluded; the declared form goes); the collector is deleted
+at W6, once `Weak` and the
 `--allocator debug` leak oracle have shipped and one release has run with
 it off (maintainer, 2026-10-21).
 [`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md) is the Zig
