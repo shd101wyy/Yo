@@ -5,10 +5,12 @@
 **Status:** open. Found 2026-10-20 while landing `ArrayList(T).from`
 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` B3): decision 8 of the v0.2.68
 schedule spells the copying form `ArrayList(T).from(arr.clone())`, which is
-exactly this shape. Pre-existing: under the v0.2.66 seed and the develop
-`7def2203b` tree compiler, `count2(&arr.clone())` with
+exactly this shape. Pre-existing: under the v0.2.66 seed,
+`count2(&arr.clone())` with
 `count2 :: fn(generic(N : usize), arr : &Array(String, N))` (the borrowed
-shape of the deleted `ArrayList.from_array`) fails the same way.
+shape of the deleted `ArrayList.from_array`) fails the same way; the
+reproducer below fails under both the seed and this branch's tree compiler,
+whose changes do not touch generic inference.
 
 ## Reproducer
 
