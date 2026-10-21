@@ -42,7 +42,8 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
    The `Acyclic` stack must be rebased onto develop (#1501 re-keyed enum identity) and its probe table
    re-run BEFORE any RSS number is read; then the Linux `check src/main.yo` RSS against
    `scripts/bootstrap/memory-ratchet.tsv` decides whether #1486 lands as-is.
-3. **The B1 regeneration** (listing-heavy, `--hot-path src/evaluator`, from a clean-tree binary). It needs
+3. **The B1 regeneration** (listing-heavy, `--hot-path src/evaluator`, from a clean-tree binary) — **moved to
+   v0.2.69 on 2026-10-21** (`VBD_RELEASE_SCHEDULE.md` §5a decision 11). It needs
    ~45 GB of headroom if it regresses again — only this box can run it.
 4. Then the schedule's v0.2.68 row (`VBD_RELEASE_SCHEDULE.md` §1).
 
