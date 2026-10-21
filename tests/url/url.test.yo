@@ -268,7 +268,7 @@ test("Url parse still accepts every legal URI byte", {
   legal.push(String.from("data:text/plain;base64,SGVsbG8="));
   mut(i) := usize(0);
   while(runtime(i < legal.len()), {
-    src := legal(i);
+    src := legal(i).clone();
     match(
       _parse_err(&src),
       .Some(got) => assert(false, `legal URI rejected: [${src}] -> ${got}`),

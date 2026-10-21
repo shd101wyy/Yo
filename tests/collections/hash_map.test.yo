@@ -829,7 +829,7 @@ test("entry reuses a tombstone rather than lengthening the chain", {
 test("entry works with an RC key and value type", {
   m := HashMap(String, String).new();
   m.entry(`a`).or_insert(`one`);
-  m.entry(`a`).and_modify(s => (s + `!`));
+  m.entry(`a`).and_modify(s => (s.clone() + `!`));
   assert(m.get(`a`).unwrap() == `one!`, "and_modify replaced the value");
   m.entry(`b`).or_insert_with(() => `two`);
   assert(m.get(`b`).unwrap() == `two`, "or_insert_with stored its value");

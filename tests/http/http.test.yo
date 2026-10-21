@@ -263,7 +263,7 @@ _serve_scripted :: (
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_read_request(&s, e.io), e);
-      seen.with_mut(xs => xs.push(req));
+      seen.with_mut(xs => xs.push(req.clone()));
       _w := e.io.await(s.write_string(&responses(k), e.io), e);
       e.io.await(s.close(e.io), e);
       k = (k + usize(1));
@@ -583,7 +583,7 @@ test("fetch round-trips a binary body byte-for-byte", {
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), "200");
-  got := r.body;
+  got := r.body.clone();
   assert(got.len() == usize(8), `body is 8 bytes (got ${got.len()})`);
   assert(got.byte_at(usize(0)) == u8(0x80), "leading continuation byte survives");
   assert(got.byte_at(usize(1)) == u8(0), "NUL survives");
@@ -755,7 +755,7 @@ test("bytes after a Content-Length body are not part of the body", {
   outcome := client.await(io);
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
-  body := match(outcome, .Some(r) => r.body, .None => `<client unwound>`);
+  body := match(outcome, .Some(r) => r.body.clone(), .None => `<client unwound>`);
   assert(body == "hello", `body must stop at Content-Length, got [${body}]`);
 });
 // RFC 9112 §6.3: a Content-Length that is present but unreadable is an
@@ -963,7 +963,7 @@ test("parse_response slices a binary body as bytes", {
   match(
     parse_response(&raw),
     .Ok(r) => {
-      got := r.body;
+      got := r.body.clone();
       assert(got.len() == usize(5), `body kept all 5 bytes, got ${got.len()}`);
       assert(got.byte_at(usize(0)) == u8(0x80), "first byte");
       assert(got.byte_at(usize(2)) == u8(0x0d), "the CR inside the body survived");

@@ -1,0 +1,14 @@
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Marks :: struct(marks : ArrayList(i32), _m : *i32);
+make :: (fn() -> Marks)({
+  marks := ArrayList(i32).new();
+  marks.push(i32(7));
+  Marks(marks : marks, _m : marks.ptr().unwrap())
+});
+main :: (fn() -> unit)({
+  m := make();
+  println(`${m.marks(usize(0))} ${m._m.*}`);
+});
+export(main);

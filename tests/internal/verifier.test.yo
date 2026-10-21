@@ -24,7 +24,7 @@
 // Small term-construction helpers (shared by the golden tests below)
 // ---------------------------------------------------------------------------
 _bv32_var :: (fn(name : &String) -> VcTerm)(
-  rc(VcTermNode.Var(name : name, sort : VcSort.BvS(width : usize(32))))
+  rc(VcTermNode.Var(name : name.clone(), sort : VcSort.BvS(width : usize(32))))
 );
 _bv32_lit :: (fn(v : u64) -> VcTerm)(rc(VcTermNode.BvLit(value : v, width : usize(32))));
 _app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
@@ -95,7 +95,7 @@ test("encode_term: quantifier shape", {
   sorts := ArrayList(VcSort).new();
   sorts.push(VcSort.BvS(width : usize(64)));
   body := vc_eq(rc(VcTermNode.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64)))), rc(VcTermNode.BvLit(value : u64(0), width : usize(64))));
-  q := rc(VcTermNode.Quant(VcQuantKind.Forall, names, sorts, body, ArrayList(VcTerm).new()));
+  q := rc(VcTermNode.Quant(VcQuantKind.Forall, names.clone(), sorts, body, ArrayList(VcTerm).new()));
   assert(
     encode_term(&q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
     "forall with typed binder"
@@ -550,8 +550,8 @@ _rp :: (fn(outcome : &String, mode : &String, obligations : usize) -> VerifyFnRe
   });
   VerifyFnReport(
     fn_id : String.from("fn@src/x.yo:1"),
-    mode : mode,
-    outcome : outcome,
+    mode : mode.clone(),
+    outcome : outcome.clone(),
     obligations : obls,
     subset_construct : String.new(),
     subset_source : String.new()

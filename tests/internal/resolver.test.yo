@@ -29,7 +29,7 @@
 { AnyError, Exception, IoExn } :: import("std/error");
 _tags :: (fn(text : str) -> ArrayList(SemVer))(semver_tags_from_ls_remote(String.from(text)));
 _latest_tag :: (fn(text : str) -> Option(String))(
-  match(latest_release(_tags(text)), .Some(sv) => Option(String).Some(sv.tag), .None => Option(String).None)
+  match(latest_release(_tags(text)), .Some(sv) => Option(String).Some(sv.tag.clone()), .None => Option(String).None)
 );
 // ---------------------------------------------------------------------------
 // semver tags
@@ -304,7 +304,7 @@ _locked :: (fn(source : &String) -> LockEntry)(
   LockEntry(
     name : String.from("dep"),
     version : String.new(),
-    source : source,
+    source : source.clone(),
     commit : String.from("c0ffee"),
     integrity : String.from("sha256-x"),
     dependencies : ArrayList(String).new()

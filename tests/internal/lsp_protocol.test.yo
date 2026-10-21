@@ -633,7 +633,7 @@ test("workspace/symbol lists the open documents' matching top-level symbols", {
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
       ws := ArrayList(WorkspaceDoc).new();
-      ws.push(WorkspaceDoc(uri : String.from("file:///virtual/ws-a.yo"), exprs : oc.exprs, lines : lines));
+      ws.push(WorkspaceDoc(uri : String.from("file:///virtual/ws-a.yo"), exprs : oc.exprs.clone(), lines : lines));
       all := json.stringify(handle_workspace_symbols(String.new(), &ws));
       assert(all.contains("\"Point\"") && all.contains("\"answer\"") && all.contains("\"p\""), "an empty query lists every symbol");
       assert(all.contains("file:///virtual/ws-a.yo"), "each item points into its document");

@@ -57,7 +57,7 @@ _git :: (fn(root : String, git_args : ArrayList(String), io : Io) -> Option(Stri
   silent := Exception(throw : (_err -> unwind(Option(String).None)));
   out := io.await(cmd.output(io), IoExn(io : io, exn : silent));
   if(!out.status.success(), Option(String).None, {
-    s := String.from_bytes(out.stdout);
+    s := String.from_bytes(out.stdout.clone());
     t := s.trim();
     if(t.len() == usize(0), Option(String).None, Option(String).Some(t))
   })
@@ -107,7 +107,7 @@ _push_ascii :: (fn(out_b : ArrayList(u8), lit : str) -> unit)({
   lb := String.from(lit);
   (k : usize) = usize(0);
   while(k < lb.len(), k = (k + usize(1)), {
-    out_b.push(_byte_at(lb, k));
+    out_b.push(_byte_at(lb.clone(), k));
   });
 });
 _escape_html :: (fn(text : String) -> String)({
@@ -116,7 +116,7 @@ _escape_html :: (fn(text : String) -> String)({
   (i : usize) = usize(0);
   n := bs.len();
   while(i < n, i = (i + usize(1)), {
-    b := _byte_at(bs, i);
+    b := _byte_at(bs.clone(), i);
     cond(
       (b == u8(38)) => _push_ascii(out_b, "&amp;"),
       (b == u8(60)) => _push_ascii(out_b, "&lt;"),
@@ -139,7 +139,7 @@ _slugify :: (fn(text : String) -> String)({
   (i : usize) = usize(0);
   n := text_b.len();
   while(i < n, i = (i + usize(1)), {
-    b := _byte_at(text_b, i);
+    b := _byte_at(text_b.clone(), i);
     cond(
       (b == u8(60)) => {
         in_tag = true;
@@ -195,15 +195,15 @@ _slugify :: (fn(text : String) -> String)({
 /// get -1, -2, … suffixes (TS injectHeadingIds).
 _inject_heading_ids :: (fn(html : String) -> String)({
   counts := HashMap(String, u32).new();
-  html_b := html;
+  html_b := html.clone();
   out_b := ArrayList(u8).new();
   (i : usize) = usize(0);
   n := html_b.len();
   while(i < n, {
     (emitted : bool) = false;
     // `<hN>` — all four marker bytes are ASCII, so byte tests suffice.
-    lvl_b := _byte_at(html_b, i + usize(2));
-    is_h := ((_byte_at(html_b, i) == u8(60)) && ((i + usize(3)) < n) && ((_byte_at(html_b, i + usize(1)) == u8(104)) && ((lvl_b >= u8(49)) && (lvl_b <= u8(54)) && (_byte_at(html_b, i + usize(3)) == u8(62)))));
+    lvl_b := _byte_at(html_b.clone(), i + usize(2));
+    is_h := ((_byte_at(html_b.clone(), i) == u8(60)) && ((i + usize(3)) < n) && ((_byte_at(html_b.clone(), i + usize(1)) == u8(104)) && ((lvl_b >= u8(49)) && (lvl_b <= u8(54)) && (_byte_at(html_b.clone(), i + usize(3)) == u8(62)))));
     if(is_h, {
       lvl_s := ArrayList(u8).new();
       lvl_s.push(lvl_b);
@@ -222,7 +222,7 @@ _inject_heading_ids :: (fn(html : String) -> String)({
           hb := heading;
           (hk : usize) = usize(0);
           while(hk < hb.len(), hk = (hk + usize(1)), {
-            out_b.push(_byte_at(hb, hk));
+            out_b.push(_byte_at(hb.clone(), hk));
           });
           i = (end_i + close.len());
           emitted = true;
@@ -231,7 +231,7 @@ _inject_heading_ids :: (fn(html : String) -> String)({
       );
     });
     if(!emitted, {
-      out_b.push(_byte_at(html_b, i));
+      out_b.push(_byte_at(html_b.clone(), i));
       i = (i + usize(1));
     });
   });
@@ -244,12 +244,12 @@ _starts_with_at :: (fn(s : String, prefix : str, at : usize) -> bool)(
 );
 /// The TS rewriteReadmeLinks URL policy for a single href/src value.
 _rewrite_url :: (fn(url : String, github_blob : String, is_src : bool) -> String)({
-  keep := (_starts_with_at(url, "http", usize(0)) || _starts_with_at(url, "#", usize(0)) || _starts_with_at(url, "std/", usize(0)) || _starts_with_at(url, "mailto:", usize(0)));
+  keep := (_starts_with_at(url.clone(), "http", usize(0)) || _starts_with_at(url.clone(), "#", usize(0)) || _starts_with_at(url.clone(), "std/", usize(0)) || _starts_with_at(url.clone(), "mailto:", usize(0)));
   cond(
     (keep && !is_src) => url,
-    (is_src && _starts_with_at(url, "http", usize(0))) => url,
+    (is_src && _starts_with_at(url.clone(), "http", usize(0))) => url,
     true => {
-      rel := if(_starts_with_at(url, "./", usize(0)), url.substring(usize(2), url.len()), url.clone());
+      rel := if(_starts_with_at(url.clone(), "./", usize(0)), url.substring(usize(2), url.len()), url.clone());
       cond(
         ((rel == "Yo_logo.png") || (rel == "path_uniqueness.png")) => rel,
         is_src => `${github_blob}/${rel}?raw=true`,
@@ -666,7 +666,7 @@ main :: (fn(io : Io) -> unit)({
     site_version,
     .Some(v) => {
       vb := v.clone();
-      (v.len() >= usize(2)) && ((_byte_at(vb, usize(0)) == u8(118)) && ((_byte_at(vb, usize(1)) >= u8(48)) && (_byte_at(vb, usize(1)) <= u8(57))))
+      (v.len() >= usize(2)) && ((_byte_at(vb.clone(), usize(0)) == u8(118)) && ((_byte_at(vb.clone(), usize(1)) >= u8(48)) && (_byte_at(vb, usize(1)) <= u8(57))))
     },
     .None => false
   );
@@ -696,14 +696,14 @@ main :: (fn(io : Io) -> unit)({
   opts.enable_callout = true;
   opts.enable_footnote = true;
   (readme_html : String) = markdown_to_html(readme_src.clone(), &opts);
-  readme_html = _inject_heading_ids(readme_html);
+  readme_html = _inject_heading_ids(readme_html.clone());
   // The generated-docs link points into the same site.
   readme_html = readme_html.replace_all(
     String.from("href=\"https://shd101wyy.github.io/Yo/\""),
     String.from("href=\"std/index.html\"")
   );
-  readme_html = _rewrite_attr(readme_html, "href", github_blob.clone(), false);
-  readme_html = _rewrite_attr(readme_html, "src", github_blob.clone(), true);
+  readme_html = _rewrite_attr(readme_html.clone(), "href", github_blob.clone(), false);
+  readme_html = _rewrite_attr(readme_html.clone(), "src", github_blob.clone(), true);
   homepage := _wrap_homepage(String.from("Yo Programming Language"), readme_html, _homepage_css(), site_version.clone(), github_blob.clone());
   io.await(write_string(Path.new(`${output_dir}/index.html`), &homepage, io), ie);
   println(String.from("  ✓ index.html"));

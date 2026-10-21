@@ -213,10 +213,10 @@ test("search scoring: exact > prefix > substring > signature > doc", {
   mk :: (fn(nm : &String, sig : &String, dc : &String) -> ContextIndexEntry)(
     ContextIndexEntry(
       module : `t/m`,
-      name : nm,
+      name : nm.clone(),
       kind : `fn`,
-      signature : sig,
-      doc : dc,
+      signature : sig.clone(),
+      doc : dc.clone(),
       origin : String.new()
     )
   );
@@ -242,11 +242,11 @@ test("search scoring: a multi-word query ANDs its tokens over name, module, sign
   // match somewhere; the entry scores its WEAKEST token's best tier.
   mkm :: (fn(mod : &String, nm : &String, sig : &String, dc : &String) -> ContextIndexEntry)(
     ContextIndexEntry(
-      module : mod,
-      name : nm,
+      module : mod.clone(),
+      name : nm.clone(),
       kind : `fn`,
-      signature : sig,
-      doc : dc,
+      signature : sig.clone(),
+      doc : dc.clone(),
       origin : String.new()
     )
   );
@@ -286,9 +286,9 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   row :: (fn(nm : &String, sig : &String) -> ContextIndexEntry)(
     ContextIndexEntry(
       module : `t/channel`,
-      name : nm,
+      name : nm.clone(),
       kind : `method`,
-      signature : sig,
+      signature : sig.clone(),
       doc : String.new(),
       origin : String.new()
     )

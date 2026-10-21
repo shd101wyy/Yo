@@ -119,7 +119,7 @@ test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
   keys := ArrayList(String).new();
   mut(total) := i32(0);
   for(m.into_iter(), e => {
-    keys.push(e.key);
+    keys.push(e.key.clone());
     total = (total + e.value);
   });
   assert(keys.len() == usize(2), "two entries");
@@ -280,7 +280,7 @@ test("OrderedMap swap_remove keeps its position index in step", {
   // value — a stale index would have removed the wrong slot above.
   (mut(j) : usize) = usize(0);
   while(j < ks.len(), j = (j + usize(1)), {
-    k := ks(j);
+    k := ks(j).clone();
     v := m.get(&k);
     assert(v.is_some(), `${k} is still present`);
   });

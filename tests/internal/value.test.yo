@@ -206,8 +206,8 @@ test("TraitVal: Some/None field equality", {
   fvals_c := ArrayList(Option(EvalValue)).new();
   fvals_c.push(Option(EvalValue).Some(.IntLit(String.from("99"))));
   fvals_c.push(Option(EvalValue).None);
-  t_a := EvalValue.TraitVal(String.from("T"), fnames, fvals_a);
-  t_b := EvalValue.TraitVal(String.from("T"), fnames, fvals_b);
+  t_a := EvalValue.TraitVal(String.from("T"), fnames.clone(), fvals_a);
+  t_b := EvalValue.TraitVal(String.from("T"), fnames.clone(), fvals_b);
   t_c := EvalValue.TraitVal(String.from("T"), fnames, fvals_c);
   assert(t_a == t_b, "matching Some/None fields are equal");
   assert(!(t_a == t_c), "different Some value not equal");
@@ -219,7 +219,7 @@ test("TraitVal: Some vs None mismatch not equal", {
   fvals_some.push(Option(EvalValue).Some(.UnitVal));
   fvals_none := ArrayList(Option(EvalValue)).new();
   fvals_none.push(Option(EvalValue).None);
-  t_some := EvalValue.TraitVal(String.from("T"), fnames, fvals_some);
+  t_some := EvalValue.TraitVal(String.from("T"), fnames.clone(), fvals_some);
   t_none := EvalValue.TraitVal(String.from("T"), fnames, fvals_none);
   assert(!(t_some == t_none), "Some vs None mismatch is not equal");
 });
