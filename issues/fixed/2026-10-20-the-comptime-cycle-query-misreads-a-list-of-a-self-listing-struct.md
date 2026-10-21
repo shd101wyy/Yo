@@ -52,7 +52,7 @@ answers `false`. Codegen judges the list from the patched types and
 registers it. Which copy of the shell this query meets was not traced.
 
 It is the defect of
-`issues/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`,
+`issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`,
 where `LinkedList(Self)` reaches `Self` only through `Node(Self)`'s buffer.
 The fix there, `de5ee94fc` on draft PR #1486 (the same patch, by
 `git patch-id`, is `f0db6e64a` on `perf/acyclic-compiler-containers`), makes
