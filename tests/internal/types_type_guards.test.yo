@@ -28,7 +28,7 @@ mk_struct :: (
     TypeValueNode.Struct(
       id : String.from(""),
       name : String.from(name),
-      field_labels : field_labels,
+      field_labels : field_labels.clone(),
       field_types : ArrayList(TypeValue).new(),
       is_reference_semantics : is_reference_semantics,
       is_atomic_rc : is_atomic_rc,
@@ -54,7 +54,7 @@ test("is_iso_type matches IsoT only", {
 test("is_dyn_type matches DynT only", {
   empty_traits := ArrayList(TypeValue).new();
   empty_levels := ArrayList(usize).new();
-  dyn_ty := rc(TypeValueNode.DynT(empty_traits, empty_levels, empty_traits.clone(), empty_levels.clone()));
+  dyn_ty := rc(TypeValueNode.DynT(empty_traits.clone(), empty_levels.clone(), empty_traits.clone(), empty_levels.clone()));
   assert(is_dyn_type(&dyn_ty), "DynT");
   assert(!is_dyn_type(t_i32()), "i32 is not Dyn");
 });

@@ -487,7 +487,7 @@ _d6_scripted_server :: (
       eprintln(`  server: accept ${k} pending`);
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_d6_read_headers(&s, e.io), e);
-      seen.with_mut(xs => xs.push(req));
+      seen.with_mut(xs => xs.push(req.clone()));
       _w := e.io.await(s.write_str("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok", e.io), e);
       e.io.await(s.close(e.io), e);
       eprintln(`  server: round ${k} done`);

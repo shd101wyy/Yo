@@ -129,8 +129,8 @@ test("json.parse simple object", {
 });
 test("json.parse nested object", {
   v := json.parse("{\"outer\": {\"inner\": 99}}").unwrap();
-  outer := v(String.from("outer"));
-  inner := outer(String.from("inner"));
+  outer := v(String.from("outer")).clone();
+  inner := outer(String.from("inner")).clone();
   assert(inner.as_number().unwrap() == f64(99), "inner value should be 99");
 });
 test("json.parse nested array in object", {
@@ -547,7 +547,7 @@ test("json_parse_result rejects content after the top-level value", {
   cases.push(`{"a":1} {"b":2}`.to_string());
   mut(i) := usize(0);
   while(runtime(i < cases.len()), {
-    src := cases(i);
+    src := cases(i).clone();
     assert(
       match(json_parse_result(src.clone()), .Ok(_) => false, .Err(_) => true),
       `expected trailing content to be rejected: ${src}`
@@ -714,7 +714,7 @@ test("json.stringify escapes every control byte", {
   s.push_byte(u8(12));
   s.push_byte(u8(31));
   s.push_byte(u8(0));
-  out := json.stringify(JsonValue.Str(s));
+  out := json.stringify(JsonValue.Str(s.clone()));
   assert(out == `"\\u0001\\b\\f\\u001f\\u0000"`, "control bytes stringify as escapes");
   (mut(i) : usize) = usize(0);
   while(i < out.len(), {

@@ -104,7 +104,7 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
     usize(4)
   );
   hdr := asm4.header_text.clone();
-  chunks := asm4.chunks;
+  chunks := asm4.chunks.clone();
   assert(chunks.len() == usize(4), `expected 4 chunks, got ${chunks.len().to_string()}`);
   chunk0 := match(chunks.get(usize(0)), .Some(c) => c, .None => String.new());
   // 1. The declarations buffer must not be LOST (the value-type out-param bug).
@@ -220,7 +220,7 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
     usize(4),
     true
   );
-  chunks := by_module.chunks;
+  chunks := by_module.chunks.clone();
   assert(chunks.len() == usize(4), `expected 4 chunks, got ${chunks.len().to_string()}`);
   (mut(units_with_alpha) : usize) = usize(0);
   (mut(units_with_both) : usize) = usize(0);

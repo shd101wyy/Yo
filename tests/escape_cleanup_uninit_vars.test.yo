@@ -34,7 +34,7 @@ parse_one :: (fn(present : bool, exn : Exception) -> ParseResult)({
     .None => exn.throw(dyn(ParseError(message : `eof`))),
     .Some(t) => t
   );
-  ParseResult(label : tok.name, index : usize(0))
+  ParseResult(label : tok.name.clone(), index : usize(0))
 });
 // Pattern 2 — break inside a match arm in `while runtime(true)`,
 // with an RC-typed binding declared after the break.
@@ -50,8 +50,8 @@ collect_one :: (fn(present : bool, exn : Exception) -> ParseResult)({
         if(next_tok.name == `stop`, {
           break;
         });
-        chain_pr := ParseResult(label : next_tok.name, index : usize(1));
-        final_label = chain_pr.label;
+        chain_pr := ParseResult(label : next_tok.name.clone(), index : usize(1));
+        final_label = chain_pr.label.clone();
         break;
       }
     );

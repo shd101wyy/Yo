@@ -4425,7 +4425,7 @@ test("Test a nullable-pointer arm binding does not store into a same-named hoist
       aio.await(yield(aio), aio);
       inner := match(
         find_cargo(String.from("inner")),
-        .Some(parsed) => parsed.label,
+        .Some(parsed) => parsed.label.clone(),
         .None => String.from("none")
       );
       aio.await(yield(aio), aio);
@@ -5898,7 +5898,7 @@ _nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(St
       match(head, .Some(h) => log.push_string(`head-${h};`), .None => ());
       (mut(i) : usize) = usize(0);
       while(runtime(i < artifact.mods.len()), {
-        imp := artifact.mods(i);
+        imp := artifact.mods(i).clone();
         r := e.io.await(_nw_resolve(imp.clone(), e.io), e);
         cond(
           r.is_some() => log.push_string(`${artifact.name}:${imp};`),
@@ -5929,7 +5929,7 @@ _field_named_local :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
     (mut(k) : usize) = usize(0);
     while(runtime(k < usize(2)), {
       resolution := e.io.await(_field_resolve(e.io), e);
-      dep_root_opt := resolution.root;
+      dep_root_opt := resolution.root.clone();
       root := match(dep_root_opt, .Some(r) => r, .None => String.from("none"));
       log.push_string(`${root};`);
       k = (k + usize(1));
@@ -6032,12 +6032,12 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
     match(
       parsed,
       .Path(n, rel) => {
-        name = n;
-        url = rel;
+        name = n.clone();
+        url = rel.clone();
       },
       .Git(n, u) => {
-        name = n;
-        url = u;
+        name = n.clone();
+        url = u.clone();
         needs_latest = true;
       }
     );
@@ -6070,7 +6070,7 @@ _match_loop_local_twice :: (fn(srcs : &ArrayList(_MmSrc), io : Io) -> Impl(Futur
     while(i < srcs.len(), {
       src := srcs(i);
       i = (i + usize(1));
-      requirement := match(src, .Git(_, t) => t, .Path(p) => p);
+      requirement := match(src, .Git(_, t) => t.clone(), .Path(p) => p.clone());
       url := match(src, .Git(u, _) => u, .Path(_) => String.from("local"));
       (mut(chosen) : String) = requirement.clone();
       if(requirement.len() == usize(0), {

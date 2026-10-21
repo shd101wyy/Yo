@@ -186,14 +186,14 @@ test("env override and env_clear reach the child", {
   cmd.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
   cmd.env(`YO_CMD_TEST`.to_string(), `injected`.to_string());
   out := io.await(cmd.output(io), e);
-  s := String.from_bytes(out.stdout);
+  s := String.from_bytes(out.stdout.clone());
   assert(s.starts_with("injected-"), "override visible, HOME inherited");
   assert(s.len() > usize(9), "HOME non-empty when inherited");
   cmd2 := Command.new(`/bin/sh`.to_string());
   cmd2.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
   cmd2.env(`YO_CMD_TEST`.to_string(), `only`.to_string()).env_clear();
   out2 := io.await(cmd2.output(io), e);
-  s2 := String.from_bytes(out2.stdout);
+  s2 := String.from_bytes(out2.stdout.clone());
   assert(s2 == `only-`, "env_clear drops HOME, keeps the override");
 });
 test("a signal death is code None, not exit 0", {
