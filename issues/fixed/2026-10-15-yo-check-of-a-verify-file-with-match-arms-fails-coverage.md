@@ -61,6 +61,16 @@ measure.
 - The memory cost is the arms table `check` now keeps. `check src/main.yo`
   max RSS went from 1,224,523,776 to 1,230,585,856 bytes (+6.1 MB, +0.5 %),
   and wall time was 135.0 s before, 132.0 s after (noise).
+  *Correction 2026-10-21:* that number understates the cost. On Linux
+  stage-2 binaries (the CI ratchet's mimalloc build), `check src/main.yo`
+  max RSS went from 1,065,500 kB at `3c92e08f3` to 1,100,200 kB at
+  `00621864f`, the merge of this fix (+34.7 MB, +3.3 %; two runs each,
+  noise ±6 MB). The follow-up `perf/match-arms-verify-modules-only`
+  records the arms only when a `check` target's code tokens spell a
+  `Pragma.Verify…` pragma, or in the watch modes; a target without one
+  cannot verify, since `check` takes no `--verify-mode`. On one base,
+  stage-2 `check src/main.yo` max RSS went from 1,107,640 kB to
+  1,076,260 kB (−31.4 MB, −2.8 %), reclaiming the cost.
 
 **Tests:** `tests/internal/verifier_match.test.yo` gets "the match walk has
 its arms under check's settings (codegen-only tables off, solver-free)". It
