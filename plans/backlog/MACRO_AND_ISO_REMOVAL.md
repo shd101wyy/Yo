@@ -1,7 +1,8 @@
 # Macro and Iso removal — comptime-only metaprogramming, Rust's thread rule
 
 **Status:** WRITTEN 2026-10-20, revised 2026-10-20 after review; scheduled in
-the VBD campaign (see "Schedule" at the end). This is the decision record and
+the VBD campaign (see "Schedule" at the end). **Part A pulled forward to
+v0.2.68 (maintainer, 2026-10-21)**: see "Part A moves to v0.2.68" in §0.2. This is the decision record and
 campaign for two maintainer decisions of 2026-10-20, both approved:
 
 1. **Delete the macro layer.** Reverses `plans/reference/MACRO_POLICY.md`
@@ -152,9 +153,25 @@ says why: "Until V2b gives `String` and the collections unique buffers, they
 reach a non-atomic cell and are not `Send`". V2b's `Send`-by-move makes the
 plain-value payloads the common case, and obsoletes the docs' "use Iso until
 `Channel(String)` works" stopgap, only once its B8–B11 flips land (VBD §6
-V2). Part A therefore follows B11. Its gate includes the replacement probe:
-the same transfer, written without `Iso`, must compile on the tree that
-deletes `Iso`.
+V2). Part A therefore followed B11 in the 2026-10-20 schedule, and its gate
+included the replacement probe: the same transfer, written without `Iso`,
+must compile on the tree that deletes `Iso`.
+
+**Part A moves to v0.2.68 (maintainer decision, 2026-10-21).** The
+"why not first" ordering above is superseded. Nothing in `src/` or `std/`
+uses `Iso` outside its own surface, and deleting it closes its two open
+safety holes instead of accepting them for two more releases: the `Send`
+hole above
+(`issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`)
+and the collector-handoff use-after-free S1
+(`issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`,
+filed on the branch `docs/cycle-walk-holder-asymmetry`). The accepted cost:
+from v0.2.68 until V2b's B8 flip (v0.2.70) no `String` or collection can be
+moved to another thread. The substitutes in that window are an `Arc` of
+`Send` data, a value rebuilt on the receiving side, or serialization; the
+docs say so where `Iso` was the documented stopgap. The replacement probe
+cannot pass before B8, so it moves to B8's gate (A6, and
+`plans/VALUES_BY_DEFAULT.md` §6 B8).
 
 Nothing in `src/` or `std/` outside the feature's own surface uses `Iso`
 (the `Isolation` trait has no callers outside the prelude besides the
@@ -298,7 +315,8 @@ On `8203bd867` (and on `400413ac3`) it hits 45 files in `src/`. The main ones, r
 
 ## Part A — remove `Iso(T)`, `^v`, `Var.*`, `Isolation`
 
-Scheduled after V2b B8–B11 (Schedule). No bootstrap gating: this is deletion
+Scheduled for v0.2.68, ahead of V2b B8–B11 (maintainer, 2026-10-21; §0.2
+and Schedule). No bootstrap gating: this is deletion
 only, and nothing outside the feature's own surface references the deleted
 names. The §1.3 grep gate must return only the allowlisted historical hits
 before the PR is opened.
@@ -344,9 +362,11 @@ before the PR is opened.
   - The `tests/cli-cases/lsp-analysis-resilience` golden loses four
     completion entries: `Iso` (keyword), `Isolation`, `Var` and `^`. Re-record
     with `--record` after reading the GOLDEN-DIFF; nothing else may move.
-  - Add the replacement probe as a test: a `String` and an
-    `ArrayList(String)` moved into a spawned thread and back by value, which
-    must pass on the tree that deletes `Iso` (it fails before V2b's B8).
+  - The replacement probe (a `String` and an `ArrayList(String)` moved
+    into a spawned thread and back by value) is NOT part of Part A. It
+    fails before V2b's B8, and Part A lands first (2026-10-21), so B8 adds
+    it as a test and it gates B8 (`plans/VALUES_BY_DEFAULT.md` §6 B8,
+    Tier 1).
 - **A7 — docs, plans, instructions.** The sweep is a grep gate over
   `docs/`, `plans/`, `.github/`, `README.md`, `AGENTS.md`, `std/`, `src/` and
   `vscode-extension/` (the §1.3 pattern), allowlisting `plans/archive/`,
@@ -391,8 +411,8 @@ before the PR is opened.
 **A — verification (Tier 1).** `yo build --std-path ./std`; `yo check ./src`
 and `yo check ./std` (both `--std-path ./std`); the affected test files one
 per invocation (parallelism_soundness, thread_safety, send_sync, rc, arc,
-basic, explicit_allocators, the four internal types files, and the new
-replacement probe); `scripts/cli-diff-test.sh` (read every GOLDEN-DIFF — the
+basic, explicit_allocators and the four internal types files; the
+replacement probe gates B8 instead, A6); `scripts/cli-diff-test.sh` (read every GOLDEN-DIFF — the
 LSP golden and the skill goldens are expected to move, nothing else); the
 dup/drop emit-diff gate and canary for A5; the §1.3 grep gate; `yo fmt`
 (tree binary) on every touched `.yo` and Markdown file;
@@ -844,8 +864,11 @@ grep gates; fmt and `check-issue-refs.sh`.
 Inside the VBD campaign (`plans/VALUES_BY_DEFAULT.md` §6), with no release
 of its own:
 
-- **Part A** lands after V2b's B8–B11 (the `String` and collection flips to
-  `Send`-by-move, VBD §6 V2) and before B12. It must precede:
+- **Part A** lands in v0.2.68, pulled forward on 2026-10-21 (§0.2): before
+  V2b's B8–B11 (the `String` and collection flips to `Send`-by-move, VBD §6
+  V2), which were its original predecessors. From v0.2.68 until B8
+  (v0.2.70) no `String` or collection crosses a thread, and the replacement
+  probe gates B8. It must precede:
   - V2c (decision 17): otherwise `Iso` handles need a clone story;
   - decision 46's collector-predicate follow-up (VBD §6 "Decision 46" step
     3; the 2026-10-17 handover's step 9): otherwise the narrowed collector

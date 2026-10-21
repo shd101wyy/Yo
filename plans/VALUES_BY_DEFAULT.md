@@ -7128,12 +7128,19 @@ heavy run, the command is given in item 2.
      - Tier 1: `yo build --std-path ./std` with the seed (the stage-1
        check); `tests/collections/*`, `tests/string/*`,
        `tests/move_only.test.yo`, `tests/copy_trait.test.yo`,
-       `tests/cycle_collector.test.yo`, `tests/iso.test.yo`,
+       `tests/cycle_collector.test.yo`,
        `tests/for_macro_borrow*.test.yo`, `tests/index.test.yo`,
        `tests/rc.test.yo`, `tests/async_await.test.yo`,
        `tests/comptime.test.yo` (CTFE now runs a value list),
        `tests/encoding/*` (`JsonValue`); in-process internal (the LSP files
        read `JsonValue`); cli-diff; fixpoint.
+     - **The `Iso` replacement probe gates B8** (moved here from
+       `plans/backlog/MACRO_AND_ISO_REMOVAL.md` A6 when Part A was pulled
+       forward to v0.2.68, maintainer 2026-10-21). B8 adds it as a test: a
+       `String` and an `ArrayList(String)` moved into a spawned thread and
+       back by value. It must pass on B8's tree. It cannot pass earlier:
+       from v0.2.68 (no `Iso`) until B8, no `String` or collection crosses
+       a thread.
      - Goldens: `audit-implicit-copy-lists-copies-of-live-values`,
        `fix-migrate-explicit-copy` (its left-as-written sites are E0901
        now), the seven runtime-panic `inout-*-panics` cases (on a value
