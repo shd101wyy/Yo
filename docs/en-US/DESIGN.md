@@ -143,7 +143,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [ResumableException](#resumableexception)
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
-- [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
     - [Importing a name twice](#importing-a-name-twice)
