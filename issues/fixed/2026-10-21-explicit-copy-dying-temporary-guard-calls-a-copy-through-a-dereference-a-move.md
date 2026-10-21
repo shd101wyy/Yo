@@ -55,6 +55,9 @@ wasted.
 ## Test
 
 `tests/cli-cases/fix-migrate-explicit-copy-dying-temp` gained
-`e := grab(&s).*.name` with the pointee read again; its golden expects the
-`.clone()` rewrite (`binding: ... would become grab(&s).*.name.clone()`).
-Before the fix the same case listed it as a field of a dying temporary.
+`e := grab(&s).*.name` with the pointee read again; its goldens expect the
+`.clone()` rewrite (the summary's insertion count goes from 1 to 2, and
+`expected_tree` pins the rewritten file). Before the fix the same case
+listed it as a field of a dying temporary. A `--dry-run` of the fixture with
+the fixed tree binary prints
+`fix: main.yo:28:8: binding: ... would become grab(&s).*.name.clone()`.
