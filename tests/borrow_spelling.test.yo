@@ -265,6 +265,24 @@ comptime_expect_error(
   }),
   "is a borrow mode, not a type"
 );
+// `&mut(T, p)` is decision 43's origin-qualified reference, not supported
+// yet. Its two-argument marker used to re-evaluate itself until `yo check`
+// overflowed its stack (exit 139), in every type position
+// (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
+comptime_expect_error(
+  bs_origin_mut_result :: (fn(xs : &mut i32) -> &mut(i32, xs))(xs),
+  "is an origin-qualified reference"
+);
+comptime_expect_error(
+  bs_origin_mut_param :: (fn(xs : &mut(i32, i32)) -> unit)(()),
+  "is an origin-qualified reference"
+);
+comptime_expect_error(
+  bs_origin_mut_type_argument :: (fn() -> unit)({
+    _o := Option(&mut(i32, i32)).None;
+  }),
+  "is an origin-qualified reference"
+);
 // A borrow result is a projection (decision 24): it yields a place spelled
 // with its sigil, never a value.
 comptime_expect_error(

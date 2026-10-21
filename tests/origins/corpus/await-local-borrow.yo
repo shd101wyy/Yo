@@ -1,0 +1,19 @@
+// N0 corpus row `await-local-borrow` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: a body-local borrow live across an `await` (O5: the local lives in the heap state machine).
+// Expected once decision 43's rules land: accepted (today too).
+_bump :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c = (c + i32(1));
+  })
+);
+_outer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    mut(c) := i32(0);
+    io.await(_bump(&mut c, io), io);
+    c
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  _ := io.await(_outer(io), io);
+});
+export(main);

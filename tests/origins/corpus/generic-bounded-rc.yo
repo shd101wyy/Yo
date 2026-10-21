@@ -1,0 +1,11 @@
+// N0 corpus row `generic-bounded-rc` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): `_wrap(&x)` against `where(T <: Escapable)` (O10).
+// Expected once decision 43's rules land: rejected: E0909 at the call.
+_wrap :: (fn(generic(T : Type), v : T, where(T <: Escapable)) -> Rc(T))(rc(v));
+main :: (fn() -> unit)({
+  x := i32(1);
+  r := _wrap(&x);
+  _ := r.*.*;
+  ()
+});
+export(main);

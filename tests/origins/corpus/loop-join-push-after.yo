@@ -1,0 +1,19 @@
+// N0 corpus row `loop-join-push-after` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: the same loop with the write after the container's last use.
+// Expected once decision 43's rules land: accepted.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(x) := i32(0);
+  mut(out) := ArrayList(&i32).new();
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    if((i % i32(2)) == i32(1), {
+      out.push(&x);
+    });
+    i = (i + i32(1));
+  });
+  _ := out.len();
+  x = i32(9);
+  ()
+});
+export(main);

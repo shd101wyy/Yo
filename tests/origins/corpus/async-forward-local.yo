@@ -1,0 +1,11 @@
+// N0 corpus row `async-forward-local` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a future capturing a callee local returned (the return rule over `Future(T, p)`, O8).
+// Expected once decision 43's rules land: rejected: E0912, naming `y`.
+_leak :: (fn(io : Io) -> Impl(Future(i32, Io)))({
+  y := i32(2);
+  io.async({ &y }(io : Io) => y)
+});
+main :: (fn(io : Io) -> unit)({
+  _ := io.await(_leak(io), io);
+});
+export(main);

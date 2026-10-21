@@ -1,0 +1,13 @@
+// N0 corpus row `rc-handle-reassigned` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a handle reassigned while `&(X, h)` lives (O9).
+// Expected once decision 43's rules land: rejected: E0911 at the assignment.
+_X :: struct(x : i32);
+derive(_X, Copy, Clone);
+main :: (fn() -> unit)({
+  mut(h) := rc(_X(x : i32(1)));
+  r := &h.*.x;
+  h = rc(_X(x : i32(2)));
+  _ := r.*;
+  ()
+});
+export(main);

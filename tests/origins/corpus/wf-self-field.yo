@@ -1,0 +1,10 @@
+// N0 corpus row `wf-self-field` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a type naming its own field (O1 well-formedness, O5).
+// Expected once decision 43's rules land: rejected: the self-origin rule.
+_Node :: struct(value : i32, next : &(i32, self.value));
+main :: (fn() -> unit)({
+  (n : Option(_Node)) = .None;
+  _ := n.is_none();
+  ()
+});
+export(main);
