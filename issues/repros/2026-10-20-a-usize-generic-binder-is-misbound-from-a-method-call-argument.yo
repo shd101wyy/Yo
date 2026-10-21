@@ -1,0 +1,16 @@
+// issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md
+// Fails with E0604 on `count(w.get())`; the other two calls bind N = 3.
+{ assert } :: import("std/assert");
+count :: (fn(generic(N : usize), arr : Array(i32, N)) -> usize)(N);
+Wrap :: struct(a : Array(i32, 3));
+impl(Wrap, get : (fn(self : &Self) -> Array(i32, 3))(self.a));
+get2 :: (fn(w : &Wrap) -> Array(i32, 3))(w.a);
+main :: (fn() -> unit)({
+  a := [i32(1), i32(2), i32(3)];
+  w := Wrap(a : a);
+  (x1 : usize) = count(get2(&w));
+  (x2 : usize) = count(Wrap.get(&w));
+  (x3 : usize) = count(w.get());
+  assert((x1 + x2 + x3) == usize(9), "each call binds N = 3");
+});
+export(main);

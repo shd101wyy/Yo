@@ -31,10 +31,10 @@
 //! ITERATORS from `union`/`intersection`/`difference` rather than owned sets.
 //! Freezing follows those two decisions.
 pragma(Pragma.AllowUnsafe);
-pragma(Pragma.AllowMacroDef);
 { MapEntry } :: import("./entry.yo");
 { AllocError } :: import("../allocator.yo");
 { HashMap, HashMapError, HashMapIter, HashMapIterPtr } :: import("./hash_map");
+{ ArrayList } :: import("./array_list.yo");
 /// Error variants for HashSet operations.
 ///
 /// Kept as its own type rather than aliased to `HashMapError` so a caller
@@ -84,6 +84,31 @@ impl(
   with_capacity : (fn(requested_capacity : usize) -> Self)(
     Self(_map : HashMap(T, unit).with_capacity(requested_capacity))
   ),
+  /// Consuming constructor from a fixed-size array — Rust's
+  /// `HashSet::from([T; N])`: `HashSet(i32).from([i32(1), i32(2), i32(3)])`.
+  ///
+  /// The array is taken by `sink`, so the caller's binding ends at the call,
+  /// and every element moves into the set: nothing is copied. Equal elements
+  /// collapse, as with `insert`.
+  from : (fn(generic(N : usize), sink(elems) : Array(T, N)) -> Self)({
+    out := Self.with_capacity(N);
+    // `ArrayList.from` moves the elements into a buffer and `pop` moves each
+    // one out of its slot; reversing first inserts them in array order.
+    rest := ArrayList(T).from(elems);
+    rest.reverse();
+    while(true, {
+      match(
+        rest.pop(),
+        .Some(x) => {
+          out.insert(x);
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    out
+  }),
   /// Empty set whose table lives in `alloc` (see `HashMap.new_in`).
   new_in : (fn(alloc : Allocator) -> Self)(
     Self(_map : HashMap(T, unit).new_in(alloc))
@@ -446,49 +471,6 @@ export(
   HashSetIter,
   HashSetIterPtr
 );
-// =============================================================================
-// hash_set! literal macro
-// =============================================================================
-/// Internal helper: build a list of `tmp.insert(elem)` statements from `elems`.
-__hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
-  cond(
-    (elems.len() == usize(0)) => ExprList(),
-    true => {
-      first :: elems.car();
-      rest :: elems.cdr();
-      // NO `.unwrap()` here (D9): `insert` returns a bool now, not a Result.
-      stmt :: quote(unquote(tmp).insert(unquote(first)));
-      stmt.cons(recur(tmp, rest))
-    }
-  )
-);
-/// `hash_set` macro — construct a `HashSet(T)` literal.
-///
-/// `T` is inferred from the first element via `typeof`, so at least one
-/// element is required.
-///
-/// ## Example
-/// ```yo
-/// s := hash_set(i32(1), i32(2), i32(3));
-/// ```
-hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
-  __ :: comptime_assert(
-    elems.len() > usize(0),
-    "hash_set requires at least one element to infer the element type"
-  );
-  first :: elems.car();
-  rest :: elems.cdr();
-  tmp :: gensym("hash_set");
-  first_tmp :: gensym("hash_set_first");
-  rest_adds :: __hash_set_build_adds(tmp, rest);
-  quote({
-    unquote(first_tmp) := unquote(first);
-    unquote(tmp) := HashSet(type_of(unquote(first_tmp))).new();
-    unquote(tmp).insert(unquote(first_tmp));
-    unquote_splicing(rest_adds);
-    unquote(tmp)
-  })
-});
 /// Build a `HashSet(T)` from any iterator of `T` — the target of
 /// `it.collect(HashSet(T))`. Duplicates collapse, as with `insert`.
 impl(
@@ -506,4 +488,3 @@ impl(
     })
   )
 );
-export(hash_set);

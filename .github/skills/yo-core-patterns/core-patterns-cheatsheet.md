@@ -114,6 +114,7 @@ empty `{}` = bind nothing (`.Circle({}) => …`). Bare `{_}` is rejected (E0406:
 ```yo
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { String } :: import("std/string");
 
 numbers := ArrayList(i32).new();
@@ -145,6 +146,18 @@ match(
 
 counts := HashMap(String, i32).new();
 counts.insert(`yo`, i32(1));
+
+// From a fixed-size array (Rust's `Vec::from([..])`): the array is consumed and
+// its elements move in. There are no collection literal macros.
+primes := ArrayList(i32).from([i32(2), i32(3), i32(5)]);
+ages := HashMap(String, i32).from([(`ann`, i32(31)), (`bo`, i32(27))]);
+tags := HashSet(String).from([`a`, `b`]);
+one := ArrayList(i32).from([i32(7),]); // one element: the trailing comma is required
+// To keep the array, pass a clone, bound first (an inline `from(arr.clone())`
+// misbinds N: issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md).
+arr := [i32(1), i32(2)];
+arr_copy := arr.clone();
+kept := ArrayList(i32).from(arr_copy);
 ```
 
 | Type             | Use when                                 |

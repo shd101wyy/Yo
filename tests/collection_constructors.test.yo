@@ -1,0 +1,169 @@
+// The consuming collection constructors `ArrayList(T).from`, `HashMap(K, V).from`
+// and `HashSet(T).from` (Rust's `Vec::from([T; N])` and friends). They replaced
+// the `array_list(...)` / `hash_map(...)` / `hash_set(...)` literal macros,
+// which were deleted with their call surface
+// (plans/backlog/MACRO_AND_ISO_REMOVAL.md B3).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+// A move-only element: counts its drops, so a test can see that `from` moves
+// each element exactly once (no copy, no lost or doubled drop).
+(mut(g_token_drops) : i32) = i32(0);
+Token :: struct(id : i32);
+impl(
+  Token,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_token_drops = (g_token_drops + i32(1));
+    })
+  )
+);
+derive(Token, Eq(Token), Hash);
+// ---------------------------------------------------------------------------
+// ArrayList(T).from
+// ---------------------------------------------------------------------------
+test("ArrayList.from with several i32 elements keeps their order", {
+  xs := ArrayList(i32).from([i32(10), i32(20), i32(30)]);
+  assert(xs.len() == usize(3), "len");
+  assert(xs.capacity() == usize(3), "exact capacity: N is reserved up front");
+  assert(xs.to_string() == `[10, 20, 30]`, "order");
+});
+test("ArrayList.from with a one-element array", {
+  xs := ArrayList(i32).from([i32(42),]);
+  assert(xs.len() == usize(1), "len");
+  assert(xs(usize(0)) == i32(42), "value");
+});
+test("ArrayList.from with the Array constructor spelling", {
+  xs := ArrayList(i32).from(Array(i32, 3)(1, 2, 3));
+  xs.push(i32(4));
+  assert(xs.to_string() == `[1, 2, 3, 4]`, "elements are the declared i32");
+});
+test("ArrayList.from with String elements (RC types)", {
+  xs := ArrayList(String).from([`hello`, `world`]);
+  assert(xs.len() == usize(2), "len");
+  assert(xs(usize(0)) == `hello`, "first");
+  assert(xs(usize(1)) == `world`, "second");
+});
+test("ArrayList.from moves a named array, and a clone of it keeps the array", {
+  arr := [`a`, `b`, `c`];
+  // Bound first: `from(arr.clone())` inline misbinds `N`
+  // (issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md).
+  dup := arr.clone();
+  copy := ArrayList(String).from(dup);
+  assert(arr(usize(0)) == `a`, "the clone left the array usable");
+  moved := ArrayList(String).from(arr);
+  assert(copy.len() == usize(3), "copy len");
+  assert(moved(usize(2)) == `c`, "moved elements");
+});
+test("ArrayList.from nested lists", {
+  outer := ArrayList(ArrayList(i32)).from(
+    [
+      ArrayList(i32).from([i32(1), i32(2)]),
+      ArrayList(i32).from([i32(3), i32(4), i32(5)])
+    ]
+  );
+  assert(outer.len() == usize(2), "outer len");
+  assert(outer(usize(0)).len() == usize(2), "first inner len");
+  assert(outer(usize(1)).len() == usize(3), "second inner len");
+});
+test("ArrayList.from moves move-only elements without dropping them", {
+  g_token_drops = i32(0);
+  {
+    xs := ArrayList(Token).from([Token(id : 1), Token(id : 2), Token(id : 3)]);
+    assert(g_token_drops == i32(0), "the move into the list drops nothing");
+    assert(xs(usize(2)).id == i32(3), "last element");
+  };
+  assert(g_token_drops == i32(3), "each element dropped exactly once, with the list");
+});
+// The lowering `ArrayList.from` rests on: one `__yo_ptr_write` of a whole
+// array of refcounted elements
+// (issues/fixed/2026-10-20-ptr-write-of-an-rc-element-array-emits-invalid-c.md).
+test("__yo_ptr_write moves a whole array of refcounted elements", {
+  arr := [`left`, `right`];
+  mut(mu) := MaybeUninit(Array(String, 2)).new();
+  raw := mu.as_ptr();
+  __yo_ptr_write(raw, arr);
+  got := mu.assume_init(raw);
+  assert(got(usize(0)) == `left`, "first element");
+  assert(got(usize(1)) == `right`, "second element");
+});
+// ---------------------------------------------------------------------------
+// HashMap(K, V).from
+// ---------------------------------------------------------------------------
+test("HashMap.from with several entries", {
+  m := HashMap(i32, i32).from([(i32(1), i32(10)), (i32(2), i32(20)), (i32(3), i32(30))]);
+  assert(m.len() == usize(3), "len");
+  match(
+    m.get(i32(2)),
+    .Some(v) => assert(v == i32(20), "key 2"),
+    .None => assert(false, "missing key 2")
+  );
+});
+test("HashMap.from with String keys and i32 values", {
+  m := HashMap(String, i32).from([(`alice`, i32(30)), (`bob`, i32(25))]);
+  assert(m.len() == usize(2), "len");
+  match(
+    m.get(`alice`),
+    .Some(v) => assert(v == i32(30), "alice"),
+    .None => assert(false, "missing alice")
+  );
+});
+test("HashMap.from keeps the last value of a repeated key", {
+  m := HashMap(i32, i32).from([(i32(1), i32(10)), (i32(1), i32(11)), (i32(2), i32(20))]);
+  assert(m.len() == usize(2), "len");
+  match(
+    m.get(i32(1)),
+    .Some(v) => assert(v == i32(11), "the later pair wins, as with insert"),
+    .None => assert(false, "missing key 1")
+  );
+});
+test("HashMap.from moves move-only keys and values", {
+  g_token_drops = i32(0);
+  {
+    m := HashMap(Token, Token).from(
+      [
+        (Token(id : 1), Token(id : 10)),
+        (Token(id : 2), Token(id : 20))
+      ]
+    );
+    assert(g_token_drops == i32(0), "the move into the map drops nothing");
+    assert(m.len() == usize(2), "len");
+  };
+  assert(g_token_drops == i32(4), "two keys and two values, each dropped once");
+});
+// ---------------------------------------------------------------------------
+// HashSet(T).from
+// ---------------------------------------------------------------------------
+test("HashSet.from with several elements", {
+  s := HashSet(i32).from([i32(1), i32(2), i32(3)]);
+  assert(s.len() == usize(3), "len");
+  assert(s.contains(i32(2)), "contains 2");
+  assert(!s.contains(i32(99)), "no 99");
+});
+test("HashSet.from collapses equal elements", {
+  s := HashSet(i32).from([i32(5), i32(5), i32(5)]);
+  assert(s.len() == usize(1), "len after dedup");
+  assert(s.contains(i32(5)), "contains 5");
+});
+test("HashSet.from with String elements", {
+  s := HashSet(String).from([`x`, `y`]);
+  assert(s.contains(`x`) && s.contains(`y`), "both present");
+});
+// ---------------------------------------------------------------------------
+// The literal macros are gone: the modules no longer export them. The check
+// goes through the module value, because an unqualified `array_list(...)` is
+// unresolved whenever it is not imported, deleted or not; with a std that
+// still exports the macros the qualified call expands and this test fails.
+// ---------------------------------------------------------------------------
+_cc_array_list_module :: import("std/collections/array_list");
+_cc_hash_map_module :: import("std/collections/hash_map");
+_cc_hash_set_module :: import("std/collections/hash_set");
+test("the deleted collection literal macros are no longer module members", {
+  comptime_expect_error(_cc_array_list_module.array_list(i32(1), i32(2)), "Module field \"array_list\" not found");
+  comptime_expect_error(_cc_hash_map_module.hash_map(i32(1) => i32(10)), "Module field \"hash_map\" not found");
+  comptime_expect_error(_cc_hash_set_module.hash_set(i32(1)), "Module field \"hash_set\" not found");
+});

@@ -24,7 +24,6 @@
 //! convenience over `with_keys` may still be added. Freezing follows the field
 //! privatization; everything else about this module is additive already.
 pragma(Pragma.AllowUnsafe);
-pragma(Pragma.AllowMacroDef);
 // V6 task 5 slice 2 (plans/backlog/FORMAL_VERIFICATION.md): verified under
 // `yo verify ./std/collections`. The public surface is TOTAL (Option/Result
 // returns — no panicking bounds precondition to declare), so unlike
@@ -35,6 +34,7 @@ pragma(Pragma.AllowMacroDef);
 pragma(Pragma.Verify);
 { GlobalAllocator, AllocError, size_would_overflow, current_allocator } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
+{ ArrayList } :: import("./array_list.yo");
 { DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
@@ -322,6 +322,32 @@ impl(
       .Ok(map) => map,
       .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
+  }),
+  /// Consuming constructor from a fixed-size array of `(key, value)` pairs —
+  /// Rust's `HashMap::from([(k, v); N])`:
+  /// `HashMap(String, i32).from([(`a`, i32(1)), (`b`, i32(2))])`.
+  ///
+  /// The array is taken by `sink`, so the caller's binding ends at the call,
+  /// and every pair moves into the map: nothing is copied. A repeated key
+  /// keeps the LAST pair's value, as a run of `insert`s does.
+  from : (fn(generic(N : usize), sink(pairs) : Array(Tuple(K, V), N)) -> Self)({
+    out := Self.with_capacity(N);
+    // `ArrayList.from` moves the pairs into a buffer and `pop` moves each one
+    // out of its slot; reversing first inserts them in array order.
+    rest := ArrayList(Tuple(K, V)).from(pairs);
+    rest.reverse();
+    while(true, {
+      match(
+        rest.pop(),
+        .Some((k, v)) => {
+          out.insert(k, v);
+        },
+        .None => {
+          break;
+        }
+      );
+    });
+    out
   }),
   /// Empty map whose two buffers live in `alloc` — Rust's `HashMap::new_in`.
   /// Every resize and the final release go through `alloc`. Allocates eagerly
@@ -1477,66 +1503,3 @@ export(
   HashMapKeys,
   HashMapValues
 );
-// =============================================================================
-// hash_map! literal macro
-// =============================================================================
-/// Internal helper: build a list of `tmp.insert(k, v)` statements from
-/// a sequence of `k => v` arrow expressions.
-__hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList) -> comptime(ExprList))(
-  cond(
-    (entries.len() == usize(0)) => ExprList(),
-    true => {
-      first :: entries.car();
-      rest :: entries.cdr();
-      __ :: comptime_assert(first.is_fn_call(), "hash_map entries must use 'k => v'");
-      callee :: first.get_callee();
-      __1 :: comptime_assert(callee.is_atom() && (callee == quote(=>)), "hash_map entries must use 'k => v'");
-      pair :: first.get_args();
-      __2 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
-      key :: pair.car();
-      val :: pair.cdr().car();
-      // NO `.unwrap()` here (D9): `insert` returns the PREVIOUS value as an
-      // `Option(V)`, so unwrapping it would panic on every FRESH key — the
-      // normal case for a literal. It used to unwrap the `Result`.
-      stmt :: quote(unquote(tmp).insert(unquote(key), unquote(val)));
-      stmt.cons(recur(tmp, rest))
-    }
-  )
-);
-/// `hash_map` macro — construct a `HashMap(K, V)` literal.
-///
-/// `K` and `V` are inferred from the first entry's key and value via `typeof`,
-/// so at least one entry is required.
-///
-/// ## Example
-/// ```yo
-/// m := hash_map(`a` => i32(1), `b` => i32(2));
-/// ```
-hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
-  __ :: comptime_assert(
-    entries.len() > usize(0),
-    "hash_map requires at least one 'k => v' entry to infer K and V"
-  );
-  first :: entries.car();
-  __1 :: comptime_assert(first.is_fn_call(), "hash_map entries must use 'k => v'");
-  callee :: first.get_callee();
-  __2 :: comptime_assert(callee.is_atom() && (callee == quote(=>)), "hash_map entries must use 'k => v'");
-  pair :: first.get_args();
-  __3 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
-  first_key :: pair.car();
-  first_val :: pair.cdr().car();
-  rest :: entries.cdr();
-  tmp :: gensym("hash_map");
-  k_tmp :: gensym("hash_map_k0");
-  v_tmp :: gensym("hash_map_v0");
-  rest_sets :: __hash_map_build_sets(tmp, rest);
-  quote({
-    unquote(k_tmp) := unquote(first_key);
-    unquote(v_tmp) := unquote(first_val);
-    unquote(tmp) := HashMap(type_of(unquote(k_tmp)), type_of(unquote(v_tmp))).new();
-    unquote(tmp).insert(unquote(k_tmp), unquote(v_tmp));
-    unquote_splicing(rest_sets);
-    unquote(tmp)
-  })
-});
-export(hash_map);

@@ -528,3 +528,31 @@ test("A fixed-array literal of runtime Strings builds its elements at run time",
   assert(q.ss(usize(1)).len() == usize(2), "a struct field's array literal too");
   assert(ARRAY_LITERAL_STRING_GLOBAL(usize(1)) == String.from("g1"), "a module-level array literal too");
 });
+// `return(w.a)` of an array whose elements are refcounted: the returned
+// field read carries an element-wise dup whose result temp is the last
+// ELEMENT, and the return path adopted it as the value (invalid C:
+// "returning 'String' from a function with incompatible result type")
+// (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
+ArrayReturnStringHolder :: struct(a : Array(String, 2));
+_array_return_field :: (fn(w : &ArrayReturnStringHolder) -> Array(String, 2))({
+  return(w.a);
+});
+_array_return_field_early :: (fn(w : &ArrayReturnStringHolder, early : bool) -> Array(String, 2))({
+  if(early, {
+    return(w.a);
+  });
+  x := w.a;
+  return(x);
+});
+_array_return_field_tail :: (fn(w : &ArrayReturnStringHolder) -> Array(String, 2))(w.a);
+test("return of a field array of refcounted elements", {
+  w := ArrayReturnStringHolder(a : [String.from("l"), String.from("r")]);
+  g := _array_return_field(&w);
+  assert(g(usize(1)) == String.from("r"), "explicit return");
+  e := _array_return_field_early(&w, true);
+  l := _array_return_field_early(&w, false);
+  assert((e(usize(0)) == String.from("l")) && (l(usize(1)) == String.from("r")), "early and late returns");
+  t := _array_return_field_tail(&w);
+  assert(t(usize(0)) == String.from("l"), "tail position");
+  assert(w.a(usize(1)) == String.from("r"), "the source keeps its elements");
+});

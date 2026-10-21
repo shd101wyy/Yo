@@ -1,7 +1,7 @@
 // Gated user-defined macros — `pragma(Pragma.AllowMacroDef);` opts this
 // file into DEFINING macros (plans/reference/MACRO_POLICY.md Part 2). CALLING std
-// macros (`if`, `for`, collection literals) never needs the pragma; every
-// other test file proves that.
+// macros (`if`, `for`) never needs the pragma; every other test file proves
+// that.
 //
 // This file also preserves the coverage the removed std `try` macro's test
 // file (tests/try_macro.test.yo) used to provide: a macro whose expansion
@@ -24,6 +24,38 @@ try_local :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
         return(.Err(error));
       }
     )
+  })
+});
+
+/// Quoted-variadic macro (`...(quote(elems))`): a local re-creation of the
+/// deleted std `array_list` literal (plans/backlog/MACRO_AND_ISO_REMOVAL.md
+/// B3). With the std literals gone this is the runtime suite's only
+/// expansion through the quoted-variadic binding path
+/// (`src/evaluator/calls/function.yo`: every trailing arg binds as an `Expr`).
+_local_list_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
+  cond(
+    (elems.len() == usize(0)) => ExprList(),
+    true => {
+      first :: elems.car();
+      rest :: elems.cdr();
+      stmt :: quote(unquote(tmp).push(unquote(first)));
+      stmt.cons(recur(tmp, rest))
+    }
+  )
+);
+local_list :: (fn(...(quote(elems))) -> unquote(Expr))({
+  __ :: comptime_assert(elems.len() > usize(0), "local_list needs one element to infer the element type");
+  first :: elems.car();
+  rest :: elems.cdr();
+  tmp :: gensym("local_list");
+  first_tmp :: gensym("local_list_first");
+  rest_pushes :: _local_list_pushes(tmp, rest);
+  quote({
+    unquote(first_tmp) := unquote(first);
+    unquote(tmp) := ArrayList(type_of(unquote(first_tmp))).new();
+    unquote(tmp).push(unquote(first_tmp));
+    unquote_splicing(rest_pushes);
+    unquote(tmp)
   })
 });
 
@@ -52,6 +84,17 @@ test("macro def under AllowMacroDef: caller-frame early return works", {
     .Ok(_) => assert(false, "unexpected Ok from chain(false)"),
     .Err(e) => assert(e == "nope", "Err short-circuits the caller")
   );
+});
+
+test("macro def under AllowMacroDef: a quoted variadic binds every trailing arg", {
+  xs := local_list(i32(3), i32(1), i32(4));
+  assert(xs.len() == usize(3), "three elements");
+  assert((xs(usize(0)) == i32(3)) && (xs(usize(2)) == i32(4)), "in argument order");
+  one := local_list(i32(9));
+  assert(one.len() == usize(1), "a single trailing arg");
+  names := local_list(String.from("a"), String.from("bc"));
+  assert(names(usize(1)) == "bc", "refcounted elements");
+  comptime_expect_error(local_list(), "local_list needs one element");
 });
 
 test("macro def under AllowMacroDef: skipped branch stays unevaluated", {

@@ -24,7 +24,7 @@
 { generate_atom } :: import("./atom.yo");
 
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
@@ -772,7 +772,12 @@ handle_atom_deferred_dup :: (fn(expr : &AstExpr, atom_code : &String, indent : &
       expr_info_deferred_dup_expressions(&ei),
       .Some(dups) => if(dups.len() > usize(0), {
         generate_deferred_dup_expressions(expr, indent.clone(), context);
-        match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env)), .None => atom_code), .None => atom_code), atom_code), .None => atom_code)
+        // The dup's result temp is the returned value only when it holds the
+        // value's type: an ELEMENT-WISE dup (an `Array(T, N)` or a tuple)
+        // retains the elements in place and its temp is the last ELEMENT, so
+        // the source value is returned then — `emit_deferred_dup_or_code`'s
+        // rule (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
+        match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => if(type_key(&dei.ty) == type_key(&ei.ty), get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env)), atom_code), .None => atom_code), .None => atom_code), atom_code), .None => atom_code)
       }, atom_code),
       .None => atom_code
     ),
@@ -845,7 +850,10 @@ handle_func_call_deferred_dup :: (fn(expr : &AstExpr, indent : &String, context 
         }
       );
       generate_deferred_dup_expressions(expr, indent.clone(), context);
-      match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => return(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env))), .None => ()), .None => ()), ()), .None => ());
+      // Same type rule as `handle_atom_deferred_dup`: an element-wise dup's
+      // temp is an element, and the value below already had its elements
+      // retained in place.
+      match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => if(type_key(&dei.ty) == type_key(&ei.ty), return(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env))), ()), .None => ()), .None => ()), ()), .None => ());
       match(
         value_var,
         // The declared temp already holds the (now dup'd) value.
@@ -975,7 +983,16 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
                   .Some(dei) => match(
                     dei.variable_name,
                     .Some(dvn) => {
-                      arg_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env));
+                      // The dup's temp is the returned value only when it
+                      // holds the argument's type. An ELEMENT-WISE dup (an
+                      // `Array(T, N)` or a tuple) retains the elements in
+                      // place and its temp is the last ELEMENT, so the
+                      // argument itself is returned then; the dup is still
+                      // handled (it already ran)
+                      // (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
+                      if(type_key(&dei.ty) == type_key(&aei.ty), {
+                        arg_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env));
+                      });
                       handled_deferred_dup = true;
                     },
                     .None => ()

@@ -135,7 +135,7 @@
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction, generate_yo_capture_field } :: import("./closures.yo");
 { generate_deferred_dup_expressions, generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
-{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at, type_key } :: import("../utils/index.yo");
 { sm_temp_slot_of } :: import("../async/state_machine_naming.yo");
 { is_arg_temp_across_suspension } :: import("../../evaluator/shared/suspension_analysis.yo");
 { guard_site_is_proved, index_unchecked_twin_of } :: import("../../evaluator/builtins/contracts.yo");
@@ -321,13 +321,22 @@ _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &Funct
       arg_exprs.get(i),
       .Some(arg) => {
         arg_code := _call_generate_expr(&arg, indent.clone(), context);
+        // The dup's result temp stands in for the argument only when it holds
+        // the argument's type. An ELEMENT-WISE dup (`___dup` of an
+        // `Array(T, N)` or a tuple) lowers to `begin(__yo_dup_array_element(v,
+        // 0), …)`, which retains the elements of `v` in place and whose temp
+        // is the last ELEMENT: adopting it handed `__yo_ptr_write` a `String`
+        // where the pointee is an `Array(String, 2)` (invalid C). The source
+        // value, already retained in place, is the argument then — the same
+        // rule `emit_deferred_dup_or_code` applies
+        // (issues/fixed/2026-10-20-ptr-write-of-an-rc-element-array-emits-invalid-c.md).
         final_code := match(
           context.base.get_expr_info(&arg),
           .Some(aei) => match(
             expr_info_deferred_dup_expressions(&aei),
             .Some(dups) => if(dups.len() > usize(0), {
               generate_deferred_dup_expressions(&arg, indent.clone(), context);
-              match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env)), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
+              match(dups.get(usize(0)), .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), match(context.base.get_expr_info(&dup_expr), .Some(dei) => match(dei.variable_name, .Some(dvn) => if(type_key(&dei.ty) == type_key(&aei.ty), get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env)), arg_code), .None => arg_code), .None => arg_code), arg_code), .None => arg_code)
             }, arg_code),
             .None => arg_code
           ),
