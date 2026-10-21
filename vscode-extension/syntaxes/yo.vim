@@ -77,7 +77,7 @@ syn keyword yoAsync async await
 syn keyword yoSelf self
 
 " Type-of-type and trait names
-syn keyword yoTypeName Type Trait Self SelfTrait Fn Impl Future Io Send Dyn Acyclic Comptime Runtime Expr Iso Concrete
+syn keyword yoTypeName Type Trait Self SelfTrait Fn Impl Future Io Send Dyn Acyclic Comptime Runtime Expr Concrete
 
 " Builtin scalar types plus common prelude type constructors
 syn keyword yoBuiltinType unit usize isize u8 u16 u32 u64 i8 i16 i32 i64 f32 f64

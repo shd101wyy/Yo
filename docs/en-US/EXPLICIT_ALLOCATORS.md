@@ -86,7 +86,6 @@ Inside a scope, these come from `a`:
 - `ref` struct and `ref` enum constructors,
 - `rc` and `arc`,
 - `dyn` boxes,
-- `Iso` values,
 - the state machines of `io.async` tasks created there,
 - the buffers of the mutable containers created there (see
   [Containers](#containers)).

@@ -66,7 +66,7 @@ program that passes both `check` and `compile`:
 | move an `ArrayList` into an `own` param inside a `while` | use-after-free, prints garbage | `issues/fixed/moving-a-variable-inside-a-loop-body-is-not-rejected.md` |
 | call an `inout` fn through a fn value | the pointer is truncated to `int32_t`; the seed's binary loses the mutation | `issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md` |
 | push to a module-global `ArrayList` from two threads | data race, contract failure | `issues/fixed/module-globals-bypass-send-so-safe-code-can-data-race.md` |
-| `Iso` a wrapper whose interior is aliased | data race | `issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
+| the isolated-transfer wrapper (type deleted 2026-10-21) whose interior is aliased | data race | `issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md` |
 | `apply(x => true, 3)` where `Fn(x : i32) -> i32` is expected | prints `1` | `issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md` |
 | `pair_same(String, i32)` with `fn(generic(A), x : A, y : A)` | runs | `issues/fixed/generic-type-var-rebinds-per-argument.md` |
 | `Wrap(fn(x : i32))` then `Wrap(fn(inout(x) : i32))` | SIGSEGV | `issues/fixed/ctfe-memo-merges-an-anonymous-struct-with-a-named-struct.md` |
@@ -85,7 +85,7 @@ Each phase in §5 attacks one or two of them.
 | R5 | **Identity comes from source position and is computed twice.** Ids are `r<row>c<col>` without a module; the evaluator id and codegen `_type_key_at` disagree. | `trait-ids-omit-the-module-so-two-traits-can-share-one-id` (now also anonymous structs); `a-two-line-comment-change-in-std-prelude-fails-check-std`; `option-of-a-trait-object-never-emits-its-inherent-methods`; `a-box-over-an-impl-fn-is-emitted-as-two-c-structs`; `plans/backlog/TYPEVALUE_HASH_CONSING.md` is blocked on this |
 | R6 | **No trait coherence.** Duplicate, cross-module, prelude-overriding and blanket-vs-explicit impls are all accepted; the first registered wins. | `yo-self-missing-duplicate-impl-checks`; `an-overlapping-blanket-trait-impl-is-silently-dead`; `stddoc-coll-duplicate-fromiterator-impl-on-hashset` |
 | R7 | **Rules that live only in codegen.** Dyn object safety, async state-machine restrictions, some `inout` rules; users get clang errors or "internal compiler error … please report it". | `dyn-object-safety-is-not-enforced-before-codegen`; `user-facing-async-restrictions-reported-as-internal-compiler-error`; `io-await-on-a-join-handle-is-reported-as-an-internal-compiler-error`; `address-of-a-parameter-in-a-generic-fn-emits-a-placeholder` |
-| R8 | **Ownership/thread-safety rules with an unguarded edge.** Each rule is right on its main path and has one unguarded edge: loop back-edges, whole-variable `inout` aliasing, globals, `Iso` interiors, ctl values in ref fields. | the five Phase 5 issues; `borrowed-arg-invalidated-by-aliased-container-mutation`; `module-level-control-bound-binding-not-rejected`; `cond-arm-initialization-merge-check-never-fires` |
+| R8 | **Ownership/thread-safety rules with an unguarded edge.** Each rule is right on its main path and has one unguarded edge: loop back-edges, whole-variable `inout` aliasing, globals, isolated-transfer interiors (type deleted 2026-10-21), ctl values in ref fields. | the five Phase 5 issues; `borrowed-arg-invalidated-by-aliased-container-mutation`; `module-level-control-bound-binding-not-rejected`; `cond-arm-initialization-merge-check-never-fires` |
 
 ## 4. Principles for every phase
 
@@ -827,9 +827,10 @@ Items 1, 2, 5 and 6 stay here.
 3. **Globals and `Send`.** Recommended rule: a module-level runtime binding must be `Send`-safe
    (atomic, a `Mutex`, or immutable); anything else is a compile error
    (`module-globals-bypass-send-so-safe-code-can-data-race`).
-4. **`Iso` deep uniqueness.** Either bound `Iso(T)` on an interior-`Send` `T`, or verify
-   refcount 1 on every reachable ref at construction
-   (`iso-checks-only-the-wrapper-refcount-not-the-interior`).
+4. **Deep uniqueness of the isolated transfer — MOOT (2026-10-21).** The deep walk landed
+   (`iso-checks-only-the-wrapper-refcount-not-the-interior`), and the type itself was then
+   deleted (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A): data that crosses threads must
+   itself be `Send`.
 5. **Control-bound values in ref fields.** Run `type_is_control_bound` on every
    `ref(...)`/`atomic(...)` field type at definition
    (`ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame`,

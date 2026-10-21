@@ -153,7 +153,7 @@ This is the standard abstraction-as-safety pattern — same as Rust's `Vec<T>`, 
 ### What Safe Code Can Do (Everything Else)
 
 - Value types: `i32`, `bool`, `str`, structs, enums, tuples, `Array(T, N)`, `Slice(T)`
-- RC-managed types: `object`, `Iso(T)`, `Arc(T)`
+- RC-managed types: `object`, `Arc(T)`
 - Heap collections: `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, etc.
 - Options/Results: `Option(T)`, `Result(T, E)`
 - Closures and higher-order functions over safe types
@@ -725,7 +725,7 @@ Considered. Rejected because a warning that doesn't block compilation is easy to
 - **FFI-related UB.** Calling a C function with the wrong arguments is the caller's (the stdlib wrapper's) problem; safe APIs at the boundary minimize the risk.
 - **Logic errors.** Memory safety only prevents UB, not bugs.
 - **Resource leaks** beyond what `object` + `___drop` handle. Orthogonal.
-- **Data races across threads.** `Send` / `Iso(T)` / `Arc(T)` handle this; orthogonal.
+- **Data races across threads.** `Send` / `Sync` / `Arc(T)` handle this; orthogonal.
 - **Pointer arithmetic past array bounds in `unsafe(...)`-capable code.** `unsafe(p.add(n))` is permitted; bounds are the programmer's problem at that point.
 
 The honest framing: **`unsafe(...)` makes the unsafe surface auditable; the privilege gate keeps user code outside it entirely.** Combined with `object` being the default for ownership, this gets Yo to roughly Swift/Go's safety level — strictly better than C, comparable to other widely-adopted memory-safe languages, strictly weaker than Rust.

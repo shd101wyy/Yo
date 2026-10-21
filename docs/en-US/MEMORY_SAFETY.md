@@ -20,7 +20,7 @@ Everything you'd expect from a modern general-purpose language:
 
 - **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
 - **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`.
-- **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing), `Iso(T)` (ownership transfer).
+- **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
@@ -146,7 +146,7 @@ p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // placed in the arena
 xs := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
 ```
 
-- **Placement follows the scope.** `with_allocator(a, f)` (and `arena.scoped(f)`, the same call) makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes, `Iso` values and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
+- **Placement follows the scope.** `with_allocator(a, f)` (and `arena.scoped(f)`, the same call) makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.
 - **A task keeps its scope.** A task created inside `with_allocator` resumes with the same scope after every suspension, whichever scope is current when the event loop resumes it. A spawned thread starts on the global allocator; pass `arena.allocator()` into the spawn body and call `with_allocator` there.
 - **An arena cannot die under a live block.** `Arena.deinit()` (also run when the last `Arena` handle goes away) **panics** while any block is still live: `Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`. In Zig this is a use-after-free; in Yo it is a defined, loud failure. An allocation from a deinit arena through a stale `Allocator` copy panics too, even after a later `Arena.new` reused the dead arena's bookkeeping. The bookkeeping is never freed and every handle and `Allocator` value records which arena it was made for, so a stale one reaches a state it no longer matches, never freed memory or the next arena.
 - **Process-lifetime arenas call `abandon()`.** It stops tracking and never releases the region, and `deinit` becomes a no-op. Use it for startup tables and interners.
@@ -345,7 +345,7 @@ The safety model is honest about its scope:
 - **It prevents UB.** It does not prevent logic errors, panics, infinite loops, or resource exhaustion. `panic("...")` still terminates the program; an unbounded `while(true, ...)` still hangs.
 - **It applies to your code.** Stdlib bugs can still cause UB, since the stdlib uses raw pointers internally. The mitigation is audit, fuzz testing, and the `yo unsafe-report` inventory — the same approach Swift, Go, and Java take for their unsafe internals.
 - **FFI is the caller's problem.** Calling a C function with the wrong argument types or violating its precondition contract is UB at the C level. The `unsafe(...)` wrap around extern calls is the per-site review marker; it doesn't validate the contract.
-- **Data races across threads** are handled by `Send` / `Iso(T)` / `Arc(T)`, not by this model. They're orthogonal.
+- **Data races across threads** are handled by `Send` / `Sync` / `Arc(T)`, not by this model. They're orthogonal.
 - **Inside `pragma(Pragma.AllowUnsafe);` files**, all bets are off — that's the point of the opt-in. You accept audit responsibility for what's in the file.
 
 The framing: **safe Yo code cannot violate memory safety. The unsafe surface is confined to files that explicitly opt in via pragma — primarily stdlib — which is small, audited per release, and fuzz-tested.**

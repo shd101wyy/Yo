@@ -137,7 +137,7 @@ substitutes.
   function values and a `Dyn` without `Send`. So `^w` over a
   `ref(struct(io : Io, r : Rc(i32)))` moves the thread's `Io` to another
   thread, while capturing the same `Io` directly is rejected
-  (`issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`).
+  (`issues/retired/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`).
   **The window is ACCEPTED until Part A** (maintainer, 2026-10-20). No interim
   fix: Part A lands before decision 43 step 2 (Schedule). Step 2 keeps the
   storage wall (E0909) and step 3 (N2) is the one that lets references sit
@@ -162,10 +162,11 @@ must compile on the tree that deletes `Iso`.
 uses `Iso` outside its own surface, and deleting it closes its two open
 safety holes instead of accepting them for two more releases: the `Send`
 hole above
-(`issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`)
+(`issues/retired/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`)
 and the collector-handoff use-after-free S1
-(`issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`,
-filed on the branch `docs/cycle-walk-holder-asymmetry`). The accepted cost:
+(`2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`, filed
+on the branch `docs/cycle-walk-holder-asymmetry`; it moves to `issues/retired/`
+when that branch lands after Part A). The accepted cost:
 from v0.2.68 until V2b's B8 flip (v0.2.70) no `String` or collection can be
 moved to another thread. The substitutes in that window are an `Arc` of
 `Send` data, a value rebuilt on the receiving side, or serialization; the
@@ -248,7 +249,17 @@ doesn't work yet").
 
 The authoritative census is the grep gate, not this list:
 
-    git grep -nP '\bIso\b|IsoT\b|is_iso_type|__yo_iso|iso_types|IsoTypeInfo|isolating|BK_ISO|BF_YO_ISO|\bt_iso\b|\bTIso\b|IsoValueResult|\bIsolation\b|BF_YO_VAR_|__yo_var_|\^v\b' -- ':!plans/archive' ':!plans/handover' ':!issues/fixed' ':!issues/retired'
+    git grep -InP '\bIso\b|IsoT\b|is_iso_type|__yo_iso|iso_types|IsoTypeInfo|isolating|BK_ISO|BF_YO_ISO|\bt_iso\b|\bTIso\b|IsoValueResult|\bIsolation\b|BF_YO_VAR_|__yo_var_|\^v\b' -- ':!plans/archive' ':!plans/handover' ':!issues/fixed' ':!issues/retired' ':!issues/repros' ':!issues/patches' ':!plans/backlog/MACRO_AND_ISO_REMOVAL.md'
+
+(Amended when Part A landed, 2026-10-21: `-I` skips the binary logos, and
+`issues/repros/` and `issues/patches/` are historical files of the fixed Iso
+issues, cited from `issues/fixed/`, so they are allowlisted like those docs.
+Five hits are not Iso and stay: the `'^v'` regex anchors in
+`scripts/install.ps1` and `tests/cli-cases/unsafe-pragma-ok/opts`, the
+"Registry Isolation" heading of `plans/reference/DEPENDENCY_MANAGEMENT.md`,
+the "isolating failures" quote in `plans/backlog/FSTAR_ADOPTION_CANDIDATES.md`,
+and `__yo_var_print_info` (a builtin removed on 2026-09-29) in the example of
+the open `issues/asm-documented-target-and-register-validation-does-not-exist.md`.)
 
 On `8203bd867` (and on `400413ac3`) it hits 45 files in `src/`. The main ones, re-anchored:
 
@@ -324,15 +335,18 @@ before the PR is opened.
 - **A1 — prelude.** Delete the blocks in §1.3 "Prelude surface". The two open
   prelude slots (`(^)` in the operator set, `Var`) vanish; `Rc.try_unwrap`
   and `Arc.try_unwrap` are the documented replacement and already have tests
-  (`tests/rc.test.yo`, `tests/arc.test.yo`).
+  (`tests/rc.test.yo`, `tests/arc.test.yo`). As landed, A1 also takes `^`
+  out of the prefix-capable operator set (`_is_prefix_op_token` in
+  `src/parser.yo`, the four mirrors in `src/formatter.yo`): the deleted macro
+  was its only prefix meaning, so `^` is infix-only (bitwise XOR) again.
 - **A2 — evaluator.** Delete `src/evaluator/calls/iso.yo`, `var_fns.yo`, the
   dispatch arms, the `rc_fns.yo` evaluators, `IsoValueResult`, the
   `Arc(Iso)` ban, and the trait/misc arms listed in §1.3. Reword the capture
   error at `closure.yo:851` ("wrap it in Arc/Iso" → `Arc`, or a `Send` value
   after V2b). `Send` derivation loses its one unconditional-by-uniqueness arm
   and becomes purely structural (VALUES_BY_DEFAULT §3.8). Move
-  `issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`
-  and `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`
+  `issues/retired/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`
+  and `issues/retired/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`
   (also accepted until Part A, maintainer 2026-10-21) to `issues/retired/`
   with a line naming the PR, and delete the latter's repro under `issues/repros/`.
 - **A3 — types.** Remove `TypeValueNode.IsoT` and every match arm; delete

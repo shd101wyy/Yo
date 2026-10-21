@@ -136,7 +136,7 @@ is unreachable from user indices (§14 R3).
 Already solid (no work): container-impl indexing (ArrayList `std/collections/array_list.yo:857-877`,
 Deque, `imm.Vec`, String — all panic on OOB); the Law-of-Exclusivity borrow counter
 (`src/codegen/functions/gc_runtime.yo:206-237`); `Send`/`Acyclic` at spawn boundaries
-with atomic Arc/Iso refcounts and thread-local heaps; comptime arithmetic and comptime
+with atomic `Arc` refcounts and thread-local heaps; comptime arithmetic and comptime
 indexing (already checked: "Division by zero in comptime integer operation",
 `src/evaluator/builtins/comptime_numeric_fns.yo:684`; `check_int_overflow` `:160-237`);
 float `/` and `%` (IEEE-total — inf/nan/fmod are *defined*, H4/H5 are integer-only problems).

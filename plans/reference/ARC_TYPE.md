@@ -2,9 +2,9 @@
 
 ## Overview
 
-`Arc(T)` is a compiler builtin type that provides **shared ownership with atomic reference counting**. It complements `Iso(T)` (unique ownership transfer) by enabling multiple threads to hold references to the same value.
+`Arc(T)` is a compiler builtin type that provides **shared ownership with atomic reference counting**. It complemented the isolated-transfer type (unique ownership transfer, deleted 2026-10-21 by `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A) by enabling multiple threads to hold references to the same value.
 
-| Property        | `Iso(T)`                           | `Arc(T)`                     |
+| Property        | isolated transfer (deleted)        | `Arc(T)`                     |
 | --------------- | ---------------------------------- | ---------------------------- |
 | RC type         | Atomic                             | Atomic                       |
 | Purpose         | Ownership transfer                 | Shared ownership             |
@@ -143,7 +143,7 @@ The evaluator treats Arc values identically to object values for ownership track
 ### Struct Layout
 
 ```c
-// Arc struct — same as Iso but without the `extracted` flag
+// Arc struct — the RC header and the value
 typedef struct {
   __yo_ref_header_t header;   // ref_count (used atomically), gc_mark, gc_flags, dispose_fn
   ChildType value;           // Inner value
@@ -168,7 +168,7 @@ Arc_T __yo_create_arc_Arc_T(ChildType value) {
 ### Dup / Drop (reuse existing atomic functions)
 
 ```c
-// Same functions as Iso — already exist in the runtime:
+// Shared with the atomic ref objects — already exist in the runtime:
 void* __yo_incr_rc_atomic(void* ptr);      // atomic_fetch_add
 void  __yo_decr_rc_atomic(void* ptr);      // atomic_fetch_sub, free on 0
 ```
@@ -232,7 +232,7 @@ Channel_i32_send(arc->value, 42);
 1. Emit Arc struct typedef (header + value field, no extracted flag)
 2. Emit constructor function (`__yo_create_arc_*`)
 3. Emit dispose function (`__yo_arc_dispose_*`) — drops inner value if RC type, no-op otherwise
-4. Route Arc dup/drop to `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic` (same as Iso)
+4. Route Arc dup/drop to `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic` (same as the atomic ref objects)
 5. Emit dereference as `arc->value` field access
 6. Track `arcTypes` in `CodeGenContext` (like `isoTypes`)
 
@@ -265,8 +265,8 @@ Still TODO:
 
 1. **`with` method for safe exclusive access** — Should we add `arc.with((inner) => { ... })` that provides a scoped borrowed reference? This prevents storing the dereferenced value. Can be added later.
 
-2. **Cycle detection** — Arc values are excluded from thread-local cycle detection (same as Iso). This is fine for sync primitives which don't form cycles.
+2. **Cycle detection** — Arc values are excluded from thread-local cycle detection (like every atomic object). This is fine for sync primitives which don't form cycles.
 
 3. **`Arc(T)` where T is a value type** — Allowed. `Arc(i32)` is valid even though `i32` is already Send.
 
-4. **Interaction with `Iso`** — Can you do `Iso(Arc(T))` or `Arc(Iso(T))`? Probably should be disallowed — both provide atomic RC, nesting is redundant.
+4. **Interaction with the isolated-transfer type** — moot: that type was deleted on 2026-10-21 (its nesting with `Arc` had been rejected at compile time).

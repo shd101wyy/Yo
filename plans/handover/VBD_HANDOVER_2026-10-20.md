@@ -58,7 +58,7 @@ Per-job latency does not improve (the evaluator is mostly single-threaded; the M
   revised, merged as `plans/backlog/MACRO_AND_ISO_REMOVAL.md`). Iso removal (Part A) waits for V2b B8–B11:
   today `Iso` is the only safe cross-thread move of a `String`/collection. The campaign adds no release
   boundary (its Schedule section).
-- **The Iso `Send` hole is filed, not fixed**: `issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`
+- **The Iso `Send` hole is filed, not fixed**: `issues/retired/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`
   (S2). `Iso(T)` is `Send` for every `T`, so `^w` moves a graph holding `Io`/`JoinHandle` across threads.
   The window is accepted until Part A; it never widens, because Part A precedes decision 43 step 2.
 - **#1486 deferred past v0.2.67**: +20 % `check src/main.yo` RSS (48 compiler containers newly registered with

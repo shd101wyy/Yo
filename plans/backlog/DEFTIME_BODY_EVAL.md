@@ -106,7 +106,7 @@ at Tier 1: std 151 / tests 164 / yo-self 227).
 - [x] **`type_contains_some_type_for_codegen_param` — PORTED (proven, reverted).**
       1:1 port of `typeContainsSomeTypeForCodegenParam` (utils.ts:708) added to
       `evaluator/trait_checking.yo` (so it can use `type_implements_fn`/`future`
-      without a `types/utils.yo` cycle); recurses Array/Slice/Pointer/Iso/Tuple/
+      without a `types/utils.yo` cycle); recurses Array/Slice/Pointer/Tuple/
       Struct(excl. Fn-typed fields)/Enum/Union/Module/Func, `TypeAppT`→true; SomeT
       excl. via `type_implements_fn`/`future` (yo-self `SomeT` has no `is_extern`/
       `resolved_concrete_type` → those exclusions are no-ops). Built clean; wired

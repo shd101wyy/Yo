@@ -26,7 +26,7 @@ Two related holes, both surfaced 2026-08-21:
    performs maximal munch over the operator *character class*: any
    uninterrupted run of operator characters becomes ONE `Operator` token.
    Combined with user-definable operators ("operators are just bindings" —
-   e.g. `(^) ::` and `(?*) ::` in `std/prelude.yo`), this means `**i32`
+   e.g. `(!) ::` and `(?*) ::` in `std/prelude.yo`), this means `**i32`
    lexes as the single (nonexistent) operator `**` applied to `i32`, not as
    `*(*(i32))`. (History: at drafting time paren-less prefix calls were
    still banned wholesale, so the hazard was the phantom `**` token a user
@@ -53,7 +53,7 @@ fixed operator table**. Three layers, only the first of which changes:
 | Layer | Today | Proposed |
 | --- | --- | --- |
 | Which char sequences are operator TOKENS | any run of operator chars | fixed table, longest match |
-| Binding an operator name (`(^) :: ...`) | any operator token | any NON-RESERVED table member |
+| Binding an operator name (`(!) :: ...`) | any operator token | any NON-RESERVED table member |
 | Overloading via traits (`Add`, `BitXor`, …) | supported | unchanged |
 
 New operator tokens become a **compiler change** — deliberate, reviewed,
@@ -87,7 +87,6 @@ streams (zero diffs expected).
 | Dot family (own token kinds) | `.` `..` `..=` `...` |
 | Pointer / option types | `*` `?` (the `?*` token was REMOVED 2026-08-21: `?` is the Option alias, so `?(*(T))` composes — 138 corpus sites migrated) |
 | Splices (macro/derive layer) | none since 2026-10-10: the words `unquote(x)` / `unquote_splicing(xs)` (the `#` / `...#` operators were deleted) |
-| Iso sugar | `^` (prefix use of the bitwise token) |
 | Word alias | `not` (identifier-alias of `!`, `std/prelude.yo:569`) |
 
 Notes:
@@ -125,10 +124,14 @@ Notes:
   (`plans/reference/MACRO_POLICY.md`).
 - Enforcement point: reject `(op) :: ...` bindings and trait-operator
   registrations for reserved tokens at definition evaluation, next to the
-  existing operator-binding path (where `(^) ::` / `(!) ::` are handled) —
+  existing operator-binding path (where `(~) ::` / `(!) ::` are handled) —
   turning today's dispatch-order accident into a guarantee.
 - Everything else in the table stays bindable/overloadable exactly as
-  today (`Add`…`BitXor` traits, `(^)`, `(not)`).
+  today (`Add`…`BitXor` traits, `(~)`, `(not)`).
+- The prefix use of `^` was removed on 2026-10-21 with the isolated-transfer
+  type it constructed (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A): `^`
+  is infix-only (bitwise XOR), and the parser and formatter no longer treat it
+  as prefix-capable.
 
 ## Part 2 — Precedence: NONE (AFFIRMED 2026-08-21)
 

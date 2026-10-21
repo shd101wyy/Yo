@@ -136,7 +136,7 @@ heading in `docs/en-US/DESIGN.md` + `docs/zh-CN/DESIGN.md` (E1 in §5).
 | linear-arithmetic builtin solver, Z3 for the rest | Z3 only, bitvectors (non-linear decided by bit-blasting) | Yo's is the stronger theory, at a cost model ATS avoids for the common case. |
 | `prfun` / `dataprop` / `praxi` | `ghost_fn` (inlined, non-recursive), `law(...)`, `assumed()`; no user uninterpreted functions, no inductive props | Partial. Lemmas-by-recursion (`prfun` over `dataprop`) have no counterpart; `law` is the axiom/lemma entry point. |
 | proofs erased | `ghost`, `refine`, contracts in `verify` mode erased | Equivalent. |
-| views, linear types | RC ownership analysis, `own` / `inout`, `Iso`, `Send` (`plans/reference/MEMORY_SAFETY.md`, `PARALLELISM_RULES.md`) | Orthogonal; Yo's answer is different and already decided. |
+| views, linear types | RC ownership analysis, `own` / `inout`, `Send` (`plans/reference/MEMORY_SAFETY.md`, `PARALLELISM_RULES.md`) | Orthogonal; Yo's answer is different and already decided. |
 | `t@ype` vs `type` templates | value types monomorphized; `ref(...)` / `Dyn` share one C representation | Same split, same reasons. |
 
 ## 4. What is rejected, and why

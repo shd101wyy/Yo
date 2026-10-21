@@ -2,7 +2,7 @@
 
 **Severity:** S2 — an invalid program is accepted: `^w` over a `ref(struct)` that holds the thread's `Io` (or a `JoinHandle`) moves that thread-bound handle to another thread, where it races with its own event loop. It is not S1 because it takes an explicit `^` over a reference object carrying such a handle, no valid program is affected, and no runtime corruption was observed.
 
-**Status:** open. The window is accepted until `Iso` is deleted; see Disposition. Found 2026-10-20 by the design review of `plans/backlog/MACRO_AND_ISO_REMOVAL.md` (PR #1488).
+**Status:** RETIRED 2026-10-21: `Iso(T)`, `^v`, `Var.*` and `Isolation` were deleted by the branch `refactor/remove-iso` (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A, pulled forward to v0.2.68 by the maintainer), so the program below no longer compiles and the hole is gone with the feature. Was: open, the window accepted until `Iso` is deleted; see Disposition. Found 2026-10-20 by the design review of `plans/backlog/MACRO_AND_ISO_REMOVAL.md` (PR #1488).
 
 ## Symptom
 

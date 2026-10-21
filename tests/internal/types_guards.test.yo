@@ -5,7 +5,7 @@
 //! so a future implementation landing out of order gets caught.
 { String } :: import("std/string");
 { TypeValue, TypeValueNode, FuncMeta } :: import("../../src/types/definitions.yo");
-{ t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_iso, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
+{ t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
 { is_int_type, is_float_type } :: import("../../src/types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
@@ -49,7 +49,6 @@
   is_function_type_and_returns_comptime_value,
   is_type_hierarchy_type,
   is_type_0,
-  is_iso_type,
   is_dyn_type,
   is_type_application_type,
   is_rc_type,
@@ -215,7 +214,6 @@ test("Phase 2b stubs: object / atomic / newtype / fn_trait / iso / dyn / type_ap
   assert(!is_atomic_reference_struct_type(t_i32()), "atomic_object stub");
   assert(!is_newtype_type(t_i32()), "newtype stub");
   assert(!is_fn_trait_type(t_i32()), "fn_trait stub");
-  assert(!is_iso_type(t_i32()), "iso stub");
   assert(!is_dyn_type(t_i32()), "dyn stub");
   assert(!is_type_application_type(t_i32()), "type_app stub");
   assert(!is_rc_type(t_i32()), "rc stub");
@@ -433,10 +431,6 @@ test("is_expr_list_type: ComptimeList of Expr returns true", {
   assert(!is_expr_list_type(t_comptime_list(t_i32())), "CL(i32) → false");
   assert(!is_expr_list_type(t_i32()), "i32 → false");
 });
-test("is_iso_type: IsoT returns true", {
-  assert(is_iso_type(t_iso(t_i32())), "iso(i32) → true");
-  assert(!is_iso_type(t_i32()), "i32 → false");
-});
 test("is_dyn_type: DynT returns true", {
   assert(is_dyn_type(t_dyn_simple(ArrayList(TypeValue).new())), "dyn() → true");
   assert(!is_dyn_type(t_i32()), "i32 → false");
@@ -509,10 +503,6 @@ test("is_rc_type: object (is_reference_semantics=true) is RC", {
 test("is_rc_type: DynT is RC", {
   dyn_ty := t_dyn_simple(ArrayList(TypeValue).new());
   assert(is_rc_type(&dyn_ty), "DynT → true");
-});
-test("is_rc_type: IsoT is RC", {
-  iso_ty := t_iso(t_i32());
-  assert(is_rc_type(&iso_ty), "IsoT → true");
 });
 test("is_rc_type: SomeT with no Future constraint is not RC", {
   // A SomeT with no required traits: not RC
