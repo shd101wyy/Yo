@@ -1222,6 +1222,7 @@ Do NOT use `ASAN_OPTIONS=stack_size=N` — that sets the fake stack, not the rea
   function and `export(main);` at the end.
 - Always save test log output: `yo test ./tests/XXX.test.yo --bail --verbose &> test_output.txt`
 - If a `main` linker error appears (`undefined reference to 'main'`), add `export(main);` at the end of the `.yo` file.
+- A project with a `.yo-version` pin (`markdown_yo`, for one) makes EVERY `yo` command run inside it re-dispatch to the cached binary of that version, whatever binary you invoked. `<tree-binary> --version` still reports the tree version, because `--version` is answered before the dispatch. To run a tree or branch binary there, set `YO_VERSION_DISPATCHED=1`. Without it, B2's markdown_yo sweep silently ran v0.2.64, and that version failed the tree's prelude (2026-10-21).
 
 ## File creation rules
 
