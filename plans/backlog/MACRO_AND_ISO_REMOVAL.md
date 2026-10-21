@@ -608,6 +608,24 @@ Part C deletes the macros.
     array order (a repeated key keeps the last value, as `insert` does). A
     one-element array is `[x,]`: a bare `[x]` is the removed slice-type
     syntax.
+  - **Review round (B3, 2026-10-21).** The removal test asserts through the
+    module value (`_m.array_list(...)` is `Module field "array_list" not
+    found`); an unqualified call cannot tell "deleted" from "not imported",
+    and the qualified form fails against a std that still exports the
+    macros. The return path had the same element-wise-dup adoption as the
+    `__yo_ptr_write` fix (`return(w.a)` of an `Array(String, 2)`, invalid C;
+    pre-existing, seed fails too), fixed in
+    `issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md`.
+    With the std literals gone, `tests/macro_def_pragma.test.yo` carries a
+    local quoted-variadic macro so that path keeps runtime coverage until
+    Part C. The parser edit is mechanical, but both bootstrap gates this
+    section names were run with the tree binary: `gates_fast.sh` rc 0 and
+    `fixpoint_only.sh` holds (stage-2 hollow 0, stage 2 == stage 3). The
+    compiler's own stage-2 C is byte-identical between the v0.2.67 seed
+    (develop's codegen) and the branch compiler, so the codegen guards
+    change no site in `src/`. Stage-2 `check src/main.yo` max RSS, develop
+    vs branch (same stage-1, two runs each, shared heavy-lock slot):
+    1,108,096 / 1,106,952 kB → 1,090,480 / 1,090,192 kB.
   - **Dependency: the fixed-array S2 — resolved.** A fixed-array literal of
     runtime `String`s emitted invalid C; #1496 (`400413ac3`) fixed it
     (`issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md`,
