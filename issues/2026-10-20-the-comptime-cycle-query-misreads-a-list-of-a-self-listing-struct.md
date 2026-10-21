@@ -83,5 +83,7 @@ the list's id. Only a shell, with no fields to follow, gives `false`.
 `tests/cycle_collector.test.yo`, "Type.can_form_rc_cycle reads a spelled
 ArrayList(Self) instantiation as codegen does": a runtime `assert` on
 `Type.can_form_rc_cycle(ArrayList(QNode))`. It fails with the v0.2.66 and
-v0.2.67 seeds and with this branch's tree binary. It is red on develop until
-#1486's shell resolution lands, so this branch should merge after #1486.
+v0.2.67 seeds and with this branch's tree binary. The
+`perf/acyclic-compiler-containers` binary at `2d15820e7`, which carries
+#1486's shell resolution, passes it (2026-10-21). The test is red on develop
+until #1486 lands, so this branch should merge after #1486.

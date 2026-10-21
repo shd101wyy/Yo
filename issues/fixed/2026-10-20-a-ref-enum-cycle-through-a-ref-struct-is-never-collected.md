@@ -190,10 +190,26 @@ stage-2 RSS was run). The only reference enums in `src/` and
 
 ## Test
 
-`tests/cycle_collector.test.yo`, "A ref-enum cycle closed through its
-ArrayList(Self) is collected". It builds one `KNode.Kids(k)` / `k.push(e)`
-cycle, collects, and asserts that the node was disposed, that the tracked
-count is back to its base, that `Type.can_form_rc_cycle(KNode)` holds, and
-that `KNode` is not `Acyclic`. With the seed the first assertion fails ("the
-node of the list-closed cycle was disposed"). With the fix it passes (tree binary `d31c21c57`: 23 of the file's 24 tests pass; the failing one is the open S3
-`issues/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md`).
+`tests/cycle_collector.test.yo` has two regression tests:
+
+- "A cons-list cycle closed through its Rc(Self) tail is collected" builds
+  one `RCons.Cons(1, rc(RCons.RNil))` and closes it with `a.tail = rc(a)`.
+- "A ref-enum cycle closed through its ArrayList(Self) is collected" builds
+  one `KNode.Kids(k)` / `k.push(e)` cycle.
+
+Each collects, then asserts four things: the node on the cycle was disposed,
+the tracked count is back to its base, `Type.can_form_rc_cycle` holds, and
+the type is not `Acyclic`. Results:
+
+- With the seed, the first assertion of each test fails. The cons-list test
+  was run with v0.2.67 and the `KNode` test with v0.2.66.
+- With the tree binary built from `d31c21c57` (2026-10-21), 24 of the file's
+  25 tests pass, including both of these. The failing test is the open S3,
+  `issues/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md`.
+
+The fix changes the header size, registration and `Acyclic` answer of every
+user ref enum shaped like this. The tree binary passes every test file that
+declares one: `tests/match_nested.test.yo` and `tests/match_async_arms.test.yo`
+(the `Rc(Self)` cons list), plus `tests/impl.test.yo`,
+`tests/explicit_allocators.test.yo`, `tests/ref_enum.test.yo`, `tests/rc.test.yo`,
+`tests/rc_cell.test.yo` and `tests/gc_cleanup_exit.test.yo`.
