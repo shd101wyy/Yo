@@ -12,6 +12,7 @@
 //!   unsat    ⇒ the goal is PROVED under the assumptions
 //!   sat      ⇒ REFUTED — the model is the counter-example
 //!   unknown  ⇒ Unproven (budget)
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { ToString } :: import("std/fmt/to_string");
@@ -54,6 +55,14 @@ VcSort :: ref(
   )
 );
 derive(VcSort, Eq(VcSort));
+// SAFETY: a VcSort has no back edges. Its only children are `Self`
+// payloads (`SeqS`, `FunS`, `ArrS`), and it holds no list or cell. The
+// language admits a variant-field write (`s.elem = s` would close a cycle),
+// but an audit of src/ (2026-10-21) found none on a VcSort, so a node only
+// points at nodes older than itself.
+// Declaring `Acyclic` keeps VcSort nodes out of the cycle collector
+// (plans/VALUES_BY_DEFAULT.md §3.12, decision 21's trees).
+impl(VcSort, Acyclic());
 impl(
   VcSort,
   ToString(
@@ -190,6 +199,18 @@ VcTerm :: ref(
     ArrConst(sort : VcSort, lit : Self)
   )
 );
+// SAFETY: a VcTerm has no back edges. No code in src/ writes a `Self`
+// payload of a built term (the language admits a variant-field write; an
+// audit of src/ (2026-10-21) found none), and each `args`/`triggers` list
+// is filled before its node is built (`_app1`..`_app3`, `vc_eq` and the
+// rest build a fresh list per node): an audit of src/ (2026-10-20) found no push, insert or set into the
+// list of a term that already exists. Substitution shares subterms, which is
+// why the children are `Rc` (decision 21's 2026-10-18 amendment); sharing a
+// subterm adds no back edge. So no term reaches itself. Declaring `Acyclic`
+// keeps terms, `ArrayList(VcTerm)` and `VcQuery` out of the cycle collector
+// (plans/VALUES_BY_DEFAULT.md §3.12;
+// issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+impl(VcTerm, Acyclic());
 /// One declared constant of a query.
 VcDecl :: struct(name : String, sort : VcSort);
 /// One uninterpreted function symbol (R2: a recursive `ghost_fn`), rendered

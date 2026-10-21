@@ -137,3 +137,18 @@ test("SuspensionAnalysisResult variable_id_remapping", {
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "new_v0", "remapping lookup");
 });
+// src/expr.yo declares `impl(AstExpr, Acyclic())` (decision 21's trees). The
+// declaration keeps AstExpr, its containers and its holders off the cycle
+// walk, so none of them registers with the collector; deleting it turns
+// every assertion here red (tests/cycle_collector.test.yo pins the mechanism
+// on replicas, this test pins the compiler's own declaration;
+// issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+test("AstExpr is declared Acyclic: its lists and SuspensionPoint stay off the cycle walk", {
+  comptime_assert(Type.impls(AstExpr, Acyclic), "AstExpr");
+  comptime_assert(!Type.can_form_rc_cycle(AstExpr), "AstExpr");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(AstExpr)), "ArrayList(AstExpr)");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(ArrayList(AstExpr))), "ArrayList(ArrayList(AstExpr))");
+  comptime_assert(!Type.can_form_rc_cycle(HashMap(String, ArrayList(AstExpr))), "HashMap(String, ArrayList(AstExpr))");
+  comptime_assert(!Type.can_form_rc_cycle(SuspensionPoint), "SuspensionPoint");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(SuspensionPoint)), "ArrayList(SuspensionPoint)");
+});
