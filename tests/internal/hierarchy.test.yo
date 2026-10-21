@@ -102,7 +102,7 @@ test("Struct with primitive fields → TypeUni(0)", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(rc(TypeValueNode.BoolT));
-  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("Point"), field_shared_list(labels) : labels, field_shared_list(types) : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
+  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("Point"), field_labels : shared_list(labels), field_types : shared_list(types), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "Struct with primitive fields → TypeUni(0)");
 });
 test("Struct with TypeUni(0) field → TypeUni(1)", {
@@ -110,7 +110,7 @@ test("Struct with TypeUni(0) field → TypeUni(1)", {
   labels.push(String.from("ty"));
   types := ArrayList(TypeValue).new();
   types.push(rc(TypeValueNode.TypeUni(usize(0))));
-  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("TypeBox"), field_shared_list(labels) : labels, field_shared_list(types) : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
+  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : shared_list(labels), field_types : shared_list(types), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(1)), _ => false), "Struct with TypeUni(0) field → TypeUni(1)");
 });
 // ---------------------------------------------------------------------------

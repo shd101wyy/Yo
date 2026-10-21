@@ -44,12 +44,12 @@ test("synthesize_types: generic inside a Func param binds structurally", {
   pl_e.push(`a`);
   pt_e := ArrayList(TypeValue).new();
   pt_e.push(st);
-  expected_fn := t_func_simple(&pl_e, &pt_e, t_bool());
+  expected_fn := t_func_simple(pl_e.clone(), pt_e.clone(), t_bool());
   pl_g := ArrayList(String).new();
   pl_g.push(`a`);
   pt_g := ArrayList(TypeValue).new();
   pt_g.push(t_i32());
-  given_fn := t_func_simple(&pl_g, &pt_g, t_bool());
+  given_fn := t_func_simple(pl_g.clone(), pt_g.clone(), t_bool());
   ok := _synth_ok(&expected_fn, &ee, &given_fn, &ge);
   assert(ok, "structural synthesis completes");
   bound := get_value_of_some_type_from_env(&ee, &st);

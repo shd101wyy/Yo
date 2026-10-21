@@ -121,7 +121,7 @@ test("the cached prelude loads as a module, not as Unit", {
   outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
   assert(outcome.ok, "the cached prelude is a successful load");
   assert(is_module_type(&outcome.module_type), "the outcome's type is a module type, not Unit");
-  labels := _ns_labels(&outcome.module_type);
+  labels := _ns_labels(&outcome.module_type).*.items;
   assert(labels.len() > usize(100), `the prelude namespace is populated, got ${labels.len().to_string()} field(s)`);
   // Three declarations a reader of the prelude page must find: a type, a
   // generic type constructor and a trait.
