@@ -937,13 +937,60 @@ rows that pin it.
 
 | Phase | Lands | Gate |
 | --- | --- | --- |
-| N0 | the negative-test corpus (§5's rows) written and failing, AND a **reference checker**: an executable model of O1–O10 over a toy language, a few hundred lines, that the corpus runs through — the cheapest way to find rule interactions a prose argument cannot (2026-10-20). No prerequisite: N0 can start before V2b finishes | the tests fail for the right reason; the model accepts every positive control and rejects every negative row |
+| N0 | the negative-test corpus (§5's rows) written and failing, AND a **reference checker**: an executable model of O1–O10 over a toy language, a few hundred lines, that the corpus runs through — the cheapest way to find rule interactions a prose argument cannot (2026-10-20). No prerequisite: N0 can start before V2b finishes. **Written 2026-10-21; see "N0 as built" below** | the tests fail for the right reason; the model accepts every positive control and rejects every negative row |
 | N1 | the `Origin` kind and `TypeValue.Reference(T, mutable, origin)` (behavioral identity: every test, the fixpoint, an emit-diff with no C change); Generation A: the `&(T, p)` parse, `generic(p : Origin)`, the elision defaults, O3's checking rules (freeze/exclusivity by origin, the covariant/invariant coercion rule, the return rule, place writes), the `Escapable` marker and its bound at the no-origin positions (O10), the handle-origin rule for borrows through an `Rc`/`Arc` deref (O9), `.*`/auto-deref/auto-borrow, `impl(&T, ...)`, `FnMut`. The storage wall stays as it is today — origins are vocabulary and checking, first-class storage waits for N2, so no build accepts an escape it cannot see | the corpus minus its storage rows, the fast suite, fixpoint |
 | N2 | first-class storage: O4's table — cells (`Box`, `RefCell`, `Dyn(Trait, p)`) and containers carry origin parameters, E0909 becomes the no-origin-position rule, O6's declared unions with the widening `yo fix` | the storage rows of the corpus |
 | N3 | std and `src/` adopt (Generation B, on the next seed): `iter`, `slice`, `entry`, the borrowed `for` by `impl(&C, IntoIterator)`, the `FnMut` slots, the `Future(T, p)` spelling replacing A2's registry | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 
 After decision 42's Generation B and V2b, as before (N0 excepted); each
 phase is one PR or one stack with one battery, per AGENTS.md.
+
+**N0 as built (2026-10-21, branch `test/decision43-n0-corpus`).**
+
+- **The corpus** is 59 programs in `tests/origins/corpus/<id>.yo`: 36
+  negative rows and 23 positive controls. They cover every item of §5's
+  list, the eight routes, the five expected holes below, and the points
+  §7's "Found by the N0 reference checker" records. Each program is
+  spelled in the syntax N1–N3 will land. They are plain `.yo` files, so
+  `yo test ./tests` never runs them. The manifest
+  `tests/origins/corpus.tsv` gives each row its plan anchor, its kind,
+  the phase whose gate it joins (21 rows N1, 32 N2, 6 N3), the verdict
+  expected once the rules land, and what today's `yo check` does with it.
+  `scripts/origins-corpus.sh` is the gate. `today` mode is the N0 gate:
+  every row must still fail (or pass) exactly as recorded. `target` mode,
+  with `PHASES=N1` and so on, is the later phases' gate. Both modes first
+  cross-check the manifest against the fixtures and the model test.
+- **The reference checker** is `tests/origins/model.yo`. It models
+  origin sets as bitmasks over places, unification at application, subset
+  coercion with O3-3's invariance, loans against accesses with last-use
+  liveness (loop fixpoint included), the return rule, declared unions,
+  `may_dangle` drops, the handle-origin rule and `Escapable`. It is about
+  1150 lines of code after `yo fmt`'s one-argument-per-line layout, more
+  than the few hundred planned, because every rule above had a row that
+  needed it. `tests/origins/model_corpus.test.yo` encodes every row and is
+  in the fast suite. It also runs five ablations: switching off
+  invariance, the loop fixpoint, the user-`Drop` liveness, the capture
+  widening or the handle origin flips the rows that rule is meant to
+  reject to `ACCEPT`. So each of those rows tests its rule and is not
+  rejected for an unrelated reason.
+- **Gate result.** The model returns the manifest's verdict on all 59
+  rows: it rejects each of the 36 negative rows with the rule the row
+  names and accepts the 23 positive controls. The 9 ablation checks flip
+  as expected, for 64 passing tests. Today's compiler behaves as recorded
+  on all 59 rows:
+  - 52 cannot be expressed yet. Mostly `Variable "Origin" not found`,
+    "a borrow mode, not a type", or a type argument `&(T, x)` read as a
+    runtime tuple.
+  - 5 are already rejected by today's second-class rule for the same
+    hazard: `get2-mut-twice` and `drop-root-while-borrowed` (E0911),
+    `rc-mut-through-deref` (E0919), `ret-local` (decision 24's projection
+    rule) and `async-forward-local` (A2's E0909).
+  - 1 positive control is already accepted: `await-local-borrow`.
+  - 1 negative row is wrongly accepted: `call-arg-overlap` (§7).
+- **One bug found and fixed on the way.** Any `&mut(A, B)` crashed `yo
+  check` with a stack overflow. That is the very spelling N1 adds, so it
+  is now a diagnostic
+  (`issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md`).
 
 **Where holes are expected first** (recorded 2026-10-20 so N0 writes rows
 for them before N1 lands): flow-inferred origin sets at control-flow

@@ -1,0 +1,65 @@
+# Decision 43's N0 corpus (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0).
+# One row per program tests/origins/corpus/<id>.yo; the same row is encoded for the
+# reference checker in tests/origins/model_corpus.test.yo. scripts/origins-corpus.sh
+# documents the columns and runs both modes. `today` was recorded 2026-10-21 with the
+# tree binary of this branch (develop 3d3546a21 + the `&mut(A, B)` crash fix).
+# id	anchor	kind	phase	expect	today
+wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E1101|requires a compile-time argument
+wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	-|Expected type for element
+wf-undeclared-origin	O1 declare-before-use	neg	N1	WF_UNDECLARED	-|Failed to evaluate type expression
+wf-outward-field	O1, O4	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+ret-local	O3 return rule, §5 route 1	neg	N1	E0912	-|A projection yields a place
+ret-byvalue-param	O3 return rule (E0912's rule)	neg	N1	E0912	-|Expected a type for function return type
+ret-param-place	O3 return rule	pos	N1	ACCEPT	-|Expected a type for function return type
+words	§3 words, O6	pos	N2	ACCEPT	E1101|requires a compile-time argument
+words-then-write	O3 step 2	neg	N2	E0911	E1101|requires a compile-time argument
+get2-mut-pair	O3 step 2	pos	N2	ACCEPT	-|is an origin-qualified reference
+get2-mut-twice	O3 step 2	neg	N1	E0911	E0911|Cannot read `xs` here
+cursor-two-items	O3 step 2	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+copy-mut-holder	§5 route 3	neg	N2	E0901	E0401|Variable "Origin" not found
+call-arg-overlap	O3 step 2, decision 28	neg	N1	E0910	accept
+drop-root-while-borrowed	§5 route 6	neg	N1	E0911	E0911|Cannot move `x` here
+store-widen-mut-pointee	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0401|Variable "Origin" not found
+store-same-origin	O3-3	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+store-widen-refcell	O3-3, §5 route 2	neg	N2	ORIGIN_MISMATCH	E0401|Variable "Origin" not found
+swap-different-origins	O7 swap	neg	N1	ORIGIN_MISMATCH	E0401|Variable "Origin" not found
+swap-inferred-locals	O2 x O3-3 (§7 flow inference at a &mut lend)	pos	N1	ACCEPT	E0401|Variable "Origin" not found
+swap-declared-union	O7 swap	pos	N1	ACCEPT	E0401|Variable "Origin" not found
+push-outside-union	O6	neg	N2	UNION	E1101|requires a compile-time argument
+push-inside-union	O6	pos	N2	ACCEPT	E1101|requires a compile-time argument
+push-elided-unrelated	O2 elision checked in the body	neg	N2	UNION	-|is a borrow mode, not a type
+push-spelled-shared	O7 push	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+elided-container-lent-mut	O2 x O6 (§7 flow inference at a &mut lend)	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+elided-container-lent-mut-then-write	O2 x O6	neg	N2	E0911	E0401|Variable "Origin" not found
+loop-join-push	hole: control-flow joins	neg	N2	E0911	-|is a borrow mode, not a type
+loop-join-push-after	hole: control-flow joins	pos	N2	ACCEPT	-|is a borrow mode, not a type
+drop-order-user-drop	hole: drop order x may_dangle	neg	N2	E0911	E0401|Variable "Origin" not found
+drop-order-may-dangle	hole: drop order x may_dangle	pos	N2	ACCEPT	-|is a borrow mode, not a type
+spawn-box-origin	O4, O10	neg	N2	E0909	E0914|lends a borrow, but parameter
+thread-send-origin	O4, O8, O10	neg	N2	E0909	-|is a borrow mode, not a type
+global-refcell-origin	O4, O10, §7 module-level origins	neg	N2	E0909	E1101|requires a compile-time argument
+extern-box-origin	O4, O10	neg	N2	E0909	E0401|Variable "Origin" not found
+rc-mut-through-deref	O9, decision 46	neg	N1	E0919	E0919|Cannot lend `h.*.x` as `&mut`
+rc-handle-dropped	O9	neg	N1	E0911	-|A local borrow cannot reach through a pointer dereference
+rc-handle-reassigned	O9	neg	N1	E0911	-|A local borrow cannot reach through a pointer dereference
+rc-push-handle-borrow	O9	pos	N2	ACCEPT	E1101|requires a compile-time argument
+rc-of-ref-holder	O9, O10	neg	N2	E0909	E0401|Variable "Origin" not found
+rc-guard-and-clone	hole: handle origin x RefCell guard x collection	pos	N3	ACCEPT	E0610|No method "borrow_mut"
+rc-guard-handle-dropped	O9	neg	N3	E0911	E0610|No method "borrow_mut"
+generic-unbounded-rc	O10	neg	N1	E0909@spec	E0914|lends a borrow, but parameter
+generic-bounded-rc	O10	neg	N1	E0909	E0401|Variable "Escapable" not found
+generic-escapable-rc	O10	pos	N1	ACCEPT	E0401|Variable "Escapable" not found
+closure-caps-exceed-slot	O7 closures, O3-3	neg	N2	ORIGIN_MISMATCH	E0401|Variable "Origin" not found
+closure-caps-within-slot	O7 closures	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+closure-returns-capture	hole: elision x closures	neg	N1	ORIGIN_MISMATCH	E0401|Variable "__yo_imm" not found
+closure-returns-param	O2 per-call Fn origins	pos	N1	ACCEPT	E0401|Variable "__yo_imm" not found
+closure-param-into-capture	hole: elision x closures	neg	N2	UNION	E1101|requires a compile-time argument
+closure-push-capture	§7 a &mut capture of a flow-inferred container	pos	N2	ACCEPT	-|is a borrow mode, not a type
+closure-push-capture-then-write	§7 a &mut capture of a flow-inferred container	neg	N2	E0911	-|is a borrow mode, not a type
+async-cold-start-write	hole: captures in a state machine across a cold start, O8	neg	N3	E0911	E0909|would hold a borrowing future
+async-cold-start-await-first	O8	pos	N3	ACCEPT	E0909|would hold a borrowing future
+async-forward-local	O8 return rule	neg	N3	E0912	E0909|is declared inside the block
+async-forward-param	O8 forwarding	pos	N3	ACCEPT	E0909|is second-class and cannot be returned
+await-local-borrow	O5	pos	N1	ACCEPT	accept
+dyn-impl-wider	§5 route 5, O7 traits	neg	N1	ORIGIN_MISMATCH	-|Expected a type for function return type
+dyn-impl-narrower	O7 traits	pos	N1	ACCEPT	-|Expected a type for function return type
