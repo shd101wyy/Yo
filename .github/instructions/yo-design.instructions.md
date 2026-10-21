@@ -121,8 +121,11 @@ the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
 sets the thread's allocation scope to `a` around the `Arc(V)(v)` constructor (which allocates
 from the current scope) and restores it, through the prelude's `__yo_scope_set` extern: no
 codegen, and the default path is unchanged. That swap is the stopgap until V5's
-`__yo_atomic_cell` takes the allocator itself (VALUES_BY_DEFAULT §3.2). `rc` has no `alloc`
-parameter yet.
+`__yo_atomic_cell` takes the allocator itself (VALUES_BY_DEFAULT §3.2). Unlike `box`'s
+explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
+allocator whose callbacks allocate through the scope recurses until the stack overflows
+(`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+`rc` has no `alloc` parameter yet.
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,

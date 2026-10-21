@@ -111,7 +111,12 @@ assert(arena.live_blocks() == usize(0), "both were freed into the arena");
 arena.deinit();
 ```
 
-显式的 `alloc` 只对这一个单元优先于当前作用域，之后作用域保持不变。
+显式的 `alloc` 只对这一个单元优先于当前作用域，之后作用域保持不变。两者到达 `a`
+的方式不同：`box` 在调用者的作用域下直接调用 `a` 的 `alloc`；`arc` 则像
+`with_allocator` 一样，在构造期间把 `a` 设为当前作用域（直到单元原语自己接受分配器
+为止）。因此在 `a` 的回调内部，`current_allocator()` 对 `box` 是调用者的作用域，对
+`arc` 是 `a`；用于 `arc` 的分配器必须遵守[编写自己的分配器](#编写自己的分配器)中的
+回调规则。
 
 ## 容器
 
@@ -252,6 +257,11 @@ Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
 - `realloc(ctx, ptr, new_size)` 调整由该 vtable 的 `alloc` 返回的块的大小，保留前
   `min(old, new_size)` 个字节。返回 `.None` 时原块保持不变，仍归调用者所有。
 - `free(ctx, ptr)` 释放这样的块。没有大小参数。
+- 回调不能通过作用域分配：其中不能有 `ArrayList.new()`、`String`、不带 `alloc` 的
+  `box(...)` 或 `ref` 构造器。回调运行时，当前作用域可能正是它自己的分配器（在
+  `with_allocator(a, …)` 之下，以及 `arc(v, alloc : .Some(a))` 时），这样的分配会再次
+  调用 `alloc`，递归直到栈溢出。请从 `GlobalAllocator` 或你自己持有的缓冲区获取内存，
+  如下面的示例所示。
 
 你的函数永远看不到 16 字节的所有者前缀：`std/allocator` 会向你的 `alloc` 多要 16
 字节，并自己管理前缀。实现分配器需要处理裸指针，所以文件需要

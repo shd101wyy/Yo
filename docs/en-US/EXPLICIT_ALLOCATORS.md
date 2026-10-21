@@ -122,7 +122,13 @@ arena.deinit();
 ```
 
 An explicit `alloc` wins over the current scope for that one cell, and the
-scope is unchanged afterwards.
+scope is unchanged afterwards. The two differ in how they reach `a`: `box`
+calls `a`'s `alloc` directly, under the caller's scope, while `arc` makes `a`
+the current scope for the construction, as `with_allocator` does (until the
+cell primitive takes the allocator itself). So inside `a`'s callbacks
+`current_allocator()` is the caller's scope for `box` and `a` for `arc`, and an
+allocator used with `arc` must follow the callback rule in
+[Writing your own allocator](#writing-your-own-allocator).
 
 ## Containers
 
@@ -284,6 +290,13 @@ The contract:
   returned, keeping its first `min(old, new_size)` bytes. On `.None` the
   original block is untouched and still owned by the caller.
 - `free(ctx, ptr)` releases such a block. There is no size argument.
+- The callbacks must not allocate through the scope: no `ArrayList.new()`,
+  `String`, `box(...)` without `alloc`, or `ref` constructor inside them. They
+  can run with their own allocator as the current scope (under
+  `with_allocator(a, …)`, and for `arc(v, alloc : .Some(a))`), so such an
+  allocation calls back into `alloc` and recurses until the stack overflows.
+  Get memory from `GlobalAllocator` or from a buffer you own, as the example
+  below does.
 
 Your functions never see the 16-byte owner prefix: `std/allocator` asks your
 `alloc` for 16 bytes more than the caller wanted and manages the prefix

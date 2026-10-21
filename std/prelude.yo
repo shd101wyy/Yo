@@ -10158,6 +10158,11 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
 /// the cell through that allocator. Panics when the allocator is out of
 /// memory.
 ///
+/// Unlike `box`, which calls `a`'s `alloc` under the caller's scope, `arc`
+/// makes `a` the current scope for the construction (as `with_allocator`
+/// does), so `a`'s callbacks must not allocate through the scope
+/// (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own allocator").
+///
 /// ```yo
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "the payload");

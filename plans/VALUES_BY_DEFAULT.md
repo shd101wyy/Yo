@@ -476,6 +476,13 @@ c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
   - Until V5 the explicit path goes through `with_allocator`. That cost is
     confined to `alloc : .Some(a)` calls, and a construct-with-scope
     intrinsic can land if a benchmark asks for it.
+  - Known limitation until V5 (2026-10-21): `arc`'s explicit path sets the
+    thread scope to `a` around the construction, so `a`'s own callbacks run
+    with `a` current. An allocator whose `alloc` allocates through the scope
+    then recurses until the stack overflows, while `box(v, alloc : .Some(a))`
+    (which calls `a`'s vtable directly) does not. `__yo_atomic_cell` taking
+    the allocator removes the difference
+    (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
 
 **`ref_count(x)`** reads the count of the cell `x` holds (decision 11, which
 renamed the builtin from `rc`, #1186).

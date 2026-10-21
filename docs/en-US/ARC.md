@@ -73,7 +73,10 @@ same := Arc(i32)(i32(42));
 `arc(value, alloc : .Some(a))` allocates the cell from the allocator `a`, for
 example an arena. The last handle's drop frees the cell through `a`, on
 whichever thread drops it. Without `alloc`, a `with_allocator` scope places the
-cell, else the global allocator does ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)):
+cell, else the global allocator does ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
+Unlike `box`, `arc` makes `a` the current scope while the cell is allocated, so
+`a`'s own callbacks must not allocate through the scope (see "Writing your own
+allocator" there):
 
 ```yo
 { Arena } :: import("std/arena");

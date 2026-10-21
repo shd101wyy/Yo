@@ -60,7 +60,9 @@ same := Arc(i32)(i32(42));
 `arc(value, alloc : .Some(a))` 从分配器 `a`（例如一个 arena）分配单元。最后一个句柄
 被 drop 时，无论在哪个线程上，单元都通过 `a` 释放。不传 `alloc` 时，由
 `with_allocator` 作用域放置单元，没有作用域时使用全局分配器（见
-[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）：
+[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。与 `box` 不同，`arc` 在分配单元时
+把 `a` 设为当前作用域，所以 `a` 自己的回调不能通过作用域分配（见该文档的“编写自己的
+分配器”）：
 
 ```yo
 { Arena } :: import("std/arena");
