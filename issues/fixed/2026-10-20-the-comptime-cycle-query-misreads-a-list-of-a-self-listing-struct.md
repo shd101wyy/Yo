@@ -5,10 +5,11 @@
 that list registers with the cycle collector; only the introspection answer
 is wrong, the generated program is right.
 
-**Status:** open on develop; fixed by `de5ee94fc` on draft PR #1486
-(`fix/linkedlist-managed-element-cycles`). It is a second symptom of
-`issues/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`
-(see "Cause"). When #1486 merges, move this doc to `fixed/` with it.
+**Status:** fixed by #1515 (`304d98135`), which carries #1486's shell
+resolution (`de5ee94fc` on the superseded draft #1486). It is a second
+symptom of
+`issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md`
+(see "Cause").
 **Found:** 2026-10-20 with the v0.2.66 seed, while probing
 `issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md`.
 Still fails with the v0.2.67 seed.
@@ -86,4 +87,4 @@ ArrayList(Self) instantiation as codegen does": a runtime `assert` on
 v0.2.67 seeds and with this branch's tree binary. The
 `perf/acyclic-compiler-containers` binary at `2d15820e7`, which carries
 #1486's shell resolution, passes it (2026-10-21). The test is red on develop
-until #1486 lands, so this branch should merge after #1486.
+until #1486 lands, so this branch merges after #1515, which carries it.

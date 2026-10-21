@@ -204,8 +204,8 @@ the type is not `Acyclic`. Results:
 - With the seed, the first assertion of each test fails. The cons-list test
   was run with v0.2.67 and the `KNode` test with v0.2.66.
 - With the tree binary built from `d31c21c57` (2026-10-21), 24 of the file's
-  25 tests pass, including both of these. The failing test is the open S3,
-  `issues/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md`.
+  25 tests pass, including both of these. The failing test is the S3
+  `issues/fixed/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md`.
 
 The fix changes the header size, registration and `Acyclic` answer of every
 user ref enum shaped like this. The tree binary passes every test file that
