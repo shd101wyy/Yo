@@ -9129,7 +9129,7 @@ Fix: wrap the call:
         // Skip the regular arg-count check when the callee has a variadic
         // parameter: variadics accept any number of trailing args, so a strict
         // `n_a > n_p` upper bound (n_p excludes the variadic) wrongly rejects
-        // e.g. `array_list(a, b)` (n_p=0).
+        // e.g. a quoted-variadic macro `m(a, b)` (n_p=0).
         if(!fv_has_variadic && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
           (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
           if(n_required_reg != n_p, {
@@ -9238,7 +9238,8 @@ Fix: wrap the call:
           // once bisected to no longer reproduces (0/52 on the original
           // 4-file protocol, post-slice-rework) — see
           // issues/fixed/codegen-continue-in-while-heap-corruption.md.
-          // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `array_list`) treats
+          // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `local_list` in
+          // tests/macro_def_pragma.test.yo) treats
           // every trailing arg (index >= n_p) as quoted: bind its raw AST as an
           // `Expr` so the macro body's `elems` receives un-evaluated exprs (and
           // the CTFE unknown-arg gate sees compile-time-known `ExprVal`s, not

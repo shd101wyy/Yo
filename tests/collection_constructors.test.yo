@@ -154,10 +154,16 @@ test("HashSet.from with String elements", {
   assert(s.contains(`x`) && s.contains(`y`), "both present");
 });
 // ---------------------------------------------------------------------------
-// The literal macros are gone: their names no longer resolve.
+// The literal macros are gone: the modules no longer export them. The check
+// goes through the module value, because an unqualified `array_list(...)` is
+// unresolved whenever it is not imported, deleted or not; with a std that
+// still exports the macros the qualified call expands and this test fails.
 // ---------------------------------------------------------------------------
-test("the deleted collection literal macros do not resolve", {
-  comptime_expect_error(array_list(i32(1), i32(2)));
-  comptime_expect_error(hash_map(i32(1) => i32(10)));
-  comptime_expect_error(hash_set(i32(1)));
+_cc_array_list_module :: import("std/collections/array_list");
+_cc_hash_map_module :: import("std/collections/hash_map");
+_cc_hash_set_module :: import("std/collections/hash_set");
+test("the deleted collection literal macros are no longer module members", {
+  comptime_expect_error(_cc_array_list_module.array_list(i32(1), i32(2)), "Module field \"array_list\" not found");
+  comptime_expect_error(_cc_hash_map_module.hash_map(i32(1) => i32(10)), "Module field \"hash_map\" not found");
+  comptime_expect_error(_cc_hash_set_module.hash_set(i32(1)), "Module field \"hash_set\" not found");
 });

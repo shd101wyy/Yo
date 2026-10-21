@@ -246,9 +246,12 @@ keeps a working copy (which doubles as corpus coverage of a gated user
 macro), and `tests/macro_def_pragma.test.yo` re-creates it to preserve
 coverage of caller-frame early return through the macro machinery.
 
-The live std macro set is now 9: `if` (spec/fallback only — see 3.2),
+The live std macro set was then 9: `if` (spec/fallback only — see 3.2),
 `for`, `^`, `unsafe.drop`, the three `Var.*` introspectors, and the three
-collection literals.
+collection literals. The collection literals were deleted on 2026-10-20 in
+favour of the consuming constructors `ArrayList(T).from` /
+`HashMap(K, V).from` / `HashSet(T).from` (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`
+B3), leaving 6.
 
 ### 3.2 Promote `if` off the macro path (the high-leverage move)
 

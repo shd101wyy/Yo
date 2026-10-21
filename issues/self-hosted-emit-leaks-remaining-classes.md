@@ -68,7 +68,7 @@ invocations) keeps full verdicts.
 - tests/closure.test.yo
 - tests/closure_capture_rc_leak.test.yo
 - tests/closure_param_forwarding.test.yo
-- tests/collection_literals.test.yo
+- tests/collection_literals.test.yo (renamed `tests/collection_constructors.test.yo` by macro plan B3, 2026-10-20; the literals it exercised are deleted)
 - tests/collections/hash_map.test.yo
 - tests/derive.test.yo
 - tests/dyn.test.yo

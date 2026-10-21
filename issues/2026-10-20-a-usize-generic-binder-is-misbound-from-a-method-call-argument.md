@@ -45,6 +45,18 @@ bind `N = 3`. Only the dot-method form `w.get()` (and `a.clone()`) binds `N` to
 a type. A type binder through the same shape is fine
 (`fn(generic(T : Type), o : Option(T))` with `w.opt()`).
 
+The same misbind surfaces with a different code when the body uses `N` as a
+value before returning it. `ArrayList(i32).from(arr.clone())` fails with
+E0610 reported INSIDE std, not at the caller's line, so the message does not
+point at the workaround:
+
+```text
+error[E0610]: No matching call found for operator "==" with receiver type "Type"
+  --> std/collections/array_list.yo  (`cond((N == usize(0)) => …)` in `ArrayList.from`)
+```
+
+The `from` doc comment names this issue and the working spelling.
+
 ## Where to look
 
 The FuncVal call arm evaluates each argument with the declared parameter type

@@ -9,17 +9,17 @@
 { assert } :: import("std/assert");
 import("std/string");
 { println } :: import("std/fmt");
-{ array_list } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array_list");
 main :: (fn() -> unit)({
   // ✅ works
-  single := array_list(i32(0));
-  (i32(0) .. i32(5)).rev().for_each((x) => {
+  single := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(5)).rev().for_each(x => {
     single.push(x);
   });
   println(single.to_string());
   // ❌ the bug: an adaptor instantiated over ITSELF
-  twice := array_list(i32(0));
-  (i32(0) .. i32(4)).rev().rev().for_each((x) => {
+  twice := ArrayList(i32).from([i32(0),]);
+  (i32(0) .. i32(4)).rev().rev().for_each(x => {
     twice.push(x);
   });
   println(twice.to_string());
