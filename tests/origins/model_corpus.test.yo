@@ -10,7 +10,25 @@
 { ArrayList, array_list } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ bit, FNQ, ELIDED, Kind, Ty, Node, Param, FnDef, TypeDef, Case, check_case } :: import("./model.yo");
+{
+  bit,
+  FNQ,
+  ELIDED,
+  Kind,
+  Ty,
+  Node,
+  Param,
+  FnDef,
+  TypeDef,
+  Case,
+  check_case,
+  check_ablated,
+  ABLATE_INVARIANCE,
+  ABLATE_LOOP_FIXPOINT,
+  ABLATE_USER_DROP,
+  ABLATE_CAPTURE_WIDEN,
+  ABLATE_HANDLE_ORIGIN
+} :: import("./model.yo");
 // Places: a case uses each at most once.
 X :: usize(0);
 Y :: usize(1);
@@ -217,7 +235,7 @@ test("store-widen-mut-pointee", {
 test("store-same-origin", {
   verdict("store-same-origin", case2(store_main(X), store()), "ACCEPT");
 });
-test("store-widen-refcell", {
+store_widen_refcell :: (fn() -> Case)({
   store_cell := sig(P, array_list(prm(CELL, shr(wrap(Kind.Cell, wrap(Kind.Some, shr(int(), P))), ELIDED)), prm(V, shr(int(), P))), int());
   main := entry(
     array_list(
@@ -227,7 +245,10 @@ test("store-widen-refcell", {
       use_(Node.Var(R))
     )
   );
-  verdict("store-widen-refcell", case2(main, store_cell), "ORIGIN_MISMATCH");
+  case2(main, store_cell)
+});
+test("store-widen-refcell", {
+  verdict("store-widen-refcell", store_widen_refcell(), "ORIGIN_MISMATCH");
 });
 /// `swap(generic(T, r), a : &mut &(T, r), b : &mut &(T, r))`.
 swap :: (fn() -> FnDef)(sig(P, array_list(prm(A, exc(shr(int(), P), ELIDED)), prm(B, exc(shr(int(), P), ELIDED))), int()));
@@ -316,16 +337,20 @@ test("elided-container-lent-mut-then-write", {
   );
   verdict("elided-container-lent-mut-then-write", case2(main, push_s()), "E0911");
 });
-test("loop-join-push", {
-  main := entry(
-    array_list(
-      let_(X, lit()),
-      let_(OUT, Node.NewList(shr(int(), ELIDED))),
-      Node.Loop(array_list(Node.Assign(X, lit()), Node.Branch(array_list(Node.Push(OUT, Node.Borrow(false, X))), none()))),
-      use_(Node.Var(OUT))
+loop_join_push :: (fn() -> Case)(
+  case1(
+    entry(
+      array_list(
+        let_(X, lit()),
+        let_(OUT, Node.NewList(shr(int(), ELIDED))),
+        Node.Loop(array_list(Node.Assign(X, lit()), Node.Branch(array_list(Node.Push(OUT, Node.Borrow(false, X))), none()))),
+        use_(Node.Var(OUT))
+      )
     )
-  );
-  verdict("loop-join-push", case1(main), "E0911");
+  )
+);
+test("loop-join-push", {
+  verdict("loop-join-push", loop_join_push(), "E0911");
 });
 test("loop-join-push-after", {
   main := entry(
@@ -339,9 +364,9 @@ test("loop-join-push-after", {
   );
   verdict("loop-join-push-after", case1(main), "ACCEPT");
 });
+drop_order_user_drop :: (fn() -> Case)(case1(entry(array_list(let_(OUT, Node.Make(Kind.Guard, Node.NewList(shr(int(), ELIDED)))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))))));
 test("drop-order-user-drop", {
-  main := entry(array_list(let_(OUT, Node.Make(Kind.Guard, Node.NewList(shr(int(), ELIDED)))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))));
-  verdict("drop-order-user-drop", case1(main), "E0911");
+  verdict("drop-order-user-drop", drop_order_user_drop(), "E0911");
 });
 test("drop-order-may-dangle", {
   main := entry(array_list(let_(OUT, Node.NewList(shr(int(), ELIDED))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))));
@@ -375,9 +400,9 @@ test("rc-mut-through-deref", {
   main := entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), use_(call(usize(1), array_list(Node.HandleBorrow(true, H))))));
   verdict("rc-mut-through-deref", case2(main, bump), "E0919");
 });
+rc_handle_dropped :: (fn() -> Case)(case1(entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Drop(H, false), use_(Node.Var(R))))));
 test("rc-handle-dropped", {
-  main := entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Drop(H, false), use_(Node.Var(R))));
-  verdict("rc-handle-dropped", case1(main), "E0911");
+  verdict("rc-handle-dropped", rc_handle_dropped(), "E0911");
 });
 test("rc-handle-reassigned", {
   main := entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Assign(H, Node.Make(Kind.Rc, lit())), use_(Node.Var(R))));
@@ -546,4 +571,34 @@ test("dyn-impl-wider", {
 });
 test("dyn-impl-narrower", {
   verdict("dyn-impl-narrower", case2(entry(none()), pick(shr(int(), ELIDED), SELF)), "ACCEPT");
+});
+// ---------------------------------------------------------------------------
+// Each hole row tests its rule: with that rule switched off, the model
+// accepts the row (a mutant the row kills). A row that still failed would be
+// rejected for some other reason.
+// ---------------------------------------------------------------------------
+/// Asserts the ablated model's verdict on a negative row.
+flips :: (fn(id : str, c : Case, rule : u64, want : str) -> unit)({
+  ck := check_ablated(c, rule);
+  println(`${id} without rule ${rule}: ${ck.err} (${ck.why})`);
+  assert(ck.err == String.from(want), `${id}: with rule ${rule} off the model says ${ck.err} (${ck.why}), expected ${want}`);
+});
+test("ablation: invariance through a &mut pointee or a RefCell (O3-3)", {
+  flips("store-widen-mut-pointee", case2(store_main(Y), store()), ABLATE_INVARIANCE, "ACCEPT");
+  flips("store-widen-refcell", store_widen_refcell(), ABLATE_INVARIANCE, "ACCEPT");
+  flips("swap-different-origins", case2(swap_main(o(X), o(Y)), swap()), ABLATE_INVARIANCE, "ACCEPT");
+  flips("closure-caps-exceed-slot", case2(register_main(Y), register()), ABLATE_INVARIANCE, "ACCEPT");
+});
+test("ablation: the loop fixpoint over the back edge", {
+  flips("loop-join-push", loop_join_push(), ABLATE_LOOP_FIXPOINT, "ACCEPT");
+});
+test("ablation: a user Drop keeps its roots live", {
+  flips("drop-order-user-drop", drop_order_user_drop(), ABLATE_USER_DROP, "ACCEPT");
+});
+test("ablation: a &mut capture grows the container's flow set", {
+  flips("closure-push-capture-then-write", case2(closure_push_main(X), each()), ABLATE_CAPTURE_WIDEN, "ACCEPT");
+});
+test("ablation: a borrow through an Rc deref carries the handle's place (O9)", {
+  flips("rc-handle-dropped", rc_handle_dropped(), ABLATE_HANDLE_ORIGIN, "ACCEPT");
+  flips("rc-guard-handle-dropped", case2(rc_guard_main(H), borrow_mut()), ABLATE_HANDLE_ORIGIN, "ACCEPT");
 });

@@ -1189,6 +1189,21 @@ _evaluate_expression :: (
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
         // Anywhere else it is not an expression.
         ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .None)) => {
+          // `&mut(T, p)` is decision 43's origin-qualified reference
+          // (plans/backlog/REFERENCES_AND_ORIGINS.md O1). The marker strip
+          // below sees through one argument only, so probing a two-argument
+          // form re-evaluated this very call until the stack overflowed
+          // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
+          if(!ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(1))), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `\`${ast_expr_to_string(expr)}\` is an origin-qualified reference (\`&mut(T, p)\`, plans/backlog/REFERENCES_AND_ORIGINS.md O1), which is not supported yet: \`&mut\` lends one place (\`&mut x\`), and a parameter is written \`x : &mut T\`.`
+                )
+              )
+            );
+          });
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(ast_place_text(ast_expr_strip_borrow_marker(expr)), true))));
           });

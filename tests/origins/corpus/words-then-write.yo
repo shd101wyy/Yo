@@ -1,0 +1,18 @@
+// N0 corpus row `words-then-write` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): the owner written while `words`'s result lives (O3 step 2: the substituted origin freezes `doc`).
+// Expected once decision 43's rules land: rejected: E0911 at the write.
+{ ArrayList } :: import("std/collections/array_list");
+_Doc :: struct(text : i32);
+_words :: (fn(self : &_Doc) -> ArrayList(&(i32, self)))({
+  mut(out) := ArrayList(&(i32, self)).new();
+  out.push(&self.text);
+  out
+});
+main :: (fn() -> unit)({
+  mut(doc) := _Doc(text : i32(1));
+  w := _words(&doc);
+  doc.text = i32(2);
+  _ := w.len();
+  ()
+});
+export(main);

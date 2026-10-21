@@ -1,0 +1,13 @@
+// N0 corpus row `thread-send-origin` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a `RefCell` carrying an origin crossing a thread (`Send`, O8, O10).
+// Expected once decision 43's rules land: rejected: E0909, a type with origin parameters is not `Send`.
+{ RefCell } :: import("std/sync/refcell");
+{ Thread } :: import("std/thread");
+main :: (fn() -> unit)({
+  x := i32(1);
+  cell := RefCell(&i32).new(&x);
+  t := Thread(i32).spawn({ cell }(io : Io) => cell.with(r => r.*));
+  _ := t.join();
+  ()
+});
+export(main);

@@ -1,0 +1,12 @@
+// N0 corpus row `drop-root-while-borrowed` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a drop of a place while a `&` borrow of it lives (§5 route 6: a drop is an access).
+// Expected once decision 43's rules land: rejected: E0911 (today too).
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  x := String.from("a");
+  r := &x;
+  drop(x);
+  _ := r.len();
+  ()
+});
+export(main);

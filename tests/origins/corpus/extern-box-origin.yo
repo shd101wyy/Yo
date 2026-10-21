@@ -1,0 +1,11 @@
+// N0 corpus row `extern-box-origin` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): an `extern` signature carrying an origin (O4, O10).
+// Expected once decision 43's rules land: rejected: E0909, FFI takes raw pointers.
+pragma(Pragma.AllowUnsafe);
+_c :: extern("c", _consume : (fn(generic(p : Origin), b : Box(&(i32, p))) -> unit));
+main :: (fn() -> unit)({
+  x := i32(1);
+  unsafe(_c._consume(box(&x)));
+  ()
+});
+export(main);

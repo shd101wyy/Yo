@@ -1,0 +1,11 @@
+// N0 corpus row `wf-outward-field` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: a type whose field names a declared origin parameter (O1, O4).
+// Expected once decision 43's rules land: accepted.
+_View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(at : &(i32, p), lo : usize));
+main :: (fn() -> unit)({
+  x := i32(1);
+  v := _View(x)(at : &x, lo : usize(0));
+  _ := v.lo;
+  ()
+});
+export(main);

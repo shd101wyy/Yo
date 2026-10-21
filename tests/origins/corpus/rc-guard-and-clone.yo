@@ -1,0 +1,13 @@
+// N0 corpus row `rc-guard-and-clone` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: a `RefCell` guard through `h` while another handle to the same cell is dropped (expected hole: the handle-origin rule beside a guard and a collection).
+// Expected once decision 43's rules land: accepted (the frozen `h` keeps the payload alive; see §7).
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  h := rc(RefCell(i32).new(i32(1)));
+  h2 := h;
+  mut(g) := h.*.borrow_mut();
+  drop(h2);
+  g.* = i32(2);
+  ()
+});
+export(main);

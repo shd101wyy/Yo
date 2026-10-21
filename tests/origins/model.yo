@@ -402,9 +402,17 @@ Ck :: ref(
     why : String,
     next_fresh : usize,
     fresh : u64,
-    spec_depth : usize
+    spec_depth : usize,
+    ablate : u64
   )
 );
+/// The rules `check_ablated` can switch off.
+ABLATE_INVARIANCE :: u64(1);
+ABLATE_LOOP_FIXPOINT :: u64(2);
+ABLATE_USER_DROP :: u64(4);
+ABLATE_CAPTURE_WIDEN :: u64(8);
+ABLATE_HANDLE_ORIGIN :: u64(16);
+ablated :: (fn(ck : Ck, rule : u64) -> bool)((ck.ablate & rule) != u64(0));
 /// Records the first error: its rule code and a one-line reason. Inside a
 /// generic instantiation the code gains `@spec`.
 fail :: (fn(ck : Ck, code : str, why : str) -> unit)({
@@ -764,7 +772,7 @@ check_stmt :: (fn(ck : Ck, env : Env, s : Node, after : u64) -> unit)(
         e := clone_env(env);
         check_list(ck, e, &b, head);
         j := join_env(env, e);
-        go = (!env_eq(j, env) && (rounds < usize(16)));
+        go = (!env_eq(j, env) && (rounds < usize(16)) && !ablated(ck, ABLATE_LOOP_FIXPOINT));
         assign_env(env, j);
         rounds = (rounds + usize(1));
       });
@@ -898,7 +906,7 @@ eval :: (fn(ck : Ck, env : Env, e : Node, live : u64) -> Ty)(
         match(
           env.flow(h),
           .Wrap(k, payload) => cond(
-            (k == Kind.Rc) => Ty.Ref(false, payload, bit(h)),
+            (k == Kind.Rc) => Ty.Ref(false, payload, cond(ablated(ck, ABLATE_HANDLE_ORIGIN) => u64(0), true => bit(h))),
             true => {
               fail(ck, "TYPE", "a handle borrow of a non-`Rc`");
               Ty.Int
@@ -940,7 +948,9 @@ eval :: (fn(ck : Ck, env : Env, e : Node, live : u64) -> Ty)(
         excl = (excl | orig(t, usize(2)));
         i = (i + usize(1));
       });
-      widen_captured(ck, env, &caps, shared | excl);
+      if(!ablated(ck, ABLATE_CAPTURE_WIDEN), {
+        widen_captured(ck, env, &caps, shared | excl);
+      });
       Ty.Fut(shared, excl)
     },
     _ => {
@@ -985,9 +995,11 @@ eval_closure :: (fn(ck : Ck, env : Env, param : usize, pty : Ty, caps : &ArrayLi
     );
     i = (i + usize(1));
   });
-  widen_captured(ck, env, caps, shared | excl);
+  if(!ablated(ck, ABLATE_CAPTURE_WIDEN), {
+    widen_captured(ck, env, caps, shared | excl);
+  });
   stmts := desugar(body);
-  inner.drop_uses = scan_guards(&stmts);
+  inner.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));
   check_list(ck, inner, &stmts, uses(result));
   rt := eval(ck, inner, result, u64(0));
   Ty.Func(ptype, rt, shared, excl)
@@ -1037,7 +1049,7 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
   i = usize(0);
   while((i < types.len()) && (i < sig.params.len()), {
     pt := map_o(ck, sig.params(i), OP_SUBST, u64(0), sb);
-    if(!sub(types(i), pt, false), {
+    if(!sub(types(i), pt, false) && !ablated(ck, ABLATE_INVARIANCE), {
       fail(ck, "ORIGIN_MISMATCH", "an argument's origins do not fit its parameter");
     });
     i = (i + usize(1));
@@ -1062,8 +1074,9 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
       .None => ()
     );
   });
-  // A `&mut`-lent local may have been written by the callee: its flow is
-  // now what the substituted parameter's pointee allows.
+  // A `&mut`-lent declared local may have been written by the callee: its
+  // flow is now its declared bound, except at an elided (flow-inferred)
+  // position, where it is what the substituted parameter's pointee allows.
   i = usize(0);
   while((i < args.len()) && (i < sig.params.len()), {
     match(
@@ -1073,7 +1086,7 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
           match(
             map_o(ck, sig.params(i), OP_SUBST, u64(0), sb),
             .Ref(_, pointee, _) => {
-              env.flow(p) = map_o(ck, pointee, OP_UNFLEX, u64(0), sb);
+              env.flow(p) = map_o(ck, flex(pointee, env.decl(p)), OP_UNFLEX, u64(0), sb);
             },
             _ => ()
           );
@@ -1105,7 +1118,7 @@ unify :: (fn(ck : Ck, sb : Subst, pt : Ty, at : Ty, inv : bool) -> unit)(
           fail(ck, "TYPE", "a `&` where a `&mut` is expected, or the reverse");
         });
         bind_origin(sb, o, oa, inv);
-        recur(ck, sb, p, a, inv || m);
+        recur(ck, sb, p, a, (inv || m) && !ablated(ck, ABLATE_INVARIANCE));
       },
       _ => fail(ck, "TYPE", "a non-reference where a reference is expected")
     ),
@@ -1120,7 +1133,7 @@ unify :: (fn(ck : Ck, sb : Subst, pt : Ty, at : Ty, inv : bool) -> unit)(
       },
       _ => fail(ck, "TYPE", "a composite shape mismatch")
     ),
-    .Wrap(k, p) => match(at, .Wrap(_, a) => recur(ck, sb, p, a, inv || (k == Kind.Cell)), _ => fail(ck, "TYPE", "a cell shape mismatch")),
+    .Wrap(k, p) => match(at, .Wrap(_, a) => recur(ck, sb, p, a, (inv || (k == Kind.Cell)) && !ablated(ck, ABLATE_INVARIANCE)), _ => fail(ck, "TYPE", "a cell shape mismatch")),
     .List(p) => match(at, .List(a) => recur(ck, sb, p, a, inv), _ => fail(ck, "TYPE", "a container shape mismatch")),
     .Func(_, _, s, e) => match(at, .Func(_, _, s2, e2) => bind_origin(sb, s | e, s2 | e2, inv), _ => fail(ck, "TYPE", "a non-callable where a `Fn` is expected")),
     .Fut(s, e) => match(at, .Fut(s2, e2) => bind_origin(sb, s | e, s2 | e2, inv), _ => fail(ck, "TYPE", "a non-future where a future is expected")),
@@ -1245,7 +1258,7 @@ check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
     def.body,
     .Some(b) => {
       stmts := desugar(&b);
-      env.drop_uses = scan_guards(&stmts);
+      env.drop_uses = cond(ablated(ck, ABLATE_USER_DROP) => u64(0), true => scan_guards(&stmts));
       check_list(ck, env, &stmts, u64(0));
     },
     .None => ()
@@ -1253,8 +1266,12 @@ check_fn_body :: (fn(ck : Ck, f : usize, sb : Subst) -> unit)({
 });
 /// The model's verdict on one case: `ACCEPT`, or the code of the first
 /// rule that rejects it (`ck.why` says why).
-check_case :: (fn(c : Case) -> Ck)({
-  ck := Ck(case : c, sigs : ArrayList(NSig).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0));
+check_case :: (fn(c : Case) -> Ck)(check_ablated(c, u64(0)));
+/// `check_case` with some rules switched off (`ABLATE_*`): each hole row of
+/// the corpus must flip when the rule that rejects it is removed, which is
+/// what shows the row tests that rule.
+check_ablated :: (fn(c : Case, ablate : u64) -> Ck)({
+  ck := Ck(case : c, sigs : ArrayList(NSig).new(), err : String.from(""), why : String.from(""), next_fresh : FRESH0, fresh : u64(0), spec_depth : usize(0), ablate : ablate);
   mut(i) := usize(0);
   while(i < c.types.len(), {
     td := c.types(i);
@@ -1310,5 +1327,11 @@ export(
   TypeDef,
   Case,
   Ck,
-  check_case
+  check_case,
+  check_ablated,
+  ABLATE_INVARIANCE,
+  ABLATE_LOOP_FIXPOINT,
+  ABLATE_USER_DROP,
+  ABLATE_CAPTURE_WIDEN,
+  ABLATE_HANDLE_ORIGIN
 );

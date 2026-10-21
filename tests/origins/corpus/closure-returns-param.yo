@@ -1,0 +1,11 @@
+// N0 corpus row `closure-returns-param` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: the literal returns its parameter (O2: a `Fn` type's elided origins are per-call).
+// Expected once decision 43's rules land: accepted.
+_apply :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)(f(v).*);
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  _ := _apply((v : &i32) => v, &x);
+  ()
+});
+export(main);

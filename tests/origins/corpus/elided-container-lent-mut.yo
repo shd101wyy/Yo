@@ -1,0 +1,15 @@
+// N0 corpus row `elided-container-lent-mut` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: a body-local container with an elided union lent `&mut` to the spelled `push`; an unrelated place stays writable (O2 x O6).
+// Expected once decision 43's rules land: accepted (the flow set becomes {x} at the call).
+{ ArrayList } :: import("std/collections/array_list");
+_push :: (fn(generic(r : Origin), xs : &mut ArrayList(&(i32, r)), value : &(i32, r)) -> unit)(xs.push(value));
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(y) := i32(2);
+  mut(out) := ArrayList(&i32).new();
+  _push(&mut out, &x);
+  y = i32(3);
+  _ := out.len();
+  ()
+});
+export(main);

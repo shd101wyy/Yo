@@ -1,0 +1,11 @@
+// N0 corpus row `closure-returns-capture` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a closure literal returning a captured borrow where the slot's result origin is its per-call parameter origin (expected hole: elision x closures).
+// Expected once decision 43's rules land: rejected: `y` is not within the per-call origin.
+_apply :: (fn(f : Impl(Fn(v : &i32) -> &i32), v : &i32) -> i32)(f(v).*);
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  _ := _apply({ c : &y }(v : &i32) => c, &x);
+  ()
+});
+export(main);
