@@ -20,6 +20,25 @@ first_tag :: (fn() -> String)(make().tags(usize(0)));
 fix: main.yo:7:31: `(make().tags)(usize(0))` is returned from a borrowed binding, so a caller may write through it; return a projection (`-> &T`) or spell the copy (`.clone()`) by hand
 ```
 
+The same misreading hits a `match` scrutinee read through a dereference of
+a call's result (found 2026-10-21 while re-verifying the guard's dereference
+stop; the v0.2.67 seed prints the same line):
+
+```yo ignore
+Shelf :: struct(h : Rc(Holder));
+grab :: (fn(s : &Shelf) -> Rc(Holder))(s.h);
+b := match(grab(&s).*.maybe, .Some(z) => z, .None => String.new());
+```
+
+```text
+fix: rm.yo:8:14: `((grab(&(s)).(*)).maybe)` is returned from a borrowed binding, so a caller may write through it; return a projection (`-> &T`) or spell the copy (`.clone()`) by hand
+```
+
+The scrutinee copy is real (the pointee lives on in `s.h`) and is listed,
+so no wrong code results; only the reason is wrong. The binding `z` is a
+move out of that copied temporary, which the dying-temporary guard lists
+correctly.
+
 ## Root cause
 
 `_ic_place_root_var` (`src/evaluator/utils.yo`) walks a non-infix call to its
