@@ -21,7 +21,8 @@
 #           ORIGIN_MISMATCH, UNION; `@spec` = inside a generic specialization)
 #   today   what `yo check` does with the program now: `accept`, or
 #           `<code>|<text>` where <code> is the first error's code (`-` when it
-#           has none) and <text> a fixed string its output contains
+#           has none) and <text> a fixed string that first error's message
+#           contains (its `error` line through the line before the next one)
 #
 # Modes:
 #   today   (default; the N0 gate) every row behaves as its `today` column says.
@@ -88,6 +89,8 @@ while IFS=$'\t' read -r id anchor kind phase expect today; do
   "$YO" check "$CORPUS/$id.yo" --std-path "$ROOT/std" > "$log" 2>&1
   rc=$?
   first=$(grep -m1 -oE '^error(\[E[0-9]+\])?' "$log" | sed -E 's/^error\[?//; s/\]$//')
+  # The first diagnostic: its `error` line through the line before the next one.
+  block=$(awk '/^error/ { n++ } n == 1' "$log")
   if [ "$MODE" = today ]; then
     if [ "$today" = accept ]; then
       [ $rc -eq 0 ] && { pass=$((pass + 1)); continue; }
@@ -97,10 +100,10 @@ while IFS=$'\t' read -r id anchor kind phase expect today; do
       text=${today#*|}
       if [ $rc -eq 0 ]; then
         problem "$id: recorded as rejected today ($today), check accepted it"
-      elif [ "$code" != - ] && [ "$first" != "$code" ]; then
+      elif [ "$first" != "${code#-}" ]; then
         problem "$id: today's first error is '${first:-uncoded}', recorded '$code': $(grep -m1 '^error' "$log")"
-      elif ! grep -qF -- "$text" "$log"; then
-        problem "$id: today's output no longer says '$text': $(grep -m1 '^error' "$log")"
+      elif ! grep -qF -- "$text" <<<"$block"; then
+        problem "$id: today's first error no longer says '$text': $(grep -m1 '^error' "$log")"
       else
         pass=$((pass + 1))
       fi

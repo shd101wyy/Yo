@@ -774,9 +774,17 @@ check_stmt :: (fn(ck : Ck, env : Env, s : Node, after : u64) -> unit)(
         e := clone_env(env);
         check_list(ck, e, &b, head);
         j := join_env(env, e);
-        go = (!env_eq(j, env) && (rounds < usize(16)) && !ablated(ck, ABLATE_LOOP_FIXPOINT));
+        converged := env_eq(j, env);
         assign_env(env, j);
         rounds = (rounds + usize(1));
+        go = (!converged && !ablated(ck, ABLATE_LOOP_FIXPOINT));
+        // A body checked only against an environment the loop has not
+        // reached yet proves nothing: past the cap, the model gives up
+        // rather than accept on an under-approximation.
+        if(go && (rounds >= usize(16)), {
+          fail(ck, "MODEL_LIMIT", "the loop fixpoint did not converge in 16 rounds");
+          go = false;
+        });
       });
     },
     _ => fail(ck, "TYPE", "an expression in statement position")
