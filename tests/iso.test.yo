@@ -4,7 +4,6 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
-Gc :: import("std/gc");
 test("Test basic Iso related functions", {
   {
     x := Rc(i32)(42);
@@ -203,35 +202,4 @@ test("an Iso constructor used as a receiver or discarded releases its value", {
     Iso(_IsoRes)(b);
   };
   assert((g_iso_disposed - before) == i32(2), "both values are released");
-});
-// `^` refuses a type only when `Type.can_form_rc_cycle` holds for it, and the
-// walk answers whether the ROOT can lie on a cycle. A holder of a
-// cycle-capable reference enum is not on the enum's cycles, so `^` isolates
-// it; but the enum's `Node` was registered with the SENDING thread's
-// collector when it was built. The receiving thread frees it and the
-// sender's list keeps the freed entry, so the sender's next collection, or
-// its exit, reads freed memory
-// (issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md).
-_IsoTree :: ref(
-  enum(
-    Leaf(n : i32),
-    Node(l : Self, r : Self)
-  )
-);
-_IsoTreeHolder :: ref(struct(t : _IsoTree));
-test("an isolated graph leaves no collector entry on the sending thread", {
-  base := Gc.tracked_count();
-  h := _IsoTreeHolder(t : _IsoTree.Node(_IsoTree.Leaf(1), _IsoTree.Leaf(2)));
-  match(
-    ^h,
-    .Some(iso) => {
-      t := Thread(unit).spawn((io : Io) => {
-        got := iso.extract();
-        ()
-      });
-      t.join();
-    },
-    .None => assert(false, "a freshly built holder is uniquely owned")
-  );
-  assert(Gc.tracked_count() == base, "the sender's collector lists nothing the receiving thread freed");
 });

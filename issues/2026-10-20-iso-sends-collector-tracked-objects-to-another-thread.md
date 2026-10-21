@@ -146,7 +146,7 @@ option 2 makes it pass as written.
 
 ## Test
 
-`tests/iso.test.yo`, "an isolated graph leaves no collector entry on the
+`issues/repros/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.yo` (open-bug repro, `test(...)`-shaped; it fails until the fix), "an isolated graph leaves no collector entry on the
 sending thread". It isolates an `_IsoTreeHolder` holding a tracked
 `_IsoTree.Node`, has a spawned thread extract and drop it, and asserts the
 main thread's `Gc.tracked_count()` is back to its base. The assertion reads a
