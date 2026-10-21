@@ -937,11 +937,13 @@ rows that pin it.
     through `b`. Fixed on this branch:
     `issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md`.
 
-  Position: the rejection (E0910) belongs to V2b's value-root rule, and
-  counting the tree's uses belongs to V2b's Generation A. Whichever of V2b
-  and N1 lands first rejects it; N1 needs no rule of its own. When it
-  lands, re-record row `call-arg-overlap`. It is the one row that today's
-  compiler wrongly accepts.
+  Position: O3 step 2's overlap check and decision 28's value-root rule
+  are one rule reached from two plans, E0910 at the call. Whichever of V2b
+  and N1 lands first builds it, and its Generation A counts the tree's
+  uses first; the other phase reuses it. The model implements it as O3's
+  (`eval_call`), and row `call-arg-overlap` is an N1 row expecting E0910.
+  When the rule lands, re-record that row's `today` column: it is the one
+  row that today's compiler wrongly accepts.
 - **The type-constructor spelling.** O1's example first spelled the
   constructor `(fn(comptime(T : Type, p : Origin) -> …))`, which does not
   parse. A comptime parameter is written `comptime(T) : Type`, as in the
