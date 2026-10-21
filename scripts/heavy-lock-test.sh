@@ -159,7 +159,16 @@ wait "${pids[@]}"
 kill $watchdog 2>/dev/null; wait $watchdog 2>/dev/null
 expect "the exclusive ticket keeps its place; priority goes next" "$(start_order)" "w1 x p n1"
 
-# 11. Nothing is left behind.
+# 11. Only a declared exclusive ticket runs alone: a weight-1 job whose label
+#     names a timing word shares the machine.
+scenario label-is-not-a-weight
+printf 'HEAVY_SLOTS=3\nHEAVY_MIN_AVAIL_MB=0\n' > "$HEAVY_ROOT/heavy-lock.conf"
+job "leak-A/B-measure-timed-profile-sample" 3 & sleep 0.2
+job w1 2 &
+wait
+expect "a weight-1 job labelled with timing words shares the machine" "$(max_concurrent)" 2
+
+# 12. Nothing is left behind.
 expect "every slot released, every ticket gone" "$(find "$WORK" -mindepth 2 \( -name '.heavy-lock*' -o -path '*/.heavy-queue/*' \) | wc -l | tr -d ' ')" 0
 
 exit $FAILED
