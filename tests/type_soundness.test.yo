@@ -1111,6 +1111,33 @@ test("soundness: a by-value argument outlives the inout argument it overlaps", {
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
   assert(x.s.starts_with(`fresh-value-2`), "the inout write reached the caller");
 });
+// The same overlap on a collection, which is a reference type: the dup/drop
+// pair optimizer cancelled the caller-owned +1 against `xs`'s scope-end drop,
+// so the callee's `&` argument read the freed first list and the last list
+// leaked
+// (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
+_p5_clobber_list :: (fn(a : &mut ArrayList(_P5Box), b : &ArrayList(_P5Box)) -> usize)({
+  (mut(i) : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    a = ArrayList(_P5Box).new();
+    a.push(_P5Box(tag : i));
+    i = (i + i32(1));
+  });
+  b.len()
+});
+_p5_clobber_list_caller :: (fn() -> usize)({
+  mut(xs) := ArrayList(_P5Box).new();
+  xs.push(_P5Box(tag : i32(7)));
+  xs.push(_P5Box(tag : i32(8)));
+  n := _p5_clobber_list(&mut xs, &xs);
+  n
+});
+test("soundness: a collection lent both &mut and & to one call keeps its share", {
+  before := g_p5_disposed;
+  n := _p5_clobber_list_caller();
+  assert(n == usize(2), `the borrowed list survived the writes, len ${n.to_string()}`);
+  assert(g_p5_disposed == (before + i32(5)), `every box released once, got ${(g_p5_disposed - before).to_string()}`);
+});
 // issues/fixed/std-panic-cannot-type-a-value-arm-because-there-is-no-bottom-type.md:
 // std/assert's `panic` is `-> never`, so it fits an arm that must produce a value.
 test("soundness: std panic types a value arm", {

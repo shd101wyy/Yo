@@ -70,7 +70,7 @@ pragma(Pragma.AllowUnsafe);
   record_branch_consume,
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup } :: import("../../expr_info.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
 {
   EvalContext,
@@ -336,8 +336,10 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
   );
   // The node itself is a dup call? A by-value parameter's share is never a
   // pair candidate: the callee frees it at its return, before the caller's
-  // later reads (`_mark_by_value_param_shares`, calls/helper.yo).
-  if(is_by_value_param_share_dup(ast_expr_id(expr)), {
+  // later reads (`_mark_by_value_param_shares`, calls/helper.yo). Nor is an
+  // aliased argument's caller-owned +1, which its own post-call drop
+  // balances (`mark_call_scoped_share_dup`, expr_info.yo).
+  if(is_by_value_param_share_dup(ast_expr_id(expr)) || is_call_scoped_share_dup(ast_expr_id(expr)), {
     return(());
   });
   match(
