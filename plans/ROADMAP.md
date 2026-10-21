@@ -121,8 +121,8 @@ authorship from day one.
   [`backlog/LLM_AUTHORING_AUDIT_2026-09-19.md`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md)).
 - **Rust's `Rc`/`Arc` without a collector.** `Weak(T)`/`ArcWeak(T)`, a
   `--cycle-collector off` build, `Arc` without `Acyclic`, a leak oracle
-  under every allocator, then the collector, `Trace` and `Acyclic`
-  deleted in stages
+  under every allocator, then the collector and `Trace` deleted in
+  stages (`Acyclic` stays as a derived marker, `Weak` edges excluded)
   ([`backlog/WEAK_AND_UNCOLLECTED_RC.md`](backlog/WEAK_AND_UNCOLLECTED_RC.md),
   VALUES_BY_DEFAULT decision 48 and its §6 phase; release placement in
   the VBD schedule).

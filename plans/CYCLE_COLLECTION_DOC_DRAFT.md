@@ -42,9 +42,10 @@ Tag legend: `V2b`, `V2c`, `V5` are phases of
 - (planned: W6) **The collector is removed.** Once `Weak` and the leak
   oracle (`yo test --allocator debug`) have shipped, `off` becomes the
   default for one release and then the only mode: every cell has the
-  small header, `Drop` runs at exactly one point, `Acyclic` and `Trace`
-  no longer exist, and this page becomes a page about `Weak`, leaks and
-  the oracle (section 12).
+  small header, `Drop` runs at exactly one point, `Trace` and the
+  declared `impl(T, Acyclic())` no longer exist, `Acyclic` stays as a
+  derived marker ("no strong cycle is reachable from `T`"), and this
+  page becomes a page about `Weak`, leaks and the oracle (section 12).
 
 ```yo
 pragma(Pragma.AllowUnsafe);
@@ -105,7 +106,12 @@ registered with the collector when it is made:
   fields hold. The declaration is a claim the compiler trusts; a wrong
   claim leaks a cycle and never dangles anything. Today it requires
   `pragma(Pragma.AllowUnsafe)` and a `// SAFETY:` comment (planned: W5,
-  the pragma goes, because a leak is not memory-unsafe).
+  the pragma goes, because a leak is not memory-unsafe; W6, the declared
+  form goes with the collector).
+- `Acyclic` is also a derived marker you can require: `where(T <: Acyclic)`
+  accepts a type from which no cycle of strong edges is reachable
+  (planned: W3, `Weak` edges do not count, so a tree with weak parent
+  pointers is `Acyclic`). It is how a type says "I cannot leak by cycle".
 - (planned, after decision 46) The predicate narrows to "reaches a
   `RefCell`, `Mutex` or `RwLock` whose payload reaches an `Rc`": a plain
   `Rc` payload is read-only through its handle, so a cycle can only be
@@ -288,8 +294,10 @@ With the collector deleted, this page shrinks to the model Rust documents:
   how it is read.
 - `yo test --allocator debug` fails a test that leaks, and `--allocator
   debug`'s exit report names the leaked cells and their allocation sites.
-- Every cell has one 16-byte header; `Acyclic`, `Trace`, `Gc`,
-  `YO_GC_THRESHOLD` and `--cycle-collector` no longer exist.
+- Every cell has one 16-byte header; `Trace`, `Gc`, `YO_GC_THRESHOLD`,
+  `--cycle-collector` and the declared `impl(T, Acyclic())` no longer
+  exist. `Acyclic` stays as a derived marker: `where(T <: Acyclic)` is
+  the one static way to say a type cannot leak by cycle.
 - An `Rc` payload may hold a reference (`Rc(&(T, p))`), as in Rust: there
   is no later moment at which its `Drop` could run.
 
@@ -302,7 +310,8 @@ With the collector deleted, this page shrinks to the model Rust documents:
   read-only; `Weak` reopened 2026-10-21).
 - [`backlog/WEAK_AND_UNCOLLECTED_RC.md`](backlog/WEAK_AND_UNCOLLECTED_RC.md):
   `Weak`/`ArcWeak`, the uncollected build, `Arc` without `Acyclic`,
-  phases W1–W6 (W6 deletes the collector, `Trace` and `Acyclic`).
+  phases W1–W6 (W6 deletes the collector, `Trace` and the declared
+  `Acyclic` form; the derived marker stays).
 - [`backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md)
   O9 and O10: borrows through a handle; `Escapable` and why an `Rc`
   payload carries no reference.
