@@ -47,6 +47,11 @@ two recorded types agree. The inline-call loop now applies the same
 `type_key` test, so the argument is the source value, which the in-place dup
 has already retained.
 
+This fixes the inline-call adoption site only. The return path had the same
+unguarded adoption in two helpers (`return(w.a)` of an `Array(String, 2)`),
+fixed separately in
+`issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md`.
+
 ## Test
 
 `tests/collection_constructors.test.yo`, "`__yo_ptr_write` moves a whole
