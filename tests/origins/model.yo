@@ -175,11 +175,12 @@ OP_UNFLEX :: usize(2);
 OP_FRESHEN :: usize(3);
 OP_SUBST :: usize(4);
 OP_RESTRICT :: usize(5);
+OP_SET :: usize(6);
 /// Rewrites every origin of `t` (and, under `OP_SUBST`, every type
 /// parameter): `OP_CLEAR` empties them, `OP_ELIDE_TO` replaces `ELIDED` by
 /// `arg`, `OP_UNFLEX` drops `FLEX`, `OP_FRESHEN` gives each `ELIDED` a new
 /// fresh bit from `ck`, `OP_SUBST` applies `sb`, `OP_RESTRICT` intersects
-/// each with `arg`.
+/// each with `arg`, `OP_SET` replaces each by `arg`.
 map_o :: (fn(ck : Ck, t : Ty, op : usize, arg : u64, sb : Subst) -> Ty)(
   match(
     t,
@@ -207,6 +208,7 @@ map_one :: (fn(ck : Ck, o : u64, op : usize, arg : u64, sb : Subst) -> u64)(
     (op == OP_ELIDE_TO) => cond(((o & ELIDED) != u64(0)) => ((o & ~ELIDED) | arg), true => o),
     (op == OP_UNFLEX) => (o & ~FLEX),
     (op == OP_RESTRICT) => (o & arg),
+    (op == OP_SET) => arg,
     (op == OP_FRESHEN) => cond(
       ((o & ELIDED) != u64(0)) => {
         if(ck.next_fresh >= usize(60), {
@@ -825,6 +827,13 @@ implied_decl :: (fn(ck : Ck, init : Node) -> Option(Ty))(
     _ => .None
   )
 );
+/// The bound a `&mut` lend of local `p` exposes to unification: its declared
+/// type, or, for an unannotated local, its flow type with every origin
+/// unbounded (`TOP`): a flow-inferred set widens to what the callee's
+/// signature needs (§7, "flow inference at a `&mut` lend").
+lend_bound :: (fn(ck : Ck, env : Env, p : usize) -> Ty)(
+  cond(((env.has_decl & bit(p)) != u64(0)) => env.decl(p), true => map_o(ck, env.flow(p), OP_SET, TOP, new_subst(u64(0))))
+);
 /// A closure literal or an `io.async` body that captures a declared
 /// container `&mut` may push into it whatever its other captures reach: the
 /// container's flow set grows, at the literal, by its bound restricted to
@@ -868,7 +877,7 @@ eval :: (fn(ck : Ck, env : Env, e : Node, live : u64) -> Ty)(
       access(ck, env, p, cond(m => ACCESS_WRITE, true => ACCESS_READ), live);
       declared := ((env.has_decl & bit(p)) != u64(0));
       pointee := cond(
-        (declared && m) => flex(env.flow(p), env.decl(p)),
+        m => flex(env.flow(p), lend_bound(ck, env, p)),
         (declared && has_cell(env.decl(p))) => env.decl(p),
         true => env.flow(p)
       );
@@ -1074,19 +1083,20 @@ eval_call :: (fn(ck : Ck, env : Env, f : usize, args : &ArrayList(Node), live : 
       .None => ()
     );
   });
-  // A `&mut`-lent declared local may have been written by the callee: its
-  // flow is now its declared bound, except at an elided (flow-inferred)
-  // position, where it is what the substituted parameter's pointee allows.
+  // A `&mut`-lent local may have been written by the callee: its flow is
+  // now its declared bound, except at a flow-inferred position (an elided
+  // union, or any origin of an unannotated local), where it is what the
+  // substituted parameter's pointee allows.
   i = usize(0);
   while((i < args.len()) && (i < sig.params.len()), {
     match(
       args(i),
       .Borrow(m, p) => {
-        if(m && ((env.has_decl & bit(p)) != u64(0)), {
+        if(m, {
           match(
             map_o(ck, sig.params(i), OP_SUBST, u64(0), sb),
             .Ref(_, pointee, _) => {
-              env.flow(p) = map_o(ck, flex(pointee, env.decl(p)), OP_UNFLEX, u64(0), sb);
+              env.flow(p) = map_o(ck, flex(pointee, lend_bound(ck, env, p)), OP_UNFLEX, u64(0), sb);
             },
             _ => ()
           );

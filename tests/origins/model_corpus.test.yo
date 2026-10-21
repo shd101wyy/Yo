@@ -268,6 +268,20 @@ swap_main :: (fn(ta : u64, tb : u64) -> FnDef)(
 test("swap-different-origins", {
   verdict("swap-different-origins", case2(swap_main(o(X), o(Y)), swap()), "ORIGIN_MISMATCH");
 });
+test("swap-inferred-locals", {
+  main := entry(
+    array_list(
+      let_(X, lit()),
+      let_(Y, lit()),
+      let_(RA, Node.Borrow(false, X)),
+      let_(RB, Node.Borrow(false, Y)),
+      use_(call(usize(1), array_list(Node.Borrow(true, RA), Node.Borrow(true, RB)))),
+      use_(Node.Var(RA)),
+      use_(Node.Var(RB))
+    )
+  );
+  verdict("swap-inferred-locals", case2(main, swap()), "ACCEPT");
+});
 test("swap-declared-union", {
   verdict("swap-declared-union", case2(swap_main(o(X) | o(Y), o(X) | o(Y)), swap()), "ACCEPT");
 });
