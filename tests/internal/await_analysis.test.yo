@@ -5,7 +5,7 @@
 { TokenKind, Token } :: import("../../src/token.yo");
 { AstExpr } :: import("../../src/expr.yo");
 { ExprInfo, new_expr_info } :: import("../../src/expr_info.yo");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_levels } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_future_trait_simple, t_some_t, generate_some_type_id } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -119,10 +119,10 @@ make_future_dyn_type :: (fn() -> TypeValue)({
   required_trait_types.push(future_trait);
   rc(
     TypeValueNode.DynT(
-      required_trait_types,
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new()
+      shared_list(required_trait_types),
+      no_levels(),
+      no_types(),
+      no_levels()
     )
   )
 });

@@ -1,0 +1,14 @@
+// Two calls of one generic function whose parameter is `ArrayList(T)`, each
+// given a `.clone()` of a list with a DIFFERENT element type, in one function
+// body: the second call fails with
+//   error[E0601]: Cannot unify incompatible types: "i32" and "String"
+// although each call alone checks. Passing the lists without `.clone()`
+// checks, and so does a parameter typed `T` instead of `ArrayList(T)`.
+// issues/2026-10-21-generic-arraylist-inference-from-two-clone-arguments-unifies-their-element-types.md
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+count :: (fn(generic(T : Type), items : ArrayList(T)) -> usize)(items.len());
+both :: (fn(labels : ArrayList(String), nums : ArrayList(i32)) -> usize)(
+  count(labels.clone()) + count(nums.clone())
+);
+export(both);

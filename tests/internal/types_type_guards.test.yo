@@ -3,7 +3,7 @@
 /// dyn, downcast, drop-dup, ptr-fns, …).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
 { t_bool, t_i32 } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -28,13 +28,13 @@ mk_struct :: (
     TypeValueNode.Struct(
       id : String.from(""),
       name : String.from(name),
-      field_labels : field_labels,
-      field_types : ArrayList(TypeValue).new(),
+      field_labels : shared_list(field_labels.clone()),
+      field_types : no_types(),
       is_reference_semantics : is_reference_semantics,
       is_atomic_rc : is_atomic_rc,
       is_newtype : is_newtype,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   )
@@ -54,7 +54,7 @@ test("is_iso_type matches IsoT only", {
 test("is_dyn_type matches DynT only", {
   empty_traits := ArrayList(TypeValue).new();
   empty_levels := ArrayList(usize).new();
-  dyn_ty := rc(TypeValueNode.DynT(empty_traits, empty_levels, empty_traits.clone(), empty_levels.clone()));
+  dyn_ty := rc(TypeValueNode.DynT(shared_list(empty_traits), shared_list(empty_levels), empty_traits.clone(), empty_levels.clone()));
   assert(is_dyn_type(&dyn_ty), "DynT");
   assert(!is_dyn_type(t_i32()), "i32 is not Dyn");
 });

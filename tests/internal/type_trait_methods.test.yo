@@ -8,7 +8,7 @@
 //! regressions in storage / lookup shape are caught in isolation.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_flags, no_levels } :: import("../../src/types/definitions.yo");
 { t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
 { assert, panic } :: import("std/assert");
@@ -41,13 +41,13 @@ _synth_struct :: (fn(id : &String, name : &String) -> TypeValue)(
     TypeValueNode.Struct(
       id : id,
       name : name,
-      field_labels : ArrayList(String).new(),
-      field_types : ArrayList(TypeValue).new(),
+      field_labels : no_labels(),
+      field_types : no_types(),
       is_reference_semantics : false,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   )
@@ -233,19 +233,19 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   param_types.push(t_i32());
   fn_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       t_i32(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          shared_list(param_labels) : param_labels,
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -255,7 +255,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   trait_field_labels := ArrayList(String).new();
@@ -272,8 +272,8 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
       is_concrete : Option(TypeValue).None,
       self_constraints : ArrayList(TypeValue).new(),
       neg_self_constraints : ArrayList(TypeValue).new(),
-      assoc_constraint_labels : ArrayList(String).new(),
-      assoc_constraint_types : ArrayList(TypeValue).new()
+      assoc_constraint_labels : no_labels(),
+      assoc_constraint_types : no_types()
     )
   );
   // SomeT requiring the Greeter trait.
@@ -322,19 +322,19 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   param_types.push(t_i32());
   fn_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       t_i32(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          shared_list(param_labels) : param_labels,
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -344,7 +344,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   trait_field_labels := ArrayList(String).new();
@@ -361,8 +361,8 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
       is_concrete : Option(TypeValue).None,
       self_constraints : ArrayList(TypeValue).new(),
       neg_self_constraints : ArrayList(TypeValue).new(),
-      assoc_constraint_labels : ArrayList(String).new(),
-      assoc_constraint_types : ArrayList(TypeValue).new()
+      assoc_constraint_labels : no_labels(),
+      assoc_constraint_types : no_types()
     )
   );
   required_traits := ArrayList(TypeValue).new();
@@ -371,10 +371,10 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   required_levels.push(usize(0));
   dyn_ty := rc(
     TypeValueNode.DynT(
-      required_trait_types : required_traits,
-      required_trait_levels : required_levels,
-      negative_trait_types : ArrayList(TypeValue).new(),
-      negative_trait_levels : ArrayList(usize).new()
+      required_trait_types : shared_list(required_traits),
+      required_trait_levels : shared_list(required_levels),
+      negative_trait_types : no_types(),
+      negative_trait_levels : no_levels()
     )
   );
   env := Environment.new(String.from(""));
@@ -403,19 +403,19 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   param_types.push(t_i32());
   fn_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       t_i32(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          shared_list(param_labels) : param_labels,
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -425,7 +425,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   // Trait `Functor` with `fmap` method.
@@ -443,8 +443,8 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
       is_concrete : Option(TypeValue).None,
       self_constraints : ArrayList(TypeValue).new(),
       neg_self_constraints : ArrayList(TypeValue).new(),
-      assoc_constraint_labels : ArrayList(String).new(),
-      assoc_constraint_types : ArrayList(TypeValue).new()
+      assoc_constraint_labels : no_labels(),
+      assoc_constraint_types : no_types()
     )
   );
   // SomeT constructor `F` and arg `A`.
@@ -481,7 +481,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   type_app := rc(
     TypeValueNode.TypeAppT(
       constructor : ctor_some_t,
-      args : args_list
+      args : shared_list(args_list)
     )
   );
   // Push a frame so the where-clause-constraint setter has somewhere
@@ -525,19 +525,19 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   param_types.push(s);
   fn_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       t_i32(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          shared_list(param_labels) : param_labels,
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -547,7 +547,7 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   register_type_trait_method(
@@ -597,19 +597,19 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
   param_types.push(rc(TypeValueNode.Pointer(s)));
   fn_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       t_i32(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          shared_list(param_labels) : param_labels,
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -619,7 +619,7 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   register_type_trait_method(
@@ -658,19 +658,19 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
   param_types.push(t_i32());
   fn_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      param_types,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      no_types(),
+      shared_list(param_types),
+      no_types(),
+      no_types(),
       t_i32(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : param_labels,
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
+          shared_list(param_labels) : param_labels,
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -680,7 +680,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   trait_field_labels := ArrayList(String).new();
@@ -697,8 +697,8 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
       is_concrete : Option(TypeValue).None,
       self_constraints : ArrayList(TypeValue).new(),
       neg_self_constraints : ArrayList(TypeValue).new(),
-      assoc_constraint_labels : ArrayList(String).new(),
-      assoc_constraint_types : ArrayList(TypeValue).new()
+      assoc_constraint_labels : no_labels(),
+      assoc_constraint_types : no_types()
     )
   );
   // Two SomeTypes sharing the SAME id — under

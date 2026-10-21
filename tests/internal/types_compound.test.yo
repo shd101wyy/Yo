@@ -3,7 +3,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_trait, t_trait_simple, t_module, t_module_simple, t_some_t, t_ptr, t_i32, t_bool, t_unit, t_usize, t_dyn, t_dyn_simple, type_value_tag } :: import("../../src/types/creators.yo");
 { is_function_type, is_trait_type, is_module_type, is_some_type } :: import("../../src/types/guards.yo");
 { TypeTag } :: import("../../src/types/tags.yo");
@@ -317,7 +317,7 @@ _dag_level :: (fn(i : usize, child : &TypeValue) -> TypeValue)({
   types := ArrayList(TypeValue).new();
   types.push(child);
   types.push(child);
-  rc(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, labels, types, false, false, false, ``, ArrayList(TypeValue).new(), false))
+  rc(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, shared_list(labels), shared_list(types), false, false, false, ``, no_types(), false))
 });
 test("substitute: a shared struct DAG is substituted once per node", {
   (mut(ty) : TypeValue) = t_some_t(`T`, usize(0));
