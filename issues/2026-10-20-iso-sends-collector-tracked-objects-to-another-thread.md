@@ -8,7 +8,7 @@ cycle collector. The receiving thread frees it, and the sender's next
 collection or its exit reads freed memory (AddressSanitizer
 heap-use-after-free; SIGSEGV without it).
 
-**Status:** open. **Found:** 2026-10-20 with the v0.2.66 seed, while checking
+**Status:** open; **no fix — the window is ACCEPTED until `Iso` is deleted** (maintainer, 2026-10-21), as for the `Iso` `Send` hole (`issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`). `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A deletes `^v` and retires this doc (A2). **Found:** 2026-10-20 with the v0.2.66 seed, while checking
 the cycle walk's holder asymmetry: `ref(struct(e : X))` with `X` a
 cycle-capable reference enum reads acyclic, and `ref(struct(y : Y))` with `Y`
 a cycle-capable reference struct reads cyclic. The walk in

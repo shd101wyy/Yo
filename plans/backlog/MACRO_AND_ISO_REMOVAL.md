@@ -314,7 +314,9 @@ before the PR is opened.
   after V2b). `Send` derivation loses its one unconditional-by-uniqueness arm
   and becomes purely structural (VALUES_BY_DEFAULT §3.8). Move
   `issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`
-  to `issues/retired/` with a line naming the PR.
+  and `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`
+  (also accepted until Part A, maintainer 2026-10-21) to `issues/retired/`
+  with a line naming the PR, and delete the latter's repro under `issues/repros/`.
 - **A3 — types.** Remove `TypeValueNode.IsoT` and every match arm; delete
   `is_iso_type`, `t_iso`, `TIso`. Keep `type_reaches_non_atomic_cell`.
 - **A4 — codegen.** Delete the files, registry and arms in §1.3, including
