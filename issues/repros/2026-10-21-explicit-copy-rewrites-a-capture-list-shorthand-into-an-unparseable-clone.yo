@@ -1,0 +1,12 @@
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  s := String.from("four");
+  (f : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  seen := ArrayList(i32).new();
+  (g : Impl(Fn() -> unit)) = ({ seen }() => seen.push(i32(1)));
+  g();
+  println(`${f()} ${s.len()} ${seen.len()}`);
+});
+export(main);

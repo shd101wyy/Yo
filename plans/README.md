@@ -28,7 +28,8 @@ doc.
 - [`SAFE_MODE.md`](SAFE_MODE.md) — no undefined behavior in safe code: phases 0a–4 and 5b Phases 0–2 landed, the 2026-10-02 pointer-free unsafe-API audit closed; open: 5b Phase 3 (blocked) and strict mode (deferred). The 2026-10 handover is closed ([`archive/SAFE_MODE_HANDOVER.md`](archive/SAFE_MODE_HANDOVER.md)).
 - [`TYPE_SYSTEM_SOUNDNESS.md`](TYPE_SYSTEM_SOUNDNESS.md) — make `yo check` a gate, not a filter: the type-system audit's phased fix plan.
 - [`TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`](handover/TYPE_SYSTEM_SOUNDNESS_HANDOVER.md) — where that plan stands: four pushed branches (flow orientation, registry retirement, Phase 6 closure re-raise, an option-self-field repro) and the work not started.
-- [`VBD_HANDOVER_2026-10-17.md`](handover/VBD_HANDOVER_2026-10-17.md) — the current VALUES_BY_DEFAULT handover (2026-10-17, after v0.2.64; living until v0.2.65 is out): the v0.2.65 gate, every open PR and pushed branch with what is left, #1408's verdicts, the E0916 structural-clone exemption, the open S1s, and the portable process rules learned this cycle (rebase overlap rule, exclusive heavy-lock tickets, wasm Thread tests).
+- [`VBD_HANDOVER_2026-10-20.md`](handover/VBD_HANDOVER_2026-10-20.md) — the current VALUES_BY_DEFAULT handover (2026-10-20, after v0.2.67; v0.2.68 runs on the 64 GB Linux box): §0 is where to start (machine setup, the §3.1 sharing prerequisites and the RSS attribution, the copy-guards and `Acyclic` branches, the B1 regeneration), the v0.2.67 merge ledger and release facts, the open questions, and this cycle's process lessons.
+- [`VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) — the living release-by-release schedule for the rest of VALUES_BY_DEFAULT (v0.2.68 → v0.2.75, three forced seed boundaries), with the maintainer-delegated picks of 2026-10-20 in §5.
 - [`OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](OWNERSHIP_AND_BORROWING_DOC_DRAFT.md) — the draft user doc that replaces `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`: ownership, moves, `Copy`, drops, borrows, projections, closures, sharing, references as values, each planned rule tagged with its phase; promoted to `docs/` (both languages) at VALUES_BY_DEFAULT's V5.
 - [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — every declared type is a value; `ref(...)`/`atomic(...)` leave the language; sharing is spelled `Rc(T)`/`Arc(T)`. Amended 2026-10-05 (§0): unique ownership (Hylo's model) replaces copy-on-write: buffers and `Box` have one owner and no count, copies of buffer-owning values are explicit (`.clone()`), a last use moves, resources are move-only, `Send` is a move.
 - [`ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](ATS_LESSONS_BEYOND_INDEXED_TYPES.md) — what else Yo takes from ATS beyond indexed types: the lemma layer, must-use results, an init proof token (fixes an S1 in `ArrayList.set_len`), spec-transparent pure functions, lexicographic `decreases`, the typestate idiom.
@@ -137,6 +138,15 @@ that fails leaking tests, `InlineList`, enum containers, a comptime string
 map, a replaceable panic handler, assert diffs), three toolchain items, and
 the rejections (inferred error sets, allocator-per-call, `+%` operators,
 first-class `u7`, `@fieldParentPtr`, `undefined`).
+[`ZIG_STYLE_ALLOCATORS`](backlog/ZIG_STYLE_ALLOCATORS.md) (2026-10-21) is
+Zig's `std.heap` catalog as a `std/heap/` plan on the version-2 allocator
+interface (page, fixed-buffer, arena over a backing allocator, C, debug,
+failing, logging, thread-safe, pool; `SmpAllocator` measured against
+mimalloc with a go/no-go), and the real arena — bump allocation with no
+count and no free, a dangling handle a compile error — as an `Origin`
+(`arena.alloc(v) -> &mut(T, arena)`), which reverses
+[`ARENA_ALLOCATOR_FEASIBILITY`](backlog/ARENA_ALLOCATOR_FEASIBILITY.md)'s
+"no lifetimes" premise and lands at origins N2.
 [`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md) is the
 2026-10-14 F\* audit, written when the maintainer asked whether Yo could
 support dependent types "like F\* does": the verdict (F\* pays the costs

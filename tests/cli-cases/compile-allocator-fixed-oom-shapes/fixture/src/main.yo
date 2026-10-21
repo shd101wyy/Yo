@@ -93,7 +93,7 @@ main :: (fn(io : Io) -> unit)({
   shapes.push(String.from("string"));
   for(shapes, shape => {
     out := io.await(Command.new(&argv(usize(0))).arg(shape.clone()).env_clear().output(io), IoExn(io : io, exn : exn));
-    text := String.from_bytes(out.stderr);
+    text := String.from_bytes(out.stderr.clone());
     (mut(found) : bool) = false;
     for(text.split("\n"), line => {
       if(_is_alloc_diagnostic(&line), {

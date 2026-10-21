@@ -192,7 +192,7 @@ be mutated in place, so the existing macro_expansion mechanism carries it"
 | `for_await` | `std/async/stream.yo:446` | tests only (`tests/async/combinators.test.yo:10` also imports it by name) | desugar (B2) |
 | `(^)` | `std/prelude.yo:10076-10132` | 0 src, 0 std; the Iso test files (A6) | deleted with Iso (A1) |
 | `Var.is_owning_the_rc_value` / `Var.has_other_aliases` | `std/prelude.yo:8240-8257` | 2, inside `(^)` itself | deleted with Iso (A1) |
-| `unsafe.drop` | `std/prelude.yo:248` | 12 in std — `array_list.yo:513, :584, :609`, `deque.yo:256`, `hash_map.yo:812, :878, :959`, `sync/channel.yo:270, :324, :381`, `prelude.yo:9991`, and `prelude.yo:10120` inside `(^)`'s quoted body (gone with A1) — plus `tests/fixtures/owned_buffer.yo:50` | rewritten to `___drop` (B4) |
+| `unsafe.drop` | `std/prelude.yo:248` | 12 in std — `array_list.yo:513, :584, :609`, `deque.yo:256`, `hash_map.yo:812, :878, :959`, `sync/channel.yo:270, :324, :381`, `prelude.yo:9991`, and `prelude.yo:10120` inside `(^)`'s quoted body (planned to go with A1; B4 rewrote it to `___drop` since A1 had not landed) — plus `tests/fixtures/owned_buffer.yo:50` | rewritten to `___drop` (B4) |
 | `array_list` | `std/collections/array_list.yo:1844` | 8 in `src/parser.yo` (:1235, :1585, :1586, :1603, :1754, :1783, :1824, :1915) | deleted, surface removed (B3) |
 | `hash_map` | `std/collections/hash_map.yo:1515` | tests only | deleted, surface removed (B3) |
 | `hash_set` | `std/collections/hash_set.yo:474` | tests only | deleted, surface removed (B3) |
@@ -203,8 +203,9 @@ The three literals have 47 test lines across four files:
 `tests/codegen-bootstrap/closure_where_clause_param.yo` (2). No docs or
 skills use them.
 
-**The seed builds macro calls.** `src/` has six `for` loops and `std/` has
-eleven `unsafe.drop` calls outside `(^)`, and the seed expands all of them
+**The seed builds macro calls.** `src/` has six `for` loops (and, until B4
+rewrote them to `___drop`, `std/` had eleven `unsafe.drop` calls outside
+`(^)`), and the seed expands every one of them
 when it builds the tree. The parser's eight literal sites are seed-built
 too. That, not only CI tooling, is why the prelude macros stay until a
 release carrying the desugars is the seed (Part B's retained-macro rule).
@@ -313,7 +314,9 @@ before the PR is opened.
   after V2b). `Send` derivation loses its one unconditional-by-uniqueness arm
   and becomes purely structural (VALUES_BY_DEFAULT §3.8). Move
   `issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`
-  to `issues/retired/` with a line naming the PR.
+  and `issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`
+  (also accepted until Part A, maintainer 2026-10-21) to `issues/retired/`
+  with a line naming the PR, and delete the latter's repro under `issues/repros/`.
 - **A3 — types.** Remove `TypeValueNode.IsoT` and every match arm; delete
   `is_iso_type`, `t_iso`, `TIso`. Keep `type_reaches_non_atomic_cell`.
 - **A4 — codegen.** Delete the files, registry and arms in §1.3, including
@@ -567,11 +570,26 @@ Part C deletes the macros.
     array; nothing is copied. An `Array` value is spelled
     `Array(i32, 3)(1, 2, 3)` (as in `tests/algebraic_effects.test.yo:993`),
     so a site reads `ArrayList(i32).from(Array(i32, 3)(1, 2, 3))`.
-  - **Decide `from_array`.** The existing `ArrayList.from_array(arr : &Array(T, N))`
-    (`std/collections/array_list.yo:228`) borrows and copies each element,
-    which becomes E0901 for non-`Copy` elements after V2b's B8 flip. B3
-    keeps it as a `where(T <: Clone)`-bounded copy that calls `.clone()`
-    per element, or deletes it in favor of `from`; record the choice here.
+  - **`from_array` is DELETED** (decided 2026-10-20, maintainer-delegated;
+    `plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 8). The
+    existing `ArrayList.from_array(arr : &Array(T, N))`
+    (`std/collections/array_list.yo:229`) borrows the array and copies
+    each element out of it. That is the implicit copy VBD removes, and it
+    becomes E0901 for non-`Copy` elements after V2b's B8 flip. A
+    `where(T <: Clone)`-bounded copy would keep a second spelling of what
+    `from` plus an explicit clone already says. `Array(T, N)` implements
+    `Clone` element-wise (`std/prelude.yo:7315`, `where(T <: Clone)`), so a
+    caller that keeps its array writes `ArrayList(T).from(arr.clone())`,
+    and one that does not writes `ArrayList(T).from(arr)`, which moves.
+    - Callers: **none.** `git grep -n "from_array"` outside `plans/` and
+      `issues/` at `fc15a6092` finds only the definition, one comment and
+      two goldens. The B3 PR still touches all three:
+      - the `src/evaluator/calls/function_type.yo:923` comment names
+        `from_array` as its `generic(N : usize)` value-binder example;
+        repoint it at `from`, which carries the same binder;
+      - the `lsp-completion` and `lsp-member-definition` cli-cases list
+        `from_array` as a member, so cli-diff must run and both goldens are
+        re-recorded after reading their GOLDEN-DIFF.
   - **Dependency: the fixed-array S2 — resolved.** A fixed-array literal of
     runtime `String`s emitted invalid C; #1496 (`400413ac3`) fixed it
     (`issues/fixed/2026-10-17-a-fixed-array-literal-of-runtime-strings-emits-invalid-c.md`,
@@ -598,8 +616,16 @@ Part C deletes the macros.
     embedding Yo source in string literals.
   - No emit-diff gate — there is no desugar to prove equivalent; the
     migrated suite is the gate.
-- **B4 — `unsafe.drop` → `___drop`.** Rewrite the eleven std sites
-  (§1.2; the twelfth dies with A1's `(^)` deletion) and
+- **B4 — `unsafe.drop` → `___drop`.** *Landed on branch
+  `refactor/macro-b4-unsafe-drop` (2026-10-20): all twelve std sites — the
+  `(^)` body's included, since A1 had not landed and its quoted body would
+  otherwise expand to a deleted name — and `owned_buffer.yo` call `___drop`;
+  the `unsafe` impl keeps only `cast`; the
+  `lsp-analysis-resilience` golden re-recorded, plus
+  `check-derive-clone-non-clone-field` and `lsp-member-definition`, which
+  cite prelude line numbers the deletion shifted by three.* The original
+  instruction, kept for the record: rewrite the eleven std sites
+  (§1.2; the twelfth was to die with A1's `(^)` deletion) and
   `tests/fixtures/owned_buffer.yo:50` to call `___drop(...)` directly, then
   delete `unsafe.drop` from the `unsafe` impl (`std/prelude.yo:248`). No
   wrapper and no module-value alias: `___drop` is not a bindable value.

@@ -91,6 +91,58 @@ matches the umbrella's note that the debt is invisible on a macOS
 dev box. The four failures reproduce only where LeakSanitizer arms (Linux,
 as in the measurement above). Nothing in the verdict changed.
 
+**Wider local picture, 2026-10-20/21 (Linux x86_64).** A full
+`tests/internal` run with the default leak verdict
+(`YO_TEST_IN_PROCESS=1 YO_TEST_FORK=4`, the tree-built binary of
+`perf/acyclic-compiler-containers` on develop `7def2203b`) failed 86 of
+1,422 tests, every one a `Memory leak detected:` verdict and none an
+assertion. Besides this file's four, the failing files were
+`lsp_protocol` (19), `check_watch` (12), `module_invalidation` (11), the
+`verifier_*` files (28 in all), `module_prelude_outcome` (3),
+`doc_command` (3), `recursive_enum` (2), `context_index` (2),
+`type_trait_methods` (1) and `diagnostics_registry_examples` (1). How
+much of this is develop's own debt is verified for six of the 86 only:
+
+- `recursive_enum` (2) fails the same two tests, run alone, with
+  develop's `7def2203b` stage 1 and with the branch's;
+- `verifier_assumed` (3) and `verifier_contract_splice` (1) fail by the
+  same test names with another session's develop `7def2203b` stage 1.
+
+The other 80 are attributed to develop only because every failing name
+also fails in another develop-based branch's leak-verdict-on run (the
+same names or a superset per file), and that branch is a different tree.
+They are NOT yet verified against develop's own binary. That mattered for
+`lsp_protocol` and `check_watch` in particular: the branch changes which
+`JsonObjBuilder` (`src/lsp/protocol.yo`) and `EvalValue`-holding cells
+register with the collector, which can move a LeakSanitizer verdict. So
+those two and `type_trait_methods` were run alone, with the default leak
+verdict, on develop's stage 1 (a `7def2203b` worktree) and on the branch's
+(2026-10-21, Linux x86_64). Each fails the same number of tests on both,
+every failure a `Memory leak detected:` verdict: `lsp_protocol` 19 and 19,
+`check_watch` 12 and 12, `type_trait_methods` 1 and 1 (and
+`recursive_enum` 2 and 2 again). That makes 38 of the 86 verified as
+develop's own; the other 48 keep the indirect attribution above. CI stays
+off for all of them, as for the four cases above.
+
+**Re-check 2026-10-20 (Linux x86_64): the verifier tests that drive the
+compiler in process show the same class.** A run of the 20
+`tests/internal/verifier*.test.yo` files
+(`YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000`) reports 28 of 143 tests
+failed, every one `Memory leak detected:` and nothing else: `verifier.test.yo`
+(which never evaluates a fixture through the compiler) passes, and the failures
+sit in the files that evaluate a fixture through the compiler
+(13 files: `verifier_assumed` 3, `_contract_splice` 1, `_ghost` 3,
+`_law` 4, `_list_len` 1, `_loops` 2, `_match` 2, `_negative` 3,
+`_quantifiers` 2, `_refine` 2, `_spec_refine` 1, `_strip` 2,
+`_twostate` 2). The develop binary at
+7def2203b, run per file in the default mode on `verifier_assumed` and
+`verifier_contract_splice`, gives the same verdicts and byte-identical leak
+reports (the assumed-argument case: 151 + 130 + 43 objects of 64 B, the
+Token cells above; `SUMMARY: 22549 byte(s) leaked in 336 allocation(s)`).
+The perf/acyclic-compiler-containers branch's full in-process run gives the
+same 143 verdicts. Nothing in the verdict changed; these tests join the
+expected local failures.
+
 ## Test
 
 The four cases above, run locally with the default leak verdict, are the

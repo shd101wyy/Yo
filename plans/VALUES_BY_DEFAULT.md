@@ -142,8 +142,9 @@ Progress:
     lost.
   - V4's `Z3Sexpr` as a value enum (#1435) and `Pattern` with `Box`
     children (feat/vbd-v4-pattern-box, Generation B after the v0.2.65 seed
-    bump), after the unwind S1 it exposed (#1438); V4's "as built". `VcSort` and `VcTerm` wait on a decision (`Box`
-    or `Rc` children, `issues/questions/`).
+    bump), after the unwind S1 it exposed (#1438); V4's "as built". `VcTerm` as an `Rc` handle,
+    `Rc(VcTermNode)` (perf/vcterm-rc-children, decision 21's 2026-10-18
+    amendment); `VcSort` takes `Box` after V2b B6.
   - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
     the cycle, reach and `Acyclic` walks through its buffer, not a raw view
     in safe code, and value-rooted borrow flags lower to nothing (#1384).
@@ -476,6 +477,13 @@ c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
   - Until V5 the explicit path goes through `with_allocator`. That cost is
     confined to `alloc : .Some(a)` calls, and a construct-with-scope
     intrinsic can land if a benchmark asks for it.
+  - Known limitation until V5 (2026-10-21): `arc`'s explicit path sets the
+    thread scope to `a` around the construction, so `a`'s own callbacks run
+    with `a` current. An allocator whose `alloc` allocates through the scope
+    then recurses until the stack overflows, while `box(v, alloc : .Some(a))`
+    (which calls `a`'s vtable directly) does not. `__yo_atomic_cell` taking
+    the allocator removes the difference
+    (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
 
 **`ref_count(x)`** reads the count of the cell `x` holds (decision 11, which
 renamed the builtin from `rc`, #1186).
@@ -602,6 +610,9 @@ cannot be copied.
   discipline statically:
   - `__yo_cell(V)`, with plain `++`/`--`, backs `Rc`;
   - `__yo_atomic_cell(V)` backs `Arc` and `std/imm`.
+  - **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 5):** both
+    primitives land as one named, compiler-only Generation A PR in the
+    v0.2.71 (B12) cut, with no std use; V5 Generation A adopts them.
 - **Who may use them.** Both are builtins usable only in a file with
   `pragma(Pragma.AllowUnsafe)` (decision 6). Safe code gets a reference
   type only by writing `Rc`/`Arc`.
@@ -4531,6 +4542,17 @@ and in git, not a silent edit.
   - Hook: `_infer_unapplied_ctor_receiver`
     (`src/evaluator/calls/function.yo`), before `_try_find_receiver_method`.
   - Test: `tests/unapplied_constructor_method.test.yo`.
+- `arc` gains the `alloc` parameter (2026-10-21,
+  `feat/arc-alloc-parameter`). It is std-only, with no codegen and no seed
+  gate: the atomic cell constructor already allocates from the thread's
+  current scope (`__yo_rc_alloc_scoped`), so `.Some(a)` sets the scope to
+  `a` around `Arc(V)(value)` and restores it, through `__yo_scope_set`,
+  which moved from `std/allocator.yo` into the prelude's extern block. The
+  default path is unchanged. Tests: `tests/arc.test.yo` (placed and
+  released into an arena, the scope restored, an explicit allocator winning
+  inside another scope, the last handle dropped after a thread read it).
+  - `rc` still has no `alloc`, although §3.2 gives it one; the same swap
+    adds it.
 
 **Remaining, Generation A:**
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
@@ -4539,7 +4561,7 @@ and in git, not a silent edit.
   Today they do not.
 - **Diagnostics:** E0406/E0610 learn "`w` is a `Box(P)`; its payload `P`
   has no field `x` either" when auto-deref also misses.
-- **`arc` gains the `alloc` parameter.**
+- **`rc` gains the `alloc` parameter** (§3.2; `arc`'s mechanism above).
 
 **Decision 32, Generation B: the wrapper/payload name clash is an error,**
 in `evaluate_property_access` and `_try_find_receiver_method`. It waits for
@@ -4794,7 +4816,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   - **The verifier's local cells are the unique `Box`** (`chain`,
     `guard_cell`, `phi_cell`, `acc_cell` in `src/verifier/vc.yo`): one
     owner each, no closure captures them, and the `VcTerm` payload is a
-    `ref` handle, so `cell.*` reads stay implicit copies.
+    handle (`Rc(VcTermNode)` since decision 21's 2026-10-18 amendment), so
+    `cell.*` reads stay implicit copies.
   - **The owner chains and `consumed_at_token` drop the cell.**
     `Variable`, `CapturedVariable`, `SuspensionCapturedVariable`,
     `EffectCapturedVariable` and `Token` are `ref(struct(...))` types, so
@@ -5102,6 +5125,14 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
 Generation B for methods that need the seed to enforce move-only). This half
 lands after V1 step 2, because its resource cells are the unique `Box`
 (§3.4, §6):
+- **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 4): this half splits.**
+  The cell-free `ref(...)` resources (`File`, `TempDir`, `TempFile`,
+  `Watcher`, the sockets, `TlsStream`, `HttpClient`, `Child*`, `Thread`)
+  are their own step at v0.2.70, after V2b's flips. Every `atomic(...)`
+  type (`Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`,
+  `WaitGroup`, `Once`, `OnceCell`, `ThreadPool`, the `std/sync`
+  `Channel`/`Sender`/`Receiver`, the `Atomic*` types) rides V5 Generation A
+  onto `__yo_atomic_cell`, so it is rewritten once.
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
@@ -6799,6 +6830,20 @@ heavy run, the command is given in item 2.
        LISTING-HEAVY sweep over an already-sharing tree, most remaining
        sites becoming borrows or shares by hand (B4-style), few becoming
        clones.
+     - The two tool guards (2026-10-20, branch `feat/explicit-copy-guards`,
+       Tier 1 run 2026-10-20, results in the fixed issue doc): a copy out of a temporary that dies
+       right after it (a `match` binding of a call's result such as
+       `m.get(k)`'s, a field of `make()` not read through a dereference)
+       is listed, not cloned
+       (`ExplicitCopySite.src_dying`;
+       `issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md`),
+       and `--hot-path <path>` (repeatable) lists every copy in a file under
+       that path for a hand edit. The regeneration runs
+       `yo fix ./src --migrate explicit-copy --hot-path src/evaluator` (add
+       any other measured hot directory), from a clean-tree binary. The hot
+       path is an explicit flag, not a default: the tool cannot know which
+       directories are hot, and the measurement that named `src/evaluator/`
+       (1,268 of the 3,271 `src/` insertions) is this plan's, not the tool's.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
@@ -6857,7 +6902,11 @@ heavy run, the command is given in item 2.
        ```
 
      - Needs: B0 in `SEED_VERSION` (the projections), decision 47 globals
-       Generation B. Valid before the flip.
+       Generation B. Valid before the flip. **Decided 2026-10-20
+       (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 3): B5 uses `with`/`with_mut` only and
+       does not wait for the projections; `get()`/`get_mut()` wait for
+       decision 43 step 2 with `Rc.get_mut`. The `get_mut()` example above
+       is superseded.**
      - Tier 1: build; `tests/global_lend.test.yo`; in-process internal; N5
        (a `RefCell` mark is a flag check, not an allocation).
    - **B6 (c). Decision 20's accessors.**
@@ -7246,6 +7295,8 @@ heavy run, the command is given in item 2.
     since #1241, so the rule in the compiler, `yo fix <path> --migrate
     rc-clone` and the sweep of `std/`, `src/` and `tests/` can land together,
     as decision 42 did. The seed builds a swept `src/` unchanged.
+    **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 1): one PR, no release
+    boundary, scheduled in the v0.2.71 cut after Part A.**
   - **Measure** the dup/drop pair optimizer's emit diff on `src/` before and
     after. Each explicit clone replaces an implicit dup that the optimizer
     used to cancel, so a rise in `___dup` calls in the self-build is the
@@ -7400,16 +7451,45 @@ stage-2 RSS):
       - `check src/main.yo` makes 1,828,286,478 allocation calls against
         1,823,309,567 (+0.27%; the clones of rows and arm patterns).
     - **Timing.** The timing A/B is measured after merge, like `Z3Sexpr`'s.
-  - **`VcSort`, `VcTerm`:** not converted. They live in
-    `HashMap(String, VcTerm)` / `HashMap(String, VcSort)`, which cannot hold
-    a move-only value and whose `get` copies (49 sites in `vc.yo`). The
-    symbolic walk snapshots the environment at every branch and merges with
-    `ite` terms, so `Box` children would deep-copy on every snapshot (the
-    pattern that made the value `TypeValue` 2.3× slower). The decision is
-    open in
-    `issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`,
-    which recommends `Rc` for `VcTerm` and `Box` for `VcSort` once maps can
-    hold move-only values. Both stay `ref(enum)` until then.
+  - **`VcTerm`** (2026-10-20, decision 21's 2026-10-18 amendment): an `Rc`
+    handle, `VcTerm :: Rc(VcTermNode)`, the `TypeValue` shape (#1369).
+    `VcTermNode` is the enum with `Rc(Self)` children and
+    `ArrayList(Rc(Self))` lists. Constructions are
+    `rc(VcTermNode.X(...))` (144 sites), and the 88 arms spell the handle,
+    `Rc(.X(...))` (`yo fix --migrate rc-pattern`). A copy of a term is one
+    count bump, as the `ref(enum)` was; the `yo verify` row below is what
+    the walk's snapshots and `ite` merges measured. The map fields and the
+    49 `HashMap.get` sites in `vc.yo` are unchanged; after V2c each copy of the handle is
+    an explicit `.clone()`. Measured on Linux x86_64 (exclusive heavy lock,
+    two runs each; develop 7def2203b against this tree, each stage 1 built
+    by the v0.2.66 seed with clang, each checking its own tree; stage 2 is
+    the CI ratchet's mimalloc build):
+
+    | | develop | `VcTerm` an `Rc` handle |
+    | --- | --- | --- |
+    | `check ./src` (stage 1) | 198.6 / 198.9 s, 1,143,368 / 1,143,476 KB | 192.7 / 194.3 s, 1,146,084 / 1,145,964 KB |
+    | `check src/main.yo` (stage 2) | 184.3 / 184.5 s, 1,104,264 / 1,103,900 KB | 187.2 / 183.8 s, 1,106,196 / 1,106,328 KB |
+    | emitted C (`src/main.yo`) | 143,072,744 B | 143,190,745 B |
+    | `yo verify` over `tests/spec` (stage 1, round 2) | 605.9 s, max 140,756 KB | 609.5 s, max 141,408 KB |
+
+    Check RSS is +0.2% and check time is flat; what the extra RSS is was
+    not measured. The `yo verify` row runs `yo verify --format json
+    --no-cache` once per path, 65 paths (every `tests/spec/*.test.yo`,
+    `fixtures/valid`, `fixtures/elision` with and without `--elision`, and
+    each `fixtures/negative` and `fixtures/invalid` file), two rounds per
+    binary, summing wall time and taking the largest max RSS. Both rounds
+    print the same JSON and stderr with both binaries, apart from
+    `elapsed_ms`, and the same exit codes (53 JSON documents: 252 ok,
+    53 refuted, 39 outside-subset, 14 subset-error, 5 unproven, 3 assumed);
+    the whole-directory `yo verify ./tests/spec --format json` prints the
+    same output with both. Round 1 ran the develop binary first and it took
+    393.7 s against 594.9 s; round 2, in the other order, is 605.9 against
+    609.5 s. The round-1 gap does not reproduce, so the table shows round 2.
+  - **`VcSort`:** not converted. It lives in `HashMap(String, VcSort)`,
+    which cannot hold a move-only value and whose `get` copies. It takes
+    `Box` children after V2b B6
+    (`issues/retired/2026-10-17-should-the-verifier-terms-take-box-or-rc-children.md`);
+    it stays `ref(enum)` until then.
 - **`EvalValue`:** last. The comptime-place model aliases on purpose, so its
   place fields stay `Rc(ArrayList(Self))`. Its children are `Rc` or a
   unique `Box`, decided by measurement.
@@ -7872,7 +7952,9 @@ once `SEED_VERSION` parses it.
    - Generation B: sweep the tree, the docs and `markdown_yo`, then enforce
      everywhere.
    - Order: after V2b Generation B and before decision 43, so that
-     decision 43's `&mut` rules can assume `mut`.
+     decision 43's `&mut` rules can assume `mut`. **Decided 2026-10-20
+     (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 2): Generation B at v0.2.72, after B8–B11
+     and before decision 43 step 2.**
    - **Census (2026-10-18, `YO_AUDIT_MUT_BINDINGS=1` with the Generation A
      binary on `feat/vbd-d47-locals-gena`, `check ./src` and `check ./std`;
      the tests row is the migration's own count).** Unique write sites of a
@@ -7952,6 +8034,9 @@ once `SEED_VERSION` parses it.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
+- **Decided 2026-10-20 (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 6):** Generation A
+  targets v0.2.72, serialized after decision 43 step 1 merges; v0.2.73 is
+  the hard ceiling (later, Generation B needs a release of its own).
 - **Generation A.** The parser accepts both, and the evaluator warns on each
   use. `std/` and `src/` stop using them:
   - the ~60 context objects become `Rc(struct(...))`, and the ~135 result

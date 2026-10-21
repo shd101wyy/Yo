@@ -180,11 +180,11 @@ _encode_ctor_app :: (fn(name : &String, args : &ArrayList(VcTerm)) -> String)({
 encode_term :: (fn(t : &VcTerm) -> String)(
   match(
     t,
-    .Var(name, _) => name.clone(),
-    .BvLit(value, width) => `(_ bv${value.to_string()} ${width.to_string()})`,
-    .BoolLit(value) => cond(value => String.from("true"), true => String.from("false")),
-    .ArrConst(sort, lit) => `((as const ${encode_sort(&sort)}) ${encode_term(&lit)})`,
-    .App(op, args) => {
+    Rc(.Var(name, _)) => name.clone(),
+    Rc(.BvLit(value, width)) => `(_ bv${value.to_string()} ${width.to_string()})`,
+    Rc(.BoolLit(value)) => cond(value => String.from("true"), true => String.from("false")),
+    Rc(.ArrConst(sort, lit)) => `((as const ${encode_sort(&sort)}) ${encode_term(&lit)})`,
+    Rc(.App(op, args)) => {
       head := match(
         op,
         .SignExtendOp(k) => `(_ sign_extend ${k.to_string()})`,
@@ -220,7 +220,7 @@ encode_term :: (fn(t : &VcTerm) -> String)(
     },
     // A zero-argument application is the bare symbol: SMT-LIB rejects
     // `(Name)` ("invalid function application, arguments missing").
-    .Ctor(name, args) => cond(
+    Rc(.Ctor(name, args)) => cond(
       (args.len() == usize(0)) => name.clone(),
       true => _encode_ctor_app(&name, &args)
     ),
@@ -232,9 +232,9 @@ encode_term :: (fn(t : &VcTerm) -> String)(
     // accessor is the MANGLED `<ctor>_<label>` symbol the datatype's
     // constructor declares (z3 resolves field access by symbol, not
     // position).
-    .Test(ctor, child) => `(is-${ctor} ${encode_term(&child)})`,
-    .Proj(ctor, _, child) => `(${ctor} ${encode_term(&child)})`,
-    .Quant(kind, names, sorts, body, triggers) => {
+    Rc(.Test(ctor, child)) => `(is-${ctor} ${encode_term(&child)})`,
+    Rc(.Proj(ctor, _, child)) => `(${ctor} ${encode_term(&child)})`,
+    Rc(.Quant(kind, names, sorts, body, triggers)) => {
       kw := match(
         kind,
         .Forall => String.from("forall"),

@@ -371,7 +371,7 @@ test("a function argument's modes must be its function-typed parameter's", {
   comptime_expect_error(_pm_call_hook(g, &s), "a parameter's mode is part of the function type");
   comptime_expect_error(_pm_call_hook(_PmLens.by_value, &s), "a parameter's mode is part of the function type");
   comptime_expect_error(_pm_call_hook(_pm_sink_len, &s), "a parameter's mode is part of the function type");
-  comptime_expect_error(_pm_call_byval_hook(_pm_len, s), "`s : String` in the expected type and `s : &String` in the given one");
+  comptime_expect_error(_pm_call_byval_hook(_pm_len, s.clone()), "`s : String` in the expected type and `s : &String` in the given one");
   comptime_expect_error(_pm_call_mut_hook(_pm_plain_bump, &mut n), "`n : &mut i32` in the expected type and `n : i32` in the given one");
   comptime_expect_error(_pm_call_mut_hook(_pm_imm_bump, &mut n), "`n : &mut i32` in the expected type and `n : &i32` in the given one");
   comptime_expect_error(_pm_apply_imm(_pm_take, &s), "a parameter's mode is part of the function type");
@@ -400,8 +400,8 @@ test("a function value whose modes are the slot's is accepted", {
   assert(_pm_call_hook(_PmLens.lent, &s) == usize(3), "an imm method value");
   (h : _PmHook) = _pm_len;
   assert(_pm_call_hook(h, &s) == usize(3), "a fn-typed local");
-  assert(_pm_call_byval_hook(_pm_sink_len, s) == usize(3), "sink and by value are one mode to the callee");
-  assert(_pm_call_byval_hook(_pm_take, s) == usize(3), "a by-value function for a by-value slot");
+  assert(_pm_call_byval_hook(_pm_sink_len, s.clone()) == usize(3), "sink and by value are one mode to the callee");
+  assert(_pm_call_byval_hook(_pm_take, s.clone()) == usize(3), "a by-value function for a by-value slot");
   _pm_call_mut_hook(_pm_inc, &mut n);
   assert(n == i32(2), "a mut function for a mut slot writes through");
   assert(_pm_apply_imm(_pm_len, &s) == usize(3), "an imm function for Impl(Fn(imm(s) : String) -> usize)");

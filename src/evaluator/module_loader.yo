@@ -46,8 +46,13 @@
 (g_import_edge_imports : ArrayList(String)) = ArrayList(String).new();
 (mut(g_import_closure_installed) : bool) = false;
 (g_loading_key_by_canonical : HashMap(String, String)) = HashMap(String, String).new();
-(_canonical_memo : HashMap(String, String)) = HashMap(String, String).new();
-(g_import_closure_memo : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
+/// Canonical spellings and import closures are handed out as `Rc`s, so a
+/// memo hit shares the stored value instead of copying a path (or a whole
+/// set) per lookup: once collections and `String` are values
+/// (VALUES_BY_DEFAULT V2b), a copy out of a map is a deep one
+/// (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
+(_canonical_memo : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
+(g_import_closure_memo : HashMap(String, Rc(HashSet(String)))) = HashMap(String, Rc(HashSet(String))).new();
 (g_always_visible_owners : ArrayList(String)) = ArrayList(String).new();
 /// Keep the registries' owner tag in sync with the loading-stack top
 /// (Phase B2, plans/reference/INCREMENTAL_COMPILATION.md). The tag lives in
@@ -66,7 +71,7 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
     set_import_closure_fn(import_closure_of);
     g_import_closure_installed = true;
   });
-  g_loading_key_by_canonical.insert(_canonical(path.clone()), path.clone());
+  g_loading_key_by_canonical.insert(_canonical(path).*, path.clone());
   g_loading_keys.push(path);
   g_loading_envs.push(env);
   _sync_registration_owner();
@@ -74,9 +79,10 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
 /// `module` was registered — the spelling the registries' owner tags use.
 /// `.None` for a module never loaded through this loader.
-loading_key_for_module :: (fn(module : &String) -> Option(String))(
-  g_loading_key_by_canonical.get(_canonical(module))
-);
+loading_key_for_module :: (fn(module : &String) -> Option(String))({
+  canon := _canonical(module);
+  g_loading_key_by_canonical.get(&canon.*)
+});
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
 unregister_loading :: (fn(path : &String) -> unit)({
   (i : usize) = g_loading_keys.len();
@@ -134,13 +140,13 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 // installs the closure provider that reads them.)
 /// Canonical spelling of a module key, memoized (the closure walk below
 /// touches every edge endpoint).
-_canonical :: (fn(p : &String) -> String)(
+_canonical :: (fn(p : &String) -> Rc(String))(
   match(
-    _canonical_memo.get(p.clone()),
+    _canonical_memo.get(p),
     .Some(c) => c,
     .None => {
-      c := canonical_module_path(p.clone());
-      _canonical_memo.insert(p, c.clone());
+      c := rc(canonical_module_path(p));
+      _canonical_memo.insert(p, c);
       c
     }
   )
@@ -157,23 +163,23 @@ _clear_import_closure_memo :: (fn() -> unit)({
 /// (stamped by mm_load_prelude_file, which also calls this so every prelude
 /// load path gets both) but which is implicitly in scope everywhere.
 mark_owner_always_visible :: (fn(module : &String) -> unit)({
-  g_always_visible_owners.push(_canonical(module));
+  g_always_visible_owners.push(_canonical(module).*);
   _clear_import_closure_memo();
 });
 /// Every module reachable from `module` through import edges, `module`
 /// included, in canonical spelling, plus the always-visible owners. The
 /// provider behind `owner_visible_from_current` (type_trait_methods.yo).
-import_closure_of :: (fn(module : &String) -> HashSet(String))({
+import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   start := _canonical(module);
   match(
-    g_import_closure_memo.get(start.clone()),
+    g_import_closure_memo.get(&start.*),
     .Some(s) => {
       return(s);
     },
     .None => ()
   );
   seen := HashSet(String).new();
-  _ := seen.insert(start.clone());
+  _ := seen.insert(start.*);
   (ai : usize) = usize(0);
   while(ai < g_always_visible_owners.len(), {
     match(
@@ -186,20 +192,20 @@ import_closure_of :: (fn(module : &String) -> HashSet(String))({
     ai = (ai + usize(1));
   });
   work := ArrayList(String).new();
-  work.push(start.clone());
+  work.push(start.*);
   while(work.len() > usize(0), {
     p := match(work.pop(), .Some(x) => x, .None => String.new());
     n := g_import_edge_importers.len();
     (i : usize) = usize(0);
     while(i < n, {
-      from_p := match(g_import_edge_importers.get(i), .Some(a) => (_canonical(&a) == p), .None => false);
+      from_p := match(g_import_edge_importers.get(i), .Some(a) => (_canonical(&a).* == p), .None => false);
       if(from_p, {
         match(
           g_import_edge_imports.get(i),
           .Some(t) => {
             tc := _canonical(&t);
-            if(seen.insert(tc.clone()), {
-              work.push(tc);
+            if(seen.insert(tc.*), {
+              work.push(tc.*);
             });
           },
           .None => ()
@@ -208,8 +214,9 @@ import_closure_of :: (fn(module : &String) -> HashSet(String))({
       i = (i + usize(1));
     });
   });
-  g_import_closure_memo.insert(start, seen);
-  seen
+  closure := rc(seen);
+  g_import_closure_memo.insert(start.*, closure);
+  closure
 });
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
 /// dropped (a module importing the same dep from several sites is one edge).

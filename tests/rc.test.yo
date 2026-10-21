@@ -285,7 +285,7 @@ test("Test ArrayList index access - no RC leak", {
   {
     list := ArrayList(String).new();
     list.push(`test`);
-    s := list(usize(0));
+    s := list(usize(0)).clone();
     assert(s == `test`, "assigned string from ArrayList should work");
   };
 });
@@ -1720,7 +1720,7 @@ test("a borrowed value is changed through an owned copy", {
     .Some(d) => {
       mut(q) := d;
       q.s = String.from("from-an-arm-long-enough-for-the-heap");
-      q.s
+      q.s.clone()
     },
     .None => String.from("")
   );

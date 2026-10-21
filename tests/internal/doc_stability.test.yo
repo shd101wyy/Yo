@@ -24,7 +24,7 @@ _module_with :: (fn(stability : &Option(String)) -> DocModule)(
     name : `term`,
     path : `std/term`,
     doc : Option(String).Some(`Terminal facade.`),
-    stability : stability,
+    stability : stability.clone(),
     functions : ArrayList(DocFunction).new(),
     types : ArrayList(DocType).new(),
     traits : ArrayList(DocTrait).new(),
@@ -93,7 +93,7 @@ test("module_stability: no section, no doc and an empty section all mean None", 
 // ── publishing it ──────────────────────────────────────────────────────────
 test("render_doc_json_string: the whole marker reaches the stability key", {
   marker := `unstable — new in v0.2.24; the API may still change while std/cli adopts it.`;
-  json := render_doc_json_string(_one_module_model(Option(String).Some(marker)), false);
+  json := render_doc_json_string(_one_module_model(Option(String).Some(marker.clone())), false);
   assert(json.contains(`"stability"`), "the JSON carries a stability key");
   assert(json.contains(&marker), `the JSON carries the WHOLE marker, got: ${json}`);
   stable := render_doc_json_string(_one_module_model(Option(String).None), false);

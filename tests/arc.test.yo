@@ -84,6 +84,54 @@ test("Test Arc scope cleanup", {
 });
 // --- Arc + Thread tests ---
 { Thread } :: import("std/thread");
+// --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2) ---
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
+test("arc alloc : .Some(a) places the cell in a, and the default does not", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    a := arc(i32(5), alloc : .Some(arena.allocator()));
+    assert(arena.live_blocks() == usize(1), `the cell is in the arena: ${arena.live_blocks()}`);
+    assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
+    g := arc(i32(6));
+    assert(arena.live_blocks() == usize(1), "the scope was restored: a default arc is on the global allocator");
+    assert((a.* + g.*) == i32(11), "the payloads");
+  };
+  assert(arena.live_blocks() == usize(0), "the last drop released the cell into the arena");
+  arena.deinit();
+});
+test("arc alloc : .Some(a) inside another scope wins, and the outer scope survives", {
+  inner := Arena.new(usize(1) << usize(16));
+  outer := Arena.new(usize(1) << usize(16));
+  {
+    x := with_allocator(outer.allocator(), () => {
+      placed := arc(i32(7), alloc : .Some(inner.allocator()));
+      scoped := arc(i32(8));
+      assert(outer.live_blocks() == usize(1), `the default arc after it still follows the scope: ${outer.live_blocks()}`);
+      assert(scoped.* == i32(8), "the scoped payload");
+      placed
+    });
+    assert(inner.live_blocks() == usize(1), "the explicit allocator placed the cell");
+    assert(outer.live_blocks() == usize(0), "the scoped arc died with the closure");
+    assert(x.* == i32(7), "the placed payload");
+  };
+  assert(inner.live_blocks() == usize(0), "released into the explicit allocator");
+  inner.deinit();
+  outer.deinit();
+});
+test("arc alloc : .Some(a) shared across a thread is released into a", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    shared := arc(i32(42), alloc : .Some(arena.allocator()));
+    t := Thread(unit).spawn(io => {
+      assert(shared.* == i32(42), "the worker reads the placed cell");
+    });
+    t.join();
+    assert(arena.live_blocks() == usize(1), "one cell, two handles");
+  };
+  assert(arena.live_blocks() == usize(0), "the last handle released the cell into the arena");
+  arena.deinit();
+});
 test("Test Arc shared across thread", {
   shared := arc(i32(42));
   t := Thread(unit).spawn(io => {

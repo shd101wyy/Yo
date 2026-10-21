@@ -2130,9 +2130,14 @@ joined, though, and only before that construct returns. So:
   *Correction 2026-10-20:* `verify` never switched the tables off (its
   `main.yo` dispatch keeps them on), and the match arms now have their own
   switch (`set_match_arms_table_enabled`), which only `doc` and the LSP turn
-  off. `check` runs the verifier, whose match walk reads the arms, so it keeps
-  recording them: +6.1 MB (+0.5 %) on `check src/main.yo`
-  (issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md).
+  off. `check` runs the verifier, whose match walk reads the arms, so it kept
+  recording them: +34.7 MB (+3.3 %) on Linux stage-2 `check src/main.yo`
+  (the macOS +6.1 MB / +0.5 % first reported understated it;
+  issues/fixed/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md).
+  *Correction 2026-10-21:* `check` now records them only when one of its
+  targets can verify (its code tokens spell a `Pragma.Verify…` pragma) or
+  in the watch modes, so `check src/main.yo` records none again: stage-2
+  max RSS 1,107,640 → 1,076,260 kB (−31.4 MB, −2.8 %) on one base.
 
 Measured on stage-1 binaries built by the v0.2.45 seed, `check src/main.yo`
 max RSS: **1,198,268 → 1,164,304 kB (−33.9 MB, −2.8 %)**. That matches the
@@ -2232,7 +2237,7 @@ their keys:
 | `g_specialized_base` | 9.4 |
 | `g_type_intern` | 7.1 |
 | `g_stable_occurrence` | 2.6 |
-| `g_match_arms` | 2.5 (0 in `check` since §0.21) |
+| `g_match_arms` | 2.5 (0 in a `check` with no verify-mode target, §0.21) |
 
 `String.clone` is a byte copy (`std/string` Clone impl), so every
 `registry.insert(id.clone(), …)` keeps its own buffer of an id that the

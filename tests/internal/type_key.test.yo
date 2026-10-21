@@ -62,10 +62,10 @@ test("type_key: SomeT distinct from concrete", {
 // A one-field capture struct, as create_capture_type_and_value builds it.
 _capture_struct :: (fn(sid : &String, label : &String, field : &TypeValue) -> TypeValue)({
   labels := ArrayList(String).new();
-  labels.push(label);
+  labels.push(label.clone());
   fields := ArrayList(TypeValue).new();
   fields.push(field);
-  rc(TypeValueNode.Struct(sid, String.from(""), shared_list(labels), shared_list(fields), false, false, false, String.from(""), no_types(), false))
+  rc(TypeValueNode.Struct(sid.clone(), String.from(""), shared_list(labels), shared_list(fields), false, false, false, String.from(""), no_types(), false))
 });
 // A closure inside a generic function captures the function's `Impl(Fn...)`
 // parameter: one SomeT lineage that each call site resolves to its own

@@ -90,7 +90,7 @@ _method_doc_of :: (fn(methods : &ArrayList(DocFunction), name : &String) -> Opti
       }
     );
     if(m.name == name, {
-      return(m.doc);
+      return(m.doc.clone());
     });
     i = (i + usize(1));
   });
@@ -249,7 +249,7 @@ test("token-only docs attach methods, fields and variants to their type", {
   assert(variants.len() == usize(2), `both documented variants attach, got ${variants.len().to_string()}`);
   assert(variants(usize(0)).name == `Circle`, "first variant is Circle");
   assert(
-    match(variants(usize(0)).doc, .Some(d) => (d == `A circle.`), .None => false),
+    match(variants(usize(0)).doc.clone(), .Some(d) => (d == `A circle.`), .None => false),
     "the variant keeps its doc"
   );
   // The trait is a trait, and its method's doc survives on it.
@@ -258,7 +258,7 @@ test("token-only docs attach methods, fields and variants to their type", {
   assert(tr.name == `Renderable`, `the trait is Renderable, got '${tr.name}'`);
   assert(tr.methods.len() == usize(1), `the trait carries render, got ${tr.methods.len().to_string()}`);
   assert(
-    match(tr.methods(usize(0)).doc, .Some(d) => (d == `Render to a string.`), .None => false),
+    match(tr.methods(usize(0)).doc.clone(), .Some(d) => (d == `Render to a string.`), .None => false),
     "the trait method keeps its doc"
   );
   // The module doc survives either way.
@@ -290,7 +290,7 @@ test("token-only docs: an undocumented exported type still carries its method do
   assert(quiet.doc.is_none(), "Quiet itself has no doc comment");
   assert(quiet.methods.len() == usize(1), `loud rides on Quiet, got ${quiet.methods.len().to_string()}`);
   assert(
-    match(quiet.methods(usize(0)).doc, .Some(d) => (d == `Loud doc.`), .None => false),
+    match(quiet.methods(usize(0)).doc.clone(), .Some(d) => (d == `Loud doc.`), .None => false),
     "the method's doc survives on the synthesized type entry"
   );
 });

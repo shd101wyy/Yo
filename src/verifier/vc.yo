@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
 { lookup_match_arms, Arm, Pattern, pattern_bindings } :: import("../pattern.yo");
-{ VcSort, VcOp, VcTerm, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
+{ VcSort, VcOp, VcTerm, VcTermNode, VcQuery, VcQuantKind, VcFunDecl, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
 { is_unit_type } :: import("../types/guards.yo");
@@ -486,8 +486,8 @@ _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
   });
   found
 });
-_list_len_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs));
-_list_contents_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(VcTerm.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs));
+_list_len_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(rc(VcTermNode.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs)));
+_list_contents_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(rc(VcTermNode.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs)));
 _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
   cond(
     // V6 task 2: a generic type parameter verifies as an UNINTERPRETED
@@ -917,68 +917,68 @@ _fold_scmp :: (fn(op : VcOp, a : u64, b : u64, w : usize) -> bool)({
 });
 /// Two-argument boolean connective over literal bools.
 _fold_bool2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  ab := match(a, .BoolLit(x) => x, _ => false);
-  a_is := match(a, .BoolLit(_) => true, _ => false);
-  bb := match(b, .BoolLit(x) => x, _ => false);
-  b_is := match(b, .BoolLit(_) => true, _ => false);
+  ab := match(a, Rc(.BoolLit(x)) => x, _ => false);
+  a_is := match(a, Rc(.BoolLit(_)) => true, _ => false);
+  bb := match(b, Rc(.BoolLit(x)) => x, _ => false);
+  b_is := match(b, Rc(.BoolLit(_)) => true, _ => false);
   if(!a_is || !b_is, {
     return(Option(VcTerm).None);
   });
   match(
     op,
-    .AndOp => Option(VcTerm).Some(VcTerm.BoolLit(ab && bb)),
-    .OrOp => Option(VcTerm).Some(VcTerm.BoolLit(ab || bb)),
-    .ImpOp => Option(VcTerm).Some(VcTerm.BoolLit(!ab || bb)),
+    .AndOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(ab && bb))),
+    .OrOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(ab || bb))),
+    .ImpOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(!ab || bb))),
     _ => Option(VcTerm).None
   )
 });
 /// Eq / Distinct over literal bools or equal-width bitvector literals.
 _fold_eq :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  a_bool := match(a, .BoolLit(_) => true, _ => false);
-  b_bool := match(b, .BoolLit(_) => true, _ => false);
+  a_bool := match(a, Rc(.BoolLit(_)) => true, _ => false);
+  b_bool := match(b, Rc(.BoolLit(_)) => true, _ => false);
   if(a_bool && b_bool, {
-    ab := match(a, .BoolLit(x) => x, _ => false);
-    bb := match(b, .BoolLit(x) => x, _ => false);
+    ab := match(a, Rc(.BoolLit(x)) => x, _ => false);
+    bb := match(b, Rc(.BoolLit(x)) => x, _ => false);
     match(
       op,
-      .EqOp => Option(VcTerm).Some(VcTerm.BoolLit(ab == bb)),
-      .DistinctOp => Option(VcTerm).Some(VcTerm.BoolLit(ab != bb)),
+      .EqOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(ab == bb))),
+      .DistinctOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(ab != bb))),
       _ => Option(VcTerm).None
     );
   });
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
-  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  bv := match(b, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
+  bw := match(b, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if((aw == usize(0)) || (aw != bw), {
     return(Option(VcTerm).None);
   });
   match(
     op,
-    .EqOp => Option(VcTerm).Some(VcTerm.BoolLit(av == bv)),
-    .DistinctOp => Option(VcTerm).Some(VcTerm.BoolLit(av != bv)),
+    .EqOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(av == bv))),
+    .DistinctOp => Option(VcTerm).Some(rc(VcTermNode.BoolLit(av != bv))),
     _ => Option(VcTerm).None
   )
 });
 /// Signed/unsigned comparisons over equal-width bitvector literals.
 _fold_cmp :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
-  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  bv := match(b, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
+  bw := match(b, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if((aw == usize(0)) || (aw != bw), {
     return(Option(VcTerm).None);
   });
   match(
     op,
-    .BvUlt => Option(VcTerm).Some(VcTerm.BoolLit(av < bv)),
-    .BvUle => Option(VcTerm).Some(VcTerm.BoolLit(av <= bv)),
-    .BvUgt => Option(VcTerm).Some(VcTerm.BoolLit(av > bv)),
-    .BvUge => Option(VcTerm).Some(VcTerm.BoolLit(av >= bv)),
-    .BvSlt => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
-    .BvSle => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
-    .BvSgt => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
-    .BvSge => Option(VcTerm).Some(VcTerm.BoolLit(_fold_scmp(op, av, bv, aw))),
+    .BvUlt => Option(VcTerm).Some(rc(VcTermNode.BoolLit(av < bv))),
+    .BvUle => Option(VcTerm).Some(rc(VcTermNode.BoolLit(av <= bv))),
+    .BvUgt => Option(VcTerm).Some(rc(VcTermNode.BoolLit(av > bv))),
+    .BvUge => Option(VcTerm).Some(rc(VcTermNode.BoolLit(av >= bv))),
+    .BvSlt => Option(VcTerm).Some(rc(VcTermNode.BoolLit(_fold_scmp(op, av, bv, aw)))),
+    .BvSle => Option(VcTerm).Some(rc(VcTermNode.BoolLit(_fold_scmp(op, av, bv, aw)))),
+    .BvSgt => Option(VcTerm).Some(rc(VcTermNode.BoolLit(_fold_scmp(op, av, bv, aw)))),
+    .BvSge => Option(VcTerm).Some(rc(VcTermNode.BoolLit(_fold_scmp(op, av, bv, aw)))),
     _ => Option(VcTerm).None
   )
 });
@@ -987,10 +987,10 @@ _fold_cmp :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
 /// divisor is the AoRTE obligation itself (symbolic by design) and the
 /// SMT division semantics for zero/INT_MIN are what the proof talks about.
 _fold_bv2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  bv := match(b, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
-  bw := match(b, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  bv := match(b, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
+  bw := match(b, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if((aw == usize(0)) || (aw != bw), {
     return(Option(VcTerm).None);
   });
@@ -1000,27 +1000,27 @@ _fold_bv2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> Option(VcTerm))({
     // Wrapping u64 arithmetic, then the width mask: the bit-vectors wrap,
     // and checked `+ - *` would abort the run on a 64-bit carry or a zero
     // subtrahend (issues/fixed/verifier-literal-fold-traps-on-wrapping-arithmetic.md).
-    .BvAdd => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_add(bv) & m, aw)),
-    .BvSub => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_sub(bv) & m, aw)),
-    .BvMul => Option(VcTerm).Some(VcTerm.BvLit(av.wrapping_mul(bv) & m, aw)),
-    .BvAndOp => Option(VcTerm).Some(VcTerm.BvLit(av & bv, aw)),
-    .BvOrOp => Option(VcTerm).Some(VcTerm.BvLit(av | bv, aw)),
-    .BvXorOp => Option(VcTerm).Some(VcTerm.BvLit(av ^ bv, aw)),
+    .BvAdd => Option(VcTerm).Some(rc(VcTermNode.BvLit(av.wrapping_add(bv) & m, aw))),
+    .BvSub => Option(VcTerm).Some(rc(VcTermNode.BvLit(av.wrapping_sub(bv) & m, aw))),
+    .BvMul => Option(VcTerm).Some(rc(VcTermNode.BvLit(av.wrapping_mul(bv) & m, aw))),
+    .BvAndOp => Option(VcTerm).Some(rc(VcTermNode.BvLit(av & bv, aw))),
+    .BvOrOp => Option(VcTerm).Some(rc(VcTermNode.BvLit(av | bv, aw))),
+    .BvXorOp => Option(VcTerm).Some(rc(VcTermNode.BvLit(av ^ bv, aw))),
     _ => Option(VcTerm).None
   )
 });
 /// One-argument bitvector folds: negation and bitwise not (wrapping).
 _fold_bv1 :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))({
-  av := match(a, .BvLit(v, _) => v, _ => u64(0));
-  aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+  av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+  aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
   if(aw == usize(0), {
     return(Option(VcTerm).None);
   });
   m := _fold_mask(aw);
   match(
     op,
-    .BvNeg => Option(VcTerm).Some(VcTerm.BvLit(u64(0).wrapping_sub(av) & m, aw)),
-    .BvNotOp => Option(VcTerm).Some(VcTerm.BvLit(~av & m, aw)),
+    .BvNeg => Option(VcTerm).Some(rc(VcTermNode.BvLit(u64(0).wrapping_sub(av) & m, aw))),
+    .BvNotOp => Option(VcTerm).Some(rc(VcTermNode.BvLit(~av & m, aw))),
     _ => Option(VcTerm).None
   )
 });
@@ -1030,8 +1030,8 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
   match(
     op,
     .SignExtendOp(k) => {
-      av := match(a, .BvLit(v, _) => v, _ => u64(0));
-      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+      aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
       if(((aw + k) > usize(64)) || (aw == usize(0)), {
         return(Option(VcTerm).None);
       });
@@ -1042,27 +1042,27 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
         (sign == u64(1)) => (av | hi),
         true => av
       );
-      Option(VcTerm).Some(VcTerm.BvLit(ext, aw + k))
+      Option(VcTerm).Some(rc(VcTermNode.BvLit(ext, aw + k)))
     },
     .ZeroExtendOp(k) => {
-      av := match(a, .BvLit(v, _) => v, _ => u64(0));
-      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+      aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
       if(((aw + k) > usize(64)) || (aw == usize(0)), {
         return(Option(VcTerm).None);
       });
-      Option(VcTerm).Some(VcTerm.BvLit(av, aw + k))
+      Option(VcTerm).Some(rc(VcTermNode.BvLit(av, aw + k)))
     },
     .ExtractOp(
       hi,
       lo
     ) => {
-      av := match(a, .BvLit(v, _) => v, _ => u64(0));
-      aw := match(a, .BvLit(_, w) => w, _ => usize(0));
+      av := match(a, Rc(.BvLit(v, _)) => v, _ => u64(0));
+      aw := match(a, Rc(.BvLit(_, w)) => w, _ => usize(0));
       if((aw == usize(0)) || (lo > hi) || (hi >= aw), {
         return(Option(VcTerm).None);
       });
       w_out := ((hi - lo) + usize(1));
-      Option(VcTerm).Some(VcTerm.BvLit((av >> u64(lo)) & _fold_mask(w_out), w_out))
+      Option(VcTerm).Some(rc(VcTermNode.BvLit((av >> u64(lo)) & _fold_mask(w_out), w_out)))
     },
     _ => Option(VcTerm).None
   )
@@ -1077,7 +1077,7 @@ _fold_width :: (fn(op : VcOp, a : &VcTerm) -> Option(VcTerm))(
 _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
   match(
     t,
-    .App(op, args) => {
+    Rc(.App(op, args)) => {
       folded := ArrayList(VcTerm).new();
       (all_lit : bool) = true;
       (ai : usize) = usize(0);
@@ -1089,8 +1089,8 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
             folded.push(f);
             match(
               f,
-              .BvLit(_, _) => (),
-              .BoolLit(_) => (),
+              Rc(.BvLit(_, _)) => (),
+              Rc(.BoolLit(_)) => (),
               _ => {
                 all_lit = false;
               }
@@ -1155,7 +1155,7 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
         c0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
         match(
           c0,
-          .BoolLit(cb) => match(
+          Rc(.BoolLit(cb)) => match(
             op,
             .IteOp => {
               t1 := match(folded.get(usize(1)), .Some(x) => x, .None => t);
@@ -1170,7 +1170,7 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
           _ => ()
         );
       });
-      VcTerm.App(op, folded)
+      rc(VcTermNode.App(op, folded))
     },
     _ => t
   )
@@ -1419,7 +1419,7 @@ _emit :: (
   // solver for it.
   pre := match(
     _fold_term(&q.goal),
-    .BoolLit(v) => if(
+    Rc(.BoolLit(v)) => if(
       v,
       Option(VcPreVerdict).Some(VcPreVerdict.PreProved),
       Option(VcPreVerdict).Some(VcPreVerdict.PreRefuted)
@@ -1486,7 +1486,7 @@ _emit_measure_nonneg :: (fn(ctx : &mut VcCtx, label : &String, dm0 : &AstExpr) -
     match(
       _expr_term(ctx, &dm),
       .Some(mt) => {
-        zero := VcTerm.BvLit(value : u64(0), width : _term_width(&mt));
+        zero := rc(VcTermNode.BvLit(value : u64(0), width : _term_width(&mt)));
         nonneg_op := cond(
           _measure_is_signed(ctx, &dm) => VcOp.BvSge,
           true => VcOp.BvUge
@@ -1542,15 +1542,15 @@ _sorted_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
 _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> unit)(
   match(
     t,
-    .Var(name, sort) => {
+    Rc(.Var(name, sort)) => {
       if(!out.contains_key(name.clone()), {
         out.insert(name.clone(), sort);
       });
     },
-    .BvLit(_, _) => (),
-    .BoolLit(_) => (),
-    .ArrConst(_, lit) => _collect_declared(&lit, out),
-    .App(_, args) => {
+    Rc(.BvLit(_, _)) => (),
+    Rc(.BoolLit(_)) => (),
+    Rc(.ArrConst(_, lit)) => _collect_declared(&lit, out),
+    Rc(.App(_, args)) => {
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
@@ -1563,7 +1563,7 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
         i = (i + usize(1));
       });
     },
-    .Ctor(_, cargs) => {
+    Rc(.Ctor(_, cargs)) => {
       (ci : usize) = usize(0);
       while(ci < cargs.len(), {
         match(
@@ -1579,13 +1579,13 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
     // Child bindings NOT named `t`: shadowing the scrutinee hit the
     // self-referential-initializer codegen UB (C11 6.2.1p4), which the
     // v0.2.29 seed still miscompiles.
-    .Test(_, child) => _collect_declared(&child, out),
-    .Proj(_, _, child) => _collect_declared(&child, out),
+    Rc(.Test(_, child)) => _collect_declared(&child, out),
+    Rc(.Proj(_, _, child)) => _collect_declared(&child, out),
     // A quantifier's BINDERS are not top-level declarations: collect the
     // body's free vars into a fresh map, drop the bound names, then merge
     // (an outer occurrence of the same name elsewhere in the goal still
     // declares it — the merge is insert-if-absent).
-    .Quant(_, names, _, body, triggers) => {
+    Rc(.Quant(_, names, _, body, triggers)) => {
       inner := HashMap(String, VcSort).new();
       _collect_declared(&body, &mut inner);
       (ti2 : usize) = usize(0);
@@ -1636,15 +1636,15 @@ _collect_declared :: (fn(t : &VcTerm, out : &mut HashMap(String, VcSort)) -> uni
 _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
   match(
     t,
-    .Var(name, sort) => match(
+    Rc(.Var(name, sort)) => match(
       map.get(name.clone()),
-      .Some(m) => VcTerm.Var(name : m.clone(), sort : sort),
+      .Some(m) => rc(VcTermNode.Var(name : m.clone(), sort : sort)),
       .None => t
     ),
-    .BvLit(_, _) => t,
-    .BoolLit(_) => t,
-    .ArrConst(sort, lit) => VcTerm.ArrConst(sort : sort, lit : _rename_vars(&lit, map)),
-    .App(op, args) => {
+    Rc(.BvLit(_, _)) => t,
+    Rc(.BoolLit(_)) => t,
+    Rc(.ArrConst(sort, lit)) => rc(VcTermNode.ArrConst(sort : sort, lit : _rename_vars(&lit, map))),
+    Rc(.App(op, args)) => {
       out := ArrayList(VcTerm).new();
       (i : usize) = usize(0);
       while(i < args.len(), {
@@ -1657,9 +1657,9 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
         );
         i = (i + usize(1));
       });
-      VcTerm.App(op, out)
+      rc(VcTermNode.App(op, out))
     },
-    .Ctor(name, cargs) => {
+    Rc(.Ctor(name, cargs)) => {
       out := ArrayList(VcTerm).new();
       (ci : usize) = usize(0);
       while(ci < cargs.len(), {
@@ -1672,13 +1672,13 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
         );
         ci = (ci + usize(1));
       });
-      VcTerm.Ctor(name : name.clone(), args : out)
+      rc(VcTermNode.Ctor(name : name.clone(), args : out))
     },
-    .Test(ctor, child) => VcTerm.Test(ctor : ctor.clone(), t : _rename_vars(&child, map)),
-    .Proj(ctor, idx, child) => VcTerm.Proj(ctor : ctor.clone(), idx : idx, t : _rename_vars(&child, map)),
+    Rc(.Test(ctor, child)) => rc(VcTermNode.Test(ctor : ctor.clone(), t : _rename_vars(&child, map))),
+    Rc(.Proj(ctor, idx, child)) => rc(VcTermNode.Proj(ctor : ctor.clone(), idx : idx, t : _rename_vars(&child, map))),
     // Bound names are NOT renamed (the binder keeps its raw spelling; a
     // coinciding outer name stays outer everywhere else).
-    .Quant(kind, names, sorts, body, triggers) => {
+    Rc(.Quant(kind, names, sorts, body, triggers)) => {
       inner_map := HashMap(String, String).new();
       mit := map.keys();
       (mgo : bool) = true;
@@ -1725,12 +1725,14 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
         );
         tri = (tri + usize(1));
       });
-      VcTerm.Quant(
-        kind : kind,
-        names : names,
-        sorts : sorts,
-        body : _rename_vars(&body, &inner_map),
-        triggers : renamed_triggers
+      rc(
+        VcTermNode.Quant(
+          kind : kind,
+          names : names,
+          sorts : sorts,
+          body : _rename_vars(&body, &inner_map),
+          triggers : renamed_triggers
+        )
       )
     }
   )
@@ -1750,12 +1752,12 @@ _int_lit_bits :: (fn(raw : &String) -> Option(u64))(
 _lit_term :: (fn(v : &EvalValue, sort : &VcSort) -> Option(VcTerm))(
   match(
     v,
-    .BoolVal(b) => Option(VcTerm).Some(VcTerm.BoolLit(b)),
+    .BoolVal(b) => Option(VcTerm).Some(rc(VcTermNode.BoolLit(b))),
     .IntLit(raw) => match(
       sort,
       .BvS(w) => match(
         _int_lit_bits(raw.clone()),
-        .Some(bits) => Option(VcTerm).Some(VcTerm.BvLit(value : bits, width : w)),
+        .Some(bits) => Option(VcTerm).Some(rc(VcTermNode.BvLit(value : bits, width : w))),
         .None => Option(VcTerm).None
       ),
       _ => Option(VcTerm).None
@@ -1769,28 +1771,28 @@ _lit_term :: (fn(v : &EvalValue, sort : &VcSort) -> Option(VcTerm))(
 _app1 :: (fn(op : VcOp, a : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
-  VcTerm.App(op, args)
+  rc(VcTermNode.App(op, args))
 });
 _app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
-  VcTerm.App(op, args)
+  rc(VcTermNode.App(op, args))
 });
 /// `((_ int2bv 64) (seq.len a))` — the length as a 64-bit vector.
 _seq_len_bv :: (fn(a : &VcTerm) -> VcTerm)({
   inner := ArrayList(VcTerm).new();
   inner.push(a);
   outer := ArrayList(VcTerm).new();
-  outer.push(VcTerm.App(VcOp.SeqLen, inner));
-  VcTerm.App(VcOp.IntToBvOp(width : usize(64)), outer)
+  outer.push(rc(VcTermNode.App(VcOp.SeqLen, inner)));
+  rc(VcTermNode.App(VcOp.IntToBvOp(width : usize(64)), outer))
 });
 _app3 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm, c : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
   args.push(a);
   args.push(b);
   args.push(c);
-  VcTerm.App(op, args)
+  rc(VcTermNode.App(op, args))
 });
 /// The best-effort sort of a term (for Array domains when the operand is
 /// a derived expression rather than a Var).
@@ -1821,7 +1823,7 @@ _str_bytes_term :: (fn(info : &ExprInfo) -> Option(VcTerm))({
   out := Option(VcTerm).None;
   (i : usize) = usize(0);
   while(i < raw.len(), {
-    b := VcTerm.BvLit(value : u64(raw.byte_at(i)), width : usize(8));
+    b := rc(VcTermNode.BvLit(value : u64(raw.byte_at(i)), width : usize(8)));
     u := _app1(VcOp.SeqUnit, &b);
     out = match(
       out,
@@ -1832,7 +1834,7 @@ _str_bytes_term :: (fn(info : &ExprInfo) -> Option(VcTerm))({
   });
   out
 });
-_zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
+_zero_of :: (fn(w : usize) -> VcTerm)(rc(VcTermNode.BvLit(value : u64(0), width : w)));
 /// The ExprInfo-free forms `_expr_term` accepts (see its gate), else
 /// `.None` without recording anything.
 _untyped_opaque_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
@@ -1996,7 +1998,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
           return(Option(VcTerm).None);
         });
         ct := _expr_term(ctx, &cf);
-        les := match(ct, .Some(.Var(_, cs)) => _list_sort_elem(&cs), _ => Option(VcSort).None);
+        les := match(ct, .Some(Rc(.Var(_, cs))) => _list_sort_elem(&cs), _ => Option(VcSort).None);
         if(les.is_none(), {
           _fail_subset(ctx, String.from("call of a computed callee that is not a list"), e);
           return(Option(VcTerm).None);
@@ -2285,7 +2287,7 @@ _build_enum_ctor :: (
       // the variant field labels declared accessors a later `match` on the
       // same value could not name.
       _note_enum_datatype(ctx, ety);
-      Option(VcTerm).Some(VcTerm.Ctor(name : _enum_ctor_name(e_id, &vname), args : cargs))
+      Option(VcTerm).Some(rc(VcTermNode.Ctor(name : _enum_ctor_name(e_id, &vname), args : cargs)))
     },
     true => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
@@ -2432,7 +2434,7 @@ _match_arm_conditioned_ir :: (
             ite_args.push(ft);
             ite_args.push(body_t);
             ite_args.push(tail);
-            Option(VcTerm).Some(VcTerm.App(VcOp.IteOp, ite_args))
+            Option(VcTerm).Some(rc(VcTermNode.App(VcOp.IteOp, ite_args)))
           },
           .None => Option(VcTerm).None
         ),
@@ -2569,7 +2571,7 @@ _arm_ir_bind_into :: (
       // A nested pattern digs into a SECOND datatype: declare it too, or
       // its constructor tests/projections resolve against nothing.
       _note_enum_datatype(ctx, &inner_ty);
-      parts.push(VcTerm.Test(ctor : _variant_ctor_name(&inner_ty, vname.clone()), t : scrut));
+      parts.push(rc(VcTermNode.Test(ctor : _variant_ctor_name(&inner_ty, vname.clone()), t : scrut)));
       accessors := _variant_accessors(&inner_ty, vname.clone(), arity);
       (i : usize) = usize(0);
       (ok2 : bool) = true;
@@ -2580,7 +2582,7 @@ _arm_ir_bind_into :: (
           .Some(a) => a.clone(),
           .None => _variant_ctor_name(&inner_ty, vname.clone())
         );
-        field_term := VcTerm.Proj(ctor : accessor, idx : fi, t : scrut);
+        field_term := rc(VcTermNode.Proj(ctor : accessor, idx : fi, t : scrut));
         ok2 = recur(&subs(i), &field_term, &inner_ty, ctx, saved_names, saved_vals, parts);
         i = (i + usize(1));
       });
@@ -2986,7 +2988,7 @@ LoopAnnotations :: struct(invariants : ArrayList(AstExpr), decreases : Option(As
 /// One `break` site (V4.2): the path condition at the break — the AND of
 /// `ctx.path` at the statement, which includes the iterate assumptions and
 /// every taken guard — and the full binding snapshot at that point. Terms
-/// are shared refs (the IR is immutable once built).
+/// are shared `Rc` handles (the IR is immutable once built).
 BreakSite :: struct(path : VcTerm, vals : HashMap(String, VcTerm));
 /// `break` parses as a plain atom or a zero-arg call (like `continue`).
 _is_break_stmt :: (fn(e : &AstExpr) -> bool)(
@@ -3030,7 +3032,7 @@ _continue_obligations :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> bool)({
   match(
     ctx.loop_for_idx,
     .Some(nm1) => {
-      ctx.vars.insert(nm1.clone(), _app2(VcOp.BvAdd, saved_idx.unwrap(), VcTerm.BvLit(value : u64(1), width : usize(64))));
+      ctx.vars.insert(nm1.clone(), _app2(VcOp.BvAdd, saved_idx.unwrap(), rc(VcTermNode.BvLit(value : u64(1), width : usize(64)))));
       ()
     },
     .None => ()
@@ -3091,13 +3093,13 @@ _continue_obligations :: (fn(ctx : &mut VcCtx, at : &AstExpr) -> bool)({
 _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
   match(
     old,
-    .Var(_, s) => s,
-    .Ctor(cn, _) => match(
+    Rc(.Var(_, s)) => s,
+    Rc(.Ctor(cn, _)) => match(
       _list_sort_of_ctor(&cn),
       .Some(ls) => ls,
       .None => VcSort.BoolS
     ),
-    .App(.IteOp, iargs) => match(
+    Rc(.App(.IteOp, iargs)) => match(
       iargs.get(usize(1)),
       .Some(then_t) => _havoc_binding_sort(&then_t),
       .None => VcSort.BoolS
@@ -3125,7 +3127,7 @@ _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)
       )
     );
     hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
-    ctx.vars.insert(name.clone(), VcTerm.Var(name : hv, sort : srt));
+    ctx.vars.insert(name.clone(), rc(VcTermNode.Var(name : hv, sort : srt)));
     ai = (ai + usize(1));
   });
 });
@@ -3293,7 +3295,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
   });
   a := a_opt.unwrap();
   idx_name := `__yo_for_idx_${ast_expr_id(e).to_string()}`;
-  ctx.vars.insert(idx_name.clone(), VcTerm.BvLit(value : u64(0), width : usize(64)));
+  ctx.vars.insert(idx_name.clone(), rc(VcTermNode.BvLit(value : u64(0), width : usize(64))));
   fr := ForFrame(idx_name : idx_name.clone(), coll_name : coll_name, list : list_t.unwrap(), elem : elem_opt.unwrap(), elem_name : ast_expr_token(&var).value);
   ctx.for_frames.push(fr);
   r := _loop_core(ctx, e, &a, Option(AstExpr).None, ctx.for_frames.get(ctx.for_frames.len() - usize(1)));
@@ -3446,7 +3448,7 @@ _loop_core :: (
     frame,
     .Some(fr2) => {
       if(!ctx.path_dead, {
-        ctx.vars.insert(fr2.idx_name.clone(), _app2(VcOp.BvAdd, ctx.vars.get(fr2.idx_name.clone()).unwrap(), VcTerm.BvLit(value : u64(1), width : usize(64))));
+        ctx.vars.insert(fr2.idx_name.clone(), _app2(VcOp.BvAdd, ctx.vars.get(fr2.idx_name.clone()).unwrap(), rc(VcTermNode.BvLit(value : u64(1), width : usize(64)))));
       });
       match(
         saved_elem,
@@ -3539,7 +3541,7 @@ _loop_core :: (
     // No breaks: the exit is just the fresh-havoc Inv ∧ ¬Cond.
     ctx.path.push(_and_terms(&inv_exit));
     ctx.path.push(_app1(VcOp.NotOp, cond_exit.unwrap()));
-    return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
+    return(Option(VcTerm).Some(rc(VcTermNode.BoolLit(true))));
   });
   // With breaks: a fresh selector b_k per site. Every assigned name's
   // post-loop binding selects the site's snapshot value when that break
@@ -3549,7 +3551,7 @@ _loop_core :: (
   bs := ArrayList(VcTerm).new();
   (ki : usize) = usize(0);
   while(ki < sites.len(), {
-    bs.push(VcTerm.Var(name : `__yo_br${ctx.havoc.to_string()}_${ki.to_string()}`, sort : VcSort.BoolS));
+    bs.push(rc(VcTermNode.Var(name : `__yo_br${ctx.havoc.to_string()}_${ki.to_string()}`, sort : VcSort.BoolS)));
     ki = (ki + usize(1));
   });
   (ni : usize) = usize(0);
@@ -3558,7 +3560,7 @@ _loop_core :: (
     base := match(
       ctx.vars.get(name.clone()),
       .Some(cur) => cur,
-      .None => VcTerm.BoolLit(true)
+      .None => rc(VcTermNode.BoolLit(true))
     );
     chain := box(base);
     (ci2 : usize) = sites.len();
@@ -3574,7 +3576,7 @@ _loop_core :: (
       ite_a.push(bs.get(ci2).unwrap());
       ite_a.push(site_v);
       ite_a.push(chain.*);
-      chain.* = VcTerm.App(VcOp.IteOp, ite_a);
+      chain.* = rc(VcTermNode.App(VcOp.IteOp, ite_a));
     });
     ctx.vars.insert(name.clone(), chain.*);
     ni = (ni + usize(1));
@@ -3598,7 +3600,7 @@ _loop_core :: (
     di3 = (di3 + usize(1));
   });
   ctx.path.push(_or_terms(&disj));
-  Option(VcTerm).Some(VcTerm.BoolLit(true))
+  Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)))
 });
 /// forall/exists (V5 §6): N binder args `(name : Type)` then the
 /// predicate body. Each binder shadows any outer binding for the body
@@ -3670,7 +3672,7 @@ _quant_term :: (
         qsorts.push(s);
         saved_names.push(bn.clone());
         saved_vals.push(ctx.vars.get(bn.clone()));
-        ctx.vars.insert(bn.clone(), VcTerm.Var(name : bn.clone(), sort : s));
+        ctx.vars.insert(bn.clone(), rc(VcTermNode.Var(name : bn.clone(), sort : s)));
       },
       .None => {
         _fail_subset(ctx, `quantifier binder '${bn.clone()}' has a type outside the integer/bool subset`, &b);
@@ -3712,12 +3714,14 @@ _quant_term :: (
   match(
     body,
     .Some(bt) => Option(VcTerm).Some(
-      VcTerm.Quant(
-        kind : kind,
-        names : qnames,
-        sorts : qsorts,
-        body : bt,
-        triggers : ArrayList(VcTerm).new()
+      rc(
+        VcTermNode.Quant(
+          kind : kind,
+          names : qnames,
+          sorts : qsorts,
+          body : bt,
+          triggers : ArrayList(VcTerm).new()
+        )
       )
     ),
     .None => Option(VcTerm).None
@@ -3761,25 +3765,25 @@ _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 
     sorts.push(VcSort.BvS(width : usize(64)));
     sorts.push(arr);
     sorts.push(VcSort.BvS(width : usize(64)));
-    bc1 := VcTerm.Var(name : String.from("__yo_la_c1"), sort : arr);
-    bl1 := VcTerm.Var(name : String.from("__yo_la_l1"), sort : VcSort.BvS(width : usize(64)));
-    bc2 := VcTerm.Var(name : String.from("__yo_la_c2"), sort : arr);
-    bi := VcTerm.Var(name : String.from("__yo_la_i"), sort : VcSort.BvS(width : usize(64)));
+    bc1 := rc(VcTermNode.Var(name : String.from("__yo_la_c1"), sort : arr));
+    bl1 := rc(VcTermNode.Var(name : String.from("__yo_la_l1"), sort : VcSort.BvS(width : usize(64))));
+    bc2 := rc(VcTermNode.Var(name : String.from("__yo_la_c2"), sort : arr));
+    bi := rc(VcTermNode.Var(name : String.from("__yo_la_i"), sort : VcSort.BvS(width : usize(64))));
     fargs := ArrayList(VcTerm).new();
     fargs.push(bc1);
     fargs.push(bl1);
     fargs.push(bc2);
-    lhs := _app2(VcOp.SelectOp, VcTerm.Ctor(name : fname.clone(), args : fargs), &bi);
+    lhs := _app2(VcOp.SelectOp, rc(VcTermNode.Ctor(name : fname.clone(), args : fargs)), &bi);
     rhs := _app3(VcOp.IteOp, _app2(VcOp.BvUlt, &bi, &bl1), _app2(VcOp.SelectOp, &bc1, &bi), _app2(VcOp.SelectOp, &bc2, _app2(VcOp.BvSub, &bi, &bl1)));
     triggers := ArrayList(VcTerm).new();
     triggers.push(lhs);
-    ctx.axioms.push(VcTerm.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : _app2(VcOp.EqOp, &lhs, &rhs), triggers : triggers));
+    ctx.axioms.push(rc(VcTermNode.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : _app2(VcOp.EqOp, &lhs, &rhs), triggers : triggers)));
   });
   cargs := ArrayList(VcTerm).new();
   cargs.push(c1);
   cargs.push(l1);
   cargs.push(c2);
-  VcTerm.Ctor(name : fname, args : cargs)
+  rc(VcTermNode.Ctor(name : fname, args : cargs))
 });
 /// Two list values are equal when their lengths are and every element
 /// below the length is (the slots past the length are not part of the
@@ -3787,7 +3791,7 @@ _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 
 _list_ext_eq :: (fn(ctx : &mut VcCtx, elem : &VcSort, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   la := _list_len_term(elem, a);
   kn := `__yo_lk${_next_fresh(ctx).to_string()}`;
-  k := VcTerm.Var(name : kn.clone(), sort : VcSort.BvS(width : usize(64)));
+  k := rc(VcTermNode.Var(name : kn.clone(), sort : VcSort.BvS(width : usize(64))));
   names := ArrayList(String).new();
   names.push(kn);
   sorts := ArrayList(VcSort).new();
@@ -3797,7 +3801,7 @@ _list_ext_eq :: (fn(ctx : &mut VcCtx, elem : &VcSort, a : &VcTerm, b : &VcTerm) 
   _app2(
     VcOp.AndOp,
     _app2(VcOp.EqOp, &la, _list_len_term(elem, b)),
-    VcTerm.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : body, triggers : ArrayList(VcTerm).new())
+    rc(VcTermNode.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : body, triggers : ArrayList(VcTerm).new()))
   )
 });
 /// The operator/cast/call dispatch.
@@ -3846,7 +3850,7 @@ _call_term :: (
     at := match(
       a_opt,
       .Some(t0) => t0,
-      .None => VcTerm.BoolLit(true)
+      .None => rc(VcTermNode.BoolLit(true))
     );
     // Short-circuit guards: `&&`/`||` do not evaluate the RHS when the
     // LHS already decided the result, so obligations emitted while
@@ -3922,7 +3926,7 @@ _call_term :: (
         ctx,
         String.from("shift-in-width"),
         ArrayList(VcTerm).new(),
-        _lt_unsigned_term(&bt, VcTerm.BvLit(value : u64(shift_w), width : _term_width(&bt))),
+        _lt_unsigned_term(&bt, rc(VcTermNode.BvLit(value : u64(shift_w), width : _term_width(&bt)))),
         _guard_site(e, String.from("shift-in-width"))
       );
     });
@@ -4037,12 +4041,12 @@ _call_term :: (
         (ctx.requires_phase == usize(1)) => {
           ctx.distinct_pairs.push(`${an}|${bn}`);
           ctx.distinct_pairs.push(`${bn}|${an}`);
-          Option(VcTerm).Some(VcTerm.BoolLit(true))
+          Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)))
         },
         (ctx.requires_phase == usize(2)) => {
           xn := match(ctx.call_arg_names.get(an.clone()), .Some(x) => x, .None => String.new());
           yn := match(ctx.call_arg_names.get(bn.clone()), .Some(y) => y, .None => String.new());
-          Option(VcTerm).Some(VcTerm.BoolLit(_lists_distinct(ctx, &xn, &yn)))
+          Option(VcTerm).Some(rc(VcTermNode.BoolLit(_lists_distinct(ctx, &xn, &yn))))
         },
         true => {
           _fail_subset(ctx, String.from("distinct(...) outside a requires"), e);
@@ -4062,7 +4066,7 @@ _call_term :: (
         fi = (fi - usize(1));
         fr := ctx.for_frames.get(fi).unwrap();
         if(fr.coll_name == pname, {
-          return(Option(VcTerm).Some(VcTerm.Ctor(name : _list_ctor_name(&fr.elem), args : _two_terms(_list_contents_term(&fr.elem, &fr.list), ctx.vars.get(fr.idx_name.clone()).unwrap()))));
+          return(Option(VcTerm).Some(rc(VcTermNode.Ctor(name : _list_ctor_name(&fr.elem), args : _two_terms(_list_contents_term(&fr.elem, &fr.list), ctx.vars.get(fr.idx_name.clone()).unwrap())))));
         });
       });
     });
@@ -4105,7 +4109,7 @@ _call_term :: (
           if(is_plain_name, {
             ctx.vars.insert(ast_expr_token(ga.get(usize(0)).unwrap()).value.clone(), gvt);
           });
-          Option(VcTerm).Some(VcTerm.BoolLit(true))
+          Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)))
         },
         .None => Option(VcTerm).None
       )
@@ -4119,7 +4123,7 @@ _call_term :: (
     return(
       match(
         _expr_term(ctx, args.get(usize(0)).unwrap()),
-        .Some(_) => Option(VcTerm).Some(VcTerm.BoolLit(true)),
+        .Some(_) => Option(VcTerm).Some(rc(VcTermNode.BoolLit(true))),
         .None => Option(VcTerm).None
       )
     );
@@ -4132,7 +4136,7 @@ _call_term :: (
   // A zero-arg `tuple` call — the parser's unit, e.g. an empty cond arm
   // (`true => ()`). As a VALUE it carries no information.
   if(_is_unit_lit(e), {
-    return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
+    return(Option(VcTerm).Some(rc(VcTermNode.BoolLit(true))));
   });
   // --- assert sites --------------------------------------------------------
   if((head == "assert") && (n >= usize(1)), {
@@ -4142,7 +4146,7 @@ _call_term :: (
         p,
         .Some(pt) => {
           _emit(ctx, String.from("assert"), ArrayList(VcTerm).new(), &pt);
-          Option(VcTerm).Some(VcTerm.BoolLit(true))
+          Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)))
         },
         .None => Option(VcTerm).None
       )
@@ -4151,7 +4155,7 @@ _call_term :: (
   // --- panic: diverging ----------------------------------------------------
   if(head == "panic", {
     // Diverging path — contributes nothing (SPARK's stance).
-    return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
+    return(Option(VcTerm).Some(rc(VcTermNode.BoolLit(true))));
   });
   // --- old(...): the two-state ENTRY snapshot (V5) ---------------------------
   // `old(e)` evaluates e in the FUNCTION-ENTRY state: the walk runs against
@@ -4311,7 +4315,7 @@ _call_term :: (
     at := la.unwrap();
     bt := lb.unwrap();
     contents := _list_append_contents(ctx, &elem, _list_contents_term(&elem, &at), _list_len_term(&elem, &at), _list_contents_term(&elem, &bt));
-    return(Option(VcTerm).Some(VcTerm.Ctor(name : _list_ctor_name(&elem), args : _two_terms(&contents, _app2(VcOp.BvAdd, _list_len_term(&elem, &at), _list_len_term(&elem, &bt))))));
+    return(Option(VcTerm).Some(rc(VcTermNode.Ctor(name : _list_ctor_name(&elem), args : _two_terms(&contents, _app2(VcOp.BvAdd, _list_len_term(&elem, &at), _list_len_term(&elem, &bt)))))));
   });
   if((head == "seq_len") && (n == usize(1)) && _list_operand_elem(ctx, args.get(usize(0)).unwrap()).is_some(), {
     elem := _list_operand_elem(ctx, args.get(usize(0)).unwrap()).unwrap();
@@ -4406,14 +4410,14 @@ _call_term :: (
       match(
         a,
         .Some(at) => {
-          es := match(at, .Var(_, s) => s, _ => _term_sort_of(&at));
+          es := match(at, Rc(.Var(_, s)) => s, _ => _term_sort_of(&at));
           empty := cond(
-            (head == "ms_single") => VcTerm.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BvS(width : usize(64))), lit : VcTerm.BvLit(value : u64(0), width : usize(64))),
-            true => VcTerm.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BoolS), lit : VcTerm.BoolLit(false))
+            (head == "ms_single") => rc(VcTermNode.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BvS(width : usize(64))), lit : rc(VcTermNode.BvLit(value : u64(0), width : usize(64))))),
+            true => rc(VcTermNode.ArrConst(sort : VcSort.FunS(domain : es, range : VcSort.BoolS), lit : rc(VcTermNode.BoolLit(false))))
           );
           one := cond(
-            (head == "ms_single") => VcTerm.BvLit(value : u64(1), width : usize(64)),
-            true => VcTerm.BoolLit(true)
+            (head == "ms_single") => rc(VcTermNode.BvLit(value : u64(1), width : usize(64))),
+            true => rc(VcTermNode.BoolLit(true))
           );
           Option(VcTerm).Some(_app3(VcOp.StoreOp, &empty, &at, &one))
         },
@@ -4433,7 +4437,7 @@ _call_term :: (
         .Some(xt) => {
           mv := m.unwrap();
           cur := _app2(VcOp.SelectOp, &mv, &xt);
-          one := VcTerm.BvLit(value : u64(1), width : usize(64));
+          one := rc(VcTermNode.BvLit(value : u64(1), width : usize(64)));
           bumped := _app2(VcOp.BvAdd, &cur, &one);
           Option(VcTerm).Some(_app3(VcOp.StoreOp, &mv, &xt, &bumped))
         },
@@ -4450,7 +4454,7 @@ _call_term :: (
     return(
       match(
         x,
-        .Some(xt) => Option(VcTerm).Some(_app3(VcOp.StoreOp, m.unwrap(), &xt, VcTerm.BoolLit(true))),
+        .Some(xt) => Option(VcTerm).Some(_app3(VcOp.StoreOp, m.unwrap(), &xt, rc(VcTermNode.BoolLit(true)))),
         .None => Option(VcTerm).None
       )
     );
@@ -4492,7 +4496,7 @@ _call_term :: (
       ctx.vars.get(head.clone()),
       .Some(lv) => match(
         lv,
-        .Var(_, lv_sort) => _list_sort_elem(&lv_sort),
+        Rc(.Var(_, lv_sort)) => _list_sort_elem(&lv_sort),
         _ => Option(VcSort).None
       ),
       .None => Option(VcSort).None
@@ -4529,7 +4533,7 @@ _call_term :: (
         arr_t := match(
           ctx.vars.get(head.clone()),
           .Some(av) => av,
-          .None => VcTerm.BoolLit(true)
+          .None => rc(VcTermNode.BoolLit(true))
         );
         idx := _expr_term(ctx, args.get(usize(0)).unwrap());
         return(
@@ -4546,7 +4550,7 @@ _call_term :: (
                   ctx,
                   String.from("index-in-bounds"),
                   ArrayList(VcTerm).new(),
-                  _lt_unsigned_term(&it, VcTerm.BvLit(value : u64(alen), width : _term_width(&it))),
+                  _lt_unsigned_term(&it, rc(VcTermNode.BvLit(value : u64(alen), width : _term_width(&it)))),
                   _guard_site(e, String.from("index-in-bounds"))
                 );
               });
@@ -4605,7 +4609,7 @@ _call_term :: (
               // application shape; VcOp has no String-payload variant).
               msf_args := ArrayList(VcTerm).new();
               msf_args.push(at);
-              msf := VcTerm.Ctor(name : `__yo_msof_${_msof_key(&es)}`, args : msf_args);
+              msf := rc(VcTermNode.Ctor(name : `__yo_msof_${_msof_key(&es)}`, args : msf_args));
               _note_ms_of(ctx, &msf, &at, &es, m);
               Option(VcTerm).Some(msf)
             },
@@ -4643,7 +4647,7 @@ _call_term :: (
           return(Option(VcTerm).Some(len_t));
         });
         if((lr.method == "is_empty") && (n == usize(0)), {
-          return(Option(VcTerm).Some(_app2(VcOp.EqOp, &len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))));
+          return(Option(VcTerm).Some(_app2(VcOp.EqOp, &len_t, rc(VcTermNode.BvLit(value : u64(0), width : usize(64))))));
         });
         // `xs.get(i)` (R1 slice 3): the TOTAL read — `Some(select)` in
         // bounds, `None` past the end; no obligation (that is the point of
@@ -4662,14 +4666,14 @@ _call_term :: (
         // scan lists `.pop()` receivers, `_scan_assigned`).
         if((lr.method == "pop") && (n == usize(0)), {
           xs_t := recv_t.unwrap();
-          one := VcTerm.BvLit(value : u64(1), width : usize(64));
-          zero := VcTerm.BvLit(value : u64(0), width : usize(64));
+          one := rc(VcTermNode.BvLit(value : u64(1), width : usize(64)));
+          zero := rc(VcTermNode.BvLit(value : u64(0), width : usize(64)));
           non_empty := _app2(VcOp.BvUgt, &len_t, &zero);
           last_i := _app2(VcOp.BvSub, &len_t, &one);
           result := _list_option_term(ctx, e, &info.ty, &lr.elem, &xs_t, &last_i, &len_t);
           if(ast_expr_is_atom(&lr.recv), {
             new_len := _app3(VcOp.IteOp, &non_empty, &last_i, &len_t);
-            rebound := VcTerm.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len));
+            rebound := rc(VcTermNode.Ctor(name : _list_ctor_name(&lr.elem), args : _two_terms(_list_contents_term(&lr.elem, &xs_t), &new_len)));
             rnm := ast_expr_token(&lr.recv).value;
             ctx.vars.insert(rnm.clone(), rebound);
             // A popped parameter is a mutation its callers must learn of
@@ -4732,14 +4736,14 @@ _list_len_read_by_var :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))(
     ctx.vars.get(ast_expr_token(&recv).value),
     .Some(rv) => match(
       rv,
-      .Var(_, rv_sort) => match(
+      Rc(.Var(_, rv_sort)) => match(
         _list_sort_elem(&rv_sort),
         .Some(les) => {
           len_t := _list_len_term(&les, &rv);
           Option(VcTerm).Some(
             cond(
               (mname == "len") => len_t,
-              true => _app2(VcOp.EqOp, &len_t, VcTerm.BvLit(value : u64(0), width : usize(64)))
+              true => _app2(VcOp.EqOp, &len_t, rc(VcTermNode.BvLit(value : u64(0), width : usize(64))))
             )
           )
         },
@@ -4770,8 +4774,8 @@ _list_option_term :: (
   _note_enum_datatype(ctx, t_refine_inner(ty));
   some_args := ArrayList(VcTerm).new();
   some_args.push(_app2(VcOp.SelectOp, _list_contents_term(elem, xs), i64_t));
-  some_t := VcTerm.Ctor(name : _enum_ctor_name(e_id.clone(), String.from("Some")), args : some_args);
-  none_t := VcTerm.Ctor(name : _enum_ctor_name(&e_id, String.from("None")), args : ArrayList(VcTerm).new());
+  some_t := rc(VcTermNode.Ctor(name : _enum_ctor_name(e_id.clone(), String.from("Some")), args : some_args));
+  none_t := rc(VcTermNode.Ctor(name : _enum_ctor_name(&e_id, String.from("None")), args : ArrayList(VcTerm).new()));
   Option(VcTerm).Some(_app3(VcOp.IteOp, _lt_unsigned_term(i64_t, len_t), &some_t, &none_t))
 });
 _two_terms :: (fn(a : &VcTerm, b : &VcTerm) -> ArrayList(VcTerm))({
@@ -4814,7 +4818,7 @@ _list_receiver :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(ListReceiver))({
       ctx.vars.get(ast_expr_token(&recv).value),
       .Some(rv) => match(
         rv,
-        .Var(_, rv_sort) => match(
+        Rc(.Var(_, rv_sort)) => match(
           _list_sort_elem(&rv_sort),
           .Some(les0) => {
             return(Option(ListReceiver).Some(ListReceiver(recv : recv, method : ast_expr_token(&m).value, elem : les0)));
@@ -4996,7 +5000,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
       // The arm's value walks under its GUARD (this condition ∧ the
       // negation of every earlier condition): obligations inside the arm
       // — callee requires, asserts — are reachable only on that path.
-      guard_cell := box(match(c_opt, .Some(c0) => c0, .None => VcTerm.BoolLit(true)));
+      guard_cell := box(match(c_opt, .Some(c0) => c0, .None => rc(VcTermNode.BoolLit(true))));
       path_base := ctx.path.len();
       (pi : usize) = usize(0);
       pushed := usize(0);
@@ -5113,11 +5117,11 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
         .None => match(
           pre_opt,
           .Some(.Some(pv2)) => pv2,
-          .Some(.None) => VcTerm.BoolLit(true),
-          .None => VcTerm.BoolLit(true)
+          .Some(.None) => rc(VcTermNode.BoolLit(true)),
+          .None => rc(VcTermNode.BoolLit(true))
         )
       ),
-      .None => VcTerm.BoolLit(true)
+      .None => rc(VcTermNode.BoolLit(true))
     );
     phi_cell := box(base);
     (fj : usize) = last_live;
@@ -5153,15 +5157,16 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
       ite_a.push(conds.get(fj).unwrap());
       ite_a.push(arm_v);
       ite_a.push(phi_cell.*);
-      phi_cell.* = VcTerm.App(VcOp.IteOp, ite_a);
+      phi_cell.* = rc(VcTermNode.App(VcOp.IteOp, ite_a));
     });
     ctx.vars.insert(fname.clone(), phi_cell.*);
     fi = (fi + usize(1));
   });
   // Fold right: else = the last LIVE arm's value; each earlier live arm
   // ites on its condition (dead arms are skipped — their guards cannot
-  // hold on the fall-through path). VcTerm is a ref enum, so the folded
-  // cell is written through a pointer.
+  // hold on the fall-through path). The folded term lives in a unique
+  // `Box` cell; VcTerm is an `Rc(VcTermNode)` handle, so reading or
+  // writing `acc_cell.*` moves a count, never a deep copy.
   acc := vals.get(last_live).unwrap();
   acc_cell := box(acc);
   (j : usize) = last_live;
@@ -5184,7 +5189,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     ite_args.push(c);
     ite_args.push(v);
     ite_args.push(acc_cell.*);
-    acc_cell.* = VcTerm.App(VcOp.IteOp, ite_args);
+    acc_cell.* = rc(VcTermNode.App(VcOp.IteOp, ite_args));
   });
   Option(VcTerm).Some(acc_cell.*)
 });
@@ -5265,20 +5270,20 @@ _note_ms_of :: (
     });
     // The counted ELEMENT is the binder — sort `elem`, NOT the count
     // array's sort.
-    x := VcTerm.Var(name : String.from("__yo_msx"), sort : elem);
+    x := rc(VcTermNode.Var(name : String.from("__yo_msx"), sort : elem));
     lhs := _app2(VcOp.SelectOp, msf, &x);
-    sum := VcTerm.BvLit(value : u64(0), width : usize(64));
-    one := VcTerm.BvLit(value : u64(1), width : usize(64));
-    zero := VcTerm.BvLit(value : u64(0), width : usize(64));
+    sum := rc(VcTermNode.BvLit(value : u64(0), width : usize(64)));
+    one := rc(VcTermNode.BvLit(value : u64(1), width : usize(64)));
+    zero := rc(VcTermNode.BvLit(value : u64(0), width : usize(64)));
     (k : usize) = usize(0);
     while(k < len, {
-      elemk := _app2(VcOp.SelectOp, arr, VcTerm.BvLit(value : u64(k), width : usize(64)));
+      elemk := _app2(VcOp.SelectOp, arr, rc(VcTermNode.BvLit(value : u64(k), width : usize(64))));
       isx := _app2(VcOp.EqOp, &elemk, &x);
       ite_args := ArrayList(VcTerm).new();
       ite_args.push(isx);
       ite_args.push(one);
       ite_args.push(zero);
-      contribution := VcTerm.App(VcOp.IteOp, ite_args);
+      contribution := rc(VcTermNode.App(VcOp.IteOp, ite_args));
       sum = _app2(VcOp.BvAdd, &sum, &contribution);
       k = (k + usize(1));
     });
@@ -5290,7 +5295,7 @@ _note_ms_of :: (
     triggers := ArrayList(VcTerm).new();
     triggers.push(lhs);
     ctx.axioms.push(
-      VcTerm.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : body, triggers : triggers)
+      rc(VcTermNode.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : body, triggers : triggers))
     );
   });
   ()
@@ -5462,7 +5467,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
       });
       _record_break_site(ctx);
       ctx.path_dead = true;
-      result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+      result = Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)));
       break;
     });
     if(_is_continue_stmt(&stmt), {
@@ -5474,7 +5479,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
         return(Option(VcTerm).None);
       });
       ctx.path_dead = true;
-      result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+      result = Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)));
       break;
     });
     // Bindings: `name := value` and `name = value` / `(name : T) = value`.
@@ -5535,7 +5540,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
                   base := match(
                     ctx.vars.get(aname.clone()),
                     .Some(av) => av,
-                    .None => VcTerm.BoolLit(true)
+                    .None => rc(VcTermNode.BoolLit(true))
                   );
                   alen := match(
                     ctx.array_sorts.get(aname.clone()),
@@ -5547,14 +5552,14 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
                     ctx,
                     String.from("index-in-bounds"),
                     ArrayList(VcTerm).new(),
-                    _lt_unsigned_term(idx.unwrap(), VcTerm.BvLit(value : u64(alen), width : _term_width(idx.unwrap()))),
+                    _lt_unsigned_term(idx.unwrap(), rc(VcTermNode.BvLit(value : u64(alen), width : _term_width(idx.unwrap())))),
                     _guard_site(ba.get(usize(0)).unwrap(), String.from("index-in-bounds"))
                   );
                   ctx.vars.insert(
                     aname.clone(),
                     _app3(VcOp.StoreOp, &base, _idx64(idx.unwrap()), &vt)
                   );
-                  result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+                  result = Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)));
                 },
                 .None => {
                   return(Option(VcTerm).None);
@@ -5572,7 +5577,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
       // The parser appends a trailing `()` to statement-final blocks — a
       // block ending in a statement (the while-body shape) carries it.
       if(_is_unit_lit(&stmt), {
-        result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+        result = Option(VcTerm).Some(rc(VcTermNode.BoolLit(true)));
       }, {
         v := _expr_term(ctx, &stmt);
         match(
@@ -5860,7 +5865,7 @@ _ghost_fn_app_term :: (
     (bi : usize) = usize(0);
     while(bi < params.len(), {
       bname := `__yo_gfp${bi.to_string()}`;
-      bvar := VcTerm.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap());
+      bvar := rc(VcTermNode.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap()));
       binder_names.push(bname);
       binder_terms.push(bvar);
       pn2 := params.get(bi).unwrap();
@@ -5883,11 +5888,11 @@ _ghost_fn_app_term :: (
     match(
       body_t,
       .Some(bt) => {
-        lhs := VcTerm.Ctor(name : fname.clone(), args : binder_terms);
+        lhs := rc(VcTermNode.Ctor(name : fname.clone(), args : binder_terms));
         triggers := ArrayList(VcTerm).new();
         triggers.push(lhs);
         ctx.axioms.push(
-          VcTerm.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : _sorts_copy(&arg_sorts), body : _app2(VcOp.EqOp, &lhs, &bt), triggers : triggers)
+          rc(VcTermNode.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : _sorts_copy(&arg_sorts), body : _app2(VcOp.EqOp, &lhs, &bt), triggers : triggers))
         );
       },
       .None => {
@@ -5895,7 +5900,7 @@ _ghost_fn_app_term :: (
       }
     );
   });
-  Option(VcTerm).Some(VcTerm.Ctor(name : fname, args : arg_terms))
+  Option(VcTerm).Some(rc(VcTermNode.Ctor(name : fname, args : arg_terms)))
 });
 _ghost_fn_inline_term :: (
   fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr), fid : &String) -> Option(VcTerm)
@@ -6382,9 +6387,9 @@ _callee_call_term :: (
               arg_terms.get(hvi),
               .Some(hpre) => match(
                 hpre,
-                .Var(_, hsort) => if(_list_sort_elem(&hsort).is_some(), {
+                Rc(.Var(_, hsort)) => if(_list_sort_elem(&hsort).is_some(), {
                   fresh_h := _next_fresh(ctx);
-                  hnew := VcTerm.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort);
+                  hnew := rc(VcTermNode.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort));
                   pre_map.insert(hcp.clone(), hpre);
                   ctx.vars.insert(hcp.clone(), hnew);
                   havoc_names.push(hnm.clone());
@@ -6418,7 +6423,7 @@ _callee_call_term :: (
   );
   fresh_idx := _next_fresh(ctx);
   ret_name := `__ret_${fresh_idx.to_string()}`;
-  ret_var := VcTerm.Var(name : ret_name.clone(), sort : ret_sort);
+  ret_var := rc(VcTermNode.Var(name : ret_name.clone(), sort : ret_sort));
   ctx.vars.insert(ret_name.clone(), ret_var);
   callee_label := get_func_return_label(fid.clone());
   match(
@@ -6613,11 +6618,11 @@ _expr_mentions_atom :: (fn(e : &AstExpr, name : &String) -> bool)(
 // ============================================================================
 /// The signed minimum of width `w` (`#b10…0`) as a bit-vector literal.
 _int_min_lit :: (fn(w : usize) -> VcTerm)(
-  VcTerm.BvLit(value : (u64(1) << u64(w - usize(1))), width : w)
+  rc(VcTermNode.BvLit(value : (u64(1) << u64(w - usize(1))), width : w))
 );
 /// All ones of width `w` (signed `-1`).
 _all_ones_lit :: (fn(w : usize) -> VcTerm)(
-  VcTerm.BvLit(value : if(w >= usize(64), u64.MAX, (u64(1) << u64(w)) - u64(1)), width : w)
+  rc(VcTermNode.BvLit(value : if(w >= usize(64), u64.MAX, (u64(1) << u64(w)) - u64(1)), width : w))
 );
 /// 5b Phase 2 (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §6): the
 /// elision-only obligation of one integer binary operation, decided at its
@@ -6665,10 +6670,10 @@ _emit_binop_elision_obligation :: (
 _nonzero_term :: (fn(t : &VcTerm) -> VcTerm)(
   match(
     t,
-    .BoolLit(_) => t,
+    Rc(.BoolLit(_)) => t,
     _ => {
       w := _term_width(t);
-      vc_distinct(t, VcTerm.BvLit(value : u64(0), width : w))
+      vc_distinct(t, rc(VcTermNode.BvLit(value : u64(0), width : w)))
     }
   )
 );
@@ -6679,9 +6684,9 @@ _lt_unsigned_term :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, 
 _term_sort :: (fn(t : &VcTerm) -> Option(VcSort))(
   match(
     t,
-    .Var(_, sort) => Option(VcSort).Some(sort),
-    .BvLit(_, w) => Option(VcSort).Some(VcSort.BvS(width : w)),
-    .BoolLit(_) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.Var(_, sort)) => Option(VcSort).Some(sort),
+    Rc(.BvLit(_, w)) => Option(VcSort).Some(VcSort.BvS(width : w)),
+    Rc(.BoolLit(_)) => Option(VcSort).Some(VcSort.BoolS),
     _ => Option(VcSort).None
   )
 );
@@ -6726,41 +6731,41 @@ _sort_width :: (fn(s : &VcSort) -> usize)(
 _array_elem_width :: (fn(t : &VcTerm) -> usize)(
   match(
     t,
-    .Var(_, .ArrS(ael, _)) => _sort_width(&ael),
-    .Var(_, .FunS(_, frg)) => _sort_width(&frg),
-    .Proj(pacc, _, _) => match(
+    Rc(.Var(_, .ArrS(ael, _))) => _sort_width(&ael),
+    Rc(.Var(_, .FunS(_, frg))) => _sort_width(&frg),
+    Rc(.Proj(pacc, _, _)) => match(
       _list_elem_of_contents_acc(&pacc),
       .Some(pel) => _sort_width(&pel),
       .None => usize(1)
     ),
-    .App(aop, aargs) => match(
+    Rc(.App(aop, aargs)) => match(
       aop,
       .StoreOp => match(aargs.get(usize(0)), .Some(inner) => _array_elem_width(&inner), .None => usize(1)),
       .IteOp => match(aargs.get(usize(1)), .Some(inner) => _array_elem_width(&inner), .None => usize(1)),
       _ => usize(1)
     ),
-    .ArrConst(_, alit) => _term_width(&alit),
+    Rc(.ArrConst(_, alit)) => _term_width(&alit),
     _ => usize(1)
   )
 );
 _term_width :: (fn(t : &VcTerm) -> usize)(
   match(
     t,
-    .Var(_, .BvS(w)) => w,
-    .Var(_, _) => usize(1),
-    .BvLit(_, w) => w,
-    .BoolLit(_) => usize(1),
-    .App(op, args) => _app_width(op, &args),
-    .Ctor(_, _) => usize(1),
-    .Test(_, _) => usize(1),
+    Rc(.Var(_, .BvS(w))) => w,
+    Rc(.Var(_, _)) => usize(1),
+    Rc(.BvLit(_, w)) => w,
+    Rc(.BoolLit(_)) => usize(1),
+    Rc(.App(op, args)) => _app_width(op, &args),
+    Rc(.Ctor(_, _)) => usize(1),
+    Rc(.Test(_, _)) => usize(1),
     // A Proj carries no sort; the list `len` accessor is the one whose
     // width a caller consults (`xs.get(xs.len())`, `xs(xs.len() - 1)`).
-    .Proj(pacc, _, _) => cond(
+    Rc(.Proj(pacc, _, _)) => cond(
       _is_list_len_acc(&pacc) => usize(64),
       true => usize(1)
     ),
-    .Quant(_, _, _, _, _) => usize(1),
-    .ArrConst(_, _) => usize(1)
+    Rc(.Quant(_, _, _, _, _)) => usize(1),
+    Rc(.ArrConst(_, _)) => usize(1)
   )
 );
 // ============================================================================
@@ -6814,7 +6819,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
             match(
               _type_sort(&pt),
               .Some(sort) => {
-                ctx.vars.insert(pn.clone(), VcTerm.Var(name : pn.clone(), sort : sort));
+                ctx.vars.insert(pn.clone(), rc(VcTermNode.Var(name : pn.clone(), sort : sort)));
                 match(
                   sort,
                   .ArrS(_, _) => {

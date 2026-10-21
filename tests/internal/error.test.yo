@@ -58,12 +58,12 @@ json :: import("std/encoding/json");
 make_token :: (fn(module_path : &String, input : &String, row : usize, column : usize, value : &String) -> Token)(
   Token(
     kind : TokenKind.Identifier,
-    value : value,
+    value : value.clone(),
     row : u32(row),
     column : u32(column),
     character : u32(0),
-    module_path : module_path,
-    input : input
+    module_path : module_path.clone(),
+    input : input.clone()
   )
 );
 // ─── format_error_message: the human render (exact) ──────────────────────────
@@ -111,7 +111,7 @@ test("format_error_message's source line is the token's row at every edge", {
   line_at := (fn(input : &String, row : usize) -> String)(
     match(
       format_error_message(make_token(`e.yo`, input, row, usize(0), `x`), `msg`).diagnostics.get(usize(0)),
-      .Some(d) => d.source_line,
+      .Some(d) => d.source_line.clone(),
       .None => String.from("<none>")
     )
   );
@@ -472,8 +472,8 @@ test("sarif: a valid 2.1.0 log with rule, region and fix", {
   assert(s.contains(`"startLine":1`), `1-based startLine, got:\n${s}`);
   assert(s.contains(`"startColumn":9`), `1-based startColumn, got:\n${s}`);
   assert(s.contains(`"endColumn":15`), `exclusive endColumn over the token, got:\n${s}`);
-  assert(s.contains(`"tool":{"driver":{"name":"yo"`), `tool.driver nesting, got:` + s);
-  assert(s.contains(`"physicalLocation":{"artifactLocation"`), `physicalLocation nesting, got:` + s);
+  assert(s.contains(`"tool":{"driver":{"name":"yo"`), `tool.driver nesting, got:` + s.clone());
+  assert(s.contains(`"physicalLocation":{"artifactLocation"`), `physicalLocation nesting, got:` + s.clone());
   assert(s.contains(`"fixes"`), `fix present, got:\n${s}`);
   assert(s.contains(`"deletedRegion"`), `deletedRegion, got:\n${s}`);
   assert(
@@ -551,7 +551,7 @@ test("take_user_warnings filters std/cache roots by path COMPONENT", {
       code : Option(String).None,
       severity : Severity.Warning,
       message : String.from("unused variable `x`"),
-      span : Span(path : path, row : usize(0), col : usize(0), len : usize(1)),
+      span : Span(path : path.clone(), row : usize(0), col : usize(0), len : usize(1)),
       source_line : String.new()
     )
   );

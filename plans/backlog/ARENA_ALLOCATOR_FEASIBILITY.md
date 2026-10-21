@@ -1,6 +1,12 @@
 # Arena allocation in Yo — feasibility and soundness under non-atomic RC
 
-**Status: RESEARCH COMPLETE, DESIGN PROPOSED, NOT STARTED (2026-09-20).**
+**Status: RESEARCH COMPLETE, DESIGN PROPOSED, NOT STARTED (2026-09-20).
+Amended 2026-10-21: verdict (3) and §4.3's "lifetimes on types are refused"
+premise are reversed by decision 43's amendment (`REFERENCES_AND_ORIGINS.md`:
+references are `&(T, p)` over declared place sets); the RC-free arena is now
+[`ZIG_STYLE_ALLOCATORS.md`](ZIG_STYLE_ALLOCATORS.md) §4, phased at origins
+N2. Options A, B and E, and the analysis of why the dynamic forms cannot
+drop reference counting, stand.**
 Written alongside `../EVALUATOR_MEMORY_REDUCTION.md`, which measured why the
 compiler is large. This document answers a different question: can Yo — whose
 heap objects are `ref(struct(...))` / `ref(enum(...))` handles with

@@ -31,8 +31,8 @@
 // ── Builder helpers ────────────────────────────────────────────────────────
 make_param_ :: (fn(name : &String, type_ : &String) -> DocParam)(
   DocParam(
-    name : name,
-    type_ : type_,
+    name : name.clone(),
+    type_ : type_.clone(),
     is_comptime : false,
     is_implicit : false,
     default_value : Option(String).None,
@@ -175,19 +175,19 @@ test("renderFunctionMd: renders comptime and implicit parameters", {
   params.push(DocParam(name : `io`, type_ : `Io`, is_comptime : false, is_implicit : true, default_value : Option(String).None, doc : Option(String).None));
   fn_ := make_function_();
   fn2 := DocFunction(
-    name : fn_.name,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    name : fn_.name.clone(),
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : params,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : fn_.is_method,
-    self_type : fn_.self_type,
-    returns : fn_.returns,
-    errors : fn_.errors,
-    deprecated : fn_.deprecated,
-    examples : fn_.examples,
+    self_type : fn_.self_type.clone(),
+    returns : fn_.returns.clone(),
+    errors : fn_.errors.clone(),
+    deprecated : fn_.deprecated.clone(),
+    examples : fn_.examples.clone(),
     inherited_from : Option(String).None
   );
   md := render_function_md(&fn2);
@@ -199,18 +199,18 @@ test("renderFunctionMd: renders a method with self type", {
   fn_ := make_function_();
   fn2 := DocFunction(
     name : `len`,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : fn_.parameters,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : true,
     self_type : Option(String).Some(`Vec`),
-    returns : fn_.returns,
-    errors : fn_.errors,
-    deprecated : fn_.deprecated,
-    examples : fn_.examples,
+    returns : fn_.returns.clone(),
+    errors : fn_.errors.clone(),
+    deprecated : fn_.deprecated.clone(),
+    examples : fn_.examples.clone(),
     inherited_from : Option(String).None
   );
   md := render_function_md(&fn2);
@@ -219,19 +219,19 @@ test("renderFunctionMd: renders a method with self type", {
 test("renderFunctionMd: renders deprecated banner", {
   fn_ := make_function_();
   fn2 := DocFunction(
-    name : fn_.name,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    name : fn_.name.clone(),
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : fn_.parameters,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : fn_.is_method,
-    self_type : fn_.self_type,
-    returns : fn_.returns,
-    errors : fn_.errors,
+    self_type : fn_.self_type.clone(),
+    returns : fn_.returns.clone(),
+    errors : fn_.errors.clone(),
     deprecated : Option(String).Some(`Use new_add instead.`),
-    examples : fn_.examples,
+    examples : fn_.examples.clone(),
     inherited_from : Option(String).None
   );
   md := render_function_md(&fn2);
@@ -241,19 +241,19 @@ test("renderFunctionMd: renders deprecated banner", {
 test("renderFunctionMd: renders Returns section", {
   fn_ := make_function_();
   fn2 := DocFunction(
-    name : fn_.name,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    name : fn_.name.clone(),
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : fn_.parameters,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : fn_.is_method,
-    self_type : fn_.self_type,
+    self_type : fn_.self_type.clone(),
     returns : Option(String).Some(`The sum of the two operands.`),
-    errors : fn_.errors,
-    deprecated : fn_.deprecated,
-    examples : fn_.examples,
+    errors : fn_.errors.clone(),
+    deprecated : fn_.deprecated.clone(),
+    examples : fn_.examples.clone(),
     inherited_from : Option(String).None
   );
   md := render_function_md(&fn2);
@@ -262,19 +262,19 @@ test("renderFunctionMd: renders Returns section", {
 test("renderFunctionMd: renders Errors section", {
   fn_ := make_function_();
   fn2 := DocFunction(
-    name : fn_.name,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    name : fn_.name.clone(),
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : fn_.parameters,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : fn_.is_method,
-    self_type : fn_.self_type,
-    returns : fn_.returns,
+    self_type : fn_.self_type.clone(),
+    returns : fn_.returns.clone(),
     errors : Option(String).Some(`Returns an error on overflow.`),
-    deprecated : fn_.deprecated,
-    examples : fn_.examples,
+    deprecated : fn_.deprecated.clone(),
+    examples : fn_.examples.clone(),
     inherited_from : Option(String).None
   );
   md := render_function_md(&fn2);
@@ -284,18 +284,18 @@ test("renderFunctionMd: renders Errors section", {
 test("renderFunctionMd: renders Examples section", {
   fn_ := make_function_();
   fn2 := DocFunction(
-    name : fn_.name,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    name : fn_.name.clone(),
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : fn_.parameters,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : fn_.is_method,
-    self_type : fn_.self_type,
-    returns : fn_.returns,
-    errors : fn_.errors,
-    deprecated : fn_.deprecated,
+    self_type : fn_.self_type.clone(),
+    returns : fn_.returns.clone(),
+    errors : fn_.errors.clone(),
+    deprecated : fn_.deprecated.clone(),
     examples : Option(String).Some(`\`\`\`rust\nresult :: add(i32(1), i32(2));\n\`\`\``),
     inherited_from : Option(String).None
   );
@@ -308,19 +308,19 @@ test("renderFunctionMd: renders param with doc and default", {
   params.push(DocParam(name : `a`, type_ : `i32`, is_comptime : false, is_implicit : false, default_value : Option(String).Some(`0`), doc : Option(String).Some(`First operand.`)));
   fn_ := make_function_();
   fn2 := DocFunction(
-    name : fn_.name,
-    doc : fn_.doc,
-    signature : fn_.signature,
+    name : fn_.name.clone(),
+    doc : fn_.doc.clone(),
+    signature : fn_.signature.clone(),
     parameters : params,
-    return_type : fn_.return_type,
+    return_type : fn_.return_type.clone(),
     type_params : fn_.type_params,
     effects : fn_.effects,
     is_method : fn_.is_method,
-    self_type : fn_.self_type,
-    returns : fn_.returns,
-    errors : fn_.errors,
-    deprecated : fn_.deprecated,
-    examples : fn_.examples,
+    self_type : fn_.self_type.clone(),
+    returns : fn_.returns.clone(),
+    errors : fn_.errors.clone(),
+    deprecated : fn_.deprecated.clone(),
+    examples : fn_.examples.clone(),
     inherited_from : Option(String).None
   );
   md := render_function_md(&fn2);
@@ -342,17 +342,17 @@ test("renderTypeMd: renders atomic object type kind", {
   t := make_type_();
   t2 := DocType(
     name : `Cond`,
-    doc : t.doc,
+    doc : t.doc.clone(),
     kind : DocItemKind.AtomicObject,
     signature : `Cond :: atomic object(_raw : usize)`,
     type_params : t.type_params,
     fields : Option(ArrayList(DocField)).Some(fields),
     variants : t.variants,
     methods : t.methods,
-    trait_impls : t.trait_impls,
+    trait_impls : t.trait_impls.clone(),
     impls : t.impls,
-    deprecated : t.deprecated,
-    examples : t.examples
+    deprecated : t.deprecated.clone(),
+    examples : t.examples.clone()
   );
   md := render_type_md(&t2);
   assert(md.contains(`*atomic object*`), "atomic object kind");
@@ -373,10 +373,10 @@ test("renderTypeMd: renders an enum with variants", {
     fields : Option(ArrayList(DocField)).None,
     variants : Option(ArrayList(DocVariant)).Some(variants),
     methods : t.methods,
-    trait_impls : t.trait_impls,
+    trait_impls : t.trait_impls.clone(),
     impls : t.impls,
-    deprecated : t.deprecated,
-    examples : t.examples
+    deprecated : t.deprecated.clone(),
+    examples : t.examples.clone()
   );
   md := render_type_md(&t2);
   assert(md.contains(`*enum*`), "kind");
@@ -442,18 +442,18 @@ test("renderTypeMd: renders impl blocks with methods", {
   methods.push(empty_fn);
   t := make_type_();
   t2 := DocType(
-    name : t.name,
-    doc : t.doc,
+    name : t.name.clone(),
+    doc : t.doc.clone(),
     kind : t.kind,
-    signature : t.signature,
+    signature : t.signature.clone(),
     type_params : t.type_params,
     fields : t.fields,
     variants : t.variants,
     methods : methods,
-    trait_impls : t.trait_impls,
+    trait_impls : t.trait_impls.clone(),
     impls : Option(ArrayList(DocImpl)).Some(impls),
-    deprecated : t.deprecated,
-    examples : t.examples
+    deprecated : t.deprecated.clone(),
+    examples : t.examples.clone()
   );
   md := render_type_md(&t2);
   assert(md.contains(`\`impl(generic(T : Type), where(T <: Send), List(T))\``), "impl heading");
@@ -466,17 +466,17 @@ test("renderTypeMd: renders type parameters", {
   t := make_type_();
   t2 := DocType(
     name : `Vec`,
-    doc : t.doc,
+    doc : t.doc.clone(),
     kind : t.kind,
-    signature : t.signature,
+    signature : t.signature.clone(),
     type_params : Option(ArrayList(DocParam)).Some(type_params),
     fields : t.fields,
     variants : t.variants,
     methods : t.methods,
-    trait_impls : t.trait_impls,
+    trait_impls : t.trait_impls.clone(),
     impls : t.impls,
-    deprecated : t.deprecated,
-    examples : t.examples
+    deprecated : t.deprecated.clone(),
+    examples : t.examples.clone()
   );
   md := render_type_md(&t2);
   assert(md.contains(`### \`Vec(T)\``), "type with params heading");
@@ -484,18 +484,18 @@ test("renderTypeMd: renders type parameters", {
 test("renderTypeMd: renders deprecated banner", {
   t := make_type_();
   t2 := DocType(
-    name : t.name,
-    doc : t.doc,
+    name : t.name.clone(),
+    doc : t.doc.clone(),
     kind : t.kind,
-    signature : t.signature,
+    signature : t.signature.clone(),
     type_params : t.type_params,
     fields : t.fields,
     variants : t.variants,
     methods : t.methods,
-    trait_impls : t.trait_impls,
+    trait_impls : t.trait_impls.clone(),
     impls : t.impls,
     deprecated : Option(String).Some(`Use Point3D.`),
-    examples : t.examples
+    examples : t.examples.clone()
   );
   md := render_type_md(&t2);
   assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
@@ -517,16 +517,16 @@ test("renderTraitMd: renders implementors", {
 test("renderTraitMd: renders deprecated banner", {
   tr := make_trait_();
   tr2 := DocTrait(
-    name : tr.name,
-    doc : tr.doc,
+    name : tr.name.clone(),
+    doc : tr.doc.clone(),
     kind : tr.kind,
-    signature : tr.signature,
+    signature : tr.signature.clone(),
     type_params : tr.type_params,
     associated_types : tr.associated_types,
     methods : tr.methods,
-    implementors : tr.implementors,
+    implementors : tr.implementors.clone(),
     deprecated : Option(String).Some(`Use NewTrait.`),
-    examples : tr.examples
+    examples : tr.examples.clone()
   );
   md := render_trait_md(&tr2);
   assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
@@ -606,8 +606,8 @@ test("renderIndexMd: uses first line of module doc as summary", {
   modules := ArrayList(DocModule).new();
   m := make_module_();
   m2 := DocModule(
-    name : m.name,
-    path : m.path,
+    name : m.name.clone(),
+    path : m.path.clone(),
     doc : Option(String).Some(`First line summary.\nMore details here.`),
     stability : Option(String).None,
     functions : m.functions,
@@ -625,9 +625,9 @@ test("renderIndexMd: uses first line of module doc as summary", {
 test("renderModuleMd: renders the stability note and the index badge", {
   m := make_module_();
   um := DocModule(
-    name : m.name,
-    path : m.path,
-    doc : m.doc,
+    name : m.name.clone(),
+    path : m.path.clone(),
+    doc : m.doc.clone(),
     stability : Option(String).Some(`unstable`),
     functions : m.functions,
     types : m.types,
