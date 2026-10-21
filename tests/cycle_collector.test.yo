@@ -379,6 +379,94 @@ test("LinkedList(Self) two-node cycle collected", {
   assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "the list cell sits on the cycle");
   assert(!Type.can_form_rc_cycle(LinkedList(i32)), "a list of plain values is no cycle root");
 });
+// A ref(enum) whose only way back to itself runs through a ref(struct):
+// `KNode`'s `Kids` payload is an `ArrayList(Self)` and no variant holds `Self`
+// directly. The cycle walk re-roots at the list, so it meets the enum again
+// only as an already-visited id, and the enum root used to seed its own id
+// there and read "acyclic". The node was then never registered, and the
+// collector, which descends only into tracked objects, could not see the
+// list's back edge (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
+(mut(g_knode_disposed) : i32) = i32(0);
+KNode :: ref(
+  enum(
+    KLeaf(n : i32),
+    Kids(k : ArrayList(Self))
+  )
+);
+impl(
+  KNode,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_knode_disposed = (g_knode_disposed + i32(1));
+    })
+  )
+);
+test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    k := ArrayList(KNode).new();
+    e := KNode.Kids(k);
+    k.push(e); // e -> k -> e : the only edge back to the enum is the list's slot
+  });
+  do_test();
+  Gc.collect();
+  assert(g_knode_disposed == i32(1), "the node of the list-closed cycle was disposed");
+  assert(Gc.tracked_count() == base, "and neither it nor its list stays tracked");
+  assert(Type.can_form_rc_cycle(KNode), "the walk finds the cycle back through the list");
+  assert(!Type.impls(KNode, Acyclic), "so the node is not Acyclic");
+});
+// The common cons-list shape had the same defect: `Rc` is itself a
+// ref(struct), so `Cons`'s `Rc(Self)` tail is the only edge back to the enum,
+// and the walk re-roots at the `Rc` before it meets the enum again.
+// `a.tail = rc(a)` closes a cycle that used to stay tracked (100 of 100 with
+// the v0.2.67 seed)
+// (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
+(mut(g_rcons_disposed) : i32) = i32(0);
+RCons :: ref(
+  enum(
+    RNil,
+    Cons(head : i32, tail : Rc(Self))
+  )
+);
+impl(
+  RCons,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rcons_disposed = (g_rcons_disposed + i32(1));
+    })
+  )
+);
+test("A cons-list cycle closed through its Rc(Self) tail is collected", {
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    a := RCons.Cons(i32(1), rc(RCons.RNil));
+    a.tail = rc(a); // a -> Rc -> a : the only edge back to the enum is the Rc's payload
+  });
+  do_test();
+  // The replaced `RNil` tail is dropped by the store; only the collector can
+  // release the cell on the cycle.
+  before := g_rcons_disposed;
+  Gc.collect();
+  assert(g_rcons_disposed == (before + i32(1)), "the cons cell on the Rc-closed cycle was disposed");
+  assert(Gc.tracked_count() == base, "and neither it nor its Rc stays tracked");
+  assert(Type.can_form_rc_cycle(RCons), "the walk finds the cycle back through the Rc");
+  assert(!Type.impls(RCons, Acyclic), "so the cons cell is not Acyclic");
+});
+// The comptime query must answer for a spelled instantiation what codegen
+// does: `ArrayList(QNode)` holds `QNode`s, each of which holds such a list, and
+// the emitted constructor registers the list with the collector. The query read
+// `false` unless a query of the field's own type (`type_of(q.k)`) ran first
+// (issues/fixed/2026-10-20-the-comptime-cycle-query-misreads-a-list-of-a-self-listing-struct.md).
+QNode :: ref(
+  struct(
+    value : i32,
+    k : ArrayList(Self)
+  )
+);
+test("Type.can_form_rc_cycle reads a spelled ArrayList(Self) instantiation as codegen does", {
+  assert(Type.can_form_rc_cycle(ArrayList(QNode)), "a list of nodes that hold such lists can form a cycle");
+  assert(Type.can_form_rc_cycle(QNode), "and so can the node");
+});
 // --- dispose resurrection (PEP 442): a dispose that stores a cycle member into
 // a live object must keep that member, not free it under the live object's feet
 // (issues/fixed/a-dispose-that-resurrects-a-cycle-member-leaves-a-dangling-handle.md).

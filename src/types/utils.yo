@@ -1812,12 +1812,18 @@ can_type_form_rc_cycle :: (fn(ty : &TypeValue) -> bool)(
     ),
     // A reference-semantics enum can also form an RC cycle (e.g. a recursive
     // `Self`-valued variant field), so it is a cycle root too. Walk every
-    // variant's fields, keyed on the enum's own id.
+    // variant's fields, keyed on the enum's own id. The root's id is NOT
+    // seeded into `visited`, as in the per-variant registration gate
+    // (codegen/functions/constructors.yo): the walk re-roots at a reference
+    // struct, and an enum met again after that re-root (`Kids(k :
+    // ArrayList(Self))`: enum -> list -> enum) must be walked, not answered
+    // `false` by the visited guard. A direct `Self` edge is still found by
+    // the `eid == original_id` check, which precedes that guard
+    // (issues/fixed/2026-10-20-a-ref-enum-cycle-through-a-ref-struct-is-never-collected.md).
     is_reference_enum_type(ty) => match(
       ty,
       Rc(.EnumT({ id : eid, variant_fields : vfs })) => {
         visited := ArrayList(String).new();
-        visited.push(eid);
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < vfs.len()) && !found, {
