@@ -1,6 +1,6 @@
 # Inferring `T` from two `.clone()` arguments of different `ArrayList(T)` types unifies their element types
 
-**Severity:** S2 — a valid program is rejected with a type error naming two unrelated element types; binding each clone to a local first is not a workaround (only dropping the `.clone()` from the argument is).
+**Severity:** S2 — a valid program is rejected with a type error naming two unrelated element types. Only a `.clone()` written in argument position fails: binding each clone to a local and passing the local (`a := labels.clone(); count(a)`) is a workaround, and so is dropping the `.clone()`.
 
 **Status:** OPEN — found 2026-10-21 on `perf/share-typevalue-lists` (a test
 helper passing `shared_list(labels.clone())` and `shared_list(types.clone())`
@@ -31,6 +31,7 @@ Variants measured on v0.2.67:
 | --- | --- |
 | `count(labels.clone()) + count(nums.clone())` | E0601 |
 | `xs := ...; ys := ...; count(xs.clone()) + count(ys.clone())` | E0601 |
+| `a := labels.clone(); b := nums.clone(); count(a) + count(b)` | checks |
 | `count(labels) + count(nums)` (no `.clone()`) | checks |
 | parameter `x : T` instead of `items : ArrayList(T)`, with `.clone()` | checks |
 

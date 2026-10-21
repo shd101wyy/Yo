@@ -1151,11 +1151,13 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   if((depth > u32(6)) || is_some_type(&ty) || type_implements_trait(&ty, copy_tt, env).implemented, {
     return(());
   });
-  // The nominal arms below push onto it; they are reached only when
-  // `copy_structural_parts` answers `.None` (a value-nominal type).
+  // A copy of the structural parts, never the node's own list: the nominal
+  // arms below push onto `parts`, and an anonymous record or a closure
+  // capture struct is both structural and value-nominal, so its field types
+  // reach both (pushing onto the node's own list would grow the loop bound).
   parts := match(
     copy_structural_parts(&ty),
-    .Some(sp) => sp.items,
+    .Some(sp) => sp.items.clone(),
     .None => ArrayList(TypeValue).new()
   );
   if(is_value_nominal_type(&ty), {

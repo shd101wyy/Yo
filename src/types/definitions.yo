@@ -47,6 +47,10 @@ SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// `neg_self_constraints` are written in place after the node is built, and
 /// every holder of the node sees the write, so they stay `ArrayList`s
 /// (issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md).
+/// Never hand a `SharedList`'s buffer to one of those lists, or to any list
+/// that is pushed onto: copy it (`xs.items.clone()`). An empty `SharedList`
+/// is the element type's one global empty list (`no_types()`, ...), so a
+/// write through an alias would reach every empty list of the compiler.
 SharedList :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(SharedListCell(T)));
 /// The element types a `SharedList` holds, each naming its one shared empty
 /// list (`no_types()`, `no_labels()`, ...).
@@ -64,10 +68,10 @@ shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T), where(T <: Sha
     true => rc(SharedListCell(T)(items : items))
   )
 );
-// The reads, declared per element type rather than once for every `T`: a
-// call of a generic impl's method on the `Rc` costs the checker about twice
-// what a concrete one does, and these are called wherever a type's lists are
-// read (`check src/main.yo`: 2,003M allocation calls with one generic impl,
+// The reads, declared per element type rather than once for every `T`:
+// these are called wherever a type's lists are read, and the concrete impls
+// are measurably cheaper to check than one generic impl's methods on the
+// `Rc` (`check src/main.yo`: 2,003M allocation calls with one generic impl,
 // 1,952M with these).
 impl(
   SharedList(TypeValue),
@@ -379,7 +383,7 @@ TypeValueNode :: enum(
     where_types : SharedList(Rc(Self)),
     result : Rc(Self),
     meta : Rc(FuncMeta),
-    /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
+    /// The variadic parameter's TYPE (0 or 1 elements — the list is a
     /// poor man's Option(Self) since Self-typed Options are unavailable in
     /// a variant position).
     /// the label/comptime flags live in `FuncMeta.variadic_label` /
@@ -425,7 +429,7 @@ TypeValueNode :: enum(
     is_source_namespace : bool
   ),
   /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
-  /// Each variant has a name and an `ArrayList` of field types (possibly empty).
+  /// Each variant has a name and a `SharedList` of field types (possibly empty).
   /// `selected_variant_name` is set when the type has been narrowed to a specific
   /// variant (e.g. after pattern matching or destructuring).
   ///
@@ -717,4 +721,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, TypeValueNode, FuncMeta, SharedList, SharedListCell, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
