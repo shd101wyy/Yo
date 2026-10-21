@@ -76,7 +76,7 @@ places**. Reference types take it as a trailing argument.
 // a function abstract over an origin:
 next :: (fn(generic(T : Type, p : Origin), self : &mut(Cursor(T, p))) -> Option(&(T, p)))(...);
 // a type constructor binding one (the comptime fn's parameter list grows by the kind):
-Cursor :: (fn(comptime(T : Type, p : Origin) -> comptime(Type))(
+Cursor :: (fn(comptime(T) : Type, comptime(p) : Origin) -> comptime(Type))(
   struct(xs : &(ArrayList(T), p), i : usize)
 ));
 // unions are spelled as tuples in origin position; q and r are declared first:
@@ -862,6 +862,76 @@ it in those words (2026-10-20).
   reserved if kind-directed disambiguation proves friction. Position: not
   adopted; the rule is stated in this document and will be stated in the
   syntax documentation when N1 lands it.
+
+### Found by the N0 reference checker (2026-10-21)
+
+Building the model (`tests/origins/model.yo`, §8 N0) forced the points
+below. The model implements each position as stated, and each has corpus
+rows that pin it.
+
+- **Flow inference at a `&mut` lend.** O2 makes a body-local's origins
+  flow-inferred, and O3-3 makes an origin behind a `&mut` invariant. The
+  two meet when a local whose set was inferred is lent `&mut`:
+  `ra := &x; rb := &y; swap(&mut ra, &mut rb)` fixes `r` to `{x}` through
+  one pointee and to `{y}` through the other. Read literally, that is a
+  type error Rust does not have, because Rust infers one region for both.
+  Position: a flow-inferred position is an inference variable at a `&mut`
+  lend in the same body. That covers any origin of an unannotated local
+  and an elided union in a body (`ArrayList(&i32).new()`). It widens to
+  what the callee's signature needs (`r := (x, y)`), and after the call
+  the local's flow set is the solved one. A spelled position stays
+  invariant: `(ra : &(i32, x))` makes the same `swap` an error, which is
+  §5's row. Rows: `swap-inferred-locals`, `swap-different-origins`,
+  `elided-container-lent-mut`, `elided-container-lent-mut-then-write`.
+- **A local's flow set after a `&mut` lend.** O6 says what a callee
+  assumes when it receives a container through `&mut` (the whole declared
+  union). It does not say what the caller knows afterwards. Position: the
+  callee may have written anything its parameter type allows. So the
+  caller's flow set becomes the declared bound at a spelled position and
+  the solved set at a flow-inferred one. Without this rule, a callee that
+  pushes `&x` through `&mut out` leaves `out`'s set empty, and a later
+  write of `x` passes. The ablation tests show this is the rule
+  `store-widen-mut-pointee` rests on once O3-3 is switched off.
+- **A `&mut` capture of a flow-inferred container.** A closure literal
+  (or an `io.async` body) that captures `out` `&mut` and pushes into it is
+  invisible to the caller's flow inference, because the push runs inside
+  whatever call runs the literal. Position: the literal is in the same
+  body, so at the literal the container's flow set grows by its bound
+  restricted to the literal's other captures' origins: everything the
+  body can name. The literal's parameter has a per-call origin that cannot
+  be stored, and the union rule rejects that store. Rows:
+  `closure-push-capture`, `closure-push-capture-then-write`,
+  `closure-param-into-capture`.
+- **O9's "never a collection candidate" is too strong.** O9 and §5's
+  "Shared cells" argue that a frozen handle's count is never decremented,
+  so its payload is neither freed nor a collection candidate. But another
+  handle to the same cell can still be dropped while `&(X, h)` lives:
+  `h2 := h; r := &h.*.x; drop(h2)` is legal, since `h2` holds no loan.
+  Decrementing a count to a non-zero value is exactly what makes an
+  object a candidate (`docs/en-US/CYCLE_COLLECTION.md`). The conclusion
+  holds on a different premise: the frozen `h` is a reference from outside
+  any cycle, so trial deletion leaves the payload's count above zero and
+  ScanBlack restores it. Position: restate O9's argument on that premise
+  when N1 lands the handle-origin rule. The model does not run a
+  collector, so this is a correction to the prose, not something the
+  model checks. Rows: `rc-guard-and-clone`, `rc-guard-handle-dropped`.
+- **Decision 28 as built accepts what O3 step 2 rejects.** Decision 28
+  lets a later argument relend `&` a place an earlier argument lends
+  `&mut`, so `both(&mut xs, &xs)` passes today ("a read or a `&` relend in
+  a later argument passes", `plans/VALUES_BY_DEFAULT.md`). O3 step 2 makes
+  the live `&mut` loan conflict with taking a new borrow of `xs`. Today
+  nothing can observe the difference, because a `&` parameter of a small
+  value is passed by copy. Measured on v0.2.67: a callee that writes `m.a`
+  through `&mut` and then reads `r.a` through `&` sees the old value.
+  Once `&` is a pointer, it would read a value that changed under a live
+  `&`. Position: N1 rejects it with E0910 (Rust's rule), and its
+  Generation A counts the tree's uses first. Row `call-arg-overlap` is the
+  corpus's one row that today's compiler wrongly accepts.
+- **The type-constructor spelling.** O1's example first spelled the
+  constructor `(fn(comptime(T : Type, p : Origin) -> …))`, which does not
+  parse. A comptime parameter is written `comptime(T) : Type`, as in the
+  prelude's `Box`. The example above is corrected, and the corpus spells
+  `(fn(comptime(p) : Origin) -> comptime(Type))`.
 
 ## 8. Phases
 

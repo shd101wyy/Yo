@@ -13,7 +13,8 @@
 #   id      the row; the fixture is tests/origins/corpus/<id>.yo
 #   anchor  the plan section the row tests
 #   kind    neg (the program is unsound or ill-typed under O1–O10) | pos (a control)
-#   phase   N1 | N2: the phase whose gate the row joins (N2 = first-class storage)
+#   phase   N1 | N2 | N3: the phase whose gate the row joins (N2 = first-class
+#           storage; N3 = a std API or the `Future(T, p)` spelling it needs)
 #   expect  the verdict once the rules land, as the reference checker returns it:
 #           ACCEPT, an existing code (E0901 E0909 E0910 E0911 E0912 E0919), or a
 #           rule the plan names but has not numbered yet (WF_SELF, WF_UNDECLARED,
@@ -34,14 +35,15 @@
 # Usage (from the repository root):
 #   YO=<yo binary> bash scripts/origins-corpus.sh [today|target]
 #   PHASES="N1" YO=... bash scripts/origins-corpus.sh target
-# Each check is one `yo check` of a small program (about a second); the whole
-# run is light enough to need no heavy-lock slot.
+# Each check is one `yo check` of a small program (about five seconds, the
+# prelude dominating); the whole run takes about five minutes on one core
+# and needs no heavy-lock slot.
 
 set -uo pipefail
 
 MODE=${1:-today}
 YO=${YO:-yo}
-PHASES=${PHASES:-"N1 N2"}
+PHASES=${PHASES:-"N1 N2 N3"}
 ROOT=$PWD
 MANIFEST=tests/origins/corpus.tsv
 CORPUS=tests/origins/corpus
