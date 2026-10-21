@@ -983,7 +983,16 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
                   .Some(dei) => match(
                     dei.variable_name,
                     .Some(dvn) => {
-                      arg_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env));
+                      // The dup's temp is the returned value only when it
+                      // holds the argument's type. An ELEMENT-WISE dup (an
+                      // `Array(T, N)` or a tuple) retains the elements in
+                      // place and its temp is the last ELEMENT, so the
+                      // argument itself is returned then; the dup is still
+                      // handled (it already ran)
+                      // (issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md).
+                      if(type_key(&dei.ty) == type_key(&aei.ty), {
+                        arg_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env));
+                      });
                       handled_deferred_dup = true;
                     },
                     .None => ()

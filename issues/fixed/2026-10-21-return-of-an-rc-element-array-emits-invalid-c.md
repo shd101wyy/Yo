@@ -34,21 +34,25 @@ from a function with incompatible result type 'Array___yo_t_9952857769383863877_
 
 The returned field read carries a deferred `___dup`. An ELEMENT-WISE dup of an
 `Array(T, N)` lowers to `begin(__yo_dup_array_element(v, 0), …)`: it retains the
-elements in place, and the begin block's result temp is the LAST ELEMENT. The
-two return-path helpers in `src/codegen/exprs/return.yo`,
-`handle_atom_deferred_dup` and `handle_func_call_deferred_dup`, adopted that
-temp as the returned value unconditionally, so the function returned a
-`String` where its C result type is `Array_String_2`.
+elements in place, and the begin block's result temp is the LAST ELEMENT. Three
+return paths in `src/codegen/exprs/return.yo` adopted that temp as the
+returned value unconditionally, so the function returned a `String` where its
+C result type is `Array_String_2`: `generate_return` (an explicit
+`return(w.a)`), and the implicit-return helpers `handle_atom_deferred_dup` (a
+tail `w.a`) and `handle_func_call_deferred_dup`.
 
 `emit_deferred_dup_or_code` (`src/codegen/exprs/drop_dup.yo`) and, since the
 sibling fix, `_generate_inline_call` already require the dup's recorded type
-to equal the value's (`type_key`) before adopting its temp. Both return
-helpers now apply the same test; on a mismatch the source value, whose
-elements the in-place dup already retained, is returned.
+to equal the value's (`type_key`) before adopting its temp. All three return
+paths now apply the same test; on a mismatch the source value, whose elements
+the in-place dup already retained, is returned (`generate_return` still counts
+the dup as handled, so its drop sequence is unchanged).
+`handle_func_call_deferred_dup` has no reproducer of its own; it is guarded
+for consistency.
 
 Other `Some(dvn)` adoption sites in `src/codegen/` (`and_or.yo`, `cond.yo`,
-`dyn.yo`, `recur.yo`, `functions/generation.yo`, `return.yo`'s third site)
-were not shown to reach this shape; none has a reproducer.
+`dyn.yo`, `recur.yo`, `functions/generation.yo`) were not shown to reach this
+shape; none has a reproducer.
 
 ## Test
 
