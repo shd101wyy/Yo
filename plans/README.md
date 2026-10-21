@@ -138,6 +138,15 @@ that fails leaking tests, `InlineList`, enum containers, a comptime string
 map, a replaceable panic handler, assert diffs), three toolchain items, and
 the rejections (inferred error sets, allocator-per-call, `+%` operators,
 first-class `u7`, `@fieldParentPtr`, `undefined`).
+[`ZIG_STYLE_ALLOCATORS`](backlog/ZIG_STYLE_ALLOCATORS.md) (2026-10-21) is
+Zig's `std.heap` catalog as a `std/heap/` plan on the version-2 allocator
+interface (page, fixed-buffer, arena over a backing allocator, C, debug,
+failing, logging, thread-safe, pool; `SmpAllocator` measured against
+mimalloc with a go/no-go), and the real arena — bump allocation with no
+count and no free, a dangling handle a compile error — as an `Origin`
+(`arena.alloc(v) -> &mut(T, arena)`), which reverses
+[`ARENA_ALLOCATOR_FEASIBILITY`](backlog/ARENA_ALLOCATOR_FEASIBILITY.md)'s
+"no lifetimes" premise and lands at origins N2.
 [`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md) is the
 2026-10-14 F\* audit, written when the maintainer asked whether Yo could
 support dependent types "like F\* does": the verdict (F\* pays the costs
