@@ -192,7 +192,7 @@ be mutated in place, so the existing macro_expansion mechanism carries it"
 | `for_await` | `std/async/stream.yo:446` | tests only (`tests/async/combinators.test.yo:10` also imports it by name) | desugar (B2) |
 | `(^)` | `std/prelude.yo:10076-10132` | 0 src, 0 std; the Iso test files (A6) | deleted with Iso (A1) |
 | `Var.is_owning_the_rc_value` / `Var.has_other_aliases` | `std/prelude.yo:8240-8257` | 2, inside `(^)` itself | deleted with Iso (A1) |
-| `unsafe.drop` | `std/prelude.yo:248` | 12 in std — `array_list.yo:513, :584, :609`, `deque.yo:256`, `hash_map.yo:812, :878, :959`, `sync/channel.yo:270, :324, :381`, `prelude.yo:9991`, and `prelude.yo:10120` inside `(^)`'s quoted body (gone with A1) — plus `tests/fixtures/owned_buffer.yo:50` | rewritten to `___drop` (B4) |
+| `unsafe.drop` | `std/prelude.yo:248` | 12 in std — `array_list.yo:513, :584, :609`, `deque.yo:256`, `hash_map.yo:812, :878, :959`, `sync/channel.yo:270, :324, :381`, `prelude.yo:9991`, and `prelude.yo:10120` inside `(^)`'s quoted body (planned to go with A1; B4 rewrote it to `___drop` since A1 had not landed) — plus `tests/fixtures/owned_buffer.yo:50` | rewritten to `___drop` (B4) |
 | `array_list` | `std/collections/array_list.yo:1844` | 8 in `src/parser.yo` (:1235, :1585, :1586, :1603, :1754, :1783, :1824, :1915) | deleted, surface removed (B3) |
 | `hash_map` | `std/collections/hash_map.yo:1515` | tests only | deleted, surface removed (B3) |
 | `hash_set` | `std/collections/hash_set.yo:474` | tests only | deleted, surface removed (B3) |
@@ -203,8 +203,9 @@ The three literals have 47 test lines across four files:
 `tests/codegen-bootstrap/closure_where_clause_param.yo` (2). No docs or
 skills use them.
 
-**The seed builds macro calls.** `src/` has six `for` loops and `std/` has
-eleven `unsafe.drop` calls outside `(^)`, and the seed expands all of them
+**The seed builds macro calls.** `src/` has six `for` loops (and, until B4
+rewrote them to `___drop`, `std/` had eleven `unsafe.drop` calls outside
+`(^)`), and the seed expands every one of them
 when it builds the tree. The parser's eight literal sites are seed-built
 too. That, not only CI tooling, is why the prelude macros stay until a
 release carrying the desugars is the seed (Part B's retained-macro rule).
@@ -613,8 +614,16 @@ Part C deletes the macros.
     embedding Yo source in string literals.
   - No emit-diff gate — there is no desugar to prove equivalent; the
     migrated suite is the gate.
-- **B4 — `unsafe.drop` → `___drop`.** Rewrite the eleven std sites
-  (§1.2; the twelfth dies with A1's `(^)` deletion) and
+- **B4 — `unsafe.drop` → `___drop`.** *Landed on branch
+  `refactor/macro-b4-unsafe-drop` (2026-10-20): all twelve std sites — the
+  `(^)` body's included, since A1 had not landed and its quoted body would
+  otherwise expand to a deleted name — and `owned_buffer.yo` call `___drop`;
+  the `unsafe` impl keeps only `cast`; the
+  `lsp-analysis-resilience` golden re-recorded, plus
+  `check-derive-clone-non-clone-field` and `lsp-member-definition`, which
+  cite prelude line numbers the deletion shifted by three.* The original
+  instruction, kept for the record: rewrite the eleven std sites
+  (§1.2; the twelfth was to die with A1's `(^)` deletion) and
   `tests/fixtures/owned_buffer.yo:50` to call `___drop(...)` directly, then
   delete `unsafe.drop` from the `unsafe` impl (`std/prelude.yo:248`). No
   wrapper and no module-value alias: `___drop` is not a bindable value.

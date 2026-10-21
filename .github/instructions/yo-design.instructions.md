@@ -148,10 +148,11 @@ named `rc` shadows it in its scope. `ref_count` is not in
 
 ## Unsafe operations
 
-The `unsafe` module in `prelude.yo` provides low-level escape hatches:
+The `unsafe` module in `prelude.yo` provides one low-level escape hatch:
 
-- `unsafe.drop(value)` — manually drop `value`, running its destructor immediately.
 - `unsafe.cast(value, TargetType)` — reinterpret cast (alias for the internal `__yo_as` builtin).
+
+To end a value before its scope does, call the prelude function `drop(x)` (it moves `x` in). Collection code that must run a destructor on a slot it owns through a raw pointer calls the `___drop` builtin on the place directly: `___drop(element_ptr.*)`. `___drop` is dispatched by the callee's spelling, so it is not a bindable value. `unsafe.drop` was a macro forwarding to it and is deleted (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` B4).
 
 ```yo
 // Cast between types (use sparingly)
