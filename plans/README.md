@@ -31,6 +31,7 @@ doc.
 - [`VBD_HANDOVER_2026-10-20.md`](handover/VBD_HANDOVER_2026-10-20.md) — the current VALUES_BY_DEFAULT handover (2026-10-20, after v0.2.67; v0.2.68 runs on the 64 GB Linux box): §0 is where to start (machine setup, the §3.1 sharing prerequisites and the RSS attribution, the copy-guards and `Acyclic` branches, the B1 regeneration), the v0.2.67 merge ledger and release facts, the open questions, and this cycle's process lessons.
 - [`VBD_RELEASE_SCHEDULE.md`](handover/VBD_RELEASE_SCHEDULE.md) — the living release-by-release schedule for the rest of VALUES_BY_DEFAULT (v0.2.68 → v0.2.75, three forced seed boundaries), with the maintainer-delegated picks of 2026-10-20 in §5.
 - [`OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](OWNERSHIP_AND_BORROWING_DOC_DRAFT.md) — the draft user doc that replaces `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`: ownership, moves, `Copy`, drops, borrows, projections, closures, sharing, references as values, each planned rule tagged with its phase; promoted to `docs/` (both languages) at VALUES_BY_DEFAULT's V5.
+- [`CYCLE_COLLECTION_DOC_DRAFT.md`](CYCLE_COLLECTION_DOC_DRAFT.md) — the draft user doc that replaces `docs/en-US/CYCLE_COLLECTION.md` (pre-VBD: `ref(struct)`, "no shared memory between threads"): what is counted, what the collector tracks, how it runs, drops at collection time, `Arc`, `Weak`, the uncollected build, threads; each planned rule tagged with its phase; promoted at V5.
 - [`VALUES_BY_DEFAULT.md`](VALUES_BY_DEFAULT.md) — every declared type is a value; `ref(...)`/`atomic(...)` leave the language; sharing is spelled `Rc(T)`/`Arc(T)`. Amended 2026-10-05 (§0): unique ownership (Hylo's model) replaces copy-on-write: buffers and `Box` have one owner and no count, copies of buffer-owning values are explicit (`.clone()`), a last use moves, resources are move-only, `Send` is a move.
 - [`ATS_LESSONS_BEYOND_INDEXED_TYPES.md`](ATS_LESSONS_BEYOND_INDEXED_TYPES.md) — what else Yo takes from ATS beyond indexed types: the lemma layer, must-use results, an init proof token (fixes an S1 in `ArrayList.set_len`), spec-transparent pure functions, lexicographic `decreases`, the typestate idiom.
 - [`AGENT_KNOWLEDGE_CONSOLIDATION.md`](AGENT_KNOWLEDGE_CONSOLIDATION.md) — one home per fact across the pack and the manuals. K0/K1 landed (stale claims fixed, unique facts moved into manuals). Amended 2026-10-13: after VBD V5, delete the shipped skills and `yo skills install` (`yo init` writes `AGENTS.md` + `CLAUDE.md`, and `yo context` is the version-matched source), type-check every ` ```yo ` docs block, and sweep the docs of pre-VBD forms and history narration.
@@ -126,6 +127,12 @@ iterator adapters, container parity, `Lazy`, `Result.context`, `yo bench`,
 `--deny warnings`, LSP code actions and inlay hints, fuzzing, panic
 backtraces), and the rejections it adds (shadowing, `PartialOrd`, `Weak`,
 guards, `Cow`, `Deref` coercions).
+[`WEAK_AND_UNCOLLECTED_RC`](backlog/WEAK_AND_UNCOLLECTED_RC.md) (2026-10-21,
+reopening decision 46's "No `Weak`") is Rust's `Rc`/`Arc` model on Yo's
+one handle pair: `Weak(T)`/`ArcWeak(T)` with a weak count in the bits
+decision 46 freed, a per-program `--cycle-collector off` build, `Arc`
+without its `Acyclic` bound, and the declared `Acyclic` exemption without
+the pragma; the collector stays the default.
 [`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md) is the Zig
 half of the same 2026-10-10 survey: the table of what Yo already shares
 with Zig (comptime, lazy analysis, `build.yo`, `c_include`, allocators as

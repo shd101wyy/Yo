@@ -4248,7 +4248,12 @@ and in git, not a silent edit.
         clone is spelled in the name, as §0.1 requires;
       - `Rc.try_unwrap(h : Rc(T)) -> Result(T, Rc(T))`: the payload by
         value when the count is 1, else the handle back.
-      - No `Weak`: the cycle collector stays (§3.12).
+      - ~~No `Weak`: the cycle collector stays (§3.12).~~ **Reopened
+        2026-10-21 by the maintainer** ("I also want to introduce Weak"):
+        `Weak(T)` and `ArcWeak(T)`, a per-program `--cycle-collector off`
+        build, and `Arc` without its `Acyclic` bound are
+        `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; the collector stays the
+        default, and `Rc`/`Arc` stay the only handle types.
     - **What it buys.**
       - A `&` borrow whose place crosses an `Rc` deref can no longer be
         invalidated by a write through another handle. So E0909's rule for
