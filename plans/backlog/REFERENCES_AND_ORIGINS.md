@@ -915,18 +915,33 @@ rows that pin it.
   when N1 lands the handle-origin rule. The model does not run a
   collector, so this is a correction to the prose, not something the
   model checks. Rows: `rc-guard-and-clone`, `rc-guard-handle-dropped`.
-- **Decision 28 as built accepts what O3 step 2 rejects.** Decision 28
-  lets a later argument relend `&` a place an earlier argument lends
-  `&mut`, so `both(&mut xs, &xs)` passes today ("a read or a `&` relend in
-  a later argument passes", `plans/VALUES_BY_DEFAULT.md`). O3 step 2 makes
-  the live `&mut` loan conflict with taking a new borrow of `xs`. Today
-  nothing can observe the difference, because a `&` parameter of a small
-  value is passed by copy. Measured on v0.2.67: a callee that writes `m.a`
-  through `&mut` and then reads `r.a` through `&` sees the old value.
-  Once `&` is a pointer, it would read a value that changed under a live
-  `&`. Position: N1 rejects it with E0910 (Rust's rule), and its
-  Generation A counts the tree's uses first. Row `call-arg-overlap` is the
-  corpus's one row that today's compiler wrongly accepts.
+- **`f(&mut xs, &xs)` is accepted today because decision 28's value-root
+  rule has not landed, not because decision 28 allows it.** Decision 28's
+  "Value roots" makes a `&mut` argument that overlaps any other argument a
+  compile error, and O3 step 2 agrees: the live `&mut` loan conflicts with
+  taking a new borrow of `xs`. That rule is phased to V2b
+  (`plans/VALUES_BY_DEFAULT.md` decision 28 "Phase" and V2b's list) and is
+  not built. What is built is the two-phase interim ("a read or a `&`
+  relend in a later argument passes"), so `both(&mut xs, &xs)` passes
+  today. The two arguments are observably aliased:
+  - A value struct is passed to a `&` parameter by copy: a callee that
+    writes `m.a` through the `&mut` and then reads `r.a` through the `&`
+    sees the old value (measured on v0.2.67 with a four-field `i64`
+    struct).
+  - A collection is a reference type, so both parameters reach one heap
+    object: a callee that pushes 1000 elements through `a` reads
+    `b.len() == 1001`.
+  - The call was also unsound. Phase 5.2's caller-owned `+1` on the `&`
+    argument was cancelled by the dup/drop pair optimizer, so the
+    collection leaked, and a callee replacing `a` read freed memory
+    through `b`. Fixed on this branch:
+    `issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md`.
+
+  Position: the rejection (E0910) belongs to V2b's value-root rule, and
+  counting the tree's uses belongs to V2b's Generation A. Whichever of V2b
+  and N1 lands first rejects it; N1 needs no rule of its own. When it
+  lands, re-record row `call-arg-overlap`. It is the one row that today's
+  compiler wrongly accepts.
 - **The type-constructor spelling.** O1's example first spelled the
   constructor `(fn(comptime(T : Type, p : Origin) -> …))`, which does not
   parse. A comptime parameter is written `comptime(T) : Type`, as in the
@@ -947,50 +962,122 @@ phase is one PR or one stack with one battery, per AGENTS.md.
 
 **N0 as built (2026-10-21, branch `test/decision43-n0-corpus`).**
 
-- **The corpus** is 59 programs in `tests/origins/corpus/<id>.yo`: 36
-  negative rows and 23 positive controls. They cover every item of §5's
-  list, the eight routes, the five expected holes below, and the points
-  §7's "Found by the N0 reference checker" records. Each program is
-  spelled in the syntax N1–N3 will land. They are plain `.yo` files, so
-  `yo test ./tests` never runs them. The manifest
-  `tests/origins/corpus.tsv` gives each row its plan anchor, its kind,
-  the phase whose gate it joins (21 rows N1, 32 N2, 6 N3), the verdict
-  expected once the rules land, and what today's `yo check` does with it.
-  `scripts/origins-corpus.sh` is the gate. `today` mode is the N0 gate:
-  every row must still fail (or pass) exactly as recorded. `target` mode,
-  with `PHASES=N1` and so on, is the later phases' gate. Both modes first
+- **The corpus** is 71 programs in `tests/origins/corpus/<id>.yo`: 44
+  negative rows and 27 positive controls. They cover the items §5's list
+  names, the eight routes, the five expected holes below, one row per
+  lowering of §4 (below), and the points §7's "Found by the N0 reference
+  checker" records. The superseded design's rows are restated or mapped in
+  the table below. Each program is spelled in the syntax N1–N3 will land.
+  They are plain `.yo` files, so `yo test ./tests` never runs them. The
+  manifest `tests/origins/corpus.tsv` gives each row its plan anchor, its
+  kind, the phase whose gate it joins (28 rows N1, 37 N2, 6 N3), the
+  verdict expected once the rules land, and what today's `yo check` does
+  with it. `scripts/origins-corpus.sh` is the gate. `today` mode is the N0
+  gate: every row must still fail with the recorded code and the recorded
+  text in its first error (or pass, if recorded so). `target` mode, with
+  `PHASES=N1` and so on, is the later phases' gate. Both modes first
   cross-check the manifest against the fixtures and the model test.
+- **One row per lowering (§4).** Macro expansions: `macro-ret-local`.
+  Closure capture structs: the `closure-*` rows. Async state machines:
+  the `async-*` rows. Effect handlers: `effect-resume-local`,
+  `effect-resume-capture`, `effect-resume-param`. `match` and `cond` arms:
+  `match-arm-binding-origin`, and `loop-join-push` for a `while` body.
+  The specializer: `generic-unbounded-rc` (`E0909@spec`). The model has no
+  macro or handler node: it checks a handler as the function literal or
+  closure it is and a macro row as its expansion, so these rows test the
+  rule. That the compiler applies the rule inside each lowering is N1's to
+  show, with the fixture.
 - **The reference checker** is `tests/origins/model.yo`. It models
   origin sets as bitmasks over places, unification at application, subset
   coercion with O3-3's invariance, loans against accesses with last-use
-  liveness (loop fixpoint included), the return rule, declared unions,
-  `may_dangle` drops, the handle-origin rule and `Escapable`. It is about
-  1150 lines of code after `yo fmt`'s one-argument-per-line layout, more
-  than the few hundred planned, because every rule above had a row that
-  needed it. `tests/origins/model_corpus.test.yo` encodes every row and is
-  in the fast suite. It also runs five ablations: switching off
+  liveness (loop fixpoint included; a loop that has not converged in 16
+  rounds fails `MODEL_LIMIT` rather than pass), the return rule, declared
+  unions, `may_dangle` drops, the handle-origin rule and `Escapable`. It is
+  about 1160 lines of code after `yo fmt`'s one-argument-per-line layout,
+  more than the few hundred planned, because every rule above had a row
+  that needed it. `tests/origins/model_corpus.test.yo` encodes every row
+  and is in the fast suite. It also runs five ablations: switching off
   invariance, the loop fixpoint, the user-`Drop` liveness, the capture
   widening or the handle origin flips the rows that rule is meant to
   reject to `ACCEPT`. So each of those rows tests its rule and is not
   rejected for an unrelated reason.
-- **Gate result.** The model returns the manifest's verdict on all 59
-  rows: it rejects each of the 36 negative rows with the rule the row
-  names and accepts the 23 positive controls. The 9 ablation checks flip
-  as expected, for 64 passing tests. Today's compiler behaves as recorded
-  on all 59 rows:
-  - 52 cannot be expressed yet. Mostly `Variable "Origin" not found`,
-    "a borrow mode, not a type", or a type argument `&(T, x)` read as a
-    runtime tuple.
-  - 5 are already rejected by today's second-class rule for the same
-    hazard: `get2-mut-twice` and `drop-root-while-borrowed` (E0911),
-    `rc-mut-through-deref` (E0919), `ret-local` (decision 24's projection
-    rule) and `async-forward-local` (A2's E0909).
+- **Gate result.** The model returns the manifest's verdict on all 71
+  rows: it rejects each of the 44 negative rows with the rule the row
+  names and accepts the 27 positive controls. The 9 ablation checks flip
+  as expected, for 76 passing tests. Today's compiler behaves as recorded
+  on all 71 rows:
+  - 63 cannot be expressed yet. Mostly `Variable "Origin" not found`,
+    "a borrow mode, not a type", "Expected a type for function return
+    type", or a type argument `&(T, x)` read as a runtime tuple.
+  - 6 are already rejected by today's second-class rule for the same
+    hazard: `get2-mut-twice`, `drop-root-while-borrowed` and
+    `dyn-call-elided-result` (E0911), `rc-mut-through-deref` (E0919),
+    `ret-local` (decision 24's projection rule) and `async-forward-local`
+    (A2's E0909).
   - 1 positive control is already accepted: `await-local-borrow`.
-  - 1 negative row is wrongly accepted: `call-arg-overlap` (§7).
-- **One bug found and fixed on the way.** Any `&mut(A, B)` crashed `yo
+  - 1 negative row is wrongly accepted: `call-arg-overlap` (§7: decision
+    28's value-root rule, V2b).
+- **Two bugs found and fixed on the way.** Any `&mut(A, B)` crashed `yo
   check` with a stack overflow. That is the very spelling N1 adds, so it
   is now a diagnostic
   (`issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md`).
+  And `call-arg-overlap`'s program leaked, while a callee replacing its
+  `&mut` argument read freed memory through the `&` one
+  (`issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md`).
+
+**The superseded design's rows, restated.** §5's list begins with "the
+superseded design's rows restated in origin terms" (its §5 corpus, `git
+show 6ccddf25d^:plans/backlog/NON_ESCAPABLE_TYPES.md`). Each row is a
+restated corpus row, folded into a row that tests the same mechanism, or
+dropped with the reason. `View(T)` is `&(T, p)` or a struct holding one,
+and a `depends` clause is the origin spelling of O7's table.
+
+| Superseded row | Here |
+| --- | --- |
+| return a view of a local; return `.Some(&local)`; return a container with a non-parameter root | `ret-local`: the return rule reads the result's origins whatever wraps them |
+| return a view of the wrong parameter under `depends` | `impl-wider-than-trait`: a body whose result exceeds its declared origin |
+| store a view in a cell (`Rc(View(T))`, `Box(View(T))`); a `Dyn` over a tuple with a reference | `rc-of-ref-holder`, `spawn-box-origin`, `extern-box-origin`: `Dyn(Trait)` is `Dyn(Trait, ∅)`, the same no-origin position (O4, O10); N2 adds a `Dyn(Trait, p)` row when it gives `Dyn` its parameter |
+| capture a view in an escaping closure; spawn one | `closure-caps-exceed-slot`, `spawn-box-origin`, `thread-send-origin` |
+| re-point a component to a temporary; `set(&mut r, &y)` with `r := &x`, then `y` dropped | `store-widen-mut-pointee` (O3-3) |
+| a `&mut` view and a `push` on its root in one expression | `call-arg-overlap` |
+| a view whose place crosses an `Rc` deref; `out.push(&h.*.x)` | `rc-handle-dropped`, `rc-handle-reassigned`, `rc-push-handle-borrow` |
+| store a `StrArg` whose live value is `.Owned` in a cell; move a `.Borrowed` payload out of a consumed scrutinee | `match-arm-binding-origin`: an enum payload carries its origins through a consuming `match`; `.Owned` carries none |
+| `derive(Copy)` on an enum with a `&mut` payload | `copy-mut-holder`: route 3 makes a `&mut` holder move-only, and `derive(Copy)` already rejects a field that is not `Copy` |
+| `ArrayList(&mut T)` with two pushes of one root; a read of `x` while it holds `&mut x` | `list-mut-two-pushes` (the read is the same access against the loan) |
+| an `Rc`-rooted element in a container | `rc-push-handle-borrow` |
+| a `&mut T` written through a `&` path; a bare `cur = v` with `v : T` | dropped: plain type errors (decision 42), no origin involved |
+| `push_all(&mut out, &vals)` then `vals` dropped; `r := &mut out; r.push(&x)` then a write to `x`; `write(ser, &x)` with `ser` carrying the `&mut` list; `ser.out.push(&x)` then `ser` dies | `elided-container-lent-mut-then-write`, `push-spelled-shared`: a container's origins live in its type, so who pushed and through what does not matter |
+| `r := cell.get_mut()` (error naming `with_mut`) | inverted: `get_mut(self : &mut Self) -> &mut(T, self)` is O2's default and sound, as Rust's `RefCell::get_mut`; its mechanism, a `&mut` result rooted at a `&mut` parameter, is `get2-mut-twice` and `cursor-two-items`. A row with the API waits for N3's std |
+| a `depends(dst : ())` callee pushing its `&` argument; a callee pushing `&local` into a `&mut` parameter's container | `push-elided-unrelated`, `push-outside-union` |
+| `out.push(local.view(r))` then a write to `local`; `s.emit()` pushing `self.prefix` into `self.out`, then `prefix` dropped | `words-then-write` (field paths are not modeled, §7) |
+| `out(i) = &x` then a write to `x` | `place-write-join` |
+| `v.xs = &y` with `y` scoped inside `v`'s life | `place-write-join` and `drop-root-while-borrowed` |
+| `xs.for_each(_ => out.push(&ys))` then a write to `ys`; the closure moving `b`'s element into `a` and pushing `&z` into `b` | `closure-push-capture-then-write` |
+| a closure pushing `&` of its own parameter into a captured container; `xs.for_each(x => out.push(x))` | `closure-param-into-capture` |
+| a reference-holding module-level binding; an `extern` signature with a `&` parameter | `global-refcell-origin`, `extern-box-origin` |
+| `View(i32)(xs : &COUNTS, …)` live across a call | not restated: §7's "Module-level origins" keeps decision 18 rule 3 (no call or `await` while a module-level place is lent) as the checking rule, and that rule is built and tested today (`tests/global_lend.test.yo`) |
+| a handler resuming with a view of its own local | `effect-resume-local` (and `effect-resume-capture` for O7's capture rule) |
+| `ArrayList(&T)` before N2 (error naming N2) | dropped: a phase-gate diagnostic, not a soundness row; the N2 rows fail before N2 by construction |
+| `dst.push(f())` with `f : &Impl(Fn() -> &T)` and no clause | `closure-returns-capture` |
+| a result with a `self.*` source projecting into `self`; `IterMut`'s `next` with a `self.*` source; `peek(h : &Holder) -> &i64` returning the `&mut` component | `ret-param-place`, `cursor-two-items`, `copy-mut-holder` (field paths are not modeled) |
+| `next` with no clause and two items live (E0911) | `get2-mut-twice`: the elided result is the receiver's place |
+| `&mut xs(i)` beside `&mut xs(j)` | `index-mut-twice` |
+| `xs.get2_mut(i, i)` under `Pragma.Verify`, without it, and under `Pragma.NoContracts` | dropped: the verifier's and the runtime contract's, not an origin rule (§5: disjointness is a contract) |
+| a use of `xs` while `a` or `b` of `get2_mut` lives | `get2-mut-twice` |
+| **Positive controls:** a local `Array(&T, 3)` from three lends; `out.push(&x)` then `out.push(&y)` | `push-inside-union` |
+| `(a, n) := t` re-borrowing | folded into `match-arm-binding-origin`: a destructuring binding carries the value's origins as an arm binding does; no separate positive |
+| `-> Result((View(u8), T), E)` | `ret-param-place` |
+| `f(v)` copying an all-`&` view | `copy-shared-holder` |
+| `words` | `words` |
+| `map.remove(&k)` then a use of `k`; `m.get(&k)` then a write to `k` | `dyn-call-spelled-result`: an argument outside the result's origin is not frozen |
+| `out.retain(x => x.len() > n)` then a write to `n` | `closure-caps-within-slot` |
+| `next` with a `self.*` source and two items live | `cursor-two-items` |
+| `x := stack.pop(); stack.push(y)`; `dst.push(dst.pop())`; `a.append(&mut b)` then a use of `b` | `push-spelled-shared`, `elided-container-lent-mut` |
+| `parse_int(input)` returning the remainder of a by-value view | `ret-byvalue-carried` |
+| `entry(k).or_insert(v)` | N3 (`entry` is in N3's list) |
+| `for(&xs, x => out.push(x.*))` | dropped: the pushed value is a copy and carries no origin |
+| `(a, b) := xs.get2_mut(i, j)` both written; `swap(a, b)` on its halves | `get2-mut-pair`, `swap-declared-union` |
+| `out := …; x := …; out.push(&x)` with `out`'s last use before `x`'s drop | `drop-order-may-dangle` |
 
 **Where holes are expected first** (recorded 2026-10-20 so N0 writes rows
 for them before N1 lands): flow-inferred origin sets at control-flow

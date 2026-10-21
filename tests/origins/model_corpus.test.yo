@@ -577,14 +577,112 @@ test("await-local-borrow", {
   verdict("await-local-borrow", case3(entry(array_list(use_(call0(usize(2))))), bump_fut(), outer), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
-// An impl checked against its trait's signature (§5 route 5)
+// An impl checked against its trait's signature (O7), and a call through
+// `Dyn` mapped from the trait's signature (§5 route 5)
 // ---------------------------------------------------------------------------
 pick :: (fn(result : Ty, returned : usize) -> FnDef)(fun(u64(0), array_list(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result, array_list(Node.Return(Node.Var(returned)))));
-test("dyn-impl-wider", {
-  verdict("dyn-impl-wider", case2(entry(none()), pick(shr(int(), o(SELF)), OTHER)), "ORIGIN_MISMATCH");
+test("impl-wider-than-trait", {
+  verdict("impl-wider-than-trait", case2(entry(none()), pick(shr(int(), o(SELF)), OTHER)), "ORIGIN_MISMATCH");
 });
-test("dyn-impl-narrower", {
-  verdict("dyn-impl-narrower", case2(entry(none()), pick(shr(int(), ELIDED), SELF)), "ACCEPT");
+test("impl-narrower-than-trait", {
+  verdict("impl-narrower-than-trait", case2(entry(none()), pick(shr(int(), ELIDED), SELF)), "ACCEPT");
+});
+/// The trait method `pick(self : &Self, other : &i32) -> result` that a
+/// `Dyn(_Pick)` call dispatches on: the caller sees only this signature.
+pick_sig :: (fn(result : Ty) -> FnDef)(sig(u64(0), array_list(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result));
+dyn_call_main :: (fn() -> FnDef)(
+  entry(array_list(let_(D, lit()), let_(X, lit()), let_(R, call(usize(1), array_list(Node.Borrow(false, D), Node.Borrow(false, X)))), Node.Assign(X, lit()), use_(Node.Var(R))))
+);
+test("dyn-call-elided-result", {
+  verdict("dyn-call-elided-result", case2(dyn_call_main(), pick_sig(shr(int(), ELIDED))), "E0911");
+});
+test("dyn-call-spelled-result", {
+  verdict("dyn-call-spelled-result", case2(dyn_call_main(), pick_sig(shr(int(), o(SELF)))), "ACCEPT");
+});
+// ---------------------------------------------------------------------------
+// The effect-handler and macro lowerings (§4). The model has no handler or
+// macro node: a handler is checked as what it is, a function literal with the
+// operation's signature (`ask(key : &i32) -> &(i32, key)`) or, when it
+// captures, a closure passed to a slot of that signature; a macro row is its
+// expansion. Walking the lowering is the compiler's part, which N1's gate
+// tests with the fixture.
+// ---------------------------------------------------------------------------
+/// `use(ask : Fn(key : &i32) -> &(i32, key))`.
+ask_use :: (fn() -> FnDef)(sig(u64(0), array_list(prm(F, fn_t(shr(int(), FNQ), ELIDED))), int()));
+ask_main :: (fn(result : Node) -> FnDef)(
+  entry(array_list(let_(X, lit()), use_(call(usize(1), array_list(closure(array_list(let_(X, Node.Borrow(false, X))), none(), result))))))
+);
+test("effect-resume-local", {
+  handler := fun(u64(0), array_list(prm(E, shr(int(), ELIDED))), shr(int(), o(E)), array_list(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))));
+  verdict("effect-resume-local", case2(entry(none()), handler), "E0912");
+});
+test("effect-resume-capture", {
+  verdict("effect-resume-capture", case2(ask_main(Node.Var(X)), ask_use()), "ORIGIN_MISMATCH");
+});
+test("effect-resume-param", {
+  verdict("effect-resume-param", case2(ask_main(Node.Var(E)), ask_use()), "ACCEPT");
+});
+test("macro-ret-local", {
+  f := fun(u64(0), array_list(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), array_list(Node.Block(array_list(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))))));
+  verdict("macro-ret-local", case2(entry(none()), f), "E0912");
+});
+// ---------------------------------------------------------------------------
+// The superseded design's rows restated (§8 "N0 as built" maps the rest)
+// ---------------------------------------------------------------------------
+test("index-mut-twice", {
+  // An index place is its root's place: the model has no paths, which is the
+  // rule (index places on one root overlap, decision 28).
+  main := entry(
+    array_list(
+      let_(XS, Node.NewList(int())),
+      let_(A, Node.Borrow(true, XS)),
+      let_(B, Node.Borrow(true, XS)),
+      Node.WriteThrough(A, lit()),
+      Node.WriteThrough(B, lit())
+    )
+  );
+  verdict("index-mut-twice", case1(main), "E0911");
+});
+test("place-write-join", {
+  // `out(0) = &x` is encoded as the push it joins like.
+  main := entry(
+    array_list(
+      let_(Z, lit()),
+      let_(X, lit()),
+      let_(OUT, Node.NewList(shr(int(), o(X) | o(Z)))),
+      Node.Push(OUT, Node.Borrow(false, Z)),
+      Node.Push(OUT, Node.Borrow(false, X)),
+      Node.Assign(X, lit()),
+      use_(Node.Var(OUT))
+    )
+  );
+  verdict("place-write-join", case1(main), "E0911");
+});
+test("match-arm-binding-origin", {
+  // The arm binding `r` is the payload moved out of the consumed scrutinee.
+  main := entry(array_list(let_(X, lit()), let_(V, Node.Make(Kind.Some, Node.Borrow(false, X))), let_(R, Node.Var(V)), Node.Assign(X, lit()), use_(Node.Var(R))));
+  verdict("match-arm-binding-origin", case1(main), "E0911");
+});
+test("list-mut-two-pushes", {
+  main := entry(
+    array_list(
+      let_(X, lit()),
+      let_(OUT, Node.NewList(exc(int(), o(X)))),
+      Node.Push(OUT, Node.Borrow(true, X)),
+      Node.Push(OUT, Node.Borrow(true, X)),
+      use_(Node.Var(OUT))
+    )
+  );
+  verdict("list-mut-two-pushes", case1(main), "E0911");
+});
+test("copy-shared-holder", {
+  main := entry(array_list(let_(X, lit()), let_(V, Node.MakeTup(array_list(Node.Borrow(false, X), lit()))), let_(W, Node.Var(V)), use_(Node.Var(V)), use_(Node.Var(W))));
+  verdict("copy-shared-holder", case1(main), "ACCEPT");
+});
+test("ret-byvalue-carried", {
+  first := fun(P, array_list(prm(V, Ty.Tup(array_list(shr(int(), P), int())))), shr(int(), P), array_list(Node.Return(Node.Field(V, usize(0)))));
+  main := entry(array_list(let_(X, lit()), let_(R, call(usize(1), array_list(Node.MakeTup(array_list(Node.Borrow(false, X), lit()))))), use_(Node.Var(R))));
+  verdict("ret-byvalue-carried", case2(main, first), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
 // Each hole row tests its rule: with that rule switched off, the model
