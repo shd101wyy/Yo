@@ -1,0 +1,18 @@
+// N0 corpus row `effect-resume-local` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a handler resuming with a view of its own local (O7 effect handlers; §4's handler lowering; the superseded design's handler row).
+// Expected once decision 43's rules land: rejected: E0912, the resume value names the handler's local.
+_Ask :: (ctl(key : &i32) -> &(i32, key));
+_use :: (fn(ask : _Ask) -> i32)({
+  k := i32(1);
+  r := ask(&k);
+  r.*
+});
+main :: (fn() -> unit)({
+  (ask : _Ask) = (fn(key : &i32) -> &(i32, key))({
+    y := i32(2);
+    return(&y);
+  });
+  _ := _use(ask);
+  ()
+});
+export(main);

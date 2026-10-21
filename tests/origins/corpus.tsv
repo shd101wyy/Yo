@@ -2,8 +2,9 @@
 # One row per program tests/origins/corpus/<id>.yo; the same row is encoded for the
 # reference checker in tests/origins/model_corpus.test.yo. scripts/origins-corpus.sh
 # documents the columns and runs both modes. `today` was recorded 2026-10-21 with seed
-# v0.2.67 (the same src/ as develop 3d3546a21) and verified 59/59 with this branch's
-# tree binary, whose `&mut(A, B)` crash fix gives get2-mut-pair its diagnostic.
+# v0.2.67 (the same src/ as develop 3d3546a21) and with this branch's tree binary, whose
+# `&mut(A, B)` crash fix gives get2-mut-pair and list-mut-two-pushes their diagnostic;
+# verified 71/71 with that tree binary.
 # id	anchor	kind	phase	expect	today
 wf-self-binding	O1 well-formedness	neg	N2	WF_SELF	E1101|requires a compile-time argument
 wf-self-field	O1 well-formedness, O5	neg	N2	WF_SELF	-|Expected type for element
@@ -62,5 +63,17 @@ async-cold-start-await-first	O8	pos	N3	ACCEPT	E0909|would hold a borrowing futur
 async-forward-local	O8 return rule	neg	N3	E0912	E0909|is declared inside the block
 async-forward-param	O8 forwarding	pos	N3	ACCEPT	E0909|is second-class and cannot be returned
 await-local-borrow	O5	pos	N1	ACCEPT	accept
-dyn-impl-wider	§5 route 5, O7 traits	neg	N1	ORIGIN_MISMATCH	-|Expected a type for function return type
-dyn-impl-narrower	O7 traits	pos	N1	ACCEPT	-|Expected a type for function return type
+impl-wider-than-trait	O7 traits (an impl against its trait)	neg	N1	ORIGIN_MISMATCH	-|Expected a type for function return type
+impl-narrower-than-trait	O7 traits (an impl against its trait)	pos	N1	ACCEPT	-|Expected a type for function return type
+dyn-call-elided-result	§5 route 5 (a Dyn call maps from the trait signature)	neg	N1	E0911	E0911|Cannot write `o` here
+dyn-call-spelled-result	§5 route 5 (a Dyn call maps from the trait signature)	pos	N1	ACCEPT	-|Expected a type for function return type
+effect-resume-local	O7 effect handlers, §4 handler lowering	neg	N1	E0912	-|Expected a type for function return type
+effect-resume-capture	O7 effect handlers, §4 handler lowering	neg	N1	ORIGIN_MISMATCH	-|Expected a type for function return type
+effect-resume-param	O7 effect handlers, §4 handler lowering	pos	N1	ACCEPT	-|Expected a type for function return type
+macro-ret-local	O3 return rule, §4 macro lowering	neg	N1	E0912	-|lends a borrow: it is written as a call argument
+index-mut-twice	O3 step 2, decision 28 index overlap (superseded row)	neg	N1	E0911	-|A local borrow (`y := &mut place`) needs a place
+place-write-join	O3 place writes, O6 (superseded row)	neg	N2	E0911	E1101|requires a compile-time argument
+match-arm-binding-origin	O3, §4 match lowering (superseded row)	neg	N2	E0911	E1101|requires a compile-time argument
+list-mut-two-pushes	O3 step 2, O6 (superseded row)	neg	N2	E0911	-|is an origin-qualified reference
+copy-shared-holder	§5 route 3 (superseded row)	pos	N2	ACCEPT	E0401|Variable "Origin" not found
+ret-byvalue-carried	O3 return rule (superseded row)	pos	N2	ACCEPT	E0401|Variable "Origin" not found

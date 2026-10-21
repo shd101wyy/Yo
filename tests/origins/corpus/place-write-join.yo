@@ -1,0 +1,15 @@
+// N0 corpus row `place-write-join` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): `out(i) = &x`, then a write to `x` while `out` lives: an element write joins `out`'s flow set like a push (O3 place writes, O6; the superseded design's place-write row).
+// Expected once decision 43's rules land: rejected: E0911 at the write to `x`.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  z := i32(0);
+  mut(x) := i32(1);
+  mut(out) := ArrayList(&(i32, (x, z))).new();
+  out.push(&z);
+  out(usize(0)) = &x;
+  x = i32(2);
+  _ := out.len();
+  ()
+});
+export(main);
