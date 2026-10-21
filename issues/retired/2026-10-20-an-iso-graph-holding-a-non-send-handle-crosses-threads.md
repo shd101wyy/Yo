@@ -19,7 +19,7 @@ unrelated async-runtime edits; neither touches `Iso`) as
 `yo check <file> --std-path ./std` against develop `8203bd867`'s std: rc=0,
 no diagnostic.
 
-```yo
+```yo ignore
 { Thread } :: import("std/thread");
 _W :: ref(struct(io : Io, r : Rc(i32)));
 _work :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async(e => i32(1)));
