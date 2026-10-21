@@ -469,20 +469,36 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
 /// (each substituted element is the handle it was), so the caller keeps the
 /// list it has instead of building an equal one.
 _subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> Option(ArrayList(TypeValue)))({
-  out := ArrayList(TypeValue).with_capacity(xs.len());
-  (changed : bool) = false;
+  // The output list is allocated at the first changed element (the prefix
+  // before it is copied then), so an unchanged list costs no allocation.
+  (out : Option(ArrayList(TypeValue))) = .None;
   i := usize(0);
   while(i < xs.len(), {
     elem := match(xs.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     new_elem := _substitute_at(s, &elem, false);
-    changed = (changed || !__yo_ptr_eq(&new_elem, &elem));
-    out.push(new_elem);
+    out = match(
+      out,
+      .Some(o) => {
+        o.push(new_elem);
+        .Some(o)
+      },
+      .None => cond(
+        __yo_ptr_eq(&new_elem, &elem) => .None,
+        true => {
+          o := ArrayList(TypeValue).with_capacity(xs.len());
+          j := usize(0);
+          while(j < i, {
+            o.push(match(xs.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
+            j = (j + usize(1));
+          });
+          o.push(new_elem);
+          .Some(o)
+        }
+      )
+    );
     i = (i + usize(1));
   });
-  cond(
-    changed => .Some(out),
-    true => .None
-  )
+  out
 });
 /// `xs` with `s` applied to every element; `xs` itself (shared, not copied)
 /// when no element changed.

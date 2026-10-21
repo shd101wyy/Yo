@@ -48,9 +48,21 @@ SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// every holder of the node sees the write, so they stay `ArrayList`s
 /// (issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md).
 SharedList :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(SharedListCell(T)));
-/// Share `items` as a `SharedList`.
-shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T)) -> SharedList(T))(
-  rc(SharedListCell(T)(items : items))
+/// The element types a `SharedList` holds, each naming its one shared empty
+/// list (`no_types()`, `no_labels()`, ...).
+SharedListElem :: trait(
+  /// The shared empty list of this element type.
+  no_list : (fn() -> SharedList(Self))
+);
+/// Share `items` as a `SharedList`. An empty `items` yields the element
+/// type's shared empty list: most nodes carry several empty lists
+/// (`Func.where_types`, `Struct.type_arguments`, ...), and a cell per empty
+/// list would be an allocation per list.
+shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T), where(T <: SharedListElem)) -> SharedList(T))(
+  cond(
+    items.is_empty() => T.no_list(),
+    true => rc(SharedListCell(T)(items : items))
+  )
 );
 impl(
   generic(T : Type),
@@ -529,16 +541,19 @@ impl(SharedList(TypeValue), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(TypeValue), Acyclic());
 impl(SharedList(SharedList(TypeValue)), Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(SharedList(SharedList(TypeValue)), Acyclic());
-// The empty lists, one shared cell each: most nodes carry several empty
-// lists (`Func.where_types`, `Struct.type_arguments`, a `SomeT`'s bounds,
-// ...), and an empty list built per node is an allocation per list.
-(g_no_types : SharedList(TypeValue)) = shared_list(ArrayList(TypeValue).new());
-(g_no_labels : SharedList(String)) = shared_list(ArrayList(String).new());
-(g_no_flags : SharedList(bool)) = shared_list(ArrayList(bool).new());
-(g_no_levels : SharedList(usize)) = shared_list(ArrayList(usize).new());
-(g_no_discriminants : SharedList(i64)) = shared_list(ArrayList(i64).new());
-(g_no_type_lists : SharedList(SharedList(TypeValue))) = shared_list(ArrayList(SharedList(TypeValue)).new());
-(g_no_label_lists : SharedList(SharedList(String))) = shared_list(ArrayList(SharedList(String)).new());
+// The empty lists, one shared cell each (`shared_list` of an empty list
+// returns these through `SharedListElem`).
+(g_no_types : SharedList(TypeValue)) = rc(SharedListCell(TypeValue)(items : ArrayList(TypeValue).new()));
+(g_no_labels : SharedList(String)) = rc(SharedListCell(String)(items : ArrayList(String).new()));
+(g_no_flags : SharedList(bool)) = rc(SharedListCell(bool)(items : ArrayList(bool).new()));
+(g_no_levels : SharedList(usize)) = rc(SharedListCell(usize)(items : ArrayList(usize).new()));
+(g_no_discriminants : SharedList(i64)) = rc(SharedListCell(i64)(items : ArrayList(i64).new()));
+(g_no_type_lists : SharedList(SharedList(TypeValue))) = rc(
+  SharedListCell(SharedList(TypeValue))(items : ArrayList(SharedList(TypeValue)).new())
+);
+(g_no_label_lists : SharedList(SharedList(String))) = rc(
+  SharedListCell(SharedList(String))(items : ArrayList(SharedList(String)).new())
+);
 /// The shared empty type list.
 no_types :: (fn() -> SharedList(TypeValue))(g_no_types);
 /// The shared empty label list.
@@ -553,6 +568,13 @@ no_discriminants :: (fn() -> SharedList(i64))(g_no_discriminants);
 no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(g_no_type_lists);
 /// The shared empty list of label lists (an enum's `variant_field_labels`).
 no_label_lists :: (fn() -> SharedList(SharedList(String)))(g_no_label_lists);
+impl(TypeValue, SharedListElem(no_list : no_types));
+impl(String, SharedListElem(no_list : no_labels));
+impl(bool, SharedListElem(no_list : no_flags));
+impl(usize, SharedListElem(no_list : no_levels));
+impl(i64, SharedListElem(no_list : no_discriminants));
+impl(SharedList(TypeValue), SharedListElem(no_list : no_type_lists));
+impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 // ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
