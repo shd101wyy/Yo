@@ -12,7 +12,7 @@ pragma(Pragma.AllowUnsafe);
   BK_SUBTYPE_OF
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, env_adopt } :: import("../../env.yo");
 { EvalContext, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -85,9 +85,7 @@ evaluate_subtype_of :: (
       new_expr_info(&env, t_unit())
     }
   );
-  env.frames = lhs_info.env.frames;
-  env.module_path = lhs_info.env.module_path;
-  env.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
+  env_adopt(&env, &lhs_info.env);
   // LHS must be a TypeValue.
   lhs_type_val := match(
     lhs_info.value,
@@ -216,9 +214,7 @@ evaluate_subtype_of :: (
         new_expr_info(&env, t_unit())
       }
     );
-    env.frames = te_info.env.frames;
-    env.module_path = te_info.env.module_path;
-    env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+    env_adopt(&env, &te_info.env);
     // RHS must be a TypeValue that is a TraitType.
     trait_ty_val := match(
       te_info.value,

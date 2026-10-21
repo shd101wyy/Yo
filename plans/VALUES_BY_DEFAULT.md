@@ -6992,7 +6992,12 @@ heavy run, the command is given in item 2.
        (`TypeValue.SomeT`/`TraitT` constraint lists, `AstExpr` call
        arguments, the comptime-place model, `module_loader`'s cached
        arrays), and `Environment`'s shared frame list
-       (`tests/internal/env.test.yo:214` asserts `ref_count(env.frames) == 2`).
+       (`tests/internal/env.test.yo`'s "snapshot_env shares the frame list until the source pushes or pops" asserts `ref_count(env.frames) == 2`).
+       (2026-10-20, branch `perf/share-envs-at-adopt-sites`: the frame list
+       is now `Rc(ArrayList(Frame))`, copy-on-write through
+       `env_frames_for_write` + `Rc.make_mut`, and the 62 four-field adopt
+       blocks are one `env_adopt(&env, &info.env)` that shares every field;
+       no `RefCell` is needed, since no two owners write one list on purpose.)
        A list two owners write on purpose becomes `Rc(RefCell(...))`
        (decision 46) once B0 is in a seed; until then `Rc(...)`, which
        decision 46's census (`YO_AUDIT_RC_WRITE`, not built yet) will

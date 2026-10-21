@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
   path_collection_new
 } :: import("../../expr_info.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, env_adopt } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { same_name_note } :: import("../../types/utils.yo");
@@ -263,9 +263,7 @@ try_to_call_type_with_arguments :: (
     reject_bare_callable_into_dyn_fn(&member_element.ty, &arg_info.ty, &actual_arg_expr, `field "${member_element.label}"`, ctx, exn);
     reject_second_class_escape(&arg_info.ty, String.from("stored in a field of a named type"), ast_expr_token(&actual_arg_expr), ctx, exn);
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
-    env.frames = arg_info.env.frames;
-    env.module_path = arg_info.env.module_path;
-    env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
+    env_adopt(&env, &arg_info.env);
     // Convert comptime type → runtime type unless the field type is comptime-only.
     // A comptime numeric bound for a numeric FIELD coerces to the field's
     // type, and an integer value must fit it (E1102) — the rule every slot

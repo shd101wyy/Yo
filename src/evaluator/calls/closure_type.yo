@@ -54,7 +54,7 @@ pragma(Pragma.AllowUnsafe);
   EvalContext,
   CapturedVarInfo
 } :: import("../context.yo");
-{ Variable } :: import("../../env.yo");
+{ Variable, env_adopt } :: import("../../env.yo");
 { format_error_message }
 :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -274,9 +274,7 @@ try_to_implement_closure_by_fn_module_type :: (
   match(
     body_info_opt,
     .Some(bi) => {
-      env.frames = bi.env.frames;
-      env.module_path = bi.env.module_path;
-      env.function_declaration_frame_level = bi.env.function_declaration_frame_level;
+      env_adopt(&env, &bi.env);
     },
     .None => ()
   );
