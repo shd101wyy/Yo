@@ -2988,7 +2988,7 @@ LoopAnnotations :: struct(invariants : ArrayList(AstExpr), decreases : Option(As
 /// One `break` site (V4.2): the path condition at the break — the AND of
 /// `ctx.path` at the statement, which includes the iterate assumptions and
 /// every taken guard — and the full binding snapshot at that point. Terms
-/// are shared refs (the IR is immutable once built).
+/// are shared `Rc` handles (the IR is immutable once built).
 BreakSite :: struct(path : VcTerm, vals : HashMap(String, VcTerm));
 /// `break` parses as a plain atom or a zero-arg call (like `continue`).
 _is_break_stmt :: (fn(e : &AstExpr) -> bool)(
@@ -5164,8 +5164,9 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
   });
   // Fold right: else = the last LIVE arm's value; each earlier live arm
   // ites on its condition (dead arms are skipped — their guards cannot
-  // hold on the fall-through path). VcTerm is a ref enum, so the folded
-  // cell is written through a pointer.
+  // hold on the fall-through path). The folded term lives in a unique
+  // `Box` cell; VcTerm is an `Rc(VcTermNode)` handle, so reading or
+  // writing `acc_cell.*` moves a count, never a deep copy.
   acc := vals.get(last_live).unwrap();
   acc_cell := box(acc);
   (j : usize) = last_live;

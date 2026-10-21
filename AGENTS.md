@@ -147,8 +147,12 @@ yo test ./std --bail
 # 2026-09-21, Mac Mini M4; the older "~22 min" predates most of these files).
 yo test ./tests/internal/parser.test.yo --parallel 1
 
-# Verifier
-yo verify ./tests/spec --format json
+# Verifier: what the FV CI job runs. Verify tests/spec PER PATH: `yo verify ./tests/spec` as one directory
+# exits 1 with no JSON, because fixtures/negative and fixtures/invalid hold inputs that fail evaluation by design
+yo verify ./std/spec --format json
+yo verify ./std/collections --format json
+yo verify ./tests/spec/verify_straight_line.test.yo --strict
+for p in tests/spec/*.test.yo tests/spec/fixtures/valid tests/spec/fixtures/elision; do yo verify ./$p --format json; done
 
 # Self-hosted gate batteries (need a built binary in $S1)
 S1=/tmp/yo-s1 P=local bash scripts/bootstrap/gates_fast.sh

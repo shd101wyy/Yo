@@ -129,7 +129,7 @@ compiler in process show the same class.** A run of the 20
 `tests/internal/verifier*.test.yo` files
 (`YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000`) reports 28 of 143 tests
 failed, every one `Memory leak detected:` and nothing else: `verifier.test.yo`
-(which imports only the term and encoder modules) passes, and the failures
+(which never evaluates a fixture through the compiler) passes, and the failures
 sit in the files that evaluate a fixture through the compiler
 (13 files: `verifier_assumed` 3, `_contract_splice` 1, `_ghost` 3,
 `_law` 4, `_list_len` 1, `_loops` 2, `_match` 2, `_negative` 3,
