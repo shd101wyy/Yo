@@ -91,6 +91,23 @@ matches the umbrella's note that the debt is invisible on a macOS
 dev box. The four failures reproduce only where LeakSanitizer arms (Linux,
 as in the measurement above). Nothing in the verdict changed.
 
+**Wider local picture, 2026-10-20/21 (Linux x86_64).** A full
+`tests/internal` run with the default leak verdict
+(`YO_TEST_IN_PROCESS=1 YO_TEST_FORK=4`, the tree-built binary of
+`perf/acyclic-compiler-containers` on develop `7def2203b`) failed 86 of
+1,422 tests, every one a `Memory leak detected:` verdict and none an
+assertion. Besides this file's four, the failing files were
+`lsp_protocol` (19), `check_watch` (12), `module_invalidation` (11), the
+`verifier_*` files (28 in all), `module_prelude_outcome` (3),
+`doc_command` (3), `recursive_enum` (2), `context_index` (2),
+`type_trait_methods` (1) and `diagnostics_registry_examples` (1). They
+are develop's, not that branch's: every failing name is also failing in
+another develop-based branch's leak-verdict-on run (the same names or a
+superset per file); `recursive_enum`, `verifier_assumed` and
+`verifier_contract_splice` fail identically when run alone with develop's
+own `7def2203b` stage 1. They belong to the same debt as the four cases
+above, and CI stays off for them.
+
 ## Test
 
 The four cases above, run locally with the default leak verdict, are the

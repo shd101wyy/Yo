@@ -229,8 +229,8 @@ and a `VcTerm`, and is emitted with `--emit-c --skip-c-compiler`. Without
 the declarations it has 16 constructors calling `__yo_gc_register`: the
 `AstExpr.FnCall` cell, three `VcSort` and six `VcTerm` variant
 constructors, and six `ArrayList`/`HashMap` instantiations. With the
-declarations it has none. The `AstExpr`, `VcSort` and `VcTerm` nodes were
-already registering on develop, so the self-build count was predicted to
+declarations it has none. The `VcSort` and `VcTerm` nodes were already
+registering on develop, so the self-build count was predicted to
 fall below develop's 139. That prediction was wrong: the self-build
 measured 158 (below). It counted only the removals and missed the
 constructors the fix newly registers in the families that stay registered
