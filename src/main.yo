@@ -72,6 +72,7 @@ pragma(Pragma.AllowUnsafe);
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
+{ tokenize } :: import("./lexer.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
@@ -3812,21 +3813,61 @@ run_fix :: (
   });
 });
 /// May one of `check`'s target files run in verify mode? A file can only
-/// verify through its own `pragma(Pragma.Verify)` or
-/// `pragma(Pragma.VerifyOrAssert)` (`check` takes no `--verify-mode`), so a
-/// textual scan for the spelling decides it; a match in a comment or a
-/// string literal only keeps the arms table on, which is the safe side.
+/// verify through its own `Pragma.Verify` / `Pragma.VerifyOrAssert` pragma
+/// (`check` takes no `--verify-mode`), so a target whose TOKENS never spell
+/// `Pragma` `.` `Verify…` cannot verify. Tokens, not raw text: a comment or a
+/// string literal naming the pragma (this one does) must not switch the arms
+/// table on. A file that fails to lex answers `true`, the safe side.
 _check_files_may_verify :: (fn(files : &ArrayList(String), exn : Exception) -> bool)({
+  lex_exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
   (fi : usize) = usize(0);
   while(fi < files.len(), {
-    text := String.from_bytes(read_file_sync(files(fi).clone(), exn));
-    if(text.contains(&String.from("pragma(Pragma.Verify")), {
-      return(true);
+    src := String.from_bytes(read_file_sync(files(fi).clone(), exn));
+    tokens := tokenize(&src, &files(fi), lex_exn);
+    (code : ArrayList(Token)) = ArrayList(Token).new();
+    (ti : usize) = usize(0);
+    while(ti < tokens.len(), {
+      t := tokens(ti).clone();
+      if(_token_is_code(t.kind), {
+        code.push(t);
+      });
+      ti = (ti + usize(1));
+    });
+    (ci : usize) = usize(0);
+    while((ci + usize(2)) < code.len(), {
+      if((code(ci).kind == TokenKind.Identifier) &&
+        (code(ci).value == String.from("Pragma")) &&
+          (code(ci + usize(1)).kind == TokenKind.Dot) &&
+            (code(ci + usize(2)).kind == TokenKind.Identifier) &&
+              code(ci + usize(2)).value.starts_with(String.from("Verify")), {
+        return(true);
+      });
+      ci = (ci + usize(1));
     });
     fi = (fi + usize(1));
   });
   false
 });
+/// Is a token of this kind source code, rather than whitespace or a comment?
+_token_is_code :: (fn(kind : TokenKind) -> bool)(
+  match(
+    kind,
+    .Whitespace => false,
+    .SingleLineComment => false,
+    .MultiLineComment => false,
+    .DocLineComment => false,
+    .InnerDocLineComment => false,
+    .DocBlockComment => false,
+    .InnerDocBlockComment => false,
+    _ => true
+  )
+);
 run_check :: (
   fn(
     argv : &ArrayList(String),
