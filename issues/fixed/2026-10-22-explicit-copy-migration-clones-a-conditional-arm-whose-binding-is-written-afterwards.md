@@ -126,4 +126,9 @@ With the pre-fix binary the case is GOLDEN-DIFF: it inserts 7 and prints
 The 89 `return:` insertions of the 2026-10-22 regeneration
 (`plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-22.md` lists only the
 left-as-written sites; the insertions are the branch's diff) are arm or
-function tails, and each is suspect until the guard covers them.
+function tails, and each was suspect until the guard covered them. With the
+guard, a dry run over `src/` (`--hot-path src/evaluator`, the fixed branch's
+tree) moves exactly the four `src/env.yo` arm copies from inserted to listed.
+The pre-fix tool on the same tree lists none of them, and no other `return`
+insertion changes, 89 against 85. The 85 that remain flow into no binding
+the run sees written afterwards.
