@@ -96,7 +96,7 @@ The load-bearing members:
   whose non-portability the file's own header documents ("`f64`/`f32`
   `to_string()` is not yet portable: it hands back the host C library's
   `%g` output", `to_string.yo:25`). Owning this is a fix the tree already
-  wants (ZIG_ADOPTION Z17's sibling), independent of this campaign.
+  wants, independent of this campaign.
 - **Float parsing is libc's.** `strtod` (`std/libc/stdlib.yo:74`) backs
   string→float.
 - **Math is a libm veneer.** `std/math.yo:56` — `sqrt : _c_sqrt`,
