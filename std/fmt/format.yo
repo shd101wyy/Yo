@@ -118,7 +118,7 @@ _f64_fixed :: (fn(v : f64, p : usize) -> String)({
 _format_int :: (fn(neg : bool, mag : u64, decimal : &String, spec : str) -> String)({
   s := FormatSpec.parse(spec);
   radix := _radix_of(s.kind);
-  digits := if(radix == u64(10), decimal, _to_radix(mag, radix, s.kind.char == u32(0x58)));
+  digits := if(radix == u64(10), decimal.clone(), _to_radix(mag, radix, s.kind.char == u32(0x58)));
   sign := cond(
     neg => String.from("-"),
     s.plus => String.from("+"),

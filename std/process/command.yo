@@ -188,7 +188,7 @@ impl(
   /// invocation.
   new : (fn(program : &String) -> Self)(
     Self(
-      _program : program,
+      _program : program.clone(),
       _args : ArrayList(String).new(),
       _env_overrides : ArrayList(String).new(),
       _env_clear : false,
@@ -200,7 +200,7 @@ impl(
   ),
   /// Append a single argument to the argv list.
   arg : (fn(self : &Self, a : &String) -> Self)({
-    self._args.push(a);
+    self._args.push(a.clone());
     self
   }),
   /// Append multiple arguments to the argv list.
@@ -227,7 +227,7 @@ impl(
   get_args : (fn(self : &Self) -> ArrayList(String))(self._args.clone()),
   /// Set an environment variable for the child (overrides an inherited one).
   env : (fn(self : &Self, key : &String, value : &String) -> Self)({
-    entry := key;
+    entry := key.clone();
     entry.push_str("=");
     entry.push_string(value);
     self._env_overrides.push(entry);
@@ -238,7 +238,7 @@ impl(
   /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
   /// Windows passes lpCurrentDirectory.
   current_dir : (fn(self : &Self, dir : &String) -> Self)({
-    self._cwd = Option(String).Some(dir);
+    self._cwd = Option(String).Some(dir.clone());
     self
   }),
   /// Stop the child inheriting this process's environment, so it starts
@@ -419,7 +419,7 @@ _spawn_with_fds :: (
   // as `storage`: it must be an Rc value the capture struct can own, and it
   // must stay alive until the spawn call reads it.
   cwd_cstr := match(
-    self._cwd,
+    &self._cwd,
     .Some(cd) => Option(ArrayList(u8)).Some(cd.to_cstr()),
     .None => Option(ArrayList(u8)).None
   );
@@ -505,7 +505,7 @@ _spawn_with_fds :: (
     });
     (cwd_ptr : ?*u8) = .None;
     match(
-      cwd_cstr,
+      &cwd_cstr,
       .Some(cc) => {
         cwd_ptr = cc.ptr();
       },
@@ -767,9 +767,9 @@ impl(
   ChildStdin,
   /// Write a `String`, in full. `File.write_string` spells the same
   /// convenience.
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
-      bytes := data;
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
+    bytes := data.clone();
+    io.async(e =>
       cond(
         (bytes.len() == usize(0)) => usize(0),
         true => {
@@ -777,8 +777,8 @@ impl(
           bytes.len()
         }
       )
-    })
-  )
+    )
+  })
 );
 impl(
   ChildStdin,
@@ -953,6 +953,7 @@ impl(
   /// Throws `BadFileDescriptor` once `take_stdin()` has moved the fd out.
   write_stdin : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd_opt := self._stdin_fd;
+    __probe_data := data.clone();
     io.async(e => {
       fd := match(
         fd_opt,
@@ -962,7 +963,7 @@ impl(
           i32(-1)
         }
       );
-      n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), e.io);
+      n := e.io.await(IO_file.write(fd, __probe_data.ptr().unwrap(), u32(__probe_data.len()), u64(0)), e.io);
       usize(IoError.check(n, e.exn))
     })
   }),

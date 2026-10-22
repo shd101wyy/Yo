@@ -181,7 +181,7 @@ impl(
     // keeps the returned `String` independent — a later `write_str` must never
     // mutate a `String` already handed to a caller
     // (issues/fixed/writer-to-string-shares-its-buffer.md).
-    bytes := self._buf;
+    bytes := self._buf.clone();
     self._buf = match(
       bytes.allocator(),
       .Some(a) => ArrayList(u8).new_in(a),

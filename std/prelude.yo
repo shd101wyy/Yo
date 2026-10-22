@@ -8273,8 +8273,8 @@ impl(
   unwrap_or : (fn(self : &Self, or_value : &T) -> T)(
     match(
       self,
-      .Some(value) => value,
-      .None => or_value
+      .Some(value) => __probe_dup(&value),
+      .None => __probe_dup(&or_value)
     )
   ),
   /// Return `true` if the option contains a value.
@@ -9156,7 +9156,7 @@ impl(
   unwrap : (fn(self : &Self) -> OkType)(
     match(
       self,
-      .Ok(value) => value,
+      .Ok(value) => __probe_dup(&value),
       .Err(_) => __yo_panic("Called unwrap on an Error value")
     )
   ),
@@ -12978,3 +12978,24 @@ impl(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
 );
+// B8 FLIP PROBE ONLY (probe/v2b-b8-flip-census, never for landing): the
+// stand-in for decision 20's caller-chosen accessors (B6). A copying accessor
+// reads a non-implicitly-copyable element through `.clone()` (a `Clone`, not
+// `Copy`, not an `Rc`/`Arc`/`Box` handle) and copies everything else as before.
+__probe_copy_at :: (fn(generic(T : Type), p : *T) -> T)(p.*);
+__probe_clone_at :: (fn(generic(T : Type), p : *T) -> T)(p.*.clone());
+__probe_read_elem :: (fn(generic(T : Type), p : *T) -> T)(
+  cond(
+    (Type.impls(T, Clone) && !(Type.impls(T, Copy)) && !(Type.impls(T, Deref))) => __probe_clone_at(p),
+    true => __probe_copy_at(p)
+  )
+);
+__probe_copy_ref :: (fn(generic(T : Type), v : &T) -> T)(v);
+__probe_clone_ref :: (fn(generic(T : Type), v : &T) -> T)(v.clone());
+__probe_dup :: (fn(generic(T : Type), v : &T) -> T)(
+  cond(
+    (Type.impls(T, Clone) && !(Type.impls(T, Copy)) && !(Type.impls(T, Deref))) => __probe_clone_ref(v),
+    true => __probe_copy_ref(v)
+  )
+);
+export(__probe_read_elem, __probe_dup);

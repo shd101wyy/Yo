@@ -400,7 +400,7 @@ impl(
       (self._segments.len() == usize(0)) => {
         // Empty path, just return a new path with the name
         segments := ArrayList(String).new();
-        segments.push(name);
+        segments.push(name.clone());
         return(Self(_prefix : self._prefix.clone(), _segments : segments, _is_absolute : self._is_absolute));
       },
       true => ()
@@ -418,7 +418,7 @@ impl(
         .None => ()
       );
     });
-    new_segments.push(name);
+    new_segments.push(name.clone());
     return(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute));
   }),
   /// Check if this path starts with the given base path (segment-wise).
@@ -662,7 +662,7 @@ impl(
   ToString(
     to_string : (
       self -> {
-        segments := self._segments;
+        segments := self._segments.clone();
         result := String.new();
         // A relative path with no segments is the CURRENT DIRECTORY and must
         // render as "." — `stat("")` is ENOENT, which made `yo test .` /

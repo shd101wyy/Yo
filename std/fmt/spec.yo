@@ -94,7 +94,7 @@ _apply_width :: (
   // D4's byte flip would silently start padding `é` to two columns.
   len := text.chars().count();
   cond(
-    (len >= width) => text,
+    (len >= width) => text.clone(),
     true => {
       padding := (width - len);
       al := match(align, .Some(a) => a, .None => dflt);
@@ -225,7 +225,7 @@ impl(
   /// body. `dflt` is the alignment used when the spec did not give one —
   /// `Left` for text, `Right` for numbers, as in Rust.
   pad : (fn(self : Self, body : &String, dflt : Alignment) -> String)({
-    (text : String) = body;
+    (text : String) = body.clone();
     match(
       self.precision,
       .Some(p) => {
