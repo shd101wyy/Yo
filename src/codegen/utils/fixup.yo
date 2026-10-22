@@ -8,7 +8,7 @@
 { String } :: import("std/string");
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { CodeGenContext, DynImplEntry, type_key, dyn_concrete_c_name } :: import("./index.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { EvalValue } :: import("../../value.yo");
@@ -24,8 +24,8 @@ _carries_trait_value :: (fn(t : &TypeValue) -> bool)(
 /// the upcast), so each is found.
 _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  src_req := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
-  tgt_req := match(tgt, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
+  src_req := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types : r })) => r, _ => no_types());
+  tgt_req := match(tgt, Rc(.DynT({ required_trait_types : r })) => r, _ => no_types());
   (ti : usize) = usize(0);
   while(ti < tgt_req.len(), {
     tt := match(tgt_req.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));

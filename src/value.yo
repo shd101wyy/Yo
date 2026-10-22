@@ -8,7 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("./types/definitions.yo");
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
 { is_type_0 } :: import("./types/guards.yo");
 { AstExpr, exprs_are_equal } :: import("./expr.yo");
@@ -950,8 +950,8 @@ type_of_eval_value :: (fn(v : &EvalValue) -> TypeValue)(
         i = (i + usize(1));
       });
       cond(
-        is_sns => rc(TypeValueNode.Struct(name, String.from(""), labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)),
-        true => rc(TypeValueNode.Struct(String.from(""), name, labels, tys, false, false, false, String.from(""), ArrayList(TypeValue).new(), false))
+        is_sns => rc(TypeValueNode.Struct(name, String.from(""), shared_list(labels), shared_list(tys), false, false, false, String.from(""), no_types(), true)),
+        true => rc(TypeValueNode.Struct(String.from(""), name, shared_list(labels), shared_list(tys), false, false, false, String.from(""), no_types(), false))
       )
     },
     .UnknownVal(ty, _) => ty,

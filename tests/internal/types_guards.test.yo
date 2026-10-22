@@ -4,7 +4,7 @@
 //! Phase 2b stubs (returning false) are tested to confirm they return false —
 //! so a future implementation landing out of order gets caught.
 { String } :: import("std/string");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_flags, no_discriminants, no_type_lists, no_label_lists } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
 { is_int_type, is_float_type } :: import("../../src/types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -92,10 +92,10 @@ t_clongdouble :: (fn() -> TypeValue)(rc(TypeValueNode.CLongDouble));
 t_typeuni0 :: (fn() -> TypeValue)(rc(TypeValueNode.TypeUni(usize(0))));
 t_typeuni1 :: (fn() -> TypeValue)(rc(TypeValueNode.TypeUni(usize(1))));
 t_tuple_empty :: (fn() -> TypeValue)(
-  rc(TypeValueNode.Tuple(ArrayList(String).new(), ArrayList(TypeValue).new()))
+  rc(TypeValueNode.Tuple(no_labels(), no_types()))
 );
 t_union_empty :: (fn() -> TypeValue)(
-  rc(TypeValueNode.Union(String.from("U"), ArrayList(String).new(), ArrayList(TypeValue).new()))
+  rc(TypeValueNode.Union(String.from("U"), no_labels(), no_types()))
 );
 // ---------------------------------------------------------------------------
 // Primitive guards
@@ -194,8 +194,8 @@ test("is_union_type", {
   assert(!is_union_type(t_i32()), "i32 not union");
 });
 test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_module_type / is_some_type", {
-  s := rc(TypeValueNode.Struct(id : String.from(""), name : String.from("S"), field_labels : ArrayList(String).new(), field_types : ArrayList(TypeValue).new(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false));
-  e := rc(TypeValueNode.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false, ArrayList(TypeValue).new()));
+  s := rc(TypeValueNode.Struct(id : String.from(""), name : String.from("S"), field_labels : no_labels(), field_types : no_types(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false));
+  e := rc(TypeValueNode.EnumT(String.from(""), String.from("E"), no_labels(), no_type_lists(), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()));
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   tr := t_trait_simple(String.from("T"));
   m := t_module_simple(String.from("M"));
@@ -334,19 +334,19 @@ test("is_function_type_generic: generic func is generic", {
   ft.push(rc(TypeValueNode.TypeUni(usize(0))));
   f := rc(
     TypeValueNode.Func(
-      ft,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
+      shared_list(ft),
+      no_types(),
+      no_types(),
+      no_types(),
       t_unit(),
       rc(
         FuncMeta(
-          forall_labels : fl,
-          param_labels : ArrayList(String).new(),
-          implicit_labels : ArrayList(String).new(),
+          forall_labels : shared_list(fl),
+          param_labels : no_labels(),
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -356,7 +356,7 @@ test("is_function_type_generic: generic func is generic", {
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   assert(is_function_type_generic(&f), "generic func generic");
@@ -370,19 +370,19 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
   it_.push(t_module_simple(String.from("Io")));
   f := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
-      it_,
-      ArrayList(TypeValue).new(),
+      no_types(),
+      no_types(),
+      shared_list(it_),
+      no_types(),
       t_unit(),
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : ArrayList(String).new(),
-          implicit_labels : il,
+          forall_labels : no_labels(),
+          param_labels : no_labels(),
+          implicit_labels : shared_list(il),
           result_is_comptime_only : false,
-          param_is_ref : ArrayList(bool).new(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_ref : no_flags(),
+          param_is_owning : no_flags(),
           result_is_ref : false,
           has_variadic : false,
           is_extern : Option(String).None,
@@ -392,7 +392,7 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   assert(is_function_type_generic(&f), "implicit func generic");
@@ -469,13 +469,13 @@ test("is_rc_type: struct (not object) is not RC", {
     TypeValueNode.Struct(
       id : String.from("id1"),
       name : String.from("Point"),
-      field_labels : labels,
-      field_types : types,
+      field_labels : shared_list(labels),
+      field_types : shared_list(types),
       is_reference_semantics : false,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   );
@@ -488,13 +488,13 @@ test("is_rc_type: object (is_reference_semantics=true) is RC", {
     TypeValueNode.Struct(
       id : String.from("id2"),
       name : String.from("MyObj"),
-      field_labels : labels,
-      field_types : types,
+      field_labels : shared_list(labels),
+      field_types : shared_list(types),
       is_reference_semantics : true,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   );

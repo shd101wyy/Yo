@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 /// (a per-variable "module-level" flag would be unreliable for imported
 /// modules under loader-frame evaluation, so detection goes by recorded name).
 (g_module_level_static_names : HashSet(String)) = HashSet(String).new();
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
@@ -426,7 +426,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                               match(
                                 ext_mod_type,
                                 Rc(.Struct({ field_labels : efls })) => {
-                                  if(_find_field_label_index(&efls, lbl.clone()).is_none(), {
+                                  if(_find_field_label_index(&efls.items, lbl.clone()).is_none(), {
                                     exn.throw(
                                       dyn(
                                         with_code(
@@ -473,7 +473,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                     match(
                                       ext_mod_type,
                                       Rc(.Struct({ field_labels : efls })) => {
-                                        if(_find_field_label_index(&efls, lbl.clone()).is_none(), {
+                                        if(_find_field_label_index(&efls.items, lbl.clone()).is_none(), {
                                           exn.throw(
                                             dyn(
                                               with_code(
@@ -877,8 +877,8 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
     TypeValueNode.Struct(
       sns_id.clone(),
       String.from(""),
-      field_labels,
-      field_types,
+      shared_list(field_labels),
+      shared_list(field_types),
       false,
       // is_reference_semantics
       false,
@@ -887,7 +887,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
       // is_newtype
       String.from(""),
       // constructor_func_id
-      ArrayList(TypeValue).new(),
+      no_types(),
       // type_arguments
       true // is_source_namespace
     )

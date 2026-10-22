@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
   add_variable_to_env,
   synthetic_token
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, shared_list } :: import("../../types/definitions.yo");
 { t_unit, t_with_resolution } :: import("../../types/creators.yo");
 { are_types_compatible }
 :: import("../../types/compatibility.yo");
@@ -119,12 +119,12 @@ try_to_implement_closure_by_fn_module_type :: (
   param_labels := match(
     fn_module_type,
     Rc(.FnTraitT(_, pls, _, _, _, _, _, _)) => pls,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   param_types := match(
     fn_module_type,
     Rc(.FnTraitT(_, _, pts, _, _, _, _, _)) => pts,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   result_type := match(
     fn_module_type,
@@ -134,7 +134,7 @@ try_to_implement_closure_by_fn_module_type :: (
   param_is_ref_flags := match(
     fn_module_type,
     Rc(.FnTraitT(_, _, _, _, _, _, prf, _)) => prf,
-    _ => ArrayList(bool).new()
+    _ => no_flags()
   );
   // Push a new env frame for the closure parameters.
   (env : Environment) = caller_env;
@@ -190,23 +190,23 @@ try_to_implement_closure_by_fn_module_type :: (
   result_type_copy := result_type.clone();
   synthetic_func_ty := rc(
     TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
+      no_types(),
       // forall_types
       param_types.clone(),
-      ArrayList(TypeValue).new(),
+      no_types(),
       // implicit_types
-      ArrayList(TypeValue).new(),
+      no_types(),
       // where_types
       result_type_copy,
       rc(
         FuncMeta(
-          forall_labels : ArrayList(String).new(),
+          forall_labels : no_labels(),
           param_labels : param_labels.clone(),
-          implicit_labels : ArrayList(String).new(),
+          implicit_labels : no_labels(),
           result_is_comptime_only : false,
           // a runtime closure call type; `inout` call params carry through
           param_is_ref : param_is_ref_flags.clone(),
-          param_is_owning : ArrayList(bool).new(),
+          param_is_owning : no_flags(),
           // no `own` params in synthesized closure call type
           result_is_ref : false,
           has_variadic : false,
@@ -219,7 +219,7 @@ try_to_implement_closure_by_fn_module_type :: (
           variadic_comptime : false
         )
       ),
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   // Build a preliminary FuncVal for the evaluation context.
@@ -228,7 +228,7 @@ try_to_implement_closure_by_fn_module_type :: (
     rc(
       FuncValData(
         forall_names : ArrayList(String).new(),
-        params : param_labels,
+        params : param_labels.items,
         param_type_names : ArrayList(String).new(),
         // filled below
         evidence_params : ArrayList(String).new(),

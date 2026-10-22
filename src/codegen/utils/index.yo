@@ -30,7 +30,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64 } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, get_struct_field_comptime_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels } :: import("../../types/definitions.yo");
 {
   is_reference_struct_type,
   is_pointer_type,
@@ -903,7 +903,7 @@ pattern_literal_arm_guards :: (
         vk = (vk + usize(1));
       });
       if(vi < vns.len(), {
-        labels := match(vfls.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        labels := match(vfls.get(vi), .Some(l) => l, .None => no_labels());
         (pi2 : usize) = usize(0);
         while(pi2 < params.len(), {
           match(

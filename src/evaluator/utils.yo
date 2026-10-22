@@ -113,7 +113,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -3037,9 +3037,9 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
         (display == "String") => String.from("String"),
         display.starts_with("Arc(") => String.from("Arc"),
         (is_ref && is_atomic) => String.from("Arc"),
-        (is_ref && _implicit_copy_plain_members(&field_types)) => String.from("ref-object(plain)"),
+        (is_ref && _implicit_copy_plain_members(&field_types.items)) => String.from("ref-object(plain)"),
         is_ref => String.from("ref-object"),
-        true => _implicit_copy_via(_implicit_copy_first_member(&field_types, depth))
+        true => _implicit_copy_via(_implicit_copy_first_member(&field_types.items, depth))
       )
     ),
     Rc(.EnumT({ variant_fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => {
@@ -3066,8 +3066,8 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
         true => _implicit_copy_via(_implicit_copy_first_member(&all_fields, depth))
       )
     },
-    Rc(.Tuple(field_labels : _, field_types : tfs)) => _implicit_copy_via(_implicit_copy_first_member(&tfs, depth)),
-    Rc(.Union(name : _, field_labels : _, field_types : ufs)) => _implicit_copy_via(_implicit_copy_first_member(&ufs, depth)),
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _implicit_copy_via(_implicit_copy_first_member(&tfs.items, depth)),
+    Rc(.Union(name : _, field_labels : _, field_types : ufs)) => _implicit_copy_via(_implicit_copy_first_member(&ufs.items, depth)),
     Rc(.Array(element : el, length : _, length_var : _)) => {
       els := ArrayList(TypeValue).new();
       els.push(el);
@@ -5524,7 +5524,7 @@ _lb_contains :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
 _lb_is_value_field_step :: (fn(recv_ty : &TypeValue, step : &String) -> bool)(
   match(
     t_refine_inner(recv_ty),
-    Rc(.Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns })) => (!r && (!sns && _lb_contains(&fl, step))),
+    Rc(.Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns })) => (!r && (!sns && _lb_contains(&fl.items, step))),
     Rc(.Tuple(_, _)) => true,
     _ => false
   )
@@ -6665,8 +6665,8 @@ _strip_lend :: (fn(e : &AstExpr) -> AstExpr)(
 projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(ProjectionRootArg))({
   out := ArrayList(ProjectionRootArg).new();
   meta_ty := match(projection_call_callee_type(call, ctx), .Some(t) => t, .None => return(out));
-  (param_is_ref : ArrayList(bool)) = ArrayList(bool).new();
-  (param_is_owning : ArrayList(bool)) = ArrayList(bool).new();
+  (param_is_ref : SharedList(bool)) = no_flags();
+  (param_is_owning : SharedList(bool)) = no_flags();
   match(
     meta_ty,
     Rc(.Func({ meta : pc_m })) => {

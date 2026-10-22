@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, no_types } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { t_refine_inner } :: import("./definitions.yo");
 // ---------------------------------------------------------------------------
@@ -922,7 +922,7 @@ _nullable_shape_payload :: (fn(t : &TypeValue) -> Option(TypeValue))(
       (valid : bool) = true;
       (vi : usize) = usize(0);
       while(valid && (vi < usize(2)), {
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         fc := fields.len();
         cond(
           (fc == usize(0)) => {

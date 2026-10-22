@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../expr.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, SharedList } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
@@ -341,7 +341,7 @@ _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
     Rc(.Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs })) => cond(
-      (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls)) => ls_targs.get(usize(0)),
+      (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls.items)) => ls_targs.get(usize(0)),
       true => Option(TypeValue).None
     ),
     _ => Option(TypeValue).None
@@ -2065,8 +2065,8 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
               sb.write_byte(u8(0x20));
             });
             sb.write_string(_enum_ctor_name(e_id.clone(), vname.clone()));
-            vfs := match(e_fields.get(vi), .Some(l) => l, .None => ArrayList(TypeValue).new());
-            vls := match(e_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+            vfs := match(e_fields.get(vi), .Some(l) => l, .None => no_types());
+            vls := match(e_labels.get(vi), .Some(l) => l, .None => no_labels());
             if(vfs.len() > usize(0), {
               // A SPACE separates the ctor name from its field group —
               // the encoder's segment scanner keys on it.
@@ -2246,8 +2246,8 @@ _build_enum_ctor :: (
     e : &AstExpr,
     ety : &TypeValue,
     e_id : &String,
-    e_names : &ArrayList(String),
-    e_fields : &ArrayList(ArrayList(TypeValue)),
+    e_names : &SharedList(String),
+    e_fields : &SharedList(SharedList(TypeValue)),
     variant : &String,
     dot_args : &ArrayList(AstExpr)
   ) -> Option(VcTerm)
@@ -2256,7 +2256,7 @@ _build_enum_ctor :: (
     _variant_named(e_names, variant.clone()) => {
       vidx := _variant_index_of(e_names, variant.clone());
       vname := match(e_names.get(vidx), .Some(n) => n, .None => String.new());
-      vfs := match(e_fields.get(vidx), .Some(l) => l, .None => ArrayList(TypeValue).new());
+      vfs := match(e_fields.get(vidx), .Some(l) => l, .None => no_types());
       // The construction's VALUE args are the dot-args AFTER the variant
       // atom.
       cargs := ArrayList(VcTerm).new();
@@ -2296,12 +2296,12 @@ _build_enum_ctor :: (
   )
 );
 /// Whether `vname` (bare, no dot) names a variant.
-_variant_named :: (fn(e_names : &ArrayList(String), vname : &String) -> bool)(
+_variant_named :: (fn(e_names : &SharedList(String), vname : &String) -> bool)(
   _variant_index_of(e_names, vname) < e_names.len()
 );
 /// The variant index for a BARE variant name; the list length when not
 /// found.
-_variant_index_of :: (fn(e_names : &ArrayList(String), vname : &String) -> usize)({
+_variant_index_of :: (fn(e_names : &SharedList(String), vname : &String) -> usize)({
   (i : usize) = usize(0);
   (hit : usize) = e_names.len();
   while((i < e_names.len()) && (hit == e_names.len()), {
@@ -2682,9 +2682,9 @@ _variant_accessors :: (fn(e_ty : &TypeValue, variant : &String, count : usize) -
     Rc(.EnumT({ variant_names : e_names, variant_field_labels : e_labels })) => match(
       e_labels.get(_variant_index_of(&e_names, variant.clone())),
       .Some(l) => l,
-      .None => ArrayList(String).new()
+      .None => no_labels()
     ),
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   (i : usize) = usize(0);
   while(i < count, {

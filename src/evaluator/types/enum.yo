@@ -39,7 +39,7 @@ import("std/fmt");
 { Environment, get_variables_from_env, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_type_lists, no_label_lists, SharedList } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
 {
@@ -148,7 +148,7 @@ _type_value_cycle_step :: (
         (hit : bool) = false;
         (i : usize) = usize(0);
         while((i < e_vfs.len()) && !hit, {
-          vfs := match(e_vfs.get(i), .Some(l) => l, .None => ArrayList(TypeValue).new());
+          vfs := match(e_vfs.get(i), .Some(l) => l, .None => no_types());
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
             ft := match(vfs.get(j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
@@ -360,14 +360,14 @@ evaluate_enum_type :: (
     TypeValueNode.EnumT(
       shell_id.clone(),
       String.from(""),
-      ArrayList(String).new(),
-      ArrayList(ArrayList(TypeValue)).new(),
+      no_labels(),
+      no_type_lists(),
       Option(String).None,
-      ArrayList(ArrayList(String)).new(),
-      ArrayList(i64).new(),
+      no_label_lists(),
+      shared_list(ArrayList(i64).new()),
       force_reference_semantics,
       is_atomic_rc,
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   // Temporarily set SelfType in context for field evaluation.
@@ -377,8 +377,8 @@ evaluate_enum_type :: (
   // drop/dup for reference-semantics enums is lowered directly in codegen.)
   // Accumulators for variants.
   variant_names := ArrayList(String).new();
-  variant_fields := ArrayList(ArrayList(TypeValue)).new();
-  variant_field_labels := ArrayList(ArrayList(String)).new();
+  variant_fields := ArrayList(SharedList(TypeValue)).new();
+  variant_field_labels := ArrayList(SharedList(String)).new();
   variant_discriminants := ArrayList(i64).new();
   // GADT: per-variant `-> recur(T…)` return-type args, parallel to variant
   // order. An empty inner list marks a non-GADT variant; `any_gadt` is the
@@ -465,8 +465,8 @@ evaluate_enum_type :: (
         });
         disc := _evaluate_discriminant(&discriminant_expr, &env, ctx, exn);
         variant_names.push(variant_name.clone());
-        variant_fields.push(ArrayList(TypeValue).new());
-        variant_field_labels.push(ArrayList(String).new());
+        variant_fields.push(no_types());
+        variant_field_labels.push(no_labels());
         variant_discriminants.push(disc);
         next_discriminant = (disc + i64(1));
       },
@@ -515,8 +515,8 @@ evaluate_enum_type :: (
           );
         });
         variant_names.push(variant_name.clone());
-        variant_fields.push(ArrayList(TypeValue).new());
-        variant_field_labels.push(ArrayList(String).new());
+        variant_fields.push(no_types());
+        variant_field_labels.push(no_labels());
         variant_discriminants.push(next_discriminant);
         next_discriminant = (next_discriminant + i64(1));
       },
@@ -621,8 +621,8 @@ evaluate_enum_type :: (
         });
         disc := match(custom_disc, .Some(d) => d, .None => next_discriminant);
         variant_names.push(variant_name.clone());
-        variant_fields.push(v_field_types);
-        variant_field_labels.push(v_field_labels);
+        variant_fields.push(shared_list(v_field_types));
+        variant_field_labels.push(shared_list(v_field_labels));
         variant_discriminants.push(disc);
         next_discriminant = (disc + i64(1));
       }
@@ -763,7 +763,7 @@ evaluate_enum_type :: (
     (vi2 : usize) = usize(0);
     while(vi2 < variant_fields.len(), {
       vname := match(variant_names.get(vi2), .Some(n) => n, .None => String.new());
-      vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => ArrayList(TypeValue).new());
+      vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => no_types());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {
         ft := match(vfs.get(fi2), .Some(x) => x, .None => rc(TypeValueNode.Unit));
@@ -787,18 +787,23 @@ evaluate_enum_type :: (
   ctx.self_type = old_self_type;
   // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
   // replacement target, then the real final with shell-patched fields.
+  // Each list is shared by the pre-final and the final type.
+  variant_names_s := shared_list(variant_names);
+  variant_field_labels_s := shared_list(variant_field_labels);
+  variant_discriminants_s := shared_list(variant_discriminants);
+  variant_fields_s := shared_list(variant_fields);
   pre_final_ty := rc(
     TypeValueNode.EnumT(
       enum_id.clone(),
       String.from(""),
-      variant_names,
-      variant_fields,
+      variant_names_s.clone(),
+      variant_fields_s.clone(),
       Option(String).None,
-      variant_field_labels,
-      variant_discriminants,
+      variant_field_labels_s.clone(),
+      variant_discriminants_s.clone(),
       force_reference_semantics,
       is_atomic_rc,
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   // Patch the SELF SHELL out of the variant fields: during field
@@ -808,10 +813,10 @@ evaluate_enum_type :: (
   // failed (std/encoding/json.yo's `at`). Replace one level here; deeper
   // self-nesting resolves through the enum-final registry
   // (resolve_enum_shell).
-  patched_fields := ArrayList(ArrayList(TypeValue)).new();
+  patched_fields := ArrayList(SharedList(TypeValue)).new();
   (pf_i : usize) = usize(0);
-  while(pf_i < variant_fields.len(), {
-    vf_list := match(variant_fields.get(pf_i), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  while(pf_i < variant_fields_s.len(), {
+    vf_list := match(variant_fields_s.get(pf_i), .Some(l) => l, .None => no_types());
     new_list := ArrayList(TypeValue).new();
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {
@@ -819,21 +824,21 @@ evaluate_enum_type :: (
       new_list.push(_patch_self_shell(&ft, shell_id.clone(), &pre_final_ty));
       pf_j = (pf_j + usize(1));
     });
-    patched_fields.push(new_list);
+    patched_fields.push(shared_list(new_list));
     pf_i = (pf_i + usize(1));
   });
   enum_ty := rc(
     TypeValueNode.EnumT(
       enum_id.clone(),
       String.from(""),
-      variant_names,
-      patched_fields,
+      variant_names_s,
+      shared_list(patched_fields),
       Option(String).None,
-      variant_field_labels,
-      variant_discriminants,
+      variant_field_labels_s,
+      variant_discriminants_s,
       force_reference_semantics,
       is_atomic_rc,
-      ArrayList(TypeValue).new()
+      no_types()
     )
   );
   // Record the finalized form under the SHELL's id so leaked shells can
@@ -843,7 +848,7 @@ evaluate_enum_type :: (
   // FINAL type: a reference enum's Acyclic needs it for the RC-cycle walk.
   auto_derive_traits_for_enum_type(
     enum_id.clone(),
-    &variant_fields,
+    &variant_fields_s,
     force_reference_semantics,
     is_atomic_rc,
     &env,
@@ -859,9 +864,9 @@ evaluate_enum_type :: (
   {
     va_all_fields := ArrayList(TypeValue).new();
     (va_i : usize) = usize(0);
-    while(va_i < variant_fields.len(), {
+    while(va_i < variant_fields_s.len(), {
       match(
-        variant_fields.get(va_i),
+        variant_fields_s.get(va_i),
         .Some(va_fl) => {
           (va_j : usize) = usize(0);
           while(va_j < va_fl.len(), {

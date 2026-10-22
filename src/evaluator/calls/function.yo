@@ -58,7 +58,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, shared_list, no_types, no_labels, no_levels, SharedList, no_flags } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -519,7 +519,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
     cur := match(recv_ty, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     recv_ty = Option(TypeValue).None;
     // A field of that name: `x.drop` reads the field, never a method.
-    if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl, &name), _ => false), {
+    if(!obj_is_type && match(resolve_struct_shell(&cur), Rc(.Struct({ field_labels : dfl })) => _labels_contain(&dfl.items, &name), _ => false), {
       return(());
     });
     if(!is_pointer_type(&cur), {
@@ -1936,8 +1936,8 @@ _try_expand_call_overload :: (
   if(sns_parts.is_none(), {
     return(());
   });
-  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f, _ => ArrayList(String).new());
-  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t, _ => ArrayList(TypeValue).new());
+  s_fls := match(info.ty, Rc(.Struct({ field_labels : f })) => f, _ => no_labels());
+  s_fts := match(info.ty, Rc(.Struct({ field_types : t })) => t, _ => no_types());
   (call_idx : Option(usize)) = Option(usize).None;
   (li : usize) = usize(0);
   while((li < s_fls.len()) && call_idx.is_none(), {
@@ -2670,8 +2670,8 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // The callee's parameter labels name the assumed borrows.
     labels := match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
-      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
-      .None => ArrayList(String).new()
+      .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+      .None => no_labels()
     );
     tok := ast_expr_token(expr);
     // A field holding a function value called as `s.f(args)` has no
@@ -2784,7 +2784,7 @@ _callee_is_opaque_function_value :: (fn(call : &AstExpr, callee : &AstExpr, ctx 
 /// rejected (2026-10-14, the maintainer: the async `Mutex` follows Rust's
 /// `Arc<Mutex<T>>` and `lock(&self)`).
 _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
-  (labels : ArrayList(String)) = ArrayList(String).new();
+  (labels : SharedList(String)) = no_labels();
   (self_ty : Option(TypeValue)) = Option(TypeValue).None;
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
@@ -2854,11 +2854,11 @@ _future_call_receiver_offset :: (fn(op_callee : &AstExpr, op_args : &ArrayList(A
 _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
-    .None => ArrayList(String).new()
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
-  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
@@ -2939,11 +2939,11 @@ _future_call_lends_into :: (
 )({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
-    .None => ArrayList(String).new()
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
-  arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels);
+  arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels.items);
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(leaf_bs, &self_label), {
@@ -2984,10 +2984,10 @@ _future_call_lends_into :: (
 _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
-    .None => ArrayList(String).new()
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .None => no_labels()
   );
-  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
   // The lends of each argument, and whether it is a future operand.
   lends := ArrayList(ArrayList(_FutureLend)).new();
   is_operand := ArrayList(bool).new();
@@ -3097,11 +3097,11 @@ _lent_place_string :: (fn(lp : &_LentPlace) -> String)({
 _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
   labels := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
-    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
-    .None => ArrayList(String).new()
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => no_labels()),
+    .None => no_labels()
   );
   labels_known := (labels.len() > usize(0));
-  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels.items);
   if(arg_offset == usize(1), {
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
     if(_borrows_root_named(bs, &self_label), {
@@ -4321,7 +4321,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           })
         ) => if(
           is_some_type(&cb_res) || (get_all_some_types(&cb_res).len() > usize(0)),
-          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new())),
+          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, no_types())),
           info.ty
         ),
         Rc(.SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)) => {
@@ -4917,8 +4917,8 @@ _fv_bind_unbound_forall_placeholders :: (
 /// `i32`), appended to `out`.
 _phantom_binder_args :: (fn(decl : &TypeValue, arg : &TypeValue, name : &String, out : &mut ArrayList(TypeValue)) -> unit)({
   (flags : ArrayList(bool)) = ArrayList(bool).new();
-  (d_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-  (a_tas : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+  (d_tas : SharedList(TypeValue)) = no_types();
+  (a_tas : SharedList(TypeValue)) = no_types();
   match(
     decl,
     Rc(.EnumT({ id : d_id, type_arguments : dt })) => match(
@@ -4959,16 +4959,16 @@ _funcval_bind_foralls :: (
     evaled_arg_infos : &ArrayList(ExprInfo),
     cap_src : &FvCaptureSource,
     cap_vals : &ArrayList(EvalValue),
-    recv_type_args : &ArrayList(TypeValue),
+    recv_type_args : &SharedList(TypeValue),
     fresh_env : &Environment,
     env : &Environment,
     n_forall : usize,
     fa_bound_names : &mut ArrayList(String),
     fa_bound_types : &mut ArrayList(TypeValue),
     expected_param_types : &ArrayList(TypeValue),
-    declared_param_types : &ArrayList(TypeValue),
+    declared_param_types : &SharedList(TypeValue),
     param_ct_flags : &ArrayList(bool),
-    forall_kinds : &ArrayList(TypeValue),
+    forall_kinds : &SharedList(TypeValue),
     // Type arguments supplied EXPLICITLY at the call site (`f(generic(i32), x)`),
     // already evaluated by the peel in the inline FuncVal arm and paired with
     // the callee's forall label by position. A binder found here skips
@@ -6149,7 +6149,7 @@ _evaluate_funcval_runtime_call :: (
       _func_type_has_closure_param(&spec_ft) => true,
       true => {
         (ou_sg_all_concrete : bool) = true;
-        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => ArrayList(TypeValue).new());
+        ou_sg_pts := match(spec_ft, Rc(.Func({ param_types : ou_sg_p })) => ou_sg_p, _ => no_types());
         (ou_sg_i : usize) = usize(0);
         while(ou_sg_i < ou_sg_pts.len(), {
           ou_sg_pt := match(ou_sg_pts.get(ou_sg_i), .Some(t) => t, .None => t_unit());
@@ -6470,7 +6470,7 @@ _evaluate_funcval_runtime_call :: (
           fx_wt,
           resolved_ret.clone(),
           fx_meta,
-          ArrayList(TypeValue).new()
+          no_types()
         )
       ),
       _ => base_spec_ty
@@ -6928,7 +6928,7 @@ _instantiate_struct_over_closure_args :: (
       if(rep_ids.len() == usize(0), {
         return(st);
       });
-      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas, &rep_ids, &rep_tys), ic_sns))
+      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, shared_list(_replace_some_ids(&ic_fts.items, &rep_ids, &rep_tys)), ic_ref, ic_at, ic_nt, ic_cfid, shared_list(_replace_some_ids(&ic_tas.items, &rep_ids, &rep_tys)), ic_sns))
     },
     _ => st
   )
@@ -8133,7 +8133,7 @@ Fix: wrap the call:
                   ta_args.push(ta_ty);
                   tai = (tai + usize(1));
                 });
-                type_app := t_type_app(&func_type, &ta_args);
+                type_app := t_type_app(&func_type, ta_args);
                 out_ta := new_expr_info(env, t_type());
                 out_ta.value = Option(EvalValue).Some(EvalValue.TypeVal(type_app));
                 expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ta);
@@ -8313,7 +8313,7 @@ Fix: wrap the call:
             if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
               eprintln(`[call-struct] id=${struct_id} name=${struct_name}`);
             });
-            _reject_private_construction(struct_id.clone(), struct_name.clone(), &struct_field_labels, &tok, exn);
+            _reject_private_construction(struct_id.clone(), struct_name.clone(), &struct_field_labels.items, &tok, exn);
             call_result_s := try_to_call_type_with_arguments(&fields_subst, &func_expr, &args, &callee_env, ctx, false, exn);
             // Propagate io-builtin markers from extern function VALUES to the
             // constructed struct's FIELDS: constructing
@@ -8477,8 +8477,8 @@ Fix: wrap the call:
                 )
               );
             });
-            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => ArrayList(String).new());
+            fields_for_var := match(variant_fields_e.get(variant_idx), .Some(f) => f, .None => no_types());
+            labels_for_var := match(variant_field_labels.get(variant_idx), .Some(l) => l, .None => no_labels());
             tf_e := ArrayList(TypeField).new();
             (tfi_e : usize) = usize(0);
             while(tfi_e < fields_for_var.len(), {
@@ -8787,7 +8787,7 @@ Fix: wrap the call:
           pa_fty := match(callee_info_opt, .Some(pa_ci) => pa_ci.ty, .None => t_unit());
           pa_ret_ct := match(pa_fty, Rc(.Func({ meta : __pam1 })) => __pam1.*.result_is_comptime_only, _ => false);
           if(pa_has_hole && pa_ret_ct, {
-            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt, _ => ArrayList(TypeValue).new());
+            pa_pt := match(pa_fty, Rc(.Func({ param_types : ppt })) => ppt, _ => no_types());
             pa_res := match(pa_fty, Rc(.Func({ result : pr })) => pr, _ => t_unit());
             if(n_a != pa_pt.len(), {
               exn.throw(
@@ -8850,21 +8850,22 @@ Fix: wrap the call:
               false,
               tok.clone()
             );
+            pa_new_labels_s := shared_list(pa_new_labels);
             pa_new_ty := rc(
               TypeValueNode.Func(
-                ArrayList(TypeValue).new(),
-                pa_new_types,
-                ArrayList(TypeValue).new(),
-                ArrayList(TypeValue).new(),
+                no_types(),
+                shared_list(pa_new_types),
+                no_types(),
+                no_types(),
                 pa_res,
                 rc(
                   FuncMeta(
-                    forall_labels : ArrayList(String).new(),
-                    param_labels : pa_new_labels,
-                    implicit_labels : ArrayList(String).new(),
+                    forall_labels : no_labels(),
+                    param_labels : pa_new_labels_s.clone(),
+                    implicit_labels : no_labels(),
                     result_is_comptime_only : true,
-                    param_is_ref : pa_new_flags,
-                    param_is_owning : pa_new_own,
+                    param_is_ref : shared_list(pa_new_flags),
+                    param_is_owning : shared_list(pa_new_own),
                     result_is_ref : false,
                     has_variadic : false,
                     is_extern : Option(String).None,
@@ -8874,7 +8875,7 @@ Fix: wrap the call:
                     variadic_comptime : false
                   )
                 ),
-                ArrayList(TypeValue).new()
+                no_types()
               )
             );
             pa_fid := `partial_${pa_id}`;
@@ -8884,7 +8885,7 @@ Fix: wrap the call:
               rc(
                 FuncValData(
                   forall_names : ArrayList(String).new(),
-                  params : pa_new_labels,
+                  params : pa_new_labels_s.items,
                   param_type_names : pa_ptn,
                   evidence_params : ArrayList(String).new(),
                   body : pa_body,
@@ -8991,7 +8992,7 @@ Fix: wrap the call:
           _ => match(
             extract_fn_trait_from_type(&fv_callee_ty),
             .Some(Rc(.FnTraitT(_, _, fv_cpt, _, _, _, _, _))) => fv_cpt,
-            _ => ArrayList(TypeValue).new()
+            _ => no_types()
           )
         );
         // Per-parameter `ref` flags, parallel to `fv_param_types`. A
@@ -9009,10 +9010,10 @@ Fix: wrap the call:
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
               .Some(Rc(.FnTraitT(_, fv_cpl, _, _, _, _, _, _))) => fv_cpl,
-              _ => ArrayList(String).new()
+              _ => no_labels()
             )
           ),
-          .None => ArrayList(String).new()
+          .None => no_labels()
         );
         fv_param_is_ref := match(
           callee_info_opt,
@@ -9027,11 +9028,11 @@ Fix: wrap the call:
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
               .Some(Rc(.FnTraitT(_, _, _, _, _, _, fv_cprf, _))) => fv_cprf,
-              .Some(_) => ArrayList(bool).new(),
-              .None => ArrayList(bool).new()
+              .Some(_) => no_flags(),
+              .None => no_flags()
             )
           ),
-          .None => ArrayList(bool).new()
+          .None => no_flags()
         );
         // Aliasing Stage 0: drops synthesized for projection args in THIS
         // call's inline arg loop; merged into the call's ExprInfo below.
@@ -9052,25 +9053,25 @@ Fix: wrap the call:
             _ => match(
               extract_fn_trait_from_type(&ci.ty),
               .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, fv_cpof))) => fv_cpof,
-              _ => ArrayList(bool).new()
+              _ => no_flags()
             )
           ),
-          .None => ArrayList(bool).new()
+          .None => no_flags()
         );
         fv_param_is_sink := match(
           callee_info_opt,
           .Some(ci_s) => match(
             ci_s.ty,
-            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new()),
-            _ => ArrayList(bool).new()
+            Rc(.Func({ meta : __fm7s })) => match(__fm7s.*.param_is_sink, .Some(l) => l, .None => no_flags()),
+            _ => no_flags()
           ),
-          .None => ArrayList(bool).new()
+          .None => no_flags()
         );
         // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
         // before any rule reads the arguments (helper.yo's shared rule).
         // The arguments as written, for decision 33's bare-argument rule.
         fv_written_args := fv_args;
-        fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types, &fv_param_is_ref, &fv_param_is_owning, &fv_param_labels, false, exn);
+        fv_args = apply_call_site_borrow_markers(&fv_args, &fv_param_types.items, &fv_param_is_ref.items, &fv_param_is_owning.items, &fv_param_labels.items, false, exn);
         // An operator's operands take no marker (decision 34).
         fv_call_is_operator := match(expr, .FnCall(_, fop_f, _, fop_infix, _) => (fop_infix || match(fop_f, .Atom(_, fop_t) => (fop_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
         // Per-param `comptime(...)` flags (side table by fid) — the generic
@@ -9158,7 +9159,7 @@ Fix: wrap the call:
         // infer enum variant type".
         fv_func_type := fv_callee_ty;
         fv_has_explicit_forall := fv_forall_arg_exprs.is_some();
-        (resolved_param_types : ArrayList(TypeValue)) = fv_param_types;
+        (resolved_param_types : SharedList(TypeValue)) = fv_param_types;
         (rpt_from_expected : bool) = false;
         // The binders the expected type alone fixes (bound below when no
         // argument binds them).
@@ -9171,7 +9172,7 @@ Fix: wrap the call:
               rpt_holder := ArrayList(TypeValue).new();
               resolve_param_types_from_expected(&fv_func_type, &fv_exp.ty, &fv_exp.env, env, ctx, &mut rpt_holder, &mut fv_exp_forall_names, &mut fv_exp_forall_types);
               if(rpt_holder.len() == fv_param_types.len(), {
-                resolved_param_types = rpt_holder;
+                resolved_param_types = shared_list(rpt_holder);
                 rpt_from_expected = true;
               });
             },
@@ -9214,7 +9215,7 @@ Fix: wrap the call:
         // bool result for T = i32
         // (issues/fixed/closure-result-type-is-not-checked-against-the-expected-fn-type.md).
         // The per-argument lists are put back in source order after the loop.
-        fv_eval_order := _fv_argument_eval_order(&fv_args, n_p, &resolved_param_types, &forall_names);
+        fv_eval_order := _fv_argument_eval_order(&fv_args, n_p, &resolved_param_types.items, &forall_names);
         fv_reordered := _fv_order_is_permuted(&fv_eval_order);
         // An `undefined` argument pins source order AND disables refinement
         // (see _fv_argument_eval_order).
@@ -9524,9 +9525,9 @@ Fix: wrap the call:
               .Some(vs_ovr) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : vs_ovr, env : env)),
               .None => match(
                 cond(
-                  (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types, &forall_names)) => match(
+                  (!fv_keeps_source_order && fn_literal_arg_is_deferred(&fv_args, ai, n_p, &resolved_param_types.items, &forall_names)) => match(
                     resolved_param_types.get(ai),
-                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(&r_apt, &forall_names, &param_type_names, &fv_param_types, &evaled_arg_infos, &fv_eai_idx, &fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
+                    .Some(r_apt) => Option(TypeValue).Some(_fv_refine_closure_expected(&r_apt, &forall_names, &param_type_names, &fv_param_types.items, &evaled_arg_infos, &fv_eai_idx, &fv_param_ct, get_func_where_clause_exprs(func_id_fv.clone()), env)),
                     .None => Option(TypeValue).None
                   ),
                   true => resolved_param_types.get(ai)
@@ -9700,7 +9701,7 @@ Fix: wrap the call:
                   env,
                   ctx,
                   exn,
-                  argument_is_aliased_by_inout(&arg_expr_eff, fv_p_is_ref, inout_argument_roots(&fv_args, &fv_param_is_ref)),
+                  argument_is_aliased_by_inout(&arg_expr_eff, fv_p_is_ref, inout_argument_roots(&fv_args, &fv_param_is_ref.items)),
                   fv_p_sink,
                   _param_accepts_second_class(
                     expr,
@@ -9976,8 +9977,8 @@ Fix: wrap the call:
         // issues/fixed/self-dispatch-loses-type-args.md.
         recv_type_args := match(
           _static_dot_receiver_self_type(&func_expr, ctx),
-          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new()),
-          .None => ArrayList(TypeValue).new()
+          .Some(rt) => match(rt, Rc(.Struct({ type_arguments : ta })) => ta, _ => no_types()),
+          .None => no_types()
         );
         // Infer generic type params from argument types.
         n_forall := forall_names.len();
@@ -10000,10 +10001,10 @@ Fix: wrap the call:
           n_forall,
           &mut fa_bound_names,
           &mut fa_bound_types,
-          if(rpt_from_expected, resolved_param_types, ArrayList(TypeValue).new()),
+          if(rpt_from_expected, resolved_param_types.items, ArrayList(TypeValue).new()),
           &fv_param_types,
           &fv_param_ct,
-          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => ArrayList(TypeValue).new()),
+          match(fv_callee_ty, Rc(.Func({ forall_types : fk_fts })) => fk_fts, _ => no_types()),
           &fv_pre_forall_names,
           &fv_pre_forall_vals,
           &fv_pre_forall_tys,
@@ -10052,18 +10053,18 @@ Fix: wrap the call:
         // evaluation so the chain types are resolved); this inline FuncVal
         // arm is a second call path, so the gate runs here too.
         require_ref_own_argument_exclusivity(
-          &fv_param_labels,
-          &fv_param_is_ref,
-          &fv_param_is_owning,
+          &fv_param_labels.items,
+          &fv_param_is_ref.items,
+          &fv_param_is_owning.items,
           &fv_args,
           env,
           ctx,
           exn
         );
-        require_valid_ref_argument_places(&fv_param_is_ref, &fv_args, env, ctx, exn);
-        require_capture_borrow_exclusivity(&fv_param_is_ref, &fv_param_is_owning, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
+        require_valid_ref_argument_places(&fv_param_is_ref.items, &fv_args, env, ctx, exn);
+        require_capture_borrow_exclusivity(&fv_param_is_ref.items, &fv_param_is_owning.items, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
         fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
-        require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels, &fv_param_is_ref, &fv_args, fv_returns_place, env, ctx);
+        require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels.items, &fv_param_is_ref.items, &fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
         // omitted at the call site (they have `?= default`s); bind each to
         // its recorded default value (typed by its declared type) so the
@@ -10765,7 +10766,7 @@ Fix: wrap the call:
                 _ => rl_t
               )
             );
-            resolved_ret_ct = _rlv(&resolved_ret_ct, &fv_param_labels, &evaled_arg_infos);
+            resolved_ret_ct = _rlv(&resolved_ret_ct, &fv_param_labels.items, &evaled_arg_infos);
           };
           out_ct := new_expr_info(&ct_result.caller_env, &resolved_ret_ct);
           // A RUNTIME-ONLY UnknownVal here means the CTFE body was NOT
@@ -11166,10 +11167,8 @@ Fix: wrap the call:
           // reads whichever call wrote last.
           // The forall labels come from the Func's meta, which is the method's
           // own binder list; the gate inside the helper is unchanged.
-          m_callee_ty := _freshen_generic_closure_callee(
-            &method_info.method_ty,
-            match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => ArrayList(String).new())
-          );
+          m_forall := match(method_info.method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.forall_labels, _ => no_labels());
+          m_callee_ty := _freshen_generic_closure_callee(&method_info.method_ty, &m_forall.items);
           all_args := ArrayList(AstExpr).new();
           if(!method_info.is_static, {
             // When the method's self param is `*(T)` and the receiver is a
@@ -11214,7 +11213,7 @@ Fix: wrap the call:
               Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
                 uc_head := ArrayList(AstExpr).new();
                 match(args.get(usize(0)), .Some(a0) => uc_head.push(a0), .None => ());
-                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts, &uc_fm.*.param_is_ref, &uc_fm.*.param_is_owning, &uc_fm.*.param_labels, false, exn);
+                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts.items, &uc_fm.*.param_is_ref.items, &uc_fm.*.param_is_owning.items, &uc_fm.*.param_labels.items, false, exn);
                 uc_out := ArrayList(AstExpr).new();
                 (uci : usize) = usize(0);
                 while(uci < args.len(), {

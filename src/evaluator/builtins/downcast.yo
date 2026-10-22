@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { is_dyn_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalContext } :: import("../context.yo");
@@ -256,14 +256,14 @@ evaluate_upcast :: (
       )
     );
   });
-  src_req := match(src_type, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
-  src_neg := match(src_type, Rc(.DynT({ negative_trait_types : n })) => n, _ => ArrayList(TypeValue).new());
-  tgt_req := match(target_type, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
-  tgt_neg := match(target_type, Rc(.DynT({ negative_trait_types : n })) => n, _ => ArrayList(TypeValue).new());
+  src_req := match(src_type, Rc(.DynT({ required_trait_types : r })) => r, _ => no_types());
+  src_neg := match(src_type, Rc(.DynT({ negative_trait_types : n })) => n, _ => no_types());
+  tgt_req := match(target_type, Rc(.DynT({ required_trait_types : r })) => r, _ => no_types());
+  tgt_neg := match(target_type, Rc(.DynT({ negative_trait_types : n })) => n, _ => no_types());
   (ri : usize) = usize(0);
   while(ri < tgt_req.len(), {
     rt := match(tgt_req.get(ri), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    if(!_trait_in(&rt, &src_req), {
+    if(!_trait_in(&rt, &src_req.items), {
       exn.throw(
         dyn(
           with_code(
@@ -281,7 +281,7 @@ evaluate_upcast :: (
   (ni : usize) = usize(0);
   while(ni < tgt_neg.len(), {
     nt := match(tgt_neg.get(ni), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-    if(!_trait_in(&nt, &src_neg), {
+    if(!_trait_in(&nt, &src_neg.items), {
       exn.throw(
         dyn(
           with_code(

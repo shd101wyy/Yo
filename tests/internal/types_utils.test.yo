@@ -2,7 +2,7 @@
 /// integer range, and comptime cast checks.
 { String } :: import("std/string");
 import("std/fmt");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, SharedList } :: import("../../src/types/definitions.yo");
 { t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../src/types/creators.yo");
 { Environment } :: import("../../src/env.yo");
 { type_intern_key } :: import("../../src/types/intern.yo");
@@ -405,13 +405,13 @@ test("type_contains_rc_type: object struct is RC", {
     TypeValueNode.Struct(
       id : String.from("id1"),
       name : String.from("Obj"),
-      field_labels : labels,
-      field_types : types,
+      field_labels : shared_list(labels),
+      field_types : shared_list(types),
       is_reference_semantics : true,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   );
@@ -424,13 +424,13 @@ test("type_contains_rc_type: plain struct returns false", {
     TypeValueNode.Struct(
       id : String.from("id2"),
       name : String.from("Point"),
-      field_labels : labels,
-      field_types : types,
+      field_labels : shared_list(labels),
+      field_types : shared_list(types),
       is_reference_semantics : false,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   );
@@ -445,13 +445,13 @@ test("type_contains_rc_type: struct containing object field returns true", {
       TypeValueNode.Struct(
         id : String.from("id3"),
         name : String.from("Inner"),
-        field_labels : ArrayList(String).new(),
-        field_types : ArrayList(TypeValue).new(),
+        field_labels : no_labels(),
+        field_types : no_types(),
         is_reference_semantics : true,
         is_atomic_rc : false,
         is_newtype : false,
         constructor_func_id : String.from(""),
-        type_arguments : ArrayList(TypeValue).new(),
+        type_arguments : no_types(),
         is_source_namespace : false
       )
     )
@@ -460,13 +460,13 @@ test("type_contains_rc_type: struct containing object field returns true", {
     TypeValueNode.Struct(
       id : String.from("id4"),
       name : String.from("Outer"),
-      field_labels : field_labels,
-      field_types : inner_types,
+      field_labels : shared_list(field_labels),
+      field_types : shared_list(inner_types),
       is_reference_semantics : false,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
+      type_arguments : no_types(),
       is_source_namespace : false
     )
   );
@@ -491,9 +491,14 @@ test("type_contains_rc_type: unresolved SomeT is conservatively true", {
 // form object-graph cycles, and yo-self terminates via the depth cap (40)
 // rather than TS's visited set.
 // ---------------------------------------------------------------------------
-_trp_struct :: (fn(name : &String, labels : &ArrayList(String), types : &ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)(
-  rc(TypeValueNode.Struct(String.from(""), name, labels, types, is_ref, is_atomic, is_newtype, String.from(""), ArrayList(TypeValue).new(), false))
-);
+_trp_struct :: (fn(name : &String, labels : &ArrayList(String), types : &ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)({
+  // Copied into locals first: two `shared_list(x.clone())` arguments of
+  // different element types in one body fail to check
+  // (issues/2026-10-21-generic-arraylist-inference-from-two-clone-arguments-unifies-their-element-types.md).
+  own_labels := labels.clone();
+  own_types := types.clone();
+  rc(TypeValueNode.Struct(String.from(""), name, shared_list(own_labels), shared_list(own_types), is_ref, is_atomic, is_newtype, String.from(""), no_types(), false))
+});
 _trp_labels1 :: (fn(a : &String) -> ArrayList(String))({
   l := ArrayList(String).new();
   l.push(a);
@@ -546,7 +551,7 @@ test("raw-ptr predicate: tuple with a Ptr field is true", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_ptr(t_u8()));
-  assert(type_representation_contains_raw_ptr(rc(TypeValueNode.Tuple(labels, types))), "(i32, *(u8))");
+  assert(type_representation_contains_raw_ptr(rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types)))), "(i32, *(u8))");
 });
 test("raw-ptr predicate: tuple of primitives is false", {
   labels := ArrayList(String).new();
@@ -555,38 +560,38 @@ test("raw-ptr predicate: tuple of primitives is false", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_bool());
-  assert(!type_representation_contains_raw_ptr(rc(TypeValueNode.Tuple(labels, types))), "(i32, bool)");
+  assert(!type_representation_contains_raw_ptr(rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types)))), "(i32, bool)");
 });
 test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   vnames := ArrayList(String).new();
   vnames.push(String.from("None"));
   vnames.push(String.from("Some"));
-  vfields := ArrayList(ArrayList(TypeValue)).new();
-  vfields.push(ArrayList(TypeValue).new());
-  vfields.push(_trp_types1(t_ptr(t_u8())));
-  vlabels := ArrayList(ArrayList(String)).new();
-  vlabels.push(ArrayList(String).new());
-  vlabels.push(_trp_labels1(String.from("0")));
+  vfields := ArrayList(SharedList(TypeValue)).new();
+  vfields.push(no_types());
+  vfields.push(shared_list(_trp_types1(t_ptr(t_u8()))));
+  vlabels := ArrayList(SharedList(String)).new();
+  vlabels.push(no_labels());
+  vlabels.push(shared_list(_trp_labels1(String.from("0"))));
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  e := rc(TypeValueNode.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new()));
+  e := rc(TypeValueNode.EnumT(String.from(""), String.from("OptPtr"), shared_list(vnames), shared_list(vfields), Option(String).None, shared_list(vlabels), shared_list(discs), false, false, no_types()));
   assert(type_representation_contains_raw_ptr(&e), "enum(None, Some(*(u8)))");
 });
 test("raw-ptr predicate: enum with only primitive variants is false", {
   vnames := ArrayList(String).new();
   vnames.push(String.from("A"));
   vnames.push(String.from("B"));
-  vfields := ArrayList(ArrayList(TypeValue)).new();
-  vfields.push(ArrayList(TypeValue).new());
-  vfields.push(_trp_types1(t_i32()));
-  vlabels := ArrayList(ArrayList(String)).new();
-  vlabels.push(ArrayList(String).new());
-  vlabels.push(_trp_labels1(String.from("0")));
+  vfields := ArrayList(SharedList(TypeValue)).new();
+  vfields.push(no_types());
+  vfields.push(shared_list(_trp_types1(t_i32())));
+  vlabels := ArrayList(SharedList(String)).new();
+  vlabels.push(no_labels());
+  vlabels.push(shared_list(_trp_labels1(String.from("0"))));
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  e := rc(TypeValueNode.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new()));
+  e := rc(TypeValueNode.EnumT(String.from(""), String.from("Prim"), shared_list(vnames), shared_list(vfields), Option(String).None, shared_list(vlabels), shared_list(discs), false, false, no_types()));
   assert(!type_representation_contains_raw_ptr(&e), "enum(A, B(i32))");
 });
 test("raw-ptr predicate: union with a Ptr field is true", {
@@ -596,7 +601,7 @@ test("raw-ptr predicate: union with a Ptr field is true", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_ptr(t_u8()));
-  assert(type_representation_contains_raw_ptr(rc(TypeValueNode.Union(String.from("U"), labels, types))), "union(i : i32, p : *(u8))");
+  assert(type_representation_contains_raw_ptr(rc(TypeValueNode.Union(String.from("U"), shared_list(labels), shared_list(types)))), "union(i : i32, p : *(u8))");
 });
 test("raw-ptr predicate: nested struct wrapping a newtype with an inner Ptr is true", {
   inner := _trp_struct(String.from("Inner"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);
@@ -628,22 +633,32 @@ test("type_intern_key: nested empty-id structs of different depth key apart", {
   assert(_tk(&two) != _tk(&three), "Nest(Nest(*u8)) vs Nest(Nest(Nest(*u8)))");
   assert(_tk(&two) == _tk(&two.clone()), "a type keys like its clone");
 });
+// A type's lists are never written after the node is built, so no TypeValue
+// the compiler makes contains itself. This test writes a node's field list
+// through the list handle on purpose, to build the cycle the predicate's
+// depth cap must survive. `fields` must not be empty: `shared_list` of an
+// empty list is the shared empty list, which this would write.
+_trp_looped_struct :: (fn(name : &String, sink(labels) : ArrayList(String), sink(fields) : ArrayList(TypeValue), at : usize) -> TypeValue)({
+  shared_fields := shared_list(fields);
+  looped := rc(TypeValueNode.Struct(String.from(""), name, shared_list(labels), shared_fields.clone(), false, false, false, String.from(""), no_types(), false));
+  items := shared_fields.*.items;
+  items.insert(at, looped.clone());
+  looped
+});
 test("raw-ptr predicate: a type object that contains itself terminates", {
   labels := ArrayList(String).new();
   labels.push(String.from("a"));
   labels.push(String.from("b"));
   fields := ArrayList(TypeValue).new();
   fields.push(t_i32());
-  looped := _trp_struct(String.from("Loop"), &labels, &fields, false, false, false);
-  fields.push(looped.clone());
+  looped := _trp_looped_struct(String.from("Loop"), labels, fields, usize(1));
   assert(!type_representation_contains_raw_ptr(&looped), "struct(a : i32, b : <itself>)");
   ptr_labels := ArrayList(String).new();
   ptr_labels.push(String.from("a"));
   ptr_labels.push(String.from("b"));
   ptr_fields := ArrayList(TypeValue).new();
-  looped_ptr := _trp_struct(String.from("LoopPtr"), &ptr_labels, &ptr_fields, false, false, false);
-  ptr_fields.push(looped_ptr.clone());
   ptr_fields.push(t_ptr(t_u8()));
+  looped_ptr := _trp_looped_struct(String.from("LoopPtr"), ptr_labels, ptr_fields, usize(0));
   assert(type_representation_contains_raw_ptr(&looped_ptr), "struct(a : <itself>, b : *(u8))");
 });
 // Distinct types that share an id (here all empty) are not a cycle.

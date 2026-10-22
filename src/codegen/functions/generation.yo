@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation } :: import("../../expr_info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
@@ -821,11 +821,11 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
-            cap_labels := match(ci.capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+            cap_labels := match(ci.capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
             if(is_fnonce_closure_fn(func_id.clone()), {
-              owned_capture_labels = cap_labels.clone();
+              owned_capture_labels = cap_labels.items.clone();
             });
-            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
+            context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels.items);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
             context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(&ci.capture_type, &context.base));
           },
@@ -1222,7 +1222,7 @@ generate_all_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
 /// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`).
 /// (Evidence-param mains are unimplemented.)
 _main_call_args :: (fn(main_func_id : &String, context : &FunctionGenerationContext) -> String)({
-  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt, _ => no_types());
   out := String.from("(");
   n := pts.len();
   (i : usize) = usize(0);

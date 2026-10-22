@@ -36,7 +36,7 @@ import("std/fmt");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_value, is_unknown_val } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 {
   is_tuple_type,
   is_comptime_int_type,
@@ -276,7 +276,7 @@ evaluate_tuple_value :: (
   });
   result := evaluate_tuple_elements_value(&args, env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
-  tuple_ty := rc(TypeValueNode.Tuple(result.field_labels, result.field_types));
+  tuple_ty := rc(TypeValueNode.Tuple(shared_list(result.field_labels), shared_list(result.field_types)));
   (all_known : bool) = true;
   (k : usize) = usize(0);
   while((k < result.values.len()) && all_known, {

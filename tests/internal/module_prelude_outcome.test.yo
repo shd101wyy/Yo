@@ -31,7 +31,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { mm_load_file, resolve_std_path } :: import("../../src/module_manager.yo");
 { EvalValue } :: import("../../src/value.yo");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../src/types/definitions.yo");
 { is_module_type, is_function_type, is_function_type_and_is_type_function } :: import(
   "../../src/types/guards.yo"
 );
@@ -42,13 +42,13 @@
 pragma(Pragma.AllowUnsafe);
 /// The field labels of a source-namespace module type, or an empty list for
 /// anything else.
-_ns_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
-  match(t, Rc(.Struct({ field_labels })) => field_labels, _ => ArrayList(String).new())
+_ns_labels :: (fn(t : &TypeValue) -> SharedList(String))(
+  match(t, Rc(.Struct({ field_labels })) => field_labels, _ => no_labels())
 );
 /// The field types of a source-namespace module type, or an empty list for
 /// anything else.
-_ns_types :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
-  match(t, Rc(.Struct({ field_types })) => field_types, _ => ArrayList(TypeValue).new())
+_ns_types :: (fn(t : &TypeValue) -> SharedList(TypeValue))(
+  match(t, Rc(.Struct({ field_types })) => field_types, _ => no_types())
 );
 /// A namespace field's TYPE by label — the type the export walk recorded for
 /// that binding, which is what `build_doc_module` routes a declaration on.
@@ -121,7 +121,7 @@ test("the cached prelude loads as a module, not as Unit", {
   outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
   assert(outcome.ok, "the cached prelude is a successful load");
   assert(is_module_type(&outcome.module_type), "the outcome's type is a module type, not Unit");
-  labels := _ns_labels(&outcome.module_type);
+  labels := _ns_labels(&outcome.module_type).*.items;
   assert(labels.len() > usize(100), `the prelude namespace is populated, got ${labels.len().to_string()} field(s)`);
   // Three declarations a reader of the prelude page must find: a type, a
   // generic type constructor and a trait.

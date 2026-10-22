@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, snapshot_env } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
@@ -95,13 +95,13 @@ evaluate_anonymous_struct_value :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new(),
+      no_labels(),
+      no_types(),
       false,
       false,
       false,
       String.from(""),
-      ArrayList(TypeValue).new(),
+      no_types(),
       false
     )
   );
@@ -215,17 +215,18 @@ evaluate_anonymous_struct_value :: (
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType — no-op stub.
   // Build final struct TypeValue
+  field_labels_s := shared_list(field_labels);
   struct_ty := rc(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      field_types,
+      field_labels_s.clone(),
+      shared_list(field_types),
       false,
       false,
       false,
       String.from(""),
-      ArrayList(TypeValue).new(),
+      no_types(),
       false
     )
   );
@@ -255,9 +256,9 @@ evaluate_anonymous_struct_value :: (
       sv_names := ArrayList(String).new();
       sv_vals := ArrayList(EvalValue).new();
       (si : usize) = usize(0);
-      while(si < field_labels.len(), {
+      while(si < field_labels_s.len(), {
         match(
-          field_labels.get(si),
+          field_labels_s.get(si),
           .Some(l) => {
             sv_names.push(l);
           },

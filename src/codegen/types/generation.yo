@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
@@ -414,7 +414,7 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       // Simple C enum (all variants fieldless).
       if(can_optimize_as_simple_enum(enum_type), {
         context.emitter.emit_declaration_string_line(`typedef enum { // ${name} : ${type_to_string(enum_type)} (optimized as simple enum)`);
-        _emit_enum_tags(c_name, &variant_names, &variant_discriminants, context);
+        _emit_enum_tags(c_name, &variant_names.items, &variant_discriminants.items, context);
         context.emitter.emit_declaration_string_line(`} ${c_name};`);
         context.emitter.emit_declaration_line("");
         return(());
@@ -424,7 +424,7 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       tag_enum_name.push_string(c_name.clone());
       tag_enum_name.push_str("_tag");
       context.emitter.emit_declaration_line("typedef enum {");
-      _emit_enum_tags(c_name, &variant_names, &variant_discriminants, context);
+      _emit_enum_tags(c_name, &variant_names.items, &variant_discriminants.items, context);
       context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
       context.emitter.emit_declaration_line("");
       // Data union (struct per variant with non-unit fields). When NO variant
@@ -441,7 +441,7 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       nv := variant_names.len();
       (pvi : usize) = usize(0);
       while(pvi < nv, {
-        pfields := match(variant_fields.get(pvi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        pfields := match(variant_fields.get(pvi), .Some(f) => f, .None => no_types());
         (pfi : usize) = usize(0);
         while(pfi < pfields.len(), {
           match(
@@ -467,8 +467,8 @@ generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, conte
       });
       (vi : usize) = usize(0);
       while(vi < nv, {
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
         // Count non-unit fields.
         (non_unit : usize) = usize(0);
         nf := fields.len();
@@ -1311,7 +1311,7 @@ _walk_enum_some_only :: (fn(type : &TypeValue, visited : &mut HashSet(String)) -
       nv := variant_fields.len();
       (vi : usize) = usize(0);
       while((vi < nv) && ok, {
-        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         nf := fields.len();
         (fi : usize) = usize(0);
         while((fi < nf) && ok, {
@@ -2030,7 +2030,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
               nv := variant_fields.len();
               (vi : usize) = usize(0);
               while(vi < nv, {
-                vfs := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+                vfs := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
                 nvf := vfs.len();
                 (vfi : usize) = usize(0);
                 while(vfi < nvf, {

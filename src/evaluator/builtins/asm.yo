@@ -9,7 +9,7 @@ pragma(Pragma.AllowUnsafe);
 { Token } :: import("../../token.yo");
 { Environment, get_variables_from_env, Variable } :: import("../../env.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_integer_type, is_float_type, is_pointer_type, is_bool_type, is_comptime_string_type } :: import("../../types/guards.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -929,7 +929,7 @@ evaluate_asm :: (
         types.push(match(return_output_types.get(ti), .Some(t) => t, .None => t_unit()));
         ti = (ti + usize(1));
       });
-      return_type = rc(TypeValueNode.Tuple(labels, types));
+      return_type = rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types)));
     }
   );
   // --- Validate template placeholders ---

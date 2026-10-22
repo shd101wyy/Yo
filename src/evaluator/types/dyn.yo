@@ -33,7 +33,7 @@ import("std/fmt");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("../../types/definitions.yo");
 { t_dyn, t_i32 } :: import("../../types/creators.yo");
 { is_trait_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -327,7 +327,7 @@ evaluate_dyn_type :: (
   _reject_dyn_slot_name_clash(&required_traits, ast_expr_token(expr), exn);
   // Phase 2aq deferred: reserved function-name check.
   // Phase 2aq deferred: addRcFunctionsToDynType ARC injection.
-  dyn_ty := t_dyn(&required_traits, &required_levels, &negative_traits, &negative_levels);
+  dyn_ty := t_dyn(required_traits, required_levels, negative_traits, negative_levels);
   dyn_val := create_type_value(&dyn_ty);
   meta_type := type_of_type(&dyn_ty);
   out_info := new_expr_info(&cur_env, &meta_type);

@@ -4,7 +4,7 @@
 //! universe level) of any TypeValue.  Mirrors `src/types/hierarchy.ts`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels, no_discriminants, SharedList, no_label_lists } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_i32, t_usize, t_some_t } :: import("../../src/types/creators.yo");
 { type_of_type } :: import("../../src/types/hierarchy.yo");
 { assert, panic } :: import("std/assert");
@@ -73,7 +73,7 @@ test("Array of TypeUni(0) → TypeUni(1)", {
 // Tuple
 // ---------------------------------------------------------------------------
 test("empty Tuple → TypeUni(0)", {
-  result := type_of_type(rc(TypeValueNode.Tuple(ArrayList(String).new(), ArrayList(TypeValue).new())));
+  result := type_of_type(rc(TypeValueNode.Tuple(no_labels(), no_types())));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "empty Tuple should be TypeUni(0)");
 });
 test("Tuple of primitives → TypeUni(0)", {
@@ -81,7 +81,7 @@ test("Tuple of primitives → TypeUni(0)", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(rc(TypeValueNode.BoolT));
-  result := type_of_type(rc(TypeValueNode.Tuple(labels, types)));
+  result := type_of_type(rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types))));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "Tuple of primitives should be TypeUni(0)");
 });
 test("Tuple containing TypeUni(0) → TypeUni(1)", {
@@ -89,7 +89,7 @@ test("Tuple containing TypeUni(0) → TypeUni(1)", {
   types := ArrayList(TypeValue).new();
   types.push(rc(TypeValueNode.TypeUni(usize(0))));
   types.push(t_i32());
-  result := type_of_type(rc(TypeValueNode.Tuple(labels, types)));
+  result := type_of_type(rc(TypeValueNode.Tuple(shared_list(labels), shared_list(types))));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(1)), _ => false), "Tuple with TypeUni(0) field should give TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ test("Struct with primitive fields → TypeUni(0)", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(rc(TypeValueNode.BoolT));
-  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("Point"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false)));
+  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("Point"), field_labels : shared_list(labels), field_types : shared_list(types), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "Struct with primitive fields → TypeUni(0)");
 });
 test("Struct with TypeUni(0) field → TypeUni(1)", {
@@ -110,7 +110,7 @@ test("Struct with TypeUni(0) field → TypeUni(1)", {
   labels.push(String.from("ty"));
   types := ArrayList(TypeValue).new();
   types.push(rc(TypeValueNode.TypeUni(usize(0))));
-  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false)));
+  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : shared_list(labels), field_types : shared_list(types), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : no_types(), is_source_namespace : false)));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(1)), _ => false), "Struct with TypeUni(0) field → TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -123,10 +123,10 @@ test("EnumT with primitive variants → TypeUni(0)", {
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
   some_fields.push(t_i32());
-  vfields := ArrayList(ArrayList(TypeValue)).new();
-  vfields.push(none_fields);
-  vfields.push(some_fields);
-  result := type_of_type(rc(TypeValueNode.EnumT(String.from(""), String.from("Option"), vnames, vfields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false, ArrayList(TypeValue).new())));
+  vfields := ArrayList(SharedList(TypeValue)).new();
+  vfields.push(shared_list(none_fields));
+  vfields.push(shared_list(some_fields));
+  result := type_of_type(rc(TypeValueNode.EnumT(String.from(""), String.from("Option"), shared_list(vnames), shared_list(vfields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types())));
   assert(match(result, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false), "EnumT with i32 variant → TypeUni(0)");
 });
 // ---------------------------------------------------------------------------
@@ -144,8 +144,8 @@ test("TraitT → TypeUni(1)", {
         Option(TypeValue).None,
         ArrayList(TypeValue).new(),
         ArrayList(TypeValue).new(),
-        ArrayList(String).new(),
-        ArrayList(TypeValue).new()
+        no_labels(),
+        no_types()
       )
     )
   );
@@ -159,13 +159,13 @@ test("source-namespace Struct (module) → TypeUni(1)", {
       TypeValueNode.Struct(
         id : String.from(""),
         name : String.from("std/fmt"),
-        field_labels : ArrayList(String).new(),
-        field_types : ArrayList(TypeValue).new(),
+        field_labels : no_labels(),
+        field_types : no_types(),
         is_reference_semantics : false,
         is_atomic_rc : false,
         is_newtype : false,
         constructor_func_id : String.from(""),
-        type_arguments : ArrayList(TypeValue).new(),
+        type_arguments : no_types(),
         is_source_namespace : true
       )
     )

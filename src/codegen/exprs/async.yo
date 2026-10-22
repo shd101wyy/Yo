@@ -22,7 +22,7 @@
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_labels } :: import("../../types/definitions.yo");
 {
   is_function_type,
   is_struct_type,
@@ -167,8 +167,8 @@ _add_mapping :: (fn(mappings : &mut ArrayList(EffectFieldMapping), label : &Stri
 /// The capture-struct field label matching an effect/bundle field: exact label,
 /// then case-insensitive label, then structural type match (`type_key`).
 _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_type : &TypeValue) -> Option(String))({
-  clabels := match(capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  ctypes := match(capture_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  clabels := match(capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+  ctypes := match(capture_type, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
   (i : usize) = usize(0);
   while(i < clabels.len(), {
     match(
@@ -210,8 +210,8 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
 _visit_effect_struct_fields :: (
   fn(struct_type : &TypeValue, base_path : &String, base_label : &String, mappings : &mut ArrayList(EffectFieldMapping)) -> unit
 )({
-  flabels := match(struct_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-  ftypes := match(struct_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  flabels := match(struct_type, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+  ftypes := match(struct_type, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
   (i : usize) = usize(0);
   while(i < flabels.len(), {
     flabel := match(flabels.get(i), .Some(l) => l, .None => String.from(""));
@@ -311,8 +311,8 @@ get_injectable_future_effect_field_mappings :: (
   ) -> ArrayList(EffectFieldMapping)
 )({
   mappings := ArrayList(EffectFieldMapping).new();
-  eff_labels := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => ArrayList(String).new());
-  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+  eff_labels := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => no_labels());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => no_types());
   (ei : usize) = usize(0);
   while(ei < eff_labels.len(), {
     elabel := match(eff_labels.get(ei), .Some(l) => l, .None => String.from(""));
@@ -330,8 +330,8 @@ get_injectable_future_effect_field_mappings :: (
         match(
           capture_type,
           .Some(ct) => {
-            ef_labels := match(etype, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
-            ef_types := match(etype, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+            ef_labels := match(etype, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+            ef_types := match(etype, Rc(.Struct({ field_types : ft })) => ft, _ => no_types());
             (fi : usize) = usize(0);
             while(fi < ef_labels.len(), {
               flabel := match(ef_labels.get(fi), .Some(l) => l, .None => String.from(""));
@@ -370,7 +370,7 @@ SyncParamSlot :: ref(struct(field_name : String, c_type : String));
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
 /// `.None`.
 _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeValue))({
-  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => no_types());
   (i : usize) = usize(0);
   while(i < eff_types.len(), {
     match(
@@ -1114,7 +1114,7 @@ _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField)
   (labels, types) := match(
     capture_type,
     Rc(.Struct({ field_labels : fl, field_types : ft })) => (fl, ft),
-    _ => (ArrayList(String).new(), ArrayList(TypeValue).new())
+    _ => (no_labels(), no_types())
   );
   out := ArrayList(TypeField).new();
   (i : usize) = usize(0);
@@ -2773,7 +2773,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     fsm_capture_type,
     .Some(ct) => {
       (cap_id : String) = match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
-      cap_labels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+      cap_labels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
       if((cap_labels.len() > usize(0)) && !capture_struct_has_decl_sites(cap_id.clone()), {
         codegen_fatal(`the capture struct ${cap_id} of an io.async block recorded no declaration sites, so its captures cannot be told from body bindings`);
       });
@@ -4009,8 +4009,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     // capture struct's field labels — each captured field is the same-named
     // variable in scope at the io.async call site. (The closure `value` is a
     // function reference, not a capture struct, so it cannot be used here.)
-    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new()), .None => ArrayList(String).new());
-    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => ArrayList(TypeValue).new()), .None => ArrayList(TypeValue).new());
+    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels()), .None => no_labels());
+    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => no_types()), .None => no_types());
     lit := String.from("(");
     lit.push_string(ccn.clone());
     lit.push_str("){ ");

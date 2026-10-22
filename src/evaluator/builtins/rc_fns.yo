@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, SharedList } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
@@ -26,9 +26,9 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
   some_fields.push(inner_type);
-  variant_fields := ArrayList(ArrayList(TypeValue)).new();
-  variant_fields.push(none_fields);
-  variant_fields.push(some_fields);
+  variant_fields := ArrayList(SharedList(TypeValue)).new();
+  variant_fields.push(shared_list(none_fields));
+  variant_fields.push(shared_list(some_fields));
   none_labels := ArrayList(String).new();
   some_labels := ArrayList(String).new();
   // "value" — MUST match prelude Option's `Some(value : T)` label: the
@@ -38,9 +38,9 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   // — a "val"-labelled winner made the field designator miss (the lexer
   // batch "field designator 'value' does not refer to any field").
   some_labels.push(String.from("value"));
-  variant_field_labels := ArrayList(ArrayList(String)).new();
-  variant_field_labels.push(none_labels);
-  variant_field_labels.push(some_labels);
+  variant_field_labels := ArrayList(SharedList(String)).new();
+  variant_field_labels.push(shared_list(none_labels));
+  variant_field_labels.push(shared_list(some_labels));
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
@@ -49,16 +49,16 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
       String.from(""),
       // id: empty (compat checks use name only)
       String.from("Option"),
-      variant_names,
-      variant_fields,
+      shared_list(variant_names),
+      shared_list(variant_fields),
       Option(String).None,
       // selected_variant_name
-      variant_field_labels,
-      discs,
+      shared_list(variant_field_labels),
+      shared_list(discs),
       false,
       false,
       // type_arguments: none (a synthesized rendition, not a ctor call)
-      ArrayList(TypeValue).new()
+      no_types()
     )
   )
 });
@@ -324,7 +324,7 @@ evaluate_yo_dup_tuple_element :: (
   );
   index_i64 := match(index_raw.parse_i64(), .Some(v) => v, .None => i64(0));
   index_usize := usize(index_i64);
-  field_types := match(tuple_type, Rc(.Tuple(_, fts)) => fts, _ => ArrayList(TypeValue).new());
+  field_types := match(tuple_type, Rc(.Tuple(_, fts)) => fts, _ => no_types());
   element_type := match(
     field_types.get(index_usize),
     .Some(ft) => ft,

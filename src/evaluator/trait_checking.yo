@@ -20,7 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { panic } :: import("std/assert");
-{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner, no_types, no_labels, SharedList, shared_list } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -559,12 +559,12 @@ _check_associated_type_constraints :: (
   atc_labels := match(
     trait_type,
     Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   atc_types := match(
     trait_type,
     Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   n_atc := atc_labels.len();
   if(n_atc == usize(0), {
@@ -672,31 +672,31 @@ _is_anonymous_record_type :: (fn(ty : &TypeValue) -> bool)(
 /// elements, an array's element, a closure's capture record, an anonymous
 /// record's fields, and none for a `fn` pointer (a code address). `.None`
 /// for every other type, which answers `Copy` through an impl.
-copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(ArrayList(TypeValue)))({
+copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(SharedList(TypeValue)))({
   ty := resolve_enum_shell(ty_in);
   if(is_bound_closure_identity(&ty), {
     return(
       match(
         resolve_cell_chain(&ty),
-        Rc(.Struct({ field_types : cs_fields })) => Option(ArrayList(TypeValue)).Some(cs_fields),
-        _ => Option(ArrayList(TypeValue)).None
+        Rc(.Struct({ field_types : cs_fields })) => Option(SharedList(TypeValue)).Some(cs_fields),
+        _ => Option(SharedList(TypeValue)).None
       )
     );
   });
   match(
     ty,
-    Rc(.Tuple({ field_types : tp_fields })) => Option(ArrayList(TypeValue)).Some(tp_fields),
+    Rc(.Tuple({ field_types : tp_fields })) => Option(SharedList(TypeValue)).Some(tp_fields),
     Rc(.Array(element : ar_elem, length : _, length_var : _)) => {
       parts := ArrayList(TypeValue).new();
       parts.push(ar_elem);
-      Option(ArrayList(TypeValue)).Some(parts)
+      Option(SharedList(TypeValue)).Some(shared_list(parts))
     },
-    Rc(.Func({ result : _ })) => Option(ArrayList(TypeValue)).Some(ArrayList(TypeValue).new()),
+    Rc(.Func({ result : _ })) => Option(SharedList(TypeValue)).Some(no_types()),
     Rc(.Struct({ field_types : rec_fields })) => cond(
-      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(ArrayList(TypeValue)).Some(rec_fields),
-      true => Option(ArrayList(TypeValue)).None
+      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(SharedList(TypeValue)).Some(rec_fields),
+      true => Option(SharedList(TypeValue)).None
     ),
-    _ => Option(ArrayList(TypeValue)).None
+    _ => Option(SharedList(TypeValue)).None
   )
 });
 /// True for the prelude `Clone` trait, by the same cheap name test first as
@@ -723,7 +723,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
     Rc(.EnumT({ variant_names : nc_vns, variant_fields : nc_vfs })) => {
       (vi : usize) = usize(0);
       while(vi < nc_vfs.len(), {
-        vf := match(nc_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(nc_vfs.get(vi), .Some(f) => f, .None => no_types());
         vn := match(nc_vns.get(vi), .Some(n) => n, .None => String.new());
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
@@ -981,17 +981,17 @@ _clone_runs_no_user_code_inner :: (fn(ty_in : &TypeValue, clone_tt : &TypeValue,
   );
   match(
     ty,
-    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields), clone_tt, visited, depth)),
+    Rc(.Struct({ field_types : fields })) => (_clone_parts_run_no_user_code(&fields.items, clone_tt, visited, depth) && _clone_parts_run_no_user_code(&buffer_element_types(&fields.items), clone_tt, visited, depth)),
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
-        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf, clone_tt, visited, depth), .None => true), {
+        if(!match(all_fields.get(vi), .Some(vf) => _clone_parts_run_no_user_code(&vf.items, clone_tt, visited, depth), .None => true), {
           return(false);
         });
       });
       true
     },
-    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs, clone_tt, visited, depth),
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _clone_parts_run_no_user_code(&tfs.items, clone_tt, visited, depth),
     Rc(.Array(element : el, length : _, length_var : _)) => _clone_runs_no_user_code_inner(&el, clone_tt, visited, depth + u32(1)),
     Rc(.DynT(required_trait_types : _)) => false,
     Rc(.Func({ result : _ })) => false,
@@ -1150,9 +1150,13 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   if((depth > u32(6)) || is_some_type(&ty) || type_implements_trait(&ty, copy_tt, env).implemented, {
     return(());
   });
+  // A copy of the structural parts, never the node's own list: the nominal
+  // arms below push onto `parts`, and an anonymous record or a closure
+  // capture struct is both structural and value-nominal, so its field types
+  // reach both (pushing onto the node's own list would grow the loop bound).
   parts := match(
     copy_structural_parts(&ty),
-    .Some(sp) => sp,
+    .Some(sp) => sp.items.clone(),
     .None => ArrayList(TypeValue).new()
   );
   if(is_value_nominal_type(&ty), {
@@ -1175,7 +1179,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       Rc(.EnumT({ variant_fields : bl_vfs })) => {
         (vi : usize) = usize(0);
         while(vi < bl_vfs.len(), {
-          vf := match(bl_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          vf := match(bl_vfs.get(vi), .Some(f) => f, .None => no_types());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
             parts.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
@@ -1432,16 +1436,16 @@ type_implements_trait :: (
       trait_type,
       Rc(.FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns)) => rc(
         TypeValueNode.Func(
-          ArrayList(TypeValue).new(),
+          no_types(),
           param_types,
-          ArrayList(TypeValue).new(),
-          ArrayList(TypeValue).new(),
+          no_types(),
+          no_types(),
           result,
           rc(
             FuncMeta(
-              forall_labels : ArrayList(String).new(),
+              forall_labels : no_labels(),
               param_labels : param_labels,
-              implicit_labels : ArrayList(String).new(),
+              implicit_labels : no_labels(),
               result_is_comptime_only : false,
               // Fn-trait call type (runtime)
               param_is_ref : ft_refs,
@@ -1457,7 +1461,7 @@ type_implements_trait :: (
               variadic_comptime : false
             )
           ),
-          ArrayList(TypeValue).new()
+          no_types()
         )
       ),
       _ => {
@@ -1533,7 +1537,7 @@ type_implements_trait :: (
     marker_relevant := (is_thread_marker || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
     if(marker_relevant, {
       // Determine the field types to check (None = marker not recomputable here).
-      (fields_opt : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
+      (fields_opt : Option(SharedList(TypeValue))) = Option(SharedList(TypeValue)).None;
       // The marker each field must hold. An atomic object's copies share one
       // payload, so it is `Send` and `Sync` only when its fields are `Sync`
       // (plans/VALUES_BY_DEFAULT.md §3.8: `Arc(T)` is `Send` and `Sync` when
@@ -1548,7 +1552,7 @@ type_implements_trait :: (
           (tn == "Runtime") => if(is_ref, {
             direct_true = true;
           }, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(SharedList(TypeValue)).Some(fts);
           }),
           // Send / Sync: a value struct needs every field to hold the
           // marker; an atomic object needs every field `Sync`; a non-atomic
@@ -1556,12 +1560,12 @@ type_implements_trait :: (
           // to impls (fall through).
           is_thread_marker => cond(
             !is_ref => {
-              fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+              fields_opt = Option(SharedList(TypeValue)).Some(fts);
             },
             is_atomic => match(
               sync_trait,
               .Some(st) => {
-                fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+                fields_opt = Option(SharedList(TypeValue)).Some(fts);
                 field_trait = st;
               },
               .None => ()
@@ -1570,14 +1574,14 @@ type_implements_trait :: (
           ),
           // Comptime: objects never; value structs need all fields Comptime.
           (tn == "Comptime") => if(!is_ref, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(SharedList(TypeValue)).Some(fts);
           }),
           // Acyclic: a value struct needs its fields Acyclic, and the
           // elements of a buffer it owns that reach a cell (V2b's unique
           // buffers; the auto-derive's rule); objects defer to the registry
           // (their Acyclic uses can_type_form_rc_cycle at definition).
           (tn == "Acyclic") => if(!is_ref, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(value_acyclic_obligations(&fts));
+            fields_opt = Option(SharedList(TypeValue)).Some(shared_list(value_acyclic_obligations(&fts.items)));
           }),
           true => ()
         ),
@@ -1590,7 +1594,7 @@ type_implements_trait :: (
           flat := ArrayList(TypeValue).new();
           (vi : usize) = usize(0);
           while(vi < vfs.len(), {
-            vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+            vf := match(vfs.get(vi), .Some(f) => f, .None => no_types());
             (vj : usize) = usize(0);
             while(vj < vf.len(), {
               flat.push(match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
@@ -1600,7 +1604,7 @@ type_implements_trait :: (
           });
           cond(
             !e_is_ref => {
-              fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+              fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
             },
             (tn == "Runtime") => {
               direct_true = true;
@@ -1608,7 +1612,7 @@ type_implements_trait :: (
             (is_thread_marker && e_is_atomic) => match(
               sync_trait,
               .Some(st) => {
-                fields_opt = Option(ArrayList(TypeValue)).Some(flat);
+                fields_opt = Option(SharedList(TypeValue)).Some(shared_list(flat));
                 field_trait = st;
               },
               .None => ()
@@ -1625,7 +1629,7 @@ type_implements_trait :: (
         // marker holds iff every field type holds it.
         // See issues/fixed/tuple-types-derive-no-auto-derived-marker.md.
         Rc(.Tuple({ field_types : tuple_fts })) => {
-          fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts);
+          fields_opt = Option(SharedList(TypeValue)).Some(tuple_fts);
         },
         // A `fn(...)` type is a code pointer: it holds no reference, so it is
         // Acyclic. It is NOT Send as a type: whether a function may run on
@@ -1648,7 +1652,7 @@ type_implements_trait :: (
         Rc(.Pointer(pointee_box)) => if(tn == "Acyclic", {
           pfields := ArrayList(TypeValue).new();
           pfields.push(pointee_box);
-          fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
+          fields_opt = Option(SharedList(TypeValue)).Some(shared_list(pfields));
         }),
         _ => ()
       );
@@ -2510,7 +2514,7 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 /// named closure). `complete` is false when the per-parameter flags are not
 /// all recorded (a closure type no `Fn(...)` was written for), so nothing
 /// can be said about its modes.
-_SigModes :: struct(labels : ArrayList(String), types : ArrayList(TypeValue), refs : ArrayList(bool), owns : ArrayList(bool), n : usize, complete : bool);
+_SigModes :: struct(labels : SharedList(String), types : SharedList(TypeValue), refs : SharedList(bool), owns : SharedList(bool), n : usize, complete : bool);
 _sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,
@@ -2867,7 +2871,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < variant_fields.len()) && !found, {
-        vf := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        vf := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
         (vj : usize) = usize(0);
         while((vj < vf.len()) && !found, {
           ft := match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit));

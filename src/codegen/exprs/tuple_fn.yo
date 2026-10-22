@@ -14,7 +14,7 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_variable_type_string, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, no_types } :: import("../../types/definitions.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
@@ -27,7 +27,7 @@ _args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 /// tuple has a result variable name. Shared by the main and fallback paths.
 _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
-  elem_types := match(ei.ty, Rc(.Tuple({ field_types : fts })) => fts, _ => ArrayList(TypeValue).new());
+  elem_types := match(ei.ty, Rc(.Tuple({ field_types : fts })) => fts, _ => no_types());
   args_list := String.from("");
   n := arg_exprs.len();
   (i : usize) = usize(0);

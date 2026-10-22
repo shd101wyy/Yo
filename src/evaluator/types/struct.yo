@@ -22,7 +22,7 @@ import("std/fmt");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, register_struct_field_comptime_flags, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -100,14 +100,14 @@ evaluate_struct_type :: (
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new(),
+      no_labels(),
+      no_types(),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
       String.from(""),
       // constructor_func_id — set later at the comptime-fn call site
-      ArrayList(TypeValue).new(),
+      no_types(),
       // type_arguments — set later at the comptime-fn call site
       false // is_source_namespace
     )
@@ -248,24 +248,27 @@ evaluate_struct_type :: (
   // self-shell patched out of the field types one level. Deeper self-nesting
   // resolves through the struct-final registry (resolve_struct_shell) at use
   // sites.
+  // Shared by the pre-final and the final type.
+  field_labels_s := shared_list(field_labels);
+  field_types_s := shared_list(field_types);
   pre_final_ty := rc(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      field_types,
+      field_labels_s.clone(),
+      field_types_s.clone(),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
       String.from(""),
-      ArrayList(TypeValue).new(),
+      no_types(),
       false
     )
   );
   patched_types := ArrayList(TypeValue).new();
   (pt_i : usize) = usize(0);
-  while(pt_i < field_types.len(), {
-    ft := match(field_types.get(pt_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+  while(pt_i < field_types_s.len(), {
+    ft := match(field_types_s.get(pt_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     patched_types.push(_patch_self_shell(&ft, struct_id.clone(), &pre_final_ty));
     pt_i = (pt_i + usize(1));
   });
@@ -283,7 +286,7 @@ evaluate_struct_type :: (
     (vc_i : usize) = usize(0);
     while(vc_i < patched_types.len(), {
       vc_ft := match(patched_types.get(vc_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-      vc_label := match(field_labels.get(vc_i), .Some(l) => l, .None => String.from(""));
+      vc_label := match(field_labels_s.get(vc_i), .Some(l) => l, .None => String.from(""));
       if(_type_reaches_root_by_value(&vc_ft, struct_id.clone(), struct_id.clone(), ArrayList(String).new()), {
         exn.throw(
           dyn(
@@ -297,20 +300,21 @@ evaluate_struct_type :: (
       vc_i = (vc_i + usize(1));
     });
   });
+  patched_types_s := shared_list(patched_types);
   // Build final struct TypeValue with all fields populated (shell-patched).
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
   struct_ty := rc(
     TypeValueNode.Struct(
       struct_id.clone(),
       String.from(""),
-      field_labels,
-      patched_types,
+      field_labels_s.clone(),
+      patched_types_s.clone(),
       is_reference_semantics,
       is_atomic_rc,
       is_newtype,
       String.from(""),
       // constructor_func_id — set later at the comptime-fn call site
-      ArrayList(TypeValue).new(),
+      no_types(),
       // type_arguments — set later at the comptime-fn call site
       false // is_source_namespace
     )
@@ -335,8 +339,8 @@ evaluate_struct_type :: (
   if(is_atomic_rc, {
     enforce_atomic_object_send(
       &struct_ty,
-      &field_labels,
-      &patched_types,
+      &field_labels_s.items,
+      &patched_types_s.items,
       &env,
       ast_expr_token(expr),
       exn
@@ -349,7 +353,7 @@ evaluate_struct_type :: (
   // no-error check hollowed the arm (basic arm 24). Structural field scan
   // (see fields_have_incompatible_contexts) — the registry-based check
   // false-fired on pointer-fielded prelude newtypes.
-  if(fields_have_incompatible_contexts(&patched_types), {
+  if(fields_have_incompatible_contexts(&patched_types_s.items), {
     exn.throw(
       dyn(
         format_error_message(

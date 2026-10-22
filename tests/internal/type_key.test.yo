@@ -4,7 +4,7 @@
 /// indirectly, so pin the key's determinism and distinctness here.
 { String } :: import("std/string");
 import("std/fmt");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
 {
   t_func_simple,
   t_some_t,
@@ -40,12 +40,12 @@ test("type_key: function types keyed by params and result", {
   p1.push(`a`);
   t1 := ArrayList(TypeValue).new();
   t1.push(t_i32());
-  f_i32_to_bool := t_func_simple(&p1, &t1, t_bool());
+  f_i32_to_bool := t_func_simple(p1.clone(), t1.clone(), t_bool());
   p2 := ArrayList(String).new();
   p2.push(`a`);
   t2 := ArrayList(TypeValue).new();
   t2.push(t_i32());
-  f_i32_to_i32 := t_func_simple(&p2, &t2, t_i32());
+  f_i32_to_i32 := t_func_simple(p2.clone(), t2.clone(), t_i32());
   assert(
     type_key(&f_i32_to_bool) == type_key(&f_i32_to_bool),
     "fn key stable"
@@ -65,7 +65,7 @@ _capture_struct :: (fn(sid : &String, label : &String, field : &TypeValue) -> Ty
   labels.push(label.clone());
   fields := ArrayList(TypeValue).new();
   fields.push(field);
-  rc(TypeValueNode.Struct(sid.clone(), String.from(""), labels, fields, false, false, false, String.from(""), ArrayList(TypeValue).new(), false))
+  rc(TypeValueNode.Struct(sid.clone(), String.from(""), shared_list(labels), shared_list(fields), false, false, false, String.from(""), no_types(), false))
 });
 // A closure inside a generic function captures the function's `Impl(Fn...)`
 // parameter: one SomeT lineage that each call site resolves to its own

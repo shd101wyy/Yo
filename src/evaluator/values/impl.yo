@@ -84,7 +84,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
@@ -1066,8 +1066,8 @@ _bind_forall_from_type_args :: (
 )({
   fa_name := match(fa_some, Rc(.SomeT({ name })) => name, _ => return(Option(TypeValue).None));
   fa_lvl := match(fa_some, Rc(.SomeT({ frame_level })) => frame_level, _ => return(Option(TypeValue).None));
-  pat_ta := match(pattern, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new());
-  con_ta := match(concrete, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => ArrayList(TypeValue).new());
+  pat_ta := match(pattern, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
+  con_ta := match(concrete, Rc(.Struct({ type_arguments : ta })) => ta, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
   if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
     (bfta_s : String) = String.from("");
     (bfta_i : usize) = usize(0);
@@ -1317,7 +1317,7 @@ _is_marker_trait :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     Rc(.TraitT({ field_types : mt_fts, assoc_constraint_types : mt_acts })) => (
-      !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts)
+      !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts.items)
     ),
     _ => false
   )
@@ -2086,18 +2086,18 @@ _decl_identity_key_of :: (fn(t : &TypeValue, depth : usize) -> String)(
       t,
       Rc(.Struct({ id : di_sid, type_arguments : di_tas, is_source_namespace : di_sns })) => cond(
         di_sns => `|ns:${di_sid.clone()}`,
-        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas, depth + usize(1))}`
+        true => `|s:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_sid.clone())}${_decl_identity_key_of_list(&di_tas.items, depth + usize(1))}`
       ),
-      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas, depth + usize(1))}`,
+      Rc(.EnumT(id : di_eid, type_arguments : di_etas)) => `|e:${match(_nominal_root_identity(t), .Some(rid) => rid, .None => di_eid.clone())}${_decl_identity_key_of_list(&di_etas.items, depth + usize(1))}`,
       Rc(.Union(name : di_uname)) => `|u:${di_uname.clone()}`,
       // A trait contributes its own base key plus its method signatures'
       // types, where a trait instance's arguments live (`From(Meters)` is
       // `from : fn(value : Meters) -> Self`).
       Rc(.TraitT(field_types : di_trfts)) => `|t:${get_base_trait_key(t)}${_decl_identity_key_of_list(&di_trfts, depth + usize(1))}`,
-      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts, depth + usize(1))};${_decl_identity_key_of_list(&di_fits, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
+      Rc(.Func({ param_types : di_fpts, implicit_types : di_fits, result : di_fres, variadic_types : di_fvts })) => `|f(${_decl_identity_key_of_list(&di_fpts.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fits.items, depth + usize(1))};${_decl_identity_key_of_list(&di_fvts.items, depth + usize(1))};${_decl_identity_key_of(&di_fres, depth + usize(1))})`,
       Rc(.Pointer(di_pointee)) => `*(${_decl_identity_key_of(&di_pointee, depth + usize(1))})`,
       Rc(.Array(di_elem, _, _)) => `[${_decl_identity_key_of(&di_elem, depth + usize(1))}]`,
-      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts, depth + usize(1))})`,
+      Rc(.Tuple(_, di_tfts)) => `(${_decl_identity_key_of_list(&di_tfts.items, depth + usize(1))})`,
       Rc(.SomeT({ name : di_sn })) => `$${di_sn.clone()}`,
       _ => type_to_string(t)
     )
@@ -3446,7 +3446,7 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
           rc(
             FuncMeta(
               forall_labels : rw_m.*.forall_labels,
-              param_labels : fv_params,
+              param_labels : shared_list(fv_params),
               implicit_labels : rw_m.*.implicit_labels,
               result_is_comptime_only : rw_m.*.result_is_comptime_only,
               param_is_ref : rw_m.*.param_is_ref,
@@ -3492,14 +3492,14 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
       });
       // (name, level) pairs used OUTSIDE the return — do not freshen those.
       keep := ArrayList(String).new();
-      outside := ArrayList(ArrayList(TypeValue)).new();
+      outside := ArrayList(SharedList(TypeValue)).new();
       outside.push(fr_pts);
       outside.push(fr_fts);
       outside.push(fr_wts);
       outside.push(fr_its);
       (oi : usize) = usize(0);
       while(oi < outside.len(), {
-        tys := match(outside.get(oi), .Some(t) => t, .None => ArrayList(TypeValue).new());
+        tys := match(outside.get(oi), .Some(t) => t, .None => no_types());
         (ci : usize) = usize(0);
         while(ci < tys.len(), {
           match(
@@ -3806,7 +3806,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
         if(to_fix.len() == usize(0), {
           return(false);
         });
-        fixed.param_is_owning = owns;
+        fixed.param_is_owning = shared_list(owns);
         if(!are_types_compatible(_with_receiver_mode_of(rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(fixed), avts)), expected), expected), {
           return(false);
         });
@@ -3880,8 +3880,8 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
             owns.push(match(src_meta.*.param_is_owning.get(ri), .Some(b) => b, .None => false));
             ri = (ri + usize(1));
           });
-          m.param_is_ref = refs;
-          m.param_is_owning = owns;
+          m.param_is_ref = shared_list(refs);
+          m.param_is_owning = shared_list(owns);
           rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(m), avts))
         },
         true => actual
@@ -5871,7 +5871,7 @@ evaluate_module_value :: (
                             rc(ast_expr_token(&d_fvd.*.body).module_path)
                           );
                           ___df := d_env.push_frame(false);
-                          d_pts := match(d_sub_ty, Rc(.Func({ param_types : d_ppts })) => d_ppts, _ => ArrayList(TypeValue).new());
+                          d_pts := match(d_sub_ty, Rc(.Func({ param_types : d_ppts })) => d_ppts, _ => no_types());
                           // The declared `inout` flags, read off the same
                           // Self-substituted type the signature is emitted
                           // from. Pointer-ness travels through TWO channels
@@ -5886,7 +5886,7 @@ evaluate_module_value :: (
                           d_p_is_ref := match(
                             d_sub_ty,
                             Rc(.Func({ meta : d_fm })) => d_fm.*.param_is_ref,
-                            _ => ArrayList(bool).new()
+                            _ => no_flags()
                           );
                           (d_pi : usize) = usize(0);
                           while(d_pi < d_fvd.*.params.len(), {

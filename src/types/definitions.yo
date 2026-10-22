@@ -8,9 +8,11 @@
 //!     integers (`usize`/`isize`) and C-compatible types (whose width is
 //!     platform-dependent) get their own variants.
 //!   * Compound variants store children via `Self` to allow recursion.
-//!   * Tuple/Struct field types are stored as parallel `ArrayList`s so we
+//!   * Tuple/Struct field types are stored as parallel `SharedList`s so we
 //!     don't need a separate mutually-recursive struct (which would require
-//!     a forward-reference dance during evaluation).
+//!     a forward-reference dance during evaluation). The `SomeT` bound lists
+//!     and five `TraitT` lists stay plain `ArrayList`s: the evaluator writes
+//!     them in place after the node is built (see `SharedList`).
 //!   * Generic / unresolved type information (`SomeType`, `TypeApplication`,
 //!     traits with associated types, …) is intentionally kept
 //!     minimal in this iteration — Phase 2b will fill in the details.
@@ -20,8 +22,211 @@
 //! Variant-shape predicates (`is_int_type`, …) live in `guards.yo`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ ArrayList } :: import("std/collections/array_list");
+{ ArrayList, ArrayListIter } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+/// The payload of a `SharedList`: one list, never written after it is built.
+/// It implements no `Clone` of its own, so the only copy of a `SharedList` is
+/// the handle's.
+SharedListCell :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(items : ArrayList(T))
+);
+/// An immutable list shared between every `TypeValue` that holds it: a
+/// type's label and type lists (`Struct.field_labels`, `Func.param_types`,
+/// `FuncMeta.param_labels`, ...). A copy is one count bump, as for
+/// `TypeValue` itself, so reading a list out of a node, or rebuilding a node
+/// that keeps one, never copies the list (plans/VALUES_BY_DEFAULT.md V2b's
+/// B1 prerequisites: under unique buffers a copy of a plain `ArrayList`
+/// field read through the node's `Rc` is a deep copy). Build one with
+/// `shared_list(xs)`; read it with `len`/`get`/`is_empty`, `xs(i)` and `for(xs, ...)`,
+/// or lend the list itself as `&xs.items`.
+/// `Clone` is declared per element type below and in `TypeValue`'s block: a
+/// generic `Clone` for `SharedList(T)` loses to the prelude's `Rc(T)` impl
+/// (issues/2026-10-20-rc-clone-of-a-non-clone-payload-fails-inside-the-prelude.md).
+/// Not every list is shared: a `SomeT`'s four bound lists and a `TraitT`'s
+/// `assoc_type_names`, `field_labels`, `field_types`, `self_constraints` and
+/// `neg_self_constraints` are written in place after the node is built, and
+/// every holder of the node sees the write, so they stay `ArrayList`s
+/// (issues/questions/2026-10-20-typevalue-constraint-lists-are-stamped-in-place.md).
+/// Never hand a `SharedList`'s buffer to one of those lists, or to any list
+/// that is pushed onto: copy it (`xs.items.clone()`). An empty `SharedList`
+/// is the element type's one global empty list (`no_types()`, ...), so a
+/// write through an alias would reach every empty list of the compiler.
+SharedList :: (fn(comptime(T) : Type) -> comptime(Type))(Rc(SharedListCell(T)));
+/// The element types a `SharedList` holds, each naming its one shared empty
+/// list (`no_types()`, `no_labels()`, ...).
+SharedListElem :: trait(
+  /// The shared empty list of this element type.
+  no_list : (fn() -> SharedList(Self))
+);
+/// Share `items` as a `SharedList`. An empty `items` yields the element
+/// type's shared empty list: most nodes carry several empty lists
+/// (`Func.where_types`, `Struct.type_arguments`, ...), and a cell per empty
+/// list would be an allocation per list.
+shared_list :: (fn(generic(T : Type), sink(items) : ArrayList(T), where(T <: SharedListElem)) -> SharedList(T))(
+  cond(
+    items.is_empty() => T.no_list(),
+    true => rc(SharedListCell(T)(items : items))
+  )
+);
+// The reads, declared per element type rather than once for every `T`:
+// these are called wherever a type's lists are read, and the concrete impls
+// are measurably cheaper to check than one generic impl's methods on the
+// `Rc` (`check src/main.yo`: 2,003M allocation calls with one generic impl,
+// 1,952M with these).
+impl(
+  SharedList(TypeValue),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(TypeValue))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : TypeValue,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : TypeValue,
+    IntoIter : ArrayListIter(TypeValue),
+    into_iter : (fn(self : &Self) -> ArrayListIter(TypeValue))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(String),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(String))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : String,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : String,
+    IntoIter : ArrayListIter(String),
+    into_iter : (fn(self : &Self) -> ArrayListIter(String))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(bool),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(bool))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : bool,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : bool,
+    IntoIter : ArrayListIter(bool),
+    into_iter : (fn(self : &Self) -> ArrayListIter(bool))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(usize),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(usize))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : usize,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : usize,
+    IntoIter : ArrayListIter(usize),
+    into_iter : (fn(self : &Self) -> ArrayListIter(usize))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(i64),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(i64))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : i64,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : i64,
+    IntoIter : ArrayListIter(i64),
+    into_iter : (fn(self : &Self) -> ArrayListIter(i64))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(SharedList(TypeValue)),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(SharedList(TypeValue)))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : SharedList(TypeValue),
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : SharedList(TypeValue),
+    IntoIter : ArrayListIter(SharedList(TypeValue)),
+    into_iter : (fn(self : &Self) -> ArrayListIter(SharedList(TypeValue)))(self.*.items.into_iter())
+  )
+);
+impl(
+  SharedList(SharedList(String)),
+  /// Number of elements.
+  len : (fn(self : &Self) -> usize)(self.*.items.len()),
+  /// True when the list holds no elements.
+  is_empty : (fn(self : &Self) -> bool)(self.*.items.is_empty()),
+  /// The element at `i`, or `.None` past the end.
+  get : (fn(self : &Self, i : usize) -> Option(SharedList(String)))(self.*.items.get(i)),
+  /// `xs(i)` reads the element at `i` (a read projection); panics past the end.
+  Index(usize)(
+    Output : SharedList(String),
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(&self.*.items(idx))
+  ),
+  /// `for(xs, x => ...)` walks the list's elements.
+  IntoIterator(
+    Item : SharedList(String),
+    IntoIter : ArrayListIter(SharedList(String)),
+    into_iter : (fn(self : &Self) -> ArrayListIter(SharedList(String)))(self.*.items.into_iter())
+  )
+);
+// A `SharedList` copy is one count bump (see `SharedList`). Each list is
+// built once and never written (no mutator reaches `items` through the
+// read-only `Rc`, decision 46), so a cell points only at older values and
+// none reaches itself: `Acyclic` keeps the cells out of the cycle collector.
+impl(SharedList(String), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(String), Acyclic());
+impl(SharedList(bool), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(bool), Acyclic());
+impl(SharedList(usize), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(usize), Acyclic());
+impl(SharedList(i64), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(i64), Acyclic());
+impl(SharedList(SharedList(String)), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(SharedList(String)), Acyclic());
 /// Non-recursive ("meta") fields of a function type, factored out of the
 /// `TypeValue.Func` variant and stored behind an `Rc` (P2 memory: the inline
 /// Func variant set `sizeof(TypeValue)` to ~150 B — wasted in every small-type
@@ -31,11 +236,11 @@ pragma(Pragma.AllowUnsafe);
 /// (see the parallel-array note above). The Self-typed Func fields
 /// (`*_types`/`result`) stay inline on the variant.
 FuncMeta :: struct(
-  forall_labels : ArrayList(String),
+  forall_labels : SharedList(String),
   // generic type-var names (parallel to Func.forall_types)
-  param_labels : ArrayList(String),
+  param_labels : SharedList(String),
   // normal parameter labels (parallel to Func.param_types)
-  implicit_labels : ArrayList(String),
+  implicit_labels : SharedList(String),
   // implicit (`using`) parameter labels (parallel to Func.implicit_types)
   /// True when the declared return is `comptime(...)`. Gates
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
@@ -44,11 +249,11 @@ FuncMeta :: struct(
   /// Per-parameter `ref` flags (parallel to param labels/types). `name : &mut T`
   /// = by-reference borrow. Used by
   /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
-  param_is_ref : ArrayList(bool),
+  param_is_ref : SharedList(bool),
   /// Per-parameter `own` flags. `own(name):T` = callee takes ownership of the
   /// Rc value. Used by
   /// `require_ref_own_argument_exclusivity`.
-  param_is_owning : ArrayList(bool),
+  param_is_owning : SharedList(bool),
   /// True when the return is a borrow, `-> &T` or `-> &mut T`: a projection
   /// (decision 24). It returns `T*` at the C ABI; `result_is_mut_ref` tells
   /// the two modes apart. `is_flowable_expr` requires a flowable return.
@@ -95,7 +300,7 @@ FuncMeta :: struct(
   /// moves the argument instead of sharing a still implicitly copyable kind.
   /// Caller-side only, so not part of the function type's identity; `.None`
   /// means none is `sink`.
-  (param_is_sink : Option(ArrayList(bool))) ?= Option(ArrayList(bool)).None,
+  (param_is_sink : Option(SharedList(bool))) ?= Option(SharedList(bool)).None,
   /// With `result_is_ref`: the result is `-> &mut T` (a mutable projection,
   /// decision 24) rather than `-> &T` (a read projection). Defaulted so a
   /// construction site that drops it degrades to the read projection, which
@@ -163,7 +368,7 @@ TypeValueNode :: enum(
   Array(element : Rc(Self), length : usize, length_var : String),
   /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
   /// field (empty `String` means positional). `field_types(i)` is the type.
-  Tuple(field_labels : ArrayList(String), field_types : ArrayList(Rc(Self))),
+  Tuple(field_labels : SharedList(String), field_types : SharedList(Rc(Self))),
   /// Function type. Phase 2b: generic type-vars, implicit (using) params,
   /// and where-clause constraint types.
   /// Self-typed (recursive) fields stay inline; the non-recursive metadata
@@ -172,18 +377,18 @@ TypeValueNode :: enum(
   /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
   /// parallel to the label arrays in `meta`; `result` is the return type.
   Func(
-    forall_types : ArrayList(Rc(Self)),
-    param_types : ArrayList(Rc(Self)),
-    implicit_types : ArrayList(Rc(Self)),
-    where_types : ArrayList(Rc(Self)),
+    forall_types : SharedList(Rc(Self)),
+    param_types : SharedList(Rc(Self)),
+    implicit_types : SharedList(Rc(Self)),
+    where_types : SharedList(Rc(Self)),
     result : Rc(Self),
     meta : Rc(FuncMeta),
-    /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
+    /// The variadic parameter's TYPE (0 or 1 elements — the list is a
     /// poor man's Option(Self) since Self-typed Options are unavailable in
     /// a variant position).
     /// the label/comptime flags live in `FuncMeta.variadic_label` /
     /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
-    variadic_types : ArrayList(Rc(Self))
+    variadic_types : SharedList(Rc(Self))
   ),
   // Named user-defined types ------------------------------------------------
   /// `id` uniquely identifies this struct definition.
@@ -204,8 +409,8 @@ TypeValueNode :: enum(
   Struct(
     id : String,
     name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(Rc(Self)),
+    field_labels : SharedList(String),
+    field_types : SharedList(Rc(Self)),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
     is_newtype : bool,
@@ -216,7 +421,7 @@ TypeValueNode :: enum(
     /// carried instantiation env: a method dispatched
     /// on this struct binds its `generic` params positionally from here. See
     /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
-    type_arguments : ArrayList(Rc(Self)),
+    type_arguments : SharedList(Rc(Self)),
     /// True for source-namespace structs — anonymous modules (`impl({...})`,
     /// extern blocks) and imported modules. There is NO separate module type;
     /// modules ARE structs with this marker. See
@@ -224,7 +429,7 @@ TypeValueNode :: enum(
     is_source_namespace : bool
   ),
   /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
-  /// Each variant has a name and an `ArrayList` of field types (possibly empty).
+  /// Each variant has a name and a `SharedList` of field types (possibly empty).
   /// `selected_variant_name` is set when the type has been narrowed to a specific
   /// variant (e.g. after pattern matching or destructuring).
   ///
@@ -239,11 +444,11 @@ TypeValueNode :: enum(
   EnumT(
     id : String,
     name : String,
-    variant_names : ArrayList(String),
-    variant_fields : ArrayList(ArrayList(Rc(Self))),
+    variant_names : SharedList(String),
+    variant_fields : SharedList(SharedList(Rc(Self))),
     selected_variant_name : Option(String),
-    variant_field_labels : ArrayList(ArrayList(String)),
-    variant_discriminants : ArrayList(i64),
+    variant_field_labels : SharedList(SharedList(String)),
+    variant_discriminants : SharedList(i64),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
     /// Type arguments of the generic constructor call that minted this
@@ -259,12 +464,12 @@ TypeValueNode :: enum(
     /// index, a GADT index only `-> recur(...)` names) are structurally
     /// identical
     /// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-    type_arguments : ArrayList(Rc(Self))
+    type_arguments : SharedList(Rc(Self))
   ),
   Union(
     name : String,
-    field_labels : ArrayList(String),
-    field_types : ArrayList(Rc(Self))
+    field_labels : SharedList(String),
+    field_types : SharedList(Rc(Self))
   ),
   // Traits / modules --------------------------------------------------------
   /// Named trait type. Phase 2b: associated type names and method/field list.
@@ -287,9 +492,9 @@ TypeValueNode :: enum(
     // where-clause constraints on Self
     neg_self_constraints : ArrayList(Rc(Self)),
     // negative where-clause constraints on Self
-    assoc_constraint_labels : ArrayList(String),
+    assoc_constraint_labels : SharedList(String),
     // labels of `Item := X` associated-type constraints
-    assoc_constraint_types : ArrayList(Rc(Self)) // constraint types
+    assoc_constraint_types : SharedList(Rc(Self)) // constraint types
   ),
   // Generic / unresolved ----------------------------------------------------
   /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
@@ -339,41 +544,41 @@ TypeValueNode :: enum(
   /// `constructor` is always a `SomeT` (the type-constructor variable).
   TypeAppT(
     constructor : Rc(Self),
-    args : ArrayList(Rc(Self))
+    args : SharedList(Rc(Self))
   ),
   /// Dynamic-dispatch type with trait bounds.
   DynT(
-    required_trait_types : ArrayList(Rc(Self)),
-    required_trait_levels : ArrayList(usize),
-    negative_trait_types : ArrayList(Rc(Self)),
-    negative_trait_levels : ArrayList(usize)
+    required_trait_types : SharedList(Rc(Self)),
+    required_trait_levels : SharedList(usize),
+    negative_trait_types : SharedList(Rc(Self)),
+    negative_trait_levels : SharedList(usize)
   ),
   /// Fn-trait type (Fn / FnMut / FnOnce).
   FnTraitT(
     base_name : String,
-    call_param_labels : ArrayList(String),
-    call_param_types : ArrayList(Rc(Self)),
+    call_param_labels : SharedList(String),
+    call_param_types : SharedList(Rc(Self)),
     call_result : Rc(Self),
-    implicit_labels : ArrayList(String),
-    implicit_types : ArrayList(Rc(Self)),
+    implicit_labels : SharedList(String),
+    implicit_types : SharedList(Rc(Self)),
     /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
     /// call signature is FLATTENED into the variant, and dropping this
     /// flag made a closure typed against
     /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
     /// `with_lock` write-through failure). Empty = all by-value.
-    call_param_is_ref : ArrayList(bool),
+    call_param_is_ref : SharedList(bool),
     /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
     /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
     /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
     /// synthesized without a written `Fn(...)`).
-    call_param_is_owning : ArrayList(bool)
+    call_param_is_owning : SharedList(bool)
   ),
   /// Future-trait type with associated output and effects.
   FutureTraitT(
     base_name : String,
     output : Rc(Self),
-    effect_labels : ArrayList(String),
-    effect_types : ArrayList(Rc(Self))
+    effect_labels : SharedList(String),
+    effect_types : SharedList(Rc(Self))
   ),
   /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
   /// satisfies `p`". Distinct at the type level (two predicates over the
@@ -427,7 +632,9 @@ t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
 // `TypeValue.clone()` is one count bump: it returns the handle, sharing the
 // whole node. A `TypeValue` is rebuilt, never mutated (`substitute` and every
 // other consumer construct FRESH nodes; a codebase-wide audit found no
-// in-place write to a node's fields), so sharing is sound, and the
+// in-place write to a node's fields; the `ArrayList` lists named under
+// `SharedList` are pushed to in place, and that write is meant to reach
+// every holder), so sharing is sound, and the
 // self-compile calls this millions of times (ExprInfo / `Variable.ty`).
 // The prelude's `Rc(T)` clone (for a `T <: Clone`) would copy the payload
 // into a new cell; `TypeValueNode` does not implement `Clone`, so this impl
@@ -446,6 +653,46 @@ impl(
 // TypeValue node, and every `ArrayList(TypeValue)`, out of the cycle
 // collector (§3.12, V4).
 impl(TypeValue, Acyclic());
+// The type lists inside a node: a copy is one count bump, and they are
+// acyclic for the reason `TypeValue` is (see `SharedList`).
+impl(SharedList(TypeValue), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(TypeValue), Acyclic());
+impl(SharedList(SharedList(TypeValue)), Clone(clone : (fn(self : &Self) -> Self)(self)));
+impl(SharedList(SharedList(TypeValue)), Acyclic());
+// The empty lists, one shared cell each (`shared_list` of an empty list
+// returns these through `SharedListElem`).
+(g_no_types : SharedList(TypeValue)) = rc(SharedListCell(TypeValue)(items : ArrayList(TypeValue).new()));
+(g_no_labels : SharedList(String)) = rc(SharedListCell(String)(items : ArrayList(String).new()));
+(g_no_flags : SharedList(bool)) = rc(SharedListCell(bool)(items : ArrayList(bool).new()));
+(g_no_levels : SharedList(usize)) = rc(SharedListCell(usize)(items : ArrayList(usize).new()));
+(g_no_discriminants : SharedList(i64)) = rc(SharedListCell(i64)(items : ArrayList(i64).new()));
+(g_no_type_lists : SharedList(SharedList(TypeValue))) = rc(
+  SharedListCell(SharedList(TypeValue))(items : ArrayList(SharedList(TypeValue)).new())
+);
+(g_no_label_lists : SharedList(SharedList(String))) = rc(
+  SharedListCell(SharedList(String))(items : ArrayList(SharedList(String)).new())
+);
+/// The shared empty type list.
+no_types :: (fn() -> SharedList(TypeValue))(g_no_types);
+/// The shared empty label list.
+no_labels :: (fn() -> SharedList(String))(g_no_labels);
+/// The shared empty flag list.
+no_flags :: (fn() -> SharedList(bool))(g_no_flags);
+/// The shared empty level list.
+no_levels :: (fn() -> SharedList(usize))(g_no_levels);
+/// The shared empty discriminant list.
+no_discriminants :: (fn() -> SharedList(i64))(g_no_discriminants);
+/// The shared empty list of type lists (an enum's `variant_fields`).
+no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(g_no_type_lists);
+/// The shared empty list of label lists (an enum's `variant_field_labels`).
+no_label_lists :: (fn() -> SharedList(SharedList(String)))(g_no_label_lists);
+impl(TypeValue, SharedListElem(no_list : no_types));
+impl(String, SharedListElem(no_list : no_labels));
+impl(bool, SharedListElem(no_list : no_flags));
+impl(usize, SharedListElem(no_list : no_levels));
+impl(i64, SharedListElem(no_list : no_discriminants));
+impl(SharedList(TypeValue), SharedListElem(no_list : no_type_lists));
+impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 // ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
@@ -472,4 +719,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, TypeValueNode, FuncMeta, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

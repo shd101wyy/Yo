@@ -50,7 +50,7 @@ pragma(Pragma.AllowUnsafe);
   eval_value_eq
 } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, t_refine_inner, no_labels } :: import("../../types/definitions.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
   is_comptime_int_type,
@@ -1819,7 +1819,7 @@ evaluate_assignment :: (
                           });
                         });
                         if(vi < n_vn, {
-                          vf_labels := match(ev_vf_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+                          vf_labels := match(ev_vf_labels.get(vi), .Some(l) => l, .None => no_labels());
                           n_vfl := vf_labels.len();
                           (k_vfl : usize) = usize(0);
                           while(k_vfl < n_vfl, {

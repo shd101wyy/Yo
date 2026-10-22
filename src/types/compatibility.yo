@@ -11,7 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, TypeValueNode, t_refine_inner } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, trial_flag_get } :: import("./creators.yo");
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
@@ -317,8 +317,8 @@ _resolved_or_self :: (fn(t : &TypeValue) -> TypeValue)(
 future_view_drops_a_bundle :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)({
   ef := match(_future_trait_of(expected), .Some(x) => x, .None => return(false));
   af := match(_future_trait_of(actual), .Some(x) => x, .None => return(false));
-  e_types := match(ef, Rc(.FutureTraitT(effect_types : ets)) => ets, _ => ArrayList(TypeValue).new());
-  a_types := match(af, Rc(.FutureTraitT(effect_types : ats)) => ats, _ => ArrayList(TypeValue).new());
+  e_types := match(ef, Rc(.FutureTraitT(effect_types : ets)) => ets, _ => no_types());
+  a_types := match(af, Rc(.FutureTraitT(effect_types : ats)) => ats, _ => no_types());
   if((e_types.len() != usize(0)) || (a_types.len() == usize(0)), {
     return(false);
   });
@@ -455,7 +455,7 @@ _compat_impl :: (
     drtt := match(
       expected,
       Rc(.DynT(required_trait_types : rtt)) => rtt,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     i := usize(0);
     while(i < artt.len(), {
@@ -497,7 +497,7 @@ _compat_impl :: (
     adrtt := match(
       actual,
       Rc(.DynT(required_trait_types : rtt)) => rtt,
-      _ => ArrayList(TypeValue).new()
+      _ => no_types()
     );
     i := usize(0);
     while(i < erts.len(), {
@@ -854,7 +854,7 @@ _compat_impl :: (
         });
         a_sig.push(aret);
         e_sig.push(eret);
-        n_alpha := _push_alpha_pairs(&ameta.*.forall_labels, &a_sig, &emeta.*.forall_labels, &e_sig);
+        n_alpha := _push_alpha_pairs(&ameta.*.forall_labels.items, &a_sig, &emeta.*.forall_labels.items, &e_sig);
         (func_ok : bool) = true;
         i = usize(0);
         while((i < apts.len()) && func_ok, {
@@ -1234,8 +1234,8 @@ _compat_impl :: (
             visited.push(vkey_vp);
             (vpi : usize) = usize(0);
             while((vpi < avfs.len()) && !vp_differ, {
-              vafl := match(avfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-              vefl := match(evfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+              vafl := match(avfs.get(vpi), .Some(v) => v, .None => no_types());
+              vefl := match(evfs.get(vpi), .Some(v) => v, .None => no_types());
               if(vafl.len() == vefl.len(), {
                 (vfi : usize) = usize(0);
                 while((vfi < vafl.len()) && !vp_differ, {
@@ -1297,10 +1297,10 @@ _compat_impl :: (
                   ok = false;
                 });
                 if(ok, {
-                  afl := match(avfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                  efl := match(evfs.get(vi), .Some(v) => v, .None => ArrayList(TypeValue).new());
-                  all := match(avls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
-                  ell := match(evls.get(vi), .Some(v) => v, .None => ArrayList(String).new());
+                  afl := match(avfs.get(vi), .Some(v) => v, .None => no_types());
+                  efl := match(evfs.get(vi), .Some(v) => v, .None => no_types());
+                  all := match(avls.get(vi), .Some(v) => v, .None => no_labels());
+                  ell := match(evls.get(vi), .Some(v) => v, .None => no_labels());
                   if(afl.len() != efl.len(), {
                     ok = false;
                   }, {

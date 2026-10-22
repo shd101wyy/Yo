@@ -147,7 +147,7 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // A `Dyn` is identified by its trait set, so `impl(AnyError, is : ...)`
     // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
     // registration was silently skipped and the method was unreachable.
-    Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt, &ntt),
+    Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt.items, &ntt.items),
     _ => String.from("")
   )
 );

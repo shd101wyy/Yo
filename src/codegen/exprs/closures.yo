@@ -2,7 +2,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_labels } :: import("../../types/definitions.yo");
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
@@ -216,7 +216,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   });
   // Resolve the capture struct + its fields.
   capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => rc(TypeValueNode.Unit));
-  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.

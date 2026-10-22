@@ -8,7 +8,7 @@
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype } :: import("../functions/declarations.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
@@ -871,7 +871,7 @@ _no_cast_by_value_param :: (fn(t : &TypeValue) -> bool)(
 /// storage type of a by-value parameter (a `unit` is the one-byte
 /// placeholder), and `T*` for a `ref`/`inout` one — the callee's prototype.
 _fn_pointer_param_type_string :: (
-  fn(param_types : &ArrayList(TypeValue), param_is_ref : &ArrayList(bool), i : usize, context : &FunctionGenerationContext) -> String
+  fn(param_types : &SharedList(TypeValue), param_is_ref : &SharedList(bool), i : usize, context : &FunctionGenerationContext) -> String
 )(
   match(
     param_types.get(i),
@@ -1032,8 +1032,8 @@ _generate_runtime_enum_construct :: (
         Rc(.EnumT({ variant_fields, variant_field_labels })) => match(
           vidx,
           .Some(vi) => {
-            vftys := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            vflabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+            vftys := match(variant_fields.get(vi), .Some(f) => f, .None => no_types());
+            vflabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => no_labels());
             n := rt_args.len();
             (i : usize) = usize(0);
             while(i < n, {
@@ -1578,9 +1578,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               .Some(mfv2) => match(
                 get_func_type(match(mfv2, .FuncVal(__fvd7, _) => __fvd7.*.func_id, _ => String.from(""))),
                 Rc(.Func({ meta : __fm4 })) => __fm4.*.param_is_ref,
-                _ => ArrayList(bool).new()
+                _ => no_flags()
               ),
-              .None => ArrayList(bool).new()
+              .None => no_flags()
             );
             // The C pointer flags (a projection's `&T` parameters too); the
             // borrow acquires keep `cm_param_is_ref`.
@@ -1596,7 +1596,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // so the loop can tell whether an empty — i.e. `unit` — argument
             // has a real C parameter slot to fill with the dead byte.
             cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => rc(TypeValueNode.Unit));
-            cm_ptypes := match(cm_mft, Rc(.Func({ param_types : cpt })) => cpt, _ => ArrayList(TypeValue).new());
+            cm_ptypes := match(cm_mft, Rc(.Func({ param_types : cpt })) => cpt, _ => no_types());
             cm_arg_list := ArrayList(String).new();
             cnma := dm_runtime.len();
             (cmi : usize) = usize(0);
@@ -1629,10 +1629,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // issues/retired/yo-self-stage2-unwind-check-coverage.md).
             // Method dispatch: the callee is a property access, not an atom,
             // so the atom fallback in _call_may_unwind is false here.
-            cm_may_unwind := _call_may_unwind(&method_fv, &cm_mft, &cm_ptypes, false, context);
+            cm_may_unwind := _call_may_unwind(&method_fv, &cm_mft, &cm_ptypes.items, false, context);
             cm_install_ei := new_expr_info(&ei.env, &cm_mft);
             cm_install_ei.value = method_fv;
-            cm_is_install := _call_is_handler_installation(ast_expr_id(expr), &cm_install_ei, &cm_mft, &cm_ptypes, &dm_runtime, context, Option(String).None);
+            cm_is_install := _call_is_handler_installation(ast_expr_id(expr), &cm_install_ei, &cm_mft, &cm_ptypes.items, &dm_runtime, context, Option(String).None);
             // A projection method (decision 24; a generic impl's, resolved by
             // this dispatch) is the place `(*m(args))`, as on the direct-call
             // path below: never a `T` temp.
@@ -1654,7 +1654,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               cm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
               // direct-call unit exit in generate_other_function_call).
-              cm_bc := _emit_borrow_acquires(&dm_runtime, &cm_param_is_ref, indent.clone(), context);
+              cm_bc := _emit_borrow_acquires(&dm_runtime, &cm_param_is_ref.items, indent.clone(), context);
               if(cm_may_unwind, {
                 cm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
@@ -1671,7 +1671,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               ei.variable_name,
               .Some(tv) => {
                 cm_em2 := context.base.emitter;
-                cm_bc2 := _emit_borrow_acquires(&dm_runtime, &cm_param_is_ref, indent.clone(), context);
+                cm_bc2 := _emit_borrow_acquires(&dm_runtime, &cm_param_is_ref.items, indent.clone(), context);
                 if(cm_may_unwind, {
                   cm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -1736,7 +1736,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
             rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
-            rm_pir := match(get_func_type(rm_fid.clone()), Rc(.Func({ meta : __fmrm })) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
+            rm_pir := match(get_func_type(rm_fid.clone()), Rc(.Func({ meta : __fmrm })) => __fmrm.*.param_is_ref, _ => no_flags());
             // The C pointer flags (a projection's `&T` parameters too); the
             // borrow acquires keep `rm_pir`.
             rm_abi_ft := get_func_type(rm_fid.clone());
@@ -1745,7 +1745,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // empty — i.e. `unit` — argument can be filled with the dead byte
             // when the callee actually has a C parameter at that index.
             rm_mft := get_func_type(rm_fid.clone());
-            rm_ptypes := match(rm_mft, Rc(.Func({ param_types : cpt })) => cpt, _ => ArrayList(TypeValue).new());
+            rm_ptypes := match(rm_mft, Rc(.Func({ param_types : cpt })) => cpt, _ => no_types());
             rm_args := ArrayList(String).new();
             rm_n := rm_runtime.len();
             (rmi : usize) = usize(0);
@@ -1768,15 +1768,15 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             rm_call.push_str("(");
             rm_call.push_string(_join_args(&rm_args));
             rm_call.push_str(")");
-            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), &rm_mft, &rm_ptypes, false, context);
+            rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), &rm_mft, &rm_ptypes.items, false, context);
             rm_install_ei := new_expr_info(&ei.env, &rm_mft);
             rm_install_ei.value = Option(EvalValue).Some(rmv);
-            rm_is_install := _call_is_handler_installation(ast_expr_id(expr), &rm_install_ei, &rm_mft, &rm_ptypes, &rm_runtime, context, Option(String).None);
+            rm_is_install := _call_is_handler_installation(ast_expr_id(expr), &rm_install_ei, &rm_mft, &rm_ptypes.items, &rm_runtime, context, Option(String).None);
             if(is_unit_type(&ei.ty), {
               rm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the
               // direct-call unit exit in generate_other_function_call).
-              rm_bc := _emit_borrow_acquires(&rm_runtime, &rm_pir, indent.clone(), context);
+              rm_bc := _emit_borrow_acquires(&rm_runtime, &rm_pir.items, indent.clone(), context);
               if(rm_may_unwind, {
                 rm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
@@ -1793,7 +1793,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               ei.variable_name,
               .Some(tv) => {
                 rm_em2 := context.base.emitter;
-                rm_bc2 := _emit_borrow_acquires(&rm_runtime, &rm_pir, indent.clone(), context);
+                rm_bc2 := _emit_borrow_acquires(&rm_runtime, &rm_pir.items, indent.clone(), context);
                 if(rm_may_unwind, {
                   rm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -1833,16 +1833,16 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         ftt,
         Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof)) => rc(
           TypeValueNode.Func(
-            ArrayList(TypeValue).new(),
+            no_types(),
             cpt,
-            ArrayList(TypeValue).new(),
-            ArrayList(TypeValue).new(),
+            no_types(),
+            no_types(),
             cr_box,
             rc(
               FuncMeta(
-                forall_labels : ArrayList(String).new(),
+                forall_labels : no_labels(),
                 param_labels : cpl,
-                implicit_labels : ArrayList(String).new(),
+                implicit_labels : no_labels(),
                 result_is_comptime_only : false,
                 param_is_ref : cprf,
                 param_is_owning : cpof,
@@ -1855,7 +1855,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 variadic_comptime : false
               )
             ),
-            ArrayList(TypeValue).new()
+            no_types()
           )
         ),
         _ => func_ei.ty
@@ -2277,8 +2277,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     },
     _ => ()
   );
-  param_types := match(function_type, Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(function_type, Rc(.Func({ meta : __fm5 })) => __fm5.*.param_is_ref, _ => ArrayList(bool).new());
+  param_types := match(function_type, Rc(.Func({ param_types : pt })) => pt, _ => no_types());
+  param_is_ref := match(function_type, Rc(.Func({ meta : __fm5 })) => __fm5.*.param_is_ref, _ => no_flags());
   // The C pointer flags: `param_is_ref`, plus a projection's `&T` parameters
   // (`fn_abi_param_is_ptr`). The borrow acquires below keep `param_is_ref`.
   abi_is_ptr := fn_abi_param_is_ptr(&function_type);
@@ -2406,13 +2406,13 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // `emit_effect_unwind_check` is emitted after it: at the install frame the
   // unwound value is extracted + returned; elsewhere the escape propagates.
   ou_callee_atom := match(expr, .FnCall(_, __ouf, _, _, _) => ast_expr_is_atom(&__ouf), _ => false);
-  ou_may_unwind := _call_may_unwind(&func_ei.value, &function_type, &param_types, ou_callee_atom, context);
+  ou_may_unwind := _call_may_unwind(&func_ei.value, &function_type, &param_types.items, ou_callee_atom, context);
   ou_callee_name := match(
     expr,
     .FnCall(_, __ouf2, _, _, _) => if(ast_expr_is_atom(&__ouf2), Option(String).Some(ast_expr_token(&__ouf2).value), Option(String).None),
     _ => Option(String).None
   );
-  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(&func_expr), &func_ei, &function_type, &param_types, &runtime_args, context, &ou_callee_name), false);
+  ou_is_install := if(ou_may_unwind, _call_is_handler_installation(ast_expr_id(&func_expr), &func_ei, &function_type, &param_types.items, &runtime_args, context, &ou_callee_name), false);
   // Registered (named) function call. A cc_early_hit callee (closure value
   // whose type resolved to a registered capture struct) must NOT take this
   // route: its FuncVal's direct C call would omit the closure_context arg —
@@ -2438,7 +2438,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(should_skip_function_codegen(fid.clone(), c_func_name.clone(), &fv, &context.base) && !is_io_async_sm_closure(fid.clone()), {
             return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
           });
-          casted := _per_arg_cast(args_list.clone(), &param_types, &abi_is_ptr, context);
+          casted := _per_arg_cast(args_list.clone(), &param_types.items, &abi_is_ptr, context);
           // A direct projection call (decision 24) returns its place's
           // address (`T*`), and the call IS the place: `(*f(args))`. It is
           // never materialized into a `T` temp, which would be a copy that a
@@ -2471,7 +2471,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // `inout` arg (`xs(i)`) points into, and release it right after the
             // call — BEFORE the deferred drops and the unwind check, so an
             // unwinding callee still releases.
-            ou_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+            ou_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
             // Clear __yo_effect_escaped before the call so a stale flag from
             // a previous unwind (already handled by a higher-level handler)
             // doesn't leak into this call's escape check.
@@ -2533,7 +2533,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 // a previous unwind (already handled by a higher-level handler)
                 // doesn't leak into this call's escape check.
                 // Interior-`inout` borrow flags around the call (see the unit exit).
-                ou_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+                ou_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
                 if(ou_may_unwind, {
                   em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -2823,7 +2823,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   if(ou_result_is_void, {
     // Interior-`inout` borrow flags around the indirect call (see the
     // direct-call unit exit).
-    fp_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+    fp_bc := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
     // Clear __yo_effect_escaped before an indirect call that may unwind.
     if(ou_may_unwind, {
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
@@ -2845,7 +2845,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       fpc := get_type_string(&result_type, &context.base);
       // Interior-`inout` borrow flags around the indirect call (see the
       // direct-call unit exit).
-      fp_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref, indent.clone(), context);
+      fp_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       if(ctl_generic_ret, {

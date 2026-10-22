@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_func_val, create_type_value, create_unknown_val } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
 { create_specialized_function_inline, try_to_call_function_with_arguments } :: import("../calls/helper.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, no_types, no_levels } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
 { type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type } :: import("../../types/utils.yo");
@@ -123,7 +123,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
 _dyn_target_requires_send :: (fn(expected : &Option(ExpectedTypeCtx), value_type : &TypeValue) -> bool)({
   from_expected := match(
     expected,
-    .Some(et) => match(et.ty, Rc(.DynT(required_trait_types : ert)) => Option(bool).Some(_traits_name_send(&ert)), _ => Option(bool).None),
+    .Some(et) => match(et.ty, Rc(.DynT(required_trait_types : ert)) => Option(bool).Some(_traits_name_send(&ert.items)), _ => Option(bool).None),
     .None => Option(bool).None
   );
   match(
@@ -263,7 +263,7 @@ _require_dyn_traits_implemented :: (
   // A `Dyn(..., Send)` shares its data object across threads, so the object
   // must be atomically counted: a `rc(...)` payload is not
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
-  if(match(dyn_type, Rc(.DynT(required_trait_types : sd_rtt)) => _traits_name_send(&sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
+  if(match(dyn_type, Rc(.DynT(required_trait_types : sd_rtt)) => _traits_name_send(&sd_rtt.items), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
     sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
     raise_flow_violation(format_error_message(token, &sd_msg), ctx, exn);
   });
@@ -377,7 +377,7 @@ _require_dyn_traits_implemented :: (
       // `Sync` as well (plans/VALUES_BY_DEFAULT.md §3.8).
       match(
         get_trait_type_from_env(env, String.from("Sync")),
-        .Some(sync_tt) => if((_thread_marker_named_in(&rtt) == "Send") && !_traits_name(&rtt, "Sync") && !_name_in(&fv_judged_names, String.from("Send")) && !type_implements_trait_bool(check_ty.clone(), &sync_tt, env), {
+        .Some(sync_tt) => if((_thread_marker_named_in(&rtt.items) == "Send") && !_traits_name(&rtt.items, "Sync") && !_name_in(&fv_judged_names, String.from("Send")) && !type_implements_trait_bool(check_ty.clone(), &sync_tt, env), {
           sync_msg := `Type ${type_to_string(check_ty.clone())} does not implement Sync, which ${type_to_string(dyn_type.clone())} requires of its payload: every copy of a Dyn shares that payload until Dyn becomes uniquely owned (plans/VALUES_BY_DEFAULT.md decision 7).`;
           raise_flow_violation(format_error_message(token, &sync_msg), ctx, exn);
         }),
@@ -391,7 +391,7 @@ _require_dyn_traits_implemented :: (
       // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
       if(type_is_move_only(&check_ty), {
         match(
-          _by_value_self_slot(&rtt),
+          _by_value_self_slot(&rtt.items),
           .Some(bv) => {
             mo_why := match(move_only_reason(&check_ty), .Some(r) => `: ${r}`, .None => String.new());
             bv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold the move-only ${type_to_string(check_ty.clone())}${mo_why}. Its method ${bv} takes \`self\` by value, so a call through the Dyn would move the payload out of the box the Dyn still owns. Box a copyable value, or declare the method with \`self : &Self\`.`;
@@ -466,7 +466,7 @@ _require_send_dyn_methods_reach_no_global :: (
     return(());
   });
   // D1 covers a `Sync` trait object as well as a `Send` one (decision 38 E).
-  thread_marker := match(dyn_type, Rc(.DynT(required_trait_types : rtt)) => _thread_marker_named_in(&rtt), _ => String.new());
+  thread_marker := match(dyn_type, Rc(.DynT(required_trait_types : rtt)) => _thread_marker_named_in(&rtt.items), _ => String.new());
   if(thread_marker.is_empty(), {
     return(());
   });
@@ -856,7 +856,7 @@ _dyn_type_from_payload_or_throw :: (
         negative_trait_types : ntt,
         negative_trait_levels : ntl
       )
-    ) => t_dyn(&rtt, &rtl, &ntt, &ntl),
+    ) => t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()),
     _ => {
       if(have_payload_ty, {
         exn.throw(
@@ -877,10 +877,10 @@ _dyn_type_from_payload_or_throw :: (
       });
       rc(
         TypeValueNode.DynT(
-          required_trait_types : ArrayList(TypeValue).new(),
-          required_trait_levels : ArrayList(usize).new(),
-          negative_trait_types : ArrayList(TypeValue).new(),
-          negative_trait_levels : ArrayList(usize).new()
+          required_trait_types : no_types(),
+          required_trait_levels : no_levels(),
+          negative_trait_types : no_types(),
+          negative_trait_levels : no_levels()
         )
       )
     }
@@ -1332,7 +1332,7 @@ evaluate_dyn_value :: (
           negative_trait_levels : ntl
         )
       ) =>
-        t_dyn(&rtt, &rtl, &ntt, &ntl),
+        t_dyn(rtt.clone(), rtl.clone(), ntt.clone(), ntl.clone()),
       _ => {
         exn.throw(
           dyn(
@@ -1344,10 +1344,10 @@ evaluate_dyn_value :: (
         );
         rc(
           TypeValueNode.DynT(
-            required_trait_types : ArrayList(TypeValue).new(),
-            required_trait_levels : ArrayList(usize).new(),
-            negative_trait_types : ArrayList(TypeValue).new(),
-            negative_trait_levels : ArrayList(usize).new()
+            required_trait_types : no_types(),
+            required_trait_levels : no_levels(),
+            negative_trait_types : no_types(),
+            negative_trait_levels : no_levels()
           )
         )
       }

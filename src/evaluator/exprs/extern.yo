@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, Frame, new_frame, add_variable_to_env, frame_truncate_variables, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_unknown_val_with_name } :: import("../../value.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types } :: import("../../types/definitions.yo");
 { t_unit, t_extern_opaque } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { is_type_hierarchy_type } :: import("../../types/guards.yo");
@@ -234,7 +234,7 @@ User code should normally call stdlib wrappers (e.g. functions in
               variadic_comptime : false
             )
           ),
-          ArrayList(TypeValue).new()
+          no_types()
         )
       ),
       _ => result.field_type
@@ -283,8 +283,8 @@ User code should normally call stdlib wrappers (e.g. functions in
     TypeValueNode.Struct(
       sns_id.clone(),
       String.from(""),
-      field_labels.clone(),
-      field_types,
+      shared_list(field_labels.clone()),
+      shared_list(field_types),
       false,
       // is_reference_semantics
       false,
@@ -293,7 +293,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       // is_newtype
       String.from(""),
       // constructor_func_id
-      ArrayList(TypeValue).new(),
+      no_types(),
       // type_arguments
       true // is_source_namespace
     )

@@ -3,7 +3,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_trait, t_trait_simple, t_module, t_module_simple, t_some_t, t_ptr, t_i32, t_bool, t_unit, t_usize, t_dyn, t_dyn_simple, type_value_tag } :: import("../../src/types/creators.yo");
 { is_function_type, is_trait_type, is_module_type, is_some_type } :: import("../../src/types/guards.yo");
 { TypeTag } :: import("../../src/types/tags.yo");
@@ -32,7 +32,7 @@ test("t_func_simple: one param", {
   types := ArrayList(TypeValue).new();
   labels.push(`x`);
   types.push(t_i32());
-  f := t_func_simple(&labels, &types, t_bool());
+  f := t_func_simple(labels.clone(), types.clone(), t_bool());
   assert(is_function_type(&f), "should be function type");
   s := type_to_string(&f);
   // `t_func_simple` records no by-value flags, so its parameters borrow:
@@ -46,7 +46,7 @@ test("t_func_simple: two params", {
   types.push(t_i32());
   labels.push(`b`);
   types.push(t_bool());
-  f := t_func_simple(&labels, &types, t_unit());
+  f := t_func_simple(labels.clone(), types.clone(), t_unit());
   s := type_to_string(&f);
   check_str(&s, `fn(a : &i32, b : &bool) -> unit`, "t_func_simple: two params");
 });
@@ -57,7 +57,7 @@ test("t_func_simple: unlabeled params", {
   types.push(t_i32());
   labels.push(String.from(""));
   types.push(t_bool());
-  f := t_func_simple(&labels, &types, t_unit());
+  f := t_func_simple(labels.clone(), types.clone(), t_unit());
   s := type_to_string(&f);
   check_str(&s, `fn(i32, bool) -> unit`, "t_func_simple: unlabeled");
 });
@@ -79,7 +79,7 @@ test("t_trait: with fields", {
   fts := ArrayList(TypeValue).new();
   fls.push(`next`);
   fts.push(t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32()));
-  tr := t_trait(`Iterator`, ArrayList(String).new(), &fls, &fts);
+  tr := t_trait(`Iterator`, ArrayList(String).new(), fls.clone(), fts.clone());
   s := type_to_string(&tr);
   // Named traits print just the name (mirrors TS typeToString printing
   // "Send"); the field dump is the fallback for anonymous traits only.
@@ -103,7 +103,7 @@ test("t_module: string with fields", {
   fts := ArrayList(TypeValue).new();
   fls.push(`read`);
   fts.push(t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32()));
-  m := t_module(`FS`, &fls, &fts);
+  m := t_module(`FS`, fls.clone(), fts.clone());
   s := type_to_string(&m);
   check_str(&s, `module FS(read : fn() -> i32)`, "t_module: with fields");
 });
@@ -128,12 +128,12 @@ test("compat: identical func types", {
   ts := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_i32());
-  f1 := t_func_simple(&ls, &ts, t_bool());
+  f1 := t_func_simple(ls.clone(), ts.clone(), t_bool());
   ls2 := ArrayList(String).new();
   ts2 := ArrayList(TypeValue).new();
   ls2.push(`x`);
   ts2.push(t_i32());
-  f2 := t_func_simple(&ls2, &ts2, t_bool());
+  f2 := t_func_simple(ls2.clone(), ts2.clone(), t_bool());
   assert(are_types_compatible(&f1, &f2), "same func types should be compatible");
 });
 test("compat: func param count mismatch", {
@@ -141,7 +141,7 @@ test("compat: func param count mismatch", {
   ts1 := ArrayList(TypeValue).new();
   ls1.push(`x`);
   ts1.push(t_i32());
-  f1 := t_func_simple(&ls1, &ts1, t_bool());
+  f1 := t_func_simple(ls1.clone(), ts1.clone(), t_bool());
   f2 := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_bool());
   assert(!are_types_compatible(&f1, &f2), "different param counts should not be compatible");
 });
@@ -150,12 +150,12 @@ test("compat: func return(type mismatch)", {
   ts := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_i32());
-  f1 := t_func_simple(&ls, &ts, t_bool());
+  f1 := t_func_simple(ls.clone(), ts.clone(), t_bool());
   ls2 := ArrayList(String).new();
   ts2 := ArrayList(TypeValue).new();
   ls2.push(`x`);
   ts2.push(t_i32());
-  f2 := t_func_simple(&ls2, &ts2, t_i32());
+  f2 := t_func_simple(ls2.clone(), ts2.clone(), t_i32());
   assert(!are_types_compatible(&f1, &f2), "different return(types should not be compatible)");
 });
 // ---------------------------------------------------------------------------
@@ -252,13 +252,13 @@ test("substitute: inside func param", {
   ts := ArrayList(TypeValue).new();
   ls.push(`x`);
   ts.push(t_some_t(`T`, usize(0)));
-  f := t_func_simple(&ls, &ts, t_some_t(`T`, usize(0)));
+  f := t_func_simple(ls.clone(), ts.clone(), t_some_t(`T`, usize(0)));
   res := substitute(&s, &f);
   ls2 := ArrayList(String).new();
   ts2 := ArrayList(TypeValue).new();
   ls2.push(`x`);
   ts2.push(t_i32());
-  expected := t_func_simple(&ls2, &ts2, t_i32());
+  expected := t_func_simple(ls2.clone(), ts2.clone(), t_i32());
   assert(are_types_compatible(&res, &expected), "SomeT in func should be substituted");
 });
 test("substitute_all: list of types", {
@@ -280,12 +280,12 @@ test("substitute_all: list of types", {
 test("t_dyn_simple: single trait", {
   required := ArrayList(TypeValue).new();
   required.push(t_trait_simple(`Eq`));
-  d := t_dyn_simple(&required);
+  d := t_dyn_simple(required.clone());
   assert(type_value_tag(&d) == TypeTag.TDyn, "tag should be TDyn");
 });
 test("t_dyn_simple: empty list still constructs", {
   required := ArrayList(TypeValue).new();
-  d := t_dyn_simple(&required);
+  d := t_dyn_simple(required.clone());
   assert(type_value_tag(&d) == TypeTag.TDyn, "tag should be TDyn even with no required traits");
 });
 test("t_dyn: required + negative traits", {
@@ -297,7 +297,7 @@ test("t_dyn: required + negative traits", {
   negative.push(t_trait_simple(`Send`));
   neg_levels := ArrayList(usize).new();
   neg_levels.push(usize(0));
-  d := t_dyn(&required, &req_levels, &negative, &neg_levels);
+  d := t_dyn(required.clone(), req_levels.clone(), negative.clone(), neg_levels.clone());
   assert(type_value_tag(&d) == TypeTag.TDyn, "tag should be TDyn");
   // Pattern-match to verify shape (catches arity drift).
   ok := match(
@@ -317,7 +317,7 @@ _dag_level :: (fn(i : usize, child : &TypeValue) -> TypeValue)({
   types := ArrayList(TypeValue).new();
   types.push(child);
   types.push(child);
-  rc(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, labels, types, false, false, false, ``, ArrayList(TypeValue).new(), false))
+  rc(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, shared_list(labels), shared_list(types), false, false, false, ``, no_types(), false))
 });
 test("substitute: a shared struct DAG is substituted once per node", {
   (mut(ty) : TypeValue) = t_some_t(`T`, usize(0));

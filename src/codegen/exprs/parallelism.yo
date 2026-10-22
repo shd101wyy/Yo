@@ -23,7 +23,7 @@
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
 { is_unit_type, is_array_type, is_tuple_type, is_enum_type, is_newtype_type } :: import("../../types/guards.yo");
 { type_contains_rc_cell_or_move_only, type_is_move_only, is_value_nominal_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -260,8 +260,8 @@ _emit_capture_dispose_lines :: (
           (dv_i : usize) = usize(0);
           while(dv_i < ds_vns.len(), {
             dv_name := match(ds_vns.get(dv_i), .Some(v) => v, .None => String.new());
-            dv_fields := match(ds_vfs.get(dv_i), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            dv_labels := match(ds_vls.get(dv_i), .Some(l) => l, .None => ArrayList(String).new());
+            dv_fields := match(ds_vfs.get(dv_i), .Some(f) => f, .None => no_types());
+            dv_labels := match(ds_vls.get(dv_i), .Some(l) => l, .None => no_labels());
             (dv_has : bool) = false;
             (dv_j : usize) = usize(0);
             while(dv_j < dv_fields.len(), {

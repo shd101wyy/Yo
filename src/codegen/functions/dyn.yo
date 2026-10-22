@@ -12,7 +12,7 @@
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
 { Emitter } :: import("../../emitter.yo");
 { should_skip_function_codegen, generate_function_prototype } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -302,7 +302,7 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
       });
-      rc(TypeValueNode.Struct(rbp_id, rbp_nm, rbp_fl, rbp_new_ft, rbp_irs, rbp_iar, rbp_inw, rbp_cfid, rbp_new_ta, rbp_isn))
+      rc(TypeValueNode.Struct(rbp_id, rbp_nm, rbp_fl, shared_list(rbp_new_ft), rbp_irs, rbp_iar, rbp_inw, rbp_cfid, shared_list(rbp_new_ta), rbp_isn))
     },
     _ => t
   )
@@ -372,7 +372,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
       .Some(impl_entry) => {
         data_type := impl_entry.data_type.clone();
         is_boxed := is_boxed_type(data_type.clone());
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
         nt := req_traits.len();
         // Pass 1: Fn synthetic `call` slot.
         (ti : usize) = usize(0);
@@ -388,7 +388,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   // the wrapper releases the box after the call.
                   is_call_once := (fn_base == "FnOnce");
                   wrapper := `__yo_wrap_${impl_key}_call`;
-                  params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
+                  params := _wrapper_params(call_param_types.items.clone(), call_param_is_ref.items.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
                   // A `unit` result lowers to C `void` too: the call is a
@@ -636,7 +636,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
                                   slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref, _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
-                                  params := _wrapper_params(slot_params_tys.clone(), slot_param_is_ref.clone(), usize(1), context);
+                                  params := _wrapper_params(slot_params_tys.items.clone(), slot_param_is_ref.items.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
                                   while(ac_j < param_types.len(), {
@@ -821,7 +821,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         data_atomic := _dyn_data_is_atomic(impl_entry.data_type.clone());
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_retain = __yo_incr_rc_atomic,`, `  .__yo_retain = __yo_incr_rc,`));
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_release = __yo_decr_rc_atomic,`, `  .__yo_release = __yo_decr_rc,`));
-        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
+        req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
         nt := req_traits.len();
         processed := HashSet(String).new();
         (mi : usize) = usize(0);

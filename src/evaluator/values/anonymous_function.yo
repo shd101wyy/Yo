@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -236,7 +236,7 @@ _synthesize_default_func_type :: (
     i = (i + usize(1));
   });
   ret_ty := t_some_t(String.from("_ret"), frame_level);
-  t_func_simple(&names, &param_types, &ret_ty)
+  t_func_simple(names, param_types, &ret_ty)
 });
 /// True when `ty` is an UNRESOLVED `Impl(Fn(...))` — a SomeT requiring the Fn
 /// trait with no resolved concrete. A function literal has ONE lowered body,
@@ -336,19 +336,19 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
     ftt,
     Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof)) => rc(
       TypeValueNode.Func(
-        ArrayList(TypeValue).new(),
+        no_types(),
         // no generic types
         cpt,
-        ArrayList(TypeValue).new(),
+        no_types(),
         // no implicit types
-        ArrayList(TypeValue).new(),
+        no_types(),
         // no where types
         cr_box,
         rc(
           FuncMeta(
-            forall_labels : ArrayList(String).new(),
+            forall_labels : no_labels(),
             param_labels : cpl,
-            implicit_labels : ArrayList(String).new(),
+            implicit_labels : no_labels(),
             result_is_comptime_only : false,
             // Fn-trait-derived closure type (runtime); `inout` call params
             // carry through (the with_lock write-through closure).
@@ -366,7 +366,7 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
             variadic_comptime : false
           )
         ),
-        ArrayList(TypeValue).new()
+        no_types()
       )
     ),
     _ => rc(TypeValueNode.Unit)
@@ -435,7 +435,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
         ss_new_pts.push(recur(&ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      rc(TypeValueNode.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), ArrayList(TypeValue).new()))
+      rc(TypeValueNode.Func(ss_fts.clone(), shared_list(ss_new_pts), ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), no_types()))
     },
     _ => ty
   )
@@ -1266,17 +1266,17 @@ evaluate_anonymous_function_implementation :: (
   forall_labels := match(
     function_type,
     Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   param_labels := match(
     function_type,
     Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
-  (param_types : ArrayList(TypeValue)) = match(
+  (param_types : SharedList(TypeValue)) = match(
     function_type,
     Rc(.Func({ param_types : pt })) => pt,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   // The expected type's per-param ref-ness. A `self : &mut Self` trait-method
   // param (e.g. Iterator's `next : fn(self : &mut Self) -> Option(Self.Item)`) makes `self` a
@@ -1288,7 +1288,7 @@ evaluate_anonymous_function_implementation :: (
   param_is_ref := match(
     function_type,
     Rc(.Func({ meta : __fm3 })) => __fm3.*.param_is_ref,
-    _ => ArrayList(bool).new()
+    _ => no_flags()
   );
   // The expected type's by-value flags (V3b's flip, decision 30): a closure
   // parameter typed by value owns its argument, exactly as a `fn`
@@ -1296,17 +1296,17 @@ evaluate_anonymous_function_implementation :: (
   param_is_owning := match(
     function_type,
     Rc(.Func({ meta : __fm3o })) => __fm3o.*.param_is_owning,
-    _ => ArrayList(bool).new()
+    _ => no_flags()
   );
   implicit_labels := match(
     function_type,
     Rc(.Func({ meta : __fm4 })) => __fm4.*.implicit_labels,
-    _ => ArrayList(String).new()
+    _ => no_labels()
   );
   implicit_types := match(
     function_type,
     Rc(.Func({ implicit_types : it })) => it,
-    _ => ArrayList(TypeValue).new()
+    _ => no_types()
   );
   result_box := match(
     function_type,
@@ -1887,10 +1887,10 @@ evaluate_anonymous_function_implementation :: (
   func_val := EvalValue.FuncVal(
     rc(
       FuncValData(
-        forall_names : forall_labels,
+        forall_names : forall_labels.items,
         params : actual_param_labels,
         param_type_names : param_type_names,
-        evidence_params : implicit_labels,
+        evidence_params : implicit_labels.items,
         body : body_expr,
         cap_names : ArrayList(String).new(),
         cap_tys : ArrayList(TypeValue).new(),
@@ -1918,8 +1918,8 @@ evaluate_anonymous_function_implementation :: (
     function_type.clone(),
     Rc(.Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _)) => {
       _l3nm := _l3m.*.clone();
-      _l3nm.param_labels = actual_param_labels.clone();
-      rc(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), ArrayList(TypeValue).new()))
+      _l3nm.param_labels = shared_list(actual_param_labels.clone());
+      rc(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), no_types()))
     },
     _ => function_type.clone()
   );
@@ -2501,7 +2501,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 function_type,
                 Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt)) => {
                   nrs_nm := nrs_m.*.clone();
-                  nrs_nm.param_labels = actual_param_labels.clone();
+                  nrs_nm.param_labels = shared_list(actual_param_labels.clone());
                   rc(TypeValueNode.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt))
                 },
                 _ => function_type
@@ -2585,7 +2585,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   corrected_func_type.clone(),
                   Rc(.Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _)) => {
                     _l4nm := _l4m.*.clone();
-                    _l4nm.param_labels = actual_param_labels.clone();
+                    _l4nm.param_labels = shared_list(actual_param_labels.clone());
                     // The parameter types are the SUBSTITUTED ones (`_l4pt`, from
                     // `corrected_func_type`): the local `param_types` predate the
                     // expected-env substitution above, and re-registering them
@@ -2593,9 +2593,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // which codegen then lowered to `void*` once the id-keyed
                     // registry stopped carrying binder resolutions
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-                    rc(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), ArrayList(TypeValue).new()))
+                    rc(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), no_types()))
                   },
-                  _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
+                  _ => t_func_simple(actual_param_labels.clone(), param_types.items.clone(), &body_ty)
                 );
                 register_func_type(func_id.clone(), &rereg_ty);
                 // Record the CONCRETE def-evaluated body type by FuncVal id.

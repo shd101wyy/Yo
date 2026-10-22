@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, TypeValueNode } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, no_types } :: import("./definitions.yo");
 // ---------------------------------------------------------------------------
 // Forward reference slot for _universe_of
 // (needed by _determine_type_universe which is defined before the function)
@@ -172,7 +172,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
       .None => rc(TypeValueNode.TypeUni(usize(0)))
     ),
     // Tuple: check all field types ------------------------------------------
-    Rc(.Tuple(_, ftypes)) => _determine_type_universe(&ftypes, visited),
+    Rc(.Tuple(_, ftypes)) => _determine_type_universe(&ftypes.items, visited),
     // Function types: all functions are level-0 types -----------------------
     Rc(.Func({ result : _ })) => rc(TypeValueNode.TypeUni(usize(0))),
     // Struct: recurse into fields, guard against cycles by name.
@@ -191,7 +191,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
           match(
             _universe_memo_lookup(mk.clone(), ty),
             .Some(hit) => hit,
-            .None => _universe_memo_compute(&mk, ty, sname.clone(), &ftypes, visited)
+            .None => _universe_memo_compute(&mk, ty, sname.clone(), &ftypes.items, visited)
           )
         }
       ),
@@ -211,7 +211,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
               all_fields := ArrayList(TypeValue).new();
               vi := usize(0);
               while(vi < variant_fields.len(), {
-                vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
+                vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => no_types());
                 fi := usize(0);
                 while(fi < vfields.len(), {
                   ft := match(vfields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -237,7 +237,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
         true => {
           new_visited := visited.clone();
           new_visited.push(uname.clone());
-          _determine_type_universe(&ftypes, &new_visited)
+          _determine_type_universe(&ftypes.items, &new_visited)
         }
       ),
     // Traits and modules are type-level-1 types ----------------------------

@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text } :: import("../utils.yo");
@@ -897,8 +897,8 @@ _build_def_time_body_env :: (
   // Skipped when a parameter of the same name exists: the parameter loop is
   // authoritative for it (and runs after, so it would overwrite anyway).
   {
-    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => __fa_m.*.forall_labels, _ => ArrayList(String).new());
-    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => __fa_t, _ => ArrayList(TypeValue).new());
+    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => __fa_m.*.forall_labels, _ => no_labels());
+    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => __fa_t, _ => no_types());
     (fa_i : usize) = usize(0);
     while(fa_i < fa_labels.len(), {
       fa_name := match(fa_labels.get(fa_i), .Some(n) => n, .None => String.from(""));
@@ -1437,10 +1437,10 @@ Result type: ${type_to_string(&result_box)}`
       func_val := EvalValue.FuncVal(
         rc(
           FuncValData(
-            forall_names : forall_labels.clone(),
-            params : param_labels.clone(),
+            forall_names : forall_labels.items.clone(),
+            params : param_labels.items.clone(),
             param_type_names : param_type_names,
-            evidence_params : implicit_labels,
+            evidence_params : implicit_labels.items,
             body : body_expr,
             cap_names : ArrayList(String).new(),
             cap_tys : ArrayList(TypeValue).new(),
@@ -1646,8 +1646,8 @@ Result type: ${type_to_string(&result_box)}`
               func_id : fn_val_id.clone(),
               module_path : tok.module_path.clone(),
               body : body_expr_raw.clone(),
-              param_names : param_labels.clone(),
-              param_types : param_types.clone(),
+              param_names : param_labels.items.clone(),
+              param_types : param_types.items.clone(),
               result_type : result_box.clone(),
               requires_exprs : evd_reqs,
               ensures_exprs : evd_enss,
@@ -1726,10 +1726,10 @@ Result type: ${type_to_string(&result_box)}`
           );
           flow_env := _build_def_time_body_env(
             caller_env,
-            &param_labels,
-            &param_types,
-            &param_is_ref,
-            &param_is_owning,
+            &param_labels.items,
+            &param_types.items,
+            &param_is_ref.items,
+            &param_is_owning.items,
             &def_ct_flags,
             &result_box,
             &def_where_entries,
@@ -1814,7 +1814,7 @@ Result type: ${type_to_string(&result_box)}`
           // batch main's own trial resolve abstractly
           // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
           // closure-arg ExprInfo under the wip synthesis loosenings).
-          flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels, &param_labels), ArrayList(String).new());
+          flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels.items, &param_labels.items), ArrayList(String).new());
           flow_depths := forcing_depths();
           _trial_eval_fn_body(&fb, &flow_env, &flow_ctx, &mut flow_out);
           truncate_forcing_depths(flow_depths);
@@ -1884,10 +1884,10 @@ Result type: ${type_to_string(&result_box)}`
             g_pending_def_evals.push(
               PendingDefEval(
                 body : body_expr.clone(),
-                param_labels : param_labels,
-                param_types : param_types,
-                param_is_ref : param_is_ref,
-                param_is_owning : param_is_owning,
+                param_labels : param_labels.items,
+                param_types : param_types.items,
+                param_is_ref : param_is_ref.items,
+                param_is_owning : param_is_owning.items,
                 param_is_comptime : def_ct_flags,
                 result_ty : result_box,
                 where_entries : def_where_entries,
@@ -2219,10 +2219,10 @@ Result type: ${type_to_string(&result_box)}`
             );
             dg_env := _build_def_time_body_env(
               caller_env,
-              &param_labels,
-              &param_types,
-              &param_is_ref,
-              &param_is_owning,
+              &param_labels.items,
+              &param_types.items,
+              &param_is_ref.items,
+              &param_is_owning.items,
               &dg_ct_flags,
               &result_box,
               &dg_where,
@@ -2283,7 +2283,7 @@ Result type: ${type_to_string(&result_box)}`
             // clone writes the trial's abstract-typed ExprInfos onto the real
             // body's nodes, which codegen reads for an `io.async` closure in
             // it (`R` lowered to `void*`, tests/async_generic_future_return).
-            dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels, &param_labels), ArrayList(String).new());
+            dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels.items, &param_labels.items), ArrayList(String).new());
             _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(&body_expr)), &dg_env, &dg_ctx, &mut dg_out);
             truncate_forcing_depths(dg_depths);
             if(dg_binders.len() > usize(0), {
