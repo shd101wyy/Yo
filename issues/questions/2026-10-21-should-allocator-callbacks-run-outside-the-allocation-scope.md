@@ -20,6 +20,10 @@ the allocator, its explicit path sets the thread scope to `a` around the
 `Arc(V)(v)` constructor. `box(v, alloc : .Some(a))` does not: it calls
 `a.vtable.alloc` directly under the caller's scope.
 
+Since 2026-10-22 `rc(v, alloc : .Some(a))` takes the same swap around
+`Rc(V)(v)` (`feat/rc-alloc-parameter`), so it inherits this too, until
+`__yo_cell` takes the allocator.
+
 Measured 2026-10-21 (seed v0.2.67, `--std-path` at the branch's std, `-O2`): an
 allocator whose `alloc` pushes onto a fresh `ArrayList(usize)` and then calls
 `GlobalAllocator.malloc`:

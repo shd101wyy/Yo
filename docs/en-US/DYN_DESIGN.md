@@ -72,7 +72,9 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
     )
   )
 );
-rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
+  ...
+);
 ```
 
 **Why this constraint?**

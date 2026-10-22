@@ -9746,13 +9746,45 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 /// an ordinary function, not the count: the count is the `ref_count(x)`
 /// builtin (plans/VALUES_BY_DEFAULT.md decision 11).
 ///
+/// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places it
+/// in the current `with_allocator` scope, else the global allocator. The last
+/// handle's drop frees the cell through that allocator. Panics when the
+/// allocator is out of memory. As with `arc`, and unlike `box`, `a` is the
+/// current scope for the construction, so `a`'s callbacks must not allocate
+/// through the scope (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own
+/// allocator").
+///
 /// ```yo
 /// a := rc(i32(42));
 /// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 /// b := a;
 /// assert(b.* == i32(42), "a copy shares the cell");
 /// ```
-rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))({
+  // The cell constructor allocates from the thread's current scope, so an
+  // explicit allocator is that scope for the one construction, as in `arc`
+  // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_cell`, the explicit
+  // path goes through the scope). Nothing between the two sets can unwind:
+  // an allocation failure aborts.
+  //
+  // The `match` is bound, not the body's tail: a tail `match` takes the
+  // declared `Rc(V)` as its type, and for a `dyn(...)` closure that captures
+  // a parameter of a generic function that `V` is unbound, a second C type
+  // for the result (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
+  cell := match(
+    alloc,
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      placed := Rc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      placed
+    },
+    .None => Rc(V)(value)
+  );
+  cell
+});
 impl(
   generic(T : Type),
   where(T <: Hash),
@@ -9902,7 +9934,7 @@ extern(
   __yo_scope_vtable :
     (fn() -> ?*void),
   // Sets the thread's allocation scope: `std/allocator.yo`'s
-  // `with_allocator`, and `arc`'s explicit `alloc`.
+  // `with_allocator`, and the explicit `alloc` of `rc` and `arc`.
   __yo_scope_set :
     (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );
@@ -10073,25 +10105,29 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "the payload");
 /// ```
-arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))(
-  match(
+arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))({
+  // The cell constructor allocates from the thread's current scope, so an
+  // explicit allocator is that scope for the one construction
+  // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_atomic_cell`, the
+  // explicit path goes through the scope). Nothing between the two sets
+  // can unwind: an allocation failure aborts.
+  //
+  // The `match` is bound, not the body's tail, for `rc`'s reason above
+  // (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
+  cell := match(
     alloc,
-    // The cell constructor allocates from the thread's current scope, so an
-    // explicit allocator is that scope for the one construction
-    // (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_atomic_cell`, the
-    // explicit path goes through the scope). Nothing between the two sets
-    // can unwind: an allocation failure aborts.
     .Some(a) => {
       saved_ctx := __yo_scope_ctx();
       saved_vtable := __yo_scope_vtable();
       __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
-      cell := Arc(V)(value);
+      placed := Arc(V)(value);
       __yo_scope_set(saved_ctx, saved_vtable);
-      cell
+      placed
     },
     .None => Arc(V)(value)
-  )
-);
+  );
+  cell
+});
 // `Sync` because every handle reads the payload from its own thread; `Send`
 // because the last handle may be dropped on any thread, and the payload's
 // `Drop` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
