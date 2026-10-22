@@ -847,6 +847,12 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   });
   Option(AstExpr).Some(cur)
 });
+/// A capture-list entry written as the shorthand `x`: the record literal's
+/// shorthand reaches the evaluator as `x : x`, whose label and initializer
+/// are one token.
+_cap_entry_is_shorthand :: (fn(label_e : &AstExpr, init_e : &AstExpr) -> bool)(
+  ast_expr_is_atom(label_e) && ast_expr_is_atom(init_e) && (ast_expr_token(label_e).byte_offset == ast_expr_token(init_e).byte_offset)
+);
 /// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
 /// writes the literal. Each entry becomes one field of the capture struct:
 /// - `x` (or `x : e`) is by value: plain data copies, and a value that is
@@ -1012,7 +1018,7 @@ _evaluate_capture_list :: (
         exn,
         "field-store",
         copy_dest_decl : if(migrate_explicit_copy_on(), Option(String).Some(_ic_decl_key(&name_tok)), Option(String).None),
-        copy_capture_label : if(migrate_explicit_copy_on() && ast_expr_is_atom(&raw), Option(String).Some(label.clone()), Option(String).None)
+        copy_capture_label : if(migrate_explicit_copy_on() && _cap_entry_is_shorthand(&label_e, &init_e), Option(String).Some(label.clone()), Option(String).None)
       );
       val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => vi.ty, .None => t_unit());
       // The field must OWN its reference. An owning temp is consumed by the
