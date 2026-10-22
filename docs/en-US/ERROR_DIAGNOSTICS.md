@@ -292,7 +292,8 @@ These sites are also left as written:
 - a position copied at two types (a generic body);
 - a site whose source text does not print as the evaluated expression;
 - a copy whose source or destination has a raw pointer derived from it
-  (`marks.ptr()`, anywhere in the module): the program reaches the buffer
+  anywhere in the module (`marks.ptr()`, `addr_of(marks(i))`, or a helper
+  taking `&marks` and returning a pointer): the program reaches the buffer
   through the pointer, which a `.clone()` would leave dangling or pointing at
   the other side. Move the value instead, taking the pointer first;
 - a copy out of a temporary that dies at the end of its statement (a field or
@@ -301,14 +302,16 @@ These sites are also left as written:
   not one: the pointee can outlive the handle, so it is rewritten. A `match`
   binding of a call's result (`.Some(v) => v` over `m.get(k)`) is judged at
   the end of its arm instead: a copy made while the binding is read again is
-  rewritten, and its last use is a move, neither rewritten nor listed;
+  rewritten, and its last use is a move, neither rewritten nor listed. A copy
+  made in the arm's guard is always rewritten: a failing guard passes the
+  same value on to the next arm;
 - with `--hot-path <path>` (repeatable), every copy in a file under that path.
   On a hot path a deep copy per operation adds up, and the hand edit is
   usually a borrow or a shared value rather than a `.clone()`.
 
-A `test(...)` body whose trial evaluation fails is listed too: the trial
-swallows its error so the file still evaluates, and its copies are migrated
-only as far as the trial reached.
+A `test(...)` body whose trial evaluation fails is listed too, and counted in
+the summary: the trial swallows its error so the file still evaluates, but
+some of the body's copies may be left unmigrated, so review it by hand.
 
 A clone the move checker later finds redundant is for decision 27's lint.
 

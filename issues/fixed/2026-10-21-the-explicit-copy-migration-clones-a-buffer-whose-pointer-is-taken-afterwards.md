@@ -87,7 +87,14 @@ result type is known. When that type is a raw view
 (`type_representation_contains_raw_ptr`: `*T`, `?*T`, a value holding one
 that owns no buffer of its own), each argument rooted in a named variable
 (the receiver included, `_ic_place_root_decl`) is recorded by declaration
-key. `_run_migrate_explicit_copy` lists a site whose source or destination
+key. An argument lent with `&x` or `&mut x` is the place `x`
+(`record_copy_pointer_place` reads through the marker), so a helper that
+takes `&marks` and returns a pointer it derived from its parameter
+(`first_ptr(&marks)`) ties the pointer to `marks`. The address-of builtin
+records its operand the same way: `evaluate_address_call`
+(`src/evaluator/builtins/ptr_fns.yo`) calls `record_copy_pointer_place`, so
+`addr_of(marks(usize(0)))` roots at `marks` even though the index inside it
+returns an `i32`. `_run_migrate_explicit_copy` lists a site whose source or destination
 variable has such a pointer anywhere in the module: "a raw pointer into its
 source is taken, so the program may reach one buffer through both; move it
 with the pointer taken first, or spell the copy (`.clone()`) by hand".
@@ -99,5 +106,9 @@ a wrong `.clone()` costs a dangling pointer.
 ## Test
 
 `tests/cli-cases/fix-migrate-explicit-copy-raw-pointer`, whose fixture is the
-reproducer. Its goldens expect the site listed, no `.clone()` inserted
-(`expected_tree` pins the file unchanged), and the trailing `check` passing.
+reproducer plus the two other ways of taking the pointer: `addr_of(marks(i))`
+and a helper `first_ptr(&marks)`. Its goldens expect the three sites listed,
+no `.clone()` inserted (`expected_tree` pins the file unchanged), and the
+trailing `check` passing. Before the addr_of and lent-borrow cases were
+covered, the run cloned both, and the migrated program failed under
+`--sanitize address` with a heap-use-after-free.

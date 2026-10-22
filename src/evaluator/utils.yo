@@ -2769,7 +2769,10 @@ take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
 /// would hand one side a fresh buffer, and the pointer would dangle or read
 /// the other side
 /// (issues/fixed/2026-10-21-the-explicit-copy-migration-clones-a-buffer-whose-pointer-is-taken-afterwards.md).
-/// An argument lent with `&x` or `&mut x` (`first_ptr(&marks)`, a helper
+/// Two call paths record: a method or trait dispatch
+/// (`try_to_call_function_with_arguments`), and a direct call of a function
+/// value with a runtime result (`_evaluate_funcval_runtime_call`), which
+/// passes the call's arguments as written. An argument lent with `&x` or `&mut x` (`first_ptr(&marks)`, a helper
 /// deriving the pointer from its borrow parameter) is the place `x`.
 record_copy_pointer :: (fn(result_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, at : &Token) -> unit)({
   if(!g_migrate_explicit_copy || !type_representation_contains_raw_ptr(result_ty), {
@@ -2783,13 +2786,17 @@ record_copy_pointer :: (fn(result_ty : &TypeValue, args : &ArrayList(AstExpr), e
 /// Record, while the migration runs, that a raw pointer is derived from the
 /// variable `place` is rooted in: an argument of a pointer-returning call
 /// (`record_copy_pointer`), or the operand of the address-of `addr_of(x)`
-/// (`addr_of(marks(i))` roots at `marks`). A call-site borrow marker or a
-/// nested address-of around the place is read through first.
+/// (`addr_of(marks(i))` roots at `marks`). An argument's label (`xs :
+/// marks`), a call-site borrow marker or a nested address-of around the place
+/// is read through first.
 record_copy_pointer_place :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
   if(!g_migrate_explicit_copy, {
     return(());
   });
   (bare : AstExpr) = place.clone();
+  if(ast_expr_is_fn_call_of(&bare, ":", Option(usize).Some(usize(2))), {
+    bare = match(bare, .FnCall(_, _, lab_args, _, _) => match(lab_args.get(usize(1)), .Some(lv) => lv, .None => return(())), .Atom(_, _) => return(()));
+  });
   while(ast_expr_is_address_of_call(&bare, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&bare, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
     bare = match(
       bare,
