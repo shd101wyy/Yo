@@ -74,7 +74,7 @@ derive(TokenAndWarning, Clone);
 /// token's MIDDLE; it now underlines the whole token from its start).
 _span_of_token :: (fn(token : &Token) -> Span)(
   Span(
-    path : token.module_path,
+    path : token.module_path.*,
     row : usize(token.row),
     col : usize(token.column),
     len : token.value.chars().count()
@@ -806,7 +806,7 @@ get_line_at_token :: (fn(token : &Token) -> String)({
   spaces := String.from(" ").repeat(caret_col);
   row_plus1 := (usize(token.row) + usize(1));
   col_plus1 := (usize(token.column) + usize(1));
-  `${token.module_path}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
+  `${token.module_path.*}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
 });
 /// Get the source line at a given position with a caret indicator
 /// (the legacy pre-P1 block).

@@ -1974,7 +1974,7 @@ is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
 /// the marker survives env copies and generic re-evaluation of a body whose
 /// tree already had the marker stripped.
 (g_mut_bindings : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-_mut_binding_key :: (fn(decl : &Token, name : &String) -> String)(`${_mg_canon(&decl.module_path)}|${decl.row.to_string()}:${decl.column.to_string()}|${name}`);
+_mut_binding_key :: (fn(decl : &Token, name : &String) -> String)(`${_mg_canon(&decl.module_path.*)}|${decl.row.to_string()}:${decl.column.to_string()}|${name}`);
 /// Record that the binding `name` declared at `decl` is `mut(name)`.
 register_mut_binding :: (fn(decl : &Token, name : &String) -> unit)({
   g_mut_bindings.with_mut(s => s.insert(_mut_binding_key(decl, name)));
@@ -2538,7 +2538,7 @@ lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_ho
 /// A body's source position, the key of both tables above.
 trial_body_site :: (fn(body : &AstExpr) -> String)({
   tok := ast_expr_token(body);
-  `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
+  `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`
 });
 (g_generic_trial_errors : RefCell(HashMap(String, HollowBodyError))) = RefCell(HashMap(String, HollowBodyError)).new(HashMap(String, HollowBodyError).new());
 record_generic_trial_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
@@ -2811,7 +2811,7 @@ record_node_eval :: (fn(id : usize, tok : &Token) -> unit)({
   });
   n := match(g_node_eval_counts.with(m => m.get(&id)), .Some(v) => v, .None => usize(0));
   if(n == usize(0), {
-    _pl := g_node_eval_labels.with_mut(m => m.insert(id, `${tok.value}@${tok.module_path}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
+    _pl := g_node_eval_labels.with_mut(m => m.insert(id, `${tok.value}@${tok.module_path.*}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
   });
   _pc := g_node_eval_counts.with_mut(m => m.insert(id, n + usize(1)));
 });
@@ -3027,12 +3027,12 @@ take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
   out
 });
 record_migrate_edit :: (fn(tok : &Token, len : usize, replacement : &String, expect : &String) -> unit)({
-  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
   if(g_migrate_edit_keys.with(s => s.contains(&key)), {
     return(());
   });
   g_migrate_edit_keys.with_mut(s => s.insert(key));
-  g_migrate_edits.with_mut(xs => xs.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect)));
+  g_migrate_edits.with_mut(xs => xs.push(MigrateEdit(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect)));
 });
 /// Whether `yo fix --migrate params` is recording.
 migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
@@ -3077,12 +3077,12 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
     return(());
   });
   reading := if(lent, String.from("lent"), String.from("addr"));
-  key := `${amp_tok.module_path}:${amp_tok.row.to_string()}:${amp_tok.column.to_string()}:${reading}`;
+  key := `${amp_tok.module_path.*}:${amp_tok.row.to_string()}:${amp_tok.column.to_string()}:${reading}`;
   if(g_addr_of_site_keys.with(s => s.contains(&key)), {
     return(());
   });
   g_addr_of_site_keys.with_mut(s => s.insert(key));
-  g_addr_of_sites.with_mut(xs => xs.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent)));
+  g_addr_of_sites.with_mut(xs => xs.push(AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent)));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
   out := g_addr_of_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3111,12 +3111,12 @@ record_destructor_site :: (fn(member_tok : &Token) -> unit)({
   if(!g_migrate_drop_trait, {
     return(());
   });
-  key := `${member_tok.module_path}:${member_tok.row.to_string()}:${member_tok.column.to_string()}`;
+  key := `${member_tok.module_path.*}:${member_tok.row.to_string()}:${member_tok.column.to_string()}`;
   if(g_destructor_site_keys.with(s => s.contains(&key)), {
     return(());
   });
   g_destructor_site_keys.with_mut(s => s.insert(key));
-  g_destructor_sites.with_mut(xs => xs.push(DestructorSite(path : member_tok.module_path.clone(), row : usize(member_tok.row), col : usize(member_tok.column))));
+  g_destructor_sites.with_mut(xs => xs.push(DestructorSite(path : member_tok.module_path.*.clone(), row : usize(member_tok.row), col : usize(member_tok.column))));
 });
 take_destructor_sites :: (fn() -> ArrayList(DestructorSite))({
   out := g_destructor_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3143,11 +3143,11 @@ migrate_markers_on :: (fn() -> bool)(g_migrate_markers);
 /// Record one site: `tok` is the place's leftmost token. Recorded once per
 /// position and marker.
 record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> unit)({
-  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
   if(!g_marker_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_marker_sites.with_mut(xs => xs.push(MarkerSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone())));
+  g_marker_sites.with_mut(xs => xs.push(MarkerSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone())));
 });
 take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
   out := g_marker_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3174,11 +3174,11 @@ migrate_rc_pattern_on :: (fn() -> bool)(g_migrate_rc_pattern);
 /// Record one site: `tok` is the pattern's leftmost token. Recorded once per
 /// position.
 record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
-  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
   if(!g_rc_pattern_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_rc_pattern_sites.with_mut(xs => xs.push(RcPatternSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
+  g_rc_pattern_sites.with_mut(xs => xs.push(RcPatternSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
 });
 take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
   out := g_rc_pattern_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3205,11 +3205,11 @@ migrate_dyn_spelling_on :: (fn() -> bool)(g_migrate_dyn_spelling);
 /// Record one site: `tok` is the value's leftmost token. Recorded once per
 /// position.
 record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
-  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
   if(!g_dyn_spelling_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_dyn_spelling_sites.with_mut(xs => xs.push(DynSpellingSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
+  g_dyn_spelling_sites.with_mut(xs => xs.push(DynSpellingSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
 });
 take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
   out := g_dyn_spelling_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3232,11 +3232,11 @@ set_migrate_mutable_globals :: (fn(on : bool) -> unit)({
 migrate_mutable_globals_on :: (fn() -> bool)(g_migrate_mutable_globals);
 /// Record the declaration `decl` of the written global `name`, once.
 record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
-  key := `${_mg_canon(&decl.module_path)}:${decl.row.to_string()}:${decl.column.to_string()}`;
+  key := `${_mg_canon(&decl.module_path.*)}:${decl.row.to_string()}:${decl.column.to_string()}`;
   if(!g_mutable_global_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_mutable_global_sites.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
+  g_mutable_global_sites.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
 });
 take_mutable_global_sites :: (fn() -> ArrayList(MutableGlobalSite))({
   out := g_mutable_global_sites.with_mut(xs => xs.split_off(usize(0)));
@@ -3261,7 +3261,7 @@ set_migrate_mut_bindings :: (fn(on : bool) -> unit)({
 migrate_mut_bindings_on :: (fn() -> bool)(g_migrate_mut_bindings);
 /// Record the declaration `decl` of the written binding `name`, once.
 record_mut_binding_site :: (fn(decl : &Token, name : &String) -> unit)({
-  _record_mut_binding_site_at(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+  _record_mut_binding_site_at(MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
 });
 _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
@@ -3276,13 +3276,13 @@ _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
 /// (`settle_mut_binding_pending`).
 (g_mut_binding_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_binding_site_pending :: (fn(decl : &Token, name : &String) -> unit)({
-  g_mut_binding_pending.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
+  g_mut_binding_pending.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
 });
 mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.with(xs => xs.len()));
 /// A parameter write held the same way, by the position of the write.
 (g_mut_param_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_param_site_pending :: (fn(at : &Token, name : &String) -> unit)({
-  g_mut_param_pending.with_mut(xs => xs.push(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone())));
+  g_mut_param_pending.with_mut(xs => xs.push(MutableGlobalSite(path : at.module_path.*.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone())));
 });
 mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.with(xs => xs.len()));
 /// Settle the writes held since `mark`. `keep` (the argument raised an error
@@ -3310,7 +3310,7 @@ settle_mut_binding_pending :: (fn(mark : usize, pmark : usize, keep : bool) -> u
 });
 /// Record a write `at` of the parameter `name`, once per position.
 record_mut_param_site :: (fn(at : &Token, name : &String) -> unit)({
-  _record_mut_param_site_at(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
+  _record_mut_param_site_at(MutableGlobalSite(path : at.module_path.*.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
 });
 _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;

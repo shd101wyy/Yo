@@ -186,12 +186,12 @@ evaluate_identifier_and_operator :: (
       bound := get_value_of_some_type_from_env(env, &self_tv);
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         st_r := if(is_some_type(&bound), String.from("<unresolved-some>"), type_key(&bound));
-        eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+        eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
       });
       if(is_some_type(&bound), self_tv, bound)
     }, self_tv);
     if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path.*} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
     });
     ev := create_type_value(&resolved);
     info := new_expr_info(env, t_type());
@@ -229,7 +229,7 @@ evaluate_identifier_and_operator :: (
   identifier_string := token.value;
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
-    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path.*}:${token.row.to_string()}:${token.column.to_string()}`);
   });
   found_frame_idx_out := ArrayList(usize).new();
   variable := match(
@@ -264,7 +264,7 @@ evaluate_identifier_and_operator :: (
     // state an in-order definition would have left — and every by-name
     // lookup that follows (consumption, RC ownership, flowability) finds it.
     .None => match(
-      resolve_pending_definition(identifier_string.clone(), token.module_path.clone()),
+      resolve_pending_definition(identifier_string.clone(), token.module_path.*.clone()),
       .Resolved({ var : pending_var, frame_id : pending_frame_id }) => {
         found_frame_idx_out.push(adopt_resolved_definition(env, &pending_var, pending_frame_id));
         pending_var
@@ -447,7 +447,7 @@ evaluate_identifier_and_operator :: (
   // A place a live capture-list closure borrows `mut` is frozen for every
   // access (decision 18 rule 2); synthesized drops and dups are not accesses
   // of the source.
-  if(!variable.is_compile_time_only && !token.module_path.starts_with(String.from("auto-generated://")), {
+  if(!variable.is_compile_time_only && !token.module_path.*.starts_with(String.from("auto-generated://")), {
     check_capture_freeze_access(&variable, ctx.is_lhs_of_assignment, &token, env, ctx, exn);
   });
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
@@ -630,7 +630,7 @@ evaluate_identifier_and_operator :: (
 /// freed memory
 /// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
 _read_after_move_is_checked :: (fn(variable : &Variable, token : &Token, env : &Environment) -> bool)(
-  !token.module_path.starts_with(String.from("auto-generated://"))
+  !token.module_path.*.starts_with(String.from("auto-generated://"))
   && !is_temp_variable_name(&env.module_path.*, &variable.name)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where

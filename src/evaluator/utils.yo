@@ -280,7 +280,7 @@ attach_temp_variable_to_expr :: (
             usize(temp_tok.row),
             usize(temp_tok.column),
             .None,
-            .Some(temp_tok.module_path)
+            .Some(temp_tok.module_path.*)
           );
           add_variable_to_begin_block_frame(
             &info.env,
@@ -648,7 +648,7 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
 );
 /// The scrutinee tokens of the consuming `match`es (decision 26), so that a
 /// use after one names `match(&x, …)`. Keyed by token position.
-_consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+_consuming_match_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset}`);
 note_consuming_match_scrutinee :: (fn(tok : &Token) -> unit)({
   g_consuming_match_scrutinees.with_mut(s => s.insert(_consuming_match_key(tok)));
 });
@@ -2016,7 +2016,7 @@ set_expr_as_consumed :: (
           });
           // A place a live capture-list closure borrows cannot be moved
           // (decision 18 rule 2).
-          if(!ast_expr_token(expr).module_path.starts_with(String.from("auto-generated://")), {
+          if(!ast_expr_token(expr).module_path.*.starts_with(String.from("auto-generated://")), {
             check_capture_freeze_access(&v, true, ast_expr_token(expr), env, ctx, exn);
           });
           // `inout` local bindings (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B2):
@@ -2096,7 +2096,7 @@ global_lend_audit_print :: (fn(line : &String) -> unit)({
 });
 /// `file:line:col` of `t`.
 global_lend_location :: (fn(t : &Token) -> String)(
-  `${display_module_path(&t.module_path)}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
+  `${display_module_path(&t.module_path.*)}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
 );
 /// The census key of the module-level binding `name` declared at `decl`.
 global_lend_key :: (fn(decl : &Token, name : &String) -> String)(`${global_lend_location(decl)}:${name}`);
@@ -2171,7 +2171,7 @@ GlobalHandleLend :: struct(path : String, heap : bool, at : Token, text : String
 (g_global_handle_write_locs : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 (g_global_handle_lends : RefCell(HashMap(String, ArrayList(GlobalHandleLend)))) = RefCell(HashMap(String, ArrayList(GlobalHandleLend))).new(HashMap(String, ArrayList(GlobalHandleLend)).new());
 /// The key of the module-level binding `gv` in the handle registries.
-global_mut_key :: (fn(gv : &Variable) -> String)(`${canonical_module_path(&gv.token.module_path)}:${gv.token.row.to_string()}:${gv.token.column.to_string()}:${gv.name}`);
+global_mut_key :: (fn(gv : &Variable) -> String)(`${canonical_module_path(&gv.token.module_path.*)}:${gv.token.row.to_string()}:${gv.token.column.to_string()}:${gv.name}`);
 /// Whether a write recorded at `w` invalidates a lend of `path` (`heap` when
 /// the lend projects into a handle's storage).
 _global_write_hits_lend :: (fn(w : &GlobalPlacePath, path : &String, heap : bool) -> bool)(
@@ -2291,17 +2291,17 @@ global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &Eval
 /// (decision 47 step 2, Generation A: not in the trees the seed builds,
 /// `is_global_mut_rule_exempt`). The module-level rules apply everywhere.
 global_mut_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
-  !is_global_mut_rule_exempt(&tok.module_path, &ctx.std_path)
+  !is_global_mut_rule_exempt(&tok.module_path.*, &ctx.std_path)
 );
 /// Decision 47: the module-level runtime binding `gv` is written at `tok`
 /// (`how`: "assign to", "write a field of", ...). E0917 unless it was
 /// declared `mut(name)`. `yo fix --migrate mutable-globals` records the
 /// declaration instead; `YO_AUDIT_GLOBAL_LEND` prints a census line.
 global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &EvalContext, exn : Exception) -> unit)({
-  marked := is_mut_global(&gv.token.module_path, &gv.name);
+  marked := is_mut_global(&gv.token.module_path.*, &gv.name);
   if(g_audit_global_lend, {
     kind := if(_lb_is_cell_type(&gv.ty), "handle", "value");
-    storage := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
+    storage := if(is_thread_local(&gv.token.module_path.*, &gv.name), "thread_local", "static");
     global_lend_audit_print(&`${global_lend_location(tok)} [global-write] how=${how.replace(" ", String.from("-"))} kind=${kind} storage=${storage} marked=${if(marked, "yes", "no")} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)}`);
   });
   if(marked, {
@@ -2696,7 +2696,7 @@ take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
 /// A variable declaration's identity across the session: its token's module
 /// (canonical) and byte offset.
 _ic_decl_key :: (fn(decl : &Token) -> String)(
-  `${canonical_module_path(&decl.module_path)}:${decl.byte_offset.to_string()}`
+  `${canonical_module_path(&decl.module_path.*)}:${decl.byte_offset.to_string()}`
 );
 /// The variable `place` is rooted in (`x` of `x`, `x.f`, `x(i).g`), looked
 /// up in `env`, or none. A non-infix call is walked to its callee, which is
@@ -2753,7 +2753,7 @@ record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
   if(!g_migrate_explicit_copy || decl.is_empty(), {
     return(());
   });
-  g_copy_writes.with_mut(xs => xs.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path), at_offset : at.byte_offset)));
+  g_copy_writes.with_mut(xs => xs.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
 });
 take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
   out := g_copy_writes.with_mut(xs => xs.split_off(usize(0)));
@@ -2807,7 +2807,7 @@ record_copy_pointer_place :: (fn(place : &AstExpr, env : &Environment, at : &Tok
   });
   decl := _ic_place_root_decl(&bare, env);
   if(!decl.is_empty(), {
-    g_copy_pointers.with_mut(xs => xs.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path), at_offset : at.byte_offset)));
+    g_copy_pointers.with_mut(xs => xs.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
   });
 });
 take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
@@ -3093,7 +3093,7 @@ audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> un
         g_implicit_copy_match_roots.with(m => m.get(&sv.id)),
         .Some(inherited) => inherited,
         .None => cond(
-          (canonical_module_path(&sv.token.module_path) != canonical_module_path(&binding.token.module_path)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
+          (canonical_module_path(&sv.token.module_path.*) != canonical_module_path(&binding.token.module_path.*)) => ImplicitCopyRoot(kind : String.from("macro"), root_id : sv.id),
           // A temporary of plain data (no counted value) owns what it
           // holds, as an owning RC temporary does.
           is_any_temp_variable_name(sv.name.clone()) => ImplicitCopyRoot(kind : cond((sv.is_owning_the_rc_value || !type_contains_rc_type(&sv.ty)) => String.from("temp"), true => String.from("place")), root_id : sv.id),
@@ -3173,7 +3173,7 @@ _ic_migrate_site :: (
     type_lacks_clone(ty) => Option(ExplicitCopySite).None,
     true => Option(ExplicitCopySite).Some(
       ExplicitCopySite(
-        path : m.leftmost.module_path.clone(),
+        path : m.leftmost.module_path.*.clone(),
         row : usize(m.leftmost.row),
         col : usize(m.leftmost.column),
         expect : source_text.clone(),
@@ -3181,7 +3181,7 @@ _ic_migrate_site :: (
         copy_path : String.from(copy_path),
         src_decl : m.src_decl.clone(),
         dst_decl : m.dst_decl.clone(),
-        at_module : canonical_module_path(&m.leftmost.module_path),
+        at_module : canonical_module_path(&m.leftmost.module_path.*),
         at_offset : m.leftmost.byte_offset,
         src_borrow : m.src_borrow.clone(),
         in_generic : m.in_generic,
@@ -3360,7 +3360,7 @@ audit_record_implicit_copy :: (
 )({
   // Compiler-synthesized code (derives, generated helpers) is not a site a
   // user migrates.
-  if(site_tok.module_path.starts_with("auto-generated://"), {
+  if(site_tok.module_path.*.starts_with("auto-generated://"), {
     return(());
   });
   (kind : String) = String.from("unknown");
@@ -3423,7 +3423,7 @@ audit_record_implicit_copy :: (
     true => source_text
   );
   category := implicit_copy_category(ty);
-  line := `${display_module_path(&site_tok.module_path)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${category} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
+  line := `${display_module_path(&site_tok.module_path.*)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${category} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
   migrate_site := match(
     migrate_ctx,
     .Some(mc) => _ic_migrate_site(&mc, ty, &category, copy_path, source_text),
@@ -3431,14 +3431,14 @@ audit_record_implicit_copy :: (
   );
   match(
     pending_id,
-    .Some(vid) => _audit_hold_implicit_copy(vid, ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset, migrate_site : migrate_site)),
+    .Some(vid) => _audit_hold_implicit_copy(vid, ImplicitCopyPending(line : line, module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : migrate_site)),
     .None => {
       audit_print_implicit_copy(&line);
       match(
         migrate_site,
         .Some(ms) => match(
           temp_binding_id,
-          .Some(bid) => _audit_hold_implicit_copy(bid, ImplicitCopyPending(line : String.new(), module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset, migrate_site : Option(ExplicitCopySite).Some(ms))),
+          .Some(bid) => _audit_hold_implicit_copy(bid, ImplicitCopyPending(line : String.new(), module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : Option(ExplicitCopySite).Some(ms))),
           .None => record_explicit_copy_site(ms)
         ),
         .None => ()
@@ -3483,7 +3483,7 @@ audit_record_copy_trait :: (
     in_closure_body_check : bool
   ) -> unit
 )({
-  if(!g_audit_copy_trait || site_tok.module_path.starts_with("auto-generated://") || type_contains_rc_type(ty) || type_requires_explicit_copy(ty), {
+  if(!g_audit_copy_trait || site_tok.module_path.*.starts_with("auto-generated://") || type_contains_rc_type(ty) || type_requires_explicit_copy(ty), {
     return(());
   });
   // `a.b`, and a dereference `p.*`, which parses as the same dot form.
@@ -3553,11 +3553,11 @@ audit_record_copy_trait :: (
     true => text
   );
   first := match(needs.get(usize(0)), .Some(n) => n, .None => String.new());
-  line := `${display_module_path(&site_tok.module_path)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${String.from(",").join(&needs)} \`${shown_text.replace("\n", String.from(" "))}\``;
+  line := `${display_module_path(&site_tok.module_path.*)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [copy-trait] ${first} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} needs=${String.from(",").join(&needs)} \`${shown_text.replace("\n", String.from(" "))}\``;
   match(
     pending_id,
     .Some(vid) => {
-      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset, migrate_site : .None);
+      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.*.clone(), byte_offset : site_tok.byte_offset, migrate_site : .None);
       match(
         g_implicit_copy_pending.with(m => m.get(&vid)),
         .Some(lst) => lst.push(entry),
@@ -4035,7 +4035,7 @@ arg_is_rc_projection_place :: (fn(e : &AstExpr, env : &Environment) -> bool)({
 /// Matches the format produced by `get_doc_comment_lookup_key` in
 /// `doc/extractor.yo`: `"<module_path>:<row>:<column>"`.
 doc_comment_lookup_key_from_token :: (fn(tok : &Token) -> String)(
-  `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
+  `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`
 );
 // ---------------------------------------------------------------------------
 // consume_case_body_temp_var

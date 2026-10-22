@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 /// keeps (`clone_expr_fresh_ids` mints new ids, so an id key would lose the
 /// marker in every generic specialization).
 (g_borrowed_match_sites : RefCell(HashMap(String, u8))) = RefCell(HashMap(String, u8)).new(HashMap(String, u8).new());
-_borrowed_match_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+_borrowed_match_site_key :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.byte_offset}`);
 /// 0 when the `match` at `tok` was written with a plain scrutinee, 1 for
 /// `match(&x, …)`, 2 for `match(&mut x, …)`.
 borrowed_match_scrutinee_kind :: (fn(tok : &Token) -> u8)(
@@ -2119,8 +2119,8 @@ projection_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
   match(
     e,
     .FnCall(_, _, _, _, ptm_tok) => cond(
-      (ptm_tok.module_path == PROJECTION_MUT_TAIL_PATH) => Option(bool).Some(true),
-      (ptm_tok.module_path == PROJECTION_REF_TAIL_PATH) => Option(bool).Some(false),
+      (ptm_tok.module_path.* == PROJECTION_MUT_TAIL_PATH) => Option(bool).Some(true),
+      (ptm_tok.module_path.* == PROJECTION_REF_TAIL_PATH) => Option(bool).Some(false),
       true => Option(bool).None
     ),
     .Atom(_, _) => Option(bool).None
@@ -2161,7 +2161,7 @@ _projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList
         mismatches.push(bs.tok);
       });
       mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
-      mark.module_path = mark.value;
+      mark.module_path = rc(mark.value);
       head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
       one := ArrayList(AstExpr).new();
       one.push(bs.inner);

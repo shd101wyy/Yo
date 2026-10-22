@@ -556,7 +556,7 @@ _trial_eval_anon_body :: (
   // error path.
   if(_g_anon_dbg_swallow, {
     dbg_tok0 := ast_expr_token(body);
-    eprintln(`[anon-trial] ${dbg_tok0.module_path}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
+    eprintln(`[anon-trial] ${dbg_tok0.module_path.*}:${dbg_tok0.row.to_string()}:${dbg_tok0.column.to_string()}`);
   });
   inner_exn := Exception(
     throw : (
@@ -1892,14 +1892,14 @@ evaluate_anonymous_function_implementation :: (
   // Os's body under VcOp's signature). The occurrence counter is per-position,
   // so ids still do not shift on unrelated edits.
   func_id := cond(
-    is_creating_closure => stable_func_id(String.from("closure_"), &tok.module_path, usize(tok.row), usize(tok.column)),
-    true => stable_func_id(String.from("fn_"), &tok.module_path, usize(tok.row), usize(tok.column))
+    is_creating_closure => stable_func_id(String.from("closure_"), &tok.module_path.*, usize(tok.row), usize(tok.column)),
+    true => stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
   );
   // Source-position identity: every re-eval generation of this source
   // closure registers under the same key so capture info can merge across
   // generations (see function_value.yo g_closure_fid_source).
   if(is_creating_closure, {
-    register_closure_fid_source(func_id.clone(), `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
+    register_closure_fid_source(func_id.clone(), `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
   });
   // Clone taken BEFORE `body_expr` below moves the body into the
   // FuncVal; the definition-time body evaluation further down needs it.
@@ -2248,7 +2248,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // keep what its trial swallowed, for codegen to report if the body turns
     // out hollow (`lookup_hollow_body_error`).
     hb_tok := ast_expr_token(&body_for_def_eval);
-    hb_site := `${hb_tok.module_path}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
+    hb_site := `${hb_tok.module_path.*}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
     if(_anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
       record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(xs => xs.clone()));
     }, {
@@ -2734,7 +2734,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             // shadow the real definition's (codegen emitted the trial clone).
             // Positional-occurrence like every fid — the throwaway
             // takes this position's next ordinal, distinct from the real one.
-            func_id : stable_func_id(String.from("fn_"), &tok.module_path, usize(tok.row), usize(tok.column))
+            func_id : stable_func_id(String.from("fn_"), &tok.module_path.*, usize(tok.row), usize(tok.column))
           )
         ),
         ArrayList(EvalValue).new()
@@ -2903,7 +2903,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   ty : if(ce.is_borrow, t_ptr(ce.value_ty.clone()), ce.value_ty.clone()),
                   value : Option(EvalValue).None,
                   is_effect_param : false,
-                  decl_site : `${ce.label_tok.module_path}:${ce.label_tok.row.to_string()}:${ce.label_tok.column.to_string()}`
+                  decl_site : `${ce.label_tok.module_path.*}:${ce.label_tok.row.to_string()}:${ce.label_tok.column.to_string()}`
                 )
               );
               cl_inits.push(CaptureFieldInit(label : ce.label.clone(), init : ce.init, is_borrow : ce.is_borrow));
@@ -2961,7 +2961,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     root_is_value_param : ce.root_is_value_param,
                     through_value : false,
                     assumed : false,
-                    site : `${ce.label_tok.module_path}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
+                    site : `${ce.label_tok.module_path.*}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
                   )
                 );
               }),

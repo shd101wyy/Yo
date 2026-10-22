@@ -1276,7 +1276,7 @@ consume_argument_for_parameter :: (
 _param_accepts_second_class :: (fn(call : &AstExpr, ptype : &TypeValue, result_ty : &TypeValue, callee_is_generic : bool, ctx : &EvalContext) -> bool)(
   cond(
     (is_io_async_call(call) || is_io_await_call(call)) => true,
-    is_io_spawn_call(call) => (ctx.unsafe_context && is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(call).module_path.clone()))),
+    is_io_spawn_call(call) => (ctx.unsafe_context && is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(call).module_path.*.clone()))),
     true => (callee_is_generic && (is_future_value_type(ptype) && is_future_value_type(result_ty)))
   )
 );
@@ -4988,7 +4988,7 @@ create_specialized_function_inline :: (
                                         });
                                         rk_code := match(rk_err.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c, .None => String.from("-")), .None => String.from("-"));
                                         rk_tok := ast_expr_token(&cc_fvd.*.body);
-                                        eprintln(`[kept] site=${if(rk_some == usize(0), String.from("reeval-concrete"), String.from("reeval-abstract"))} code=${rk_code} owner=${rk_tok.module_path}:${rk_tok.row.to_string()}:${rk_tok.column.to_string()}`);
+                                        eprintln(`[kept] site=${if(rk_some == usize(0), String.from("reeval-concrete"), String.from("reeval-abstract"))} code=${rk_code} owner=${rk_tok.module_path.*}:${rk_tok.row.to_string()}:${rk_tok.column.to_string()}`);
                                       },
                                       .None => ()
                                     );
@@ -5381,7 +5381,7 @@ _with_instantiation_note :: (fn(err : &AnyError, call_tok : &Token, description 
   ye := match(downcast(err, YoError), .Some(y) => y, .None => return(err));
   prim_at_call := match(
     ye.diagnostics.get(usize(0)),
-    .Some(d) => ((d.span.path == call_tok.module_path) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),
+    .Some(d) => ((d.span.path == call_tok.module_path.*) && (d.span.row == usize(call_tok.row)) && (d.span.col == usize(call_tok.column))),
     .None => true
   );
   if(callee_in_std || prim_at_call, {
@@ -5430,7 +5430,7 @@ create_specialization_at_call :: (
     exn : Exception
   ) -> EvalValue
 )({
-  callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(ast_expr_token(&fvd.*.body).module_path, ctx.std_path.clone()), _ => false);
+  callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(&ast_expr_token(&fvd.*.body).module_path.*, ctx.std_path.clone()), _ => false);
   description := _instantiation_description(callee_name, names, &av.forall_args);
   // The mint restores the in-progress specialization on success only; a
   // body that throws leaves it set, and a probe that catches the error goes

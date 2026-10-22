@@ -1900,7 +1900,7 @@ evaluate_function_parameter :: (
   // annotate a parameter with a type whose representation carries a raw
   // pointer (RawSlice(T), structs wrapping *(T), ...).
   if(!ctx.unsafe_context &&
-    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())) &&
+    !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())) &&
       type_representation_contains_raw_ptr(&final_param_type), {
     exn.throw(
       dyn(
@@ -4614,7 +4614,7 @@ evaluate_function_type :: (
   // `auto-generated://` expansions inherit their caller's policy (see
   // is_macro_def_capable_file).
   if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
-    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
+    if(!is_macro_def_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())), {
       exn.throw(
         dyn(
           format_error_message(

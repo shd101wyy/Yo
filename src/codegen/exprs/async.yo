@@ -1756,7 +1756,7 @@ _build_async_capture_struct_literal :: (
   // minted from BOTH the enclosing emission and the wrapper — a per-function
   // counter gives them different names.
   cap_tok := ast_expr_token(expr);
-  tmp := stable_label_id(String.from("__yo_cap_"), &cap_tok.module_path, usize(cap_tok.row), usize(cap_tok.column));
+  tmp := stable_label_id(String.from("__yo_cap_"), &cap_tok.module_path.*, usize(cap_tok.row), usize(cap_tok.column));
   retain_lines := ArrayList(String).new();
   (ri : usize) = usize(0);
   while(ri < fields.len(), {
@@ -1829,7 +1829,7 @@ FusedAwaitSite :: struct(
 _fusion_not_lowered :: (fn(await_expr : &AstExpr, why : &String, report : bool) -> Option(FusedAwaitSite))({
   if(report && debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
     tok := ast_expr_token(await_expr);
-    eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} not lowered: ${why}`);
+    eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} not lowered: ${why}`);
   });
   Option(FusedAwaitSite).None
 });
@@ -2301,7 +2301,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     // The callee's position, as the `fusable` line prints it: the block id is
     // a C name derived from the module path, so it differs between checkouts.
     callee_at := match(await_fusion_candidate(&site.call), .Some(c) => c.callee_at, .None => String.from("?"));
-    eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
+    eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
   outer_field := inline_await_result_field_of(await_expr, inline_await_result_fields(&low.analysis, context));
@@ -2616,7 +2616,7 @@ Fix the error inside the body. Common causes: a type error the deferred trial sw
 _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)({
   tok := ast_expr_token(body_expr);
   match(
-    lookup_hollow_body_error(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`),
+    lookup_hollow_body_error(`${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`),
     .Some(hb) => {
       if(hb.diagnostics.len() > usize(0), {
         codegen_report_error(dyn(yo_error_from_diagnostics(&hb.diagnostics)));
@@ -2642,7 +2642,7 @@ _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
   match(
     e.clone(),
     .Atom(_, tok) => cond(
-      (tok.value == name) => `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`,
+      (tok.value == name) => `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`,
       true => String.from("")
     ),
     .FnCall(_, _, args, _, _) => {
@@ -2650,7 +2650,7 @@ _first_atom_site :: (fn(e : &AstExpr, name : &String) -> String)(
       if(typed_here, {
         ctok := ast_expr_token(e.clone());
         a0tok := match(args.get(usize(0)), .Some(a0) => ast_expr_token(&a0), .None => ctok.clone());
-        return(`${a0tok.module_path}:${a0tok.row.to_string()}:${a0tok.column.to_string()}|${ctok.module_path}:${ctok.row.to_string()}:${ctok.column.to_string()}`);
+        return(`${a0tok.module_path}:${a0tok.row.to_string()}:${a0tok.column.to_string()}|${ctok.module_path.*}:${ctok.row.to_string()}:${ctok.column.to_string()}`);
       });
       (i : usize) = usize(0);
       (found : String) = String.from("");
@@ -2706,7 +2706,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     .None => {
       // Phase 2: position-derived with MERGE semantics — see the twin above.
       ab2_tok := ast_expr_token(expr);
-      stable_position_id(String.from("async_block_"), &ab2_tok.module_path, usize(ab2_tok.row), usize(ab2_tok.column))
+      stable_position_id(String.from("async_block_"), &ab2_tok.module_path.*, usize(ab2_tok.row), usize(ab2_tok.column))
     }
   );
   struct_name := `${async_block_id.clone()}_state_t`;
@@ -3422,7 +3422,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
                 // occurrence label): preregistration and generation BOTH
                 // mint this id and must agree on the struct name.
                 ab_tok := ast_expr_token(expr);
-                stable_position_id(String.from("async_block_"), &ab_tok.module_path, usize(ab_tok.row), usize(ab_tok.column))
+                stable_position_id(String.from("async_block_"), &ab_tok.module_path.*, usize(ab_tok.row), usize(ab_tok.column))
               }
             );
             struct_name := `${async_block_id}_state_t`;
@@ -3452,7 +3452,7 @@ preregister_async_blocks_in_expr :: (fn(expr : &AstExpr, context : &FunctionGene
                 // Phase 2: position-derived, MERGE semantics (two passes
                 // must agree on the struct name).
                 io_tok := ast_expr_token(expr);
-                stable_position_id(String.from("io_async_block_"), &io_tok.module_path, usize(io_tok.row), usize(io_tok.column))
+                stable_position_id(String.from("io_async_block_"), &io_tok.module_path.*, usize(io_tok.row), usize(io_tok.column))
               }
             );
             // Must mirror the dispatcher's routing decision (generation.yo):
@@ -3605,7 +3605,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .None => {
       // Phase 2: position-derived, MERGE semantics — see the twin above.
       io2_tok := ast_expr_token(expr);
-      stable_position_id(String.from("io_async_block_"), &io2_tok.module_path, usize(io2_tok.row), usize(io2_tok.column))
+      stable_position_id(String.from("io_async_block_"), &io2_tok.module_path.*, usize(io2_tok.row), usize(io2_tok.column))
     }
   );
   per_clone_key := output_some_id.clone();

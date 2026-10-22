@@ -777,7 +777,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // back to Yo functions (.github/instructions/debugging.instructions.md).
       if(g_debug_fn_origin, {
         origin_tok := ast_expr_token(&body_box);
-        em.emit_string_line(`/* yo-origin ${origin_tok.module_path}:${(usize(origin_tok.row) + usize(1)).to_string()} ${c_function_name} */`);
+        em.emit_string_line(`/* yo-origin ${origin_tok.module_path.*}:${(usize(origin_tok.row) + usize(1)).to_string()} ${c_function_name} */`);
       });
       // [`#line` directives] The signature and prologue are compiler-generated:
       // leave user attribution before them (defensive — the previous
@@ -1323,11 +1323,11 @@ emit_module_level_variable_declarations :: (
             // where the name is being DECLARED. Build the declaration name
             // straight from the sanitized identifier plus the module suffix so
             // the storage, the init flag and the accessor all agree on it.
-            if(is_thread_local(mg_decl_path.clone(), var_name.clone()), {
-              c_var_name = `${sanitize_for_c_identifier(var_name.clone(), false)}${module_global_c_suffix(&mg_decl_path)}`;
+            if(is_thread_local(mg_decl_path.*.clone(), var_name.clone()), {
+              c_var_name = `${sanitize_for_c_identifier(var_name.clone(), false)}${module_global_c_suffix(&mg_decl_path.*)}`;
             }, {
-              if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), &var_name), {
-                c_var_name = `${c_var_name}${module_global_c_suffix(&mg_decl_path)}`;
+              if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.*.clone(), &var_name), {
+                c_var_name = `${c_var_name}${module_global_c_suffix(&mg_decl_path.*)}`;
               });
             });
             // Dedup key includes the SOURCE TOKEN: the evaluator's multiple
@@ -1342,7 +1342,7 @@ emit_module_level_variable_declarations :: (
             dedup_key := `${c_var_name}#${ast_expr_token(&init_expr).character.to_string()}`;
             if(!seen.contains(dedup_key.clone()), {
               seen.insert(dedup_key.clone());
-              mg_is_tl := is_thread_local(mg_decl_path.clone(), var_name.clone());
+              mg_is_tl := is_thread_local(mg_decl_path.*.clone(), var_name.clone());
               c_type_str := get_type_string(&vi.ty, &context.base);
               if(!seen.contains(c_var_name.clone()), {
                 seen.insert(c_var_name.clone());
