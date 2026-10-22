@@ -8018,6 +8018,15 @@ _alias_clobber :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox)) 
 _alias_clobber_unit :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox)) -> unit)({
   g_alias_seen = _alias_clobber(a, b);
 });
+/// The call whose future the task awaits: its arguments are lent for the
+/// synchronous part only (a `&mut` parameter keeps the await unfused).
+_alias_clobber_then :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox), io : Io) -> Impl(Future(usize, Io)))({
+  n := _alias_clobber(a, b);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    n
+  })
+});
 _alias_clobber_in_task :: (fn(io : Io) -> Impl(Future(usize, Io)))(
   io.async((io : Io) => {
     mut(xs) := ArrayList(_AliasBox).new();
@@ -8029,7 +8038,9 @@ _alias_clobber_in_task :: (fn(io : Io) -> Impl(Future(usize, Io)))(
     xs.push(_AliasBox(tag : i32(9)));
     n := _alias_clobber(&mut xs, &xs);
     io.await(yield(io), io);
-    (n + xs.len())
+    xs.push(_AliasBox(tag : i32(10)));
+    m := io.await(_alias_clobber_then(&mut xs, &xs, io), io);
+    ((n + m) + xs.len())
   })
 );
 test("an argument lent both &mut and & to one call in an io.async body keeps its share", {
@@ -8037,6 +8048,6 @@ test("an argument lent both &mut and & to one call in an io.async body keeps its
   n := io.await(_alias_clobber_in_task(io), io);
   seen := g_alias_seen;
   assert(seen == usize(2), `the statement call's borrowed list survived the writes, len ${seen.to_string()}`);
-  assert(n == usize(3), `the bound call's borrowed list survived the writes, got ${n.to_string()}`);
-  assert(g_alias_disposed == (before + i32(9)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+  assert(n == usize(5), `the bound and the awaited calls' borrowed lists survived the writes, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(13)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
