@@ -29,7 +29,7 @@ landing. This doc is N4's output for `plans/VALUES_BY_DEFAULT.md`, B8:
 - **One S1 seed codegen bug constrains the B6/B8 std shape:** a `cond` whose
   first live arm is compile-time true returns a borrowed handle without a
   dup
-  (`issues/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md`).
+  (`issues/fixed/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md`).
   It is older than the flip and both binaries have it (heap-use-after-free).
   The natural accessor shape `cond(Type.impls(T, Copy) => p.*, true => …)`
   hits it, which is why the probe's `__probe_dup`/`__probe_read_elem` route
@@ -368,7 +368,7 @@ binary built from `95162303d`, and each still fails the same way under both
 
 | Issue | Severity | Effect on B8 |
 | --- | --- | --- |
-| `issues/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md` | S1 | use-after-free; the collapse path in `src/codegen/exprs/cond.yo` skips the arm's dup. Forces the probe's stand-ins through helper calls; a B6 accessor must avoid the shape until a seed carries the fix |
+| `issues/fixed/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md` | S1 | use-after-free; the collapse path in `src/codegen/exprs/cond.yo` skips the arm's dup. Forces the probe's stand-ins through helper calls; a B6 accessor must avoid the shape until a seed carries the fix |
 | `issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md` | S1 (filed S2, raised in review) | every `derive(FromJson)` error path skips its decoded fields' drops (and their `Drop` side effects) |
 | `issues/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md` | S2 | blocks safe generic `ArrayList(T)` code at stage 1 (probe: pragma on `std/rand.yo`) |
 | `issues/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md` | S2 | 9 std false positives |

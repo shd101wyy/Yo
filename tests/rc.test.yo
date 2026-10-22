@@ -2784,3 +2784,69 @@ test("a dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes throu
   n := i32(10);
   assert(_rc_dyn_run((x : i32) => (x + n)) == i32(13), "the closure, called through the Dyn");
 });
+// A `cond` whose first live arm is compile-time true collapses to that arm;
+// a borrowed handle it returns still takes the balancing count a runtime
+// `cond` gives it, so the caller's copy and the owner each hold one
+// (issues/fixed/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md).
+_CondCtBox :: ref(struct(n : i32));
+_cond_ct_after_false :: (fn(q : &_CondCtBox) -> _CondCtBox)(
+  cond(
+    false => q,
+    true => q
+  )
+);
+_cond_ct_only_true :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => q));
+_cond_ct_folded :: (fn(q : &_CondCtBox) -> _CondCtBox)(
+  cond(
+    (i32(1) == i32(2)) => q,
+    true => q
+  )
+);
+_cond_ct_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
+  cond(
+    k => q,
+    true => q
+  )
+);
+_cond_ct_deref :: (fn(p : *_CondCtBox) -> _CondCtBox)(
+  cond(
+    false => p.*,
+    true => p.*
+  )
+);
+_cond_ct_read :: (fn(generic(T : Type), p : *T) -> T)(
+  cond(
+    Type.impls(T, Copy) => p.*,
+    true => p.*
+  )
+);
+test("a compile-time-collapsed cond dups the borrowed handle it returns", {
+  r := _CondCtBox(n : i32(5));
+  {
+    a := _cond_ct_after_false(&r);
+    assert(ref_count(r) == usize(2), "false => q, true => q: the result holds its own count");
+    b := _cond_ct_only_true(&r);
+    assert(ref_count(r) == usize(3), "cond(true => q)");
+    c := _cond_ct_folded(&r);
+    assert(ref_count(r) == usize(4), "a folded-false condition before true => q");
+    d := _cond_ct_runtime(false, &r);
+    assert(ref_count(r) == usize(5), "the runtime cond, the control");
+    e := _cond_ct_deref(addr_of(r));
+    assert(ref_count(r) == usize(6), "a raw-pointer read p.*");
+    f := _cond_ct_read(addr_of(r));
+    assert(ref_count(r) == usize(7), "a generic accessor on Type.impls(T, Copy)");
+    assert((a.n + b.n + (c.n + d.n) + (e.n + f.n)) == i32(30), "every copy reads the shared object");
+  };
+  assert(ref_count(r) == usize(1), "each copy released its own count");
+  x := i32(9);
+  assert(_cond_ct_read(addr_of(x)) == i32(9), "the generic accessor at a Copy type takes the first arm");
+});
+test("a compile-time-collapsed cond in a binding dups the local it names", {
+  r := _CondCtBox(n : i32(6));
+  x := cond(
+    false => r,
+    true => r
+  );
+  assert(ref_count(r) == usize(2), "x and r each hold a count");
+  assert((x.n + r.n) == i32(12), "both read the object");
+});
