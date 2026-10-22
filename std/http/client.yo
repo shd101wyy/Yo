@@ -541,7 +541,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   default_port := cond(is_https => u16(443), true => u16(80));
   port := match(url.port(), .Some(p) => p, .None => default_port);
   // Build the request path (include query string if present)
-  req_path := url.path();
+  req_path := url.path().clone();
   cond(
     req_path.is_empty() => {
       req_path = `/`;
