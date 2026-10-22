@@ -1,0 +1,22 @@
+// issues/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md
+// Expected: compiles and prints 3 (the `.None` arm returns, so `bad` is unmoved after the match).
+// Actual: E0901 use of moved value: `bad` at the final `cond`, "moved here" at `return(bad)`.
+{ println } :: import("std/fmt");
+B :: struct(n : i32);
+impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+id :: (fn(o : Option(i32)) -> Option(i32))(o);
+f :: (fn(o : Option(i32)) -> B)({
+  bad := B(n : i32(-1));
+  v := match(
+    id(o),
+    .Some(x) => x,
+    .None => {
+      return(bad);
+    }
+  );
+  cond((v > i32(0)) => B(n : v), true => bad)
+});
+main :: (fn() -> unit)({
+  println(&f(.Some(i32(3))).n);
+});
+export(main);

@@ -1,0 +1,33 @@
+{ println } :: import("std/fmt");
+B :: struct(n : i32);
+impl(
+  B,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println("drop B");
+    })
+  )
+);
+get :: (fn(k : i32) -> Option(B))(
+  cond(
+    (k == i32(0)) => .Some(B(n : i32(5))),
+    true => .None
+  )
+);
+Make :: trait(make : (fn(k : i32) -> Result(Self, i32)));
+__derive_make :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  body :: "({ __x := match(get(i32(0)), .Some(__j) => __j, .None => { return(.Err(i32(1))); }); __y := match(get(k), .Some(__j) => __j, .None => { return(.Err(i32(2))); }); .Ok(Self(x : __x, y : __y)) })";
+  ctx.make_impl(
+    quote(
+      Make(make : (k -> unquote(body.to_expr())))
+    )
+  )
+});
+derive_rule(Make, __derive_make);
+P :: struct(x : B, y : B);
+derive(P, Make);
+main :: (fn() -> unit)({
+  r := P.make(i32(1));
+  println(r.is_err());
+});
+export(main);

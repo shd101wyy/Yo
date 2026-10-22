@@ -1,0 +1,17 @@
+// Helper for issues/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md:
+// a value type that owns a buffer outright, declared in an unsafe-capable file.
+pragma(Pragma.AllowUnsafe);
+Buf :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _ptr : ?*T,
+    _len : usize
+  )
+);
+impl(
+  generic(T : Type),
+  Buf(T),
+  new : (fn() -> Self)(Self(_ptr : .None, _len : usize(0))),
+  len : (fn(self : &Self) -> usize)(self._len)
+);
+impl(generic(T : Type), Buf(T), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+export(Buf);
