@@ -8301,6 +8301,16 @@ once `SEED_VERSION` parses it.
      step generalizes it to `mut(x) ::` and `comptime(mut(x)) :=`.
    - Generation B: sweep the tree, the docs and `markdown_yo`, then enforce
      everywhere.
+     - **`markdown_yo` went first (2026-10-22, V2b B2, its v0.0.20).** The
+       exemption covers the store copy the compiler imports, not the
+       package's own checkout, where E0917 has applied since v0.2.65; the
+       checkout built only because its `.yo-version` pinned 0.2.64. B2's
+       explicit-copy migration evaluates it from that checkout with the
+       tree compiler, so 51 of its 54 `src` files failed until
+       `yo fix --migrate mut-bindings` marked 577 bindings. That pass
+       marks only what is written by assignment today: its handle writes
+       (`b_marks.push(...)` on an unmarked local) become value writes after
+       B8–B11, so the Generation B pass below still covers `markdown_yo`.
    - Order: after V2b Generation B and before decision 43, so that
      decision 43's `&mut` rules can assume `mut`. **Decided 2026-10-20
      (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 2): Generation B at v0.2.72, after B8–B11
