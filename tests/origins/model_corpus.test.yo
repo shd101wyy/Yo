@@ -7,7 +7,7 @@
 // those through the compiler and cross-checks this file's ids and codes
 // against the manifest.
 { assert } :: import("std/assert");
-{ ArrayList, array_list } :: import("std/collections/array_list");
+{ ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 {
@@ -29,6 +29,67 @@
   ABLATE_CAPTURE_WIDEN,
   ABLATE_HANDLE_ORIGIN
 } :: import("./model.yo");
+/// `alK(e1, …, eK)`: a list of K elements, built by pushes. Macro plan B3
+/// deleted the `array_list(...)` literal, and its replacement,
+/// `ArrayList(T).from([…])`, cannot take these elements yet: an array literal
+/// of enum variants built from runtime values emits invalid C
+/// (issues/2026-10-20-an-array-or-tuple-literal-whose-element-holds-a-runtime-field-emits-invalid-c.md).
+al1 :: (fn(generic(T : Type), a : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(1));
+  out.push(a);
+  out
+});
+al2 :: (fn(generic(T : Type), a : T, b : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(2));
+  out.push(a);
+  out.push(b);
+  out
+});
+al3 :: (fn(generic(T : Type), a : T, b : T, c : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(3));
+  out.push(a);
+  out.push(b);
+  out.push(c);
+  out
+});
+al4 :: (fn(generic(T : Type), a : T, b : T, c : T, d : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(4));
+  out.push(a);
+  out.push(b);
+  out.push(c);
+  out.push(d);
+  out
+});
+al5 :: (fn(generic(T : Type), a : T, b : T, c : T, d : T, e : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(5));
+  out.push(a);
+  out.push(b);
+  out.push(c);
+  out.push(d);
+  out.push(e);
+  out
+});
+al6 :: (fn(generic(T : Type), a : T, b : T, c : T, d : T, e : T, f : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(6));
+  out.push(a);
+  out.push(b);
+  out.push(c);
+  out.push(d);
+  out.push(e);
+  out.push(f);
+  out
+});
+al7 :: (fn(generic(T : Type), a : T, b : T, c : T, d : T, e : T, f : T, g : T) -> ArrayList(T))({
+  out := ArrayList(T).with_capacity(usize(7));
+  out.push(a);
+  out.push(b);
+  out.push(c);
+  out.push(d);
+  out.push(e);
+  out.push(f);
+  out.push(g);
+  out
+});
 // Places: a case uses each at most once.
 X :: usize(0);
 Y :: usize(1);
@@ -94,9 +155,9 @@ fun :: (fn(origins : u64, params : ArrayList(Param), result : Ty, body : ArrayLi
 sig :: (fn(origins : u64, params : ArrayList(Param), result : Ty) -> FnDef)(
   FnDef(origin_params : origins, type_params : usize(0), escapable : false, params : params, result : result, body : .None, is_extern : false)
 );
-case1 :: (fn(f0 : FnDef) -> Case)(Case(fns : array_list(f0), globals : ArrayList(Ty).new(), types : ArrayList(TypeDef).new()));
-case2 :: (fn(f0 : FnDef, f1 : FnDef) -> Case)(Case(fns : array_list(f0, f1), globals : ArrayList(Ty).new(), types : ArrayList(TypeDef).new()));
-case3 :: (fn(f0 : FnDef, f1 : FnDef, f2 : FnDef) -> Case)(Case(fns : array_list(f0, f1, f2), globals : ArrayList(Ty).new(), types : ArrayList(TypeDef).new()));
+case1 :: (fn(f0 : FnDef) -> Case)(Case(fns : al1(f0), globals : ArrayList(Ty).new(), types : ArrayList(TypeDef).new()));
+case2 :: (fn(f0 : FnDef, f1 : FnDef) -> Case)(Case(fns : al2(f0, f1), globals : ArrayList(Ty).new(), types : ArrayList(TypeDef).new()));
+case3 :: (fn(f0 : FnDef, f1 : FnDef, f2 : FnDef) -> Case)(Case(fns : al3(f0, f1, f2), globals : ArrayList(Ty).new(), types : ArrayList(TypeDef).new()));
 /// Asserts the model's verdict on a case.
 verdict :: (fn(id : str, c : Case, want : str) -> unit)({
   ck := check_case(c);
@@ -108,70 +169,70 @@ verdict :: (fn(id : str, c : Case, want : str) -> unit)({
 // ---------------------------------------------------------------------------
 test("wf-self-binding", {
   t := list(shr(int(), o(XS)));
-  verdict("wf-self-binding", case1(entry(array_list(let_d(XS, Node.NewList(shr(int(), o(XS))), t)))), "WF_SELF");
+  verdict("wf-self-binding", case1(entry(al1(let_d(XS, Node.NewList(shr(int(), o(XS))), t)))), "WF_SELF");
 });
 test("wf-self-field", {
   c := case1(entry(none()));
-  c.types.push(TypeDef(origin_params : u64(0), field_places : o(NEXT), fields : array_list(shr(int(), o(NEXT)))));
+  c.types.push(TypeDef(origin_params : u64(0), field_places : o(NEXT), fields : al1(shr(int(), o(NEXT)))));
   verdict("wf-self-field", c, "WF_SELF");
 });
 test("wf-undeclared-origin", {
-  verdict("wf-undeclared-origin", case2(entry(none()), sig(u64(0), array_list(prm(V, shr(int(), P))), int())), "WF_UNDECLARED");
+  verdict("wf-undeclared-origin", case2(entry(none()), sig(u64(0), al1(prm(V, shr(int(), P))), int())), "WF_UNDECLARED");
 });
 test("wf-outward-field", {
   c := case1(entry(none()));
-  c.types.push(TypeDef(origin_params : P, field_places : o(NEXT), fields : array_list(shr(int(), P))));
+  c.types.push(TypeDef(origin_params : P, field_places : o(NEXT), fields : al1(shr(int(), P))));
   verdict("wf-outward-field", c, "ACCEPT");
 });
 // ---------------------------------------------------------------------------
 // The return rule (O3, §5 route 1)
 // ---------------------------------------------------------------------------
 test("ret-local", {
-  f := fun(u64(0), array_list(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), array_list(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))));
+  f := fun(u64(0), al1(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), al2(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))));
   verdict("ret-local", case2(entry(none()), f), "E0912");
 });
 test("ret-byvalue-param", {
-  verdict("ret-byvalue-param", case2(entry(none()), sig(u64(0), array_list(prm(V, int())), shr(int(), o(V)))), "E0912");
+  verdict("ret-byvalue-param", case2(entry(none()), sig(u64(0), al1(prm(V, int())), shr(int(), o(V)))), "E0912");
 });
 test("ret-param-place", {
-  f := fun(u64(0), array_list(prm(XS, shr(int(), ELIDED))), shr(int(), o(XS)), array_list(Node.Return(Node.Reborrow(XS))));
-  main := entry(array_list(let_(X, lit()), let_(R, call(usize(1), array_list(Node.Borrow(false, X)))), use_(Node.Var(R))));
+  f := fun(u64(0), al1(prm(XS, shr(int(), ELIDED))), shr(int(), o(XS)), al1(Node.Return(Node.Reborrow(XS))));
+  main := entry(al3(let_(X, lit()), let_(R, call(usize(1), al1(Node.Borrow(false, X)))), use_(Node.Var(R))));
   verdict("ret-param-place", case2(main, f), "ACCEPT");
 });
 test("words", {
   words := fun(
     u64(0),
-    array_list(prm(SELF, shr(int(), ELIDED))),
+    al1(prm(SELF, shr(int(), ELIDED))),
     list(shr(int(), o(SELF))),
-    array_list(let_(OUT, Node.NewList(shr(int(), o(SELF)))), Node.Push(OUT, Node.Reborrow(SELF)), Node.Push(OUT, Node.Reborrow(SELF)), Node.Return(Node.Var(OUT)))
+    al4(let_(OUT, Node.NewList(shr(int(), o(SELF)))), Node.Push(OUT, Node.Reborrow(SELF)), Node.Push(OUT, Node.Reborrow(SELF)), Node.Return(Node.Var(OUT)))
   );
-  main := entry(array_list(let_(DOC, lit()), let_(W, call(usize(1), array_list(Node.Borrow(false, DOC)))), use_(Node.Var(W)), Node.Assign(DOC, lit())));
+  main := entry(al4(let_(DOC, lit()), let_(W, call(usize(1), al1(Node.Borrow(false, DOC)))), use_(Node.Var(W)), Node.Assign(DOC, lit())));
   verdict("words", case2(main, words), "ACCEPT");
 });
 test("words-then-write", {
   words := fun(
     u64(0),
-    array_list(prm(SELF, shr(int(), ELIDED))),
+    al1(prm(SELF, shr(int(), ELIDED))),
     list(shr(int(), o(SELF))),
-    array_list(let_(OUT, Node.NewList(shr(int(), o(SELF)))), Node.Push(OUT, Node.Reborrow(SELF)), Node.Return(Node.Var(OUT)))
+    al3(let_(OUT, Node.NewList(shr(int(), o(SELF)))), Node.Push(OUT, Node.Reborrow(SELF)), Node.Return(Node.Var(OUT)))
   );
-  main := entry(array_list(let_(DOC, lit()), let_(W, call(usize(1), array_list(Node.Borrow(false, DOC)))), Node.Assign(DOC, lit()), use_(Node.Var(W))));
+  main := entry(al4(let_(DOC, lit()), let_(W, call(usize(1), al1(Node.Borrow(false, DOC)))), Node.Assign(DOC, lit()), use_(Node.Var(W))));
   verdict("words-then-write", case2(main, words), "E0911");
 });
 // ---------------------------------------------------------------------------
 // Several `&mut` out of one lend (O3 step 2)
 // ---------------------------------------------------------------------------
-get2_mut :: (fn() -> FnDef)(sig(u64(0), array_list(prm(SELF, exc(list(int()), ELIDED))), Ty.Tup(array_list(exc(int(), o(SELF)), exc(int(), o(SELF))))));
+get2_mut :: (fn() -> FnDef)(sig(u64(0), al1(prm(SELF, exc(list(int()), ELIDED))), Ty.Tup(al2(exc(int(), o(SELF)), exc(int(), o(SELF))))));
 test("get2-mut-pair", {
-  main := entry(array_list(let_(XS, Node.NewList(int())), let_(PAIR, call(usize(1), array_list(Node.Borrow(true, XS)))), use_(Node.Field(PAIR, usize(0))), use_(Node.Field(PAIR, usize(1)))));
+  main := entry(al4(let_(XS, Node.NewList(int())), let_(PAIR, call(usize(1), al1(Node.Borrow(true, XS)))), use_(Node.Field(PAIR, usize(0))), use_(Node.Field(PAIR, usize(1)))));
   verdict("get2-mut-pair", case2(main, get2_mut()), "ACCEPT");
 });
 test("get2-mut-twice", {
   main := entry(
-    array_list(
+    al4(
       let_(XS, Node.NewList(int())),
-      let_(PAIR, call(usize(1), array_list(Node.Borrow(true, XS)))),
-      let_(D, call(usize(1), array_list(Node.Borrow(true, XS)))),
+      let_(PAIR, call(usize(1), al1(Node.Borrow(true, XS)))),
+      let_(D, call(usize(1), al1(Node.Borrow(true, XS)))),
       use_(Node.Field(PAIR, usize(0)))
     )
   );
@@ -179,15 +240,15 @@ test("get2-mut-twice", {
 });
 /// `iter_mut(self : &mut List(i32)) -> Cursor(self)` and
 /// `next(generic(p : Origin), self : &mut Cursor(p)) -> Option(&mut(i32, p))`.
-iter_mut :: (fn() -> FnDef)(sig(u64(0), array_list(prm(SELF, exc(list(int()), ELIDED))), Ty.Tup(array_list(exc(list(int()), o(SELF)), int()))));
-next :: (fn() -> FnDef)(sig(P, array_list(prm(SELF, exc(Ty.Tup(array_list(exc(list(int()), P), int())), ELIDED))), wrap(Kind.Some, exc(int(), P))));
+iter_mut :: (fn() -> FnDef)(sig(u64(0), al1(prm(SELF, exc(list(int()), ELIDED))), Ty.Tup(al2(exc(list(int()), o(SELF)), int()))));
+next :: (fn() -> FnDef)(sig(P, al1(prm(SELF, exc(Ty.Tup(al2(exc(list(int()), P), int())), ELIDED))), wrap(Kind.Some, exc(int(), P))));
 test("cursor-two-items", {
   main := entry(
-    array_list(
+    al6(
       let_(XS, Node.NewList(int())),
-      let_(IT, call(usize(1), array_list(Node.Borrow(true, XS)))),
-      let_(A, call(usize(2), array_list(Node.Borrow(true, IT)))),
-      let_(B, call(usize(2), array_list(Node.Borrow(true, IT)))),
+      let_(IT, call(usize(1), al1(Node.Borrow(true, XS)))),
+      let_(A, call(usize(2), al1(Node.Borrow(true, IT)))),
+      let_(B, call(usize(2), al1(Node.Borrow(true, IT)))),
       use_(Node.Var(A)),
       use_(Node.Var(B))
     )
@@ -195,16 +256,16 @@ test("cursor-two-items", {
   verdict("cursor-two-items", case3(main, iter_mut(), next()), "ACCEPT");
 });
 test("copy-mut-holder", {
-  main := entry(array_list(let_(XS, Node.NewList(int())), let_(IT, call(usize(1), array_list(Node.Borrow(true, XS)))), let_(D, Node.Var(IT)), use_(Node.Var(IT))));
+  main := entry(al4(let_(XS, Node.NewList(int())), let_(IT, call(usize(1), al1(Node.Borrow(true, XS)))), let_(D, Node.Var(IT)), use_(Node.Var(IT))));
   verdict("copy-mut-holder", case2(main, iter_mut()), "E0901");
 });
 test("call-arg-overlap", {
-  both := sig(u64(0), array_list(prm(A, exc(list(int()), ELIDED)), prm(B, shr(list(int()), ELIDED))), int());
-  main := entry(array_list(let_(XS, Node.NewList(int())), use_(call(usize(1), array_list(Node.Borrow(true, XS), Node.Borrow(false, XS))))));
+  both := sig(u64(0), al2(prm(A, exc(list(int()), ELIDED)), prm(B, shr(list(int()), ELIDED))), int());
+  main := entry(al2(let_(XS, Node.NewList(int())), use_(call(usize(1), al2(Node.Borrow(true, XS), Node.Borrow(false, XS))))));
   verdict("call-arg-overlap", case2(main, both), "E0910");
 });
 test("drop-root-while-borrowed", {
-  main := entry(array_list(let_(X, lit()), let_(R, Node.Borrow(false, X)), Node.Drop(X, false), use_(Node.Var(R))));
+  main := entry(al4(let_(X, lit()), let_(R, Node.Borrow(false, X)), Node.Drop(X, false), use_(Node.Var(R))));
   verdict("drop-root-while-borrowed", case1(main), "E0911");
 });
 // ---------------------------------------------------------------------------
@@ -214,17 +275,17 @@ test("drop-root-while-borrowed", {
 store :: (fn() -> FnDef)(
   fun(
     P,
-    array_list(prm(DST, exc(wrap(Kind.Some, shr(int(), P)), ELIDED)), prm(V, shr(int(), P))),
+    al2(prm(DST, exc(wrap(Kind.Some, shr(int(), P)), ELIDED)), prm(V, shr(int(), P))),
     int(),
-    array_list(Node.WriteThrough(DST, Node.Make(Kind.Some, Node.Var(V))))
+    al1(Node.WriteThrough(DST, Node.Make(Kind.Some, Node.Var(V))))
   )
 );
 store_main :: (fn(root : usize) -> FnDef)(
   entry(
-    array_list(
+    al4(
       let_(X, lit()),
       let_d(SLOT, Node.Make(Kind.Some, Node.Borrow(false, X)), wrap(Kind.Some, shr(int(), o(X)))),
-      Node.Block(array_list(let_(Y, lit()), use_(call(usize(1), array_list(Node.Borrow(true, SLOT), Node.Borrow(false, root)))))),
+      Node.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Node.Borrow(true, SLOT), Node.Borrow(false, root)))))),
       use_(Node.Var(SLOT))
     )
   )
@@ -236,12 +297,12 @@ test("store-same-origin", {
   verdict("store-same-origin", case2(store_main(X), store()), "ACCEPT");
 });
 store_widen_refcell :: (fn() -> Case)({
-  store_cell := sig(P, array_list(prm(CELL, shr(wrap(Kind.Cell, wrap(Kind.Some, shr(int(), P))), ELIDED)), prm(V, shr(int(), P))), int());
+  store_cell := sig(P, al2(prm(CELL, shr(wrap(Kind.Cell, wrap(Kind.Some, shr(int(), P))), ELIDED)), prm(V, shr(int(), P))), int());
   main := entry(
-    array_list(
+    al4(
       let_(X, lit()),
       let_d(R, Node.Make(Kind.Cell, Node.Make(Kind.Some, Node.Borrow(false, X))), wrap(Kind.Cell, wrap(Kind.Some, shr(int(), o(X))))),
-      Node.Block(array_list(let_(Y, lit()), use_(call(usize(1), array_list(Node.Borrow(false, R), Node.Borrow(false, Y)))))),
+      Node.Block(al2(let_(Y, lit()), use_(call(usize(1), al2(Node.Borrow(false, R), Node.Borrow(false, Y)))))),
       use_(Node.Var(R))
     )
   );
@@ -251,15 +312,15 @@ test("store-widen-refcell", {
   verdict("store-widen-refcell", store_widen_refcell(), "ORIGIN_MISMATCH");
 });
 /// `swap(generic(T, r), a : &mut &(T, r), b : &mut &(T, r))`.
-swap :: (fn() -> FnDef)(sig(P, array_list(prm(A, exc(shr(int(), P), ELIDED)), prm(B, exc(shr(int(), P), ELIDED))), int()));
+swap :: (fn() -> FnDef)(sig(P, al2(prm(A, exc(shr(int(), P), ELIDED)), prm(B, exc(shr(int(), P), ELIDED))), int()));
 swap_main :: (fn(ta : u64, tb : u64) -> FnDef)(
   entry(
-    array_list(
+    al7(
       let_(X, lit()),
       let_(Y, lit()),
       let_d(RA, Node.Borrow(false, X), shr(int(), ta)),
       let_d(RB, Node.Borrow(false, Y), shr(int(), tb)),
-      use_(call(usize(1), array_list(Node.Borrow(true, RA), Node.Borrow(true, RB)))),
+      use_(call(usize(1), al2(Node.Borrow(true, RA), Node.Borrow(true, RB)))),
       use_(Node.Var(RA)),
       use_(Node.Var(RB))
     )
@@ -270,12 +331,12 @@ test("swap-different-origins", {
 });
 test("swap-inferred-locals", {
   main := entry(
-    array_list(
+    al7(
       let_(X, lit()),
       let_(Y, lit()),
       let_(RA, Node.Borrow(false, X)),
       let_(RB, Node.Borrow(false, Y)),
-      use_(call(usize(1), array_list(Node.Borrow(true, RA), Node.Borrow(true, RB)))),
+      use_(call(usize(1), al2(Node.Borrow(true, RA), Node.Borrow(true, RB)))),
       use_(Node.Var(RA)),
       use_(Node.Var(RB))
     )
@@ -290,7 +351,7 @@ test("swap-declared-union", {
 // ---------------------------------------------------------------------------
 test("push-outside-union", {
   main := entry(
-    array_list(
+    al7(
       let_(X, lit()),
       let_(Y, lit()),
       let_(Z, lit()),
@@ -304,7 +365,7 @@ test("push-outside-union", {
 });
 test("push-inside-union", {
   main := entry(
-    array_list(
+    al7(
       let_(X, lit()),
       let_(Y, lit()),
       let_(BOTH, Node.NewList(shr(int(), o(X) | o(Y)))),
@@ -317,22 +378,22 @@ test("push-inside-union", {
   verdict("push-inside-union", case1(main), "ACCEPT");
 });
 test("push-elided-unrelated", {
-  push_e := fun(u64(0), array_list(prm(SELF, exc(list(shr(int(), ELIDED)), ELIDED)), prm(VALUE, shr(int(), ELIDED))), int(), array_list(Node.Push(SELF, Node.Var(VALUE))));
+  push_e := fun(u64(0), al2(prm(SELF, exc(list(shr(int(), ELIDED)), ELIDED)), prm(VALUE, shr(int(), ELIDED))), int(), al1(Node.Push(SELF, Node.Var(VALUE))));
   verdict("push-elided-unrelated", case2(entry(none()), push_e), "UNION");
 });
 /// `push(generic(T, r), self : &mut List(&(T, r)), value : &(T, r))`.
-push_s :: (fn() -> FnDef)(fun(P, array_list(prm(SELF, exc(list(shr(int(), P)), ELIDED)), prm(VALUE, shr(int(), P))), int(), array_list(Node.Push(SELF, Node.Var(VALUE)))));
+push_s :: (fn() -> FnDef)(fun(P, al2(prm(SELF, exc(list(shr(int(), P)), ELIDED)), prm(VALUE, shr(int(), P))), int(), al1(Node.Push(SELF, Node.Var(VALUE)))));
 test("push-spelled-shared", {
-  main := entry(array_list(let_(X, lit()), let_(OUT, Node.NewList(shr(int(), o(X)))), use_(call(usize(1), array_list(Node.Borrow(true, OUT), Node.Borrow(false, X)))), use_(Node.Var(OUT))));
+  main := entry(al4(let_(X, lit()), let_(OUT, Node.NewList(shr(int(), o(X)))), use_(call(usize(1), al2(Node.Borrow(true, OUT), Node.Borrow(false, X)))), use_(Node.Var(OUT))));
   verdict("push-spelled-shared", case2(main, push_s()), "ACCEPT");
 });
 test("elided-container-lent-mut", {
   main := entry(
-    array_list(
+    al6(
       let_(X, lit()),
       let_(Y, lit()),
       let_(OUT, Node.NewList(shr(int(), ELIDED))),
-      use_(call(usize(1), array_list(Node.Borrow(true, OUT), Node.Borrow(false, X)))),
+      use_(call(usize(1), al2(Node.Borrow(true, OUT), Node.Borrow(false, X)))),
       Node.Assign(Y, lit()),
       use_(Node.Var(OUT))
     )
@@ -341,10 +402,10 @@ test("elided-container-lent-mut", {
 });
 test("elided-container-lent-mut-then-write", {
   main := entry(
-    array_list(
+    al5(
       let_(X, lit()),
       let_(OUT, Node.NewList(shr(int(), ELIDED))),
-      use_(call(usize(1), array_list(Node.Borrow(true, OUT), Node.Borrow(false, X)))),
+      use_(call(usize(1), al2(Node.Borrow(true, OUT), Node.Borrow(false, X)))),
       Node.Assign(X, lit()),
       use_(Node.Var(OUT))
     )
@@ -354,10 +415,10 @@ test("elided-container-lent-mut-then-write", {
 loop_join_push :: (fn() -> Case)(
   case1(
     entry(
-      array_list(
+      al4(
         let_(X, lit()),
         let_(OUT, Node.NewList(shr(int(), ELIDED))),
-        Node.Loop(array_list(Node.Assign(X, lit()), Node.Branch(array_list(Node.Push(OUT, Node.Borrow(false, X))), none()))),
+        Node.Loop(al2(Node.Assign(X, lit()), Node.Branch(al1(Node.Push(OUT, Node.Borrow(false, X))), none()))),
         use_(Node.Var(OUT))
       )
     )
@@ -368,33 +429,33 @@ test("loop-join-push", {
 });
 test("loop-join-push-after", {
   main := entry(
-    array_list(
+    al5(
       let_(X, lit()),
       let_(OUT, Node.NewList(shr(int(), ELIDED))),
-      Node.Loop(array_list(Node.Branch(array_list(Node.Push(OUT, Node.Borrow(false, X))), none()))),
+      Node.Loop(al1(Node.Branch(al1(Node.Push(OUT, Node.Borrow(false, X))), none()))),
       use_(Node.Var(OUT)),
       Node.Assign(X, lit())
     )
   );
   verdict("loop-join-push-after", case1(main), "ACCEPT");
 });
-drop_order_user_drop :: (fn() -> Case)(case1(entry(array_list(let_(OUT, Node.Make(Kind.Guard, Node.NewList(shr(int(), ELIDED)))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))))));
+drop_order_user_drop :: (fn() -> Case)(case1(entry(al3(let_(OUT, Node.Make(Kind.Guard, Node.NewList(shr(int(), ELIDED)))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))))));
 test("drop-order-user-drop", {
   verdict("drop-order-user-drop", drop_order_user_drop(), "E0911");
 });
 test("drop-order-may-dangle", {
-  main := entry(array_list(let_(OUT, Node.NewList(shr(int(), ELIDED))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))));
+  main := entry(al3(let_(OUT, Node.NewList(shr(int(), ELIDED))), let_(X, lit()), Node.Push(OUT, Node.Borrow(false, X))));
   verdict("drop-order-may-dangle", case1(main), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
 // No-origin positions: `Escapable` (O4, O10)
 // ---------------------------------------------------------------------------
 test("spawn-box-origin", {
-  main := entry(array_list(let_(X, lit()), let_(B, Node.Make(Kind.Boxed, Node.Borrow(false, X))), Node.Spawn(Node.Var(B))));
+  main := entry(al3(let_(X, lit()), let_(B, Node.Make(Kind.Boxed, Node.Borrow(false, X))), Node.Spawn(Node.Var(B))));
   verdict("spawn-box-origin", case1(main), "E0909");
 });
 test("thread-send-origin", {
-  main := entry(array_list(let_(X, lit()), let_(CELL, Node.Make(Kind.Cell, Node.Borrow(false, X))), Node.Spawn(Node.Var(CELL))));
+  main := entry(al3(let_(X, lit()), let_(CELL, Node.Make(Kind.Cell, Node.Borrow(false, X))), Node.Spawn(Node.Var(CELL))));
   verdict("thread-send-origin", case1(main), "E0909");
 });
 test("global-refcell-origin", {
@@ -403,42 +464,42 @@ test("global-refcell-origin", {
   verdict("global-refcell-origin", c, "E0909");
 });
 test("extern-box-origin", {
-  ext := FnDef(origin_params : P, type_params : usize(0), escapable : false, params : array_list(prm(V, wrap(Kind.Boxed, shr(int(), P)))), result : int(), body : .None, is_extern : true);
+  ext := FnDef(origin_params : P, type_params : usize(0), escapable : false, params : al1(prm(V, wrap(Kind.Boxed, shr(int(), P)))), result : int(), body : .None, is_extern : true);
   verdict("extern-box-origin", case2(entry(none()), ext), "E0909");
 });
 // ---------------------------------------------------------------------------
 // `Rc`: the handle-origin rule (O9) and the `Escapable` payload (O10)
 // ---------------------------------------------------------------------------
 test("rc-mut-through-deref", {
-  bump := sig(u64(0), array_list(prm(V, exc(int(), ELIDED))), int());
-  main := entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), use_(call(usize(1), array_list(Node.HandleBorrow(true, H))))));
+  bump := sig(u64(0), al1(prm(V, exc(int(), ELIDED))), int());
+  main := entry(al2(let_(H, Node.Make(Kind.Rc, lit())), use_(call(usize(1), al1(Node.HandleBorrow(true, H))))));
   verdict("rc-mut-through-deref", case2(main, bump), "E0919");
 });
-rc_handle_dropped :: (fn() -> Case)(case1(entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Drop(H, false), use_(Node.Var(R))))));
+rc_handle_dropped :: (fn() -> Case)(case1(entry(al4(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Drop(H, false), use_(Node.Var(R))))));
 test("rc-handle-dropped", {
   verdict("rc-handle-dropped", rc_handle_dropped(), "E0911");
 });
 test("rc-handle-reassigned", {
-  main := entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Assign(H, Node.Make(Kind.Rc, lit())), use_(Node.Var(R))));
+  main := entry(al4(let_(H, Node.Make(Kind.Rc, lit())), let_(R, Node.HandleBorrow(false, H)), Node.Assign(H, Node.Make(Kind.Rc, lit())), use_(Node.Var(R))));
   verdict("rc-handle-reassigned", case1(main), "E0911");
 });
 test("rc-push-handle-borrow", {
-  main := entry(array_list(let_(H, Node.Make(Kind.Rc, lit())), let_(OUT, Node.NewList(shr(int(), o(H)))), Node.Push(OUT, Node.HandleBorrow(false, H)), use_(Node.Var(OUT))));
+  main := entry(al4(let_(H, Node.Make(Kind.Rc, lit())), let_(OUT, Node.NewList(shr(int(), o(H)))), Node.Push(OUT, Node.HandleBorrow(false, H)), use_(Node.Var(OUT))));
   verdict("rc-push-handle-borrow", case1(main), "ACCEPT");
 });
 test("rc-of-ref-holder", {
-  main := entry(array_list(let_(X, lit()), let_(V, Node.MakeTup(array_list(Node.Borrow(false, X), lit()))), let_(R, Node.Make(Kind.Rc, Node.Var(V)))));
+  main := entry(al3(let_(X, lit()), let_(V, Node.MakeTup(al2(Node.Borrow(false, X), lit()))), let_(R, Node.Make(Kind.Rc, Node.Var(V)))));
   verdict("rc-of-ref-holder", case1(main), "E0909");
 });
 /// `borrow_mut(self : &RefCell(i32)) -> RefMut(self)`: a guard holding the
 /// lent `&` place.
-borrow_mut :: (fn() -> FnDef)(sig(u64(0), array_list(prm(SELF, shr(wrap(Kind.Cell, int()), ELIDED))), wrap(Kind.Guard, shr(wrap(Kind.Cell, int()), o(SELF)))));
+borrow_mut :: (fn() -> FnDef)(sig(u64(0), al1(prm(SELF, shr(wrap(Kind.Cell, int()), ELIDED))), wrap(Kind.Guard, shr(wrap(Kind.Cell, int()), o(SELF)))));
 rc_guard_main :: (fn(dropped : usize) -> FnDef)(
   entry(
-    array_list(
+    al5(
       let_(H, Node.Make(Kind.Rc, Node.Make(Kind.Cell, lit()))),
       let_(H2, Node.Var(H)),
-      let_(G, call(usize(1), array_list(Node.HandleBorrow(false, H)))),
+      let_(G, call(usize(1), al1(Node.HandleBorrow(false, H)))),
       Node.Drop(dropped, false),
       use_(Node.Var(G))
     )
@@ -457,22 +518,22 @@ wrap_rc :: (fn(bounded : bool) -> FnDef)(
     origin_params : u64(0),
     type_params : usize(1),
     escapable : bounded,
-    params : array_list(prm(V, Ty.TParam(usize(0)))),
+    params : al1(prm(V, Ty.TParam(usize(0)))),
     result : wrap(Kind.Rc, Ty.TParam(usize(0))),
-    body : .Some(array_list(Node.Return(Node.Make(Kind.Rc, Node.Var(V))))),
+    body : .Some(al1(Node.Return(Node.Make(Kind.Rc, Node.Var(V))))),
     is_extern : false
   )
 );
 test("generic-unbounded-rc", {
-  main := entry(array_list(let_(X, lit()), let_(R, call(usize(1), array_list(Node.Borrow(false, X))))));
+  main := entry(al2(let_(X, lit()), let_(R, call(usize(1), al1(Node.Borrow(false, X))))));
   verdict("generic-unbounded-rc", case2(main, wrap_rc(false)), "E0909@spec");
 });
 test("generic-bounded-rc", {
-  main := entry(array_list(let_(X, lit()), let_(R, call(usize(1), array_list(Node.Borrow(false, X))))));
+  main := entry(al2(let_(X, lit()), let_(R, call(usize(1), al1(Node.Borrow(false, X))))));
   verdict("generic-bounded-rc", case2(main, wrap_rc(true)), "E0909");
 });
 test("generic-escapable-rc", {
-  main := entry(array_list(let_(R, call(usize(1), array_list(lit())))));
+  main := entry(al1(let_(R, call(usize(1), al1(lit())))));
   verdict("generic-escapable-rc", case2(main, wrap_rc(true)), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
@@ -482,14 +543,14 @@ test("generic-escapable-rc", {
 fn_t :: (fn(result : Ty, caps : u64) -> Ty)(Ty.Func(shr(int(), FNQ), result, caps, u64(0)));
 closure :: (fn(caps : ArrayList(Node), body : ArrayList(Node), result : Node) -> Node)(Node.Closure(E, shr(int(), ELIDED), caps, body, result));
 /// `register(generic(r : Origin), reg : &mut List(Fn(&i32) -> i32 + r), f : Fn(&i32) -> i32 + r)`.
-register :: (fn() -> FnDef)(sig(P, array_list(prm(REG, exc(list(fn_t(int(), P)), ELIDED)), prm(V, fn_t(int(), P))), int()));
+register :: (fn() -> FnDef)(sig(P, al2(prm(REG, exc(list(fn_t(int(), P)), ELIDED)), prm(V, fn_t(int(), P))), int()));
 register_main :: (fn(captured : usize) -> FnDef)(
   entry(
-    array_list(
+    al5(
       let_(X, lit()),
       let_(Y, lit()),
       let_(REG, Node.NewList(fn_t(int(), o(X)))),
-      use_(call(usize(1), array_list(Node.Borrow(true, REG), closure(array_list(let_(captured, Node.Borrow(false, captured))), none(), lit())))),
+      use_(call(usize(1), al2(Node.Borrow(true, REG), closure(al1(let_(captured, Node.Borrow(false, captured))), none(), lit())))),
       use_(Node.Var(REG))
     )
   )
@@ -502,10 +563,10 @@ test("closure-caps-within-slot", {
 });
 /// `apply(f : Fn(&i32) -> &i32, v : &i32)`: the result origin is the
 /// per-call parameter origin.
-apply :: (fn() -> FnDef)(sig(u64(0), array_list(prm(F, fn_t(shr(int(), FNQ), ELIDED)), prm(V, shr(int(), ELIDED))), int()));
+apply :: (fn() -> FnDef)(sig(u64(0), al2(prm(F, fn_t(shr(int(), FNQ), ELIDED)), prm(V, shr(int(), ELIDED))), int()));
 F :: usize(17);
 apply_main :: (fn(result : Node) -> FnDef)(
-  entry(array_list(let_(X, lit()), let_(Y, lit()), use_(call(usize(1), array_list(closure(array_list(let_(Y, Node.Borrow(false, Y))), none(), result), Node.Borrow(false, X))))))
+  entry(al3(let_(X, lit()), let_(Y, lit()), use_(call(usize(1), al2(closure(al1(let_(Y, Node.Borrow(false, Y))), none(), result), Node.Borrow(false, X))))))
 );
 test("closure-returns-capture", {
   verdict("closure-returns-capture", case2(apply_main(Node.Var(Y)), apply()), "ORIGIN_MISMATCH");
@@ -514,13 +575,13 @@ test("closure-returns-param", {
   verdict("closure-returns-param", case2(apply_main(Node.Var(E)), apply()), "ACCEPT");
 });
 /// `each(f : Fn(&i32) -> i32)`.
-each :: (fn() -> FnDef)(sig(u64(0), array_list(prm(F, Ty.Func(shr(int(), FNQ), int(), ELIDED, u64(0)))), int()));
+each :: (fn() -> FnDef)(sig(u64(0), al1(prm(F, Ty.Func(shr(int(), FNQ), int(), ELIDED, u64(0)))), int()));
 test("closure-param-into-capture", {
   main := entry(
-    array_list(
+    al4(
       let_(X, lit()),
       let_(OUT, Node.NewList(shr(int(), o(X)))),
-      use_(call(usize(1), array_list(closure(array_list(let_(OUT, Node.Borrow(true, OUT))), array_list(Node.Push(OUT, Node.Var(E))), lit())))),
+      use_(call(usize(1), al1(closure(al1(let_(OUT, Node.Borrow(true, OUT))), al1(Node.Push(OUT, Node.Var(E))), lit())))),
       use_(Node.Var(OUT))
     )
   );
@@ -528,11 +589,11 @@ test("closure-param-into-capture", {
 });
 closure_push_main :: (fn(written : usize) -> FnDef)(
   entry(
-    array_list(
+    al6(
       let_(X, lit()),
       let_(Y, lit()),
       let_(OUT, Node.NewList(shr(int(), ELIDED))),
-      use_(call(usize(1), array_list(closure(array_list(let_(OUT, Node.Borrow(true, OUT)), let_(X, Node.Borrow(false, X))), array_list(Node.Push(OUT, Node.Var(X))), lit())))),
+      use_(call(usize(1), al1(closure(al2(let_(OUT, Node.Borrow(true, OUT)), let_(X, Node.Borrow(false, X))), al1(Node.Push(OUT, Node.Var(X))), lit())))),
       Node.Assign(written, lit()),
       use_(Node.Var(OUT))
     )
@@ -548,11 +609,11 @@ test("closure-push-capture-then-write", {
 // Futures (O5, O8)
 // ---------------------------------------------------------------------------
 cold_start_main :: (fn(await_first : bool) -> FnDef)({
-  fut := let_(FUT, Node.Async(array_list(let_(X, Node.Borrow(true, X)))));
+  fut := let_(FUT, Node.Async(al1(let_(X, Node.Borrow(true, X)))));
   entry(
     cond(
-      await_first => array_list(let_(X, lit()), fut, use_(Node.Var(FUT)), Node.Assign(X, lit())),
-      true => array_list(let_(X, lit()), fut, Node.Assign(X, lit()), use_(Node.Var(FUT)))
+      await_first => al4(let_(X, lit()), fut, use_(Node.Var(FUT)), Node.Assign(X, lit())),
+      true => al4(let_(X, lit()), fut, Node.Assign(X, lit()), use_(Node.Var(FUT)))
     )
   )
 });
@@ -563,24 +624,24 @@ test("async-cold-start-await-first", {
   verdict("async-cold-start-await-first", case1(cold_start_main(true)), "ACCEPT");
 });
 test("async-forward-local", {
-  g := fun(u64(0), no_params(), Ty.Fut(u64(0), u64(0)), array_list(let_(Y, lit()), Node.Return(Node.Async(array_list(let_(Y, Node.Borrow(false, Y)))))));
+  g := fun(u64(0), no_params(), Ty.Fut(u64(0), u64(0)), al2(let_(Y, lit()), Node.Return(Node.Async(al1(let_(Y, Node.Borrow(false, Y)))))));
   verdict("async-forward-local", case2(entry(none()), g), "E0912");
 });
 /// `bump(c : &mut i32) -> Future(unit, c)`, forwarding its lent place.
-bump_fut :: (fn() -> FnDef)(fun(u64(0), array_list(prm(C, exc(int(), ELIDED))), Ty.Fut(u64(0), o(C)), array_list(Node.Return(Node.Async(array_list(let_(C, Node.Var(C))))))));
+bump_fut :: (fn() -> FnDef)(fun(u64(0), al1(prm(C, exc(int(), ELIDED))), Ty.Fut(u64(0), o(C)), al1(Node.Return(Node.Async(al1(let_(C, Node.Var(C))))))));
 test("async-forward-param", {
-  main := entry(array_list(let_(X, lit()), let_(FUT, call(usize(1), array_list(Node.Borrow(true, X)))), use_(Node.Var(FUT)), use_(Node.Var(X))));
+  main := entry(al4(let_(X, lit()), let_(FUT, call(usize(1), al1(Node.Borrow(true, X)))), use_(Node.Var(FUT)), use_(Node.Var(X))));
   verdict("async-forward-param", case2(main, bump_fut()), "ACCEPT");
 });
 test("await-local-borrow", {
-  outer := fun(u64(0), no_params(), int(), array_list(let_(D, lit()), let_(INNER, call(usize(1), array_list(Node.Borrow(true, D)))), use_(Node.Var(INNER)), Node.Return(Node.Var(D))));
-  verdict("await-local-borrow", case3(entry(array_list(use_(call0(usize(2))))), bump_fut(), outer), "ACCEPT");
+  outer := fun(u64(0), no_params(), int(), al4(let_(D, lit()), let_(INNER, call(usize(1), al1(Node.Borrow(true, D)))), use_(Node.Var(INNER)), Node.Return(Node.Var(D))));
+  verdict("await-local-borrow", case3(entry(al1(use_(call0(usize(2))))), bump_fut(), outer), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
 // An impl checked against its trait's signature (O7), and a call through
 // `Dyn` mapped from the trait's signature (§5 route 5)
 // ---------------------------------------------------------------------------
-pick :: (fn(result : Ty, returned : usize) -> FnDef)(fun(u64(0), array_list(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result, array_list(Node.Return(Node.Var(returned)))));
+pick :: (fn(result : Ty, returned : usize) -> FnDef)(fun(u64(0), al2(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result, al1(Node.Return(Node.Var(returned)))));
 test("impl-wider-than-trait", {
   verdict("impl-wider-than-trait", case2(entry(none()), pick(shr(int(), o(SELF)), OTHER)), "ORIGIN_MISMATCH");
 });
@@ -589,9 +650,9 @@ test("impl-narrower-than-trait", {
 });
 /// The trait method `pick(self : &Self, other : &i32) -> result` that a
 /// `Dyn(_Pick)` call dispatches on: the caller sees only this signature.
-pick_sig :: (fn(result : Ty) -> FnDef)(sig(u64(0), array_list(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result));
+pick_sig :: (fn(result : Ty) -> FnDef)(sig(u64(0), al2(prm(SELF, shr(int(), ELIDED)), prm(OTHER, shr(int(), ELIDED))), result));
 dyn_call_main :: (fn() -> FnDef)(
-  entry(array_list(let_(D, lit()), let_(X, lit()), let_(R, call(usize(1), array_list(Node.Borrow(false, D), Node.Borrow(false, X)))), Node.Assign(X, lit()), use_(Node.Var(R))))
+  entry(al5(let_(D, lit()), let_(X, lit()), let_(R, call(usize(1), al2(Node.Borrow(false, D), Node.Borrow(false, X)))), Node.Assign(X, lit()), use_(Node.Var(R))))
 );
 test("dyn-call-elided-result", {
   verdict("dyn-call-elided-result", case2(dyn_call_main(), pick_sig(shr(int(), ELIDED))), "E0911");
@@ -608,12 +669,12 @@ test("dyn-call-spelled-result", {
 // tests with the fixture.
 // ---------------------------------------------------------------------------
 /// `use(ask : Fn(key : &i32) -> &(i32, key))`.
-ask_use :: (fn() -> FnDef)(sig(u64(0), array_list(prm(F, fn_t(shr(int(), FNQ), ELIDED))), int()));
+ask_use :: (fn() -> FnDef)(sig(u64(0), al1(prm(F, fn_t(shr(int(), FNQ), ELIDED))), int()));
 ask_main :: (fn(result : Node) -> FnDef)(
-  entry(array_list(let_(X, lit()), use_(call(usize(1), array_list(closure(array_list(let_(X, Node.Borrow(false, X))), none(), result))))))
+  entry(al2(let_(X, lit()), use_(call(usize(1), al1(closure(al1(let_(X, Node.Borrow(false, X))), none(), result))))))
 );
 test("effect-resume-local", {
-  handler := fun(u64(0), array_list(prm(E, shr(int(), ELIDED))), shr(int(), o(E)), array_list(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))));
+  handler := fun(u64(0), al1(prm(E, shr(int(), ELIDED))), shr(int(), o(E)), al2(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))));
   verdict("effect-resume-local", case2(entry(none()), handler), "E0912");
 });
 test("effect-resume-capture", {
@@ -623,7 +684,7 @@ test("effect-resume-param", {
   verdict("effect-resume-param", case2(ask_main(Node.Var(E)), ask_use()), "ACCEPT");
 });
 test("macro-ret-local", {
-  f := fun(u64(0), array_list(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), array_list(Node.Block(array_list(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))))));
+  f := fun(u64(0), al1(prm(XS, shr(int(), ELIDED))), shr(int(), ELIDED), al1(Node.Block(al2(let_(Y, lit()), Node.Return(Node.Borrow(false, Y))))));
   verdict("macro-ret-local", case2(entry(none()), f), "E0912");
 });
 // ---------------------------------------------------------------------------
@@ -633,7 +694,7 @@ test("index-mut-twice", {
   // An index place is its root's place: the model has no paths, which is the
   // rule (index places on one root overlap, decision 28).
   main := entry(
-    array_list(
+    al5(
       let_(XS, Node.NewList(int())),
       let_(A, Node.Borrow(true, XS)),
       let_(B, Node.Borrow(true, XS)),
@@ -646,7 +707,7 @@ test("index-mut-twice", {
 test("place-write-join", {
   // `out(0) = &x` is encoded as the push it joins like.
   main := entry(
-    array_list(
+    al7(
       let_(Z, lit()),
       let_(X, lit()),
       let_(OUT, Node.NewList(shr(int(), o(X) | o(Z)))),
@@ -660,12 +721,12 @@ test("place-write-join", {
 });
 test("match-arm-binding-origin", {
   // The arm binding `r` is the payload moved out of the consumed scrutinee.
-  main := entry(array_list(let_(X, lit()), let_(V, Node.Make(Kind.Some, Node.Borrow(false, X))), let_(R, Node.Var(V)), Node.Assign(X, lit()), use_(Node.Var(R))));
+  main := entry(al5(let_(X, lit()), let_(V, Node.Make(Kind.Some, Node.Borrow(false, X))), let_(R, Node.Var(V)), Node.Assign(X, lit()), use_(Node.Var(R))));
   verdict("match-arm-binding-origin", case1(main), "E0911");
 });
 test("list-mut-two-pushes", {
   main := entry(
-    array_list(
+    al5(
       let_(X, lit()),
       let_(OUT, Node.NewList(exc(int(), o(X)))),
       Node.Push(OUT, Node.Borrow(true, X)),
@@ -676,12 +737,12 @@ test("list-mut-two-pushes", {
   verdict("list-mut-two-pushes", case1(main), "E0911");
 });
 test("copy-shared-holder", {
-  main := entry(array_list(let_(X, lit()), let_(V, Node.MakeTup(array_list(Node.Borrow(false, X), lit()))), let_(W, Node.Var(V)), use_(Node.Var(V)), use_(Node.Var(W))));
+  main := entry(al5(let_(X, lit()), let_(V, Node.MakeTup(al2(Node.Borrow(false, X), lit()))), let_(W, Node.Var(V)), use_(Node.Var(V)), use_(Node.Var(W))));
   verdict("copy-shared-holder", case1(main), "ACCEPT");
 });
 test("ret-byvalue-carried", {
-  first := fun(P, array_list(prm(V, Ty.Tup(array_list(shr(int(), P), int())))), shr(int(), P), array_list(Node.Return(Node.Field(V, usize(0)))));
-  main := entry(array_list(let_(X, lit()), let_(R, call(usize(1), array_list(Node.MakeTup(array_list(Node.Borrow(false, X), lit()))))), use_(Node.Var(R))));
+  first := fun(P, al1(prm(V, Ty.Tup(al2(shr(int(), P), int())))), shr(int(), P), al1(Node.Return(Node.Field(V, usize(0)))));
+  main := entry(al3(let_(X, lit()), let_(R, call(usize(1), al1(Node.MakeTup(al2(Node.Borrow(false, X), lit()))))), use_(Node.Var(R))));
   verdict("ret-byvalue-carried", case2(main, first), "ACCEPT");
 });
 // ---------------------------------------------------------------------------
