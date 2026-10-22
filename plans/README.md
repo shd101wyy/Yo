@@ -126,6 +126,15 @@ iterator adapters, container parity, `Lazy`, `Result.context`, `yo bench`,
 `--deny warnings`, LSP code actions and inlay hints, fuzzing, panic
 backtraces), and the rejections it adds (shadowing, `PartialOrd`, `Weak`,
 guards, `Cow`, `Deref` coercions).
+[`WEAK_AND_UNCOLLECTED_RC`](backlog/WEAK_AND_UNCOLLECTED_RC.md) (2026-10-21,
+reopening decision 46's "No `Weak`") is Rust's `Rc`/`Arc` model on Yo's
+one handle pair: `Weak(T)`/`ArcWeak(T)` with a weak count in the bits
+decision 46 freed, a per-program `--cycle-collector off` build, `Arc`
+without its `Acyclic` bound, and `Acyclic` kept as a derived-only marker
+(`Weak` edges excluded; the declared form goes); the collector is deleted
+at W6, once `Weak` and the
+`--allocator debug` leak oracle have shipped and one release has run with
+it off (maintainer, 2026-10-21).
 [`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md) is the Zig
 half of the same 2026-10-10 survey: the table of what Yo already shares
 with Zig (comptime, lazy analysis, `build.yo`, `c_include`, allocators as
