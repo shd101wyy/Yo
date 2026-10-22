@@ -59,7 +59,7 @@ only `is_by_value_param_share_dup`. The fused-await twin
 same. The emitted call was `f(&sm->var_xs, sm->var_xs)` with no `+1`
 around it, so the callee's first `a = …` freed the list `b` points to. The
 post-call drop was skipped too (its dup temp was never declared, so the
-deferred-drop gate dropped it), which is why the bug showed as a
+deferred-drop gate skipped it), which is why the bug showed as a
 use-after-free rather than an over-release.
 
 ## Fix
@@ -82,20 +82,37 @@ f(&(sm->var_xs), tmp);
 __yo_decr_rc((void*)(sm->var_tmp)); memset(&(sm->var_tmp), 0, sizeof(sm->var_tmp));
 ```
 
-A `&mut` wrapper parameter keeps an await unfused ("a wrapper parameter is
-mut"), so `f(&mut xs, &xs)` itself never reaches the fused-await path; the
-fused predicate changes for a projection argument a fused wrapper's `&`
-parameter receives, whose post-call drop `emit_fused_await` already emits
-through `generate_deferred_drop_expressions(&site.call, …)`.
+Emitting these dups in state machines exposed one more gate. A synthesized
+dup renders as a bare `__yo_incr_rc(...)` whose result temp
+`generate_deferred_dup_expressions` (`src/codegen/exprs/drop_dup.yo`)
+declares unless it is already declared, and "already declared" read the
+function's monotonic `declared_c_var_names`. A fused await site emits its
+wrapper's block once per site, so a task that awaits one wrapper twice (the
+compiler's own `release_store_lock(&lock)`, which lends `lock.file`) emitted
+the second copy of the dup after the first copy's C block had closed:
+`use of undeclared identifier` in the stage-2 C. The gate now asks the
+emitter's open block-scope stack (`scope_stack_contains`), the liveness
+signal the drop gates already use.
 
-Measured on `src/main.yo` (develop at c8d297cc1 against this fix, both
-`--emit-c --optimize 2`): the emitted C differs by 153 new `__yo_incr_rc`
-dups, each released by a matching new post-call `__yo_decr_rc` through the
-dup temp's task slot (153 of each, none removed). They are borrowed
-projections of captures and slots in the compiler's own `io.async` bodies
-(`ctx.project_dir`, `pkg.url`, `manifest.path`, `resp.body`, …). The task
-slots already existed in the state structs, so no layout changes. The only
-other hunks are two renumbered `temp_dup_enum_N` locals.
+A `&mut` wrapper parameter keeps an await unfused ("a wrapper parameter is
+mut"), so `f(&mut xs, &xs)` itself never reaches the fused-await path.
+The fused predicate's change applies to a projection argument that a fused
+wrapper's `&` parameter receives. `emit_fused_await` already emits that
+argument's post-call drop through
+`generate_deferred_drop_expressions(&site.call, …)`.
+
+Measured on `src/main.yo` (the develop binary at c8d297cc1 and this fix's
+binary, each emitting this branch's `src/main.yo` with `--emit-c
+--optimize 2`): the emitted C gains 157 call-scoped shares in state
+machines. Of these, 153 are `__yo_incr_rc` on an Rc handle and 4 are
+`__yo_venum_dup` on an enum value. Each is stored in its dup temp's task
+slot and released after its call by a matching `__yo_decr_rc` or
+`__yo_venum_drop` through that slot. Stores and drops match per slot, and
+no dup or drop is removed. They are borrowed projections of captures and
+slots in the compiler's own `io.async` bodies (`ctx.project_dir`,
+`pkg.url`, `manifest.path`, `resp.body`, …). The task slots already existed
+in the state structs, so no layout changes. The other hunks renumber 22
+`temp_dup_enum_N` locals. `clang -fsyntax-only` accepts the emitted C.
 
 ## Test
 
@@ -105,6 +122,11 @@ in an io.async body keeps its share": a task-slot `ArrayList(_AliasBox)` lent
 callees replace it three times. Before the fix the test runner's ASan build
 reports `heap-use-after-free`; after it the borrowed lists keep their
 lengths and every box is released exactly once.
+
+Same file, "a borrowed projection's share is declared at each fused site of
+one wrapper": a task awaits one wrapper twice, and the wrapper's block lends
+`&lock.file`. Develop compiles it (it takes no share there). Before the
+declaration gate it failed to compile (`use of undeclared identifier`).
 
 ## Relation to decision 28 and decision 43
 
