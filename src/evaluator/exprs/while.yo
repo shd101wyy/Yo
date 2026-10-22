@@ -31,7 +31,7 @@
 } :: import("../../expr_info.yo");
 { check_loop_flow } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
-{ Environment, snapshot_env } :: import("../../env.yo");
+{ Environment, snapshot_env, env_adopt } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind, LoopFlowSnapshot } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -626,9 +626,7 @@ evaluate_while :: (
     );
   });
   // Update the environment with the body's post-evaluation state.
-  env.frames = body_info.env.frames;
-  env.module_path = body_info.env.module_path;
-  env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
+  env_adopt(&env, &body_info.env);
   // Execute the step expression if provided (3-argument form).
   match(
     step_expr_opt,

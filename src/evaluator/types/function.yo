@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
@@ -471,7 +471,7 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
         .None => ()
       );
       Environment(
-        frames : frames,
+        frames : rc(frames),
         module_path : d.module_path,
         function_declaration_frame_level : d.function_declaration_frame_level,
         frozen : false
@@ -1045,9 +1045,7 @@ _eval_and_update_env :: (
   match(
     info_opt,
     .Some(info) => {
-      env_mut.frames = info.env.frames;
-      env_mut.module_path = info.env.module_path;
-      env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+      env_adopt(&env_mut, &info.env);
       if(
         is_type_value(&info.value),
         .Some(
@@ -1824,9 +1822,7 @@ evaluate_function_parameter :: (
       match(
         info_opt,
         .Some(info) => {
-          env_mut.frames = info.env.frames;
-          env_mut.module_path = info.env.module_path;
-          env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+          env_adopt(&env_mut, &info.env);
           dv_val_opt := info.value;
           captured_default_value = dv_val_opt;
           // Coerce comptime types (e.g. comptime_str) to their runtime
@@ -2401,9 +2397,7 @@ validate_concrete_type_constraints :: (
         new_expr_info(env_mut, t_unit())
       }
     );
-    env_mut.frames = info.env.frames;
-    env_mut.module_path = info.env.module_path;
-    env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+    env_adopt(&env_mut, &info.env);
     if(is_type_value(&info.value), {
       tv := match(
         info.value,
@@ -2596,9 +2590,7 @@ apply_single_trait_constraint :: (
     if(!is_type_value(&info.value), {
       return(false);
     });
-    env_mut.frames = info.env.frames;
-    env_mut.module_path = info.env.module_path;
-    env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
+    env_adopt(&env_mut, &info.env);
     lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
@@ -2629,9 +2621,7 @@ apply_single_trait_constraint :: (
   if(!is_type_value(&info_rhs.value), {
     return(false);
   });
-  env_mut.frames = info_rhs.env.frames;
-  env_mut.module_path = info_rhs.env.module_path;
-  env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
+  env_adopt(&env_mut, &info_rhs.env);
   trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
@@ -2848,9 +2838,7 @@ parse_where_clause_constraints :: (
           )
         );
       });
-      env_mut.frames = lhs_info.env.frames;
-      env_mut.module_path = lhs_info.env.module_path;
-      env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
+      env_adopt(&env_mut, &lhs_info.env);
       lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
@@ -2960,9 +2948,7 @@ parse_where_clause_constraints :: (
       if(skip_iter, {
         continue;
       });
-      env_mut.frames = trait_info.env.frames;
-      env_mut.module_path = trait_info.env.module_path;
-      env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
+      env_adopt(&env_mut, &trait_info.env);
       trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(

@@ -53,7 +53,7 @@ pragma(Pragma.AllowUnsafe);
   scope_release_note_binding,
   ExprInfo
 } :: import("../../expr_info.yo");
-{ Environment, Variable, pop_env_frame, snapshot_env } :: import("../../env.yo");
+{ Environment, Variable, pop_env_frame, snapshot_env, env_adopt } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
 { add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime, call_is_index_place } :: import("../context.yo");
@@ -302,13 +302,6 @@ _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
     true => body_ty
   )
 );
-/// `env` takes over the frames of `src` (the body-env handover the arm loop
-/// and the post-loop use).
-_adopt_env :: (fn(env : &Environment, src : &Environment) -> unit)({
-  env.frames = src.frames;
-  env.module_path = src.module_path;
-  env.function_declaration_frame_level = src.function_declaration_frame_level;
-});
 // ---------------------------------------------------------------------------
 // evaluate_match
 // ---------------------------------------------------------------------------
@@ -968,7 +961,7 @@ evaluate_match :: (
       new_expr_info(&env, t_unit())
     }
   );
-  _adopt_env(&env, &scr_info.env);
+  env_adopt(&env, &scr_info.env);
   // A scrutinee reached from a local borrow: its arms' bindings are places a
   // re-point of that borrow may go through (plans/VALUES_BY_DEFAULT.md
   // decision 25).
@@ -1993,7 +1986,7 @@ evaluate_match :: (
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&mb)),
           .None => (),
           .Some(mbi) => {
-            _adopt_env(&env, &mbi.env);
+            env_adopt(&env, &mbi.env);
             matched_body_val = mbi.value;
             did_use_matched_body = true;
           }
@@ -2013,7 +2006,7 @@ evaluate_match :: (
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_nrem)),
               .None => (),
               .Some(bi) => {
-                _adopt_env(&env, &bi.env);
+                env_adopt(&env, &bi.env);
                 matched_body_val = bi.value;
                 did_use_single = true;
               }
@@ -2026,7 +2019,7 @@ evaluate_match :: (
               expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&first_nrem2)),
               .None => (),
               .Some(bi) => {
-                _adopt_env(&env, &bi.env);
+                env_adopt(&env, &bi.env);
                 did_use_single = true;
               }
             );

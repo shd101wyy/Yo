@@ -19,7 +19,7 @@ import("std/fmt");
   BK_NEWTYPE
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, register_struct_field_comptime_flags, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
@@ -229,9 +229,7 @@ evaluate_struct_type :: (
       runtime_field_types.push(field.ty);
     });
     fields.push(field);
-    env.frames = result.env.frames;
-    env.module_path = result.env.module_path;
-    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env_adopt(&env, &result.env);
     i = (i + usize(1));
   });
   // Check newtype constraint: must have exactly one field

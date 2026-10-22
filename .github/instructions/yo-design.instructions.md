@@ -1038,11 +1038,14 @@ use field-level assignment instead of variable reassignment:
 // WRONG — cannot reassign parameter:
 env_mut = result.env;
 
-// CORRECT — mutate fields of the referenced value:
-env_mut.frames = result.env.frames;
-env_mut.module_path = result.env.module_path; // an Rc(String): the adopt shares the cell
-env_mut.function_declaration_frame_level = result.env.function_declaration_frame_level;
+// CORRECT — take over the other env's fields through the one helper:
+env_adopt(&env_mut, &result.env);
 ```
+
+`env_adopt` (`src/env.yo`) is the only way to take over another env: it
+shares the frame list (`Rc`, copy-on-write on the next push/pop) and the
+other fields, and runs the `YO_DEBUG_FROZEN` guard on the target. Do not
+write the fields one by one.
 
 ### `io.async` closures: one parameter, effects struct
 
@@ -1110,8 +1113,6 @@ on the reference-semantics value:
 // WRONG — C pointer deref fails in check:
 env_ptr.* = info.env;
 
-// CORRECT — field mutation on reference-semantics value:
-env_ptr.frames = info.env.frames;
-env_ptr.module_path = info.env.module_path;
-// ... etc
+// CORRECT — take over the recorded env through the helper:
+env_adopt(&env_ptr, &info.env);
 ```
