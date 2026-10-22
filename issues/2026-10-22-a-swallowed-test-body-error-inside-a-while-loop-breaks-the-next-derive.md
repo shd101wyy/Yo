@@ -1,11 +1,14 @@
 # A swallowed test-body error inside a `while` loop breaks the next `derive`
 
-**Severity:** S2 — `yo check` (without `--test-bodies`) swallows a test
-body's trial-evaluation error, as designed. When the error is raised inside a
+**Severity:** S3 — a misleading diagnostic on a file that is already
+invalid. `yo check` (without `--test-bodies`) swallows a test body's
+trial-evaluation error, as designed. When the error is raised inside a
 `while` loop, though, the loop context is not unwound. The next top-level
 `derive` then fails with a bogus "Cannot initialize a variable that is
 defined outside the while loop" at an `auto-generated://` location, which
-names neither the test nor the real error.
+names neither the test nor the real error. (Filed as S2; lowered to S3 by the
+probe's review, 2026-10-23: the file has a real error either way, and
+`--test-bodies` or `yo test` reports it.)
 
 **Status:** open. **Found:** 2026-10-22 by the V2b B8 flip probe
 (`plans/handover/VBD_B8_PROBE_CENSUS_2026-10-22.md`). Under the flip,

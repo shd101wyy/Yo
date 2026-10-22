@@ -1,10 +1,13 @@
 # An early return in a derive-generated body skips the drop of a value local
 
-**Severity:** S2 — a leak. A `return` from a function body that a
-`derive_rule` produced (`ctx.make_impl` over `body.to_expr()`) drops the
-`ref`/`Rc` locals that are live at that point. It does not drop the
-value-typed locals that have a `Drop` impl. The same body written by hand in
-an `impl` drops both.
+**Severity:** S1 — a silently skipped destructor. A `return` from a
+function body that a `derive_rule` produced (`ctx.make_impl` over
+`body.to_expr()`) drops the `ref`/`Rc` locals that are live at that point. It
+does not drop the value-typed locals that have a `Drop` impl, so their `Drop`
+side effects never run and their storage leaks on every call that takes the
+path. The same body written by hand in an `impl` drops both. (Filed as S2;
+raised to S1 by the probe's review, 2026-10-23: `issues/README.md` puts
+silently wrong results and unbounded leaks under S1.)
 
 **Status:** open. **Found:** 2026-10-23 by the V2b B8 flip probe
 (`plans/handover/VBD_B8_PROBE_CENSUS_2026-10-22.md`). Once `String` is a value,
