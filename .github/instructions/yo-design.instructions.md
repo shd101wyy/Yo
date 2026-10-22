@@ -124,7 +124,12 @@ take the same parameter. The `.Some(a)` arm sets the thread's allocation scope t
 the `Rc(V)(v)` / `Arc(V)(v)` constructor (which allocates from the current scope) and restores
 it, through the prelude's `__yo_scope_set` extern: no codegen, and the default path is
 unchanged. That swap is the stopgap until V5's `__yo_cell`/`__yo_atomic_cell` take the
-allocator themselves (VALUES_BY_DEFAULT §3.2). Unlike `box`'s
+allocator themselves (VALUES_BY_DEFAULT §3.2). Both bind that `match` (`cell := match(…); cell`)
+instead of ending in it: a tail `match` is typed by the declared `Rc(V)`/`Arc(V)`, and for the
+`rc`/`arc` call that `dyn(...)` synthesizes around a closure capturing a generic function's
+`Impl(Fn)` parameter that `V` is unbound, a second C type for the result
+(`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`).
+Unlike `box`'s
 explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
 allocator whose callbacks allocate through the scope recurses until the stack overflows
 (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).

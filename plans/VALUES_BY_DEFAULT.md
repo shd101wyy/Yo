@@ -4659,6 +4659,14 @@ and in git, not a silent edit.
   handles released once, `Rc.try_unwrap` freeing a placed cell) and
   `tests/explicit_allocators.test.yo` (a cycle closed through a placed `Rc`
   is collected into the arena).
+  - `rc` and `arc` bind their `match` and return the binding instead of
+    ending in it. A tail `match` was typed by the declared `Rc(V)`, which is
+    unbound for the `rc` that `dyn(...)` synthesizes around a closure
+    capturing a generic function's `Impl(Fn)` parameter. The v0.2.68 seed
+    could not build the compiler (`analyze_await_points` has that closure),
+    and `arc` had failed the same way for user code since #1519
+    (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
+    tests in `tests/rc.test.yo` and `tests/arc.test.yo`).
 
 **Remaining, Generation A:**
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
