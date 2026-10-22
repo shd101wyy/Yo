@@ -124,5 +124,21 @@ and the B3 note in `plans/backlog/MACRO_AND_ISO_REMOVAL.md`.
 Before the fix (develop `6cd3495c5`, tree build): `collection_constructors`
 fails all 16 tests at module evaluation with `error[E0610]: No matching call
 found for operator "==" with receiver type "Type"` at
-`std/collections/array_list.yo:235`; the length canary's program fails with
-E0604 (`tmp` probe, same shape). After: both files pass.
+`std/collections/array_list.yo:235`. In `type_soundness` the batch stops at
+the other canary's E0601 first, so the length canary was also run on its own
+(its definitions and test block copied into one file, `yo test --parallel 1`):
+
+```text
+error[E0604]: Function body has type `Type`, but the declared result type is `usize`.
+  --> _len_param :: (fn(generic(N : usize), arr : Array(i32, N)) -> usize)(N);
+note: in `_len_param`, instantiated here
+  --> assert(_len_param((w3.get)()) == usize(3), "N = 3 through the method call")
+  ✗ soundness canary: a method-call argument binds the callee's length parameter
+```
+
+After: the standalone canary passes (1/1), and both test files pass in full.
+
+A length binder nested in a generic type argument
+(`xs : ArrayList(Array(i32, N))`) is a separate gap that this fix does not
+cover; it fails the same way before and after
+(`issues/2026-10-22-a-usize-binder-nested-in-a-generic-type-argument-is-never-inferred.md`).
