@@ -1,0 +1,14 @@
+# `yo fix <path> --migrate explicit-copy` follows a copy through the locals
+# it is stored in, moves included
+# (issues/fixed/2026-10-23-explicit-copy-migration-misses-a-write-through-a-local-the-copy-was-moved-into.md).
+# `x := entry.no; target := x; target.push(v)` copies the entry's list into
+# `x` and writes it through `target`; the same flow through a block tail, an
+# arm that ends in a local, an assignment, and a source moved after the copy
+# (`snapshot := list; target := list; target.push(v)`). The migration used to
+# clone all six (and list one), and the run printed `1 0 1 0`. Now the copies
+# that reach a written local are listed, and only `peek`'s (moved into a
+# local that is never written) is cloned. The trailing `build run` runs the
+# migrated program: `3 2 2 2` is the behavior the rewrite must keep.
+# stdout_keep drops the build chatter.
+stdout_keep=^(fix:|[0-9]+ [0-9]+ [0-9]+ [0-9]+$)
+timeout=600

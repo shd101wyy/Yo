@@ -2,8 +2,10 @@
 //! a `Clone` impl's member: there the impl defines how deep its type's copy
 //! goes. `Tree.clone` shares the `kids` handle on purpose, so a push through
 //! the copy is seen by the original; a `.clone()` there would make every
-//! `Tree.clone` a deep copy and the run print `0`. A copy outside the impl
-//! (`tags.push(label)` while `label` is read again) is still cloned.
+//! `Tree.clone` a deep copy and the run print `0`. `Bag(T)`'s generic impl
+//! shares its `items` the same way and is recognized the same way. A copy
+//! outside the impls (`tags.push(label)` while `label` is read again) is
+//! still cloned.
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
@@ -25,6 +27,22 @@ impl(
     )
   )
 );
+Bag :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(items : ArrayList(T))));
+impl(
+  generic(T : Type),
+  Bag(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      Self(items : self.items)
+    )
+  )
+);
+bag_shares :: (fn() -> usize)({
+  b := Bag(i32)(items : ArrayList(i32).new());
+  c := b.clone();
+  c.items.push(i32(1));
+  b.items.len()
+});
 main :: (fn() -> unit)({
   t := Tree.Node(ArrayList(Tree).new());
   u := t.clone();
@@ -40,6 +58,6 @@ main :: (fn() -> unit)({
   label := String.from("n");
   tags := ArrayList(String).new();
   tags.push(label);
-  println(`${n.to_string()} ${label} ${tags.len().to_string()}`);
+  println(`${n.to_string()} ${label} ${tags.len().to_string()} ${bag_shares().to_string()}`);
 });
 export(main);

@@ -3197,10 +3197,15 @@ _run_migrate_explicit_copy :: (
         println(`fix: ${at}: \`${st.expect}\` is returned from ${st.src_borrow}, so a caller may write through it; return a projection (\`-> ${if(st.src_borrow.contains(String.from("&mut")), "&mut T", "&T")}\`) or spell the copy (\`.clone()\`) by hand`);
         continue;
       });
+      // The direct writes first, so the most specific reason is printed:
+      // the source or the destination itself, a result position's
+      // destination, then a variable either flows into afterwards.
       written := cond(
-        _decl_written_after(&writes_by_decl, &flows_by_src, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
-        _decl_written_after(&writes_by_decl, &flows_by_src, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
+        _copy_written_after(&writes_by_decl, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
+        _copy_written_after(&writes_by_decl, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
         _tail_dest_written_after(&writes_by_decl, &flows_by_src, &tail_dests, &st) => Option(String).Some(String.from("the copy")),
+        _decl_written_after(&writes_by_decl, &flows_by_src, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
+        _decl_written_after(&writes_by_decl, &flows_by_src, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
         true => Option(String).None
       );
       match(
