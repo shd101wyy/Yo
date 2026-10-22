@@ -33,9 +33,12 @@ tests/string/.yo_selftest_batch_76400_1_2.bin.c:21262:56: error: no member named
 B :: struct(n : i32);
 impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(println("drop B"))));
 W :: newtype(_b : B);
-impl(W, into_b : (fn(sink(self) : Self) -> B)(
-  match(self, W(_b : b) => b)
-));
+impl(
+  W,
+  into_b : (fn(sink(self) : Self) -> B)(
+    match(self, W(_b : b) => b)
+  )
+);
 main :: (fn() -> unit)({
   w := W(_b : B(n : i32(4)));
   b := w.into_b();
