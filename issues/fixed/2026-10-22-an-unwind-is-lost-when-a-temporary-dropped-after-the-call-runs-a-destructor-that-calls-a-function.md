@@ -74,4 +74,8 @@ Every drop-then-check site in `src/codegen/exprs/other_fn_call.yo` (ten) and `sr
 
 ## Test
 
-`tests/algebraic_effects.test.yo`, "an unwind passes a call whose temporary argument's destructor makes a call": a temporary `_EscGuard` (whose `Drop` makes a call) and a temporary `ArrayList(String)` (whose element destruction calls `drop_in_place`) are lent to a call whose handler unwinds. Before the fix both frames continue and return `1` instead of the unwound `-7`/`-8`.
+`tests/algebraic_effects.test.yo`, "an unwind passes a call whose temporary argument's destructor makes a call": a temporary `_EscGuard` (whose `Drop` makes a call) and a temporary `Box(i32)` (whose `Drop` calls `drop_in_place` and `_box_owner_of`) are lent to a call whose handler unwinds. Before the fix both frames continue and return `1` instead of the unwound `-7`/`-8`.
+
+## Seed gate
+
+The compiler is compiled by the seed, so its own code keeps the bug until `SEED_VERSION` carries this fix. A destructor in `std/` that the compiler runs must not start making calls before then: moving `std/collections/array_list.yo`'s element destruction to `drop_in_place` made the seed-built compiler lose unwinds in its parser. That move is parked in `plans/backlog/SEED_VERSION_AUTOMATION.md` ("`drop_in_place` at std's raw-slot sites").

@@ -210,7 +210,7 @@ Operations that are NOT gated (addresses are just data; moving them around doesn
 
 ### Destroying a value in place: `drop_in_place`
 
-`drop_in_place(p : *(T))` is the prelude's in-place destructor, Rust's `ptr::drop_in_place`: it runs the `Drop` impl of the value `p` points at and releases everything that value owns, without moving it out. Afterwards the slot holds dead bytes: do not read it or drop it again; initialize it with `unsafe(consume(p.* = v))` or free it. Collections use it on the elements they own through a raw buffer:
+`drop_in_place(p : *(T))` is the prelude's in-place destructor, Rust's `ptr::drop_in_place`: it runs the `Drop` impl of the value `p` points at and releases everything that value owns, without moving it out. Afterwards the slot holds dead bytes: do not read it or drop it again; initialize it with `unsafe(consume(p.* = v))` or free it. A collection uses it on the elements it owns through a raw buffer:
 
 ```yo
 pragma(Pragma.AllowUnsafe);

@@ -516,7 +516,7 @@ impl(
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
             element_ptr := base_ptr.add(i);
-            drop_in_place(element_ptr);
+            ___drop(element_ptr.*);
           });
         });
       },
@@ -587,7 +587,7 @@ impl(
                     tail_start := (r.start + elements_after);
                     while(j < count, j = (j + usize(1)), {
                       tail_ptr := _ptr.add(tail_start + j);
-                      drop_in_place(tail_ptr);
+                      ___drop(tail_ptr.*);
                     });
                   },
                   true => {
@@ -612,7 +612,7 @@ impl(
                     i := usize(0);
                     while(i < count, i = (i + usize(1)), {
                       element_ptr := _ptr.add(r.start + i);
-                      drop_in_place(element_ptr);
+                      ___drop(element_ptr.*);
                     });
                   },
                   true => ()

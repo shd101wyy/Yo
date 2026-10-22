@@ -262,7 +262,7 @@ impl(
     // Read value at head position and neutralize the slot's RC
     element_ptr := self._data.add(self._head);
     (val : T) = element_ptr.*;
-    drop_in_place(element_ptr);
+    ___drop(element_ptr.*);
     self._head = ((self._head + usize(1)) % self._capacity);
     self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
@@ -316,7 +316,7 @@ impl(
     );
     element_ptr := self._data.add(self._head);
     (val : T) = element_ptr.*;
-    drop_in_place(element_ptr);
+    ___drop(element_ptr.*);
     self._head = ((self._head + usize(1)) % self._capacity);
     self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
@@ -373,7 +373,7 @@ impl(
       (i : usize) = usize(0);
       while(runtime(i < current_len), {
         (idx : usize) = ((self._head + i) % self._capacity);
-        drop_in_place(self._data.add(idx));
+        ___drop((self._data.add(idx)).*);
         i = (i + usize(1));
       });
       free(.Some((*void)(self._data)));

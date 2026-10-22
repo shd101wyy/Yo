@@ -209,7 +209,7 @@ copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
 
 ### 原地销毁一个值：`drop_in_place`
 
-`drop_in_place(p : *(T))` 是 prelude 提供的原地析构函数，对应 Rust 的 `ptr::drop_in_place`：它运行 `p` 所指向的值的 `Drop` 实现，并释放该值拥有的一切，但不把值移出。之后这个槽位里是已失效的字节：不要再读它，也不要再次销毁它；用 `unsafe(consume(p.* = v))` 重新初始化，或者释放它。集合用它销毁自己通过裸缓冲区拥有的元素：
+`drop_in_place(p : *(T))` 是 prelude 提供的原地析构函数，对应 Rust 的 `ptr::drop_in_place`：它运行 `p` 所指向的值的 `Drop` 实现，并释放该值拥有的一切，但不把值移出。之后这个槽位里是已失效的字节：不要再读它，也不要再次销毁它；用 `unsafe(consume(p.* = v))` 重新初始化，或者释放它。集合可以用它销毁自己通过裸缓冲区拥有的元素：
 
 ```yo
 pragma(Pragma.AllowUnsafe);
