@@ -74,3 +74,5 @@ GOLDEN-DIFFs. That branch touches neither `std/prelude.yo` nor `src/lsp/`:
 
 Both outputs are correct. The fix is to re-record the two goldens with a
 commit message that names #1530.
+
+Re-recorded on develop `32755b7f3` (#1532 left both outputs unchanged): request 9 lists 203 labels in the old order, and the definition target is line 8260.
