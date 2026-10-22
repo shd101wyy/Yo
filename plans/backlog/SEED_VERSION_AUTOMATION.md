@@ -382,6 +382,35 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-22): `drop_in_place` at std's raw-slot sites
+
+`drop_in_place(p : *(T))` (`std/prelude.yo`, Rust's `ptr::drop_in_place`;
+maintainer decision 2026-10-21) is a function, so a destructor that destroys
+its elements through it makes a call. A call's deferred drops ran between the
+call and its unwind check, and a destructor's own call cleared
+`__yo_effect_escaped` there, losing the unwind
+(`issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md`).
+The tree's codegen saves and restores the flag around those drops
+(`generate_call_deferred_drops`), but the seed compiles the compiler: with
+`ArrayList._free_elements` calling `drop_in_place`, the v0.2.67-seed-built
+compiler lost unwinds in its own parser (`yo fmt --check
+src/evaluator/context.yo` crashed on a null `AstExpr`; `tests/async_await.test.yo`
+and `tests/deref_auto.test.yo` lost expected diagnostics). Measured 2026-10-22.
+
+**Generation A DONE 2026-10-22 (`feat/drop-in-place`):** the codegen fix,
+`drop_in_place` in the prelude, and `Box`'s `Drop` moved to it (that
+destructor already called `_box_owner_of`, so it gains no first call).
+
+**Generation B (once `SEED_VERSION` carries Generation A):** move the ten
+remaining `___drop(ptr.*)` raw-slot sites to `drop_in_place(ptr)`:
+`std/collections/array_list.yo` (`_free_elements` and both `drain` arms),
+`std/collections/hash_map.yo` (`retain`, `clear`, `Drop`),
+`std/collections/deque.yo` (`Drop`) and `std/sync/channel.yo` (both `recv`
+forms, `Drop`). Gate: `yo build --std-path ./std` with the new seed, then
+`yo fmt --check src/evaluator/context.yo` with the built binary (the crash
+canary) and `tests/async_await.test.yo`, `tests/deref_auto.test.yo`,
+`tests/collections/*.test.yo`, `tests/sync/channel.test.yo`.
+
 ## Seed-gated follow-up (2026-10-17): a generic derive over a container of its parameter
 
 `derive(generic(A : Type), where(A <: Clone), T(A), Clone)` failed with

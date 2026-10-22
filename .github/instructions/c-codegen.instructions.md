@@ -882,6 +882,11 @@ Because effect handlers are called via function pointer (evidence passing), the 
    - In sync_fut_t resume: sets state = -2 (aborted), self-decrements event loop RC, returns.
    - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
+Destructors are ordinary code, and every may-unwind call in one starts by clearing the flag. So any drop emitted while an unwind is in flight must not lose it:
+
+- The drops ON the escape path (`generate_unwind`, `emit_effect_unwind_check`) raise the flag again after them (`_reraise_escape_after_drops`; `issues/fixed/an-unwind-through-a-frame-whose-destructor-calls-a-function-is-lost.md`).
+- The deferred drops a call releases between its return and its unwind check go through `generate_call_deferred_drops` (`exprs/return.yo`), which saves the flag before them and merges it back after (`int __yo_escaped_keep_N = __yo_effect_escaped; <drops>; __yo_effect_escaped = (__yo_effect_escaped | __yo_escaped_keep_N);`). A merge, not a restore: a destructor that unwinds itself raises the flag inside the drops, and overwriting it with the saved `0` lost that unwind. A new call shape that emits `generate_deferred_drop_expressions` before `emit_effect_unwind_check` must use it: a temporary whose destructor calls a function (a `Drop` impl, or a collection destroying its elements with `drop_in_place`) otherwise cleared the flag and the frame continued with the call's dummy result (`issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md`).
+
 The `__yo_effect_escaped` and `__yo_unwind_value` variables are declared via the emitter's `emit_declaration_line` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
 
 Key files (all under `src/codegen/`): `functions/context.yo` (`is_effect_record_member_function`), `functions/generation.yo` (declaration + context flag), `exprs/return.yo` (flag set in `generate_unwind`), `exprs/other_fn_call.yo` (flag check + abort at call site), `exprs/async.yo` (unwind check in sync_fut_t resume).

@@ -1051,7 +1051,7 @@ process_map(counts);
 
 ### The destructor is `Drop` (formerly `Dispose`) and is never called by hand
 
-`Drop` is the destructor trait (`plans/VALUES_BY_DEFAULT.md` decision 45; its old name `Dispose` is no longer recognized). The destructor runs automatically, once, when the owner drops the value or the last `Rc`/`Arc` handle goes away. `drop` takes `self : &mut Self` (Rust's `drop(&mut self)`), so it may take a field out (`self.f = .None`) before the fields drop; `self : &Self` does not conform. Calling it yourself is E0915; end a value early with the prelude's `drop(x)`.
+`Drop` is the destructor trait (`plans/VALUES_BY_DEFAULT.md` decision 45; its old name `Dispose` is no longer recognized). The destructor runs automatically, once, when the owner drops the value or the last `Rc`/`Arc` handle goes away. `drop` takes `self : &mut Self` (Rust's `drop(&mut self)`), so it may take a field out (`self.f = .None`) before the fields drop; `self : &Self` does not conform. Calling it yourself is E0915; end a value early with the prelude's `drop(x)`. Code that owns a value through a raw pointer (a collection's buffer slot) destroys it in place with the prelude's `unsafe(drop_in_place(p))` (`p : *(T)`, Rust's `ptr::drop_in_place`; pragma files only); the slot is dead afterwards. The `___drop(place)` builtin under it is std-internal and a compile error in safe code.
 
 ```yo
 { println } :: import("std/fmt");

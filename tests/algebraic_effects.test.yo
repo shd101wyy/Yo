@@ -2365,3 +2365,74 @@ test("an unwind passes through a frame whose destructors make calls", {
   assert(run_ref_guard(i32(0)) == i32(-7), "the unwind passes a frame whose ref Drop makes a call");
   assert(g_esc_drops == (before + i32(2)), "the ref destructor ran once on the escape path");
 });
+// Regression (issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md):
+// a temporary lent to a call is released right after the call returns, BEFORE
+// the call's unwind check, and its destructor's own call cleared the escape
+// flag there. The frame went on as if the call had returned its dummy result.
+_esc_make_guard :: (fn(n : i32) -> _EscGuard)(_EscGuard(n : n));
+_esc_make_box :: (fn(n : i32) -> Box(i32))(box(n));
+test("an unwind passes a call whose temporary argument's destructor makes a call", {
+  Raise :: (ctl(code : i32) -> bool);
+  fails :: (fn(g : &_EscGuard, raise : Raise) -> bool)(raise(g.n));
+  fails_box :: (fn(b : &Box(i32), raise : Raise) -> bool)(raise(b.*));
+  through_temp :: (fn(raise : Raise) -> i32)({
+    mut(r) := i32(1);
+    if(fails(&_esc_make_guard(i32(0)), raise), {
+      r = i32(2);
+    });
+    r
+  });
+  through_box_temp :: (fn(raise : Raise) -> i32)({
+    mut(r) := i32(1);
+    if(fails_box(&_esc_make_box(i32(0)), raise), {
+      r = i32(2);
+    });
+    r
+  });
+  run_temp :: (fn() -> i32)({
+    (raise : Raise) = (code -> unwind(i32(-7)));
+    through_temp(raise)
+  });
+  run_box_temp :: (fn() -> i32)({
+    (raise : Raise) = (code -> unwind(i32(-8)));
+    through_box_temp(raise)
+  });
+  before := g_esc_drops;
+  assert(run_temp() == i32(-7), "the unwind passes the call whose temporary's Drop makes a call");
+  assert(g_esc_drops == (before + i32(1)), "the temporary's destructor ran once");
+  assert(run_box_temp() == i32(-8), "the unwind passes the call whose temporary Box frees its cell");
+});
+// The other direction of the same fix: the temporary's destructor is what
+// unwinds (its Drop calls the handler's ctl) after a call that returned
+// normally. Saving the escape flag around the drops and restoring it
+// overwrote the destructor's raised flag with the saved 0, so the frame went
+// on after the handler had unwound.
+_EscRaise :: (ctl(code : i32) -> bool);
+_EscRaisingGuard :: struct(r : _EscRaise);
+impl(
+  _EscRaisingGuard,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      x := self.r(i32(1));
+      ()
+    })
+  )
+);
+(mut(g_esc_continued) : i32) = i32(0);
+test("an unwind raised by a temporary's own destructor after the call propagates", {
+  ok :: (fn(g : &_EscRaisingGuard, raise : _EscRaise) -> bool)(true);
+  middle :: (fn(raise : _EscRaise) -> i32)({
+    mut(r) := i32(0);
+    if(ok(&_EscRaisingGuard(r : raise), raise), {
+      r = i32(1);
+    });
+    g_esc_continued = _esc_count(g_esc_continued);
+    r
+  });
+  run :: (fn() -> i32)({
+    (raise : _EscRaise) = (code -> unwind(i32(-9)));
+    middle(raise)
+  });
+  assert(run() == i32(-9), "the destructor's unwind exits the frame");
+  assert(g_esc_continued == i32(0), "the frame did not continue after the destructor unwound");
+});

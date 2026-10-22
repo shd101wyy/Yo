@@ -63,6 +63,7 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 | `extern(...)` / `c_include(...)` declaration                 | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                  |
 | Pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`) | "pointer arithmetic requires raw pointers, which are not available in safe code" | Indexing on `ArrayList(T)` / `Array(T, N)`                                                         |
 | `consume(p.* = v)` on a pointer                              | "`consume` on a pointer deref requires raw pointers"                             | Use `:=` for ownership transfer of safe types                                                      |
+| `___drop(place)`, the in-place destructor builtin            | "`___drop(...)` is not available in safe code"                                   | `drop(x)` ends a value early: it moves `x` in, so a later use is an error. Destroying a slot owned through a raw pointer is `drop_in_place(p)`, under the pragma |
 | Reading a `union(...)` member (`u.x`, `{ x } := u`)           | "Reading union member `x` of `U` requires `pragma(Pragma.AllowUnsafe);` in this file" | an `enum` with `match`: a union does not record which member was written, and reading another member's bytes as a `bool`, enum or reference is UB. Constructing a union and writing a member stay legal |
 
 The principle: **anything that could let a user write UB is gated.** If the user can't construct a raw pointer, they can't dereference one — full stop.
@@ -190,6 +191,7 @@ Inside a privileged file the compiler ENFORCES the `unsafe(...)` wrap on `extern
 | Pointer dereference (read)  | `unsafe(p.*)`                                                      |
 | Pointer dereference (write) | `unsafe(p.* = v)`                                                  |
 | `consume(p.* = v)`          | `unsafe(consume(p.* = v))`                                         |
+| Destroying a value in place | `unsafe(drop_in_place(p))`                                         |
 | Pointer arithmetic          | `unsafe(p.add(n))`, `unsafe(p.sub(n))`, `unsafe(p.offset_from(q))` |
 | Extern "c" function call    | `unsafe(strlen(cstr))`, `unsafe(memcpy(dst, src, n))`              |
 
@@ -205,6 +207,23 @@ Operations that are NOT gated (addresses are just data; moving them around doesn
 - Pointer type casts: `(*u8)(p)`
 - `asm(...)` blocks (the `asm` keyword is itself the marker)
 - `extern(...)` / `c_include(...)` _declarations_ (only the _call sites_ need wrapping)
+
+### Destroying a value in place: `drop_in_place`
+
+`drop_in_place(p : *(T))` is the prelude's in-place destructor, Rust's `ptr::drop_in_place`: it runs the `Drop` impl of the value `p` points at and releases everything that value owns, without moving it out. Afterwards the slot holds dead bytes: do not read it or drop it again; initialize it with `unsafe(consume(p.* = v))` or free it. A collection uses it on the elements it owns through a raw buffer:
+
+```yo
+pragma(Pragma.AllowUnsafe);
+{ free } :: import("std/libc/stdlib.yo");
+
+destroy_one :: (fn(slot : *String) -> unit)({
+  // SAFETY: `slot` holds a live String this function owns.
+  unsafe(drop_in_place(slot));
+  unsafe(free(.Some((*void)(slot))));
+});
+```
+
+Its body is the `___drop(place)` builtin, which std keeps internal. Like a dereference, `___drop` is a compile error in a file without the pragma: on a field (`___drop(h.xs)`) it would leave the field readable after its buffer is freed.
 
 ## `// SAFETY:` Comments
 
