@@ -564,7 +564,7 @@ error_message_text :: (fn(err : &AnyError) -> String)(
           ye.diagnostics.get(i),
           .Some(d) => {
             parts.push(d.message.clone());
-            match(d.help, .Some(h) => parts.push(h), .None => ());
+            match(d.help, .Some(h) => parts.push(h.clone()), .None => ());
           },
           .None => ()
         );
@@ -580,7 +580,7 @@ note_swallowed_error :: (fn(err : &AnyError) -> unit)({
   match(
     downcast(err, YoError),
     .Some(ye) => {
-      g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics);
+      g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics.clone());
       g_swallowed_at_attempt = g_eval_attempt;
     },
     .None => ()
@@ -592,7 +592,7 @@ _take_fresh_swallowed :: (fn() -> Option(ArrayList(Diagnostic)))({
   if(g_swallowed_at_attempt != g_eval_attempt, {
     return(Option(ArrayList(Diagnostic)).None);
   });
-  taken := g_swallowed_diagnostics;
+  taken := g_swallowed_diagnostics.clone();
   g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).None;
   taken
 });
@@ -633,7 +633,7 @@ stash_error_diagnostics :: (fn(err : &AnyError) -> unit)({
       if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
         eprintln(`[diagstash] STORE ${ye.diagnostics.len().to_string()} diagnostic(s)`);
       });
-      g_last_error_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics);
+      g_last_error_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics.clone());
     },
     .None => {
       // A NON-YoError reached the stash: something upstream flattened the
@@ -655,7 +655,7 @@ yo_error_from_diagnostics :: (fn(entries : &ArrayList(Diagnostic)) -> YoError)(
   YoError(diagnostics : entries)
 );
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
-  taken := g_last_error_diagnostics;
+  taken := g_last_error_diagnostics.clone();
   if(debug_knob(`YO_DEBUG_DIAGSTASH`).is_some(), {
     eprintln(`[diagstash] TAKE ${match(taken, .Some(d) => d.len().to_string(), .None => String.from("none"))}`);
   });
@@ -690,11 +690,11 @@ _with_primary_code :: (fn(err : &YoError, code : &Option(String)) -> YoError)({
             (wi == usize(0)) => Diagnostic(
               code : code.clone(),
               severity : d.severity,
-              message : d.message,
-              span : d.span,
-              source_line : d.source_line,
-              help : d.help,
-              repair : d.repair,
+              message : d.message.clone(),
+              span : d.span.clone(),
+              source_line : d.source_line.clone(),
+              help : d.help.clone(),
+              repair : d.repair.clone(),
               generic_independent : d.generic_independent
             ),
             true => d
@@ -714,7 +714,7 @@ primary_diagnostic_code :: (fn(err : &AnyError) -> Option(String))(
     downcast(err, YoError),
     .Some(ye) => match(
       ye.diagnostics.get(usize(0)),
-      .Some(d) => d.code,
+      .Some(d) => d.code.clone(),
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -726,7 +726,7 @@ primary_diagnostic_path :: (fn(err : &AnyError) -> Option(String))(
     downcast(err, YoError),
     .Some(ye) => match(
       ye.diagnostics.get(usize(0)),
-      .Some(d) => Option(String).Some(d.span.path),
+      .Some(d) => Option(String).Some(d.span.path.clone()),
       .None => Option(String).None
     ),
     .None => Option(String).None
@@ -748,12 +748,12 @@ reanchor_primary_at :: (fn(err : &YoError, tok : &Token, note : &String) -> YoEr
         if(ri == usize(0), {
           entries.push(
             Diagnostic(
-              code : d.code,
+              code : d.code.clone(),
               severity : d.severity,
-              message : d.message,
+              message : d.message.clone(),
               span : _span_of_token(tok),
               source_line : _source_line_of_token(tok),
-              help : d.help,
+              help : d.help.clone(),
               generic_independent : d.generic_independent
             )
           );
@@ -762,8 +762,8 @@ reanchor_primary_at :: (fn(err : &YoError, tok : &Token, note : &String) -> YoEr
               code : Option(String).None,
               severity : Severity.Note,
               message : note.clone(),
-              span : d.span,
-              source_line : d.source_line
+              span : d.span.clone(),
+              source_line : d.source_line.clone()
             )
           );
         }, {

@@ -703,7 +703,7 @@ _did_you_mean :: (
       });
       bi = (bi + usize(1));
     });
-    out.push(cands(best));
+    out.push(cands(best).clone());
   });
   out
 });
@@ -766,10 +766,10 @@ _resolve_module :: (fn(mods : &ArrayList(ContextIndexModule), arg : &String) -> 
   tiers.push(suffix);
   (t : usize) = usize(0);
   while(t < tiers.len(), {
-    tier := tiers(t);
+    tier := tiers(t).clone();
     t = (t + usize(1));
     if(tier.len() == usize(1), {
-      return(ModuleResolution.Found(tier(usize(0))));
+      return(ModuleResolution.Found(tier(usize(0)).clone()));
     });
     if(tier.len() > usize(1), {
       return(ModuleResolution.Ambiguous(tier));
@@ -834,13 +834,13 @@ _page_sections :: (fn(content : &String) -> ArrayList(PageSection))({
   cur := String.new();
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    line := lines(i);
+    line := lines(i).clone();
     i = (i + usize(1));
     if(!in_fence && _is_structural_heading(line.clone()), {
       match(
         cur_anchor,
         .Some(a) => {
-          out.push(PageSection(anchor : a, text : _section_body(cur.clone())));
+          out.push(PageSection(anchor : a.clone(), text : _section_body(cur.clone())));
         },
         .None => ()
       );
@@ -1039,7 +1039,7 @@ search_score :: (fn(e : &ContextIndexEntry, query : &String) -> usize)({
   (score : usize) = usize(400);
   (i : usize) = usize(0);
   while(i < tokens.len(), {
-    t := tokens(i);
+    t := tokens(i).clone();
     i = (i + usize(1));
     tier := cond(
       (low_name == t) => usize(400),
@@ -1281,7 +1281,7 @@ _entry_names_item :: (
     return(e.name == item);
   });
   segs := item.split(String.from("."));
-  leaf := segs(segs.len() - usize(1));
+  leaf := segs(segs.len() - usize(1)).clone();
   if((e.name != leaf) || (e.kind != "method"), {
     return(false);
   });
@@ -1377,7 +1377,7 @@ _run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : 
     ents := _entry_names(&world.entries, String.new());
     (k : usize) = usize(0);
     while(k < ents.len(), {
-      names.push(ents(k));
+      names.push(ents(k).clone());
       k = (k + usize(1));
     });
     _miss(_EXIT_NO_MATCH, tr(`context: no module or item '${name}' in the corpus`, `context：语料中没有模块或条目 '${name}'`), _did_you_mean(&names, name.clone()), q.as_json, exn);
@@ -1441,7 +1441,7 @@ _doc_title :: (fn(content : &String) -> String)({
   lines := content.split(`\n`);
   (i : usize) = usize(0);
   while(i < lines.len(), {
-    l := lines(i);
+    l := lines(i).clone();
     if(l.starts_with(`# `), {
       return(l.substring(usize(2), l.len()));
     });
@@ -1524,7 +1524,7 @@ _run_context_doc :: (fn(query : &String, as_json : bool, io : Io, exn : Exceptio
   (i : usize) = usize(0);
   while(i < names.len(), {
     if(names(i).to_lowercase() == want, {
-      found = Option(String).Some(names(i));
+      found = Option(String).Some(names(i).clone());
     });
     i = (i + usize(1));
   });

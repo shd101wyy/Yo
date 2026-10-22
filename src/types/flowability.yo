@@ -192,7 +192,7 @@ _unwrap_begin_blocks :: (fn(expr : &AstExpr) -> AstExpr)({
   (go : bool) = true;
   while(go, {
     if(ast_expr_is_fn_call(&current) && ast_expr_is_fn_call_of(&current, BK_BEGIN, Option(usize).None), {
-      args := match(current, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+      args := match(current, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
       if(args.len() == usize(0), {
         go = false;
       }, {
@@ -216,7 +216,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // `Identifier(name : "x")`, named call args) are transparent for flow
   // purposes; the VALUE side is what flows.
   if(ast_expr_is_fn_call(&expr) && ast_expr_is_fn_call_of(&expr, ":", .Some(usize(2))), {
-    labeled_args := match(expr, .FnCall(_, _, la, _, _) => la, _ => ArrayList(AstExpr).new());
+    labeled_args := match(expr, .FnCall(_, _, la, _, _) => la.clone(), _ => ArrayList(AstExpr).new());
     match(
       labeled_args.get(usize(1)),
       .Some(lv) => {
@@ -308,7 +308,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     return(false);
   });
   call_func := match(expr, .FnCall(_, f, _, _, _) => f, _ => expr);
-  call_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  call_args := match(expr, .FnCall(_, _, a, _, _) => a.clone(), _ => ArrayList(AstExpr).new());
   // R2: `expr.field` — a 2-arg `.` call. Flowable iff the base is flowable.
   if(ast_expr_is_fn_call_of(&expr, BF_DOT, Option(usize).Some(usize(2))), {
     base := match(

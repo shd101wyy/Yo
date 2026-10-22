@@ -224,7 +224,7 @@ _emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   // instead of after the C block closed
   // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
   vei_pending := context.base.get_expr_info(value);
-  cur_drops := match(vei_pending, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+  cur_drops := match(vei_pending, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
   cur_consumed := match(vei_pending, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
   prev_pending := context.pending_deferred_drops;
   prev_consumed := context.consumed_var_pending_drops;
@@ -414,7 +414,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   em := context.base.emitter;
   begin_args := _arg_args(value);
   vei_opt := context.base.get_expr_info(value);
-  cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+  cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
   cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
   prev_pending := context.pending_deferred_drops;
   prev_consumed := context.consumed_var_pending_drops;
@@ -608,7 +608,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
 /// (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
 _emit_cond_if_head :: (fn(condition : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+  cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
   cnd_prev := context.pending_deferred_drops;
   context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&cnd_drops, &cnd_prev));
   cc := _call_generate_expr(condition, indent.clone(), context);
@@ -631,7 +631,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"cond\" expression is not evaluated */")));
   value_type := ei.ty;
   is_unit := is_unit_type(&value_type);
-  temp_var_opt := ei.variable_name;
+  temp_var_opt := ei.variable_name.clone();
   ret_is_ref := match(context.current_function_type, .Some(t) => match(t, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_ref, _ => false), .None => false);
   cond_outer_is_ptr := (ret_is_ref && is_pointer_type(&value_type));
   em := context.base.emitter;

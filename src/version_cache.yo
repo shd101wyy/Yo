@@ -392,7 +392,7 @@ _scan_versions_root :: (
             bin_exists := e.io.await(exists(Path.new(cached_binary_path(&entry_path)), e.io), e.io);
             // A version present in BOTH roots must appear once.
             if(bin_exists && !_contains_version(known, entry.name.clone()) && !_contains_version(&found, entry.name.clone()), {
-              found.push(entry.name);
+              found.push(entry.name.clone());
             });
           });
         }
@@ -487,7 +487,7 @@ _http_get :: (
     if(resp.status.is_error(), {
       e.exn.throw(dyn(`HTTP ${resp.status} fetching ${url}`));
     });
-    resp.body
+    resp.body.clone()
   })
 );
 /// Download a URL to `dest_path` via std/http (D6 PR-3). Follows redirects.

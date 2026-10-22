@@ -431,7 +431,7 @@ impl(
     // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
     // sequence never contains an ASCII byte, so literal runes pass through
     // byte by byte unchanged.
-    ts_bytes := template_value;
+    ts_bytes := template_value.clone();
     n := ts_bytes.len();
     // Parts: each part is either a literal string or an interpolated expression
     part_is_expr := ArrayList(bool).new();
@@ -681,7 +681,7 @@ impl(
               self.has_template_spec = true;
               spec_tok := Token(
                 kind : TokenKind.StringLit,
-                value : (String.from("\"") + sp.spec + String.from("\"")),
+                value : (String.from("\"") + sp.spec.clone() + String.from("\"")),
                 row : tok.row,
                 column : tok.column,
                 character : tok.character,
@@ -823,7 +823,7 @@ impl(
     fn_tok := ast_expr_token(func);
     fa := self.parse_fn_args(index, has_whitespace, exn);
     ParseResult(
-      expr : .FnCall(self.alloc_id(), func, fa.args, false, fn_tok),
+      expr : .FnCall(self.alloc_id(), func, fa.args.clone(), false, fn_tok),
       index : fa.index
     )
   }),
@@ -850,8 +850,8 @@ impl(
         column : tok.column,
         character : tok.character,
         byte_offset : tok.byte_offset,
-        module_path : tok.module_path,
-        input : tok.input
+        module_path : tok.module_path.clone(),
+        input : tok.input.clone()
       );
       return(
         ParseResult(
@@ -941,8 +941,8 @@ impl(
       column : tok.column,
       character : tok.character,
       byte_offset : tok.byte_offset,
-      module_path : tok.module_path,
-      input : tok.input
+      module_path : tok.module_path.clone(),
+      input : tok.input.clone()
     );
     ParseResult(
       expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), args, false, func_tok),
@@ -1037,8 +1037,8 @@ impl(
       column : tok.column,
       character : tok.character,
       byte_offset : tok.byte_offset,
-      module_path : tok.module_path,
-      input : tok.input
+      module_path : tok.module_path.clone(),
+      input : tok.input.clone()
     );
     ParseResult(
       expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), func_tok), args, false, func_tok),
@@ -1151,8 +1151,8 @@ impl(
             column : last_tok.column,
             character : last_tok.character,
             byte_offset : last_tok.byte_offset,
-            module_path : last_tok.module_path,
-            input : last_tok.input
+            module_path : last_tok.module_path.clone(),
+            input : last_tok.input.clone()
           );
           args.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
         });
@@ -1194,7 +1194,7 @@ impl(
                         &tok,
                         &block_msg,
                         Option(String).None,
-                        Span(path : close_tok.module_path, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
+                        Span(path : close_tok.module_path.clone(), row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
                         String.from(";"),
                         String.from("insert `;` before `}` so the braces form a block")
                       )
@@ -1228,8 +1228,8 @@ impl(
                     column : tok.column,
                     character : tok.character,
                     byte_offset : tok.byte_offset,
-                    module_path : tok.module_path,
-                    input : tok.input
+                    module_path : tok.module_path.clone(),
+                    input : tok.input.clone()
                   );
                   arg_copy := match(args.get(ai), .Some(a) => a, .None => make_err_expr());
                   pair_args := ArrayList(AstExpr).with_capacity(usize(2));
@@ -1251,8 +1251,8 @@ impl(
           column : tok.column,
           character : tok.character,
           byte_offset : tok.byte_offset,
-          module_path : tok.module_path,
-          input : tok.input
+          module_path : tok.module_path.clone(),
+          input : tok.input.clone()
         );
         ParseResult(
           expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), anon_tok), final_args, false, tok),
@@ -1268,8 +1268,8 @@ impl(
           column : tok.column,
           character : tok.character,
           byte_offset : tok.byte_offset,
-          module_path : tok.module_path,
-          input : tok.input
+          module_path : tok.module_path.clone(),
+          input : tok.input.clone()
         );
         ParseResult(
           expr : .FnCall(self.alloc_id(), .Atom(self.alloc_id(), begin_tok), args, false, begin_tok),
@@ -1649,7 +1649,7 @@ impl(
             rhs,
             .FnCall(_, rfb2, _, _, _) => match(
               rfb2,
-              .Atom(_, ft2) => ft2.value,
+              .Atom(_, ft2) => ft2.value.clone(),
               .FnCall(_, _, _, _, _) => String.from("")
             ),
             .Atom(_, _) => String.from("")
@@ -1877,8 +1877,8 @@ impl(
               column : last_tok.column,
               character : last_tok.character,
               byte_offset : last_tok.byte_offset,
-              module_path : last_tok.module_path,
-              input : last_tok.input
+              module_path : last_tok.module_path.clone(),
+              input : last_tok.input.clone()
             );
             exprs.push(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), unit_tok), ArrayList(AstExpr).new(), false, unit_tok));
           });

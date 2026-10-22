@@ -26,7 +26,7 @@
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
 _c_function_name_opt :: (fn(context : &FunctionGenerationContext, func_id : &String) -> Option(String))(
-  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
+  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
 );
 /// The `&` (address-of) operator generation.
 generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
@@ -176,7 +176,7 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
             .None => ()
           );
           // Fallback to a direct call of the index method.
-          fid := match(mv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+          fid := match(mv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
           match(
             _c_function_name_opt(context, &fid),
             .Some(c_func_name) => {

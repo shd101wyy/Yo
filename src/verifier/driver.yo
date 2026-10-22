@@ -413,8 +413,8 @@ resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
     cfg.solver_path,
     .Some(p) => if(
       _z3_exists_sync(p.clone()),
-      SolverResolution.Resolved(path : p),
-      SolverResolution.InvalidPath(path : p)
+      SolverResolution.Resolved(path : p.clone()),
+      SolverResolution.InvalidPath(path : p.clone())
     ),
     // `discover_z3` hands back the `YO_Z3_PATH` override as given, so check
     // it exists: a dangling override is `InvalidPath`, not a solver. As
@@ -959,9 +959,9 @@ verify_and_strip_tasks :: (
                     clean_verdict := match(
                       r.verdict,
                       .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
-                      .Proved(core) => VerifyVerdict.Proved(core),
-                      .Unproven(reason) => VerifyVerdict.Unproven(reason),
-                      .SolverError(msg) => VerifyVerdict.SolverError(msg)
+                      .Proved(core) => VerifyVerdict.Proved(core.clone()),
+                      .Unproven(reason) => VerifyVerdict.Unproven(reason.clone()),
+                      .SolverError(msg) => VerifyVerdict.SolverError(msg.clone())
                     );
                     obligations.push(
                       VerifyFnObligation(

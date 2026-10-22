@@ -686,7 +686,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
     function_value,
     .FuncVal(__fvm6, _) => {
       body_box := __fvm6.*.body;
-      func_id := __fvm6.*.func_id;
+      func_id := __fvm6.*.func_id.clone();
       em := context.base.emitter;
       function_type := get_func_type(func_id.clone());
       // YO_AUDIT_RC_WRITE: decision 46's census of writes through a cell.
@@ -1541,7 +1541,7 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
           match(
             entry.value,
             .FuncVal(__fvd1, _) => {
-              main_func_id = __fvd1.*.func_id;
+              main_func_id = __fvd1.*.func_id.clone();
               found = true;
               go = false;
             },

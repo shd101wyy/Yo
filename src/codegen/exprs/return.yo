@@ -894,7 +894,7 @@ generate_return :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       (arg_code : String) = String.from("");
       arg_vn_with_dup := if(
         arg_has_dup,
-        match(arg_ei_opt, .Some(aei) => aei.variable_name, .None => Option(String).None),
+        match(arg_ei_opt, .Some(aei) => aei.variable_name.clone(), .None => Option(String).None),
         Option(String).None
       );
       match(
@@ -1580,7 +1580,7 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
   // stack. See issues/fixed/escape-path-drops-unwound-call-result-temp.md.
   escaped_result := match(
     context.base.get_expr_info(expr),
-    .Some(ei) => ei.variable_name,
+    .Some(ei) => ei.variable_name.clone(),
     .None => Option(String).None
   );
   is_async := match(context.in_async_state_machine, .Some(_) => true, .None => false);

@@ -322,7 +322,7 @@ TopLevelAnchor :: struct(row : usize, column : usize, label : String);
 (g_top_level_anchors : HashMap(String, Rc(ArrayList(TopLevelAnchor)))) = HashMap(String, Rc(ArrayList(TopLevelAnchor))).new();
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   owner := _stable_type_id_owner_key(module_path);
-  g_top_level_anchors.insert(owner.*, rc(anchors));
+  g_top_level_anchors.insert(owner.*.clone(), rc(anchors));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -952,7 +952,7 @@ debug_knob :: (fn(name : &String) -> Option(String))(
     .Some(cached) => cached,
     .None => {
       fresh := env.get(name);
-      _prev := g_debug_knobs.insert(name, fresh);
+      _prev := g_debug_knobs.insert(name, fresh.clone());
       fresh
     }
   )
@@ -1011,7 +1011,7 @@ OwnedKeys :: ref(struct(by_owner : HashMap(String, ArrayList(String))));
 owned_keys_new :: (fn() -> OwnedKeys)(OwnedKeys(by_owner : HashMap(String, ArrayList(String)).new()));
 /// Record `key` under the current owner (no-op outside a module load).
 owned_keys_record :: (fn(log : &OwnedKeys, key : &String) -> unit)({
-  cur_owner := g_current_owner;
+  cur_owner := g_current_owner.clone();
   if((cur_owner.len() == usize(0)) || !g_owner_logs_enabled, {
     return(());
   });

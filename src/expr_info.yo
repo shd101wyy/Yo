@@ -457,7 +457,7 @@ new_expr_info :: (fn(env : &Environment, ty : &TypeValue) -> ExprInfo)(
     // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
     env : expr_info_env_snapshot(env),
     ty : ty,
-    path_collection : g_empty_path_collection,
+    path_collection : g_empty_path_collection.clone(),
     value : Option(EvalValue).None,
     variable_name : Option(String).None,
     is_accessing_property : Option(bool).None,
@@ -490,7 +490,7 @@ clone_expr_info_for_shared_begin_result :: (fn(src : &ExprInfo, env : &Environme
   ExprInfo(
     env : expr_info_env_snapshot(env),
     ty : ty,
-    path_collection : g_empty_path_collection,
+    path_collection : g_empty_path_collection.clone(),
     value : src.value,
     variable_name : src.variable_name,
     is_accessing_property : src.is_accessing_property,
@@ -513,19 +513,19 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
     .Some(x) => Option(ExprInfoRare).Some(
       ExprInfoRare(
         converted_runtime_type : x.converted_runtime_type,
-        runtime_destructurings : x.runtime_destructurings,
+        runtime_destructurings : x.runtime_destructurings.clone(),
         dyn_call_trait_values : x.dyn_call_trait_values,
         case_executed : x.case_executed,
         is_primitive_match : x.is_primitive_match,
         primitive_pattern_values : x.primitive_pattern_values,
-        consumed_variable_drop_expressions : x.consumed_variable_drop_expressions,
+        consumed_variable_drop_expressions : x.consumed_variable_drop_expressions.clone(),
         async_stack_size : x.async_stack_size,
-        async_state_machine_struct_name : x.async_state_machine_struct_name,
+        async_state_machine_struct_name : x.async_state_machine_struct_name.clone(),
         await_analysis : x.await_analysis,
         effect_analysis : x.effect_analysis,
         closure_function_value : x.closure_function_value,
-        doc_comment : x.doc_comment,
-        deferred_dup_expressions : x.deferred_dup_expressions,
+        doc_comment : x.doc_comment.clone(),
+        deferred_dup_expressions : x.deferred_dup_expressions.clone(),
         capture_type : x.capture_type,
         macro_expansion : x.macro_expansion,
         original_expr : x.original_expr,
@@ -536,8 +536,8 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
         is_index_trait_address_of : x.is_index_trait_address_of,
         is_compile_time_only_assignment : x.is_compile_time_only_assignment,
         is_anonymous_function_definition : x.is_anonymous_function_definition,
-        comptime_unrolled_bodies : x.comptime_unrolled_bodies,
-        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions,
+        comptime_unrolled_bodies : x.comptime_unrolled_bodies.clone(),
+        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions.clone(),
         capture_field_inits : x.capture_field_inits
       )
     )
@@ -1283,7 +1283,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         .None => ()
       );
       bound := g_scope_bound.remove(&id);
-      bound_name := match(bound, .Some(br) => br.name, .None => String.new());
+      bound_name := match(bound, .Some(br) => br.name.clone(), .None => String.new());
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
       // record only the latter (and the shared length when it falls short).

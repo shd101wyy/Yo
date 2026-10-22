@@ -552,7 +552,7 @@ impl(
         // Same func_id re-registered: keep the FIRST name it was given (the
         // plain-label path re-registers exports; renaming here would strand
         // already-emitted call sites).
-        final_name = existing.c_name;
+        final_name = existing.c_name.clone();
       },
       .None => {
         if(self.registered_c_names.contains(final_name.clone()), {
@@ -589,7 +589,7 @@ impl(
     // get_type_c_name above (the enum sibling-cname pollution).
     match(
       self.functions.get(func_id),
-      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module)),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module.clone())),
       .None => Option(CodegenFunctionEntry).None
     )
   ),
@@ -1073,7 +1073,7 @@ _fn_call_callee_name :: (fn(e : &AstExpr) -> Option(String))(
     .Atom(_, _) => .None,
     .FnCall(_, func_box, _, _, _) => match(
       func_box,
-      .Atom(_, tok) => .Some(tok.value),
+      .Atom(_, tok) => .Some(tok.value.clone()),
       .FnCall(_, _, _, _, _) => .None
     )
   )
@@ -1161,7 +1161,7 @@ _inline_body_passes_params_through :: (fn(call : &AstExpr, fv : &EvalValue) -> b
     arg := _inline_unwrap_transparent(match(args.get(i), .Some(a) => a, .None => return(false)));
     name := match(
       arg,
-      .Atom(_, tok) => tok.value,
+      .Atom(_, tok) => tok.value.clone(),
       .FnCall(_, _, _, _, _) => return(false)
     );
     // Is this identifier one of the parameters at all?
@@ -1932,7 +1932,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()
@@ -1951,7 +1951,7 @@ get_deferred_dup_target_atom_name :: (fn(dup_expr : &AstExpr) -> Option(String))
                 .None => false
               );
               if(first_ok && second_is_dup, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2033,7 +2033,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
               );
               first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               if(second_is_drop && first_is_atom, {
-                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
+                return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
             });
           },
@@ -2046,7 +2046,7 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
           args.get(usize(0)),
           .Some(first_arg) => {
             if(ast_expr_is_atom(&first_arg), {
-              return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
+              return(.Some(match(first_arg, .Atom(_, tok) => tok.value.clone(), .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
           .None => ()

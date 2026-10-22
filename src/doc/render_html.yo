@@ -334,7 +334,7 @@ _first_sentence :: (fn(text : &String) -> String)({
   first_line := match(trimmed.split(String.from("\n")).get(usize(0)), .Some(l) => l, .None => String.new());
   line := first_line.trim();
   // Strip a trailing \r (CRLF line endings).
-  lb := line;
+  lb := line.clone();
   (ln : usize) = lb.len();
   if((ln > usize(0)) && (match(lb.get_byte(ln - usize(1)), .Some(x) => x, .None => u8(0)) == u8(13)), {
     nb := ArrayList(u8).new();
@@ -345,7 +345,7 @@ _first_sentence :: (fn(text : &String) -> String)({
     });
     line = String.from_bytes(nb).trim();
   });
-  bytes := line;
+  bytes := line.clone();
   n := bytes.len();
   (result : String) = line.clone();
   (i : usize) = usize(0);

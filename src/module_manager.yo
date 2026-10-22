@@ -1595,9 +1595,9 @@ mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   });
   Option(RevalPlan).Some(
     RevalPlan(
-      module_key : diff.module_key,
+      module_key : diff.module_key.clone(),
       changed : diff.changed,
-      fresh_exprs : diff.fresh_exprs,
+      fresh_exprs : diff.fresh_exprs.clone(),
       closure_keys : closure_keys,
       fallback_modules : fallbacks,
       rebinds : rebinds
@@ -2081,7 +2081,7 @@ _register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> un
     .None => String.from(".")
   );
   found := find_manifest(&entry_dir);
-  key := match(found, .Some(p) => p, .None => String.new());
+  key := match(found, .Some(p) => p.clone(), .None => String.new());
   match(
     g_manifest_roots_for,
     .Some(k) => if(k == key, {
@@ -2134,7 +2134,7 @@ _stash_load_error :: (fn(msg : &String) -> unit)({
   g_load_module_error = Option(String).Some(msg);
 });
 _take_load_error :: (fn() -> Option(String))({
-  r := g_load_module_error;
+  r := g_load_module_error.clone();
   g_load_module_error = Option(String).None;
   r
 });

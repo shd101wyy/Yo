@@ -150,9 +150,9 @@ parse_semver :: (fn(tag : &String) -> Option(SemVer))({
   if((without_build.len() > usize(0)) && without_build.ends_with("-"), return(Option(SemVer).None));
   parts := core.split(".");
   if(!(parts.len() == usize(3)), return(Option(SemVer).None));
-  major_str := parts(usize(0));
-  minor_str := parts(usize(1));
-  patch_str := parts(usize(2));
+  major_str := parts(usize(0)).clone();
+  minor_str := parts(usize(1)).clone();
+  patch_str := parts(usize(2)).clone();
   if(
     !(is_all_digits(&major_str) && is_all_digits(&minor_str) && is_all_digits(&patch_str)),
     return(Option(SemVer).None)
@@ -174,8 +174,8 @@ _compare_pre :: (fn(a : &String, b : &String) -> i32)({
   ib := b.split(".");
   (i : usize) = usize(0);
   while((i < ia.len()) && (i < ib.len()), {
-    x := ia(i);
-    y := ib(i);
+    x := ia(i).clone();
+    y := ib(i).clone();
     xn := is_all_digits(&x);
     yn := is_all_digits(&y);
     cond(
@@ -338,7 +338,7 @@ _parse_comparator :: (fn(raw : &String) -> Result(_Comparator, String))({
   (wildcard_at : Option(usize)) = Option(usize).None;
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    part := parts(pi);
+    part := parts(pi).clone();
     cond(
       ((part == "*") || (part == "x")) => {
         if(wildcard_at.is_none(), {
@@ -609,7 +609,7 @@ ls_remote_tags :: (
     if(!out.status.success(), {
       return(Result(String, String).Err(`Repository not found or not accessible: ${url}`));
     });
-    Result(String, String).Ok(String.from_bytes(out.stdout))
+    Result(String, String).Ok(String.from_bytes(out.stdout.clone()))
   })
 );
 /// The remote's default branch (`git ls-remote --symref <url> HEAD`), or
@@ -632,14 +632,14 @@ resolve_default_branch :: (
     // spawn failure (git missing) propagates through the ambient handler.
     out := e.io.await(cmd.output(e.io), e);
     if(!out.status.success(), return(String.from("main")));
-    text := String.from_bytes(out.stdout).trim();
+    text := String.from_bytes(out.stdout.clone()).trim();
     lines := text.split(String.from("\n"));
     prefix := String.from("ref: refs/heads/");
     result := String.from("main");
     n := lines.len();
     i := usize(0);
     while(i < n, {
-      line := lines(i);
+      line := lines(i).clone();
       if(line.starts_with(prefix.clone()), {
         rest := line.substring(prefix.len(), line.len());
         tab_opt := rest.index_of(String.from("\t"), usize(0));
@@ -682,7 +682,7 @@ resolve_latest_tag :: (
         .None => println("  No semver tags found")
       );
     });
-    Result(Option(String), String).Ok(match(latest, .Some(t) => Option(String).Some(t.tag), .None => Option(String).None))
+    Result(Option(String), String).Ok(match(latest, .Some(t) => Option(String).Some(t.tag.clone()), .None => Option(String).None))
   })
 );
 // ---------------------------------------------------------------------------
@@ -1007,9 +1007,9 @@ _add_requirement :: (
       lock_path = if(rel.len() == usize(0), String.from("."), rel);
     },
     .Git(u, r, s) => {
-      url = u;
+      url = u.clone();
       requirement = r;
-      subdir = s;
+      subdir = s.clone();
     }
   );
   match(
@@ -1330,9 +1330,9 @@ _resolve_package :: (
       e
     );
     pkg.chosen = Option(ChosenRef).Some(chosen);
-    pkg.ref_text = ref_text;
-    pkg.commit = fetched.commit;
-    pkg.integrity = fetched.integrity;
+    pkg.ref_text = ref_text.clone();
+    pkg.commit = fetched.commit.clone();
+    pkg.integrity = fetched.integrity.clone();
     pkg.dir = if(pkg.subdir.len() > usize(0), abs_under(fetched.dir.clone(), pkg.subdir.clone()), fetched.dir.clone());
     if(!file_exists_sync(pkg.dir.clone()), {
       e.exn.throw(dyn(`Error: dependency "${pkg.name}": ${pkg.url} @ ${ref_text} has no directory "${pkg.subdir}"`));
@@ -1465,7 +1465,7 @@ resolve_and_fetch :: (
     state := _State(
       manifest : manifest,
       options : options,
-      cache_root : cache_root,
+      cache_root : cache_root.clone(),
       old_lock : read.lock,
       packages : ArrayList(_Package).new(),
       tag_urls : ArrayList(String).new(),

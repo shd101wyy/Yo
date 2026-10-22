@@ -42,7 +42,7 @@ _method_c_name :: (fn(type : &TypeValue, method_name : str, context : &FunctionG
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
-  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
+  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
 /// The C name of `type`'s `___drop` function, if any.
 get_drop_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
@@ -74,7 +74,7 @@ get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGener
         v,
         .FuncVal(__dfvd3, _) => match(
           context.base.get_function_entry(&__dfvd3.*.func_id),
-          .Some(e) => Option(String).Some(e.c_name),
+          .Some(e) => Option(String).Some(e.c_name.clone()),
           .None => Option(String).None
         ),
         _ => Option(String).None
@@ -141,7 +141,7 @@ get_trace_function_for_type :: (fn(type : &TypeValue, context : &FunctionGenerat
           .Some(e) => cond(
             should_skip_function_codegen(&__fvd2.*.func_id, e.c_name.clone(), &v, &context.base) =>
               Option(String).None,
-            true => Option(String).Some(e.c_name)
+            true => Option(String).Some(e.c_name.clone())
           ),
           .None => Option(String).None
         ),
@@ -1296,7 +1296,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         // (materialize-then-dup), so the dup references a real local and the temp is
         // the dup'd value the caller uses. Safe: the field access is evaluated once.
         dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(&de), .None => Option(String).None);
-        t_name := sanitize_for_c_identifier(match(dup_target, .Some(s) => s, .None => String.from("")), false);
+        t_name := sanitize_for_c_identifier(match(dup_target, .Some(s) => s.clone(), .None => String.from("")), false);
         // Only materialize when the source is NOT already materialized into the dup
         // target temp: if the caller's fallback code already IS that temp (some paths
         // declare it before this call — e.g. `set`'s old-value extraction), declaring it

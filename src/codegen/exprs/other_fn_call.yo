@@ -477,7 +477,7 @@ _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : &String, indent : &Stri
 );
 /// The C function name registered for a func id, if any.
 _c_func_name :: (fn(func_id : &String, context : &FunctionGenerationContext) -> Option(String))(
-  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None)
+  match(context.base.get_function_entry(func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None)
 );
 /// The last binding for `name` (in node `key`'s recorded scope `env`) whose
 /// value is a registered FuncVal → its C name.
@@ -815,7 +815,7 @@ _ctor_args_from_labeled :: (fn(wrapped : &TypeValue, fncall_args : &ArrayList(As
   n := rfs.len();
   (i : usize) = usize(0);
   while(i < n, {
-    flabel := match(rfs.get(i), .Some(f) => f.label, .None => String.from(""));
+    flabel := match(rfs.get(i), .Some(f) => f.label.clone(), .None => String.from(""));
     (found : Option(AstExpr)) = Option(AstExpr).None;
     (ai : usize) = usize(0);
     na := fncall_args.len();
@@ -1302,7 +1302,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           e_em.emit_string_line(&edecl);
           _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
           generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-          return(Option(String).Some(tv));
+          return(Option(String).Some(tv.clone()));
         },
         .None => return(Option(String).Some(enum_code))
       );
@@ -1316,7 +1316,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   // [receiver, ...explicit]; we lower to `(recv).vtable->method((recv).data,
   // explicit...)`.
   if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
-    dmethod_args := match(func_expr, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
+    dmethod_args := match(func_expr, .FnCall(_, _, da, _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
     dm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
     // `recv_is_dyn` = is the prepended runtime-arg[0] itself a Dyn? Used ONLY by
     // the concrete-dispatch branch below to exclude a `ctl`-FIELD effect call like
@@ -1427,7 +1427,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           dm_em2.emit_string_line(&dmd);
           _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
           generate_deferred_drop_expressions(expr, indent.clone(), context, true);
-          return(Option(String).Some(tv));
+          return(Option(String).Some(tv.clone()));
         },
         .None => return(Option(String).Some(dm_call))
       );
@@ -1492,7 +1492,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           lookup_method_callee_value(ast_expr_id(expr)),
           .Some(mcv) => if(is_func_val(&mcv), {
-            mfid2 := match(mcv, .FuncVal(__fvd5, _) => __fvd5.*.func_id, _ => String.from(""));
+            mfid2 := match(mcv, .FuncVal(__fvd5, _) => __fvd5.*.func_id.clone(), _ => String.from(""));
             mc_name = _c_func_name(&mfid2, context);
             method_fv = Option(EvalValue).Some(mcv);
           }),
@@ -1532,7 +1532,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             .Some(op) => {
               // The method's per-param ref flags: they gate the argument dups
               // (`_dispatch_arg_code`) and the ref-amp below.
-              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
+              m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id.clone(), _ => String.from(""));
               ia_ft := get_func_type(&m_fid_amp);
               ia_pir := fn_abi_param_is_ptr(&ia_ft);
               inline_args := ArrayList(String).new();
@@ -1576,7 +1576,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             cm_param_is_ref := match(
               method_fv,
               .Some(mfv2) => match(
-                get_func_type(match(mfv2, .FuncVal(__fvd7, _) => __fvd7.*.func_id, _ => String.from(""))),
+                get_func_type(match(mfv2, .FuncVal(__fvd7, _) => __fvd7.*.func_id.clone(), _ => String.from(""))),
                 Rc(.Func({ meta : __fm4 })) => __fm4.*.param_is_ref,
                 _ => no_flags()
               ),
@@ -1587,7 +1587,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             cm_abi_ptr := match(
               method_fv,
               .Some(mfv3) => {
-                cm_ft := get_func_type(match(mfv3, .FuncVal(__fvd8, _) => __fvd8.*.func_id, _ => String.from("")));
+                cm_ft := get_func_type(match(mfv3, .FuncVal(__fvd8, _) => __fvd8.*.func_id.clone(), _ => String.from("")));
                 fn_abi_param_is_ptr(&cm_ft)
               },
               .None => ArrayList(bool).new()
@@ -1686,7 +1686,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 _emit_borrow_releases(&cm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
-                return(Option(String).Some(tv));
+                return(Option(String).Some(tv.clone()));
               },
               // Inline-expression exit (no temp var): cannot emit statements
               // around the expression here; the may-unwind check requires a
@@ -1731,7 +1731,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     match(
       lookup_method_callee_value(ast_expr_id(expr)),
       .Some(rmv) => if(is_func_val(&rmv), {
-        rm_fid := match(rmv, .FuncVal(__fvdrm, _) => __fvdrm.*.func_id, _ => String.from(""));
+        rm_fid := match(rmv, .FuncVal(__fvdrm, _) => __fvdrm.*.func_id.clone(), _ => String.from(""));
         match(
           _c_func_name(rm_fid.clone(), context),
           .Some(rmcn) => {
@@ -1808,7 +1808,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 _emit_borrow_releases(&rm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
-                return(Option(String).Some(tv));
+                return(Option(String).Some(tv.clone()));
               },
               .None => return(Option(String).Some(rm_call))
             );
@@ -2013,7 +2013,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               ctor_em := context.base.emitter;
               ctor_em.emit_string_line(&decl);
               _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
-              return(Option(String).Some(tv));
+              return(Option(String).Some(tv.clone()));
             },
             .None => return(Option(String).Some(ctor_call))
           );
@@ -2055,7 +2055,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                     u_em := context.base.emitter;
                     u_em.emit_string_line(&u_decl);
                     _store_temp_var_to_state_machine_if_needed(u_tv.clone(), indent.clone(), context);
-                    return(Option(String).Some(u_tv));
+                    return(Option(String).Some(u_tv.clone()));
                   },
                   .None => return(Option(String).Some(u_value))
                 );
@@ -2132,7 +2132,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                     cl_out.push_str(", ");
                   });
                   any_init = true;
-                  flabel := match(rt_fields.get(rfi), .Some(f) => f.label, .None => String.from(""));
+                  flabel := match(rt_fields.get(rfi), .Some(f) => f.label.clone(), .None => String.from(""));
                   cl_out.push_str(".");
                   cl_out.push_string(c_field_name(&wrapped, &flabel));
                   cl_out.push_str(" = ");
@@ -2181,7 +2181,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // in an async loop leaked once per iteration:
               // issues/fixed/async-loop-body-temp-drops-leak-one-allocation-per-iteration.md).
               _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
-              return(Option(String).Some(tv));
+              return(Option(String).Some(tv.clone()));
             },
             .None => return(Option(String).Some(vs_value))
           );
@@ -2313,8 +2313,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   match(
     function_type,
     Rc(.Func({ result : r, meta : __fm6 })) => {
-      ie := __fm6.*.is_extern;
-      en := __fm6.*.extern_name;
+      ie := __fm6.*.is_extern.clone();
+      en := __fm6.*.extern_name.clone();
       // extern "yo" AND extern "c" both lower to a direct `<extern_name>(<args>)`
       // C call (no per-arg cast). For extern "c" the symbol is a C library
       // function (e.g. `exit`, `fwrite`); the unsafe(...) gate is enforced in the
@@ -2362,7 +2362,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 em.emit_string_line(`${indent}${get_type_string(&r, &context.base)} ${tv} = ${out};`);
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               });
-              return(Option(String).Some(tv));
+              return(Option(String).Some(tv.clone()));
             }),
             .None => ()
           );
@@ -2569,7 +2569,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               });
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
-              return(Option(String).Some(tv));
+              return(Option(String).Some(tv.clone()));
             },
             // No temp variable was attached. The evaluator skips one where the
             // result flows straight out — `return(String.new())` in a plain

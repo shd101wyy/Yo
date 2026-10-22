@@ -213,9 +213,9 @@ _func_snippet :: (fn(name : &String, ty : &TypeValue) -> String)(
         if(label != "self", {
           n = (n + usize(1));
           if(n > usize(1), {
-            parts = (parts + String.from(", "));
+            parts = (parts.clone() + String.from(", "));
           });
-          parts = (parts + _placeholder(n, &label));
+          parts = (parts.clone() + _placeholder(n, &label));
         });
         i = (i + usize(1));
       });
@@ -255,11 +255,11 @@ _push_variant :: (
         true => type_to_string(&ft)
       );
       if(i > usize(0), {
-        dparts = (dparts + String.from(", "));
-        sparts = (sparts + String.from(", "));
+        dparts = (dparts.clone() + String.from(", "));
+        sparts = (sparts.clone() + String.from(", "));
       });
-      dparts = (dparts + type_to_string(&ft));
-      sparts = (sparts + _placeholder(i + usize(1), &ph));
+      dparts = (dparts.clone() + type_to_string(&ft));
+      sparts = (sparts.clone() + _placeholder(i + usize(1), &ph));
       i = (i + usize(1));
     });
     detail = (String.from("(") + dparts + String.from(")"));
@@ -838,7 +838,7 @@ _import_items :: (
   names.sort();
   (j : usize) = usize(0);
   while(j < names.len(), {
-    name := names(j);
+    name := names(j).clone();
     if(!name.starts_with(String.from(".")), {
       cond(
         dirs.contains(name.clone()) => {
@@ -1072,7 +1072,7 @@ handle_completion :: (
   items := ArrayList(JsonValue).new();
   lines := text.split(String.from("\n"));
   line_text := match(lines.get(line), .Some(l) => l, .None => String.new());
-  bytes := line_text;
+  bytes := line_text.clone();
   // `character` is a RUNE column (what this server serves and receives — see
   // `rune_col_to_byte_offset`), while `bytes` and `line_text` are BYTE
   // indexed. Everything below this line works in BYTES; `dot_col` converts
@@ -1256,7 +1256,7 @@ handle_completion :: (
   emitted := HashSet(String).new();
   (ni : usize) = usize(0);
   while(ni < names.len(), {
-    name := names(ni);
+    name := names(ni).clone();
     if(!_hidden_name(name.clone()) && _matches_prefix(name.clone(), prefix_lower.clone()), {
       emitted.insert(name.clone());
       (detail : String) = String.new();
@@ -1324,7 +1324,7 @@ handle_completion :: (
   kws := keyword_names();
   (ki : usize) = usize(0);
   while(ki < kws.len(), {
-    kw := kws(ki);
+    kw := kws(ki).clone();
     if(!emitted.contains(kw.clone()) && _matches_prefix(kw.clone(), prefix_lower.clone()), {
       emitted.insert(kw.clone());
       items.push(_ci(kw.clone(), K_KEYWORD, String.new(), _sort_key(kw.clone(), prefix_lower.clone()), String.new()));

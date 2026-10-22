@@ -99,7 +99,7 @@ impl(
         .Variant(name, idx, field_idx, subs, enum_ty, through_ptr, arity) => Pattern.Variant(
           name : name.clone(),
           idx : idx,
-          field_idx : field_idx,
+          field_idx : field_idx.clone(),
           subs : clone_patterns(&subs),
           enum_ty : enum_ty,
           through_ptr : through_ptr,
@@ -108,8 +108,8 @@ impl(
         .Or(alts) => Pattern.Or(alts : clone_patterns(&alts)),
         .At(name, token, atom, sub) => Pattern.At(name : name.clone(), token : token, atom : atom, sub : Box.clone(sub)),
         .ThroughBox(box_ty, inner_ty, sub) => Pattern.ThroughBox(box_ty : box_ty, inner_ty : inner_ty, sub : Box.clone(sub)),
-        .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs), elem_tys : elem_tys),
-        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx, subs : clone_patterns(&subs), arity : arity)
+        .Tuple(subs, elem_tys) => Pattern.Tuple(subs : clone_patterns(&subs), elem_tys : elem_tys.clone()),
+        .Struct(struct_ty, field_idx, subs, arity) => Pattern.Struct(struct_ty : struct_ty, field_idx : field_idx.clone(), subs : clone_patterns(&subs), arity : arity)
       )
     )
   )
