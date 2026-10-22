@@ -9,8 +9,10 @@ settles the `UnsafeRc`/`UnsafeArc` question the maintainer raised first:
 **no second handle type** (agreed 2026-10-21). **W2 is implemented
 (2026-10-22, `feat/arc-without-acyclic`):** `Arc` and the std/sync and
 thread APIs carry no `Acyclic` bound, and the sync containers' declared
-`Acyclic` impls are gone (the marker is derived). The other phases are not
-started.
+`Acyclic` impls are gone (the marker is derived). ARC.md and DESIGN.md lost
+the `Acyclic` sentence and gained a Cycles section that breaks a cycle by
+clearing its back edge; §2's "gain the ArcWeak one" moves to W4, since
+`ArcWeak` does not exist before it. The other phases are not started.
 
 ## 0. Verdict
 
@@ -309,7 +311,7 @@ exclusion of `Rc`-reaching values keeps its other reason (aliasing).
 | W1 | `--cycle-collector off` and `build.cycle_collector`: codegen forces the lightweight runtime; `Gc` no-ops; docs | the cycle-collector test suite runs under both modes with the leak expectations flipped (`tests/cycle_collector.test.yo` collected under `Auto`, leaked and reported by `--debug-heap` under `Off`); a cli-case for the flag; the fixpoint |
 | W2 | `Arc` without `Acyclic` (std/sync, thread, prelude); `ARC.md` and `DESIGN.md` in both languages; the S2 issue retired, its reproducer kept as a derivation test | `tests/send_sync.test.yo`; an `Arc(Mutex(Node))` cycle compiles and `--debug-heap` reports it |
 | W3 | `Weak(T)`: the weak count in the freed 16 bits, `downgrade`/`upgrade`/`new`/counts/`ptr_eq`, `Clone`, the dead flag, the two free paths, `traverse_fn` skipping `Weak` | upgrade after the last strong is `.None`; the allocation is freed at the last `Weak` (`--debug-heap` count); a parent pointer through `Weak(RefCell(Node))`; a cycle broken by a `Weak` is untracked under `Auto` and leak-free under `Off`; an `upgrade` from a `Drop` during CollectWhite returns `.None`; ASan on all of it |
-| W4 | `ArcWeak(T)` with atomic counts; `Send`/`Sync` | the W3 rows across a `Thread.spawn`; TSan |
+| W4 | `ArcWeak(T)` with atomic counts; `Send`/`Sync`; ARC.md and DESIGN.md (both languages) gain the `ArcWeak` sentence deferred from W2 | the W3 rows across a `Thread.spawn`; TSan |
 | W5 | the derived `Acyclic` walk ignores `Weak` edges and answers a cycle through a cell inductively (the S2 derivation fix); the declared exemption without the pragma; `yo fix` drops the `SAFETY:` comments in std | `tests/send_sync.test.yo` rows: a weak-parent tree is `Acyclic`, a strong-parent one is not, `Option(Box(Self))` and `ArrayList(Self)` stay `Acyclic`; the S2 reproducer's types not `Acyclic`; an object holding a cyclic cell behind an `Option` or a pointer not `Acyclic` (`issues/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`, found at W2) |
 | W6 | the default flips to `Off` for one release (the measurement of §6), then the collector, `Trace`, the declared `Acyclic` form, the large header and the knob are deleted (the derived `Acyclic` marker stays); docs in both languages; the origins plan's O9/O10 amended | §6's three preconditions recorded as met; the fixpoint and the memory ratchet (headers shrink); `yo test --allocator debug` green over the corpus with no collector |
 

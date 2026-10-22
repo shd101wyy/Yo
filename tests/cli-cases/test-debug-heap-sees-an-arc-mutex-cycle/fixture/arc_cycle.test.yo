@@ -1,15 +1,18 @@
 { assert } :: import("std/assert");
 { Mutex } :: import("std/sync/mutex");
 // Decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2): `Arc` no
-// longer requires `Acyclic`, so this cycle compiles. Atomic cells are never
-// cycle-collected: the cell, its mutex and the node stay live at exit, and
-// the `--debug-heap` report counts them.
-Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+// longer requires `Acyclic`. `Node` is an atomic object reaching itself
+// through `Arc(Mutex(Self))`, so it derives no `Acyclic` and `Arc` rejected it
+// before W2 (E0602); now the cycle compiles. Atomic cells are never
+// cycle-collected: the closed cycle stays live at exit, and the
+// `--debug-heap` report counts its blocks.
+Node :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
 test("an Arc(Mutex(Node)) cycle is left closed", {
+  comptime_assert(!Type.impls(Node, Acyclic), "the node reaches itself");
   a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
   b := a;
   a.with_lock(v => {
-    v.peer = .Some(b);
+    v = Node(id : i32(1), peer : .Some(b));
   });
   assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
 });

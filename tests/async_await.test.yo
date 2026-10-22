@@ -7185,7 +7185,7 @@ test("a closure argument inside an io.async body keeps the future's result type"
 // ---------------------------------------------------------------------------
 _if_run_it :: (fn(f : &Impl(Fn() -> unit, Send)) -> unit)(f());
 _if_relay :: (
-  fn(generic(T : Type), cb : &Impl(Fn() -> T, Send), io : Io, where(T <: (Send, Acyclic))) -> Impl(Future(T, Io))
+  fn(generic(T : Type), cb : &Impl(Fn() -> T, Send), io : Io, where(T <: Send)) -> Impl(Future(T, Io))
 )(
   io.async((io : Io) => {
     chan := SyncChannel(T).new(usize(1));

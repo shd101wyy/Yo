@@ -2,15 +2,15 @@
 { Mutex } :: import("std/sync/mutex");
 // The control for arc_cycle.test.yo: the same cycle, broken by clearing the
 // back edge before the last handle is dropped, leaves nothing live.
-Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+Node :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
 test("an Arc(Mutex(Node)) cycle broken before the last handle goes", {
   a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
   b := a;
   a.with_lock(v => {
-    v.peer = .Some(b);
+    v = Node(id : i32(1), peer : .Some(b));
   });
   a.with_lock(v => {
-    v.peer = .None;
+    v = Node(id : i32(1), peer : .None);
   });
   assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
 });

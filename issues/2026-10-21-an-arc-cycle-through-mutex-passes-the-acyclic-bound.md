@@ -18,7 +18,13 @@ and `Thread` no longer require `Acyclic`, as Rust's do not. The `Arc` cycle
 this doc first reported is now a legal program that leaks by design
 (`docs/en-US/ARC.md` §Cycles), and the leak is observable under
 `--allocator fixed --debug-heap`
-(`tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle`). What stays wrong
+(`tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle`). That case and
+the `tests/send_sync.test.yo` cycle test close the cycle through an ATOMIC
+node, which derives no `Acyclic` and which `Arc` rejected before W2 (E0602):
+the value-struct `Node` below was accepted even before W2, through this bug,
+so it cannot show what W2 changed. The send_sync test also asserts the one
+verdict the derivation gets right today (`BoxNode`'s shape is `Acyclic`).
+What stays wrong
 is the derivation: `Acyclic` remains a derived structural marker (plan
 verdict 5) that user bounds will read, and it answers `true` for `Node`. The
 fix is plan phase W5. Until then the reproducer below is the derivation test

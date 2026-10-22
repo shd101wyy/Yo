@@ -277,7 +277,7 @@ test("Mutex and Channel take a Send type that is not Sync", {
 // parameter, captured by a closure passed on to another call, was E0901 ("it
 // is borrowed ... Take it `sink(...)`") once its argument closure was
 // move-only. `spawn_blocking` is this shape.
-_ss_run_on_thread :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T, Send), where(T <: (Send, Acyclic))) -> T)({
+_ss_run_on_thread :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T, Send), where(T <: Send)) -> T)({
   worker := Thread(T).spawn((tio : Io) => cb());
   worker.join()
 });
@@ -294,19 +294,29 @@ test("a generic function's move-only closure parameter moves into a closure it p
 // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2)
 // ============================================================================
 // As in Rust, an `Arc` cycle is legal and leaks unless a back edge is
-// cleared. `SsPeer` reaches itself through `Arc(Mutex(Self))`; the leak
-// itself, seen by `--debug-heap`, is the cli-case
+// cleared. `SsPeer` is an atomic object reaching itself through
+// `Arc(Mutex(Self))`, so it derives no `Acyclic`, and before W2 `Arc` rejected
+// it (E0602). A value struct of the same shape is wrongly derived `Acyclic`
+// today and so was accepted even before W2: that is the derivation bug
+// issues/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.md,
+// open until W5. The leak itself, seen by `--debug-heap`, is the cli-case
 // tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle.
-SsPeer :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+SsPeer :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
+// Recursion with no cell on the back edge is `Acyclic`: the correct verdict
+// the derivation gives today (the wrong ones are pinned at W5).
+SsBoxNode :: struct(id : i32, next : Option(Box(Self)));
 test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it", {
+  comptime_assert(!Type.impls(SsPeer, Acyclic), "the peer reaches itself");
+  comptime_assert(!Type.impls(Arc(Mutex(SsPeer)), Acyclic), "so does the Arc holding it");
+  comptime_assert(Type.impls(SsBoxNode, Acyclic), "a Box back edge is no cycle");
   a := arc(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
   b := a;
   a.with_lock(v => {
-    v.peer = .Some(b);
+    v = SsPeer(id : i32(1), peer : .Some(b));
   });
   assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
   a.with_lock(v => {
-    v.peer = .None;
+    v = SsPeer(id : i32(1), peer : .None);
   });
   assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
 });

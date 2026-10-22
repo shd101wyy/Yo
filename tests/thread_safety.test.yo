@@ -194,6 +194,17 @@ comptime_expect_error({
   });
   _helper_with_a_non_send_capture();
 }, "Captured variable 'items' (type ArrayList(i32)) does not implement Send");
+// The refusal's advice names what `Arc` asks of its contents: `Send + Sync`,
+// with no `Acyclic` since decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2).
+comptime_expect_error({
+  _helper_with_a_non_send_capture_advice :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    _run_on_thread(() => {
+      items.push(i32(1));
+    });
+  });
+  _helper_with_a_non_send_capture_advice();
+}, "does not implement Send. To move it across threads, share it through an Arc (its contents must be Send + Sync), rebuild it");
 // …and one closure further in.
 comptime_expect_error({
   _helper_with_a_nested_non_send_capture :: (fn() -> unit)({
