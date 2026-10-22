@@ -385,6 +385,7 @@ Separator ::= ',' | ';'
    - 同一运算符的链在任意操作数个数下都左结合：`a + b + c` ⇒ `(a + b) + c`，`20 - 5 - 4 - 3` ⇒ `(((20 - 5) - 4) - 3)`
    - 显式加括号的右操作数保留其分组：`20 - (5 - 4) - 3` 是 `(20 - (5 - 4)) - 3`
    - 相邻的不同运算符需要显式括号：`a + b * c` 是错误；写 `(a + b) * c` 或 `a + (b * c)`
+   - 当混用只有一种分组时，该错误（E0003）会指明分组：`x := 1 + 2` 附加 "Wrap the right-hand side in parentheses: name := (1 + 2)."，`x : i32 = 5` 附加 "Parenthesize the annotated binding: (name : Type) = value."，`x : i32 => x` 附加 "Parenthesize the annotated parameter: (name : Type) => body."，`n <= i32(1) => v` 附加 "Parenthesize the left side: (a <= b) => value."。存在两种真实分组的混用（`a + b * c`）不给提示
    - 标准中缀：`a + b`
 
 4. **`if(...)` 是语法糖**：`if` 调用在解析期被脱糖为 `cond(...)`

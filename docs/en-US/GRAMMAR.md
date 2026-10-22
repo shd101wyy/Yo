@@ -412,6 +412,7 @@ Separator ::= ',' | ';'
    - A chain of the same operator is left-associative at ANY operand count: `a + b + c` ⇒ `(a + b) + c`, `20 - 5 - 4 - 3` ⇒ `(((20 - 5) - 4) - 3)`
    - A parenthesized right operand keeps its grouping: `20 - (5 - 4) - 3` is `(20 - (5 - 4)) - 3`
    - Adjacent different operators require explicit parentheses: `a + b * c` is an error; write `(a + b) * c` or `a + (b * c)`
+   - The error (E0003) names the grouping when the mix has only one: `x := 1 + 2` adds "Wrap the right-hand side in parentheses: name := (1 + 2).", `x : i32 = 5` adds "Parenthesize the annotated binding: (name : Type) = value.", `x : i32 => x` adds "Parenthesize the annotated parameter: (name : Type) => body.", and `n <= i32(1) => v` adds "Parenthesize the left side: (a <= b) => value." A mix with two real groupings (`a + b * c`) gets no hint
    - Standard infix: `a + b`
 
 4. **`if(...)` is sugar**: `if` calls are desugared to `cond(...)` at parse

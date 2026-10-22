@@ -972,6 +972,181 @@ test("E0003 stays hint-free when both groupings are real programs", {
   parse(`1 + 2 * 3;`, `test.yo`, exn);
   assert(false, "expected an adjacent-different-operator parse error");
 });
+test("E0003 names the annotated-parameter grouping for `:` next to `=>`", {
+  // `x : i32 => x` is an annotated lambda/arm parameter: `:` closes before the
+  // arrow, `(x : i32) => x`. Wrapping the right-hand side (`x : (i32 => x)`)
+  // would be the wrong grouping.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Parenthesize the annotated parameter: (name : Type) => body.`),
+            "missing annotated-parameter grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x : i32 => x;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 names the left-side grouping for a fn-type arrow next to `=`", {
+  // `x : fn() -> void = f` first fails at `->`: the fn type closes before the
+  // binding, `(fn() -> void) = f` (then `(x : (fn() -> void)) = f`).
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Parenthesize the left side: (a -> b) = value.`),
+            "missing left-side grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x : fn() -> void = f;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 names the left-side grouping for a fn-type arrow next to `=>`", {
+  // `f : fn() -> void => f()` is an annotated parameter of fn type: the fn type
+  // closes before the arrow, `(fn() -> void) => f()`.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Parenthesize the left side: (a -> b) => value.`),
+            "missing left-side grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`f : fn() -> void => f();`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 names the labeled-return grouping for `->` next to `:`", {
+  // `fn() -> r : i32` is a labeled return, `fn() -> (r : i32)` — the right side,
+  // although `:` sits below `->` when it is on the LEFT (`name : (fn() -> T)`).
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Wrap the right-hand side in parentheses: name -> (r : i32).`),
+            "missing labeled-return grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`fn() -> r : i32;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 stays hint-free for an arrow next to a binding", {
+  // `c => x = 5`: the lattice grouping `(c => x) = 5` is never a program, while
+  // the arm body `c => (x = 5)` is what an author means — not unique, no hint.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`Adjacent different operators need parentheses`), "wrong error message");
+            assert(!s.contains(`Wrap the right-hand side`), "this mix has no canonical grouping");
+            assert(!s.contains(`Parenthesize`), "this mix has no canonical grouping");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`c => x = 5;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 stays hint-free for an annotation next to `:=`", {
+  // `(x : i32) := 5` is rejected (an annotated binding takes `=`) and
+  // `x : (i32 := 5)` is no annotation, so neither grouping is a Yo form.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`Adjacent different operators need parentheses`), "wrong error message");
+            assert(!s.contains(`Wrap the right-hand side`), "this mix has no canonical grouping");
+            assert(!s.contains(`Parenthesize`), "this mix has no canonical grouping");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x : i32 := 5;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 stays hint-free for two different binding operators", {
+  // `x := y = 5`: two operators of one tier have no canonical grouping.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`Adjacent different operators need parentheses`), "wrong error message");
+            assert(!s.contains(`Wrap the right-hand side`), "this mix has no canonical grouping");
+            assert(!s.contains(`Parenthesize`), "this mix has no canonical grouping");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x := y = 5;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 stays hint-free for the two arm arrows", {
+  // `a => b =>> c`: `=>` and `=>>` share a tier, so neither grouping is canonical.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`Adjacent different operators need parentheses`), "wrong error message");
+            assert(!s.contains(`Wrap the right-hand side`), "this mix has no canonical grouping");
+            assert(!s.contains(`Parenthesize`), "this mix has no canonical grouping");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`a => b =>> c;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
 // ─── Decision 42: `&T` / `&mut T` in the declaration slots ──────────────────
 // The parse rewrites each slot into the internal mode form every later pass
 // reads, headed by `__yo_imm` / `__yo_mut` (plans/VALUES_BY_DEFAULT.md

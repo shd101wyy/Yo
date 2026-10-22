@@ -176,18 +176,22 @@ priors conflict.
 ### Re-examined 2026-10-22: structural-operator tiers — RE-AFFIRMED no
 
 A second alternative was worked out in full and declined the same day
-(`issues/questions/2026-10-22-should-the-structural-operators-carry-precedence.md`):
-give the STRUCTURAL operators tiers (computational > `->` > `:` > `=>`/`=>>`
-> `= := :: ?=`, same-tier mixes still erroring) so `x : i32 = (a + b) - c`
-parses without the outer groups. The maintainer's call: the single-sentence
-no-table rule is the asset — grouping verifiable by local inspection, no
-priors required — and the friction is one cheap roundtrip (the 2026-09-19
-authoring audit: syntax is not where models fail; parser 7 of 218 open
-issues). What shipped instead: the E0003 diagnostic names the canonical
-grouping for the mixes that have exactly one mainstream reading
-(`x := 1 + 2` → "Wrap the right-hand side in parentheses: name := (1 + 2)"),
-keeping the grammar untouched. The worked-out lattice is recorded in the
-question doc so the pre-registered revisit does not re-derive it.
+(`issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md`):
+give the STRUCTURAL operators tiers (computational over `->` over `:` over
+`=>`/`=>>` over `= := :: ?=`, same-tier mixes still erroring) so
+`x : i32 = (a + b) - c` parses without the outer groups. The maintainer's
+call: the single-sentence no-table rule is the asset — grouping verifiable by
+local inspection, no priors required — and the friction is one cheap
+roundtrip (the 2026-09-19 authoring audit: syntax is not where models fail;
+parser 7 of 218 open issues). What shipped instead: the E0003 diagnostic
+names the canonical grouping for the mixes that have exactly one reading
+(`x := 1 + 2` → "Wrap the right-hand side in parentheses: name := (1 + 2)",
+`x : i32 => x` → "Parenthesize the annotated parameter: (name : Type) =>
+body"), keeping the grammar untouched; every other mix stays hint-free. The
+worked-out lattice, and the per-pair table of what the hint says (including
+where the lattice is not a total order: a labeled return `-> (r : T)` puts
+`:` inside `->`), are recorded in the retired question doc so the
+pre-registered revisit does not re-derive them.
 
 ## Implementation sketch (Part 1 only)
 

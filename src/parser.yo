@@ -87,17 +87,25 @@ make_parse_error_raw :: (fn(module_path : &String, message : &String) -> YoError
 _is_prefix_op_token :: (fn(t : &Token) -> bool)(
   (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "&mut"))
 );
-/// The BINDING operators for E0003's canonical-grouping hint: one of these
-/// next to a different operator has exactly one mainstream grouping — the
-/// whole right-hand side is its operand (`x := (a + b)`, never `(x := a) + b`).
+/// The BINDING operators for E0003's canonical-grouping hint (`= := :: ?=`),
+/// the lowest tier of the structural lattice `_e0003_tier` encodes.
 _is_binding_group_op :: (fn(v : &String) -> bool)(
   (v == "=") || (v == ":=") || (v == "::") || (v == "?=")
 );
-/// The arm/lambda arrows for the same hint: `=>`, its `=>>` twin, and the
-/// `->` lambda arrow all take the whole right-hand side as their body
-/// (`c => (a + b)`, `err -> (x + 1)`).
-_is_arrow_group_op :: (fn(v : &String) -> bool)(
-  (v == "->") || (v == "=>") || (v == "=>>")
+/// The tier of `v` in the structural lattice E0003's grouping hint follows
+/// (issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md):
+/// 0 binding (`= := :: ?=`) < 1 arm/lambda arrow (`=>`, `=>>`) < 2 `:` < 3
+/// `->` < 4 computational (every other infix operator, `<:` and `..`
+/// included). A lower tier binds looser: it takes the whole other side as its
+/// operand. The grammar has no such tiers; only the diagnostic reads them.
+_e0003_tier :: (fn(v : &String) -> u8)(
+  cond(
+    _is_binding_group_op(v) => u8(0),
+    ((v == "=>") || (v == "=>>")) => u8(1),
+    (v == ":") => u8(2),
+    (v == "->") => u8(3),
+    true => u8(4)
+  )
 );
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
 /// prefix sigil on one identifier (plans/VALUES_BY_DEFAULT.md decision 35).
@@ -1753,29 +1761,53 @@ impl(
   }),
   /// E0003's canonical-grouping hint. No precedence means the unparenthesized
   /// mix is a parse error, but where the adjacent operators have exactly ONE
-  /// mainstream grouping the diagnostic names it, so an author (LLM or human)
-  /// carrying C-family habits gets the grouping to copy instead of a bare
-  /// rejection. A binding operator, an arm/lambda arrow, or a `:` annotation
-  /// next to a fn-type arrow takes the whole right-hand side
-  /// (`name := (a + b)`, `name : (fn() -> T)`); a `:` followed by `=`/`?=`
-  /// groups on the left (`(name : Type) = value`); an arm arrow as the RHS
-  /// of an operator groups on the left too (`(n <= i32(1)) => value`).
-  /// Computational next to computational stays hint-free — both groupings
-  /// are real programs, which is why the E0003 repair was declined
-  /// (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §3.1).
+  /// canonical grouping the diagnostic names it, so an author (LLM or human)
+  /// gets the grouping to copy instead of a bare rejection.
+  ///
+  /// The parser's right operand is greedy, so `tok` is the LEFT operator and
+  /// `rhs_op` the next operator to its right (the right operand's root; a
+  /// deeper mismatch inside that operand already threw). The verdict per
+  /// pair follows `_e0003_tier`'s lattice, with every pair whose lattice
+  /// grouping is not a Yo form, or not the only reading, left hint-free —
+  /// the full table is in the issue doc `_e0003_tier` names:
+  ///
+  /// - left looser (`x := a + b`, `name : fn() -> T`, `c => a + b`): wrap
+  ///   the right-hand side, rendered from source (`name := (a + b)`);
+  /// - `->` then `:` (`fn() -> r : i32`): wrap the right-hand side too — the
+  ///   labeled return `-> (r : T)`, against the lattice's `->` over `:`;
+  /// - `:` then `=`/`?=`: the annotated binding `(name : Type) = value`;
+  /// - `:` then `=>`/`=>>`: the annotated parameter `(name : Type) => body`;
+  /// - `->` then `=`/`?=`/`=>`/`=>>` (`x : fn() -> T = f`), and a
+  ///   computational operator then `->`/`=>`/`=>>` (`n <= i32(1) => v`): wrap
+  ///   the left side;
+  /// - everything else is hint-free: two computational operators (both
+  ///   groupings are real programs — the E0003 repair was declined as
+  ///   non-unique, plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §3.1),
+  ///   two different operators of one tier (`x := y = z`, `a => b =>> c`),
+  ///   an arrow then a binding (`c => x = v`: the lattice's `(c => x) = v`
+  ///   is never a program, the arm body `c => (x = v)` is what is meant),
+  ///   `:`/`->` then `:=`/`::` (an annotated `:=`/`::` target is rejected),
+  ///   and a computational operator then `:` or a binding (`a + b : T`,
+  ///   `a + b = c`: neither side of either grouping is a Yo form).
   e0003_grouping_hint : (
     fn(self : &Self, tok : &Token, rhs_op : &String, rhs_start : usize, rhs_end : usize) -> String
   )({
     outer := tok.value;
-    if((outer == ":") && ((rhs_op == "=") || (rhs_op == "?=")), {
-      return(`Parenthesize the annotated binding: (name : Type) ${rhs_op} value.`);
-    });
+    outer_tier := _e0003_tier(&outer);
+    rhs_tier := _e0003_tier(rhs_op);
+    rhs_is_assign := ((rhs_op == "=") || (rhs_op == "?="));
+    rhs_is_arm := ((rhs_op == "=>") || (rhs_op == "=>>"));
+    wrap_rhs := ((outer_tier < rhs_tier) || ((outer == "->") && (rhs_op == ":")));
     cond(
-      (_is_binding_group_op(&outer) || _is_arrow_group_op(&outer) || (outer == ":")) => {
+      wrap_rhs => {
         snippet := self._rhs_source_snippet(rhs_start, rhs_end);
         `Wrap the right-hand side in parentheses: name ${outer} (${snippet}).`
       },
-      _is_arrow_group_op(rhs_op) =>
+      ((outer == ":") && rhs_is_assign) =>
+        `Parenthesize the annotated binding: (name : Type) ${rhs_op} value.`,
+      ((outer == ":") && rhs_is_arm) =>
+        `Parenthesize the annotated parameter: (name : Type) ${rhs_op} body.`,
+      (((outer == "->") && (rhs_is_assign || rhs_is_arm)) || ((outer_tier == u8(4)) && ((rhs_op == "->") || rhs_is_arm))) =>
         `Parenthesize the left side: (a ${outer} b) ${rhs_op} value.`,
       true => String.new()
     )
