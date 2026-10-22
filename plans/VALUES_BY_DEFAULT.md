@@ -6979,6 +6979,116 @@ heavy run, the command is given in item 2.
          until B8). The numbers are in the branch's commit messages.
        - Still open: `Token.module_path` / `Token.input` (shared per lexing
          today, a byte copy per owned read after B8).
+     - **As-built 2026-10-22: the regeneration is NO-GO; it is not
+       landable as generated.** Branch `feat/v2b-b1-regeneration` (on
+       `fix/explicit-copy-migration-defects` 3cb59050d, which is develop
+       e285f11ad plus the four tool fixes) holds the regenerated `src/` as
+       its first commit. Logs: `~/Workspace/Yo-wt/vbd-logs/b1-regen/`
+       (machine-local).
+       - The run: `yo fix ./src --migrate explicit-copy --hot-path
+         src/evaluator --std-path ./std`, by the base's tree binary. The dry
+         run took 6:25 at 1.3 GB, and the apply took 4:52. Result: 646
+         insertions in 83 files, 1,956 sites listed, 0 files that failed to
+         evaluate. The parked 2026-10-19 sweep had 3,106 insertions and
+         1,338 listed sites.
+         - Insertions by directory: `src/` root 254, `src/doc/` 143,
+           `src/codegen/` 121, `src/types/` 73, `src/lsp/` 33,
+           `src/verifier/` 22, `src/evaluator/` 0 (hot path).
+         - Insertions by kind: field-store 332, binding 113, return 89,
+           param 83, assign 29.
+         - Listed sites by reason: source written afterwards 552;
+           returned from a borrowed binding 463; hot path 442
+           (field-store 238, return 100, binding 46, param 41, assign 17);
+           raw pointer taken 243; field of a dying temporary 119; returned
+           from a `&`/`&mut` parameter 118; returned from a module-level
+           binding 11; source text does not print back 5; copy written
+           afterwards 3.
+         - By directory: `src/evaluator/` 1,082, `src/` root 425,
+           `src/codegen/` 286, `src/types/` 74, `src/verifier/` 50,
+           `src/doc/` 29, `src/lsp/` 10.
+         - The listing, B3/B4's input, is
+           `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-22.md`
+           (the tool's output; positions are the pre-rewrite tree's). The
+           inserted sites are the branch's first commit.
+       - The regenerated tree is `fmt`-clean (tree binary), and
+         `check ./src --std-path ./std` passes 275/275 with the base's tree
+         binary. `yo build --std-path ./std` with the v0.2.67 seed builds a
+         stage 1.
+       - Measured: `check src/main.yo --std-path ./std` of develop
+         `6cd3495c5`, extracted with its `yo.lock`, one run each. Every run
+         is in a `systemd-run --user --scope -p MemoryMax=12G
+         -p MemorySwapMax=0` scope with `timeout 1800`.
+
+         | binary | wall | user | max RSS | result |
+         | --- | --- | --- | --- | --- |
+         | (a) base tree binary (develop + the tool fixes) | 3:50 | 229 s | 1,055,000 kB | passes |
+         | (b) regenerated stage 1 | 2:26, stopped by the error | 138 s | 11,535,832 kB | **rejects valid std**: `std/rand.yo:242` "`thread_local` takes the variable NAME" |
+         | (c) (b) without the `src/expr.yo:440` insertion | 3:59, OOM-killed | 239 s | 12 GB cap | **cap hit** |
+         | (d) (c) without the 11 `Token.input` clones | 7:13 | 431 s | 1,161,876 kB | passes |
+         | (a), re-run back to back with (d) | 6:57 | 413 s | 1,051,760 kB | passes |
+         | (d), re-run back to back | 7:38 | 457 s | 1,163,260 kB | passes |
+
+         (c) and (d) are diagnostic builds made only to attribute the
+         regression, and neither is on the branch. The machine was loaded
+         (load average 6–8 on 32 threads), so compare only rows measured
+         back to back. (d)/(a) back to back: 1.10x wall, 1.11x user,
+         1.106x RSS. The regenerated tree is (b), and (b) misses both
+         bars: it fails on valid input, and with that failure removed it
+         still hits the cap. No allocation count was taken: the
+         `eval_work_ratchet.sh` count needs a glibc-linked stage 2, and
+         (b) cannot produce one.
+       - Where the regression goes:
+         1. **`Token.input` clones (the memory, 12 GB+ → 1.16 GB).** These
+            are 11 field-store insertions:
+            - `src/parser.yo`: 8 sites, at 854 and 945
+              (`parse_paren_expr`), 1041 (`parse_array_expr`), 1155,
+              1232, 1255 and 1272 (`parse_curly_bracket_expr`), and 1881
+              (`do_parse`);
+            - `src/expr.yo:2095` (`wrap_body_in_begin`);
+            - `src/formatter.yo`: 2 sites, at 1780 and 1803.
+
+            Each synthesized token (every `{ … }` begin block, `()`,
+            anonymous struct or array) copies its module's WHOLE source
+            text. The copies live as long as the AST. For example,
+            `src/main.yo` has about 4,200 blocks of 551 KB, and
+            `src/evaluator/calls/function.yo` about 3,000 blocks of 567 KB.
+            Summed over the files `check` loads, that is about 12 GB.
+            These are b1diag's class A again: step 1 shared
+            `Environment.module_path` but left `Token.input`/`module_path`
+            open (above). Sampling 150 s: RSS was 2.9 GB at 10 s against
+            0.16 GB for (a), and 6.8 GB at 140 s against 0.48 GB.
+         2. **Two migration defects that change semantics (S1).** Both
+            are filed open with reproducers:
+            - `issues/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.md`:
+              `fargs.clone()` inside `AstExpr`'s share-on-recursion
+              `Clone` (`src/expr.yo:440`). Every AST clone becomes a deep
+              copy, and `strip_mut_marker` rewrites a copy, which is (b)'s
+              error.
+            - `issues/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.md`:
+              `target_list := if(c, entry.negative_traits.clone(), …)`
+              at `src/env.yo:3359` and `:3578`, followed by
+              `target_list.push`. The where-clause constraints are lost.
+              (d) still has this defect and passes `check src/main.yo`, so
+              `check` alone does not catch it.
+         3. **The rest is CPU-cheap.** A 150 s `perf` sample of (c) against
+            (a), on glibc `-O2 -g` rebuilds of their C, shows the time in
+            libc (memcpy and malloc: self 36% against 25%), the parser's
+            `String.clone`, and `_frame_index_for`/`_frame_positions`
+            (`src/env.yo`, +3.8 points inclusive). Explicit `.clone()`
+            callers outside the parser stay under 0.3% each.
+       - Next, in order:
+         1. Share `Token.input` and `Token.module_path` (an `Rc(String)`
+            like `Environment.module_path`). This is a prerequisite: it
+            removes the population cost, and the fix is not a hand edit
+            of the 11 sites.
+         2. Fix the two tool defects, each with its cli-case.
+         3. Regenerate on the tip and re-measure against (a) back to back.
+            This run's bar was 1.5x time and 1.2x RSS (the plan names
+            none); (d) suggests it is reachable.
+         4. Run Tier 1 and the fixpoint.
+
+         Tier 1, the fixpoint and the in-process `tests/internal` run were
+         NOT run on this regeneration: they apply only after a GO.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
