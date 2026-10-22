@@ -52,7 +52,7 @@ two flags and the macro-call dispatch — nothing else.
 | 3 | `for` | `std/prelude.yo:7690-7785` | destructures the `(x) => body` lambda as AST; caller-frame `break`/`continue` | 1 in src/ (`suspension_analysis.yo:454`), 82 in tests/ |
 | 4 | `(^)` iso sugar | `std/prelude.yo:7448-7500` | needs the caller's **variable identity** (`Var.*` intrinsics), not its value | 3, all in tests/ |
 | 5 | `unsafe.drop` | `std/prelude.yo:175` | none — 1-line forwarder to `___drop` | 37, all in std/ |
-| 6 | ~~`Var.print_info`~~ | removed 2026-09-29 | none — forwarder to `__yo_var_print_info`, a builtin that did nothing (Phase 6 site #16 residue) | **0 anywhere** |
+| 6 | ~~`Var.print_info`~~ | removed 2026-09-29 | none — forwarder to the variable builtin `print_info`, which did nothing (Phase 6 site #16 residue) | **0 anywhere** |
 | 7 | `Var.is_owning_the_rc_value` | `std/prelude.yo:6320-6324` | none — forwarder | 2 (inside `^`) |
 | 8 | `Var.has_other_aliases` | `std/prelude.yo:6325-6329` | none — forwarder | 1 (inside `^`) |
 | 9 | `array_list` | `std/collections/array_list.yo:859-876` | variadic unevaluated args + `typeof` on unevaluated first element + statement splicing | 5, all in `src/parser.yo` |
@@ -81,9 +81,10 @@ conversion.
   any macro decision.** `quote` and all AST/type reflection builtins are
   dispatched ungated from `src/evaluator/exprs/_expr.yo:905-924` and are fully
   usable outside macros (e.g. `tests/comptime.test.yo:2959-2976`).
-- **`iso` is a builtin** (`src/evaluator/calls/iso.yo`, `__yo_iso_extract` /
-  `__yo_iso_dispose`). Only the ergonomic `^(x)` wrapper is a macro. Deleting
-  macros would kill `^` but leave `Iso(T)` fully usable.
+- **The isolated-transfer type was a builtin** (its own evaluator and its
+  extract/dispose builtins). Only the ergonomic `^(x)` wrapper was a macro.
+  Deleting macros would have killed `^` but left the type fully usable. (Both
+  were deleted on 2026-10-21: `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A.)
 
 ### 1.4 What macros actually cost
 
@@ -229,7 +230,7 @@ comptime AST layer, shared with derive, and remain ungated.
 **REVISED at implementation time (2026-08-21).** The audit's "trivially
 replaceable forwarder" verdicts were WRONG for `unsafe.drop` and the
 `Var.*` wrappers: each one exists precisely to reify the CALLER's lvalue
-(`___drop(x)` / `__yo_var_*(x)` must see the caller's binding, and a plain
+(`___drop(x)` / the `Var.*` builtins must see the caller's binding, and a plain
 fn parameter is a different binding with different ownership/alias state).
 An `own`-param fn for `drop` was considered and rejected — moving field
 projections out through a parameter changes borrow behavior at 37 std call
@@ -246,9 +247,12 @@ keeps a working copy (which doubles as corpus coverage of a gated user
 macro), and `tests/macro_def_pragma.test.yo` re-creates it to preserve
 coverage of caller-frame early return through the macro machinery.
 
-The live std macro set is now 9: `if` (spec/fallback only — see 3.2),
+The live std macro set was then 9: `if` (spec/fallback only — see 3.2),
 `for`, `^`, `unsafe.drop`, the three `Var.*` introspectors, and the three
-collection literals.
+collection literals. The collection literals were deleted on 2026-10-20 in
+favour of the consuming constructors `ArrayList(T).from` /
+`HashMap(K, V).from` / `HashSet(T).from` (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`
+B3), leaving 6.
 
 ### 3.2 Promote `if` off the macro path (the high-leverage move)
 

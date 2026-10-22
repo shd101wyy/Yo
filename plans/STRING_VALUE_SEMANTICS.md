@@ -94,8 +94,8 @@ private clone, then writes in place. A unique buffer (the common case: a
 string being built up by its only owner) is written in place with no copy.
 `rc` is the live count (std/prelude's `Box` notes): the optimizer may cancel
 a dup against the original's scope-end drop, which is a move, so a cancelled
-pair never leaves two live handles at count 1. `Box`'s `can_isolate` already
-relies on the same property.
+pair never leaves two live handles at count 1. (`Box`'s `can_isolate`, deleted
+on 2026-10-21, relied on the same property.)
 
 **Empty stays free.** `String.new()` remains `.None` and allocates nothing.
 The first write allocates in the writer alone, which is now exactly the

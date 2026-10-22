@@ -40,7 +40,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class } :: import("../../types/utils.yo");
-{ is_iso_type, register_type_decl_module } :: import("../../types/guards.yo");
+{ register_type_decl_module } :: import("../../types/guards.yo");
 { reject_second_class_escape } :: import("../utils.yo");
 evaluate_struct_type :: (
   fn(
@@ -232,42 +232,7 @@ evaluate_struct_type :: (
     env.frames = result.env.frames;
     env.module_path = result.env.module_path;
     env.function_declaration_frame_level = result.env.function_declaration_frame_level;
-    env.input_string = result.env.input_string;
     i = (i + usize(1));
-  });
-  // Phase H: Ban Arc(Iso(T)) — the `*` field of an atomic object wrapping Iso
-  // directly. Arc(Iso) is contradictory: Arc shares, Iso is unique. Transitive
-  // nesting (Arc(MyStruct(_inner: Iso(T)))) stays legal.
-  if(is_atomic_rc, {
-    (deref_idx : Option(usize)) = Option(usize).None;
-    (j : usize) = usize(0);
-    while((j < field_labels.len()) && deref_idx.is_none(), {
-      match(
-        field_labels.get(j),
-        .Some(l) => if(l == "*", {
-          deref_idx = Option(usize).Some(j);
-        }),
-        .None => ()
-      );
-      j = (j + usize(1));
-    });
-    match(
-      deref_idx,
-      .Some(di) => {
-        deref_ty := match(field_types.get(di), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        if(is_iso_type(&deref_ty), {
-          exn.throw(
-            dyn(
-              format_error_message(
-                ast_expr_token(expr),
-                `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`
-              )
-            )
-          );
-        });
-      },
-      .None => ()
-    );
   });
   // Check newtype constraint: must have exactly one field
   if(is_newtype && !(fields.len() == usize(1)), {

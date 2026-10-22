@@ -16,7 +16,7 @@ Program ::= (WsOrComment | ';')* [Expression ((WsOrComment | ';')+ Expression)*]
 ;; Expression - The primary construct
 ;; Everything in Yo is an expression
 Expression ::=
-  | PrefixExpression                 ;; -x, !flag, &v, *T, ?T, ^v
+  | PrefixExpression                 ;; -x, !flag, &v, *T, ?T
   | PrimaryExpression PrimaryEnd*
 
 ;; Prefix Expression - a bare prefix operator binds exactly ONE postfix
@@ -24,7 +24,7 @@ Expression ::=
 ;; dot-chains. Nested prefixes recurse: `**T` = `*(*(T))`, `?*T` = `?(*(T))`.
 ;; (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1)
 PrefixExpression ::= PrefixOperator Operand
-PrefixOperator   ::= '-' | '!' | '~' | '&' | '*' | '?' | '^'
+PrefixOperator   ::= '-' | '!' | '~' | '&' | '*' | '?'
 
 ;; Primary Expression - Starting point of any expression
 PrimaryExpression ::=
@@ -406,7 +406,7 @@ Separator ::= ',' | ';'
    - Valid: `func(arg1, arg2)`
    - Invalid: `func (arg1, arg2)` or `func arg1, arg2`
    - Control-flow keywords are calls: write `return(value)`, `return()`, `unwind(value)`, or `unwind()`
-   - Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind exactly ONE postfix expression (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-1`, `!ready`, `&x`, `?*T`, and `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`), and the parenthesized call form (`-(x)`) is unchanged
+   - Prefix operators (`-` `!` `~` `&` `*` `?`) bind exactly ONE postfix expression (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-1`, `!ready`, `&x`, `?*T`, and `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`), and the parenthesized call form (`-(x)`) is unchanged
 
 3. **Infix operators**: no precedence
    - A chain of the same operator is left-associative at ANY operand count: `a + b + c` ⇒ `(a + b) + c`, `20 - 5 - 4 - 3` ⇒ `(((20 - 5) - 4) - 3)`

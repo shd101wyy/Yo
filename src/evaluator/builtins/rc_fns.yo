@@ -4,8 +4,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
 { TypeValue, TypeValueNode, shared_list, no_types, SharedList } :: import("../../types/definitions.yo");
-{ t_unit, t_bool } :: import("../../types/creators.yo");
-{ Environment, mark_function_frames_isolating } :: import("../../env.yo");
+{ t_unit } :: import("../../types/creators.yo");
+{ Environment } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   ExprInfo,
@@ -14,9 +14,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set
 } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
-{ is_array_type, is_iso_type, is_tuple_type } :: import("../../types/guards.yo");
+{ is_array_type, is_tuple_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ type_reaches_non_atomic_cell } :: import("../../types/utils.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -210,20 +209,6 @@ evaluate_yo_some_type_dup :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
-evaluate_yo_iso_dispose :: (
-  fn(
-    expr : &AstExpr,
-    env : &Environment,
-    ctx : &EvalContext,
-    exn : Exception
-  ) -> AstExpr
-)({
-  info := _eval_arg("evaluate_yo_iso_dispose", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(&info.env, t_unit());
-  out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
-});
 // ---------------------------------------------------------------------------
 // 1-arg -> arg type (rc_own passes ownership to caller, no comptime value)
 // ---------------------------------------------------------------------------
@@ -237,82 +222,6 @@ evaluate_yo_rc_own :: (
 )({
   info := _eval_arg("evaluate_yo_rc_own", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env, &info.ty);
-  out.value = .None;
-  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
-});
-// ---------------------------------------------------------------------------
-// iso_extract: 1-arg -> Option(T)
-// ---------------------------------------------------------------------------
-evaluate_yo_iso_extract :: (
-  fn(
-    expr : &AstExpr,
-    env : &Environment,
-    ctx : &EvalContext,
-    exn : Exception
-  ) -> AstExpr
-)({
-  info := _eval_arg("evaluate_yo_iso_extract", expr, env, ctx, usize(0), exn);
-  arg_type := info.ty;
-  if(!is_iso_type(&arg_type), {
-    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
-    exn.throw(
-      dyn(
-        format_error_message(
-          &tok,
-          `evaluate_yo_iso_extract: expected Iso type, but got: ${type_to_string(&arg_type)}`
-        )
-      )
-    );
-  });
-  // Phase H: extract() returns T DIRECTLY (it
-  // panics at runtime on failure), NOT Option(T). The prelude method is
-  // `extract : (fn(self) -> T)(__yo_iso_extract(self))`, so wrapping the builtin's
-  // result in Option(T) here made the method body's type (Option(T)) mismatch its
-  // declared return (T) → the `(iso.extract)()` call failed to transpile. Set the
-  // expr type to the inner T; value stays `.None` (a runtime value, not a comptime
-  // Option).
-  inner_type := match(arg_type, Rc(.IsoT(child_box)) => child_box, _ => t_unit());
-  out := new_expr_info(&info.env, &inner_type);
-  out.value = .None;
-  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
-  expr
-});
-// ---------------------------------------------------------------------------
-// iso_unique: 1-arg -> bool (rule D2's construction-time walk)
-// ---------------------------------------------------------------------------
-/// `__yo_iso_unique(v)` — true iff every non-atomic object reachable from `v`
-/// (itself included, when it is an object) has `ref_count == 1`. `v` is any
-/// value that reaches a non-atomic cell (`Iso(T)`'s bound,
-/// plans/VALUES_BY_DEFAULT.md §3.6): an object, or a value holding one. Called by the
-/// `^` macro before it wraps `v` in an `Iso`. The argument is read in place
-/// (no dup), so a uniquely held `v` reads as count 1.
-evaluate_yo_iso_unique :: (
-  fn(
-    expr : &AstExpr,
-    env : &Environment,
-    ctx : &EvalContext,
-    exn : Exception
-  ) -> AstExpr
-)({
-  info := _eval_arg("evaluate_yo_iso_unique", expr, env, ctx, usize(0), exn);
-  arg_type := info.ty;
-  if(!type_reaches_non_atomic_cell(&arg_type), {
-    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
-    exn.throw(
-      dyn(
-        format_error_message(
-          &tok,
-          `__yo_iso_unique expects a value that reaches a non-atomic cell, but got: ${type_to_string(&arg_type)}`
-        )
-      )
-    );
-  });
-  // Keep every count in this function accurate for the walk (env.yo).
-  mark_function_frames_isolating(env);
-  out := new_expr_info(&info.env, t_bool());
   out.value = .None;
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
@@ -449,9 +358,6 @@ export(
   evaluate_yo_dyn_vtable_dup,
   evaluate_yo_incr_rc,
   evaluate_yo_incr_rc_atomic,
-  evaluate_yo_iso_dispose,
-  evaluate_yo_iso_extract,
-  evaluate_yo_iso_unique,
   evaluate_yo_rc_own,
   evaluate_yo_some_type_drop,
   evaluate_yo_some_type_dup

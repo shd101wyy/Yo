@@ -65,11 +65,12 @@ inside the VBD campaign, for deleting the macro layer (`for`/`for_await`
 become parse-time desugars following the `if` → `cond` precedent,
 `unsafe.drop` becomes a direct `___drop` call, and the three collection
 literals are replaced by ordinary `from` constructors — LLM authoring does
-not need the sugar) and the builtin `Iso(T)`/`^v` (Rust's thread rule:
-cross-thread data is `Send`; `Rc.try_unwrap` is the bridge; deleted after
-V2b's collection flips). It reverses
-[`reference/MACRO_POLICY`](reference/MACRO_POLICY.md) and supersedes the `Iso`
-carve-outs in [`VALUES_BY_DEFAULT`](VALUES_BY_DEFAULT.md) §3.6/§3.8.
+not need the sugar) and the builtin isolated-transfer type with its `^`
+constructor (Rust's thread rule: cross-thread data is `Send`;
+`Rc.try_unwrap` is the bridge; Part A, deleted at v0.2.68, pulled forward on
+2026-10-21). It reverses
+[`reference/MACRO_POLICY`](reference/MACRO_POLICY.md) and supersedes the
+isolated-transfer carve-outs in [`VALUES_BY_DEFAULT`](VALUES_BY_DEFAULT.md) §3.6/§3.8.
 Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
 verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
@@ -126,6 +127,15 @@ iterator adapters, container parity, `Lazy`, `Result.context`, `yo bench`,
 `--deny warnings`, LSP code actions and inlay hints, fuzzing, panic
 backtraces), and the rejections it adds (shadowing, `PartialOrd`, `Weak`,
 guards, `Cow`, `Deref` coercions).
+[`WEAK_AND_UNCOLLECTED_RC`](backlog/WEAK_AND_UNCOLLECTED_RC.md) (2026-10-21,
+reopening decision 46's "No `Weak`") is Rust's `Rc`/`Arc` model on Yo's
+one handle pair: `Weak(T)`/`ArcWeak(T)` with a weak count in the bits
+decision 46 freed, a per-program `--cycle-collector off` build, `Arc`
+without its `Acyclic` bound, and `Acyclic` kept as a derived-only marker
+(`Weak` edges excluded; the declared form goes); the collector is deleted
+at W6, once `Weak` and the
+`--allocator debug` leak oracle have shipped and one release has run with
+it off (maintainer, 2026-10-21).
 [`ZIG_ADOPTION_CANDIDATES`](backlog/ZIG_ADOPTION_CANDIDATES.md) is the Zig
 half of the same 2026-10-10 survey: the table of what Yo already shares
 with Zig (comptime, lazy analysis, `build.yo`, `c_include`, allocators as

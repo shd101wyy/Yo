@@ -246,15 +246,3 @@ test("private _-field accessible in same file", {
   v._secret = i32(99);
   assert(v._secret == i32(99), "should write _-prefixed field in same file");
 });
-
-// ============================================================================
-// Phase H (THREAD_SAFETY): Iso(Arc(T)) and Arc(Iso(T)) are banned
-// ============================================================================
-comptime_expect_error({
-  Iso(Arc(i32));
-});
-// (Over a reference object: `Iso(i32)` is itself rejected now — rule D2 — so
-// `Arc(Iso(i32))` would fail before reaching the Arc(Iso) ban it pins.)
-comptime_expect_error({
-  Arc(Iso(Rc(i32)));
-});

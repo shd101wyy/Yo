@@ -191,7 +191,7 @@ evaluate_identifier_and_operator :: (
       if(is_some_type(&bound), self_tv, bound)
     }, self_tv);
     if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path.*} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
     });
     ev := create_type_value(&resolved);
     info := new_expr_info(env, t_type());
@@ -229,7 +229,7 @@ evaluate_identifier_and_operator :: (
   identifier_string := token.value;
   if((identifier == "Self") && debug_knob(`YO_DEBUG_WARM`).is_some(), {
     env_self_cnt := get_variables_from_env(env, String.from("Self")).len();
-    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+    eprintln(`[selfatom] path=env-lookup self_vars=${env_self_cnt.to_string()} mod=${env.module_path.*} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
   });
   found_frame_idx_out := ArrayList(usize).new();
   variable := match(
@@ -295,7 +295,7 @@ evaluate_identifier_and_operator :: (
         });
         // Ordinary identifiers throw.
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);
+          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path.*} frames=${env.frames.len().to_string()}`);
         });
         // The suggestion doubles as a MECHANICAL REPAIR: the token IS the
         // name to rewrite (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
@@ -631,7 +631,7 @@ evaluate_identifier_and_operator :: (
 /// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
 _read_after_move_is_checked :: (fn(variable : &Variable, token : &Token, env : &Environment) -> bool)(
   !token.module_path.starts_with(String.from("auto-generated://"))
-  && !is_temp_variable_name(&env.module_path, &variable.name)
+  && !is_temp_variable_name(&env.module_path.*, &variable.name)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.

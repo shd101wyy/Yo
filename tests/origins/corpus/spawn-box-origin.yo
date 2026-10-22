@@ -1,0 +1,11 @@
+// N0 corpus row `spawn-box-origin` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a `Box` carrying an origin crossing `io.spawn` (O4, O10).
+// Expected once decision 43's rules land: rejected: E0909, the task is not `Escapable`.
+main :: (fn(io : Io) -> unit)({
+  x := i32(1);
+  b := box(&x);
+  t := io.spawn(io.async({ b }(io : Io) => b.*.*), io);
+  _ := io.await(t, io);
+  ()
+});
+export(main);

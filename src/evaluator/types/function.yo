@@ -474,7 +474,6 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
         frames : frames,
         module_path : d.module_path,
         function_declaration_frame_level : d.function_declaration_frame_level,
-        input_string : d.input_string,
         frozen : false
       )
     },
@@ -1049,7 +1048,6 @@ _eval_and_update_env :: (
       env_mut.frames = info.env.frames;
       env_mut.module_path = info.env.module_path;
       env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-      env_mut.input_string = info.env.input_string;
       if(
         is_type_value(&info.value),
         .Some(
@@ -1829,7 +1827,6 @@ evaluate_function_parameter :: (
           env_mut.frames = info.env.frames;
           env_mut.module_path = info.env.module_path;
           env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-          env_mut.input_string = info.env.input_string;
           dv_val_opt := info.value;
           captured_default_value = dv_val_opt;
           // Coerce comptime types (e.g. comptime_str) to their runtime
@@ -2407,7 +2404,6 @@ validate_concrete_type_constraints :: (
     env_mut.frames = info.env.frames;
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-    env_mut.input_string = info.env.input_string;
     if(is_type_value(&info.value), {
       tv := match(
         info.value,
@@ -2603,7 +2599,6 @@ apply_single_trait_constraint :: (
     env_mut.frames = info.env.frames;
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
-    env_mut.input_string = info.env.input_string;
     lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
@@ -2637,7 +2632,6 @@ apply_single_trait_constraint :: (
   env_mut.frames = info_rhs.env.frames;
   env_mut.module_path = info_rhs.env.module_path;
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
-  env_mut.input_string = info_rhs.env.input_string;
   trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
@@ -2857,7 +2851,6 @@ parse_where_clause_constraints :: (
       env_mut.frames = lhs_info.env.frames;
       env_mut.module_path = lhs_info.env.module_path;
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
-      env_mut.input_string = lhs_info.env.input_string;
       lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
@@ -2970,7 +2963,6 @@ parse_where_clause_constraints :: (
       env_mut.frames = trait_info.env.frames;
       env_mut.module_path = trait_info.env.module_path;
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
-      env_mut.input_string = trait_info.env.input_string;
       trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
@@ -5328,7 +5320,6 @@ _collect_type_arg_somes :: (
     },
     Rc(.Pointer(pointee : cta_p2)) => recur(&cta_p2, acc, visited_ids),
     Rc(.Array(element : cta_e, _, _)) => recur(&cta_e, acc, visited_ids),
-    Rc(.IsoT(child : cta_c)) => recur(&cta_c, acc, visited_ids),
     _ => ()
   )
 );

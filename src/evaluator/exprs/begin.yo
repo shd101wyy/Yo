@@ -70,8 +70,8 @@ pragma(Pragma.AllowUnsafe);
   record_branch_consume,
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
-{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
+{ scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, is_fnonce_capture_frame } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -336,8 +336,10 @@ _search_dup_calls :: (fn(expr : &AstExpr, res : &DupCallsResult, ctx : &EvalCont
   );
   // The node itself is a dup call? A by-value parameter's share is never a
   // pair candidate: the callee frees it at its return, before the caller's
-  // later reads (`_mark_by_value_param_shares`, calls/helper.yo).
-  if(is_by_value_param_share_dup(ast_expr_id(expr)), {
+  // later reads (`_mark_by_value_param_shares`, calls/helper.yo). Nor is an
+  // aliased argument's caller-owned +1, which its own post-call drop
+  // balances (`mark_call_scoped_share_dup`, expr_info.yo).
+  if(is_by_value_param_share_dup(ast_expr_id(expr)) || is_call_scoped_share_dup(ast_expr_id(expr)), {
     return(());
   });
   match(
@@ -1415,7 +1417,7 @@ _optimize_dup_drop_pairs :: (
               // A `ref` holding a `ref` is cycle-capable and therefore
               // GC-TRACKED, so `__yo_decr_rc` buffers a possible root instead
               // of freeing on the spot and the fault reads as a correct
-              // answer; an `atomic(ref(…))` is an Iso type, never tracked, and
+              // answer; an `atomic(ref(…))` is atomically counted, never tracked, and
               // faults immediately. That asymmetry is why this survived
               // (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md).
               //
@@ -2475,7 +2477,6 @@ _evaluate_begin_expression_impl :: (
           env.frames = ret_info.env.frames;
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
-          env.input_string = ret_info.env.input_string;
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(&evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
@@ -2846,7 +2847,6 @@ _evaluate_begin_expression_impl :: (
             env.frames = ev_info.env.frames;
             env.module_path = ev_info.env.module_path;
             env.function_declaration_frame_level = ev_info.env.function_declaration_frame_level;
-            env.input_string = ev_info.env.input_string;
           },
           .None => ()
         );
@@ -3218,7 +3218,7 @@ _evaluate_begin_expression_impl :: (
                 // Transfer: consumed — the scope-end scheduler (e5) skips it.
                 // A named variable's transfer is a move (the flow log's
                 // per-path move state, `set_expr_as_consumed`).
-                if(!is_temp_variable_name(&env.module_path, &rv.name), {
+                if(!is_temp_variable_name(&env.module_path.*, &rv.name), {
                   record_branch_consume(rv.id, ast_expr_token(&last_expr), &rv.initialized_at_token, Option(Token).None);
                 });
                 rv.consumed_at_token = Option(Token).Some(ast_expr_token(&last_expr));
@@ -3247,8 +3247,6 @@ _evaluate_begin_expression_impl :: (
   // the M3 driver below attaches their early-return-only drops.
   match(
     current_frame_opt,
-    // Not in a function that isolates a value (`^v`): the uniqueness walk
-    // needs every count to equal its live handles (`frame_is_isolating`).
     // Whether the block awaits decides the local-move case (see `slot_move`).
     .Some(opt_fr) => {
       (awaits : bool) = false;
@@ -3263,7 +3261,7 @@ _evaluate_begin_expression_impl :: (
         );
         ai = (ai + usize(1));
       });
-      if(!frame_is_isolating(&opt_fr), _optimize_dup_drop_pairs(&opt_fr, &begin_args, &last_info.variable_name, &last_expr, awaits, ctx));
+      _optimize_dup_drop_pairs(&opt_fr, &begin_args, &last_info.variable_name, &last_expr, awaits, ctx);
     },
     .None => ()
   );

@@ -1,0 +1,13 @@
+// N0 corpus row `impl-wider-than-trait` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): an impl returning a borrow wider than its trait method's result origin (O7: an impl is checked against its trait method; the caller side of a `Dyn` call is `dyn-call-*`).
+// Expected once decision 43's rules land: rejected in the impl: `other` is not within `self`.
+_Pick :: trait(pick : (fn(self : &Self, other : &i32) -> &(i32, self)));
+_P :: struct(v : i32);
+impl(_P, _Pick(pick : (fn(self : &Self, other : &i32) -> &(i32, self))(other)));
+main :: (fn() -> unit)({
+  p := _P(v : i32(1));
+  o := i32(2);
+  _ := p.pick(&o).*;
+  ()
+});
+export(main);

@@ -103,7 +103,7 @@ _emit_deferred_drops :: (fn(ei : &ExprInfo, indent : &String, context : &Functio
                 get_deferred_drop_target_atom_name(&drop_expr),
                 .Some(nm) => {
                   cn := sanitize_for_c_identifier(&nm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
+                  (is_temp_variable_name(&ei.env.module_path.*, cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&cn))
                 },
                 .None => false
               );
@@ -159,7 +159,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         // deferred-drop passes skip a temp they never saw declared, so the
         // evaluator's scope-end drop of a block result that is not moved
         // (a call argument, a receiver, `&{...}`, a discarded statement, an
-        // `array_list(...)` temporary) was silently thrown away
+        // macro-expansion temporary) was silently thrown away
         // (issues/fixed/2026-10-14-a-block-result-that-is-not-moved-is-never-released.md).
         declare_c_var_name(&context.base, temp_var.clone());
       });
@@ -202,7 +202,7 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
               if(
                 !(is_last && is_returning),
                 if(result.len() > usize(0), {
-                  is_temp := is_temp_variable_name(arg_ei.env.module_path.clone(), result.clone());
+                  is_temp := is_temp_variable_name(&arg_ei.env.module_path.*, result.clone());
                   if(!is_temp, {
                     line := indent2.clone();
                     line.push_string(result.clone());

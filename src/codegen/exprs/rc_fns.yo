@@ -468,7 +468,7 @@ generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   if(
     is_rc_type(&arg_type),
     // Every handle whose count the RC ops update atomically (an atomic
-    // struct, an atomic enum, an `Iso` wrapper) is read atomically too.
+    // struct, an atomic enum) is read atomically too.
     if(is_atomically_counted_rc_type(&arg_type), {
       // `_Atomic uint32_t*`, NOT `size_t*`: `ref_count` is a `uint32_t` at offset 0
       // of `__yo_ref_header_t` (followed by `type_id` and `borrow_count`), so an

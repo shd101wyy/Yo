@@ -192,7 +192,7 @@ test("evaluate_assignment: atom LHS — ExprInfo set with unit type", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(
@@ -225,7 +225,7 @@ test("evaluate_assignment: atom LHS reassignment — ExprInfo carries old value/
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(
@@ -278,7 +278,7 @@ test_assign_missing_var_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   // No variable added — "missing_var" will not be found.
   lhs := mk_ident(usize(50), "missing_var");
@@ -302,7 +302,7 @@ test_assign_non_reassignable_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(
@@ -338,7 +338,7 @@ test_assign_type_mismatch_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   tok := mk_token(TokenKind.Identifier, "x");
   _v := add_variable_to_env(

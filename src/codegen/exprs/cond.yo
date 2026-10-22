@@ -201,7 +201,7 @@ _emit_unassigned_arm_code :: (fn(value : &AstExpr, value_code : &String, indent 
   // already computed.
   is_stmt := match(
     context.base.get_expr_info(value),
-    .Some(vei) => (is_unit_type(&vei.ty) && !is_temp_variable_name(vei.env.module_path.clone(), value_code.clone())),
+    .Some(vei) => (is_unit_type(&vei.ty) && !is_temp_variable_name(&vei.env.module_path.*, value_code.clone())),
     .None => false
   );
   if((value_code.len() > usize(0)) && is_stmt, {
@@ -433,7 +433,7 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
           .Some(bei) => {
             note_line_position(&em, &barg);
             arg_code := _call_generate_expr(&barg, value_indent.clone(), context);
-            if((arg_code.len() > usize(0)) && !is_temp_variable_name(bei.env.module_path.clone(), arg_code.clone()), {
+            if((arg_code.len() > usize(0)) && !is_temp_variable_name(&bei.env.module_path.*, arg_code.clone()), {
               line := value_indent.clone();
               line.push_string(&arg_code);
               line.push_str(";");

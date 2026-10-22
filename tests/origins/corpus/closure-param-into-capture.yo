@@ -1,0 +1,16 @@
+// N0 corpus row `closure-param-into-capture` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a closure literal storing its per-call parameter into a captured container (expected hole: elision x closures).
+// Expected once decision 43's rules land: rejected in the literal's body: the per-call origin is not within the container's union.
+{ ArrayList } :: import("std/collections/array_list");
+_each :: (fn(f : Impl(Fn(v : &i32) -> unit)) -> unit)({
+  k := i32(1);
+  f(&k);
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(out) := ArrayList(&(i32, x)).new();
+  _each({ o : &mut out }(v : &i32) => o.push(v));
+  _ := out.len();
+  ()
+});
+export(main);

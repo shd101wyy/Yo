@@ -36,6 +36,14 @@ The same failure, measured 2026-10-20 on macOS with Apple clang:
 The struct literal alone, `(p : P) = P(x : mk(i32(1)), y : i32(2))`, compiles and runs, so the
 failure belongs to the enclosing array or tuple literal.
 
+A `ref(enum)` variant shape, measured 2026-10-22 on Linux with the tree binary of
+develop `b0987d86f`: an array literal whose elements are variants of a `ref(enum(...))` built
+from runtime values (`[Node.Return(e),]`, `[Node.Borrow(false, x),]`) emits each variant's
+constructor call with its arguments dropped (`{ .data = { __yo_new_…_Return() } }`, clang: "too few arguments to
+function call"). It surfaced when `tests/origins/model_corpus.test.yo` was migrated off the
+deleted `array_list(...)` literal (macro plan B3); that file builds its lists by pushes until
+this is fixed.
+
 ## Root cause
 
 A struct or enum literal with a runtime field evaluates to a `StructVal` / `EnumVal` SHELL whose

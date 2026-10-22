@@ -283,7 +283,6 @@ type_prohibits_comptime_modifier :: (fn(ty : &TypeValue) -> bool)(
   // Use the tag fast path: these types are definitively runtime-only.
   match(
     type_value_tag(ty),
-    .TIso => true,
     .TDyn => true,
     .TVoid => true,
     .TUnion => true,
@@ -366,7 +365,6 @@ type_implements_runtime_builtin :: (fn(ty : &TypeValue) -> Option(bool))({
     .TExpr => .Some(false),
     .TComptimeList => .Some(false),
     // Runtime-only
-    .TIso => .Some(true),
     .TDyn => .Some(true),
     .TVoid => .Some(true),
     .TCChar => .Some(true),
@@ -763,8 +761,8 @@ is_destructor_trait_member :: (fn(trait_ty : &TypeValue, label : &String) -> boo
   is_drop_method_name(label) && match(trait_ty, Rc(.TraitT({ name })) => is_drop_trait_name(&name), _ => false)
 );
 /// Depth-limited walk for `type_is_move_only`, the shape of
-/// `_type_contains_rc_inner`. A reference type (and `Dyn`/`Iso`, which are
-/// cells too) stops the walk: it shares its payload, so it is copyable
+/// `_type_contains_rc_inner`. A reference type (and `Dyn`, which is a cell
+/// too) stops the walk: it shares its payload, so it is copyable
 /// whatever it holds.
 /// A `Dyn(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37): its call
 /// consumes it, so it is move-only although a `Dyn` is reference counted —
@@ -1166,8 +1164,6 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
         });
         found
       },
-      // Iso — check child type
-      Rc(.IsoT(child : child)) => recur(&child, depth + u32(1), flip),
       // SomeT — follow the resolved concrete type if present; an unresolved
       // SomeType is treated as RC. The Future carve-out is already handled
       // by `is_rc_type(ty)` above (line ~307). Without this follow-through a
@@ -1209,7 +1205,7 @@ type_has_no_open_some :: (fn(t : &TypeValue) -> bool)({
   });
   true
 });
-/// Return `true` if the type contains an RC-managed type (object/Dyn/Iso) or
+/// Return `true` if the type contains an RC-managed type (object/Dyn) or
 /// a move-only value (`type_is_move_only`): a value whose copies and drops the
 /// ownership machinery must track. `Type.contains_rc_type(T)` reads this too,
 /// which is what makes a container drop (and so dispose) its move-only
@@ -1220,8 +1216,8 @@ type_has_no_open_some :: (fn(t : &TypeValue) -> bool)({
 type_contains_rc_type :: (fn(ty : &TypeValue) -> bool)(
   _type_contains_rc_inner(ty, u32(0), true)
 );
-/// `type_contains_rc_type` before decision 36's flip: an RC cell, `Dyn`,
-/// `Iso` or a move-only value, but not a plain-data value merely lacking
+/// `type_contains_rc_type` before decision 36's flip: an RC cell, `Dyn` or
+/// a move-only value, but not a plain-data value merely lacking
 /// `Copy`. What the flip's own predicate and the compile-time value of a temp
 /// are decided on.
 type_contains_rc_cell_or_move_only :: (fn(ty : &TypeValue) -> bool)(
@@ -1230,14 +1226,13 @@ type_contains_rc_cell_or_move_only :: (fn(ty : &TypeValue) -> bool)(
 /// Does a value of `ty` reach a NON-ATOMIC cell — a `ref(struct)`/`ref(enum)`
 /// that is not atomic (`Rc`, today's `Box`, `ArrayList`'s buffer cell, a user
 /// `ref(struct)`), or a `Dyn`'s shared box? The walk goes through value
-/// aggregates inline and stops at atomic cells and `Iso`s, which are shared
-/// safely already. Unlike `type_contains_rc_type` it ignores move-only values
-/// that hold no cell.
+/// aggregates inline and stops at atomic cells, which are shared safely
+/// already. Unlike `type_contains_rc_type` it ignores move-only values that
+/// hold no cell.
 ///
-/// This is `Iso(T)`'s bound (plans/VALUES_BY_DEFAULT.md §3.6): `T` is any
-/// value that reaches at least one non-atomic cell, the graph `^v` proves
-/// unique. It is also what `Send` refuses: a value is `Send` only if it
-/// reaches none (§3.8), which the marker derivation states field by field.
+/// It is what `Send` refuses: a value is `Send` only if it reaches none
+/// (plans/VALUES_BY_DEFAULT.md §3.8), which the marker derivation states field
+/// by field. Box tracing and the `Acyclic` derivation read it too.
 type_reaches_non_atomic_cell :: (fn(ty : &TypeValue) -> bool)(_reaches_non_atomic_cell_inner(ty, u32(0)));
 _any_reaches_non_atomic_cell :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
@@ -1965,9 +1960,6 @@ _collect_some_types_into :: (
     Rc(.Pointer(pointee : pt)) => {
       recur(&pt, acc, visited_ids);
     },
-    Rc(.IsoT(child : ch)) => {
-      recur(&ch, acc, visited_ids);
-    },
     Rc(.Func({ forall_types : ftys, param_types : ptys, result : res })) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
@@ -2125,7 +2117,6 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
     },
     Rc(.Pointer(pt)) => recur(&pt, visited_ids),
     Rc(.Array(element : el, _, _)) => recur(&el, visited_ids),
-    Rc(.IsoT(ch)) => recur(&ch, visited_ids),
     Rc(.TypeAppT(constructor : con, args : cargs)) => {
       if(recur(&con, visited_ids), {
         return(true);

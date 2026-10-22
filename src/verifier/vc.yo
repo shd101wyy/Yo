@@ -647,7 +647,7 @@ _guard_site :: (fn(e : &AstExpr, class : &String) -> Option(GuardSite))({
   Option(GuardSite).Some(
     GuardSite(
       node_id : ast_expr_id(e),
-      module : canonical_module_path(tok.module_path.clone()),
+      module : canonical_module_path(&tok.module_path),
       row : usize(tok.row),
       column : usize(tok.column),
       class : class
@@ -2760,7 +2760,7 @@ _or_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
 });
 /// Collect every source name ASSIGNED inside a loop body: `:=`/`=` LHS
 /// names (the havoc set). Follows `ExprInfo.macro_expansion` for macro
-/// calls (`for`, collection literals, user macros — the branch structure
+/// calls (`for`, user macros — the branch structure
 /// lives in the expansion, not the macro call; the optimizer-family
 /// discipline from issues/fixed/where-constraints-arraylist-96b-leak.md).
 /// Names already in `out` are skipped (idempotent).

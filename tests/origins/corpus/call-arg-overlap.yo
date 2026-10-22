@@ -1,0 +1,11 @@
+// N0 corpus row `call-arg-overlap` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a `&` relend of a place an earlier argument of the same call lends `&mut` (O3 step 2 / decision 28 restated).
+// Expected once decision 43's rules land: rejected: E0910; ACCEPTED TODAY (decision 28 as built passes a later `&` relend).
+{ ArrayList } :: import("std/collections/array_list");
+_both :: (fn(a : &mut ArrayList(i32), b : &ArrayList(i32)) -> unit)(a.push(i32(b.len())));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  _both(&mut xs, &xs);
+  ()
+});
+export(main);

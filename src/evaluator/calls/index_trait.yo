@@ -1413,7 +1413,7 @@ _try_comptime_custom_type_index :: (
   ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => ArrayList(EvalValue).new());
   ct_module_path := ct_caller_env.module_path;
-  ct_callee_env := Environment.new(&ct_module_path);
+  ct_callee_env := Environment.new(ct_module_path);
   (ct_ci : usize) = usize(0);
   while(ct_ci < ct_cap_vals.len(), {
     ct_cn := fv_source_name(&ct_cap_src, ct_ci);
@@ -1429,7 +1429,7 @@ _try_comptime_custom_type_index :: (
       false,
       false,
       false,
-      synthetic_token(&ct_cn, &ct_module_path)
+      synthetic_token(&ct_cn, &ct_module_path.*)
     );
     ct_ci = (ct_ci + usize(1));
   });
@@ -1855,10 +1855,10 @@ _record_index_unchecked_twin :: (
   ) -> unit
 )({
   tok := ast_expr_token(expr);
-  if(!_is_verify_target(tok.module_path.clone()), {
+  if(!_is_verify_target(&tok.module_path), {
     return(());
   });
-  vmode := resolve_verify_mode(tok.module_path.clone());
+  vmode := resolve_verify_mode(&tok.module_path);
   if(!((vmode == "verify") || (vmode == "verify+")), {
     return(());
   });

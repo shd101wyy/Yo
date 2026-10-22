@@ -83,7 +83,7 @@ The R2 encoding measurement (Z3 5.1.0, the verifier's preamble) is in
 | `prfun` / `praxi` / `dataprop` (proofs as erased values) | `ghost`, `ghost_fn` (inlined; a recursive one is a subset error), `law`, `assumed()`, ghost `Seq`/`Multiset`/`Set` | **take the lemma layer** (§3 A1) |
 | Termination metrics `.<n>.` and `.<m, n>.` | `decreases(M)` on functions and loops, mutual-recursion cliques (V6 task 4); one measure, no tuples | **take lexicographic measures** (§3 A5) |
 | Effects on function types (`<>` pure, `<!ntm>` total) | spec calls see only a callee's `ensures`; the effects analysis exists (`src/evaluator/effects/`) but specs cannot use a function's body | **take spec-transparent pure functions** (§3 A3) |
-| Linear types `vtype` / `absvtype` (must consume exactly once) | affine: `own` moves (E0901), E0907 for path-dependent moves, `Iso(T)`, RAII `Dispose`; no must-use | **take must-use, not linearity** (§3 A2) |
+| Linear types `vtype` / `absvtype` (must consume exactly once) | affine: `own` moves (E0901), E0907 for path-dependent moves, RAII `Dispose`; no must-use | **take must-use, not linearity** (§3 A2) |
 | `!T` (non-consuming parameters) | the default: parameters are read-only borrows; `inout`; borrow guards; `Pragma.StrictBorrow` | have |
 | Views `T @ l`, safe pointer arithmetic by proof | a type-based gate: no raw pointer in safe code; the verifier does not model pointers | **take the proof-token idea for init** (§3 A4); a verified-unsafe std is §4 |
 | `T?` / `@[T?][n]` (uninitialized, initialized by proof) | `MaybeUninit(T)`, definite-initialization E0903; `set_len` is ungated (the S1) | **take it** (§3 A4) |

@@ -1,0 +1,13 @@
+// N0 corpus row `list-mut-two-pushes` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): `ArrayList(&mut T)` with two pushes of one root: the second `&mut x` while the list holds the first (O3 step 2, O6; the superseded design's row).
+// Expected once decision 43's rules land: rejected: E0911 at the second push.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  mut(out) := ArrayList(&mut(i32, x)).new();
+  out.push(&mut x);
+  out.push(&mut x);
+  _ := out.len();
+  ()
+});
+export(main);

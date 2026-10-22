@@ -127,27 +127,6 @@ test("Test Rc in different data structures", {
     assert(n.0.0.0.0.* == 3, "n.0.0.0.0.* == 3");
   };
 });
-test("Test Rc with Iso", {
-  {
-    x := rc(123);
-    z := ^x;
-    match(
-      z,
-      .Some(_) => assert(true),
-      .None => assert(false, "unreachable")
-    );
-  };
-  {
-    x := rc(123);
-    y := { x };
-    z := ^x;
-    match(
-      z,
-      .Some(_) => assert(false, "unreachable"),
-      .None => assert(true)
-    );
-  };
-});
 // --- Phantom drop regression tests ---
 // These test that match/cond inside function arguments don't cause phantom drops
 // of undeclared temp variables (fixed in consumeCaseBodyTempVar).
@@ -1253,8 +1232,8 @@ test("an alias whose &mut self method replaces it leaves the base its object", {
 //
 // The non-atomic path hid it behind a correct-looking answer: a `ref` holding
 // a `ref` is cycle-capable, so it is GC-TRACKED and `__yo_decr_rc` buffers a
-// possible root instead of freeing on the spot. An `atomic(ref(...))` is an
-// Iso type, never tracked, so the free is immediate and the read faults.
+// possible root instead of freeing on the spot. An `atomic(ref(...))` is
+// atomically counted, never tracked, so the free is immediate and the read faults.
 // issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md
 //
 // The oracle is a Drop counter rather than a value read, because it catches

@@ -1201,7 +1201,7 @@ _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
   _scope_type_installs(&info.ty) || _scope_value_installs(&info.value) || _scope_value_installs(lookup_method_callee_value(id))
 );
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
-  husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path.clone(), function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), input_string : entry.input_string.clone(), frozen : true);
+  husk := Environment(frames : copy_env_frames(entry), module_path : entry.module_path, function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
   while(i < g_scope_log_ids.len(), {
     id := g_scope_log_ids.get(i).unwrap();
@@ -1230,7 +1230,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       // This info object was released by an earlier body (logged again
       // there): its records stand.
       g_scope_rereleased = (g_scope_rereleased + usize(1));
-    }, if(!(info.env.module_path == entry.module_path) || _scope_keeps_env(id, &info) || !shares_husk, {
+    }, if(!(info.env.module_path.* == entry.module_path.*) || _scope_keeps_env(id, &info) || !shares_husk, {
       if(!shares_husk, {
         g_scope_prefix_bad = (g_scope_prefix_bad + usize(1));
       });
@@ -2758,6 +2758,18 @@ mark_by_value_param_share_dup :: (fn(id : usize) -> unit)({
   _m := g_by_value_param_share_dup_ids.insert(id);
 });
 is_by_value_param_share_dup :: (fn(id : usize) -> bool)(g_by_value_param_share_dup_ids.contains(&id));
+/// The caller-owned +1 an aliased argument takes for one call (Aliasing
+/// Stage 0, `set_expr_as_needs_to_call_dup_for_borrowed_projection`,
+/// evaluator/utils.yo). Its own post-call `___drop` balances it, so the
+/// dup/drop pair optimizer never cancels it against the source's scope-end
+/// drop: that "move" left the source undropped and the callee's `&` argument
+/// unprotected
+/// (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
+(g_call_scoped_share_dup_ids : HashSet(usize)) = HashSet(usize).new();
+mark_call_scoped_share_dup :: (fn(id : usize) -> unit)({
+  _m := g_call_scoped_share_dup_ids.insert(id);
+});
+is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.contains(&id));
 mark_call_once_capture_dup :: (fn(id : usize) -> unit)({
   _m := g_call_once_capture_dup_ids.insert(id);
 });
@@ -2911,7 +2923,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
   });
 });
 export(record_fid_rtcall, record_fid_spec, fid_fully_specialized, print_spec_report_if_requested, record_node_eval);
-export(mark_by_value_param_share_dup, is_by_value_param_share_dup);
+export(mark_by_value_param_share_dup, is_by_value_param_share_dup, mark_call_scoped_share_dup, is_call_scoped_share_dup);
 export(mark_node_preevaluated, unmark_node_preevaluated, node_is_preevaluated, mark_call_once_capture_dup, is_call_once_capture_dup, mark_fnonce_capture_drop, is_fnonce_capture_drop, mark_fnonce_post_call_release, is_fnonce_post_call_release);
 export(record_macro_expansion, lookup_macro_expansion);
 export(HollowBodyError, record_hollow_body_error, clear_hollow_body_error, lookup_hollow_body_error);

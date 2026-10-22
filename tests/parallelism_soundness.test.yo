@@ -468,30 +468,6 @@ comptime_expect_error({
   _d6_call_runtime_extern_through_module();
 });
 // ============================================================================
-// D2 — Iso: constructed only through ^, over a reference object
-// ============================================================================
-// D2 (Phase 2): the raw constructor is not available in safe code.
-comptime_expect_error({
-  _d2_raw_iso_constructor :: (fn() -> unit)({
-    b := rc(i32(1));
-    _i := Iso(Rc(i32))(b);
-  });
-  _d2_raw_iso_constructor();
-});
-// D2 (Phase 2): Iso of a value type is rejected at the type.
-comptime_expect_error({
-  _D2Scalar :: Iso(i32);
-});
-// Canary: `^` constructs an Iso in safe code.
-test("D2 canary: ^ isolates a uniquely owned Rc in safe code", {
-  b := rc(i32(7));
-  match(
-    ^b,
-    .Some(i) => assert(i.extract().* == i32(7), "the value came through"),
-    .None => assert(false, "a fresh Rc is uniquely owned")
-  );
-});
-// ============================================================================
 // D8 — closures may not capture second-class bindings
 // ============================================================================
 // D8 (Phase 4): a closure inside a `with_lock` body may not capture the
@@ -635,43 +611,6 @@ comptime_expect_error({
   });
   _d9_struct_with_fn_field();
 });
-// D9 inside an Iso: isolation proves the graph uniquely owned, not that the
-// code a function stored in it runs is safe on another thread.
-_D9Wrap :: ref(struct(f : (fn() -> unit)));
-comptime_expect_error({
-  _d9_iso_of_fn_field :: (fn() -> unit)({
-    w := _D9Wrap(f : _d9_push);
-    r := ^w;
-    r;
-  });
-  _d9_iso_of_fn_field();
-});
-// An atomic beside the function does not exempt the graph: `AtomicI32` carries
-// an extern opaque SomeT, and the Iso rules once ran only on a SomeT-free `T`
-// (issues/fixed/an-atomic-field-exempts-an-iso-graph-from-rule-d9.md).
-_D9WrapAtomic :: ref(struct(counter : AtomicI32, f : (fn() -> unit)));
-comptime_expect_error({
-  _d9_iso_of_fn_field_beside_an_atomic :: (fn() -> unit)({
-    w := _D9WrapAtomic(counter : AtomicI32.new(i32(0)), f : _d9_push);
-    r := ^w;
-    r;
-  });
-  _d9_iso_of_fn_field_beside_an_atomic();
-});
-comptime_expect_error({
-  _d9_iso_of_reaching_closures :: (fn() -> unit)({
-    (k : Impl(Fn() -> unit)) = (
-      () => {
-        g_items.push(i32(9));
-      }
-    );
-    xs := ArrayList(type_of(k)).new();
-    xs.push(k);
-    r := ^xs;
-    r;
-  });
-  _d9_iso_of_reaching_closures();
-});
 // D9 at `dyn(...)`: a closure coerced to `Dyn(Fn() -> R, Send)` is judged by
 // its value.
 comptime_expect_error({
@@ -751,14 +690,8 @@ test("D9 canary: function values that reach only atomics are Send by every route
     ()
   });
   t3.join();
-  // `dyn(...)` and the list each take ownership, so each gets its own closure.
+  // `dyn(...)` takes ownership, so it gets its own closure.
   (kd : Impl(Fn() -> unit)) = (
-    () => {
-      d9_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
-      ();
-    }
-  );
-  (kl : Impl(Fn() -> unit)) = (
     () => {
       d9_hits.fetch_add(i32(1), MemoryOrder.AcqRel);
       ();
@@ -770,23 +703,7 @@ test("D9 canary: function values that reach only atomics are Send by every route
     ()
   });
   t4.join();
-  // An `Iso` over a list of clean closures
-  // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
-  ks := ArrayList(type_of(kl)).new();
-  ks.push(kl);
-  match(
-    ^ks,
-    .Some(iso) => {
-      t5 := Thread(unit).spawn((io : Io) => {
-        got := iso.extract();
-        match(got.get(usize(0)), .Some(g0) => g0(), .None => ());
-        ()
-      });
-      t5.join();
-    },
-    .None => assert(false, "a fresh list of clean closures is uniquely owned")
-  );
-  assert(d9_hits.load(MemoryOrder.Acquire) == i32(6), "every route ran its function on a thread");
+  assert(d9_hits.load(MemoryOrder.Acquire) == i32(5), "every route ran its function on a thread");
 });
 // Canary (P-26 residual): `arc` of a closure that captures NOTHING — here it
 // reaches only an atomic global — compiles and runs; its `Arc(V)` signature

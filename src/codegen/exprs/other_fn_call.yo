@@ -252,8 +252,8 @@ _resolve_var_name_in_context :: (fn(var_name : &String, context : &FunctionGener
 /// `generate_deferred_drop_expressions` skips a name that was never declared.
 /// A binding, a by-value argument and `&` re-declare an operand that is not
 /// yet its temp. A `&self` method receiver and a discarded statement do not,
-/// so an emitter that returned a bare expression leaked there: `downcast`,
-/// `upcast` and the `Iso(T)(v)` constructor
+/// so an emitter that returned a bare expression leaked there: `downcast`
+/// and `upcast`
 /// (issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md).
 bind_owning_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
@@ -1468,11 +1468,11 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       tid := type_id_or_empty(&recv_ty);
       // Enter the dispatch when we have EITHER a registry type-id OR a recorded
       // method-callee (the side-table is keyed by this call's expr id, not by
-      // tid). A receiver whose type has no registry type-id — e.g. an `Iso(T)`,
-      // which lives only in `iso_types` — otherwise skipped the whole dispatch
-      // (incl. the expr-id side-table lookup that IS the resolution for generic
-      // methods like `Iso(T).extract`), falling through to the general path →
-      // "Failed to transpile (iso.extract)()". The registry fallback below stays
+      // tid). A receiver whose type has no registry type-id (the case was a
+      // builtin wrapper type with a generic method, deleted 2026-10-21)
+      // otherwise skipped the whole dispatch (incl. the expr-id side-table
+      // lookup that IS the resolution for generic methods), falling through to
+      // the general path → "Failed to transpile". The registry fallback below stays
       // effectively tid-gated (get_type_trait_methods_by_name("", ...) is empty).
       if((tid.len() > usize(0)) || lookup_method_callee_value(ast_expr_id(expr)).is_some(), {
         // Prefer the evaluator's RESOLVED method over a registry re-lookup. The

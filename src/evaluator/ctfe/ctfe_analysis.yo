@@ -155,7 +155,7 @@ _eval_body_for_ctfe :: (
   ) -> bool
 )({
   // Build a fresh environment: add captured variables, then push a frame.
-  (ctfe_env : Environment) = Environment.new(&env.module_path);
+  (ctfe_env : Environment) = Environment.new(env.module_path);
   n_cap := cap_names.len();
   (cap_i : usize) = usize(0);
   while(cap_i < n_cap, {
@@ -172,7 +172,7 @@ _eval_body_for_ctfe :: (
       false,
       false,
       false,
-      synthetic_token(&cn, &env.module_path)
+      synthetic_token(&cn, &env.module_path.*)
     );
     cap_i = (cap_i + usize(1));
   });
@@ -180,7 +180,7 @@ _eval_body_for_ctfe :: (
   // Bind __recur_fn with the COMPTIME function type so that recursive calls
   // are routed through evaluate_comptime_fn_call, which short-circuits when
   // is_analyzing_ctfe_capability = true.
-  recur_tok := synthetic_token(String.from("__recur_fn"), &env.module_path);
+  recur_tok := synthetic_token(String.from("__recur_fn"), &env.module_path.*);
   _add_recur := add_variable_to_env(
     &ctfe_env,
     String.from("__recur_fn"),
@@ -199,7 +199,7 @@ _eval_body_for_ctfe :: (
     plabel := match(param_labels.get(p_i), .Some(l) => l, .None => String.from(""));
     ptype := match(param_types.get(p_i), .Some(t) => t, .None => t_unit());
     punknown := create_unknown_val(&ptype);
-    ptok := synthetic_token(&plabel, &env.module_path);
+    ptok := synthetic_token(&plabel, &env.module_path.*);
     _add_p := add_variable_to_env(
       &ctfe_env,
       &plabel,

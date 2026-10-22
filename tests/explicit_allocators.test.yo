@@ -63,23 +63,6 @@ test("ref enum variants, box, arc and dyn boxes are placed by the scope", {
   };
   assert(arena.live_blocks() == usize(0), "every kind routed its release back");
 });
-test("An Iso built in the scope is released into the arena on another thread", {
-  arena := _arena();
-  {
-    iso := arena.scoped(() => Iso(Rc(i32))(rc(i32(21))));
-    assert(arena.live_blocks() == usize(2), `the Iso and its payload: ${arena.live_blocks()}`);
-    t := Thread(unit).spawn(io => {
-      v := iso.extract();
-      assert(v.* == i32(21), "payload");
-    });
-    t.join();
-    // The payload died on the worker. The Iso wrapper is still held by the
-    // spawn closure's captures, which the Thread handle `t` keeps until the
-    // handle itself is dropped.
-    assert(arena.live_blocks() == usize(1), `the payload released on the worker: ${arena.live_blocks()}`);
-  };
-  assert(arena.live_blocks() == usize(0), `the wrapper released with the handle: ${arena.live_blocks()}`);
-});
 _make_cycle :: (fn() -> unit)({
   a := _Node(value : i32(1), next : .None);
   b := _Node(value : i32(2), next : .Some(a));

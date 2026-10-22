@@ -36,7 +36,6 @@ import("std/fmt");
   BK_IMPL_UPPER,
   BK_IMPL_LOWER,
   BK_PTR,
-  BK_ISO,
   BK_COMPTIME_LIST_TYPE,
   BK_FUTURE,
   BK_CONCRETE,
@@ -134,9 +133,6 @@ import("std/fmt");
   BF_YO_INCR_RC,
   BF_YO_DECR_RC_ATOMIC,
   BF_YO_INCR_RC_ATOMIC,
-  BF_YO_ISO_EXTRACT,
-  BF_YO_ISO_UNIQUE,
-  BF_YO_ISO_DISPOSE,
   BF_YO_DROP_ARRAY_ELEMENT,
   BF_YO_DUP_ARRAY_ELEMENT,
   BF_YO_DROP_TUPLE_ELEMENT,
@@ -174,8 +170,6 @@ import("std/fmt");
   BF_YO_TYPE_JOIN_FIELDS,
   BF_YO_TYPE_MAP_VARIANTS,
   BF_YO_COMPTIME_STRING_TO_EXPR,
-  BF_YO_VAR_IS_OWNING_RC,
-  BF_YO_VAR_HAS_OTHER_ALIASES,
   BF_YO_PROCESS_PLATFORM,
   BF_YO_PROCESS_ARCH,
   BF_YO_POINTER_SIZE_BITS,
@@ -419,9 +413,6 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_dyn_vtable_dup,
   evaluate_yo_incr_rc,
   evaluate_yo_incr_rc_atomic,
-  evaluate_yo_iso_dispose,
-  evaluate_yo_iso_extract,
-  evaluate_yo_iso_unique,
   evaluate_yo_rc_own,
   evaluate_yo_some_type_drop,
   evaluate_yo_some_type_dup
@@ -476,13 +467,8 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 } :: import("../builtins/type_fns.yo");
 { evaluate_type_id } :: import("../builtins/typeid.yo");
 { evaluate_va_start } :: import("../builtins/va_start.yo");
-{
-  evaluate_yo_var_has_other_aliases,
-  evaluate_yo_var_is_owning_the_rc_value
-} :: import("../builtins/var_fns.yo");
 { evaluate_function_call, reject_destructor_member_read } :: import("../calls/function.yo");
 { register_promote_index_places } :: import("../calls/index_trait.yo");
-{ evaluate_iso_type_call } :: import("../calls/iso.yo");
 { evaluate_raw_pointer_call } :: import("../calls/pointer.yo");
 { panic, assert } :: import("std/assert");
 /// Get the first argument of a FnCall expression. Returns make_err_expr() if not available.
@@ -629,7 +615,7 @@ _evaluate_assert_ghost_args :: (
   // unreadable there — the escape error fires instead (otherwise codegen
   // would emit a runtime assert reading a name no C declaration carries).
   tok0 := ast_expr_token(expr);
-  if(!_is_verify_target(tok0.module_path.clone()), {
+  if(!_is_verify_target(&tok0.module_path), {
     return(evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn));
   });
   prev_ghost := ctx.is_ghost_context;
@@ -1150,8 +1136,6 @@ _evaluate_expression :: (
           evaluate_import(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
           evaluate_raw_pointer_call(expr, env, ctx, exn),
-        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_ISO, .Some(usize(1)))) =>
-          evaluate_iso_type_call(expr, env, ctx, exn),
         // `&x` is only a borrow marker (decision 33, V3b Generation B step
         // 3): a call argument lending to an `imm` parameter is peeled before
         // evaluation, so one that reaches here is not lending. `yo fix
@@ -1189,6 +1173,21 @@ _evaluate_expression :: (
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
         // Anywhere else it is not an expression.
         ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .None)) => {
+          // `&mut(T, p)` is decision 43's origin-qualified reference
+          // (plans/backlog/REFERENCES_AND_ORIGINS.md O1). The marker strip
+          // below sees through one argument only, so probing a two-argument
+          // form re-evaluated this very call until the stack overflowed
+          // (issues/fixed/2026-10-21-an-origin-qualified-mut-reference-overflows-the-checker-stack.md).
+          if(!ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .Some(usize(1))), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(expr),
+                  `\`${ast_expr_to_string(expr)}\` is an origin-qualified reference (\`&mut(T, p)\`, plans/backlog/REFERENCES_AND_ORIGINS.md O1), which is not supported yet: \`&mut\` lends one place (\`&mut x\`), and a parameter is written \`x : &mut T\`.`
+                )
+              )
+            );
+          });
           if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
             exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(ast_place_text(ast_expr_strip_borrow_marker(expr)), true))));
           });
@@ -1259,12 +1258,6 @@ _evaluate_expression :: (
           evaluate_yo_decr_rc_atomic(expr, env, ctx, exn),
         ((__dk_len == usize(19)) && ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC_ATOMIC, .None)) =>
           evaluate_yo_incr_rc_atomic(expr, env, ctx, exn),
-        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_EXTRACT, .None)) =>
-          evaluate_yo_iso_extract(expr, env, ctx, exn),
-        ((__dk_len == usize(15)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_UNIQUE, .None)) =>
-          evaluate_yo_iso_unique(expr, env, ctx, exn),
-        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BF_YO_ISO_DISPOSE, .None)) =>
-          evaluate_yo_iso_dispose(expr, env, ctx, exn),
         ((__dk_len == usize(23)) && ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, .None)) =>
           evaluate_yo_drop_array_element(expr, env, ctx, exn),
         ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, .None)) =>
@@ -1378,10 +1371,6 @@ _evaluate_expression :: (
           evaluate_derive_rule(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_DERIVE, .None)) =>
           evaluate_derive(expr, env, ctx, exn),
-        ((__dk_len == usize(31)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_IS_OWNING_RC, .None)) =>
-          evaluate_yo_var_is_owning_the_rc_value(expr, env, ctx, exn),
-        ((__dk_len == usize(26)) && ast_expr_is_fn_call_of(expr, BF_YO_VAR_HAS_OTHER_ALIASES, .None)) =>
-          evaluate_yo_var_has_other_aliases(expr, env, ctx, exn),
         (
           ((__dk_len == usize(21)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM, .None)) ||
             ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .None)) ||

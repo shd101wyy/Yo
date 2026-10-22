@@ -357,7 +357,6 @@ _evaluate_inout_local_binding :: (
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
   prohibit_void_type(&rhs_info.ty, ast_expr_token(rhs), exn);
   require_expr_not_consumed(&evaluated_rhs, env, ctx, exn);
   // Decision 47 step 2: `y := &mut place` lends the place exclusively, so the
@@ -492,7 +491,7 @@ _evaluate_inout_local_binding :: (
     pin_expr,
     .Some(pp) => {
       pp_tok := ast_expr_token(&pp);
-      pin_name := generate_new_temp_variable_name(&env.module_path, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path));
+      pin_name := generate_new_temp_variable_name(&env.module_path.*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path));
       pin_var = add_variable_to_env(env, &pin_name, &pin_type, Option(EvalValue).None, false, false, true, false, &name_tok);
     },
     .None => ()
@@ -524,7 +523,7 @@ _evaluate_inout_local_binding :: (
       range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
       (step_pin : Option(Variable)) = Option(Variable).None;
       if(range.has_repoint, {
-        sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
         match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
       });
@@ -675,7 +674,7 @@ _bind_projection_result :: (
   range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
   (step_pin : Option(Variable)) = Option(Variable).None;
   if(range.has_repoint, {
-    sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+    sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
     match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
   });
@@ -813,7 +812,6 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-  env.input_string = rhs_info.env.input_string;
   if(is_mut, {
     // Decision 46 (E0919): an `Rc`'s payload is read-only through the handle.
     reject_write_through_rc(&evaluated_rhs, "mut-borrow", Option(TypeValue).None, ctx, exn);
@@ -1223,7 +1221,6 @@ evaluate_initialization_assignment :: (
       env.frames = rhs_info.env.frames;
       env.module_path = rhs_info.env.module_path;
       env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
-      env.input_string = rhs_info.env.input_string;
     },
     .None => ()
   );
@@ -1312,7 +1309,6 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
         env.frames = ri.env.frames;
         env.module_path = ri.env.module_path;
         env.function_declaration_frame_level = ri.env.function_declaration_frame_level;
-        env.input_string = ri.env.input_string;
       },
       .None => ()
     );
@@ -1415,7 +1411,6 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
       env.frames = synth.env.frames;
       env.module_path = synth.env.module_path;
       env.function_declaration_frame_level = synth.env.function_declaration_frame_level;
-      env.input_string = synth.env.input_string;
       // Re-read rhs_info for the updated rhs.
       rhs_info_opt = expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rhs));
       // Check type compatibility.
@@ -1656,7 +1651,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(&actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value == "_") =>
-        generate_new_temp_variable_name(&env.module_path, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path)),
+        generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path)),
       true =>
         actual_lhs_tok.value.clone()
     );
@@ -1778,11 +1773,11 @@ Use \`::\` for compile-time definitions inside impl.`
         // the flag on some resolution paths (see expr_info.yo
         // g_module_level_globals).
         if(is_module_level, {
-          register_module_level_global(actual_lhs_tok.module_path.clone(), var_name.clone());
+          register_module_level_global(&actual_lhs_tok.module_path, var_name.clone());
         });
         if(is_mut_decl, {
           if(is_module_level, {
-            register_mut_global(actual_lhs_tok.module_path.clone(), var_name.clone());
+            register_mut_global(&actual_lhs_tok.module_path, var_name.clone());
           });
         });
         // A thread-local is a module-level global PLUS the registry entry that
@@ -1812,7 +1807,7 @@ Use \`::\` for compile-time definitions inside impl.`
               )
             );
           });
-          register_thread_local(actual_lhs_tok.module_path.clone(), var_name.clone());
+          register_thread_local(&actual_lhs_tok.module_path, var_name.clone());
         });
         variable_set_doc_comment(&new_var, &doc_comment_opt);
         // A second-class value (it holds a capture-list borrow) may be bound
@@ -1879,7 +1874,6 @@ Use \`::\` for compile-time definitions inside impl.`
     env.frames = destr_result.env.frames;
     env.module_path = destr_result.env.module_path;
     env.function_declaration_frame_level = destr_result.env.function_declaration_frame_level;
-    env.input_string = destr_result.env.input_string;
     expr_info := new_expr_info(&env, t_unit());
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_set_runtime_destructurings(&expr_info, &destr_result.runtime_destructurings);

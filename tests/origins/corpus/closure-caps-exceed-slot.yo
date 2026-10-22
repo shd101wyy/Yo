@@ -1,0 +1,14 @@
+// N0 corpus row `closure-caps-exceed-slot` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a closure literal whose captures exceed a slot's origin parameter (O7, O3-3: fixed through the `&mut` pointee).
+// Expected once decision 43's rules land: rejected: the capture `y` is not within `r := x`.
+{ ArrayList } :: import("std/collections/array_list");
+_register :: (fn(generic(r : Origin), reg : &mut ArrayList(Dyn(Fn(v : &i32) -> i32, r)), f : Dyn(Fn(v : &i32) -> i32, r)) -> unit)(reg.push(f));
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  mut(reg) := ArrayList(Dyn(Fn(v : &i32) -> i32, x)).new();
+  _register(&mut reg, dyn({ c : &y }(v : &i32) => (v.* + c.*)));
+  _ := reg.len();
+  ()
+});
+export(main);

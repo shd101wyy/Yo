@@ -399,7 +399,7 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
   base := CodeGenContext.new(&emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
   // The entry module's path decides which top-level exports get plain,
   // externally-linked C names (functions/collection.yo).
-  base.current_module_path = Option(String).Some(module_env.module_path.clone());
+  base.current_module_path = Option(String).Some(module_env.module_path.*.clone());
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md): record function byte
   // ranges and split cross-chunk statics. MUST stay false by default — the
   // single-file emission is gated byte-identical. `chunk_auto_cap >= 1` is the
@@ -517,9 +517,7 @@ typedef enum {
   // before function declarations so the specialized `trace` gets a prototype+body.
   // (there is no codegen-time monomorphizer; the collector drives the
   // evaluator's create_specialized_function_inline with the threaded ctx/exn/env.)
-  // The same traversals serve Iso's uniqueness walk (rule D2), so the trace
-  // methods are needed whenever the program uses Iso too.
-  if(base.needs_cycle_gc || (base.iso_types.len() > usize(0)), {
+  if(base.needs_cycle_gc, {
     collect_trace_methods_from_generic_impls(&base, eval_ctx, module_env, info, exn);
   });
   // Auto-derive the ___dispose (recursive RC-field drop) for RC struct types lacking

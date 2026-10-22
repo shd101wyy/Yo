@@ -354,7 +354,7 @@ Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 ## Unary (prefix) operators bind exactly ONE postfix expression
 
 Since 2026-08-21 (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1), a bare
-prefix operator (`-` `!` `~` `&` `*` `?` `^`) followed by a primary is
+prefix operator (`-` `!` `~` `&` `*` `?`) followed by a primary is
 valid: it binds exactly one postfix expression — the primary plus its
 dot-chains and calls — and nothing more.
 

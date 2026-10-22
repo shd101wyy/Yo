@@ -308,7 +308,6 @@ _adopt_env :: (fn(env : &Environment, src : &Environment) -> unit)({
   env.frames = src.frames;
   env.module_path = src.module_path;
   env.function_declaration_frame_level = src.function_declaration_frame_level;
-  env.input_string = src.input_string;
 });
 // ---------------------------------------------------------------------------
 // evaluate_match
@@ -520,7 +519,7 @@ _decide_match_mode :: (
     info.variable_name,
     .Some(tname) => match(
       find_variable_in_env(&info.env, tname.clone()),
-      .Some(tv) => if(is_temp_variable_name(&env.module_path, &tname), {
+      .Some(tv) => if(is_temp_variable_name(&env.module_path.*, &tname), {
         if(tv.is_owning_the_rc_value, {
           if(tv.consumed_at_token.is_none(), {
             tv.consumed_at_token = Option(Token).Some(stok);
@@ -560,7 +559,7 @@ _ArmOwnership :: ref(
 );
 _ownership_hidden_bind :: (fn(own : &_ArmOwnership, ty : &TypeValue, env : &Environment) -> BindInfo)({
   tok := own.tok;
-  name := generate_new_temp_variable_name(&env.module_path, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path));
+  name := generate_new_temp_variable_name(&env.module_path.*, usize(tok.row), usize(tok.column), Option(String).Some(`mv${own.counter.to_string()}`), Option(String).Some(tok.module_path));
   own.counter = (own.counter + usize(1));
   atok := Token(kind : TokenKind.Identifier, value : name.clone(), row : tok.row, column : tok.column, character : tok.character, byte_offset : tok.byte_offset, module_path : tok.module_path, input : tok.input);
   BindInfo(name : name, ty : ty, value : Option(EvalValue).None, atom : AstExpr.Atom(alloc_global_expr_id(), atok))

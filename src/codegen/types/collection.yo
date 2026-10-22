@@ -29,7 +29,6 @@
   is_union_type,
   is_tuple_type,
   is_dyn_type,
-  is_iso_type,
   is_module_type,
   is_trait_type,
   is_future_trait_type,
@@ -228,7 +227,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // value/body references the type — which is AFTER generate_array_struct_
   // declarations runs in the type-decl phase. Register it here, during
   // collection, so the typedef is emitted before any reference; also collect
-  // the element type. (Same side-effect registration as the Iso arm below.)
+  // the element type.
   if(is_array_type(&type), {
     match(type, Rc(.Array({ element })) => recur(&element, context), _ => ());
     _gs := get_type_string(&type, context);
@@ -242,7 +241,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     // `__yo_future_trait_*` interface struct gets a C name + declaration
     // (generation.yo's is_future_trait_type declaration pass).
     || is_dyn_type(&type) || is_trait_type(&type) || is_future_trait_type(&type)
-    || is_module_type(&type) || is_iso_type(&type)
+    || is_module_type(&type)
   );
   if(is_registerable, {
     // Gap 3: extern-C names not modelled generally. Intern the (full) type_key
@@ -366,15 +365,6 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
           match(required_trait_types.get(i), .Some(tt) => recur(&tt, context), .None => ());
           i = (i + usize(1));
         });
-      },
-      _ => ()
-    );
-    // Iso child + register the Iso type (via get_type_string side-effect).
-    match(
-      type,
-      Rc(.IsoT({ child })) => {
-        recur(&child, context);
-        _gs := get_type_string(&type, context);
       },
       _ => ()
     );

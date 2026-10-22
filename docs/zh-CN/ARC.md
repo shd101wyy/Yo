@@ -36,7 +36,7 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 
 - 当你想在**线程或闭包之间共享一个现有值**时，使用 `Arc(T)`。
 - 当你要定义**自己的共享类型**时，使用 `atomic(ref(struct(...)))`。
-- 当你想要**转移**而不是共享所有权时，使用 `Iso(T)`。
+- 要把值**转移**到另一个线程而不是共享它，就移动它：`Send` 值可以移入派生的闭包或经由 `Channel` 发送。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值。在 `String` 和各集合类型通过移动成为 `Send`（`plans/VALUES_BY_DEFAULT.md` V2b）之前，二者都不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。（过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除。）
 - `Arc(T)` 只接受同时实现了 `Send` 和 `Sync` 的子类型；普通 `ref(struct(...))` 两者都不满足。是 `Send` 但不是 `Sync` 的类型（用 `impl(T, !(Sync()))` 退出 `Sync` 的类型）应放进 `Mutex(T)`，由它串行化访问。
 - 对函数值（闭包或具名函数）调用 `arc(f)` 时按值判断：它捕获的东西和它的代码触及的东西都必须是 `Send` 且 `Sync` 的（规则 D4 与 D9，见 `THREAD_SAFETY.md`）。
 
@@ -128,13 +128,13 @@ Arc.make_mut(&mut b) = i32(2); // b 得到自己的单元
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ```
 
-## `Arc`、`atomic(ref(struct(...)))` 与 `Iso` 的区别
+## `Arc` 与 `atomic(ref(struct(...)))` 的区别
 
 | 需求                            | 推荐工具                   |
 | ------------------------------- | -------------------------- |
 | 共享一个现有值                  | `Arc(T)`                   |
 | 定义可复用的共享引用计数类型    | `atomic(ref(struct(...)))` |
-| 在线程/作用域之间转移唯一所有权 | `Iso(T)`                   |
+| 把 `Send` 值交给另一个线程      | 移动（spawn、`Channel`）   |
 
 ## 语义
 
@@ -147,4 +147,3 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ## 相关文档
 
 - `docs/zh-CN/PARALLELISM.md` —— 线程与线程池模型
-- `docs/zh-CN/ISOLATED.md` —— `Iso(T)` 的唯一所有权

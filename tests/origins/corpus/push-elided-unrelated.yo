@@ -1,0 +1,12 @@
+// N0 corpus row `push-elided-unrelated` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): an elided `push` signature with unrelated fresh origins: the body check rejects it (O2).
+// Expected once decision 43's rules land: rejected in the callee: `value`'s origin is not within the container's.
+{ ArrayList } :: import("std/collections/array_list");
+_push :: (fn(xs : &mut ArrayList(&i32), value : &i32) -> unit)(xs.push(value));
+main :: (fn() -> unit)({
+  x := i32(1);
+  mut(out) := ArrayList(&(i32, x)).new();
+  _push(&mut out, &x);
+  ()
+});
+export(main);

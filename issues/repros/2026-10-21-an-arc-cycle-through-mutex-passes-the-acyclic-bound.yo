@@ -1,0 +1,21 @@
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio.yo");
+{ Mutex } :: import("std/sync/mutex");
+Gc :: import("std/gc");
+Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+form_cycle :: (fn() -> unit)({
+  a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+  b := a;
+  a.with_lock(v => {
+    v.peer = .Some(b);
+  });
+});
+main :: (fn() -> unit)({
+  before := Gc.tracked_count();
+  form_cycle();
+  mid := Gc.tracked_count();
+  Gc.collect();
+  after := Gc.tracked_count();
+  unsafe(printf("before=%lu mid=%lu after=%lu\n", before, mid, after));
+});
+export(main);

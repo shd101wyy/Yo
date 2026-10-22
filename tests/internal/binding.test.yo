@@ -135,7 +135,7 @@ test("evaluate_binding: (found : bool) — records variable name", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   expr := mk_binding_expr(usize(100), usize(101), "found", usize(102), "bool");
   result := evaluate_binding(&expr, &env, &ctx, exn);
@@ -153,7 +153,7 @@ test("evaluate_binding: (found : bool) — records ExprInfo with UnitVal", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   expr := mk_binding_expr(usize(110), usize(111), "x", usize(112), "i32");
   result := evaluate_binding(&expr, &env, &ctx, exn);
@@ -187,7 +187,7 @@ test("evaluate_binding: (comptime(n) : i32) — records variable name n", {
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   expr := mk_comptime_binding(usize(200), usize(201), "n", usize(202), "i32");
   result := evaluate_binding(&expr, &env, &ctx, exn);
@@ -209,7 +209,7 @@ test_binding_throws :: (fn() -> bool)({
     )
   );
   ctx := eval_context_new(String.from("/std"), String.from("test"));
-  (env : Environment) = Environment.new(String.from("test"));
+  (env : Environment) = Environment.new(rc(String.from("test")));
   env.push_frame(false);
   expr := mk_ident(usize(300), "x");
   _r := evaluate_binding(&expr, &env, &ctx, exn);

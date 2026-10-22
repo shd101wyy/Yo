@@ -89,7 +89,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       param0_label := match(box_ft, Rc(.Func({ meta : bm })) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = env;
       _cfr := cenv.push_frame(false);
-      vtok := synthetic_token(param0_label.clone(), &cenv.module_path);
+      vtok := synthetic_token(param0_label.clone(), &cenv.module_path.*);
       add_variable_to_env(&cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, &vtok);
       bargs := ArrayList(ArgEntry).new();
       bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(inner_type)), parameter_type : param0_ty, arg_type : t_type()));
@@ -108,7 +108,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       // failed is_boxed_type and the boxed-dyn path registered the impl
       // against the Box pointer itself (dyn_dispatch_autobox_value printed
       // a blank instead of 'Q').
-      b_callee_tok := synthetic_token(ctor.clone(), &cenv.module_path);
+      b_callee_tok := synthetic_token(ctor.clone(), &cenv.module_path.*);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
@@ -660,10 +660,10 @@ _generic_impl_method_for_dyn :: (
       .Some(fv) => if(is_func_val(&fv), {
         recv_name := `__yo_dyn_receiver_${fname}`;
         caller_env.push_frame(false);
-        recv_tok := synthetic_token(recv_name.clone(), &caller_env.module_path);
+        recv_tok := synthetic_token(recv_name.clone(), &caller_env.module_path.*);
         _recv_var := add_variable_to_env(caller_env, recv_name.clone(), receiver_type.clone(), Option(EvalValue).Some(create_unknown_val(receiver_type.clone())), false, true, false, false, recv_tok.clone());
         recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
-        callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), &caller_env.module_path));
+        callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), &caller_env.module_path.*));
         call_args := ArrayList(AstExpr).new();
         call_args.push(recv_atom);
         call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
@@ -1145,7 +1145,7 @@ evaluate_dyn_value :: (
       match(
         _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from(ne_cell.constructor)), &env.module_path);
+          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from(ne_cell.constructor)), &env.module_path.*);
           ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
           ne_box_args := ArrayList(AstExpr).new();
           ne_box_args.push(inner_ne);
@@ -1233,7 +1233,7 @@ evaluate_dyn_value :: (
   (final_value_expr_ex : AstExpr) = eval_inner;
   if(!is_reference_struct_type(&value_type) && !is_dyn_type(&value_type), {
     box_fn_name := if(_dyn_target_requires_send(&ctx.expected_type, &value_type), String.from("arc"), String.from(shared_cell_canonical_names().constructor));
-    box_tok := synthetic_token(&box_fn_name, &cur_env.module_path);
+    box_tok := synthetic_token(&box_fn_name, &cur_env.module_path.*);
     // Fresh node ids, as the non-executing path above mints them: the
     // ExprInfo side table is keyed by id, and id 0 is shared by every other
     // node built with it, so the callee atom could read another node's entry

@@ -60,12 +60,12 @@ Read from `src/codegen/functions/gc_runtime.yo`, `codegen/types/generation.yo`,
 
 | fact                                                                                                                                           | consequence for an arena                                                                                                     |
 | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Every `ref(...)` object is `{ __yo_ref_header_t header; fields }`; `ref_count` is a plain `uint32_t`, `__yo_incr_rc`/`__yo_decr_rc` are non-atomic; `atomic(ref(...))`, `Arc`, `Iso` use `atomic_fetch_*` on the same field | objects are thread-owned unless atomic; an arena must be thread-local too                                            |
+| Every `ref(...)` object is `{ __yo_ref_header_t header; fields }`; `ref_count` is a plain `uint32_t`, `__yo_incr_rc`/`__yo_decr_rc` are non-atomic; `atomic(ref(...))` and `Arc` use `atomic_fetch_*` on the same field | objects are thread-owned unless atomic; an arena must be thread-local too                                            |
 | `__yo_decr_rc` on the last reference runs `header->dispose_fn(ptr)` (drops fields/buffers) and then `__yo_free(ptr)`                            | "free" is one call in one place (plus the collector's sweep and the async runtime) — a no-op-free arm is a one-bit check      |
 | Cycle-capable types are `__yo_gc_register`ed at construction, live on per-thread intrusive lists (`gc_next/gc_prev`, `roots_next/roots_prev`), get `traverse_fn` | arena cells must be unlinked before bulk free; only TRACKED types can be traversed                                  |
 | Cycle-incapable types have a 16 B header and NO `traverse_fn` (`RC_HEADER_SPLIT.md`)                                                            | an escape check by trial deletion needs traversal of every arena cell → arena mode must emit `traverse_fn` for every type it can hold |
 | One allocator: `GlobalAllocator` (`std/allocator.yo`) = the `__yo_malloc/calloc/realloc/free` macro family; **zero raw `malloc` in `src/codegen/`**; `ArrayList` buffers are raw `GlobalAllocator.malloc/realloc` (no header) | routing is centralized; but raw buffers are invisible to any per-object check                                    |
-| `Send` is structural and non-atomic `ref` types are not `Send`; cross-thread transfer goes through `Iso(T)` (`can_isolate` = `rc(self) == 1` …), `Arc(T)` (`where(V <: (Send, Acyclic))`), `atomic(ref(...))`, `Channel` | the cross-thread escape hatches are a finite, named list (§5)                                                |
+| `Send` is structural and non-atomic `ref` types are not `Send`; cross-thread transfer goes through `Arc(T)` (`where(V <: (Send, Acyclic))`), `atomic(ref(...))`, `Channel` | the cross-thread escape hatches are a finite, named list (§5)                                                |
 | Runtime borrow flag: `borrow_count` in the header, incremented for the lifetime of an interior borrow, asserted zero by mutations that could free the storage (`docs/en-US/MEMORY_SAFETY.md`) | Yo already accepts "deterministic panic instead of UB" as a safety mechanism — the precedent for a dynamic escape check |
 | `ctl(...)` values are **frame-bound**: `type_is_control_bound` + the §4 escape-boundary rules (no module-level binding, no closure capture, no pointer, not in a fn result type) | a static "cannot outlive this frame" discipline exists and is transitive over containing types — reusable for a handle type |
 | `Acyclic` marker trait (`std/prelude.yo:233`) — "cannot form reference cycles, needs no cycle tracking"                                          | a natural precondition for an arena that wants to skip traversal                                                              |
@@ -142,7 +142,8 @@ bulk free saves the cell frees, not the buffer frees.
 
 Arena cells are ordinary non-atomic `ref` objects, so `Send` already refuses
 to move them raw. The hatches that CAN move a non-atomic object's ownership to
-another thread are the `Iso(T)` constructor (`can_isolate`), `Arc(T)`/`arc`,
+another thread are `Arc(T)`/`arc` (the isolated-transfer constructor was a
+fifth until it was deleted on 2026-10-21),
 `atomic(ref(...))` construction from an arena cell's fields, and channels of
 `Send` payloads. Each constructor gets one check: `if (gc_flags & __YO_GC_ARENA)
 panic("cannot isolate/share an arena-allocated value")`. A cell whose FIELD
@@ -339,7 +340,7 @@ machinery. **Detailed design, measurement protocol and phases:
 | 2  | storing an arena cell into an outer object / global      | dynamic: trial deletion at reset → panic                                                    |
 | 3  | closure capture that outlives the scope                  | dynamic (the closure's capture struct is a heap cell referencing the arena cell)             |
 | 4  | caches keyed process-wide (memo tables)                  | dynamic                                                                                     |
-| 5  | `Iso(T)(v)` / `arc(v)` / `atomic(ref)` construction      | constructor check on `__YO_GC_ARENA` → panic                                                |
+| 5  | `arc(v)` / `atomic(ref)` construction                    | constructor check on `__YO_GC_ARENA` → panic                                                |
 | 6  | `Channel.send` of a `Send` payload that is an arena cell | impossible: non-atomic cells are not `Send`; atomic cells are heap-allocated (§3.4)          |
 | 7  | raw pointers / `unsafe.cast` / `&(cell.field)`           | `unsafe` — the pragma'd trusted base owns it, as for every raw pointer today                 |
 | 8  | async: a future created in scope, awaited after          | the future's state machine is a heap cell referencing arena cells → dynamic (2); document that `Arena.scope` bodies should not spawn tasks that outlive them |

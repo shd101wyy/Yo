@@ -1,0 +1,11 @@
+// N0 corpus row `global-refcell-origin` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a module-level binding carrying an origin (O4, §7: no, initially).
+// Expected once decision 43's rules land: rejected: E0909, a module-level binding requires `Escapable`.
+{ RefCell } :: import("std/sync/refcell");
+_A :: i32(1);
+(_G : RefCell(&(i32, _A))) = RefCell(&(i32, _A)).new(&_A);
+main :: (fn() -> unit)({
+  _ := _G.with(r => r.*);
+  ()
+});
+export(main);

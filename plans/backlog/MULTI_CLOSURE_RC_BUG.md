@@ -132,6 +132,6 @@ Alternatively, the ownership analysis should recognize that `ch` is captured by 
 
 To enable cross-thread Channel usage, one of these approaches is needed:
 
-1. **`Iso(Channel(T))` wrapping** — wrap Channel in Iso for atomic RC
+1. **Isolated-transfer wrapping** — wrap Channel in the isolated-transfer type for atomic RC (that type was deleted on 2026-10-21)
 2. **Atomic RC opt-in** — allow certain object types to use atomic RC via a trait/annotation
 3. **Channel redesign** — make Channel a value type with internal atomic RC management

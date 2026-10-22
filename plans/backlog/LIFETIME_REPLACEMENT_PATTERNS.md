@@ -116,7 +116,7 @@ reference. The shapes, in Yo's order of preference (§1's table, extended):
 | II5 | **Borrowed-or-owned enum** — `StrArg :: enum(Borrowed(str), Owned(String))` | `Cow<'a, str>` | a tag | an API that accepts either |
 | II6 | **Share it frozen** — `Rc` to nodes built immutable after construction (D21's trees) | `Rc<Node>` with no `RefCell` | one allocation, count traffic; never a mark | read-mostly trees; the write happens by rebuilding |
 | II7 | **Runtime handle** — the owner is a runtime: file descriptors, sockets, `JoinHandle` | `'static`-ish resource ids | none in the type; close is the drop | the object already lives behind an OS/executor boundary |
-| II8 | **Move the owner** — transfer the whole graph; `^v` (`Iso(T)`) across threads | ownership transfer, `move` into a task | a uniqueness check at the move | one consumer at a time is the truth |
+| II8 | **Move the owner** — transfer the whole graph; across threads only when it is `Send` (Rust's rule; `Rc.try_unwrap` to leave an `Rc`) | ownership transfer, `move` into a task | `Send` at the move | one consumer at a time is the truth |
 
 **The composition maxim: indices for storage, borrows for access.** A
 stored id is never dereferenced bare; every use goes through a lending
@@ -185,7 +185,7 @@ patterns the porting guide should teach as moves, not concessions:
 | zero-copy parsing with a remainder | I2 returning `(View(u8), T)`, or IV6 offsets | storing the remainder |
 | share mutable state, many writers | II2 `Rc(RefCell)` / `Arc(Mutex)` | interior mutability through `&T` |
 | single writer, many readers | II1 own + II6 frozen sharing | a lock |
-| cross threads with shared data | `Arc` + `Sync`, or II3 (ids are `Send`), or II8 `^v` | a reference (never `Send`) |
+| cross threads with shared data | `Arc` + `Sync`, or II3 (ids are `Send`), or II8 with a `Send` value | a reference (never `Send`) |
 | mutate a container while walking it | IV4, or `indices()` (D39) | mutation under a cursor (E0911) |
 | a long-lived cache of entries | II3 ids or II2 handles | `Vec<&'a T>` |
 | a resource owned by the OS/executor | II7 the runtime handle | wrapping it in a borrow |

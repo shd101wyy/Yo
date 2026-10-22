@@ -11,8 +11,10 @@
   2026-10-14; decision 47, immutable bindings with `mut(...)` and Zig's
   statics, added 2026-10-15, with two points to settle before its
   implementation; decision 43's amendment's one follow-up, the
-  `Escapable` bound, decided 2026-10-20 — `REFERENCES_AND_ORIGINS.md` O10).
-  No other design question is open;
+  `Escapable` bound, decided 2026-10-20 — `REFERENCES_AND_ORIGINS.md` O10;
+  decision 48, the cycle collector is removed in stages behind `Weak` and
+  the debug-allocator leak oracle, with `Acyclic` and `Trace`, added
+  2026-10-21). No other design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
@@ -53,8 +55,8 @@ Progress:
   - V3b Generation A (#1240);
   - decision 32 Generation A, `Rc.clone(w)` (#1241);
   - decision 36 Generation A, the `Copy` trait (#1253);
-  - the `Send`/`Sync` split with decision 38 E and the widened `Iso`
-    bound, Generation A (#1254);
+  - the `Send`/`Sync` split with decision 38 E and the widened bound of
+    the isolated-transfer type (deleted 2026-10-21), Generation A (#1254);
   - local borrows, Generation A: `y := &place`, last-use live ranges,
     place-based exclusivity, rules 3 and 4, and decision 25's re-points
     (#1255; see V3's "Local borrows");
@@ -639,12 +641,15 @@ cannot be copied.
   is `Send` and `Sync` (amended 2026-10-07, second audit #1264 finding 2). A value
   is `Send` iff every field is. A move-only value follows the same rules: a
   `File` is `Send`, and a `Mutex(T)` is `Sync` when `T` is `Send`.
-- **`Iso(T)` / `^v`.** `T` is any value that reaches at least one non-atomic
-  cell. The deep `ref_count == 1` walk is unchanged.
+- **No isolated transfer** (decided 2026-10-20, deleted 2026-10-21 at
+  v0.2.68, `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A). Data that
+  crosses threads must itself be `Send`; an `Rc` graph is thread-local, and
+  `Rc.try_unwrap` takes the value out of a uniquely held handle. There is no
+  runtime uniqueness walk.
 - **Reflection** keeps its names and changes its reading:
   - `Type.contains_rc_type` means "reaches a non-atomic cell";
-  - `Var.is_owning_the_rc_value` and `Var.has_other_aliases` are about the
-    handle a value holds.
+  - the `Var.*` introspectors were deleted with the isolated transfer
+    (2026-10-21).
 
 ### 3.7 `Dyn`, closures, async
 
@@ -703,7 +708,11 @@ notions, as Rust does:
     nothing.
   - `Mutex(T)` requires `T <: Send` and is itself `Sync`.
   - `Arc(String)` and `Arc(ArrayList(T))` are legal read-only sharing.
-- **`Iso(T)` / `^v`** remain the explicit "fail if shared" transfer.
+- **Rust's thread rule.** No wrapper moves a non-`Send` graph to another
+  thread: it stays where it is, and `Rc.try_unwrap` takes the value out of a
+  uniquely held `Rc`. The isolated-transfer type that was the explicit "fail
+  if shared" transfer was deleted on 2026-10-21
+  (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A).
 - **`Arc` reads** need no new mechanism: auto-dereference yields a borrowed
   place, and the `Sync` bound makes copying a field out safe.
 
@@ -900,7 +909,7 @@ and every free routes through the owner prefix.
   is created:
   - `box`/`rc`/`arc`;
   - a collection or `String` buffer (through `current_allocator()`);
-  - a `Dyn` cell, an `Iso` value, or an async state machine.
+  - a `Dyn` cell or an async state machine.
 - **An explicit `clone()` lands where its source lives**, not in the
   current scope. This is today's `ArrayList.clone` rule
   (`std/collections/array_list.yo`), as in Rust's `Vec<T, A>: Clone`, and
@@ -976,6 +985,9 @@ and every free routes through the owner prefix.
   "reaches a `RefCell`/`Mutex`/`RwLock` whose payload reaches an `Rc`".
   That narrowing is a follow-up of decision 46's Generation B, measured on
   its own; until it lands, the predicate stays "reaches an `Rc`".
+  **Superseded by decision 48 (2026-10-21):** the collector is removed in
+  stages behind `Weak` and the debug-allocator leak oracle; the predicate
+  is deleted, not narrowed.
   - The compiler's trees have `Rc` children (decision 21), so V4 makes
     `can_type_form_rc_cycle` honour a declared `Acyclic`. Trees with no
     back edges then stay untracked.
@@ -2235,7 +2247,7 @@ and in git, not a silent edit.
       - `addr` was rejected because it has 558 uses as an identifier
         (socket addresses), and Yo has no shadowing.
       - `addr_of` is Rust's `ptr::addr_of!`, and it is unused in the tree.
-    - **`&mut` is one prefix token**, like `^` in `^v`. So `&mut s.items`
+    - **`&mut` is one prefix token.** So `&mut s.items`
       borrows `s.items`, and `&&` (logical and) is unaffected.
     - **Vocabulary.** Declarations, arguments and scrutinees use the same
       sigils (decision 42): `s : &String`, `self : &mut Self`,
@@ -3059,8 +3071,9 @@ and in git, not a silent edit.
       (`ArrayList(&(T, p))`, `HashMap(&(K, p), V)`); the containing type is
       then origin-carrying too. A **cell** payload follows the amended
       rule (O4): `Box` and `RefCell` may carry origins (the pointer points
-      outward; N2), `Rc`, `Arc` and a
-      `Dyn` payload never (E0909).
+      outward; N2), `Rc` and `Arc` never (E0909, the `Escapable` bound,
+      O10), and a `Dyn(Trait, p)` payload carries origins within `p` —
+      `Dyn(Trait)` is `Dyn(Trait, ∅)` (O4; corrected 2026-10-21).
       `type_of(f)` names closure types, so `Rc(type_of(f))` is checked
       too. The check runs at the declaration and at every instantiation.
     - **Transitive freezes.** A borrow, or any second-class value built
@@ -3147,7 +3160,9 @@ and in git, not a silent edit.
       payload (D3), so there is no write for a mark to catch. `&mut` through
       an `Arc`, and any path that also crosses an `Rc`, a `ref` object, a
       pointer or an index, keep the rule. Closure borrow captures keep it
-      whole.
+      whole until decision 43's N1: a `&` capture through a read-only
+      handle's deref then carries the handle's place (O9), as A2's future
+      captures do since #1421 (noted 2026-10-21).
 
     **E. Threads.**
     - **Borrows.** A borrow capture is never `Send`.
@@ -3747,7 +3762,8 @@ and in git, not a silent edit.
       the exact receiver type, then `&`/`&mut` of it, then each deref, so
       `impl(&T, M)` wins over `impl(T, M)` for a `&T` receiver. A `&mut T`
       reached through a `&` path (an element of `&ArrayList(&mut T)`, a
-      `&mut` field through `&S`) is read-only, a `&T`.
+      `&mut` field through `&S`) is read-only, a `&T` whose origin unions
+      the path's place (O3's reborrow rule, 2026-10-21).
     - **First-class, structurally** (amended 2026-10-19 from decision 38
       A's second-class wall). Any type containing a `&` carries origin
       parameters and may stand anywhere they can follow: inline
@@ -3755,10 +3771,12 @@ and in git, not a silent edit.
       and `RefCell(&(T, p))` are legal, because the pointer points
       outward and moving the cell moves the pointer, never its target.
       E0909 is restated as "this position accepts no origin parameters":
-      `Send` values and thread boundaries, spawned tasks, an escaping
-      closure's capture, a `Dyn` payload
+      `Send` values and thread boundaries, spawned tasks, a `Dyn` payload
       written without an origin argument (`Dyn(Trait, p)` carries one;
-      N2), module-level bindings (initially), `extern`
+      N2; an escaping closure's captures carry origins like fields and
+      stand wherever they follow, a `Dyn(Fn(...), p)` included — dropped
+      from this list 2026-10-21, it contradicted O4), module-level
+      bindings (initially), `extern`
       signatures, `Rc`/`Arc` payloads — spelled as the bound
       `where(T <: Escapable)` on those positions' type parameters,
       `Escapable` a structurally derived prelude marker like `Send`
@@ -3779,7 +3797,9 @@ and in git, not a silent edit.
       (amended 2026-10-19). An origin is a set of places: an origin
       parameter, a reference-holding parameter's place (`self`), or a
       declared union `(p, q)`. Checking is set algebra over declared
-      things — conflict is origin intersection (E0910/E0911 restated),
+      things — conflict is a loan against an access, by origin
+      intersection (E0911 restated; E0910 stays decision 28's by-name
+      argument overlap, corrected 2026-10-21),
       coercion is subset into a union in covariant positions and exact
       through a `&mut` pointee, a `RefCell` payload or a `&mut` capture
       (O3-3, the one invariance rule; added 2026-10-20 by the review of
@@ -3893,7 +3913,14 @@ and in git, not a silent edit.
       origin `h` and `h` dropped while it lives rejected (O9), two items
       of one `&mut` cursor held at once (accepted, O3 step 2),
       `Dyn(Fn(Event), p)` holding a borrowing closure (N2); the borrowed
-      `for` by `impl(&C, IntoIterator)`.
+      `for` by `impl(&C, IntoIterator)`. Added by the 2026-10-21 audit:
+      `f(&mut xs, &xs)` E0910 by name beside `swap(a, b)` on `get2_mut`'s
+      pair accepted; a `&` reborrow of a `&mut` component returned through
+      `&Holder` keeps the holder frozen (E0911 on a `&mut` lend of it); a
+      generic body valid only under its first caller's origins rejected
+      with origins rigid; a task holding `&(Rc(X), ∅)` is not `Send` while
+      `Rc(&(T, ∅))` is accepted; `a.y = &a.x` rejected; `{ x : &h.*.x }`
+      captured with `h` frozen.
 
 44. **`Dyn(Trait)` stays the owned, boxed trait object; the borrowed form
     is `&Dyn(Trait)`; there is no DST.** Confirmed 2026-10-10 by the
@@ -3910,8 +3937,10 @@ and in git, not a silent edit.
       move-only otherwise; sharing is `Rc(Dyn(Trait))` /
       `Arc(Dyn(Trait, Send))`.
     - **Borrowed form, with decision 43.** `&Dyn(Trait)` / `&mut Dyn(Trait)`
-      are borrowed trait objects, Rust's `&dyn Trait`: a second-class fat
-      reference (data pointer, vtable), with no allocation. It is made by
+      are borrowed trait objects, Rust's `&dyn Trait`: a fat reference
+      (data pointer, vtable), with no allocation — first-class and
+      origin-carrying under amended decision 43 (the "second-class"
+      wording below is the pre-amendment reasoning; noted 2026-10-21). It is made by
       `dyn(&v)` / `dyn(&mut v)` over a borrow of a concrete value, or by
       lending an owned `Dyn` (`&d`, `&mut d`), which lends its payload.
       It follows every rule decision 43 gives a reference (origin-carrying,
@@ -4231,7 +4260,15 @@ and in git, not a silent edit.
         clone is spelled in the name, as §0.1 requires;
       - `Rc.try_unwrap(h : Rc(T)) -> Result(T, Rc(T))`: the payload by
         value when the count is 1, else the handle back.
-      - No `Weak`: the cycle collector stays (§3.12).
+      - ~~No `Weak`: the cycle collector stays (§3.12).~~ **Reopened
+        2026-10-21 by the maintainer** ("I also want to introduce Weak"):
+        `Weak(T)` and `ArcWeak(T)`, a per-program `--cycle-collector off`
+        build, and `Arc` without its `Acyclic` bound are
+        `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; `Rc`/`Arc` stay the
+        only handle types, and the collector is deleted at that plan's W6
+        (with `Trace` and `Acyclic`) once `Weak` and the `--allocator
+        debug` leak oracle have shipped and one release has run with it
+        off (maintainer, 2026-10-21).
     - **What it buys.**
       - A `&` borrow whose place crosses an `Rc` deref can no longer be
         invalidated by a write through another handle. So E0909's rule for
@@ -4355,6 +4392,64 @@ and in git, not a silent edit.
       Globals go first, as the fix for
       `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`
       (S1, branch `feat/global-lend-to-call-is-an-error`).
+48. **The cycle collector is removed, in stages; `Weak(T)`/`ArcWeak(T)`
+    replace it; `Arc` loses its `Acyclic` bound; `Trace` and the declared
+    `impl(T, Acyclic())` are deleted with the collector, and `Acyclic`
+    stays as a derived-only marker** (maintainer, 2026-10-21, agreeing
+    with the staged recommendation; the design is
+    `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`; the user text is written
+    with W3, as a `Weak` page, and `docs/en-US/CYCLE_COLLECTION.md` serves
+    unchanged until W6 deletes it — a transitional draft was written and
+    withdrawn the same day, 2026-10-21). It amends decision 46's
+    "No `Weak`" and retires its step 3 (the predicate narrowing), and it
+    settles the `UnsafeRc`/`UnsafeArc` question: no second handle type.
+    - **The rule.** Rust's model exactly: an `Rc`/`Arc` cell is freed by
+      its last strong handle and its payload's `Drop` runs there and
+      nowhere else; a cycle leaks; a back edge is a `Weak`/`ArcWeak`
+      read through `upgrade`; `yo test --allocator debug` fails a test
+      that leaks. Arenas do not replace the collector (they cover
+      phase-structured data, the collector long-lived mutable graphs);
+      `Weak` does, by making the author name the back edge.
+    - **Why.** Under decision 46 a cycle needs a write through
+      `RefCell`/`Mutex`/`RwLock`, so the collector covers one shape, and
+      it was not even covering that shape when the decision was made
+      (`issues/2026-10-21-an-rc-refcell-cycle-is-never-tracked-by-the-collector.md`,
+      S1). Its cost is the 56-byte header, `traverse_fn` per tracked
+      type, the possible-roots buffer on every decrement, the
+      resurrection rule, `Trace` on every buffer-owning collection, the
+      `Acyclic` marker and its derivation, and the design consequence that
+      an `Rc` payload may not carry a reference (O9/O10: drops at an
+      unbounded later time). Removing it gives deterministic `Drop`,
+      one 16-byte header everywhere, and `Rc(&(T, p))` as in Rust.
+    - **Staged, three preconditions before the deletion:** `Weak` and
+      `ArcWeak` shipped in a seed; the `--allocator debug` leak oracle
+      under every allocator (`ZIG_ADOPTION_CANDIDATES.md` Z11); one
+      release with `--cycle-collector off` as the default, with the
+      tracked-type count and the oracle's report recorded. Then the
+      runtime, `std/gc`, the env knobs, the large header,
+      `compute_needs_cycle_gc`/`can_type_form_rc_cycle`, `Trace` and its
+      impls, the declared `Acyclic` form (registry, pragma rule, decision
+      21's declarations) and the knob itself are deleted; the derived
+      `Acyclic` marker stays, with `Weak` edges excluded from its walk,
+      so `where(T <: Acyclic)` means "no strong cycle is reachable from
+      `T`" — the one static way to say a type cannot leak by cycle
+      (maintainer, 2026-10-21: "in some cases we might want to define a
+      type that disallows forming a reference cycle"); nothing in std
+      requires it after W2;
+      `CYCLE_COLLECTION.md`, `ARC.md` and `MEMORY_SAFETY.md` follow in
+      both languages, and `REFERENCES_AND_ORIGINS.md` O9/O10 and §3.1's
+      "`Rc<&'a T>` stays closed" row are amended to Rust's rule.
+    - **Consequences inside this plan.** §3.12's collector paragraph and
+      decision 46 step 3 are superseded (the predicate is deleted, not
+      narrowed); decision 21's `impl(TypeValue, Acyclic())` and the 48
+      declarations on the compiler's containers (`VBD_RELEASE_SCHEDULE.md`
+      §5 decision 10) become dead code the deletion removes, so they are
+      worth landing only if #1486 needs them before W6; the verifier's
+      exclusion of `Rc`-reaching values keeps its aliasing reason;
+      `Escapable` keeps its other positions (spawn, `extern`, globals).
+    - **Rollout:** the phase "Decision 48: `Weak` and the collector's
+      removal" in §6; the release placement is the VBD session's
+      (`plans/handover/VBD_RELEASE_SCHEDULE.md`, to be re-evaluated).
 
 ## 5. Prerequisites, gates and the seed
 
@@ -4470,8 +4565,8 @@ and in git, not a silent edit.
 3. **V3, compiler:** move-only values and the general predicate.
    - Generation A landed in #1217. It also brings decision 26 for move-only
      payloads.
-   - `Send`/`Sync` with decision 38 E, and `Iso`'s bound, landed in
-     Generation A (feat/vbd-send-sync).
+   - `Send`/`Sync` with decision 38 E, and the isolated-transfer bound
+     (deleted 2026-10-21), landed in Generation A (feat/vbd-send-sync).
    - Local borrows (`y := &place`, last-use live ranges, decision 25's
      re-pointing without the projection step): Generation A on
      feat/vbd-local-borrows (V3, "Local borrows").
@@ -4487,10 +4582,11 @@ and in git, not a silent edit.
    `!(T <: Copy)`.
 7. **V2b:** projections, unique buffers, and the explicit-copy kind for
    `String`, the collections and `Dyn`. **V2c:** decision 17 for `Rc`/`Arc`.
-   - **`Iso` is deleted between B11 and B12** (decided 2026-10-20): Part A
-     of `plans/backlog/MACRO_AND_ISO_REMOVAL.md`, once `String` and the
-     collections are `Send` by move, and before V2c, decision 46 step 3,
-     decision 43 step 2 and V5. That plan's B1/B2 (`for`/`for_await` as
+   - **The isolated-transfer type is deleted at v0.2.68** (decided
+     2026-10-20 for between B11 and B12; pulled forward on 2026-10-21 by the
+     maintainer): Part A of `plans/backlog/MACRO_AND_ISO_REMOVAL.md`, before
+     V2c, decision 46 step 3, decision 43 step 2 and V5. B8 carries its
+     replacement probe. That plan's B1/B2 (`for`/`for_await` as
      parse-time desugars) follow decision 43 step 3, its release is decision
      43's step-2→4 release, and its Part C rides with step 4's Generation B.
 8. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
@@ -4653,8 +4749,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   (`shared_cell_canonical_names`, what `dyn(v)` synthesizes). The canonical
   spelling stays `Box`/`box`, because the std a seed-built compiler reads
   defines `Box` under every seed. The prelude gained `Rc(V)`, a second
-  definition with `Box`'s impls (`Isolation`, `Hash`, `Eq`, `Clone`,
-  `Default`, `Deref`), and `rc(v)` now returns `Rc(V)`. The seed lowers that
+  definition with `Box`'s impls (`Hash`, `Eq`, `Clone`, `Default`, `Deref`,
+  and the isolation trait deleted on 2026-10-21), and `rc(v)` now returns `Rc(V)`. The seed lowers that
   much, because nothing in `std/` or `src/` constructs or matches an `Rc`.
   So in Generation A, `Rc` and `Box` are two types, and assigning one to the
   other is a type error. `tests/rc_cell.test.yo` covers `Rc` everywhere
@@ -4801,7 +4897,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     (field, method, place write through `Box`, `&Box`/`&mut Box` parameters,
     nested `Rc(Box(T))`/`Box(Rc(T))`/`Box(Box(T))`, the E0616 clash, the
     miss message, `derive(T, Hash)` through an `Rc` field),
-    `tests/cycle_collector.test.yo`, `tests/iso.test.yo`.
+    `tests/cycle_collector.test.yo`, `tests/iso.test.yo` (deleted 2026-10-21
+    with the type it tested).
 - **Generation B, seed-gated: the site moves and the non-last-use copies.**
   The v0.2.59 seed compiles `src/` against the tree's `std/`, and it rejects
   `b.*` on the new `Box` (E0406, measured 2026-10-12: `yo check --std-path
@@ -5019,15 +5116,12 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     - **Tests** (`tests/send_sync.test.yo`): a `Send`-but-not-`Sync` type
       (plain data with `impl(T, !(Sync()))`) is rejected by `arc`, `RwLock`
       and `std/imm`'s `Vec`, and accepted by `Mutex` and `Channel`.
-- **`Iso(T)`'s bound widens to "reaches a non-atomic cell" — landed
-  (feat/vbd-send-sync).** `type_reaches_non_atomic_cell`
-  (`src/types/utils.yo`) is the bound at `Iso(T)` and `__yo_iso_unique`. A
-  value child is held inline: its uniqueness walk starts at the cells it
-  holds (`__yo_iso_roots_<Iso>`, through the collector's `_traverse_value`),
-  and its dispose drops it field by field
-  (`generate_iso_uniqueness_functions`). Tests: `^` isolates a struct
-  holding a list and moves it to another thread, refuses one whose list is
-  aliased, and rejects `Iso(<plain struct>)`.
+- **The isolated-transfer bound widened to "reaches a non-atomic cell" —
+  landed (feat/vbd-send-sync); deleted with the type on 2026-10-21
+  (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A).** That bound was
+  `type_reaches_non_atomic_cell` (`src/types/utils.yo`), which stays: it is
+  `Send`'s field-level refusal, and `Box` tracing and the `Acyclic` derivation
+  read it.
 - **Local borrows:** `y := &place`, last-use live ranges, decision 18's
   place-based exclusivity, and decision 25's re-pointing (without the
   projection step).
@@ -6844,6 +6938,27 @@ heavy run, the command is given in item 2.
        path is an explicit flag, not a default: the tool cannot know which
        directories are hot, and the measurement that named `src/evaluator/`
        (1,268 of the 3,271 `src/` insertions) is this plan's, not the tool's.
+     - Step 1 done (2026-10-21, `perf/share-module-path-input-string`):
+       - `Environment.module_path` is an `Rc(String)`. Each root env
+         (module, evaluator, `main`) gets one cell, and every env derived
+         from it shares that cell (`clone_env`, `snapshot_env`, the adopt
+         sites, `capture_env_for`). Readers spell `env.module_path.*`, and a
+         `&String` position takes `&env.module_path.*` rather than a clone.
+       - Why `Rc` and not an interned id: an id is a global-table read on
+         every access, the decision-47 read-by-clone class D this campaign
+         removes. It would also keep `auto-generated://` paths alive for
+         the process lifetime (`EVALUATOR_MEMORY_REDUCTION.md` §0.24). An
+         `Rc` copy is a count bump today and stays one after B8.
+       - `Environment.input_string` was dead: every write was `""` or a
+         copy of another env's field, and its only reader compared two
+         empty strings. The branch deletes it. This explains the b1diag
+         result above: reverting the "whole-module-source `input_string`"
+         clones recovered no memory because those clones copied empty
+         strings.
+       - Memory is unchanged on today's tree (`String` is still a ref type
+         until B8). The numbers are in the branch's commit messages.
+       - Still open: `Token.module_path` / `Token.input` (shared per lexing
+         today, a byte copy per owned read after B8).
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
@@ -7019,12 +7134,19 @@ heavy run, the command is given in item 2.
      - Tier 1: `yo build --std-path ./std` with the seed (the stage-1
        check); `tests/collections/*`, `tests/string/*`,
        `tests/move_only.test.yo`, `tests/copy_trait.test.yo`,
-       `tests/cycle_collector.test.yo`, `tests/iso.test.yo`,
+       `tests/cycle_collector.test.yo`,
        `tests/for_macro_borrow*.test.yo`, `tests/index.test.yo`,
        `tests/rc.test.yo`, `tests/async_await.test.yo`,
        `tests/comptime.test.yo` (CTFE now runs a value list),
        `tests/encoding/*` (`JsonValue`); in-process internal (the LSP files
        read `JsonValue`); cli-diff; fixpoint.
+     - **The isolated-transfer replacement probe gates B8** (moved here
+       from `plans/backlog/MACRO_AND_ISO_REMOVAL.md` A6 when Part A was
+       pulled forward to v0.2.68, maintainer 2026-10-21). B8 adds it as a
+       test: a `String` and an `ArrayList(String)` moved into a spawned
+       thread and back by value. It must pass on B8's tree. It cannot pass
+       earlier: from v0.2.68 until B8, no `String` or collection crosses a
+       thread.
      - Goldens: `audit-implicit-copy-lists-copies-of-live-values`,
        `fix-migrate-explicit-copy` (its left-as-written sites are E0901
        now), the seven runtime-panic `inout-*-panics` cases (on a value
@@ -7561,10 +7683,11 @@ design are superseded and never built). This section is the PR sequence
 references only mean something once collections are uniquely owned values,
 and V4's `TypeValue` conversion, because step 1 adds `TypeValue` variants
 and must not be written twice. Each step is its own PR, with its own
-measured `check ./src` time and stage-2 RSS. `Iso` is gone before step 2
-(`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A), ahead of step 3 (N2), the
-step that lets references sit in fields, so no reference stored in a field
-can reach an `Iso` graph; that plan's `for` desugar follows step 3
+measured `check ./src` time and stage-2 RSS. The isolated-transfer type is
+gone before step 2 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A, at
+v0.2.68), ahead of step 3 (N2), the step that lets references sit in fields,
+so no reference stored in a field can ride a uniquely owned graph to another
+thread; that plan's `for` desugar follows step 3
 and its macro deletion rides with step 4.
 
 0. **N0, no prerequisite (added 2026-10-20):** the negative-test corpus
@@ -7854,9 +7977,46 @@ not an estimate.
          closures do not mention the binder.
      - Not built: `Rc.get_mut` and `RefCell.get()` (decision 43 step 2, as
        step 1 recorded), so their two tests wait with them.
-3. **Follow-up: the cycle collector's predicate** narrows to
+3. ~~**Follow-up: the cycle collector's predicate** narrows to
    `RefCell`/`Mutex`/`RwLock`-reaching cells (§3.12), measured on the
-   collector's own benchmarks.
+   collector's own benchmarks.~~ Superseded by decision 48 (2026-10-21):
+   the predicate is deleted with the collector, not narrowed.
+
+### Decision 48: `Weak` and the collector's removal
+
+Decision 48 (§4) is the design; `plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`
+§6–§7 are the full statement. Each phase is one PR; W3 is Generation A
+(the prelude gains the types, std uses them on the next seed). The
+release placement is the VBD session's call in
+`plans/handover/VBD_RELEASE_SCHEDULE.md`; the ordering constraints are:
+
+1. **W1 — `--cycle-collector off`** and `build.cycle_collector`
+   (compiler-only; the lightweight runtime forced, `Gc` no-ops, docs).
+   Any time; it is the measurement instrument.
+2. **W2 — `Arc`, `Mutex`, `RwLock`, `Channel` and the thread APIs
+   without `Acyclic`** (std and docs; the S2 issue retired). Any time
+   after Part A (landed 2026-10-21; the isolated-transfer type is gone),
+   so no `Acyclic` user is left behind it.
+3. **W3 — `Weak(T)`** (the weak count in decision 46's freed header bits,
+   the dead flag, the two free paths, `traverse_fn`/`Trace` skip `Weak`),
+   **W4 — `ArcWeak(T)`.** Generation A; W3 needs V2c's explicit handle
+   copies to be the rule so `Weak`'s own copy is `.clone()` from its
+   first commit.
+4. **Z11 — `--allocator debug` and `yo test --allocator debug`**, the
+   leak oracle under every allocator (the precondition that replaces the
+   safety net; `ZIG_ADOPTION_CANDIDATES.md`).
+5. **W6a — `Off` becomes the default** for one release, with the
+   tracked-type count over std and `src/` and the oracle's leak report
+   over the corpus recorded in the plan.
+6. **W6b — the deletion**: runtime, `std/gc`, knobs, the large header,
+   the two predicates, `Trace`, the declared `Acyclic` form (registry,
+   pragma rule, decision 21's declarations), the `--cycle-collector`
+   knob; docs in both languages; O9/O10 amended. The derived `Acyclic`
+   marker stays (W5 makes its walk ignore `Weak` edges and fixes the
+   cell-recursion answer). It
+   needs a seed carrying W3/W4 and Z11, and it is best placed with V5
+   Generation B or later, when `ref(...)` is gone and the header is
+   rewritten once.
 
 ### Decision 47: immutable bindings
 
@@ -8069,7 +8229,7 @@ once `SEED_VERSION` parses it.
     Management, §Closures with Reference-Semantics Types, §Testing with
     Reference-Semantics Types);
   - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (replaced,
-    §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
+    §3.14), CYCLE_COLLECTION, ARC, THREAD_SAFETY, PARALLELISM,
     DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
   - the instruction files, the three skills (re-record the seven skill-tree

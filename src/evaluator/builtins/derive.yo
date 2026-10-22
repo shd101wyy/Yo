@@ -156,7 +156,7 @@ add_comptime_var :: (
     false,
     false,
     false,
-    synthetic_token(name, &env.module_path)
+    synthetic_token(name, &env.module_path.*)
   );
   ()
 });
@@ -173,12 +173,12 @@ _derive_bind_opt :: (
     exn : Exception
   ) -> String
 )({
-  var_name := `__derive_opt_${generate_variable_id(&env.module_path, prefix.clone())}`;
-  tmp := `__derive_optT_${generate_variable_id(&env.module_path, prefix.clone())}`;
+  var_name := `__derive_opt_${generate_variable_id(&env.module_path.*, prefix.clone())}`;
+  tmp := `__derive_optT_${generate_variable_id(&env.module_path.*, prefix.clone())}`;
   opt_code := match(
     arg_opt,
     .Some(ae) => {
-      inner_var := `__derive_optI_${generate_variable_id(&env.module_path, prefix.clone())}`;
+      inner_var := `__derive_optI_${generate_variable_id(&env.module_path.*, prefix.clone())}`;
       add_comptime_var(env, inner_var.clone(), t_expr_t(), EvalValue.ExprVal(ae.clone()));
       `((${tmp} : Option(Expr)) = .Some(${inner_var}))`
     },
@@ -249,20 +249,20 @@ call_registered_derive_rule :: (
   old_force_ct := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   // 1. target type.
-  type_var := `__derive_T_${generate_variable_id(&caller_env.module_path, String.from("dT"))}`;
+  type_var := `__derive_T_${generate_variable_id(&caller_env.module_path.*, String.from("dT"))}`;
   add_comptime_var(caller_env, type_var.clone(), t_type(), EvalValue.TypeVal(target_type.clone()));
   // 2. rule fn (bound by VALUE; the declared type is irrelevant to the call).
-  rule_fn_name := `__derive_rule_${generate_variable_id(&caller_env.module_path, String.from("dr"))}`;
+  rule_fn_name := `__derive_rule_${generate_variable_id(&caller_env.module_path.*, String.from("dr"))}`;
   add_comptime_var(caller_env, rule_fn_name.clone(), derive_rule_ty, derive_rule_val);
   // 3. target Expr value.
-  target_expr_var := `__derive_te_${generate_variable_id(&caller_env.module_path, String.from("dte"))}`;
+  target_expr_var := `__derive_te_${generate_variable_id(&caller_env.module_path.*, String.from("dte"))}`;
   add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), EvalValue.ExprVal(target_type_expr.clone()));
   // 4. forall_params / where_clause as Option(Expr).
   forall_expr_var := _derive_bind_opt(caller_env, String.from("dfp"), forall_arg_opt, ctx, exn);
   where_expr_var := _derive_bind_opt(caller_env, String.from("dwp"), where_arg_opt, ctx, exn);
   // 5. DeriveContext(target, generic, where) — evaluated so it carries the
   //    registered DeriveContext type (its id gates `ctx.make_impl` resolution).
-  ctx_var := `__derive_ctx_${generate_variable_id(&caller_env.module_path, String.from("dctx"))}`;
+  ctx_var := `__derive_ctx_${generate_variable_id(&caller_env.module_path.*, String.from("dctx"))}`;
   ctx_code := `DeriveContext(${target_expr_var}, ${forall_expr_var}, ${where_expr_var})`;
   ctx_result := evaluate_expression_raw(generate_expr_from_code(&ctx_code, exn), caller_env, ctx, exn);
   ctx_info := match(
@@ -280,12 +280,12 @@ call_registered_derive_rule :: (
   );
   add_comptime_var(caller_env, ctx_var.clone(), &ctx_info.ty, &ctx_val);
   // 6. trait_params as ComptimeList(Expr).
-  tps_var := `__derive_tps_${generate_variable_id(&caller_env.module_path, String.from("dtps"))}`;
+  tps_var := `__derive_tps_${generate_variable_id(&caller_env.module_path.*, String.from("dtps"))}`;
   if(trait_params.len() > usize(0), {
     param_names := ArrayList(String).new();
     (tpi : usize) = usize(0);
     while(tpi < trait_params.len(), {
-      pv := `__derive_tp_${generate_variable_id(&caller_env.module_path, String.from("dtp"))}`;
+      pv := `__derive_tp_${generate_variable_id(&caller_env.module_path.*, String.from("dtp"))}`;
       pexpr := match(trait_params.get(tpi), .Some(p) => p, .None => make_err_expr());
       add_comptime_var(caller_env, pv.clone(), t_expr_t(), EvalValue.ExprVal(pexpr.clone()));
       param_names.push(pv);
@@ -639,7 +639,7 @@ _evaluate_derive_executing :: (
           false,
           false,
           false,
-          synthetic_token(&fp_name, &env.module_path)
+          synthetic_token(&fp_name, &env.module_path.*)
         );
       });
       fpi = (fpi + usize(1));

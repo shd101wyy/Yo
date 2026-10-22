@@ -66,7 +66,6 @@ TypeInfo :: enum(
   ),
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
-  Iso(child : Type),
   Dyn(
     required_traits : ComptimeList(TraitInfo),
     negative_traits : ComptimeList(TraitInfo)
@@ -307,7 +306,7 @@ The builtin `__yo_are_types_compatible` already exists. We just need to wire it 
 
 ### Phase 2: Compound variants with data ✅
 
-4. ✅ **Simple compound variants** — Array(element, length), Slice(element), Ptr(pointee), Iso(child), Arc(child), ComptimeList(element), Type(level).
+4. ✅ **Simple compound variants** — Array(element, length), Slice(element), Ptr(pointee), Arc(child), ComptimeList(element), Type(level).
 
 5. ✅ **Struct/enum/union/tuple compound variants** — Struct(fields, kind), Enum(variants), Union(fields), Tuple(fields). Built `ComptimeList(TypeFieldInfo)` via `bindComptimeList` utility.
 

@@ -143,7 +143,6 @@ MACRO_DISPATCH_ENABLED :: true;
   try_to_convert_to_numeric_type
 } :: import("./numeric_type.yo");
 { try_to_convert_to_pointer_type } :: import("./pointer_type.yo");
-{ evaluate_iso_value_call } :: import("./iso.yo");
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
@@ -170,7 +169,7 @@ MACRO_DISPATCH_ENABLED :: true;
 /// `recur`
 /// (issues/fixed/recur-runtime-result-not-marked-runtime-only.md).
 _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
-  nm := stable_module_id(String.from("call_result_"), &env.module_path);
+  nm := stable_module_id(String.from("call_result_"), &env.module_path.*);
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
@@ -296,7 +295,7 @@ _reject_private_method_call :: (
   name_tok := ast_expr_token(&name_expr);
   owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
   owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
-  if(private_member_blocked(name_tok.value.clone(), &owner_opt, name_tok.module_path.clone()), {
+  if(private_member_blocked(name_tok.value.clone(), &owner_opt, &name_tok.module_path), {
     recv_str := cond(
       mi.is_static => ast_expr_to_string(&mi.receiver_expr),
       true => match(
@@ -853,7 +852,7 @@ _reject_private_construction :: (
   (i : usize) = usize(0);
   while(i < labels.len(), {
     lbl := match(labels.get(i), .Some(l) => l.clone(), .None => String.new());
-    if(private_member_blocked(lbl.clone(), &decl, tok.module_path.clone()), {
+    if(private_member_blocked(lbl.clone(), &decl, &tok.module_path), {
       exn.throw(
         dyn(
           format_error_message(
@@ -2114,7 +2113,8 @@ ${ast_expr_to_string(call_expr)}`
   // gate protected against — measured on the once-regressing corpus set
   // (enum_ne_dispatch, comptime_param_value_spec, nested_generic_trait_eq,
   // short_circuit_rc_temp_drop) and the iso/rc holdout
-  // (`b := !(Var.is_owning_the_rc_value(x))`). History:
+  // (`b := !(Var.is_owning_the_rc_value(x))`, an introspector deleted on
+  // 2026-10-21). History:
   // issues/fixed/yo-self-comptime-overload-preference.md.
   ct_successes := ArrayList(usize).new();
   {
@@ -2239,8 +2239,8 @@ _try_rewrite_range_index_to_slice_copy :: (
     return(Option(AstExpr).None);
   });
   tok := ast_expr_token(expr);
-  method_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&method_name, &env.module_path));
-  dot_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from(BF_DOT), &env.module_path));
+  method_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&method_name, &env.module_path.*));
+  dot_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from(BF_DOT), &env.module_path.*));
   ma_args := ArrayList(AstExpr).new();
   ma_args.push(func_expr);
   ma_args.push(method_atom);
@@ -4679,7 +4679,7 @@ _fv_refine_closure_expected :: (
         se_opt,
         .Some(e) => e,
         .None => {
-          se_new := Environment.new(&env.module_path);
+          se_new := Environment.new(env.module_path);
           (sq : usize) = usize(0);
           while(sq < info_arg_idx.len(), {
             sp := match(info_arg_idx.get(sq), .Some(ix) => ix, .None => usize(0));
@@ -4897,7 +4897,7 @@ _fv_bind_unbound_forall_placeholders :: (
           false,
           false,
           false,
-          synthetic_token(fname.clone(), &env.module_path)
+          synthetic_token(fname.clone(), &env.module_path.*)
         );
         out.push(fname);
       },
@@ -5016,7 +5016,7 @@ _funcval_bind_foralls :: (
             false,
             false,
             false,
-            synthetic_token(fa_name.clone(), &env.module_path)
+            synthetic_token(fa_name.clone(), &env.module_path.*)
           );
           fa_bound_names.push(fa_name.clone());
           fa_bound_types.push(pf_bound_ty);
@@ -5078,7 +5078,7 @@ _funcval_bind_foralls :: (
           false,
           false,
           false,
-          synthetic_token(&fa_name, &env.module_path)
+          synthetic_token(&fa_name, &env.module_path.*)
         );
         fa_bound_names.push(fa_name.clone());
         fa_bound_types.push(fa_infer_ty.clone());
@@ -5134,7 +5134,7 @@ _funcval_bind_foralls :: (
         fa_synth_env,
         .Some(e) => e,
         .None => {
-          se_new := Environment.new(&env.module_path);
+          se_new := Environment.new(env.module_path);
           n_dp := declared_param_types.len();
           // Per-call consistency for binders reached STRUCTURALLY
           // (`x : Option(A), y : Option(A)`): the synthesizer rebinds in
@@ -5236,7 +5236,7 @@ _funcval_bind_foralls :: (
                     false,
                     false,
                     false,
-                    synthetic_token(&fa_name, &env.module_path)
+                    synthetic_token(&fa_name, &env.module_path.*)
                   );
                   fa_bound = true;
                 });
@@ -5261,7 +5261,7 @@ _funcval_bind_foralls :: (
                   false,
                   false,
                   false,
-                  synthetic_token(&fa_name, &env.module_path)
+                  synthetic_token(&fa_name, &env.module_path.*)
                 );
                 fa_bound = true;
               },
@@ -5280,7 +5280,7 @@ _funcval_bind_foralls :: (
                   false,
                   false,
                   false,
-                  synthetic_token(&fa_name, &env.module_path)
+                  synthetic_token(&fa_name, &env.module_path.*)
                 );
                 fa_bound = true;
               },
@@ -5333,7 +5333,7 @@ _funcval_bind_foralls :: (
                   false,
                   false,
                   false,
-                  synthetic_token(&fa_name, &env.module_path)
+                  synthetic_token(&fa_name, &env.module_path.*)
                 );
                 fa_bound = true;
               },
@@ -5358,7 +5358,7 @@ _funcval_bind_foralls :: (
                     false,
                     false,
                     false,
-                    synthetic_token(&fa_name, &env.module_path)
+                    synthetic_token(&fa_name, &env.module_path.*)
                   );
                   fa_bound = true;
                 });
@@ -5394,7 +5394,7 @@ _funcval_bind_foralls :: (
             false,
             false,
             false,
-            synthetic_token(&fa_name, &env.module_path)
+            synthetic_token(&fa_name, &env.module_path.*)
           );
           fa_bound = true;
         },
@@ -5437,7 +5437,7 @@ _funcval_bind_foralls :: (
       if(is_function_type(&cx_info.ty) || is_fn_trait_type(&cx_info.ty) || is_some_type(&cx_info.ty), {
         continue;
       });
-      cx_env := Environment.new(&env.module_path);
+      cx_env := Environment.new(env.module_path);
       _funcval_try_synthesize_param(&cx_dpt, &cx_env, &cx_info.ty, env);
       (cx_b : usize) = usize(0);
       while(cx_b < fa_bound_names.len(), {
@@ -7197,7 +7197,7 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
   v := match(vars.last(), .Some(x) => x, .None => return(()));
   // A temporary callee (`make()()`) is consumed by its call: the body takes
   // its captures, so the temporary's own drop must not release them again.
-  if(is_temp_variable_name(&env.module_path, name.clone()), {
+  if(is_temp_variable_name(&env.module_path.*, name.clone()), {
     // A NON-owning temporary is a projection (`h.f`, an element): the call
     // would move the closure out of the value that still owns it.
     if(!v.is_owning_the_rc_value && holds_owned, {
@@ -7665,7 +7665,7 @@ _evaluate_function_call_unanchored :: (
       };
       (op_result_val : Option(EvalValue)) = if((is_type_hierarchy_type(&resolved_ret) || op_is_comptime) && op_operands_concrete, {
         op_fv := match(op_eff_m.value, .Some(v) => v, .None => EvalValue.UnitVal);
-        op_env := Environment.new(&call_result_op.callee_env.module_path);
+        op_env := Environment.new(call_result_op.callee_env.module_path);
         match(
           op_fv,
           .FuncVal(__fvm4, op_cvals) => {
@@ -7677,7 +7677,7 @@ _evaluate_function_call_unanchored :: (
               ocn := fv_source_name(&op_csrc, oci);
               oct := fv_source_ty(&op_csrc, oci);
               ocv := fv_source_val(&op_csrc, &op_cvals, oci);
-              _oac := add_variable_to_env(&op_env, &ocn, &oct, &ocv, match(ocv, .Some(_) => true, .None => false), false, false, false, synthetic_token(&ocn, &op_env.module_path));
+              _oac := add_variable_to_env(&op_env, &ocn, &oct, &ocv, match(ocv, .Some(_) => true, .None => false), false, false, false, synthetic_token(&ocn, &op_env.module_path.*));
               oci = (oci + usize(1));
             });
             _ofr := op_env.push_frame(false);
@@ -7685,7 +7685,7 @@ _evaluate_function_call_unanchored :: (
             while(opi < op_pnames.len(), {
               opn := match(op_pnames.get(opi), .Some(n) => n, .None => String.from(""));
               oa := match(call_result_op.arg_values.args.get(opi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
-              _oap := add_variable_to_env(&op_env, &opn, &oa.arg_type, &oa.value, match(oa.value, .Some(_) => true, .None => false), false, false, false, synthetic_token(&opn, &op_env.module_path));
+              _oap := add_variable_to_env(&op_env, &opn, &oa.arg_type, &oa.value, match(oa.value, .Some(_) => true, .None => false), false, false, false, synthetic_token(&opn, &op_env.module_path.*));
               opi = (opi + usize(1));
             });
           },
@@ -8641,11 +8641,6 @@ Fix: wrap the call:
           Rc(.ComptimeListT(_)) =>
             try_to_implement_comptime_list_by_comptime_list_type(expr, &func_type, &args, &callee_env, ctx, exn),
           // ----------------------------------------------------------------
-          // Iso value wrapping: IsoType(value).
-          // ----------------------------------------------------------------
-          Rc(.IsoT(_)) =>
-            evaluate_iso_value_call(expr, &callee_env, ctx, &func_type, exn),
-          // ----------------------------------------------------------------
           // Pointer type cast: (*T)(value).
           // ----------------------------------------------------------------
           Rc(.Pointer(_)) => {
@@ -8832,7 +8827,7 @@ Fix: wrap the call:
                 pa_new_flags.push(false);
                 pa_new_own.push(false);
                 pa_ptn.push(String.new());
-                pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&pa_pname, &env.module_path)));
+                pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&pa_pname, &env.module_path.*)));
               }, {
                 pa_cname := `__pa_cap_${pa_i2}_${pa_id}`;
                 pa_ev := evaluate_expression_raw(&pa_arg, env, ctx, exn);
@@ -8844,13 +8839,13 @@ Fix: wrap the call:
                 pa_cap_names.push(pa_cname.clone());
                 pa_cap_tys.push(pa_info.ty);
                 pa_cap_vals.push(match(pa_info.value, .Some(v) => v, .None => EvalValue.UnknownVal(pa_info.ty, false)));
-                pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&pa_cname, &env.module_path)));
+                pa_body_args.push(AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&pa_cname, &env.module_path.*)));
               });
               pa_i2 = (pa_i2 + usize(1));
             });
             pa_body := AstExpr.FnCall(
               alloc_global_expr_id(),
-              AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_orig_name.clone(), &env.module_path)),
+              AstExpr.Atom(alloc_global_expr_id(), synthetic_token(pa_orig_name.clone(), &env.module_path.*)),
               pa_body_args,
               false,
               tok.clone()
@@ -9130,7 +9125,7 @@ Fix: wrap the call:
         // Skip the regular arg-count check when the callee has a variadic
         // parameter: variadics accept any number of trailing args, so a strict
         // `n_a > n_p` upper bound (n_p excludes the variadic) wrongly rejects
-        // e.g. `array_list(a, b)` (n_p=0).
+        // e.g. a quoted-variadic macro `m(a, b)` (n_p=0).
         if(!fv_has_variadic && ((n_a < (n_required_reg + n_ev)) || (n_a > (n_p + n_ev))), {
           (fv_count_msg : String) = `Argument count mismatch: expected ${(n_p + n_ev)}, got ${n_a}`;
           if(n_required_reg != n_p, {
@@ -9239,7 +9234,8 @@ Fix: wrap the call:
           // once bisected to no longer reproduces (0/52 on the original
           // 4-file protocol, post-slice-rework) — see
           // issues/fixed/codegen-continue-in-while-heap-corruption.md.
-          // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `array_list`) treats
+          // A QUOTED VARIADIC (`...(quote(elems))`, e.g. `local_list` in
+          // tests/macro_def_pragma.test.yo) treats
           // every trailing arg (index >= n_p) as quoted: bind its raw AST as an
           // `Expr` so the macro body's `elems` receives un-evaluated exprs (and
           // the CTFE unknown-arg gate sees compile-time-known `ExprVal`s, not
@@ -9323,7 +9319,7 @@ Fix: wrap the call:
                           false,
                           false,
                           false,
-                          synthetic_token(&du_name, &arg_eval_env.module_path)
+                          synthetic_token(&du_name, &arg_eval_env.module_path.*)
                         );
                       }),
                       .None => ()
@@ -9451,7 +9447,7 @@ Fix: wrap the call:
               );
               if(lp_go, {
                 _lpf := env.push_frame(false);
-                lp_se := Environment.new(&env.module_path);
+                lp_se := Environment.new(env.module_path);
                 lp_ct_flags := get_func_param_comptime(func_id_fv.clone());
                 (lp_j : usize) = usize(0);
                 while(lp_j < ai, {
@@ -9498,7 +9494,7 @@ Fix: wrap the call:
                               false,
                               false,
                               false,
-                              synthetic_token(lp_fn.clone(), &env.module_path)
+                              synthetic_token(lp_fn.clone(), &env.module_path.*)
                             );
                             ()
                           }),
@@ -9775,7 +9771,7 @@ Fix: wrap the call:
                       false,
                       false,
                       false,
-                      synthetic_token(&db_name, &def_env.module_path)
+                      synthetic_token(&db_name, &def_env.module_path.*)
                     );
                   });
                 },
@@ -9837,7 +9833,7 @@ Fix: wrap the call:
                       false,
                       false,
                       false,
-                      synthetic_token(&dsn, &def_env.module_path)
+                      synthetic_token(&dsn, &def_env.module_path.*)
                     );
                   });
                 };
@@ -9939,7 +9935,7 @@ Fix: wrap the call:
           &cap_names,
           &cap_tys,
           &cap_vals,
-          &env.module_path
+          env.module_path
         );
         // Push a frame and bind `__recur_fn`. The recur FuncVal's id is
         // minted from the CALL's source position: unique per mint
@@ -9971,7 +9967,7 @@ Fix: wrap the call:
           false,
           false,
           false,
-          synthetic_token(String.from("__recur_fn"), &env.module_path)
+          synthetic_token(String.from("__recur_fn"), &env.module_path.*)
         );
         // For a static method call (`Type.method()`), the receiver type carries
         // its concrete type arguments (`type_arguments`, set at instantiation).
@@ -10047,7 +10043,7 @@ Fix: wrap the call:
               false,
               false,
               false,
-              synthetic_token(fve_name.clone(), &env.module_path)
+              synthetic_token(fve_name.clone(), &env.module_path.*)
             );
             fa_bound_names.push(fve_name);
             fa_bound_types.push(fve_ty);
@@ -10262,7 +10258,7 @@ Fix: wrap the call:
               .None => ()
             );
           });
-          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path), match(callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty, pi), .None => false));
+          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path.*), match(callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty, pi), .None => false));
           match(
             var_opt,
             .Some(v) => {
@@ -10364,7 +10360,7 @@ Fix: wrap the call:
             false,
             false,
             true,
-            synthetic_token(&ev_name, &env.module_path)
+            synthetic_token(&ev_name, &env.module_path.*)
           );
           evi = (evi + usize(1));
         });
@@ -11434,7 +11430,7 @@ Fix: wrap the call:
             // not execution), so passing it to the CTFE would leave `self`
             // unknown in the body. Mirror the inline FuncVal arm, which binds
             // params to `arg_info.value` in a fresh env before CTFE.
-            m_env := Environment.new(&call_result_m.callee_env.module_path);
+            m_env := Environment.new(call_result_m.callee_env.module_path);
             match(
               m_fv,
               .FuncVal(__fvm5, m_cvals) => {
@@ -11446,7 +11442,7 @@ Fix: wrap the call:
                   mcn := fv_source_name(&m_csrc, mci);
                   mct := fv_source_ty(&m_csrc, mci);
                   mcv := fv_source_val(&m_csrc, &m_cvals, mci);
-                  _mac := add_variable_to_env(&m_env, &mcn, &mct, &mcv, match(mcv, .Some(_) => true, .None => false), false, false, false, synthetic_token(&mcn, &m_env.module_path));
+                  _mac := add_variable_to_env(&m_env, &mcn, &mct, &mcv, match(mcv, .Some(_) => true, .None => false), false, false, false, synthetic_token(&mcn, &m_env.module_path.*));
                   mci = (mci + usize(1));
                 });
                 _mfr := m_env.push_frame(false);
@@ -11454,7 +11450,7 @@ Fix: wrap the call:
                 while(mpi < m_pnames.len(), {
                   mpn := match(m_pnames.get(mpi), .Some(n) => n, .None => String.from(""));
                   ma := match(call_result_m.arg_values.args.get(mpi), .Some(e) => e, .None => ArgEntry(value : Option(EvalValue).None, parameter_type : t_unit(), arg_type : t_unit()));
-                  _map := add_variable_to_env(&m_env, &mpn, &ma.arg_type, &ma.value, match(ma.value, .Some(_) => true, .None => false), false, false, false, synthetic_token(&mpn, &m_env.module_path));
+                  _map := add_variable_to_env(&m_env, &mpn, &ma.arg_type, &ma.value, match(ma.value, .Some(_) => true, .None => false), false, false, false, synthetic_token(&mpn, &m_env.module_path.*));
                   mpi = (mpi + usize(1));
                 });
               },

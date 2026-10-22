@@ -1,0 +1,17 @@
+// N0 corpus row `match-arm-binding-origin` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a payload moved out of a consumed scrutinee keeps the scrutinee's origins (O3, §4's match lowering; the superseded design's `.Borrowed`-payload row).
+// Expected once decision 43's rules land: rejected: E0911 at the write to `x` while `r` lives.
+main :: (fn() -> unit)({
+  mut(x) := i32(1);
+  o := Option(&(i32, x)).Some(&x);
+  match(
+    o,
+    .Some(r) => {
+      x = i32(2);
+      _ := r.*;
+    },
+    .None => ()
+  );
+  ()
+});
+export(main);

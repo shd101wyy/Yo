@@ -35,8 +35,8 @@ The single `Send` marker meant "may be shared across threads". It is split, as i
 
 What the rules below ask after the split: D1's global must be `Sync` (a global is shared), and its
 reach walk runs for a `Sync` closure slot and a `Dyn(Trait, Sync)` too. D4 and D9 judge both
-markers. D2's `Iso(T)` stays the explicit move of a non-`Send` graph; `T` is any value that
-reaches a non-atomic cell.
+markers. D2 is retired (2026-10-21): no wrapper moves a non-`Send` graph; a non-`Send` value
+stays on its thread.
 
 Until V2b gives `String` and the collections unique buffers, they reach a non-atomic cell and are
 not `Send`. Moving one is not safe while a copy on the sending thread shares its count.
@@ -94,34 +94,16 @@ must be `Send`" — it rejects every single-threaded program with a global cache
 collection is never `Send`), the compiler's own tree included. Rationale otherwise: Rust's
 `static: Sync` rule.
 
-## D2 — `Iso(T)` is constructed only through `^`, `T` is a reference object, uniqueness is deep
+## D2 — RETIRED 2026-10-21 (was: the isolated-transfer type, its `^` constructor and its deep uniqueness walk)
 
-**Status:** LANDED 2026-09-26 (Phase 2): `evaluate_iso_type_call` / `evaluate_iso_value_call`
-(`src/evaluator/calls/iso.yo`), `generate_iso_uniqueness_functions`
-(`src/codegen/functions/constructors.yo`), the `__yo_iso_unique` builtin and the `^` macro in
-`std/prelude.yo`. Not seed-gated after all: the new builtin appears only inside the macro's
-`quote`, which nothing the seed compiles expands.
-
-- In a file without the pragma, `Iso(T)(v)` is not callable; `^v` is the constructor.
-- `Iso(T)` requires `T` to be a non-atomic reference OBJECT (a `ref(struct)`/`ref(enum)`:
-  `ArrayList`, `HashMap`, `Box`, a user `ref(struct)`), because the wrapper holds and releases the
-  child's handle. `Iso(i32)`, `Iso(<value struct>)`, `Iso(Arc(T))`, `Iso(<atomic object>)` and
-  `Iso(Iso(T))` are compile errors. An atomic object DEEPER in the value is allowed: it is shared
-  by design, and the walk stops at it.
-- Uniqueness is checked at CONSTRUCTION and it is DEEP: `__yo_iso_unique_<Iso>` walks every
-  reachable non-atomic object through the per-type traversal functions (the collector's; the
-  visitor receives each child's traverse function) with an explicit worklist, and fails if any
-  has `ref_count != 1`. On failure `^v` is `.None`. The walk runs on the sending thread, where
-  every reachable non-atomic refcount is stable, so the check is race-free. `Isolation` is no
-  longer consulted by `^`.
-- `extract()` hands the value out exactly once (its atomic one-shot flag). The originally planned
-  extra wrapper `ref_count == 1` check was dropped on analysis: `extract` is the only operation on
-  the inner value, so a sending thread holding a copy of the wrapper can never obtain the value
-  once the receiver has, and dropping that copy frees nothing — the flag is what makes the owner
-  unique, and a count check would depend on how many references the call's own `self` holds.
-
-Rejected alternative: bounding `Iso(T)` on an interior-`Send` `T` — that removes the feature,
-whose whole point is moving a non-`Send` graph to one other thread.
+**RETIRED 2026-10-21:** the type D2 governed was deleted with its `^` constructor, the
+`Var.*` introspectors and the runtime uniqueness walk (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`
+Part A, pulled forward to v0.2.68 by the maintainer). The number stays so the D-numbers cited
+across the tree keep their meaning. Yo now follows Rust's thread rule: data that crosses threads
+must itself be `Send`, and `Send` is derived purely structurally (D10); an `Rc` graph is
+thread-local, and `Rc.try_unwrap` takes the value out of a uniquely held handle. Until V2b's
+B8–B11 flips, `String` and the collections are not `Send`, so none of them crosses a thread. The
+rule's last text is `git show 3d3546a21:plans/reference/PARALLELISM_RULES.md`.
 
 ## D3 — No writes through an atomic object, at every mutation site
 
@@ -198,11 +180,6 @@ the value is known:
   for a `Send` target (`box` otherwise), a non-atomic reference payload (`dyn(box(v))`) is an
   error, and a Dyn's dup/drop calls the retain/release slots of its vtable, which the payload
   type fills (`issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md`).
-- **An `Iso(T)`:** every function value `T`'s graph can hold (`_iso_function_offense`,
-  `src/evaluator/calls/iso.yo`). D2's uniqueness walk proves the graph is uniquely owned, not
-  that a function in it runs safely on the receiving thread. A bare `fn` field and a `Dyn`
-  without `Send` make the `Iso` an error
-  (`issues/fixed/iso-of-a-graph-holding-a-function-value-bypasses-d9.md`).
 
 A closure is walked when it is CREATED, with its defining env, in every slot, not only a `Send`
 one. The verdict is memoized by function id, so a later judgement that has only the closure's

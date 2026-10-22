@@ -1458,7 +1458,7 @@ try_match_generic_impl :: (
       false,
       false,
       false,
-      synthetic_token(&fa_name, &env.module_path)
+      synthetic_token(&fa_name, &env.module_path.*)
     );
     ui = (ui + usize(1));
   });
@@ -5868,7 +5868,7 @@ evaluate_module_value :: (
                             &d_fvd.*.cap_names,
                             &d_fvd.*.cap_tys,
                             &d_cvs,
-                            ast_expr_token(&d_fvd.*.body).module_path
+                            rc(ast_expr_token(&d_fvd.*.body).module_path)
                           );
                           ___df := d_env.push_frame(false);
                           d_pts := match(d_sub_ty, Rc(.Func({ param_types : d_ppts })) => d_ppts, _ => no_types());
@@ -5901,7 +5901,7 @@ evaluate_module_value :: (
                               false,
                               false,
                               false,
-                              synthetic_token(&d_pn, &d_env.module_path)
+                              synthetic_token(&d_pn, &d_env.module_path.*)
                             );
                             match(
                               ___dpv,

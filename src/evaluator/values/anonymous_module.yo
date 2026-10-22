@@ -208,7 +208,7 @@ _force_pending_def_impl :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(
   // (issues/fixed/a-file-that-fails-check-alone-passes-inside-a-directory-check.md).
   prev_owner := registration_owner();
   match(
-    loading_key_for_module(walk.module_path.clone()),
+    loading_key_for_module(&walk.module_path),
     .Some(k) => set_registration_owner(&k),
     .None => ()
   );
@@ -377,7 +377,6 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       env.frames = ext_info.env.frames;
                       env.module_path = ext_info.env.module_path;
                       env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
-                      env.input_string = ext_info.env.input_string;
                       ext_mod_type := ext_info.ty;
                       if(!is_module_type(&ext_mod_type), {
                         exn.throw(
@@ -530,7 +529,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
                                 ext_mod_path,
-                                .Some(mp) => record_module_ordered_read(env.module_path.clone(), &mp, ext_label.clone()),
+                                .Some(mp) => record_module_ordered_read(&env.module_path.*, &mp, ext_label.clone()),
                                 .None => ()
                               );
                               // Check for duplicate label
@@ -767,7 +766,6 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                 env.frames = info.env.frames;
                 env.module_path = info.env.module_path;
                 env.function_declaration_frame_level = info.env.function_declaration_frame_level;
-                env.input_string = info.env.input_string;
               },
               .None => ()
             );
@@ -877,8 +875,8 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // `is_source_namespace`, paired with a StructVal because types and values
   // are kept split (the TypeValue layer cannot reference EvalValue). See
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-  sns_id := stable_sns_module_id(env.module_path.clone());
-  register_sns_module(sns_id.clone(), env.module_path.clone());
+  sns_id := stable_sns_module_id(&env.module_path.*);
+  register_sns_module(sns_id.clone(), &env.module_path.*);
   module_type := rc(
     TypeValueNode.Struct(
       sns_id.clone(),
@@ -942,7 +940,7 @@ _run_module_walk :: (
           AnonModuleResult(
             module_value : EvalValue.UnitVal,
             module_type : rc(TypeValueNode.Unit),
-            env : Environment.new(String.new()),
+            env : Environment.new(rc(String.new())),
             partial_module_error : Option(String).None
           )
         );

@@ -58,7 +58,6 @@ TypeInfo :: enum(
   Union(fields : ComptimeList(TypeFieldInfo)),
   Function(info : FunctionInfo),
   Ptr(pointee : Type),
-  Iso(child : Type),
   Dyn(required_traits : ComptimeList(TraitInfo), negative_traits : ComptimeList(TraitInfo)),
   // === 元类型 ===
   Trait(fields : ComptimeList(TraitFieldInfo), kind : TraitKind),

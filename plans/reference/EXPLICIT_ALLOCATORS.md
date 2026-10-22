@@ -43,9 +43,9 @@ No container grew a field: the owner bit lives in a word each already had.
     allocator interface, version 2"). This page is amended when it lands.
 - `with_allocator(a, f)` — a std function, not a keyword (D2). It makes `a`
   current on this thread while `f` runs; an RAII guard (a plain `ref`
-  struct, not generic in `T`) restores the previous scope on every exit. The six user-visible RC constructor sites (`ref`
-  struct and enum, `box`/`arc`, `dyn`, `Iso`, async state machines) consult
-  it; the runtime's own blocks never do. `current_allocator()` reads it.
+  struct, not generic in `T`) restores the previous scope on every exit. The five user-visible RC constructor sites (`ref`
+  struct and enum, `box`/`arc`, `dyn`, async state machines; a sixth, the
+  isolated-transfer constructor, was deleted on 2026-10-21) consult it; the runtime's own blocks never do. `current_allocator()` reads it.
 - A task keeps the scope it was created in: its resume wrapper reinstates
   the scope from the state machine's own prefix. A spawned thread starts on
   the global allocator.

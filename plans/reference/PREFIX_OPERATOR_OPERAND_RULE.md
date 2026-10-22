@@ -3,7 +3,8 @@
 **Rule 1 IMPLEMENTED 2026-08-21** (`parse_prefix_operand` /
 `parse_expression` in `src/parser.yo`, on the closed-operator-set branch —
 see `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`): a bare prefix-capable
-operator (`-` `!` `~` `&` `*` `?` `^`) binds one postfix expression;
+operator (`-` `!` `~` `&` `*` `?`; `^` until 2026-10-21, when its only prefix
+meaning was deleted with `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A) binds one postfix expression;
 parenthesized operator atoms (`(!)`) stay values; the no-whitespace `(`
 form stays the operator-call path (`-(a)`, multi-arg `-(a, b)`); nested
 bare prefixes chain (`**i32` = `*(*(i32))`, `- -1`). Verified by a

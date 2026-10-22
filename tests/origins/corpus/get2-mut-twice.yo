@@ -1,0 +1,14 @@
+// N0 corpus row `get2-mut-twice` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a second `&mut xs` lend while the first call's `&mut(T, xs)` result lives (O3 step 2) — spelled with today's decision-24 projection, which already expresses it.
+// Expected once decision 43's rules land: rejected: E0911 at the second lend (today too).
+{ ArrayList } :: import("std/collections/array_list");
+_first_mut :: (fn(xs : &mut ArrayList(i32)) -> &mut i32)(&mut xs(usize(0)));
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  a := _first_mut(&mut xs);
+  b := _first_mut(&mut xs);
+  a = i32(5);
+  ()
+});
+export(main);

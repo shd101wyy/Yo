@@ -1,0 +1,19 @@
+// N0 corpus row `effect-resume-param` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: a handler resuming with the operation's own parameter (O7 effect handlers).
+// Expected once decision 43's rules land: accepted.
+_Ask :: (ctl(key : &i32) -> &(i32, key));
+_use :: (fn(ask : _Ask) -> i32)({
+  k := i32(1);
+  r := ask(&k);
+  r.*
+});
+main :: (fn() -> unit)({
+  (ask : _Ask) = (
+    key -> {
+      return(key);
+    }
+  );
+  _ := _use(ask);
+  ()
+});
+export(main);
