@@ -7083,15 +7083,62 @@ heavy run, the command is given in item 2.
             is not counted as a clone caller; and the machine-local
             symbolizer mislabels some function names, so only its
             file:line values are cited here.
+         4. **(d)'s residual is a fixed cost, mostly 10 more sites outside
+            the hot path** (review follow-up, same day). On a small input
+            (d) is 1.71x (a)'s RSS, not 1.106x: the extra ~100 MB is paid
+            once, on the std and prelude modules every `check` loads.
+            Diagnostic (e) is (d) without 10 more insertions: the 8
+            punctuation tokens in `src/lexer.yo`'s `tokenize_span`
+            (`value : g_tv_lparen.clone()` and its siblings, 372–392 and
+            770–774), which give every `(`, `)`, `[`, `]`, `{`, `}`, `,`
+            and `;` token its own `String` instead of the shared global,
+            and `entry.last.insert(v.name.clone(), k)` at
+            `src/env.yo:749/753` in `_frame_index_refresh`, whose source
+            comment already records sharing that key as worth 61 MB on
+            `check src/main.yo` (`EVALUATOR_MEMORY_REDUCTION.md` §0.10).
+            (d68) and (e68) were both built with the v0.2.68 seed; (d67)
+            is the (d) above, so (d67) against (d68) shows the seed does
+            not move the numbers. One run each, back to back, same caps,
+            load average about 5:
+
+            | input | binary | wall | user | max RSS | vs (a) |
+            | --- | --- | --- | --- | --- | --- |
+            | `std/rand.yo` | (a) | 0:09.07 | 9.0 s | 139,676 kB | 1 |
+            | `std/rand.yo` | (d67) | 0:10.46 | 10.3 s | 240,160 kB | 1.72x RSS |
+            | `std/rand.yo` | (d68) | 0:09.54 | 9.4 s | 240,580 kB | 1.72x RSS |
+            | `std/rand.yo` | (e68) | 0:10.31 | 10.2 s | 165,176 kB | 1.18x RSS |
+            | `src/main.yo` | (a) | 5:12 | 311 s | 1,053,816 kB | 1 |
+            | `src/main.yo` | (d68) | 6:19 | 378 s | 1,164,628 kB | 1.22x user, 1.105x RSS |
+            | `src/main.yo` | (e68) | 5:57 | 355 s | 1,072,768 kB | 1.14x user, 1.018x RSS |
+
+            So the 10 sites carry about 75 of (d)'s 100 MB on
+            `std/rand.yo` and 92 of its 111 MB on `src/main.yo`, plus
+            about 23 s of user time. (e) was built as one variant, so the
+            split between the lexer and the `env.yo` sites is not
+            measured. The remaining ~25 MB on `std/rand.yo` and the 1.14x
+            user time are not attributed; (d)'s user ratio moved from 1.11x
+            to 1.22x between two back-to-back pairs, so wall and user
+            ratios on this box carry about ±0.1x of noise.
        - Next, in order:
          1. Share `Token.input` and `Token.module_path` (an `Rc(String)`
             like `Environment.module_path`). This is a prerequisite: it
             removes the population cost, and the fix is not a hand edit
             of the 11 sites.
          2. Fix the two tool defects, each with its cli-case.
-         3. Regenerate on the tip and re-measure against (a) back to back.
-            This run's bar was 1.5x time and 1.2x RSS (the plan names
-            none); (d) suggests it is reachable.
+         3. Regenerate on the tip with the hot path widened to the files
+            item 4 measured, `--hot-path src/evaluator --hot-path
+            src/lexer.yo --hot-path src/env.yo` (a file path works:
+            `yo fix ./src/lexer.yo --migrate explicit-copy --hot-path
+            src/lexer.yo --dry-run` inserts nothing and lists the 8
+            punctuation sites as hot), and re-measure against
+            (a) back to back on BOTH a small input (`check std/rand.yo`,
+            where a fixed cost shows) and `check src/main.yo`. This run's
+            bar was 1.5x time and 1.2x RSS (the plan names none). (e) is
+            inside it on both inputs, but (e) is a hand-edited diagnostic,
+            it still carries the `env.yo` defect, and no fixpoint or test
+            ran on it, so it does not stand in for that measurement.
+            Profile whatever residual the regenerated binary shows before
+            widening the hot path further.
          4. Run Tier 1 and the fixpoint.
 
          Tier 1, the fixpoint and the in-process `tests/internal` run were
