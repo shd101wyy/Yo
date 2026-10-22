@@ -63,7 +63,7 @@ main :: (fn() -> unit)({
 | `extern(...)` / `c_include(...)` 声明               | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                                                               |
 | 指针算术（`.add(n)`、`.sub(n)`、`.offset_from(q)`） | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                                                           |
 | 在指针上 `consume(p.* = v)`                         | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                                                                     |
-| `___drop(place)`，原地析构内建函数                  | "`___drop(...)` requires `unsafe(...)`"                                          | 用 `drop(x)` 提前结束一个值：它把 `x` 移入，之后再使用就是错误。通过裸指针拥有的槽位，在 pragma 下用 `drop_in_place(p)` 销毁 |
+| `___drop(place)`，原地析构内建函数                  | "`___drop(...)` is not available in safe code"                                   | 用 `drop(x)` 提前结束一个值：它把 `x` 移入，之后再使用就是错误。通过裸指针拥有的槽位，在 pragma 下用 `drop_in_place(p)` 销毁 |
 | 读取 `union(...)` 成员（`u.x`、`{ x } := u`）                | "Reading union member `x` of `U` requires `pragma(Pragma.AllowUnsafe);` in this file" | 使用 `enum` 加 `match`：union 不记录最后写入的是哪个成员，把其他成员的字节当作 `bool`、枚举或引用读取是未定义行为。构造 union 和写入成员仍然合法 |
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。

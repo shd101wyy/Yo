@@ -1635,8 +1635,6 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
   });
   em.emit_string_line(`${indent.clone()}}`);
 });
-/// Counter naming the saved escape flags `generate_call_deferred_drops` emits.
-(mut(g_escape_keep_counter) : usize) = usize(0);
 /// Emit the deferred drops a call releases right after it returns, which come
 /// BEFORE the call's unwind check (`emit_effect_unwind_check`). The drops run
 /// destructors, and a destructor that calls a function clears
@@ -1645,20 +1643,23 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
 /// result (`if(f(&make_noisy(), raise), ...)` with a `Drop` impl that calls a
 /// function, issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md).
 /// So when the call may unwind and drops were emitted, the flag is saved
-/// before them and restored after. The save line is inserted where the drops
-/// begin once they turn out non-empty; the code buffer spills only between
-/// functions, so that position is still in it.
+/// before them and merged back after (`flag | saved`): a destructor whose
+/// inner call cleared the flag cannot cancel the call's unwind, and a
+/// destructor that unwinds itself (its `Drop` calls a stored ctl the handler
+/// unwinds) keeps its own raised flag. The save line is inserted where the
+/// drops begin once they turn out non-empty; the code buffer spills only
+/// between functions, so that position is still in it. The saved flag's name
+/// is a per-function fresh local, so emission is identical across compiles in
+/// one process.
 generate_call_deferred_drops :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, may_unwind : bool) -> unit)({
   em := context.base.emitter;
   drops_at := em.code.len();
   generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   if(may_unwind && (em.code.len() > drops_at), {
-    n := g_escape_keep_counter;
-    g_escape_keep_counter = (n + usize(1));
-    keep := `__yo_escaped_keep_${n.to_string()}`;
+    keep := fresh_local_name(String.from("__yo_escaped_keep_"), &context.base.current_function_name);
     save_line := `${indent.clone()}int ${keep.clone()} = __yo_effect_escaped;\n`;
     em.code.insert_str(drops_at, &save_line);
-    em.emit_string_line(`${indent.clone()}__yo_effect_escaped = ${keep};`);
+    em.emit_string_line(`${indent.clone()}__yo_effect_escaped = (__yo_effect_escaped | ${keep});`);
   });
 });
 /// Record whose unwind is in flight: the handler being generated. The frame

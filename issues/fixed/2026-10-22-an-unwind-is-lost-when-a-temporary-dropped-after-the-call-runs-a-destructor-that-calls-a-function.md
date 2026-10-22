@@ -59,22 +59,24 @@ A call that may unwind is emitted as `__yo_effect_escaped = 0; <call>; <deferred
 
 ## Fix
 
-`generate_call_deferred_drops` (`src/codegen/exprs/return.yo`) emits a call's deferred drops and, when the call may unwind and drops were emitted, saves the flag before them and restores it after:
+`generate_call_deferred_drops` (`src/codegen/exprs/return.yo`) emits a call's deferred drops and, when the call may unwind and drops were emitted, saves the flag before them and merges it back after (`flag | saved`):
 
 ```c
 __yo_effect_escaped = 0;
 bool t = fails(tmp, raise);
 int __yo_escaped_keep_0 = __yo_effect_escaped;
 /* drop tmp: its destructor clears the flag */
-__yo_effect_escaped = __yo_escaped_keep_0;
+__yo_effect_escaped = (__yo_effect_escaped | __yo_escaped_keep_0);
 if (__yo_effect_escaped) { ... }
 ```
+
+A merge, not a plain restore: a temporary's destructor can itself unwind (its `Drop` calls a stored ctl whose handler unwinds). A restore overwrote that raised flag with the saved `0`, so the frame continued with the call's dummy result where the pre-fix code propagated the destructor's unwind; the merge keeps both directions. The saved flag is named with `fresh_local_name` (per function, reset every compile), so a second compile in one process emits the same C.
 
 Every drop-then-check site in `src/codegen/exprs/other_fn_call.yo` (ten) and `src/codegen/exprs/recur.yo` (three) goes through it.
 
 ## Test
 
-`tests/algebraic_effects.test.yo`, "an unwind passes a call whose temporary argument's destructor makes a call": a temporary `_EscGuard` (whose `Drop` makes a call) and a temporary `Box(i32)` (whose `Drop` calls `drop_in_place` and `_box_owner_of`) are lent to a call whose handler unwinds. Before the fix both frames continue and return `1` instead of the unwound `-7`/`-8`.
+`tests/algebraic_effects.test.yo`, "an unwind passes a call whose temporary argument's destructor makes a call": a temporary `_EscGuard` (whose `Drop` makes a call) and a temporary `Box(i32)` (whose `Drop` calls `drop_in_place` and `_box_owner_of`) are lent to a call whose handler unwinds. Before the fix both frames continue and return `1` instead of the unwound `-7`/`-8`. "an unwind raised by a temporary's own destructor after the call propagates" covers the other direction: a temporary whose `Drop` calls the handler's ctl, after a call that did not unwind; a plain restore of the saved flag lost that unwind.
 
 ## Seed gate
 

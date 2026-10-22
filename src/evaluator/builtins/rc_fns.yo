@@ -108,12 +108,12 @@ _eval_arg :: (
   )
 });
 /// Reject a builtin that destroys its argument in place (an RC release)
-/// outside an unsafe-capable context, as `___drop` is: on a field the place
+/// outside an unsafe-capable file, as `___drop` is: on a field the place
 /// stays readable after its storage is freed
 /// (`is_destroying_builtin_call_capable`).
-_require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+_require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn : Exception) -> unit)({
   tok := ast_expr_token(expr);
-  if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.clone()), ctx.unsafe_context), {
+  if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.clone())), {
     name := String.from(builtin);
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     place := match(args.get(usize(0)), .Some(a) => ast_expr_to_string(&a), .None => String.new());
@@ -131,7 +131,7 @@ evaluate_yo_decr_rc :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _require_destroying_builtin_capable(BF_YO_DECR_RC, expr, ctx, exn);
+  _require_destroying_builtin_capable(BF_YO_DECR_RC, expr, exn);
   info := _eval_arg("evaluate_yo_decr_rc", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
@@ -146,7 +146,7 @@ evaluate_yo_decr_rc_atomic :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _require_destroying_builtin_capable(BF_YO_DECR_RC_ATOMIC, expr, ctx, exn);
+  _require_destroying_builtin_capable(BF_YO_DECR_RC_ATOMIC, expr, exn);
   info := _eval_arg("evaluate_yo_decr_rc_atomic", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
@@ -189,7 +189,7 @@ evaluate_yo_dyn_vtable_drop :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _require_destroying_builtin_capable(BF_YO_DYN_DROP, expr, ctx, exn);
+  _require_destroying_builtin_capable(BF_YO_DYN_DROP, expr, exn);
   info := _eval_arg("evaluate_yo_dyn_vtable_drop", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
@@ -218,7 +218,7 @@ evaluate_yo_some_type_drop :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _require_destroying_builtin_capable(BF_YO_SOMETYPE_DROP, expr, ctx, exn);
+  _require_destroying_builtin_capable(BF_YO_SOMETYPE_DROP, expr, exn);
   info := _eval_arg("evaluate_yo_some_type_drop", expr, env, ctx, usize(0), exn);
   out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
@@ -267,7 +267,7 @@ evaluate_yo_drop_array_element :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _require_destroying_builtin_capable(BF_YO_DROP_ARRAY_ELEMENT, expr, ctx, exn);
+  _require_destroying_builtin_capable(BF_YO_DROP_ARRAY_ELEMENT, expr, exn);
   info0 := _eval_arg("evaluate_yo_drop_array_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_drop_array_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
@@ -284,7 +284,7 @@ evaluate_yo_drop_tuple_element :: (
     exn : Exception
   ) -> AstExpr
 )({
-  _require_destroying_builtin_capable(BF_YO_DROP_TUPLE_ELEMENT, expr, ctx, exn);
+  _require_destroying_builtin_capable(BF_YO_DROP_TUPLE_ELEMENT, expr, exn);
   info0 := _eval_arg("evaluate_yo_drop_tuple_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_drop_tuple_element", expr, &info0.env, ctx, usize(1), exn);
   info1;

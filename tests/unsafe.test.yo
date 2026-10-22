@@ -89,7 +89,7 @@ test("unsafe(match(...)) wraps a match", {
 });
 
 // `___drop(place)` and `drop_in_place(p)` run a destructor in place, without
-// moving the value out. Both need an unsafe-capable context: in safe code
+// moving the value out. Both need an unsafe-capable file: in safe code
 // `___drop(h.xs)` left a field readable after its buffer was freed
 // (issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md;
 // the rejection is pinned in tests/safe_code_structural_gates.test.yo).
@@ -126,6 +126,18 @@ test("drop_in_place(p) destroys the value a raw pointer owns", {
   assert(DROPPED_IDS == i32(7), "drop_in_place ran the destructor once");
   unsafe(free(.Some((*void)(slot))));
   assert(DROPPED_IDS == i32(7), "freeing the dead slot runs nothing");
+});
+
+// The gate asks where `___drop` is WRITTEN, not whether the call runs under
+// `unsafe(...)`: a generic body is evaluated at its call site, so wrapping a
+// call into a safe file's generic function must not admit the `___drop` that
+// file contains.
+{ destroy_field_then_read } :: import("./fixtures/drop_gate_generic.yo");
+test("unsafe(...) around a call does not admit ___drop written in a safe file", {
+  comptime_expect_error({
+    n := unsafe(destroy_field_then_read(i32(0)));
+    n
+  }, "'___drop(...)' is not available in safe code");
 });
 
 test("drop_in_place releases what the pointee owns", {

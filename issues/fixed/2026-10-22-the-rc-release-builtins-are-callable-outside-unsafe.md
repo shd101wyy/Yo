@@ -35,10 +35,10 @@ export(main);
 
 ## Fix
 
-The six evaluators call `_require_destroying_builtin_capable`, which applies the gate `___drop` has (`is_destroying_builtin_call_capable` in `src/evaluator/memory_safety.yo`: inside `unsafe(...)` or in an unsafe-capable file) and raises the shared diagnostic `'<builtin>(...)' requires 'unsafe(...)'`.
+The six evaluators call `_require_destroying_builtin_capable`, which applies the gate `___drop` has (`is_destroying_builtin_call_capable` in `src/evaluator/memory_safety.yo`: the call is written in an unsafe-capable file) and raises the shared diagnostic `'<builtin>(...)' is not available in safe code`.
 
-The other `__yo_*` RC builtins (`__yo_incr_rc`, `__yo_incr_rc_atomic`, the `dup` forms, `__yo_rc_own`, `__yo_rc_forget_payload`, `__yo_capture_field`, `__yo_gc_collect`) do not destroy a place in place and stay ungated here. A probe of `___dup(h.xs)` in safe code leaks the buffer (LeakSanitizer, 48 bytes) and does not corrupt memory.
+The other `__yo_*` RC builtins (`__yo_incr_rc`, `__yo_incr_rc_atomic`, the `dup` forms, `__yo_rc_own`, `__yo_capture_field`, `__yo_gc_collect`) do not destroy a place in place and stay ungated here. `__yo_rc_forget_payload` is declared in `std/prelude.yo` as a runtime extern, so safe code calling it is already rejected by rule D6 ("Calling the runtime extern '__yo_rc_forget_payload' is not available in safe code"). A probe of `___dup(h.xs)` in safe code leaks the buffer (LeakSanitizer, 48 bytes) and does not corrupt memory.
 
 ## Test
 
-`tests/safe_code_structural_gates.test.yo`: `__yo_decr_rc(h.xs)` and `__yo_decr_rc_atomic(h.xs)` on a field, `__yo_drop_array_element` on an array of strings and `__yo_drop_tuple_element` on a tuple, each followed by a read, are `comptime_expect_error(..., "requires 'unsafe(...)'")` cases. Before the fix each block is accepted, so the test fails.
+`tests/safe_code_structural_gates.test.yo`: `__yo_decr_rc(h.xs)` and `__yo_decr_rc_atomic(h.xs)` on a field, `__yo_drop_array_element` on an array of strings, `__yo_drop_tuple_element` on a tuple, `__yo_dyn_drop` on a `dyn` local and `__yo_sometype_drop` on a field are `comptime_expect_error(..., "'<builtin>(...)' is not available in safe code")` cases. Before the fix each block is accepted, so the test fails.

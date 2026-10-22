@@ -1,0 +1,13 @@
+// A SAFE file (no `pragma(Pragma.AllowUnsafe);`) whose generic function
+// destroys a field in place. A generic body is evaluated at its call site,
+// so before 2026-10-22 a pragma'd caller's `unsafe(destroy_field_then_read(...))`
+// admitted the `___drop` written here (tests/unsafe.test.yo).
+{ ArrayList } :: import("std/collections/array_list");
+DropGateGenericHolder :: struct(xs : ArrayList(i32));
+destroy_field_then_read :: (fn(generic(T : Type), x : T) -> usize)({
+  mut(h) := DropGateGenericHolder(xs : ArrayList(i32).new());
+  h.xs.push(i32(1));
+  ___drop(h.xs);
+  h.xs.len()
+});
+export(destroy_field_then_read);

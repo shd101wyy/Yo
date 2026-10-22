@@ -628,12 +628,12 @@ main :: (fn() -> unit)({
 
 Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(&mut coll, x => …)` instead. A struct WRAPPING a pointer is not automatically gated (public pointer field does not decide safety: `HashMap`'s `ctrl` is public by accident and safe; `Allocator` is a public function-pointer table and safe), so the std rule is per-API: anything that hands out storage returns the POINTER (`ArrayList.ptr()`, `String.ptr()` — the gate rejects that in safe files), never a ptr+len struct — a `RawSlice` handout was measured passing through safe code into `random_bytes`, a UAF WRITE (2026-10-01). A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
 
-Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
+Inside an unsafe-capable file, the following operations are wrapped in `unsafe(...)` (so the unsafe surface stays greppable). The compiler enforces the wrap only on `extern "c"` call sites; on the rest it is the audit convention `yo unsafe-report` keys off, and the pragma alone is what admits them (`docs/en-US/MEMORY_SAFETY.md`):
 
 - Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a BORROW (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`) is E0920: a borrow is a mode, not a type, and already reads as its value (`.*` on a borrow arrives with decision 43); the only borrowed receiver keeping `.*` is a type's own field named `*` (std's atomics: `self.*` on `self : &Self`)
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
-- Destroying a value in place: `drop_in_place(p)` (prelude, `p : *(T)`; Rust's `ptr::drop_in_place`). The slot is dead afterwards: re-initialize it with `consume(p.* = v)` or free it. Its body, the std-internal `___drop(place)` builtin, is a compile error outside an unsafe-capable context
+- Destroying a value in place: `drop_in_place(p)` (prelude, `p : *(T)`; Rust's `ptr::drop_in_place`). The slot is dead afterwards: re-initialize it with `consume(p.* = v)` or free it. Its body, the std-internal `___drop(place)` builtin, is a compile error in a file without the pragma, even inside a pragma'd caller's `unsafe(...)` around a call into that file
 
 Operations that stay safe (no wrap needed): `addr_of(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`(*u8)(p)`).
 
