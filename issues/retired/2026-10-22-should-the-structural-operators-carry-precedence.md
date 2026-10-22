@@ -84,37 +84,59 @@ the lattice (arithmetic, comparison, `&&`, `||`, bitwise, `<:`, `..`, `..=`,
 `>`, so `a => b =>> c` is an E0008 before any grouping question), so the
 table has no `=>>` rows.
 
+`->` is read two ways, by its left operand: after a `fn(`, `unsafe_fn(`,
+`ctl(`, `Fn(` or `FnOnce(` head it is the fn-type arrow, after anything else
+it is a lambda arrow (`err -> {...}`, `(self : Self) -> {...}`). The table
+splits the `->` rows on that.
+
 A pair gets a hint only when its lattice grouping is a Yo form AND is the
 only reading an author means; a pair where those disagree, or where neither
 grouping is a form, gets none. `src/parser.yo`'s `e0003_grouping_hint`
-implements exactly this table; `tests/internal/parser.test.yo` asserts a row
-of each kind (the exact sentences).
+implements exactly this table; `tests/internal/parser.test.yo` asserts one
+case of every hint sentence and of the hint-free pairs a reviewer could
+expect a hint for (the exact sentences).
 
 | Left operator | Next operator | Rejected example | Canonical grouping | Hint |
 | --- | --- | --- | --- | --- |
-| `=` `:=` `::` `?=` | anything but a binding | `x := 1 + 2`, `f := x => x`, `F :: fn() -> T` | right | `Wrap the right-hand side in parentheses: name := (1 + 2).` |
+| `=` `:=` `::` `?=` | `=>`, `->`, computational | `x := 1 + 2`, `f := x => x`, `F :: fn() -> T`, `h := err -> {...}` | right | `Wrap the right-hand side in parentheses: name := (1 + 2).` |
+| `=` `:=` `::` `?=` | `:` | `x := y : i32` | not unique: the lattice's `x := (y : i32)` compiles, but a parenthesized `y : i32` DECLARES `y` (the value is unit), it does not ascribe a type to `y` | none |
 | `=` `:=` `::` `?=` | a different binding | `x := y = 5` | none: one tier | none |
-| `=>` | `:`, `->`, computational | `c => a + b`, `c => fn() -> T` | right | wrap the right-hand side |
+| `=>` | `->`, computational | `c => a + b`, `c => fn() -> T` | right | `Wrap the right-hand side in parentheses: left => (a + b).` |
+| `=>` | `:` | `c => y : i32` | not unique, as for a binding then `:` | none |
 | `=>` | a binding | `c => x = 5` | not unique: the lattice says `(c => x) = 5`, never a program; an author means the arm body `c => (x = 5)` | none |
-| `:` | `->`, computational | `name : fn() -> T`, `Foo(x : a + b)` | right | wrap the right-hand side |
+| `:` | computational | `Foo(x : a + b)` (a named argument) | right | `Wrap the right-hand side in parentheses: name : (a + b).` |
+| `:` | fn-type `->` | `name : fn() -> T` | right | `Wrap the right-hand side in parentheses: name : (fn() -> T).` |
+| `:` | lambda `->` | `self : Self -> {...}` | left: the annotated lambda parameter `(self : Self) -> {...}` (9 sites in the tree) | `Parenthesize the annotated parameter: (name : Type) -> body.` |
 | `:` | `=` `?=` | `x : i32 = 5`, `x : T ?= d` | left | `Parenthesize the annotated binding: (name : Type) = value.` |
-| `:` | `=>` | `x : i32 => x` | left (~2.1k annotated lambda/arm parameters in the tree) | `Parenthesize the annotated parameter: (name : Type) => body.` |
+| `:` | `=>` | `x : i32 => x` | left (~2.1k annotated lambda/arm parameters in the tree; one exception below) | `Parenthesize the annotated parameter: (name : Type) => body.` |
 | `:` | `:=` `::` | `x : i32 := 5` | none: `(x : i32) := 5` is rejected by the evaluator (an annotated binding takes `=`), `x : (i32 := 5)` is no annotation | none |
-| `->` | computational | `fn() -> a + b` | right | wrap the right-hand side |
-| `->` | `:` | `fn() -> r : i32` | right: the labeled return `-> (r : T)` (228 sites in the tree, none of `(… -> T) : …`) — the lattice's `->` over `:` holds only with `:` on the LEFT | `Wrap the right-hand side in parentheses: name -> (r : i32).` |
-| `->` | `=` `?=` | `x : fn() -> void = f` | left: `(fn() -> void) = f`, the first step towards `(x : (fn() -> void)) = f` | `Parenthesize the left side: (a -> b) = value.` |
-| `->` | `=>` | `f : fn() -> void => f()` | left: the fn type closes first, as in `(k : Impl(Fn() -> i32)) => k()` | `Parenthesize the left side: (a -> b) => value.` |
-| `->` | `:=` `::` | `x : fn() -> T := f` | none: either grouping ends in an annotated `:=`/`::` target or a fn type as an alias name | none |
+| fn-type `->` | computational | `fn() -> a + b` | right | `Wrap the right-hand side in parentheses: fn(...) -> (a + b).` |
+| fn-type `->` | `:` | `fn() -> r : i32` | right: the labeled return `-> (r : T)` (228 sites in the tree, none of `(… -> T) : …`); the lattice's `->` over `:` holds only with `:` on the LEFT | `Wrap the right-hand side in parentheses: fn(...) -> (r : i32).` |
+| fn-type `->` | `=` `?=` | `x : fn() -> void = f` | left: `(fn() -> void) = f`, the first step towards `(x : (fn() -> void)) = f` | `Parenthesize the function type: (fn(...) -> T) = value.` |
+| fn-type `->` | `=>` | `f : fn() -> void => f()` | left: the fn type closes first, as in `(k : Impl(Fn() -> i32)) => k()` | `Parenthesize the function type: (fn(...) -> T) => value.` |
+| fn-type `->` | `:=` `::` | `x : fn() -> T := f` | none: either grouping ends in an annotated `:=`/`::` target or a fn type as an alias name | none |
+| lambda `->` | computational | `x -> x + 1` | right: the body | `Wrap the right-hand side in parentheses: params -> (x + 1).` |
+| lambda `->` | a binding | `err -> flag = true` | not unique: the lattice says `(err -> flag) = true`, never a program; an author means the body `err -> (flag = true)` | none |
+| lambda `->` | `:`, `=>` | `x -> y : T`, `x -> c => v` | none: a body `(y : T)` declares `y`, and `(x -> c) => v` is no form | none |
 | computational | computational | `1 + 2 * 3` | not unique: both groupings are real programs (the E0003 repair was declined for this, `plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.1) | none |
-| computational | `->` | `a + b -> c` | left | `Parenthesize the left side: (a + b) -> value.` |
-| computational | `=>` | `n <= i32(1) => v` | left: an arm condition | `Parenthesize the left side: (a <= b) => value.` |
+| computational | `=>` | `n <= i32(1) => v`, `p == q && r => v` | left: the WHOLE arm condition. The parser reports the innermost operator (`&&` in the second example), so the hint names no operands: `(a && b) => v` would pick `p == (q && r)`, a different program that compiles | `Parenthesize the whole condition: (condition) => value.` |
+| computational | `->` | `a + b -> c` | none: neither `(a + b) -> c` nor `a + (b -> c)` is a form | none |
 | computational | `:` | `a + b : T` | none: the left of `:` is a name or pattern, never an expression, and `a + (b : T)` is not a form | none |
 | computational | a binding | `a + b = c` | none: `(a + b) = c` binds no place, `a + (b = c)` is not a form | none |
 
-Two readings the table resolves by corpus weight rather than by grammar: the
-`->` rows read `->` as the fn-type arrow. A `->` LAMBDA whose body is an
-unparenthesized binding or arm (`e -> x = 1`, `x -> y => z`) would mean the
-right side; the tree has no such site, against the fn-type shapes above.
+One reading the table resolves by corpus weight rather than by grammar: `:`
+then `=>` gets the annotated-parameter hint, but a named argument holding an
+unparenthesized `=>` lambda, `P(cb : x => (x * 3))`, means the right side
+`cb : (x => (x * 3))` (the form 3 sites in `tests/impl_fn_field_rejection.test.yo`
+use). The two are the same tokens; the parameter reading outweighs it about
+700 to 1.
+
+The right-hand side in a wrap hint is the operand's own source: each token
+verbatim (string and template literals keep their spacing), a whitespace run
+between tokens as one space, ending at the operand's last token (a trailing
+comment is not part of it). When the operand holds a comment, spans lines
+inside a literal, ends an interpolation with a literal, or is longer than 72
+bytes, the hint shows `(...)` instead of source that would not paste back.
 
 Corrections made at takeover (2026-10-22), against the first version of the
 classifier: `:` next to `=>` said "wrap the right-hand side"
@@ -123,3 +145,15 @@ every arrow or binding on the left said "wrap the right-hand side"
 whatever came next, which named a grouping for the one-tier pairs, for
 `c => x = 5`, for `:`/`->` next to `:=`/`::`, and the wrong one for `->`
 next to `=`/`?=`/`=>`.
+
+Corrections from the adversarial review (2026-10-23), each a pair whose hint,
+followed literally, compiled with a different meaning or did not parse:
+computational then `=>` named the reported operator's operands
+(`(a && b) => value`); a binding or `=>` then `:` said wrap the right-hand
+side, which declares instead of ascribing; `->` was read only as the fn-type
+arrow, so `self : Self -> {...}` was told `name : (Self -> {...})` and
+`err -> flag = true` got a left-side hint; computational then `->` had a hint
+although neither grouping is a form; the right operand's source ran to the
+next token (a trailing comment landed inside the parentheses), to the end of
+the file inside an interpolation, and collapsed the whitespace inside
+literals; and the placeholder before the operator was always `name`.
