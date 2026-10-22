@@ -61,16 +61,16 @@ interpolation (§1.9 G1), the only comptime container is a cons list (G2),
 AST values can be inspected but not constructed (G3), `comptime_fn` promotion
 covers integer/float functions only (G4), and `comptime_int` is an `i64`
 pattern — `u64.MAX` folds to `-1` at compile time (G5). §3 proposes the
-closures; §4 is the proof they are enough — a Lisp with its own macro system
-needs none of the deleted machinery.
+additions that close the gaps; §4 is the proof they are enough — a Lisp with
+its own macro system needs none of the deleted machinery.
 
 Two design invariants carry over from the removal decision and govern
 everything here:
 
 - **Exprs are data; two doors make code.** Constructing or rewriting an `Expr`
   is inert. An `Expr` becomes code through exactly `derive_rule` (items only,
-  C2's restriction) and `comptime_eval` (strings). No addition may open a
-  third door, least of all a general expression splice.
+  the removal plan's Part C2 restriction) and `comptime_eval` (strings). No
+  addition may open a third door, least of all a general expression splice.
 - **The comptime context has no runtime storage.** Comptime values are folded
   compiler values; VBD's runtime ownership story (moves, explicit copies,
   borrow checking) does not apply inside it, and post-VBD value semantics fit
@@ -79,7 +79,10 @@ everything here:
 
 ## 1. What comptime is today (the audit)
 
-Four layers, then the gap table. Line anchors are on `95162303d`.
+Four layers — the value layer, the signature layer, the CTFE engine, and
+the quote/Expr/derive layer (with its other consumers: data builtins, type
+reflection, the build file) — then the gap table. Line anchors are on
+`95162303d`.
 
 ### 1.1 The value layer
 
@@ -104,7 +107,7 @@ Four layers, then the gap table. Line anchors are on `95162303d`.
 - **The `Comptime*` operator twins**: `ComptimeAdd` … `ComptimeBitXor`,
   `ComptimeNegate`/`LogicalNot`/`BitNot`, `ComptimeEq`/`ComptimeOrd`,
   `ComptimeIndex`, the two `ComptimeRange*` traits and `ComptimeToString`
-  (`std/prelude.yo:429-1054`), each a thin impl over an
+  (`std/prelude.yo:441-1066`), each a thin impl over an
   `__yo_comptime_<ty>_<op>` intrinsic dispatched by prefix
   (`src/evaluator/exprs/_expr.yo:483-509`).
 
@@ -138,7 +141,7 @@ type-level recursion (:627-647), and per-call stamping of instantiated names
 - **Loops**: `while(comptime(cond), body)` unrolls with a 10 000-iteration
   fuel cap (`YO_MAX_COMPTIME_LOOP_ITERATIONS` overrides;
   `src/evaluator/exprs/while.yo:54-88`); recursion is the other loop form
-  (`__yo_comptime_fold_range`, `std/prelude.yo:8541-8555`).
+  (`__yo_comptime_fold_range`, `std/prelude.yo:8553-8566`).
 - **Failure**: a `__yo_panic` reached by live CTFE is the compile error
   `compile-time panic: <msg>` (`src/evaluator/builtins/panic.yo:177-201`);
   contracts (`requires`/`ensures`) are checked during CTFE
@@ -150,7 +153,7 @@ type-level recursion (:627-647), and per-call stamping of instantiated names
   nested-call site, gated by a capability analysis
   (`src/evaluator/ctfe/ctfe_analysis.yo:393-511`) that trial-evaluates the
   body and mints a comptime clone. Tier 3 promotes **integer and float
-  signatures only** (`_to_comptime_type`, `ctfe_analysis.yo:67-79`, whose own
+  signatures only** (`_to_comptime_type`, `ctfe_analysis.yo:67-81`, whose own
   doc comment names "structs, pointers, bools" as unpromotable) — G4.
 - **Budgets**: loop fuel plus a cooperative wall-clock deadline
   (`--compile-timeout-ms`, checked every 16 384 dispatches,
@@ -166,10 +169,10 @@ input edge (`builtins/comptime_read_file.yo:95-207`),
 `comptime_expect_error` (side-effect-rolling-back),
 `comptime_eval(code : comptime_str) -> unit` — parse and evaluate Yo source in
 the current env (`builtins/type_fns.yo:1402-1496`) — and `comptime_fn`.
-`ComptimeValue` (`std/prelude.yo:7707+`) is the document tree: scalars plus
+`ComptimeValue` (`std/prelude.yo:7696-7711`) is the document tree: scalars plus
 `List(items : ComptimeList(Self))` and `Table(keys, values)` as parallel
 lists, with lookup a self-recursive linear scan (`_comptime_table_lookup`,
-:7684-7698). User docs: `docs/en-US/CTFE.md`, `docs/zh-CN/CTFE.md`.
+:7719-7732). User docs: `docs/en-US/CTFE.md`, `docs/zh-CN/CTFE.md`.
 
 ### 1.5 The AST layer (quote/Expr)
 
@@ -177,12 +180,12 @@ lists, with lookup a self-recursive linear scan (`_comptime_table_lookup`,
 `unquote` splices a value's `Expr` in with fresh ids (:82-139) and
 `unquote_splicing` a `ComptimeList(Expr)` into a call's argument list
 (:152-221). `AstExpr` is `Atom(id, token) | FnCall(id, func, args, is_infix,
-token)` (`src/expr.yo:399-408`) — every node carries a full token with row,
+token)` (`src/expr.yo:399-409`) — every node carries a full token with row,
 column and module path, but none of that is user-visible (part of G3). The
 complete user surface is six builtins
 (`src/evaluator/builtins/expr_fns.yo`): `__yo_expr_is_atom`, `is_fn_call`,
 `get_callee`, `get_args`, `to_string`, `eq` — wrapped as `Expr` methods at
-`std/prelude.yo:7786-7807` — plus `gensym(prefix)` minting a fresh identifier
+`std/prelude.yo:7796-7817` — plus `gensym(prefix)` minting a fresh identifier
 `Expr` (`builtins/gensym.yo:30-149`), `clone_expr_fresh_ids`
 (`src/expr.yo:480-502`), and `__yo_comptime_string_to_expr(code)` — parse a
 comptime string into an `Expr` (`type_fns.yo:1499-1582`), the engine behind
@@ -193,7 +196,7 @@ quoted, parsed from a string, or `gensym`'d, so every conditional construction
 ### 1.6 Type reflection
 
 `TypeInfo` (30+ variants with metadata structs `TypeFieldInfo`,
-`VariantInfo`, `FunctionInfo`, …; `std/prelude.yo:7856-8201`) through
+`VariantInfo`, `FunctionInfo`, …; `std/prelude.yo:7881-8051`) through
 `Type.get_info`/`get_struct_fields`/`get_enum_variants`, plus
 `Type.eq`/`is_compatible_with`/`impls`/`contains_rc_type`/`can_form_rc_cycle`/
 `to_comptime_string`, the derive workhorses `Type.join_fields`/`map_variants`
@@ -203,13 +206,15 @@ quoted, parsed from a string, or `gensym`'d, so every conditional construction
 
 ### 1.7 `derive`
 
-Ten self-hosted derives (`Eq`, `Hash`, `Clone`, `Copy`, `Ord`, `Default`,
-`ToString`, `Debug`, `Error`, `ToJson`/`FromJson`), each an ordinary comptime
+Eleven self-hosted derives (`Eq`, `Clone`, `Copy`, `Hash`, `Ord`, `Default`
+in the prelude, `std/prelude.yo:8581+`; `Error` in `std/error.yo`,
+`ToString`/`Debug` in `std/fmt/to_string.yo`, `ToJson`/`FromJson` in
+`std/encoding/json.yo`), each an ordinary comptime
 function `fn(comptime(T) : Type, comptime(ctx) : DeriveContext,
-comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)`
-(`std/prelude.yo:8569+`), registered for user traits by `derive_rule`
+comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)`,
+registered for user traits by `derive_rule`
 (`src/evaluator/builtins/derive_rule.yo`) with `DeriveContext.make_impl`
-building the `impl(...)` by quote/unquote (:8506-8534). The returned `Expr` is
+building the `impl(...)` by quote/unquote (:8516-8545). The returned `Expr` is
 evaluated in the caller's env (`builtins/derive.yo:359-411`); C2 of the macro
 removal restricts that result to items. Generic and `where`-clamped derives
 work (`tests/derive.test.yo:382`). This — not the macro layer — is Yo's
@@ -219,18 +224,18 @@ comfortable.
 ### 1.8 The build file is a comptime program
 
 `build.yo` is evaluated in-process by the compiler's evaluator
-(`src/build_runner.yo:3209-3256`); `std/build.yo` is all-comptime over 26
-`__yo_build_*` builtins (`src/evaluator/builtins/build.yo:26-52`). It is the
+(`src/build_runner.yo:3209-3256`); `std/build.yo` is all-comptime over 24
+`__yo_build_*` builtins (`src/evaluator/builtins/build.yo:31-54`). It is the
 largest existing proof that comptime Yo orchestrates real work.
 
 ### 1.9 The gaps
 
 | # | Gap | Evidence |
 | --- | --- | --- |
-| G1 | Comptime string building is `+` chains over `__yo_comptime_string_concat`; a four-piece chain is commented out with "FIXME: … takes super long time"; no interpolation at comptime (template strings are runtime-only `String`) | `tests/comptime.test.yo:2856-2861`; the `__s2`–`__s5` helpers `std/prelude.yo:8557-8570` |
-| G2 | `ComptimeList(T)` is the only container; no map — `ComptimeValue.Table` is parallel lists with an O(n) recursive scan; mutually recursive value shapes are inexpressible, so even a `ComptimeEntry` struct is rejected | `std/prelude.yo:7676-7698` (the doc comment says why) |
+| G1 | Comptime string building is `+` chains over `__yo_comptime_string_concat`; a four-piece chain is commented out with "FIXME: … takes super long time"; no interpolation at comptime (template strings are runtime-only `String`) | `tests/comptime.test.yo:2856-2861`; the `__s2`–`__s5` helpers `std/prelude.yo:8567-8579` |
+| G2 | `ComptimeList(T)` is the only container; no map — `ComptimeValue.Table` is parallel lists with an O(n) recursive scan; mutually recursive value shapes are inexpressible, so even a `ComptimeEntry` struct is rejected | `std/prelude.yo:7679-7732` (the doc comment says why) |
 | G3 | `Expr` values can be inspected but not constructed; no atom-text/kind query, no infix flag, no token/position exposure; string round-trip is the only conditional construction path; `__yo_expr_to_string` → `__yo_comptime_string_to_expr` round-trip is untested | §1.5 |
-| G4 | `comptime_fn` promotion covers integer/float signatures only — not `bool`, `str`, or comptime-struct/tuple/array signatures, so "one spelling, both worlds" (CTFE.md's headline) holds only for arithmetic | `src/evaluator/ctfe/ctfe_analysis.yo:67-79` |
+| G4 | `comptime_fn` promotion covers integer/float signatures only — not `bool`, `str`, or comptime-struct/tuple/array signatures, so "one spelling, both worlds" (CTFE.md's headline) holds only for arithmetic | `src/evaluator/ctfe/ctfe_analysis.yo:67-81` |
 | G5 | `comptime_int` is an `i64` pattern: `u64.MAX` folds to `-1`; unsigned division/compare above `i64.MAX` needed per-type fixes and the overflow check is on the `i64` value | `plans/backlog/ZIG_ADOPTION_CANDIDATES.md` Z3 |
 | G6 | No `source_location()` — comptime diagnostics and generated code cannot cite where they came from; `comptime_assert` messages are closed strings | no such builtin (`src/expr.yo` BF_ list); Z4 |
 | G7 | No explicit CTFE budget API; the knobs are env/flag only (fuel 10 000, wall clock) | §1.3; Z8 |
@@ -289,7 +294,8 @@ binding's initializer, a `comptime(...)` argument — a template string
 `` `text ${expr}` `` evaluates to a `comptime_str` with its interpolations
 folded, instead of building a runtime `String`. Interpolands are
 comptime-known values rendered through `ComptimeToString`
-(`comptime_int`/`float`/`str`/`bool` today; anything else must spell
+(`comptime_int`/`float`/`bool` and the fixed-width integers have the trait
+today, and `comptime_str` is its own rendering; anything else must spell
 `.to_comptime_string()` explicitly, matching runtime `ToString` discipline).
 Interpolating an unknown value is the existing "runtime argument to
 compile-time parameter" error. At runtime, template strings are unchanged.
@@ -298,7 +304,7 @@ The same item fixes the concatenation cost: `__yo_comptime_string_concat`
 walks per `+` (the `tests/comptime.test.yo:2856` FIXME); the fix is a
 left-associated chain folding into one builder pass. Gate: that FIXME's
 four-piece assert un-commented and green, and the prelude's `__s2`–`__s5`
-helpers (`std/prelude.yo:8557-8570`) rewritten to interpolation once the seed
+helpers (`std/prelude.yo:8567-8579`) rewritten to interpolation once the seed
 carries the feature (their callers are the derive rules).
 
 No new syntax — it makes an existing literal do the comptime thing in the
@@ -352,13 +358,13 @@ The two-door invariant is unchanged and testable: nothing here evaluates an
 `Expr`; a property test pins
 `string_to_expr(expr.to_string(e)) == e` (modulo ids) for the round trip, and
 derive rules migrate to constructors opportunistically (the string-building
-arm of `__derive_default`'s index trick, `std/prelude.yo:9072-9086`, is the
+arm of `__derive_default`'s index trick, `std/prelude.yo:9099-9133`, is the
 first beneficiary — it exists because `to_comptime_string` of an instantiated
 generic renders placeholders; constructors sidestep rendering entirely).
 
 ### C4 — Widen CTFE promotion to every comptime signature (M)
 
-**Close G4.** `_to_comptime_type` (`src/evaluator/ctfe/ctfe_analysis.yo:67-79`)
+**Close G4.** `_to_comptime_type` (`src/evaluator/ctfe/ctfe_analysis.yo:67-81`)
 today promotes `Int`/`Usize`/`Isize` → `comptime_int` and floats →
 `comptime_float`, nothing else. Extend it to: `bool` (it is already a comptime
 value type), `str` → `comptime_str`, and every type the existing `Comptime`
@@ -374,8 +380,8 @@ signature gate widens.
 
 **Close G5.** Adopt Z3 (its verdict: a soundness fix). Representation is
 internal to the compiler (an arbitrary-precision integer in the compiler's own
-runtime — reuse `std`'s big-integer support if it exists, else add an internal
-one; not new surface). Rules: comptime arithmetic is exact and cannot
+runtime — `std` has no big-integer support today, so an internal one; not
+new surface). Rules: comptime arithmetic is exact and cannot
 overflow; narrowing to a fixed width keeps today's range errors (now checking
 the true value); the `u64`-above-`i64.MAX` special cases
 (`tests/comptime.test.yo:3408-3504`) keep passing because unsigned semantics
@@ -385,7 +391,7 @@ CTFE time before and after (Z3's own instruction).
 ### C6 — `source_location()` (S)
 
 **Close G6.** Adopt Z4: a builtin `source_location() -> SourceLocation`
-(prelude comptime struct of §C3) carrying the calling module, row and column.
+(the prelude comptime struct of C3) carrying the calling module, row and column.
 First users: `comptime_assert` messages, generated-code diagnostics, and the
 Lisp interpreter's error attribution (§4). Small, no dependencies, land first.
 
@@ -439,12 +445,21 @@ fails the *Yo build*, which is what "comptime-only metaprogramming" buys.
 
 ### 4.1 The shape
 
-Data (all comptime; recursion goes through `ComptimeList`, the
-`ComptimeValue` precedent for why direct `Self` payloads are inexpressible):
+Data (all comptime; self-recursion goes through `ComptimeList(Self)`, which
+is expressible — mutual recursion between two distinct types is not, the
+`ComptimeValue` precedent — so `Lisp` is the only type, and environments
+and closures are `Lisp` data: tagged lists, not structs):
 
 ```yo ignore
-// A Lisp value. Pair-as-list: (.List(head-tail)) or flat items — the reader
-// decides; the interpreter treats a 2-element list as a cons cell.
+// A Lisp value. The whole language is one recursive type. Lists are flat
+// (items indexed and sliced — car is index 0, cdr the 1.. range), a pair is
+// a 2-element list, and environments and closures are tagged lists rather
+// than structs:
+//   env     ::= a list of (name value) 2-element lists
+//   closure ::= (closure (params...) body env)
+// A LispClosure struct would need a Closure variant in Lisp, which is the
+// mutually recursive value shape G2 records as inexpressible — so closures
+// and environments are lists, not structs.
 Lisp :: enum(
   Num(v : comptime_int),
   Str(v : comptime_str),
@@ -452,13 +467,6 @@ Lisp :: enum(
   Nil,
   List(items : ComptimeList(Self))
 );
-LispClosure :: struct(
-  params : ComptimeList(comptime_str),
-  body : Lisp,
-  env : LispEnv
-);
-LispEnv :: struct(bindings : ComptimeList(LispBinding));
-LispBinding :: struct(name : comptime_str, value : Lisp);
 ```
 
 Phases, each landing green before the next:
@@ -469,11 +477,13 @@ Phases, each landing green before the next:
   S-expressions. Exercises G1 directly: the reader is the string-heavy stage
   that made the four-concat FIXME; it lands before C1 and its timing is
   recorded, then re-measured after C1 as that item's second gate.
-- **P2 — the evaluator.** `eval(e : Lisp, env : LispEnv) -> Lisp`, a comptime
-  fn matching on the head symbol: `quote`, `if`, `lambda` (closures are the
-  `LispClosure` data above — no host fn values involved), `let`, arithmetic
+- **P2 — the evaluator.** `eval(e : Lisp, env : Lisp) -> Lisp`, a comptime
+  fn matching on the head symbol: `quote`, `if`, `lambda` (a closure is the
+  tagged list above — no host fn values involved), `let`, arithmetic
   and comparison primitives, `cons`/`car`/`cdr`. Environments are assoc lists
-  threaded functionally; recursion is the loop form. Deep recursion is a
+  threaded functionally — the pre-C2 shape; once C2 lands, the same test
+  re-points symbol lookup at `ComptimeStringMap` and keeps the assoc path
+  covered beside it. Recursion is the loop form. Deep recursion is a
   measured risk: evaluator frames nest per Lisp call, so the test corpus
   keeps inputs moderate (fib 15, factorial 10, a 100-element loop unrolled in
   Lisp) and records peak depth; the wall clock and fuel knobs are the guards.
@@ -482,7 +492,8 @@ Phases, each landing green before the next:
   run by `eval` before evaluation of the call — pure comptime-data-to-
   comptime-data transformation. Demonstrate `unless` and a `while` built as a
   macro over recursion. This is the section the plan exists for: the guest
-  macro system is ~40 lines of comptime Yo, no host machinery.
+  macro system is a few dozen lines of comptime Yo (an estimate, not a
+  measurement), no host machinery.
 - **P4 — Yo-bound checks.** `comptime_assert(eval(read("(fac 6)"), env) ==
   Num(720))` and friends; an unbound symbol reaches `__yo_panic` and becomes
   `compile-time panic: unbound symbol: foo` — the test asserts the *build*
@@ -537,10 +548,13 @@ the files it touches; it does not need to wait for V5. The Lisp file and all
 new prelude surface land only with post-VBD spellings.
 
 **Verification per item** (Tier 1 norms): the comptime/collections test files
-one per invocation; for value-preserving changes (C1, C5, C4) the C emit-diff
-over the language corpus is empty; C5 additionally measures `check ./src`
-time; every prelude/std edit re-runs `yo check ./std --std-path ./std` with
-the tree binary; fmt with the tree binary; `scripts/check-issue-refs.sh`.
+one per invocation; for value-preserving changes (C1, C4) the C emit-diff over
+the language corpus is empty — C5 is deliberately not in that list: it changes
+the folded value of `u64`/`usize` arithmetic above `i64.MAX`, so its emit-diff
+may move only inside the `tests/comptime.test.yo:3408-3504` fixtures, and it
+additionally measures `check ./src` time; every prelude/std edit re-runs
+`yo check ./std --std-path ./std` with the tree binary; fmt with the tree
+binary; `scripts/check-issue-refs.sh`.
 Docs: each landed item extends `docs/en-US/CTFE.md` + `docs/zh-CN/CTFE.md`
 (and `TYPE_REFLECTION.md` for C3) in the same PR.
 
@@ -563,7 +577,7 @@ Docs: each landed item extends `docs/en-US/CTFE.md` + `docs/zh-CN/CTFE.md`
   that doc.
 - **`plans/backlog/MACRO_AND_ISO_REMOVAL.md`**: this plan assumes Parts A–C
   landed and adds nothing back: no quoted parameters, no unquote returns, no
-  expansion registries. C2's item restriction on `derive_rule` results is
-  treated as load-bearing.
+  expansion registries. Part C2's item restriction on `derive_rule` results
+  is treated as load-bearing.
 - **`docs/en-US/CTFE.md`** / **`docs/zh-CN/CTFE.md`**: the user-facing
   contract this audit verified; extended per item as each lands.
