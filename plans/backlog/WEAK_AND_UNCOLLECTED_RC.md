@@ -86,7 +86,11 @@ off`) was built 2026-10-22 (§1, "As built"); the other phases have not started.
     program's header is the lightweight runtime's 8-byte
     `__yo_ref_header_t` (`ref_count u32 | type_id u16 | borrow_count u16`),
     not the cycle-GC program's 16-byte small header: below the 16 bytes
-    promised above. The lightweight runtime already defines `Gc.collect()`
+    promised above. That header has no `gc_flags` byte and no `dispose_fn`
+    (dispose dispatches on `type_id`), while §3.2–3.3 put the weak count
+    and `__YO_RC_DEAD` in the packed word beside `gc_flags`. W3 must
+    therefore lay the weak count and the dead flag out in the lightweight
+    header as well, or switch `Off` to the small header at that point. The lightweight runtime already defines `Gc.collect()`
     as a no-op and `Gc.tracked_count()` as 0, so std/gc is unchanged apart
     from its doc.
   - The runtime declares `__yo_cycle_collector_off()`, beside

@@ -392,8 +392,8 @@ Under `off`:
 - The program gets the lightweight reference-counting runtime whatever its
   types. No cell registers with a collector and no traverse function is
   emitted. Every reference cell gets that runtime's 8-byte header. In a
-  program that does run the collector, a cell of a cycle-capable type
-  carries 56 bytes and any other cell 16.
+  program that does run the collector, a cell of a cycle-capable type and
+  every atomic (`Arc`) cell carry 56 bytes, and any other cell 16.
 - `collect()` does nothing and `tracked_count()` is always 0.
 - Counting, `Drop` and its order, allocators, `RefCell` and `Arc` are
   unchanged. A program that compiles under `auto` compiles under `off`; only
@@ -401,6 +401,11 @@ Under `off`:
 - A garbage cycle is never freed, and its cells' `Drop` never runs. To find
   one, build with the fixed-region allocator's leak oracle: the report at exit
   counts the blocks still live.
+- `yo test`'s leak verdict sees the same leak. In a run that builds the
+  AddressSanitizer test binary, a test that drops a cycle fails with
+  `Memory leak detected:`. `YO_TEST_LEAK_VERDICT=0` turns the verdict off
+  (CI sets it), and `--allocator fixed --debug-heap` prints the counts
+  instead.
 
 For a program whose one garbage cycle has two cells:
 
