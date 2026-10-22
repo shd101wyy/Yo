@@ -42,6 +42,8 @@ pragma(Pragma.AllowUnsafe);
   BK_FN_ONCE_TRAIT,
   ast_expr_is_local_borrow_mode_call,
   ast_expr_strip_borrow_marker,
+  ast_expr_is_address_of_call,
+  BK_BORROW_MUT,
   BF_ADDR_OF
 } :: import("../expr.yo");
 {
@@ -2767,29 +2769,44 @@ take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
 /// would hand one side a fresh buffer, and the pointer would dangle or read
 /// the other side
 /// (issues/fixed/2026-10-21-the-explicit-copy-migration-clones-a-buffer-whose-pointer-is-taken-afterwards.md).
+/// An argument lent with `&x` or `&mut x` (`first_ptr(&marks)`, a helper
+/// deriving the pointer from its borrow parameter) is the place `x`.
 record_copy_pointer :: (fn(result_ty : &TypeValue, args : &ArrayList(AstExpr), env : &Environment, at : &Token) -> unit)({
   if(!g_migrate_explicit_copy || !type_representation_contains_raw_ptr(result_ty), {
     return(());
   });
   (i : usize) = usize(0);
   while(i < args.len(), i = (i + usize(1)), {
-    match(
-      args.get(i),
-      .Some(a) => {
-        decl := _ic_place_root_decl(&a, env);
-        if(!decl.is_empty(), {
-          g_copy_pointers.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path), at_offset : at.byte_offset));
-        });
-      },
-      .None => ()
+    match(args.get(i), .Some(a) => record_copy_pointer_place(&a, env, at), .None => ());
+  });
+});
+/// Record, while the migration runs, that a raw pointer is derived from the
+/// variable `place` is rooted in: an argument of a pointer-returning call
+/// (`record_copy_pointer`), or the operand of the address-of `addr_of(x)`
+/// (`addr_of(marks(i))` roots at `marks`). A call-site borrow marker or a
+/// nested address-of around the place is read through first.
+record_copy_pointer_place :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
+  if(!g_migrate_explicit_copy, {
+    return(());
+  });
+  (bare : AstExpr) = place.clone();
+  while(ast_expr_is_address_of_call(&bare, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(&bare, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+    bare = match(
+      bare,
+      .FnCall(_, _, peel_args, _, _) => match(peel_args.get(usize(0)), .Some(inner) => inner, .None => return(())),
+      .Atom(_, _) => return(())
     );
+  });
+  decl := _ic_place_root_decl(&bare, env);
+  if(!decl.is_empty(), {
+    g_copy_pointers.push(CopyWrite(decl : decl, at_module : canonical_module_path(&at.module_path), at_offset : at.byte_offset));
   });
 });
 take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
   out := g_copy_pointers.split_off(usize(0));
   out
 });
-export(ExplicitCopySite, CopyWrite, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, take_copy_pointers, _ic_decl_key, _ic_place_root_decl);
+export(ExplicitCopySite, CopyWrite, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, _ic_decl_key, _ic_place_root_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.

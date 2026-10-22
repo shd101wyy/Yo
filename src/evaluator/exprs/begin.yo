@@ -1833,14 +1833,38 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
   });
 });
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
-/// pattern bindings (`frame`) against the arm's guard and body (`scanned`):
-/// a binding of an owned temporary holds its copies pending for `yo fix
-/// --migrate explicit-copy` (`audit_record_implicit_copy`), and an arm whose
-/// body is one expression has no block epilogue of its own to judge them.
+/// pattern bindings (`frame`) against the arm's body (`scanned`): a binding
+/// of an owned temporary holds its copies pending for `yo fix --migrate
+/// explicit-copy` (`audit_record_implicit_copy`), and an arm whose body is
+/// one expression has no block epilogue of its own to judge them.
 audit_judge_arm_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)(
   _audit_judge_implicit_copies(frame, scanned, ctx)
 );
-export(audit_judge_arm_copies);
+/// Report, unjudged, every copy the pattern bindings in `frame` hold pending:
+/// a copy a `match` guard makes is genuine whatever follows it, since a
+/// failing guard passes the same payload on to the later arms
+/// (issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md).
+audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), i = (i + usize(1)), {
+    match(
+      fvars.get(i),
+      .Some(v) => match(
+        audit_take_implicit_copy_pending(v.id),
+        .Some(sites) => {
+          (si : usize) = usize(0);
+          while(si < sites.len(), si = (si + usize(1)), {
+            match(sites.get(si), .Some(site) => audit_report_implicit_copy(&site), .None => ());
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
+export(audit_judge_arm_copies, audit_commit_arm_copies);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(

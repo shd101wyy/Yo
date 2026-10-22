@@ -92,11 +92,13 @@ set_strict_test_bodies :: (fn(on : bool) -> unit)({
 });
 strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
 /// A test body whose trial evaluation failed while `yo fix --migrate
-/// explicit-copy` was recording: the swallow keeps the module evaluating, so
-/// the body's copies are recorded only as far as the trial reached. The
-/// migration lists each one (`take_skipped_test_bodies`) instead of passing
-/// over it in silence. `test_tok` is the `test` keyword, `name` the name as
-/// written, `error` the first line of the trial's error.
+/// explicit-copy` was recording: the swallow keeps the module evaluating, but
+/// the body's copies past the error are never recorded, and one reached
+/// before it whose judging waits for its block's end is lost when the trial
+/// unwinds. The migration lists and counts each one
+/// (`take_skipped_test_bodies`) instead of passing over it in silence.
+/// `test_tok` is the `test` keyword, `name` the name as written, `error` the
+/// first line of the trial's error.
 SkippedTestBody :: struct(test_tok : Token, name : String, error : String);
 (g_skipped_test_bodies : ArrayList(SkippedTestBody)) = ArrayList(SkippedTestBody).new();
 take_skipped_test_bodies :: (fn() -> ArrayList(SkippedTestBody))({

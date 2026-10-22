@@ -2879,8 +2879,10 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// leaves it dangling. A closure capture list's shorthand entry `x` is
 /// spelled `x : x.clone()` (`ExplicitCopySite.capture_label`), and a write to
 /// the capture in the closure body is a write of the copy. A `test(...)` body
-/// whose trial evaluation fails is listed (`take_skipped_test_bodies`): its
-/// copies are migrated only as far as the trial reached.
+/// whose trial evaluation fails is listed (`take_skipped_test_bodies`) and
+/// counted in the summary: its copies past the error are never recorded, and
+/// one reached before it but judged at its block's end is lost with the
+/// error, so the body is reviewed by hand.
 ///
 /// Two guards list sites a `.clone()` would serve badly
 /// (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). A copy out of a
@@ -2944,6 +2946,7 @@ _run_migrate_explicit_copy :: (
   });
   (n_inserted : usize) = usize(0);
   (n_skipped : usize) = usize(0);
+  (n_skipped_tests : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
     file := match(files.get(ti), .Some(f) => f, .None => String.new());
@@ -2989,13 +2992,15 @@ _run_migrate_explicit_copy :: (
       });
     });
     // A test body the trial could not evaluate: its copies past the error
-    // were never recorded.
+    // were never recorded, and a copy reached before it but judged at its
+    // block's end (an owning local's) was lost when the trial unwound.
     listed_tests := HashSet(String).new();
     (sti : usize) = usize(0);
     while(sti < skipped_tests.len(), sti = (sti + usize(1)), {
       sk := skipped_tests(sti);
       if((canonical_module_path(sk.test_tok.module_path.clone()) == canon) && listed_tests.insert(sk.test_tok.byte_offset.to_string()), {
-        println(`fix: ${file}:${(sk.test_tok.row + u32(1)).to_string()}:${(sk.test_tok.column + u32(1)).to_string()}: the body of test ${sk.name} does not evaluate (${sk.error}); its copies are migrated only as far as evaluation reached`);
+        n_skipped_tests = (n_skipped_tests + usize(1));
+        println(`fix: ${file}:${(sk.test_tok.row + u32(1)).to_string()}:${(sk.test_tok.column + u32(1)).to_string()}: the body of test ${sk.name} does not evaluate (${sk.error}); its copies may be left unmigrated, so review the body by hand`);
       });
     });
     if(mine.len() == usize(0), {
@@ -3215,7 +3220,8 @@ _run_migrate_explicit_copy :: (
     run_fmt(&fmt_argv, io, exn);
   });
   verb := if(dry_run, String.from("would insert"), String.from("inserted"));
-  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
+  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s); ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
   });

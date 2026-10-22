@@ -1,20 +1,35 @@
 //! `yo fix --migrate explicit-copy` lists, and does not clone, a copy whose
-//! source has a raw pointer derived from it: `_m` caches `marks.ptr()`, which
-//! points into the buffer the field store shares with `marks`. A `.clone()`
-//! would give the field a fresh buffer and leave `_m` pointing into the local
-//! one, freed when `make` returns. The hand edit is a move with the pointer
-//! taken first.
+//! source has a raw pointer derived from it: `_m` caches a pointer into the
+//! buffer the field store shares with `marks`. A `.clone()` would give the
+//! field a fresh buffer and leave `_m` pointing into the local one, freed
+//! when the function returns. The pointer is taken three ways: a method
+//! (`marks.ptr()`), the address-of builtin (`addr_of(marks(i))`), and a
+//! helper deriving it from its borrow parameter (`first_ptr(&marks)`). The
+//! hand edit is a move with the pointer taken first.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
 Marks :: struct(marks : ArrayList(i32), _m : *i32);
+first_ptr :: (fn(xs : &ArrayList(i32)) -> *i32)(xs.ptr().unwrap());
 make :: (fn() -> Marks)({
   marks := ArrayList(i32).new();
   marks.push(i32(7));
   Marks(marks : marks, _m : marks.ptr().unwrap())
 });
+make_addr :: (fn() -> Marks)({
+  marks := ArrayList(i32).new();
+  marks.push(i32(8));
+  Marks(marks : marks, _m : addr_of(marks(usize(0))))
+});
+make_lent :: (fn() -> Marks)({
+  marks := ArrayList(i32).new();
+  marks.push(i32(9));
+  Marks(marks : marks, _m : first_ptr(&marks))
+});
 main :: (fn() -> unit)({
   m := make();
-  println(`${m.marks(usize(0))} ${m._m.*}`);
+  a := make_addr();
+  l := make_lent();
+  println(`${m.marks(usize(0))} ${m._m.*} ${a.marks(usize(0))} ${a._m.*} ${l.marks(usize(0))} ${l._m.*}`);
 });
 export(main);

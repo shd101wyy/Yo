@@ -1,11 +1,14 @@
 //! `yo fix --migrate explicit-copy` judges a `match` binding of a temporary
 //! with liveness, at the end of its arm: each copy of `z` made while `z` is
 //! read again is genuine and gets `.clone()`; its last use, the arm's tail,
-//! is a move and is neither rewritten nor listed.
+//! is a move and is neither rewritten nor listed. A copy a guard makes
+//! (`keep(g)`) is genuine whatever follows it: a failing guard hands the same
+//! payload to the next arm, which binds it again as `y`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
 make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
+keep :: (fn(sink(s) : String) -> bool)(s.len() > usize(5));
 main :: (fn() -> unit)({
   hs := ArrayList(String).new();
   b := match(
@@ -17,6 +20,15 @@ main :: (fn() -> unit)({
     },
     .None => String.new()
   );
-  println(`${b} ${hs.len().to_string()}`);
+  r := match(
+    make_opt(),
+    (.Some(g) && keep(g)) => usize(1),
+    .Some(y) => {
+      hs.push(y);
+      usize(2)
+    },
+    .None => usize(0)
+  );
+  println(`${b} ${r.to_string()} ${hs.len().to_string()}`);
 });
 export(main);
