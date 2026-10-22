@@ -33,7 +33,7 @@ import("std/fmt");
   expr_info_table_set,
   expr_info_table_get
 } :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -179,9 +179,7 @@ evaluate_tuple_element_value :: (
       new_expr_info(&env, rc(TypeValueNode.Unit)) // unreachable
     }
   );
-  env.frames = rhs_info.env.frames;
-  env.module_path = rhs_info.env.module_path;
-  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env_adopt(&env, &rhs_info.env);
   // Reject `type` values stored as tuple elements.
   if(is_type_value(&rhs_info.value), {
     exn.throw(
@@ -238,9 +236,7 @@ evaluate_tuple_elements_value :: (
     field_labels.push(i.to_string());
     field_types.push(result.ty);
     values.push(result.value);
-    env.frames = result.env.frames;
-    env.module_path = result.env.module_path;
-    env.function_declaration_frame_level = result.env.function_declaration_frame_level;
+    env_adopt(&env, &result.env);
     i = (i + usize(1));
   });
   EvalTupleElementsValueResult(

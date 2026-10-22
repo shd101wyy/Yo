@@ -29,7 +29,7 @@ import("std/fmt");
   BK_ASSIGN
 } :: import("../../expr.yo");
 { new_expr_info, expr_info_table_get, expr_info_table_set, expr_info_set_doc_comment } :: import("../../expr_info.yo");
-{ Environment, snapshot_env } :: import("../../env.yo");
+{ Environment, snapshot_env, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
@@ -303,9 +303,7 @@ evaluate_type_field :: (
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
     te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
-    env.frames = te_info.env.frames;
-    env.module_path = te_info.env.module_path;
-    env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
+    env_adopt(&env, &te_info.env);
     if(!is_type_value(&te_info.value), {
       exn.throw(
         dyn(
@@ -403,9 +401,7 @@ evaluate_type_field :: (
         new_expr_info(&env, rc(TypeValueNode.Unit))
       }
     );
-    env.frames = av_info.env.frames;
-    env.module_path = av_info.env.module_path;
-    env.function_declaration_frame_level = av_info.env.function_declaration_frame_level;
+    env_adopt(&env, &av_info.env);
     if(av_info.value.is_none(), {
       exn.throw(
         dyn(
@@ -493,9 +489,7 @@ evaluate_type_field :: (
         new_expr_info(&env, rc(TypeValueNode.Unit))
       }
     );
-    env.frames = dv_info.env.frames;
-    env.module_path = dv_info.env.module_path;
-    env.function_declaration_frame_level = dv_info.env.function_declaration_frame_level;
+    env_adopt(&env, &dv_info.env);
     if(dv_info.value.is_none(), {
       exn.throw(
         dyn(

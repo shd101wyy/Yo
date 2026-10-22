@@ -26,7 +26,8 @@ pragma(Pragma.AllowUnsafe);
   update_existing_variable,
   synthetic_token,
   variable_set_bound_some_id,
-  variable_bound_some_id
+  variable_bound_some_id,
+  env_adopt
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
@@ -770,12 +771,8 @@ _synthesize_implicit_params :: (
         );
         if(exp_id == synthesis_type_id(&giv_ty), {
           res := _synthesize_types_impl(&exp_ty, expected_env, &giv_ty, given_env, checked, opts, exn);
-          expected_env.frames = res.expected_env.frames;
-          expected_env.module_path = res.expected_env.module_path;
-          expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
-          given_env.frames = res.given_env.frames;
-          given_env.module_path = res.given_env.module_path;
-          given_env.function_declaration_frame_level = res.given_env.function_declaration_frame_level;
+          env_adopt(&expected_env, &res.expected_env);
+          env_adopt(&given_env, &res.given_env);
           matched_given(gj) = true;
           gj = n_giv; // break
         });
