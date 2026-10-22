@@ -23,9 +23,12 @@ develop's std, so the flip is not required.
 ```yo
 { assert } :: import("std/assert");
 C :: struct(n : i32);
-impl(C, bump : (fn(self : &mut Self) -> unit)({
-  self.n = (self.n + i32(1));
-}));
+impl(
+  C,
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
 test("a write to a non-mut local inside a while loop", {
   c := C(n : i32(0));
   (mut(i) : i32) = i32(0);
