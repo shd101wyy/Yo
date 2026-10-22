@@ -1159,6 +1159,16 @@ static inline void __yo_scope_set(void* ctx, void* vtable) {
       true => "static inline bool __yo_debug_heap_on(void) { return false; }"
     )
   );
+  // The `--cycle-collector` mode as the program can read it (extern "Yo"):
+  // the FLAG, not the runtime selected from it, so a test of the uncollected
+  // build can tell "off" from "auto with no cyclic type"
+  // (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1).
+  em.emit_declaration_line(
+    cond(
+      context.cycle_collector_off => "static inline bool __yo_cycle_collector_off(void) { return true; }",
+      true => "static inline bool __yo_cycle_collector_off(void) { return false; }"
+    )
+  );
   // Generic Future + I/O Future struct types.
   em.emit_declaration_string_line(
     `

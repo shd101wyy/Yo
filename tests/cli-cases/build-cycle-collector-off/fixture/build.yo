@@ -1,0 +1,20 @@
+build :: import("std/build");
+
+// plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1: `cycle_collector` on an
+// executable reaches the child compile as `--cycle-collector off`. The same
+// probe is built twice; only the `off` build leaks its cycle.
+auto_exe :: build.executable({
+  name : "probe-auto",
+  root : "./src/main.yo"
+});
+off_exe :: build.executable({
+  name : "probe-off",
+  root : "./src/main.yo",
+  cycle_collector : build.CycleCollector.Off
+});
+run_auto_exe :: build.run(auto_exe);
+run_auto :: build.step("run-auto", "Run the collected probe");
+run_auto.depend_on(run_auto_exe);
+run_off_exe :: build.run(off_exe);
+run_off :: build.step("run-off", "Run the uncollected probe");
+run_off.depend_on(run_off_exe);

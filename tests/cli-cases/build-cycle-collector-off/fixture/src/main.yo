@@ -1,0 +1,30 @@
+Gc :: import("std/gc");
+{ println } :: import("std/fmt");
+(mut(g_disposed) : i32) = i32(0);
+Pair :: ref(
+  struct(
+    value : i32,
+    other : Option(Self)
+  )
+);
+impl(
+  Pair,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+make_cycle :: (fn() -> unit)({
+  a := Pair(1, .None);
+  b := Pair(2, .Some(a));
+  a.other = .Some(b); // a <-> b, unreachable after return
+});
+main :: (fn() -> unit)({
+  make_cycle();
+  tracked := Gc.tracked_count();
+  Gc.collect();
+  disposed := g_disposed;
+  println(`cycle: tracked ${tracked.to_string()}, disposed ${disposed.to_string()}`);
+});
+export(main);

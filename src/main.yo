@@ -6450,6 +6450,9 @@ run_compile :: (
   (heap_size_raw : String) = String.new();
   (heap_size : usize) = usize(16777216);
   (debug_heap : bool) = false;
+  // `--cycle-collector auto|off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1):
+  // `off` forces the lightweight RC runtime, so a reference cycle leaks.
+  (cycle_collector : String) = String.from("auto");
   (emit_chunks : usize) = usize(0);
   // `--emit-chunks auto` (Phase 1, plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
   // §4): N is resolved AFTER emission, from the actual emitted bytes —
@@ -6616,6 +6619,10 @@ run_compile :: (
       (a_name == "--debug-heap") => {
         debug_heap = true;
         ai = (ai + usize(1));
+      },
+      (a_name == "--cycle-collector") => {
+        cycle_collector = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--optimize") => {
         optimize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -6874,6 +6881,9 @@ run_compile :: (
   });
   if(debug_heap && (allocator != "fixed"), {
     exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
+  });
+  if((cycle_collector != "auto") && (cycle_collector != "off"), {
+    exn.throw(dyn(`compile: invalid --cycle-collector "${cycle_collector}". Choices: auto, off`));
   });
   // "s" is -Os (optimize for size): clang, gcc, zig cc and emcc all accept
   // it, so unlike a "z" level it needs no per-compiler gate (gcc has no -Oz).
@@ -7301,7 +7311,7 @@ run_compile :: (
     // `&mut ctx.expr_info_table` beside `&ctx` lends one place twice, which
     // decision 28's value-root rule rejects once it lands with V2b.
     info_table := ctx.expr_info_table;
-    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
+    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
     ctx.expr_info_table = info_table;
     (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
@@ -8586,6 +8596,8 @@ run_test :: (
   (test_allocator : String) = String.from("");
   (test_heap_size_raw : String) = String.new();
   (test_debug_heap : bool) = false;
+  // `--cycle-collector auto|off`, forwarded to every batch compile.
+  (test_cycle_collector : String) = String.new();
   (json_summary : bool) = false;
   // `--json`: one JSON object per line — a `test` event per test (file,
   // name, status, duration, and the captured output on failure) and a
@@ -8669,6 +8681,10 @@ run_test :: (
       (a == "--debug-heap") => {
         test_debug_heap = true;
         ai = (ai + usize(1));
+      },
+      (a == "--cycle-collector") => {
+        test_cycle_collector = _arg_val_req(argv, ai, a.clone(), exn);
+        ai = (ai + usize(2));
       },
       (a == "--test-batch-size") => {
         bs_raw := _arg_val_req(argv, ai, a.clone(), exn);
@@ -8821,6 +8837,9 @@ run_test :: (
   });
   if(test_debug_heap && (test_allocator != "fixed"), {
     exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
+  });
+  if((test_cycle_collector.len() > usize(0)) && (test_cycle_collector != "auto") && (test_cycle_collector != "off"), {
+    exn.throw(dyn(`test: invalid --cycle-collector "${test_cycle_collector}". Choices: auto, off`));
   });
   // YO_TEST_FORK=N: up to N files at a time in forked workers (see
   // `_TestForkPool`). A worker compiles in process, so the knob turns the
@@ -9401,6 +9420,10 @@ run_test :: (
           if(test_debug_heap, {
             cargv.push(String.from("--debug-heap"));
           });
+        });
+        if(test_cycle_collector != "", {
+          cargv.push(String.from("--cycle-collector"));
+          cargv.push(test_cycle_collector.clone());
         });
         // Forward the error format so a batch-compile failure renders per
         // --error-format (P3 threading). Color travels too when it is ON:
@@ -11736,6 +11759,7 @@ Options:
   --allocator <name>        Allocator (system|mimalloc|fixed)
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed; 64K..4G)
   --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
+  --cycle-collector <mode>  Cycle collector (auto|off); off leaks reference cycles
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to <path> instead of <output>.c
   --emit-deps <path>        Write the files this compile read, one per line
@@ -11793,6 +11817,7 @@ Examples:
   --allocator <name>        分配器（system|mimalloc|fixed）
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed；64K..4G）
   --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
+  --cycle-collector <mode>  循环回收器（auto|off）；off 时引用环会泄漏
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写到 <path>，代替 <output>.c
   --emit-deps <path>        把本次编译读取的文件逐行写入该文件
@@ -11917,6 +11942,7 @@ Options:
   --allocator <name>        Allocator for test binaries (system|mimalloc|fixed)
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed)
   --debug-heap              Heap stats + live-at-exit oracle per test (fixed only)
+  --cycle-collector <mode>  Cycle collector for test binaries (auto|off)
   --disable-sanitize        Skip AddressSanitizer linkage
   -k, --keep-generated-files  Keep generated batch files
   --profile                 Print per-phase timing
@@ -11963,6 +11989,7 @@ Examples:
   --allocator <name>        测试二进制的分配器（system|mimalloc|fixed）
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed）
   --debug-heap              每个测试退出时打印堆统计与存活块检查（仅 fixed）
+  --cycle-collector <mode>  测试二进制的循环回收器（auto|off）
   --disable-sanitize        跳过 AddressSanitizer 链接
   -k, --keep-generated-files  保留生成的批次文件
   --profile                 打印分阶段耗时
