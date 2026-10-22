@@ -5,7 +5,7 @@
 //! Since `type_contains_rc_type` is currently a stub returning `false`, those
 //! paths are unreachable and only the simple (non-RC) path is implemented here.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string, BF_DROP } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -20,7 +20,7 @@
 { t_unit } :: import("../../types/creators.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { format_error_message } :: import("../../error.yo");
-{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ is_destroying_builtin_call_capable, destroying_builtin_error_message } :: import("../memory_safety.yo");
 { set_variable_as_consumed } :: import("./consume.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
@@ -47,23 +47,13 @@ evaluate_drop :: (
     }
   );
   // Memory-safety gate, the same as a raw-pointer dereference: `___drop(place)`
-  // runs the place's drop glue without moving it out, so on a field
-  // (`___drop(h.xs)`) the place stays readable after its storage is freed.
-  // It is the std-internal primitive behind `drop_in_place`, Rust's unsafe
-  // `ptr::drop_in_place`. The drops the compiler synthesizes are parsed from
-  // `auto-generated://` code, which the file check admits.
+  // runs the place's drop glue without moving it out. It is the std-internal
+  // primitive behind `drop_in_place`, Rust's unsafe `ptr::drop_in_place`.
   drop_tok := ast_expr_token(expr);
-  if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(drop_tok.module_path.clone())), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          &drop_tok,
-          `'___drop(...)' requires 'unsafe(...)': it runs the destructor of '${ast_expr_to_string(&arg_expr)}' without moving it out, so the place stays usable after what it owns is freed.
-
-To end a value early, call 'drop(x)': it moves 'x' in, and a later use is an error. A file that destroys a slot it owns through a raw pointer declares 'pragma(Pragma.AllowUnsafe);' and calls 'drop_in_place(p)'.`
-        )
-      )
-    );
+  if(!is_destroying_builtin_call_capable(Option(String).Some(drop_tok.module_path.clone()), ctx.unsafe_context), {
+    drop_name := String.from(BF_DROP);
+    drop_place := ast_expr_to_string(&arg_expr);
+    exn.throw(dyn(format_error_message(&drop_tok, destroying_builtin_error_message(&drop_name, &drop_place))));
   });
   eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));

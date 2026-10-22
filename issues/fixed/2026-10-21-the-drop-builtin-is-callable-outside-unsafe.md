@@ -31,12 +31,12 @@ export(main);
 
 ## Fix
 
-- `evaluate_drop` (`src/evaluator/builtins/drop.yo`) rejects `___drop(...)` unless the call is inside `unsafe(...)` or in an unsafe-capable file, the same gate a raw-pointer dereference has: `'___drop(...)' requires 'unsafe(...)'`, with `drop(x)` and `drop_in_place(p)` as the hints. The drops the compiler synthesizes are parsed from `auto-generated://` code, which the file check admits, and every std file that calls `___drop` declares `pragma(Pragma.AllowUnsafe)`.
+- `evaluate_drop` (`src/evaluator/builtins/drop.yo`) rejects `___drop(...)` unless the call is inside `unsafe(...)` or in an unsafe-capable file, the same gate a raw-pointer dereference has (`is_destroying_builtin_call_capable`, `src/evaluator/memory_safety.yo`): `'___drop(...)' requires 'unsafe(...)'`, with `drop(x)` and `drop_in_place(p)` as the hints. The RC-release builtins had the same hole and share the gate (`issues/fixed/2026-10-22-the-rc-release-builtins-are-callable-outside-unsafe.md`). The drops the compiler synthesizes are parsed from `auto-generated://` code, which the file check admits, and every std file that calls `___drop` declares `pragma(Pragma.AllowUnsafe)`.
 - The prelude exports `drop_in_place(p : *(T))`, Rust's `ptr::drop_in_place`, with the body `unsafe(___drop(p.*))` (maintainer decision 2026-10-21). It takes a raw pointer, which safe code can neither name nor hold, so only pragma'd code calls it. `___drop` stays the std-internal builtin.
 - Std's eleven raw-slot sites (`std/collections/array_list.yo` three, `hash_map.yo` three, `deque.yo` one, `std/sync/channel.yo` three, and `Box`'s `Drop` in `std/prelude.yo`) call `drop_in_place(ptr)` instead of `___drop(ptr.*)`; the destructor that runs is the same.
 
 ## Tests
 
-- `tests/safe_code_structural_gates.test.yo`: the reproducer's body (`___drop(h.xs)` on a field, then a read) and `___drop(xs)` on a local are `comptime_expect_error` cases. Before the fix the first case is accepted, so the test fails.
+- `tests/safe_code_structural_gates.test.yo`: the reproducer's body (`___drop(h.xs)` on a field, then a read) and `___drop(xs)` on a local are `comptime_expect_error(..., "requires 'unsafe(...)'")` cases. Before the fix the first case is accepted, so the test fails.
 - `tests/unsafe.test.yo`: inside `unsafe(...)` in a pragma'd file, `___drop(h.t)` on a field runs the field's destructor once, and `drop_in_place` destroys a `malloc`'d slot's value (a `Drop`-counting struct, and an `ArrayList(String)` whose string it releases).
 - `tests/cli-cases/drop-builtin-safe-code`: compiling the reproducer exits 1 with the new diagnostic.

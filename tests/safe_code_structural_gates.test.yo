@@ -193,11 +193,36 @@ comptime_expect_error({
   h.xs.push(i32(1));
   ___drop(h.xs);
   h.xs.len()
-});
+}, "requires 'unsafe(...)'");
 // On a named local `___drop(xs)` moved `xs`, so the hole did not open there,
 // but the builtin is gated whatever its argument: safe code ends a value with
 // `drop(xs)`.
 comptime_expect_error({
   xs := ArrayList(i32).new();
   ___drop(xs);
-});
+}, "requires 'unsafe(...)'");
+// The RC-release builtins destroy their argument in place the same way, so
+// they are gated with `___drop`: `__yo_decr_rc(h.xs)` freed the field's buffer
+// and the read after it was a heap use-after-free that `yo check` accepted.
+// issues/fixed/2026-10-22-the-rc-release-builtins-are-callable-outside-unsafe.md
+comptime_expect_error({
+  mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+  h.xs.push(i32(1));
+  __yo_decr_rc(h.xs);
+  h.xs.len()
+}, "requires 'unsafe(...)'");
+comptime_expect_error({
+  mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+  __yo_decr_rc_atomic(h.xs);
+  h.xs.len()
+}, "requires 'unsafe(...)'");
+comptime_expect_error({
+  words := Array(String, 1)(String.from("a"));
+  __yo_drop_array_element(words, usize(0));
+  words(usize(0)).len()
+}, "requires 'unsafe(...)'");
+comptime_expect_error({
+  pair := (String.from("a"), i32(1));
+  __yo_drop_tuple_element(pair, usize(0));
+  pair.0.len()
+}, "requires 'unsafe(...)'");

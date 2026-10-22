@@ -133,6 +133,25 @@ union_member_read_error_message :: (fn(member : &String, union_type : &String) -
 
 A union does not record which member was written last, so this read may reinterpret another member's bytes, which is undefined behavior for a \`bool\`, an enum or a reference. For a checked sum type use an \`enum\` and \`match\` on its variants.`
 );
+/// May code at `module_path` call a builtin that destroys a place in place:
+/// `___drop`, or an RC release (`__yo_decr_rc`, `__yo_decr_rc_atomic`,
+/// `__yo_dyn_drop`, `__yo_sometype_drop`, `__yo_drop_array_element`,
+/// `__yo_drop_tuple_element`)? None of them moves the place out, so on a field
+/// (`___drop(h.xs)`) the place stays readable after its storage is freed: a
+/// use-after-free safe code could write. They are gated like a raw-pointer
+/// dereference. The drops the compiler synthesizes are parsed from
+/// `auto-generated://` code, which the file check admits. See
+/// issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md.
+is_destroying_builtin_call_capable :: (fn(module_path : &Option(String), in_unsafe_context : bool) -> bool)(
+  in_unsafe_context || is_implicitly_unsafe_capable_file(module_path)
+);
+/// The diagnostic every destroying-builtin gate raises; `place` is the
+/// argument as written.
+destroying_builtin_error_message :: (fn(builtin : &String, place : &String) -> String)(
+  `'${builtin}(...)' requires 'unsafe(...)': it destroys '${place}' in place without moving it out, so the place stays usable after what it owns is freed.
+
+To end a value early, call 'drop(x)': it moves 'x' in, and a later use is an error. A file that destroys a slot it owns through a raw pointer declares 'pragma(Pragma.AllowUnsafe);' and calls 'drop_in_place(p)'.`
+);
 /// Is this module path a compiler-synthesized expansion (macro, derive,
 /// prelude desugaring)? Such URIs are tagged `auto-generated://...`.
 is_auto_generated_expansion :: (fn(module_path : &Option(String)) -> bool)(
@@ -405,6 +424,8 @@ export(
   is_prelude_or_generated_file,
   is_union_member_read_capable,
   union_member_read_error_message,
+  is_destroying_builtin_call_capable,
+  destroying_builtin_error_message,
   is_class1_panic_method_name,
   is_class1_panic_receiver_type,
   is_class1_panic_exempt_file,
