@@ -1,0 +1,12 @@
+# `yo fix <path> --migrate explicit-copy` lists, and never rewrites, a copy
+# inside the member of a `Clone` impl
+# (issues/fixed/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.md).
+# `Tree.clone` shares its `kids` handle on purpose, as `AstExpr`'s does in
+# src/expr.yo; the migration used to rewrite it to `kids.clone()`, which made
+# every clone deep and the run print `0`. The impl is recognized as the
+# prelude's `Clone` by identity, not by the member's name. `tags.push(label)`
+# outside the impl is still cloned. The trailing `build run` runs the
+# migrated program: its `1 n 1` line is the behavior the rewrite must keep.
+# stdout_keep drops the build chatter.
+stdout_keep=^(fix:|[0-9]+ n [0-9]+$)
+timeout=600

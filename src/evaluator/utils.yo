@@ -2813,7 +2813,117 @@ take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
   out := g_copy_pointers.split_off(usize(0));
   out
 });
-export(ExplicitCopySite, CopyWrite, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, _ic_decl_key, _ic_place_root_decl);
+/// The destinations a block's or a conditional's result positions flow
+/// into, by position: `decl` is the destination variable's `_ic_decl_key`,
+/// `at_module`/`at_offset` the leftmost token of one result position.
+(g_copy_tail_dests : ArrayList(CopyWrite)) = ArrayList(CopyWrite).new();
+/// Record, while the migration runs, that the value of `rhs` is stored in
+/// the variable `dest_decl` (a binding, an assignment, a capture), for each
+/// result position of `rhs` when it is a block, a `cond` (an `if`) or a
+/// `match`, nested: a block's tail, each arm's body. A copy made at such a
+/// position is a `return` copy (it leaves its arm), which carries no
+/// destination of its own, so without this the written-after guard judged
+/// `t := if(c, e.no, e.yes); t.push(x)` against `e` alone and cloned two
+/// lists the push was meant to reach
+/// (issues/fixed/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.md).
+/// A `return(...)` inside an arm leaves the function, not the arm, and is
+/// not a result position of `rhs`.
+record_copy_tail_dests :: (fn(rhs : &AstExpr, dest_decl : &String) -> unit)({
+  if(!g_migrate_explicit_copy || dest_decl.is_empty(), {
+    return(());
+  });
+  _ic_note_result_positions(rhs, dest_decl, false);
+});
+_ic_note_result_positions :: (fn(e : &AstExpr, dest_decl : &String, nested : bool) -> unit)(
+  match(
+    e,
+    .FnCall(_, _, nargs, _, _) => cond(
+      ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(nargs.last(), .Some(tail) => recur(&tail, dest_decl, true), .None => ()),
+      (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => {
+        (ai : usize) = usize(0);
+        while(ai < nargs.len(), ai = (ai + usize(1)), {
+          arm := nargs(ai);
+          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+            match(arm, .FnCall(_, _, arm_args, _, _) => match(arm_args.get(usize(1)), .Some(arm_body) => recur(&arm_body, dest_decl, true), .None => ()), .Atom(_, _) => ());
+          });
+        });
+      },
+      nested => _ic_note_result_position(e, dest_decl),
+      true => ()
+    ),
+    .Atom(_, _) => if(nested, {
+      _ic_note_result_position(e, dest_decl);
+    })
+  )
+);
+_ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String) -> unit)({
+  at := _ic_leftmost_token(e);
+  g_copy_tail_dests.push(CopyWrite(decl : dest_decl.clone(), at_module : canonical_module_path(&at.module_path), at_offset : at.byte_offset));
+});
+take_copy_tail_dests :: (fn() -> ArrayList(CopyWrite))({
+  out := g_copy_tail_dests.split_off(usize(0));
+  out
+});
+/// The source span of one `Clone` impl's member, by byte offset in its
+/// module (`start`..`end`, inclusive, over the member's tokens), and the
+/// impl's receiver type.
+CloneImplBody :: struct(at_module : String, start : u32, end : u32, receiver : String);
+(g_clone_impl_bodies : ArrayList(CloneImplBody)) = ArrayList(CloneImplBody).new();
+(g_clone_impl_body_keys : HashSet(String)) = HashSet(String).new();
+/// Record, while the migration runs, that `member` (the value of a member of
+/// an `impl(receiver, Clone(...))`) is where `receiver` defines its copy.
+/// A copy of a field of `self` there is the impl's chosen depth, not an
+/// implicit copy the program happens to make: `AstExpr`'s impl shares its
+/// children on purpose and `Pattern`'s deep-copies them, and the write that
+/// makes the difference observable is in a caller of `clone`, out of any
+/// local guard's sight. So `yo fix --migrate explicit-copy` lists every copy
+/// in that span instead of rewriting it
+/// (issues/fixed/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.md).
+/// The span is by position, so a later evaluation of the body (a generic
+/// impl's specialization) is covered as well.
+record_clone_impl_body :: (fn(member : &AstExpr, receiver : &String) -> unit)({
+  if(!g_migrate_explicit_copy, {
+    return(());
+  });
+  root := ast_expr_token(member);
+  (lo : u32) = root.byte_offset;
+  (hi : u32) = root.byte_offset;
+  stack := ArrayList(AstExpr).new();
+  stack.push(member.clone());
+  while(stack.len() > usize(0), {
+    e := match(stack.pop(), .Some(x) => x, .None => make_err_expr());
+    tok := ast_expr_token(&e);
+    if(tok.module_path == root.module_path, {
+      if(tok.byte_offset < lo, {
+        lo = tok.byte_offset;
+      });
+      if(tok.byte_offset > hi, {
+        hi = tok.byte_offset;
+      });
+    });
+    match(
+      e,
+      .FnCall(_, callee, args, _, _) => {
+        stack.push(callee);
+        (k : usize) = usize(0);
+        while(k < args.len(), k = (k + usize(1)), {
+          stack.push(args(k));
+        });
+      },
+      .Atom(_, _) => ()
+    );
+  });
+  at_module := canonical_module_path(&root.module_path);
+  if(g_clone_impl_body_keys.insert(`${at_module}:${lo.to_string()}:${hi.to_string()}`), {
+    g_clone_impl_bodies.push(CloneImplBody(at_module : at_module, start : lo, end : hi, receiver : receiver.clone()));
+  });
+});
+take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
+  out := g_clone_impl_bodies.split_off(usize(0));
+  g_clone_impl_body_keys.clear();
+  out
+});
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -3467,6 +3577,9 @@ set_expr_as_needs_to_call_dup :: (
     (copy_capture_label : Option(String)) ?= .None
   ) -> unit
 )({
+  // The result positions of a block or conditional `rhs` flow into the
+  // same destination, and their copies are judged against it.
+  match(copy_dest_decl, .Some(tail_dest) => record_copy_tail_dests(rhs, &tail_dest), .None => ());
   // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
   // plain value often has no temp name, and a known value is inlined).
   if(g_audit_copy_trait, {

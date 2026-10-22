@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, take_clone_impl_bodies } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -2848,6 +2848,38 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
     )
   )
 );
+/// Is a variable the copy site `st` flows into as a block's or a
+/// conditional's result position (`record_copy_tail_dests`) written after
+/// it? `t := if(c, e.no, e.yes); t.push(x)` makes its copies in the arms,
+/// and `t` is their destination.
+_tail_dest_written_after :: (
+  fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite)), tail_dests : &HashMap(String, ArrayList(String)), st : &ExplicitCopySite) -> bool
+)(
+  match(
+    tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`),
+    .Some(decls) => {
+      (found : bool) = false;
+      (k : usize) = usize(0);
+      while((k < decls.len()) && !found, k = (k + usize(1)), {
+        found = _copy_written_after(writes_by_decl, &decls(k), st);
+      });
+      found
+    },
+    .None => false
+  )
+);
+/// The receiver of the `Clone` impl whose member holds the copy site `st`
+/// (`record_clone_impl_body`), or none.
+_clone_impl_body_at :: (fn(bodies : &ArrayList(CloneImplBody), st : &ExplicitCopySite) -> Option(String))({
+  (k : usize) = usize(0);
+  while(k < bodies.len(), k = (k + usize(1)), {
+    b := bodies(k);
+    if((b.at_module == st.at_module) && (b.start <= st.at_offset) && (st.at_offset <= b.end), {
+      return(Option(String).Some(b.receiver.clone()));
+    });
+  });
+  Option(String).None
+});
 /// `yo fix <path> --migrate explicit-copy` — V2b's unique buffers,
 /// Generation A (plans/VALUES_BY_DEFAULT.md, "Unique buffers"). Once `String`
 /// and the std collections own their buffers uniquely, an implicit copy whose
@@ -2883,6 +2915,14 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// counted in the summary: its copies past the error are never recorded, and
 /// one reached before it but judged at its block's end is lost with the
 /// error, so the body is reviewed by hand.
+///
+/// A copy inside the member of a `Clone` impl (`record_clone_impl_body`)
+/// is listed: there the impl chooses how deep its type's copy goes, and the
+/// write that tells a share from a deep copy is in a caller of `clone`. A
+/// copy at a result position of a block, `cond` (`if`) or `match` that is
+/// bound or assigned (`t := if(c, e.no, e.yes)`) is judged against that
+/// destination's writes too (`record_copy_tail_dests`), as a plain `t := s`
+/// is.
 ///
 /// Two guards list sites a `.clone()` would serve badly
 /// (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). A copy out of a
@@ -2927,6 +2967,21 @@ _run_migrate_explicit_copy :: (
     lst.push(w);
     writes_by_decl.insert(key, lst);
   });
+  // The destinations of a block's or a conditional's result positions, by
+  // the position's module and offset: a copy made there flows into that
+  // variable, so it is judged against the variable's writes as well.
+  tail_dests := HashMap(String, ArrayList(String)).new();
+  tds := take_copy_tail_dests();
+  (tdi : usize) = usize(0);
+  while(tdi < tds.len(), tdi = (tdi + usize(1)), {
+    td := tds(tdi);
+    td_key := `${td.at_module}:${td.at_offset.to_string()}`;
+    td_lst := match(tail_dests.get(td_key.clone()), .Some(l) => l, .None => ArrayList(String).new());
+    td_lst.push(td.decl.clone());
+    tail_dests.insert(td_key, td_lst);
+  });
+  // The `Clone` impls' members, where a type defines its copy.
+  clone_bodies := take_clone_impl_bodies();
   // The variables a raw pointer was derived from, by declaration key.
   pointer_decls := HashSet(String).new();
   pointers := take_copy_pointers();
@@ -3037,6 +3092,19 @@ _run_migrate_explicit_copy :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      // A copy inside a `Clone` impl's member is the depth that impl
+      // chose: `AstExpr`'s shares its children on purpose, `Pattern`'s
+      // deep-copies them. The write that tells the two apart is in a caller
+      // of `clone`, which no local guard sees, so the hand edit picks.
+      match(
+        _clone_impl_body_at(&clone_bodies, &st),
+        .Some(recv) => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: \`${st.expect}\` is copied inside the \`Clone\` impl of \`${recv}\`, which defines how deep its copy goes; left as written (spell \`.clone()\` for a deep copy, or share the field, through an \`Rc\` once it is a value, for a sharing one)`);
+          continue;
+        },
+        .None => ()
+      );
       // A copy out of a temporary that dies right after it (a field or an
       // element of a call's owned result, `_ic_dying_temp_source`) is
       // usually a move. Listed, so a value read again (a genuine copy) is
@@ -3073,6 +3141,7 @@ _run_migrate_explicit_copy :: (
       written := cond(
         _copy_written_after(&writes_by_decl, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
         _copy_written_after(&writes_by_decl, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
+        _tail_dest_written_after(&writes_by_decl, &tail_dests, &st) => Option(String).Some(String.from("the copy")),
         true => Option(String).None
       );
       match(

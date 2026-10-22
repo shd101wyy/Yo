@@ -1,0 +1,54 @@
+//! `yo fix --migrate explicit-copy` judges a copy made at a result position
+//! of an `if`, `cond` or `match` (an arm's tail, a block's tail, nested)
+//! against the variable the result is bound to, as it judges `t := s`.
+//! `target` aliases one of the entry's lists on purpose, so the push lands in
+//! the entry: those arm copies are listed, not cloned, and the run prints
+//! `2 2 2`. `seen` is never written, so its arm copies are still cloned.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Entry :: ref(
+  struct(
+    yes : ArrayList(i32),
+    no : ArrayList(i32)
+  )
+);
+first :: (fn(entries : &ArrayList(Entry)) -> Entry)(
+  match(
+    entries.get(usize(0)),
+    .Some(existing) => existing,
+    .None => Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new())
+  )
+);
+add :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)({
+  entry := first(entries);
+  mut(target) := if(negated, entry.no, entry.yes);
+  target.push(v);
+});
+add_nested :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)({
+  entry := first(entries);
+  mut(target) := match(
+    negated,
+    true => entry.no,
+    false => {
+      (positive : bool) = (v > i32(0));
+      if(positive, entry.yes, entry.no)
+    }
+  );
+  target.push(v);
+});
+count :: (fn(entries : &ArrayList(Entry), negated : bool) -> usize)({
+  entry := first(entries);
+  seen := if(negated, entry.no, entry.yes);
+  seen.len()
+});
+main :: (fn() -> unit)({
+  mut(entries) := ArrayList(Entry).new();
+  entries.push(Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new()));
+  add(&entries, false, i32(1));
+  add(&entries, true, i32(2));
+  add_nested(&entries, false, i32(3));
+  add_nested(&entries, true, i32(4));
+  e := first(&entries);
+  println(`${e.yes.len().to_string()} ${e.no.len().to_string()} ${count(&entries, false).to_string()}`);
+});
+export(main);

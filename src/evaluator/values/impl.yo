@@ -40,6 +40,7 @@ pragma(Pragma.AllowUnsafe);
   BK_FN,
   BK_COMPTIME
 } :: import("../../expr.yo");
+{ migrate_explicit_copy_on, record_clone_impl_body } :: import("../utils.yo");
 { migrate_param_modes_on, record_borrow_param_migration, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_trait_ctor_fid, struct_effective_ctor_fid, take_active_where_trait_ids, restore_active_where_trait_ids, expr_info_adopt_env, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
@@ -3992,6 +3993,7 @@ _c3_eval_colon_pair :: (
     }),
     .None => ()
   );
+  _note_clone_impl_member(current_trait_ty, st, &val_expr);
   saved2 := ctx.expected_type;
   ctx.expected_type = match(
     expected_method_ty_resolved,
@@ -4353,6 +4355,25 @@ _c2_eval_direct_field :: (
     }
   );
 });
+/// `yo fix --migrate explicit-copy`: a member of an `impl(T, Clone(...))`
+/// is where `T` defines its copy, so the migration lists the copies in it
+/// (`record_clone_impl_body`). The trait is the prelude's `Clone` by
+/// identity, as `Drop` is told (`_named_trait_key_is`), not by the member's
+/// name.
+_note_clone_impl_member :: (fn(trait_ty : &Option(TypeValue), st : &ImplInFlight, member : &AstExpr) -> unit)(
+  if(migrate_explicit_copy_on(), {
+    match(
+      trait_ty,
+      .Some(cl_tt) => {
+        cl_key := get_trait_key(&cl_tt);
+        if(!cl_key.is_empty() && _named_trait_key_is(&st.env, "Clone", cl_key.clone()), {
+          record_clone_impl_body(member, &type_to_string(&st.receiver_ty));
+        });
+      },
+      .None => ()
+    );
+  })
+);
 /// Evaluate ONE member inside a generic impl's trait constructor
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
@@ -4376,6 +4397,7 @@ _c2_eval_inner_field :: (
     .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(&t, &st.receiver_ty)),
     .None => Option(TypeValue).None
   );
+  _note_clone_impl_member(&st.current_trait_ty, st, &g_val_expr);
   saved4 := ctx.expected_type;
   ctx.expected_type = match(
     g_expected,

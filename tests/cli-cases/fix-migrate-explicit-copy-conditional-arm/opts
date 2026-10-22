@@ -1,0 +1,13 @@
+# `yo fix <path> --migrate explicit-copy` judges a copy made at a result
+# position of an `if`/`cond`/`match` (an arm's tail, a block's tail, nested)
+# against the variable the result is bound to
+# (issues/fixed/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.md).
+# `target := if(negated, entry.no, entry.yes); target.push(v)` aliases one of
+# the entry's lists on purpose, as `add_where_clause_constraint_to_env` does
+# in src/env.yo; the migration used to clone both arms (7 insertions), and
+# the run printed `0 0 0`. Now the five `target` arm copies are listed as
+# "the copy is written afterwards", and only `seen`'s two (never written)
+# are cloned. The trailing `build run` runs the migrated program: `2 2 2` is
+# the behavior the rewrite must keep. stdout_keep drops the build chatter.
+stdout_keep=^(fix:|[0-9]+ [0-9]+ [0-9]+$)
+timeout=600

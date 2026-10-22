@@ -1,0 +1,37 @@
+//! A `Clone` impl that shares its children on purpose: `Tree.clone` bumps
+//! the `kids` handle, so a push through the copy is seen by the original.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Tree :: ref(
+  enum(
+    Leaf(n : i32),
+    Node(kids : ArrayList(Self))
+  )
+);
+impl(
+  Tree,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      match(
+        self,
+        .Leaf(n) => Tree.Leaf(n),
+        .Node(kids) => Tree.Node(kids)
+      )
+    )
+  )
+);
+main :: (fn() -> unit)({
+  t := Tree.Node(ArrayList(Tree).new());
+  u := t.clone();
+  match(
+    u,
+    .Node(ks) => {
+      mut(list) := ks;
+      list.push(Tree.Leaf(i32(1)));
+    },
+    .Leaf(_) => ()
+  );
+  n := match(t, .Node(ks) => ks.len(), .Leaf(_) => usize(0));
+  println(`${n.to_string()}`);
+});
+export(main);
