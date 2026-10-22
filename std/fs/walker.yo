@@ -208,7 +208,6 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
     stack.push({ path : root_s.clone(), depth : u32(0) });
     while(runtime(stack.len() > usize(0)), {
       item := stack.pop().unwrap();
-      cur_path := item.path.clone();
       cur_depth := item.depth;
       // Check max depth
       should_continue := match(
@@ -218,11 +217,11 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
       );
       cond(
         should_continue => {
-          entries := e.io.await(_dir.read_dir(Path.new(&cur_path), e.io), e);
+          entries := e.io.await(_dir.read_dir(Path.new(&item.path), e.io), e);
           i := usize(0);
           while(runtime(i < entries.len()), {
             entry := entries(i);
-            entry_path := _join_path(&cur_path, &entry.name);
+            entry_path := _join_path(&item.path, &entry.name);
             match(
               entry.file_type,
               .Directory => {

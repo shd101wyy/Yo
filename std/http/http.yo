@@ -636,15 +636,15 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   resp.version = version;
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines(j).clone();
+    // The header line is read where it lives in `lines`: no copy of it.
     cond(
-      hline.is_empty() => (),
+      lines(j).is_empty() => (),
       true => {
         match(
-          hline.index_of(`:`),
+          lines(j).index_of(`:`),
           .Some(colon) => {
-            hname := hline.substring(usize(0), colon).trim();
-            hval := hline.substring(colon + usize(1), hline.len()).trim();
+            hname := lines(j).substring(usize(0), colon).trim();
+            hval := lines(j).substring(colon + usize(1), lines(j).len()).trim();
             // APPEND: a repeated field (Set-Cookie) must keep every value.
             resp.headers.append(&hname, &hval);
           },
@@ -712,16 +712,16 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   req := HttpRequest.new(method, &parts(usize(1)));
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines(j).clone();
+    // Read in place; only the error copies the line out.
     match(
-      hline.index_of(`:`),
+      lines(j).index_of(`:`),
       .Some(colon) => {
-        hname := hline.substring(usize(0), colon).trim();
-        hval := hline.substring(colon + usize(1), hline.len()).trim();
+        hname := lines(j).substring(usize(0), colon).trim();
+        hval := lines(j).substring(colon + usize(1), lines(j).len()).trim();
         req.headers.append(&hname, &hval);
       },
       .None => {
-        return(.Err(HttpParseError.InvalidHeaderLine(hline)));
+        return(.Err(HttpParseError.InvalidHeaderLine(lines(j).clone())));
       }
     );
   });
