@@ -96,3 +96,9 @@ reproducer. Its goldens expect `s` rewritten to `{ s : s.clone() }` and
 `seen` listed as "the copy is written afterwards"; the trailing `check`
 proves the rewritten file evaluates. The rewritten program prints `4 4 1`,
 as the original does.
+
+The five sites B2 reverted, re-run with `--dry-run` on the fixed tree binary:
+`tests/async/combinators.test.yo` lists its three `{ c, seen }` captures
+(695:25, 750:25, 805:25) as "the copy is written afterwards", and
+`tests/fn_once.test.yo` spells its two as `s : s.clone()` (62:38) and
+`a : a.clone()` (196:38); both sources are read after the closure runs.
