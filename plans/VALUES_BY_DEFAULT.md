@@ -7241,6 +7241,109 @@ heavy run, the command is given in item 2.
      - Needs: B1. Flips nothing. Not seed-gated.
      - Tier 1: the test files of each touched std module, one per call;
        cli-diff; `compile.test.yo`.
+     - **As-built 2026-10-22** (branch `feat/v2b-b3-std-explicit-copies`,
+       on develop `e30c0d8ed`).
+       - The std half of B1 is applied here. `yo fix ./std --migrate
+         explicit-copy --std-path ./std`, run by develop's tree binary
+         (which carries #1537), took 0:34 at 279 MB. Its listing is identical
+         to `plans/handover/VBD_B3_STD_EXPLICIT_COPY_LISTING_2026-10-22.md`.
+         All 52 insertions are kept. Five of them are read-only aliases,
+         which became borrows instead (`percent.yo` ×2, `regex/flags.yo`,
+         `toml.yo`'s `_write_f64`, and `path.yo`'s `to_string`, which had
+         copied the segment list on every call). None of the 52 is one of
+         B1's two S1 shapes: none is inside a `Clone` impl, and none clones
+         a conditional arm whose binding is written later.
+       - The 162 listed sites were decided by hand:
+
+         | decision | sites |
+         | --- | --- |
+         | `.clone()`: the copy must be independent after B8 | 69 |
+         | borrow: a read-only alias becomes `y := &x` | 38 |
+         | projection (`-> &T`) | 11 |
+         | move | 8 |
+         | restructure | 7 |
+         | deferred, with a reason | 29 |
+
+         - **Clones.** Most are a `&String`/`&ArrayList` parameter stored
+           in a field or pushed into a list (constructors, builders,
+           setters), or an owned result built from a parameter
+           (`return(input)` in `html.decode`, `Regex.replace` and the
+           like). `String.to_string`, `JsonValue`'s `ToJson`/`FromJson`
+           and `RegexMatch.group` also return a clone now.
+         - **Borrows.** 36 are `bytes := s`-style aliases of a `&`
+           parameter, now `bytes := &s`, three of them inside an
+           `io.async` body (`fs/file.yo`, `io/bufio.yo`,
+           `process/command.yo`). The other two are
+           `&self._program.literal_prefix` and
+           `&self._program.instructions` in the regex engine.
+         - **Projections.** These field getters now return a place, not a
+           copy: `Url.scheme`/`path` (`-> &String`) and
+           `host`/`query`/`fragment`/`userinfo` (`-> &Option(String)`),
+           `Regex.source`, `RegexMatch.value`/`input`,
+           `ParsedArgs.get_subcommand`, and `UnixListener.local_path`. A
+           caller that rewrites the result copies it, as
+           `std/http/client.yo` now does with
+           `req_path := url.path().clone()`. Without the copy,
+           `req_path` binds a `&` borrow and the rewrite is E0908.
+         - **Moves.** Six parameters became by-value, because every caller
+           passes a temporary or a dead local: `_format_int`'s `decimal`,
+           `_apply_width`'s `text`, `RegexMatch.new`'s `value`, `groups`
+           and `group_spans`, and `RegexNode.char_class`'s `ranges`. Two
+           sites (`csv.yo:181`, `string.yo:743`) are already a last use
+           followed by a reassignment, so they need no edit.
+         - **Restructures.** `JsonValue.insert`/`remove` and
+           `TomlValue.insert` match the `&mut` receiver and write its
+           payload lists in place (decision 26). They used to copy the
+           lists out and store them back. `csv.write_with` reads
+           `records(r)` in place. `FormatSpec.pad` builds its owned text as
+           either the cut prefix or one copy of the body.
+           `RegexMatchIter.next` reads `self._input` in place: a `&` borrow
+           of it is E0911, because `next` writes `self._byte_pos` in the
+           same `ref` cell. `NfaVm._input` was never read, so the field and
+           its copy are deleted.
+       - Deferred, by the phase that reshapes each site:
+         - **B6 (decision 20's accessors), 9 sites:** `ArrayList.get`,
+           `HashMap.get`, `ArrayList.extend` (an element copy in a generic
+           body that needs the `T <: Clone` bound B6 decides),
+           `Option.unwrap`/`unwrap_or` (3 sites), and
+           `Result.unwrap`/`unwrap_or` (3 sites).
+         - **B7 (decision 39's iteration), 10 sites:** the iterators that
+           hold their source. These are `ArrayList.chunks`/`windows`, the
+           `HashMap` key iterator, `PriorityQueue.into_iter`/`iter`, and
+           `String.chars`/`bytes`/`into_iter`/`char_indices`/`lines`.
+         - **B8, 10 sites.** These must keep sharing until the flip:
+           - `json.yo:561` and `toml.yo:463`: the parsers hold their input
+             bytes by sharing so that they never copy the input. B8
+             chooses between a by-value input and one copy per parse.
+           - `fs/watch.yo:118` and `string_builder.yo:187`: both already
+             have the take shape (copy the field, then reset it). They
+             need decision 19's `replace(&mut …)`, which has no prelude
+             form yet.
+           - `regex/match.yo:56`: every match of one search shares the
+             haystack, and a copy per match would cost O(input) each time.
+             B8 decides on an `Rc(String)` instead.
+           - `regex/vm.yo:343`: the Save step hands the slot list to the
+             thread that follows it, because the thread before it is dead.
+             A clone would copy the slots in the matcher's hot loop.
+           - `regex/vm.yo:542`/`543`: the VM's preallocated scratch
+             buffers. `&mut self._seen` is E0911, because `NfaVm` is a
+             `ref` cell and `self` is in use while the borrow is live.
+           - `string.yo:279`/`290`: `String`'s copy-on-write byte-list
+             helpers, which B8's newtype rewrites.
+       - **The listing undercounts.** A copy of a collection whose element
+         type has no `Clone` is neither rewritten nor listed
+         (`issues/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`,
+         S3). Two such sites were found next to listed ones:
+         - `fs/walker.yo`'s `return(results)`. `_filter_by_pattern` now
+           takes `results` by value, and its one caller passes a dead
+           local.
+         - `NfaCompiler.compile`'s `group_names` field store. It is left
+           as it is, for B8's probe.
+       - Seed constraint: every form used here (projections, local
+         borrows, borrows inside `io.async` bodies) is accepted by the
+         v0.2.68 seed. `yo check ./std --std-path ./std` with the seed
+         passes 172/172.
+       - Tier 1: GATE_RESULTS
    - **B4 (b). Hand edits in `src/`, by directory.** Split by N1's counts
      into PRs of at most ~250 sites (likely `src/evaluator/`, then
      `src/codegen/`, then the rest).
