@@ -266,8 +266,8 @@ test("macro helpers: a gensym'd token shares its source token's input", {
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("gensym_share_test.yo"),
-    input : source
+    module_path : rc(String.from("gensym_share_test.yo")),
+    input : rc(source)
   );
   call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), tok), ArrayList(AstExpr).new(), false, tok);
   env := Environment.new(rc(String.from("gensym_share_test.yo")));
@@ -281,10 +281,20 @@ test("macro helpers: a gensym'd token shares its source token's input", {
         v,
         .ExprVal(atom) => {
           synth := ast_expr_token(&atom);
-          assert(synth.input == source, "the synthesized token carries the source text");
+          assert(synth.input.* == source, "the synthesized token carries the source text");
           // `ptr()` is buffer identity; `to_bytes()` would compare two fresh copies.
-          assert(synth.input.ptr() == source.ptr(), "the synthesized token SHARES the source text instead of copying it");
-          assert(synth.module_path.ptr() == tok.module_path.ptr(), "the synthesized token shares the module path");
+          assert(synth.input.*.ptr() == source.ptr(), "the synthesized token SHARES the source text instead of copying it");
+          assert(synth.module_path.*.ptr() == tok.module_path.*.ptr(), "the synthesized token shares the module path");
+          // `Token.input`/`module_path` are `Rc` cells: the synthesized
+          // token holds its origin token's cells, not fresh cells over the
+          // same buffer (a fresh cell would be a deep copy once `String` is a
+          // value).
+          synth_input := synth.input;
+          tok_input := tok.input;
+          synth_path := synth.module_path;
+          tok_path := tok.module_path;
+          assert(unsafe(__yo_ptr_eq(&synth_input, &tok_input)), "the synthesized token shares the source CELL");
+          assert(unsafe(__yo_ptr_eq(&synth_path, &tok_path)), "the synthesized token shares the module path CELL");
         },
         _ => assert(false, "gensym did not produce an ExprVal")
       ),
