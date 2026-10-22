@@ -2771,3 +2771,16 @@ test("rc alloc : .Some(a) shared by several handles is released into a once, and
   assert(arena.live_blocks() == usize(0), "and frees the cell into the arena");
   arena.deinit();
 });
+// `rc`'s twin of tests/arc.test.yo's Send case: a `dyn(...)` closure that
+// captures a parameter of a generic (`Impl(Fn)`) function is boxed by a
+// synthesized `rc(closure)` whose `V` is the closure's capture struct
+// (issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md).
+_RcDynDetector :: struct(detect : Dyn(Fn(x : i32) -> i32));
+_rc_dyn_run :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
+  d := _RcDynDetector(detect : dyn((x : i32) => (get(x) + i32(1))));
+  d.detect(i32(2))
+});
+test("a dyn of a closure capturing a generic fn's Impl(Fn) parameter boxes through rc", {
+  n := i32(10);
+  assert(_rc_dyn_run((x : i32) => (x + n)) == i32(13), "the closure, called through the Dyn");
+});
