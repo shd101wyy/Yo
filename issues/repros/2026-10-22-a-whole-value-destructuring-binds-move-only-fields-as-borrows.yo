@@ -1,0 +1,15 @@
+// issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md
+// Expected (decision 19): `{ _b, k } := w` moves `w`'s fields out, so
+// `b := _b` moves the move-only `B`; prints 4, then "drop B".
+// Actual: E0901 "cannot copy `_b` ... it is borrowed".
+{ println } :: import("std/fmt");
+B :: struct(n : i32);
+impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(println("drop B"))));
+W :: struct(_b : B, k : i32);
+main :: (fn() -> unit)({
+  w := W(_b : B(n : i32(4)), k : i32(1));
+  { _b, k } := w;
+  b := _b;
+  println(&b.n);
+});
+export(main);

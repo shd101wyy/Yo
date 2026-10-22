@@ -1,0 +1,64 @@
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+VL :: struct(n : usize);
+derive(VL, Clone);
+VLIter :: struct(src : VL, i : usize);
+impl(
+  VLIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i < self.src.n) => {
+          r := self.i;
+          self.i = (self.i + usize(1));
+          .Some(r)
+        },
+        true => .None
+      )
+    )
+  )
+);
+impl(
+  VL,
+  IntoIterator(
+    Item : usize,
+    IntoIter : VLIter,
+    into_iter : (fn(self : &Self) -> VLIter)(VLIter(src : self.clone(), i : usize(0)))
+  )
+);
+Bag :: ref(struct(items : ArrayList(i32), vl : VL));
+impl(
+  Bag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
+  total_vl : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.vl, x => {
+      t = (t + x);
+    });
+    t
+  })
+);
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  bag := Bag(items : xs, vl : VL(n : usize(3)));
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    seen = (seen + other.total_vl());
+  });
+  println(&seen);
+});
+export(main);
