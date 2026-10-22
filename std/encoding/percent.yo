@@ -90,7 +90,7 @@ _hex_val :: (fn(b : u8) -> Option(u8))(
 );
 /// Percent-encode `input` for use as a URI component.
 encode :: (fn(input : &String) -> String)({
-  bytes := input;
+  bytes := &input;
   n := bytes.len();
   out := String.with_capacity(n);
   hex := _HEX_UPPER.to_string();
@@ -112,7 +112,7 @@ encode :: (fn(input : &String) -> String)({
 /// byte passes through (including `+`, which stays `+` — RFC 3986, not the
 /// form dialect).
 decode_bytes :: (fn(input : &String) -> Result(ArrayList(u8), PercentError))({
-  bytes := input;
+  bytes := &input;
   n := bytes.len();
   out := ArrayList(u8).with_capacity(n);
   (i : usize) = usize(0);

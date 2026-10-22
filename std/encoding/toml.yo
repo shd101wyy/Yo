@@ -295,31 +295,31 @@ impl(
   /// `JsonValue.insert`. Insertion order is preserved and a replacement keeps
   /// the key's original position. A non-table receiver is a no-op returning
   /// `.None`.
-  insert : (fn(self : &mut Self, key : String, value : TomlValue) -> Option(TomlValue))({
-    if(!match(self, .Table(_, _) => true, _ => false), {
-      return(Option(TomlValue).None);
-    });
-    // The payload lists are taken into locals, written, and stored back: a
-    // `match` binding is a copy of them once collections are values.
-    keys := match(self, .Table(k, _) => k, _ => ArrayList(String).new());
-    values := match(self, .Table(_, v) => v, _ => ArrayList(TomlValue).new());
-    i := usize(0);
-    while(i < keys.len(), i = (i + usize(1)), {
-      cond(
-        (keys(i) == key) => {
-          old := values(i);
-          values(i) = value;
-          self = Self.Table(keys, values);
-          return(Option(TomlValue).Some(old));
-        },
-        true => ()
-      );
-    });
-    keys.push(key);
-    values.push(value);
-    self = Self.Table(keys, values);
-    Option(TomlValue).None
-  }),
+  insert : (fn(self : &mut Self, key : String, value : TomlValue) -> Option(TomlValue))(
+    // A `match` on the `&mut` receiver binds the payload lists as `&mut`
+    // places (decision 26), so they are written where they live: no copy of
+    // either list is taken out and stored back.
+    match(
+      self,
+      .Table(keys, values) => {
+        i := usize(0);
+        while(i < keys.len(), i = (i + usize(1)), {
+          cond(
+            (keys(i) == key) => {
+              old := values(i);
+              values(i) = value;
+              return(Option(TomlValue).Some(old));
+            },
+            true => ()
+          );
+        });
+        keys.push(key);
+        values.push(value);
+        Option(TomlValue).None
+      },
+      _ => Option(TomlValue).None
+    )
+  ),
   /// Return the number of keys in the table, or `0` if not a table.
   table_len : (fn(self : &Self) -> usize)(
     match(
@@ -346,7 +346,7 @@ impl(
   ),
   /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self : &Self) -> Option(String))(
-    match(self, .Str(s) => Option(String).Some(s), _ => Option(String).None)
+    match(self, .Str(s) => Option(String).Some(s.clone()), _ => Option(String).None)
   ),
   /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self : &Self) -> Option(i64))(
@@ -621,7 +621,7 @@ impl(
     });
     cond(
       !replaced => {
-        self.paths.push(path);
+        self.paths.push(path.clone());
         self.kinds.push(kind);
       },
       true => ()
@@ -1288,7 +1288,7 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
       return(bad);
     }
   );
-  signed_text := cond(neg => `-${dec.text}`, true => dec.text);
+  signed_text := cond(neg => `-${dec.text}`, true => dec.text.clone());
   cond(
     dec.is_float => match(
       signed_text.parse_f64(),
@@ -1621,7 +1621,7 @@ _insert_inline :: (
   last := (keys.len() - usize(1));
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
-    k := keys(i);
+    k := keys(i).clone();
     child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
     match(
@@ -1629,7 +1629,7 @@ _insert_inline :: (
       .None => {
         t := TomlValue.new_table();
         _old := cur.insert(k, t);
-        dotted.push(child_path);
+        dotted.push(child_path.clone());
         next_tbl = t;
       },
       .Some(v) => {
@@ -1663,7 +1663,7 @@ _insert_inline :: (
     cur = next_tbl;
     path = child_path;
   });
-  final_key := keys(last);
+  final_key := keys(last).clone();
   cond(
     cur.has_key(&final_key) => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
@@ -1872,10 +1872,10 @@ _walk_header_path :: (
   (path : String) = String.new();
   i := usize(0);
   while(i < upto, i = (i + usize(1)), {
-    k := keys(i);
+    k := keys(i).clone();
     child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
-    (next_path : String) = child_path;
+    (next_path : String) = child_path.clone();
     match(
       cur.get(&k),
       .None => {
@@ -1982,7 +1982,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
       return(Result(unit, TomlError).Err(e));
     }
   );
-  k := keys(last);
+  k := keys(last).clone();
   child_path := _path_key(&cursor.path, &k);
   existing := cursor.table.get(&k);
   cond(
@@ -2068,11 +2068,11 @@ _insert_keyval :: (
   fn(p : &_Parser, keys : &ArrayList(String), value : &TomlValue, pos : usize) -> Result(unit, TomlError)
 )({
   (cur : TomlValue) = p.cur;
-  (path : String) = p.cur_path;
+  (path : String) = p.cur_path.clone();
   last := (keys.len() - usize(1));
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
-    k := keys(i);
+    k := keys(i).clone();
     child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
     match(
@@ -2109,7 +2109,7 @@ _insert_keyval :: (
     cur = next_tbl;
     path = child_path;
   });
-  final_key := keys(last);
+  final_key := keys(last).clone();
   cond(
     cur.has_key(&final_key) => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
@@ -2213,7 +2213,7 @@ export(parse);
 // Serialization
 // ============================================================================
 _push_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
-  b := s;
+  b := &s;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     out.push(b.byte_at(i));
@@ -2244,7 +2244,7 @@ _write_u_escape :: (fn(b : u8, out : &mut ArrayList(u8)) -> unit)({
 /// the output prettier, never more correct.
 _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(_QUOTE);
-  b := s;
+  b := &s;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     c := b.byte_at(i);
@@ -2285,7 +2285,7 @@ _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
 });
 /// May `key` be written bare?
 _is_bare_key :: (fn(key : &String) -> bool)({
-  b := key;
+  b := &key;
   cond(
     (b.len() == usize(0)) => {
       return(false);
@@ -2357,7 +2357,7 @@ _write_f64 :: (fn(v : f64, out : &mut ArrayList(u8)) -> unit)({
       .None => ()
     );
   });
-  b := text;
+  b := &text;
   (needs_point : bool) = true;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
@@ -2701,7 +2701,7 @@ _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
         (same : bool) = true;
         i := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          key := a_keys(i);
+          key := a_keys(i).clone();
           (found : bool) = false;
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {

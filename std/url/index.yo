@@ -541,8 +541,8 @@ impl(
   /// `HTTP://x` and `http://x` both answer `http`, as RFC 3986 §3.1 requires
   /// and Rust's `Url::scheme` does. Always present: a URL that has no scheme
   /// is a `MissingScheme` error, not a `Url`.
-  scheme : (fn(self : &Self) -> String)(
-    self._scheme
+  scheme : (fn(self : &Self) -> &String)(
+    &self._scheme
   ),
   /// The host, still percent-encoded, with an IPv6 literal keeping its
   /// brackets (`[::1]`) — Rust's `Url::host_str`.
@@ -552,8 +552,8 @@ impl(
   /// authority whose host is empty (`file:///a/b`). This library does not
   /// distinguish them, which is a divergence from Rust — see the module doc's
   /// `## Stability` note.
-  host : (fn(self : &Self) -> Option(String))(
-    self._host
+  host : (fn(self : &Self) -> &Option(String))(
+    &self._host
   ),
   /// The port as written, or `.None` when the URL carried no `:port`.
   ///
@@ -572,8 +572,8 @@ impl(
   ///
   /// For an authority-bearing URL this is guaranteed to start with `/` — a
   /// path that does not is rejected as `Other` at parse time.
-  path : (fn(self : &Self) -> String)(
-    self._path
+  path : (fn(self : &Self) -> &String)(
+    &self._path
   ),
   /// The query WITHOUT the leading `?`, still percent-encoded and with `+`
   /// still a `+` — Rust's `Url::query`.
@@ -582,14 +582,14 @@ impl(
   /// has no query (`.None`), `http://h/?` has an empty one (`.Some("")`).
   /// The distinction survives `to_string`, which is the point — a form
   /// submitted with no fields sends the bare `?`.
-  query : (fn(self : &Self) -> Option(String))(
-    self._query
+  query : (fn(self : &Self) -> &Option(String))(
+    &self._query
   ),
   /// The fragment WITHOUT the leading `#`, still percent-encoded — Rust's
   /// `Url::fragment`. As with `query`, `.None` (no `#`) and `.Some("")` (a
   /// trailing `#`) are different URLs and stay different through `to_string`.
-  fragment : (fn(self : &Self) -> Option(String))(
-    self._fragment
+  fragment : (fn(self : &Self) -> &Option(String))(
+    &self._fragment
   ),
   /// The userinfo WITHOUT the trailing `@`, still percent-encoded and NOT
   /// split at the `:` — `user:pw@h` answers `.Some("user:pw")`, where Rust
@@ -602,8 +602,8 @@ impl(
   /// and userinfo `a@b`, host `h` there. RFC 3986 §3.2.1 does not admit a raw
   /// `@` inside userinfo at all, which is why `set_userinfo` rejects one
   /// outright rather than picking a side.
-  userinfo : (fn(self : &Self) -> Option(String))(
-    self._userinfo
+  userinfo : (fn(self : &Self) -> &Option(String))(
+    &self._userinfo
   ),
   // --- Setters (RFC 3986 component replacement) ---
   //
@@ -619,7 +619,7 @@ impl(
     cond(
       !_is_scheme(scheme) => .Err(UrlError.Other(`invalid scheme: ${scheme}`)),
       true => {
-        self._scheme = scheme;
+        self._scheme = scheme.clone();
         .Ok(())
       }
     )
@@ -651,7 +651,7 @@ impl(
               (h.contains(`:`) && !(h.starts_with(`[`) && h.ends_with(`]`))) =>
                 .Err(UrlError.Other(`an IPv6 host must be bracketed, as in [::1]`)),
               true => {
-                self._host = Option(String).Some(h);
+                self._host = Option(String).Some(h.clone());
                 .Ok(())
               }
             )
@@ -681,7 +681,7 @@ impl(
           (self._host.is_none() && path.starts_with(`//`)) =>
             .Err(UrlError.Other(`a path may not start with '//' when there is no host`)),
           true => {
-            self._path = path;
+            self._path = path.clone();
             .Ok(())
           }
         )
@@ -700,7 +700,7 @@ impl(
           _validate_component(&q, `query`, `#`),
           .Err(e) => .Err(e),
           .Ok(_) => {
-            self._query = Option(String).Some(q);
+            self._query = Option(String).Some(q.clone());
             .Ok(())
           }
         )
@@ -722,7 +722,7 @@ impl(
           _validate_component(&f, `fragment`, ``),
           .Err(e) => .Err(e),
           .Ok(_) => {
-            self._fragment = Option(String).Some(f);
+            self._fragment = Option(String).Some(f.clone());
             .Ok(())
           }
         )
@@ -747,7 +747,7 @@ impl(
           _validate_component(&u, `userinfo`, `/?#@`),
           .Err(e) => .Err(e),
           .Ok(_) => {
-            self._userinfo = Option(String).Some(u);
+            self._userinfo = Option(String).Some(u.clone());
             .Ok(())
           }
         )
@@ -766,7 +766,7 @@ impl(
       .Some(h) =>
         match(
           self._port,
-          .None => .Some(h),
+          .None => .Some(h.clone()),
           .Some(p) => .Some(`${h}:${p}`)
         )
     )
@@ -782,7 +782,7 @@ impl(
   origin : (fn(self : &Self) -> String)(
     match(
       self._host,
-      .None => self._scheme,
+      .None => self._scheme.clone(),
       .Some(h) =>
         match(
           self._port,
@@ -805,7 +805,7 @@ impl(
 /// equivalents are lossy for the same reason. The raw text is the honest
 /// fallback — it is what the URL actually contains.
 _decode_lossy :: (fn(s : &String) -> String)(
-  match(percent.decode(s), .Ok(v) => v, .Err(_) => s)
+  match(percent.decode(s), .Ok(v) => v, .Err(_) => s.clone())
 );
 /// `application/x-www-form-urlencoded` decoding: `+` is a SPACE, then the
 /// percent escapes. The order matters — decoding `%2B` first would turn an
@@ -852,7 +852,7 @@ _UrlRef :: struct(
 _validate_component :: (
   fn(s : &String, what : &String, forbidden : &String) -> Result(unit, UrlError)
 )({
-  forbidden_b := forbidden;
+  forbidden_b := &forbidden;
   (i : usize) = usize(0);
   while(runtime(i < s.len()), {
     b := s.byte_at(i);
@@ -885,7 +885,7 @@ _validate_component :: (
 /// `1a:b` are not, and a relative path may legally contain a colon after the
 /// first segment (`a/b:c`), which is why the split below stops at `/`.
 _is_scheme :: (fn(s : &String) -> bool)({
-  b := s;
+  b := &s;
   if(b.len() == usize(0), {
     return(false);
   });
@@ -911,7 +911,7 @@ _is_scheme :: (fn(s : &String) -> bool)({
 /// regex, hand-rolled. Never fails: every string is SOME reference, and it is
 /// §5.3 plus the final `parse` that decide whether the result is a usable URL.
 _split_ref :: (fn(s : &String) -> _UrlRef)({
-  rest := s;
+  rest := s.clone();
   // 4. fragment — everything after the FIRST '#'.
   frag := match(
     rest.index_of(`#`),
@@ -983,7 +983,7 @@ _remove_dot_segments :: (fn(path : &String) -> String)({
     true => usize(0)
   );
   while(i < segs.len(), i = (i + usize(1)), {
-    seg := segs(i);
+    seg := segs(i).clone();
     last := (i == (segs.len() - usize(1)));
     cond(
       (seg == `.`) => {
@@ -1030,7 +1030,7 @@ _merge_paths :: (fn(base : &Url, ref_path : &String) -> String)(
     true => match(
       base._path.last_index_of(`/`),
       .Some(i) => base._path.substring(usize(0), i + usize(1)).concat(ref_path),
-      .None => ref_path
+      .None => ref_path.clone()
     )
   )
 );
@@ -1040,7 +1040,7 @@ _authority_of :: (fn(u : &Url) -> Option(String))(
     u._host,
     .None => Option(String).None,
     .Some(h) => {
-      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h);
+      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h.clone());
       Option(String).Some(match(u._port, .Some(p) => `${a}:${p}`, .None => a))
     }
   )
@@ -1119,9 +1119,9 @@ impl(
     // reference with no query of its own.
     eff_query := match(
       r.query,
-      .Some(q) => Option(String).Some(q),
+      .Some(q) => Option(String).Some(q.clone()),
       .None => cond(
-        (r.scheme.is_none() && r.authority.is_none() && (r.path.len() == usize(0))) => self._query,
+        (r.scheme.is_none() && r.authority.is_none() && (r.path.len() == usize(0))) => self._query.clone(),
         true => Option(String).None
       )
     );
@@ -1159,7 +1159,7 @@ impl(
         out := ArrayList(String).new();
         body := cond(
           self._path.starts_with(`/`) => self._path.substring(usize(1), self._path.len()),
-          true => self._path
+          true => self._path.clone()
         );
         cond(
           (body.len() == usize(0)) => Option(ArrayList(String)).Some(out),
@@ -1186,14 +1186,14 @@ impl(
   /// Order and duplicates are preserved: `?a=1&a=2` is two pairs.
   query_pairs : (fn(self : &Self) -> ArrayList(Tuple(String, String)))({
     out := ArrayList(Tuple(String, String)).new();
-    q := match(self._query, .Some(v) => v, .None => String.new());
+    q := match(self._query, .Some(v) => v.clone(), .None => String.new());
     if(q.len() == usize(0), {
       return(out);
     });
     parts := q.split(`&`);
     i := usize(0);
     while(i < parts.len(), i = (i + usize(1)), {
-      part := parts(i);
+      part := parts(i).clone();
       if(part.len() > usize(0), {
         match(
           part.index_of(`=`),

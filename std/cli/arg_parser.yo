@@ -124,7 +124,7 @@ impl(
     )
   ),
   /// Returns the name of the chosen subcommand, if any.
-  get_subcommand : (fn(self : &Self) -> Option(String))(self._subcommand),
+  get_subcommand : (fn(self : &Self) -> &Option(String))(&self._subcommand),
   /// Returns the parsed arguments of the chosen subcommand, if any.
   get_subcommand_args : (fn(self : &Self) -> Option(Self))(self._subcommand_args),
   /// Whether the flag registered under `name` appeared on the command
@@ -212,8 +212,8 @@ impl(
   /// the name shown to the user.
   new : (fn(name : &String, description : &String) -> Self)(
     Self(
-      _name : name,
-      _description : description,
+      _name : name.clone(),
+      _description : description.clone(),
       _args : ArrayList(ArgDef).new(),
       _subcommand_names : ArrayList(String).new(),
       _subcommand_descriptions : ArrayList(String).new(),
@@ -225,8 +225,8 @@ impl(
   /// flags, options, positionals, and nested subcommands.
   add_subcommand : (fn(self : &Self, name : &String, description : &String) -> Self)({
     sub := Self.new(name, description);
-    self._subcommand_names.push(name);
-    self._subcommand_descriptions.push(description);
+    self._subcommand_names.push(name.clone());
+    self._subcommand_descriptions.push(description.clone());
     self._subcommand_parsers.push(sub);
     return(sub);
   }),
@@ -267,9 +267,9 @@ impl(
   add_flag : (fn(self : &Self, long_name : &String, short_name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
-        _long_name : long_name,
-        _short_name : short_name,
-        _description : description,
+        _long_name : long_name.clone(),
+        _short_name : short_name.clone(),
+        _description : description.clone(),
         _kind : .Flag,
         _default_value : ``,
         _required : false
@@ -294,11 +294,11 @@ impl(
   add_option : (fn(self : &Self, long_name : &String, short_name : &String, description : &String, default_value : &String) -> unit)({
     self._args.push(
       ArgDef(
-        _long_name : long_name,
-        _short_name : short_name,
-        _description : description,
+        _long_name : long_name.clone(),
+        _short_name : short_name.clone(),
+        _description : description.clone(),
         _kind : .Opt,
-        _default_value : default_value,
+        _default_value : default_value.clone(),
         _required : false
       )
     );
@@ -317,9 +317,9 @@ impl(
   add_positional : (fn(self : &Self, name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
-        _long_name : name,
+        _long_name : name.clone(),
         _short_name : ``,
-        _description : description,
+        _description : description.clone(),
         _kind : .Positional,
         _default_value : ``,
         _required : true
@@ -559,7 +559,7 @@ impl(
                       match(
                         &def._kind,
                         .Flag => {
-                          parsed._set_flags.push(def._long_name);
+                          parsed._set_flags.push(def._long_name.clone());
                         },
                         .Opt => {
                           idx = (idx + usize(1));
@@ -568,7 +568,7 @@ impl(
                               match(
                                 args.get(idx),
                                 .Some(val) => {
-                                  parsed._option_names.push(def._long_name);
+                                  parsed._option_names.push(def._long_name.clone());
                                   parsed._option_values.push(val);
                                 },
                                 .None => {
@@ -611,7 +611,7 @@ impl(
                               sub_args.push(prog);
                             },
                             .None => {
-                              sub_args.push(self._name);
+                              sub_args.push(self._name.clone());
                             }
                           );
                           j := (idx + usize(1));
@@ -628,7 +628,7 @@ impl(
                           match(
                             recur(&sub_parser, &sub_args),
                             .Ok(sub_parsed) => {
-                              parsed._subcommand = .Some(current_arg);
+                              parsed._subcommand = .Some(current_arg.clone());
                               parsed._subcommand_args = .Some(sub_parsed);
                               idx = args_len;
                               is_subcmd = true;
@@ -661,7 +661,7 @@ impl(
                           .Positional => {
                             cond(
                               (p_count == positional_idx) => {
-                                parsed._positional_names.push(p_def._long_name);
+                                parsed._positional_names.push(p_def._long_name.clone());
                               },
                               true => ()
                             );
@@ -704,8 +704,8 @@ impl(
             .Opt => {
               cond(
                 (!parsed._option_names.contains(&def._long_name) && !def._default_value.is_empty()) => {
-                  parsed._option_names.push(def._long_name);
-                  parsed._option_values.push(def._default_value);
+                  parsed._option_names.push(def._long_name.clone());
+                  parsed._option_values.push(def._default_value.clone());
                 },
                 true => ()
               );

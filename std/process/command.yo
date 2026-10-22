@@ -188,7 +188,7 @@ impl(
   /// invocation.
   new : (fn(program : &String) -> Self)(
     Self(
-      _program : program,
+      _program : program.clone(),
       _args : ArrayList(String).new(),
       _env_overrides : ArrayList(String).new(),
       _env_clear : false,
@@ -200,7 +200,7 @@ impl(
   ),
   /// Append a single argument to the argv list.
   arg : (fn(self : &Self, a : &String) -> Self)({
-    self._args.push(a);
+    self._args.push(a.clone());
     self
   }),
   /// Append multiple arguments to the argv list.
@@ -227,7 +227,7 @@ impl(
   get_args : (fn(self : &Self) -> ArrayList(String))(self._args.clone()),
   /// Set an environment variable for the child (overrides an inherited one).
   env : (fn(self : &Self, key : &String, value : &String) -> Self)({
-    entry := key;
+    entry := key.clone();
     entry.push_str("=");
     entry.push_string(value);
     self._env_overrides.push(entry);
@@ -238,7 +238,7 @@ impl(
   /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
   /// Windows passes lpCurrentDirectory.
   current_dir : (fn(self : &Self, dir : &String) -> Self)({
-    self._cwd = Option(String).Some(dir);
+    self._cwd = Option(String).Some(dir.clone());
     self
   }),
   /// Stop the child inheriting this process's environment, so it starts
@@ -769,7 +769,7 @@ impl(
   /// convenience.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
-      bytes := data;
+      bytes := &data;
       cond(
         (bytes.len() == usize(0)) => usize(0),
         true => {

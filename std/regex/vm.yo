@@ -139,7 +139,7 @@ DeferredThread :: struct(
 ///
 /// Cheap to create and intended to be created per attempt — `Regex`'s
 /// `Pattern` methods build one per call. It is NOT reusable across inputs (the
-/// input is a field) and not safe to run twice concurrently (the `_seen`
+/// input's bytes are a field) and not safe to run twice concurrently (the `_seen`
 /// buffers are shared mutable scratch), but `exec_at` may be called repeatedly
 /// on the same instance for different start offsets, which is how `find_all`
 /// walks a string.
@@ -147,7 +147,6 @@ NfaVm :: ref(
   struct(
     _program : NfaProgram,
     _flags : RegexFlags,
-    _input : String,
     _bytes : ArrayList(u8),
     _n_slots : usize,
     _seen : ArrayList(bool),
@@ -172,7 +171,6 @@ impl(
     Self(
       _program : program,
       _flags : flags,
-      _input : input,
       _bytes : input.to_bytes(),
       _n_slots : n_slots,
       _seen : seen,
@@ -795,7 +793,7 @@ impl(
           },
           .Match => {
             // Record match and kill lower-priority threads
-            best_match = VmMatch(matched : true, slots : thread.slots);
+            best_match = VmMatch(matched : true, slots : thread.slots.clone());
             found_match_in_gen = true;
           },
           _ => ()

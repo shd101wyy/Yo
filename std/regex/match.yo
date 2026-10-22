@@ -48,7 +48,7 @@ impl(
   /// Assemble a match. Called only by the engine (`Regex.find` and the
   /// iterators) after the VM reports success — every argument is a slot the
   /// VM already computed, so nothing here validates or re-derives anything.
-  new : (fn(value : &String, index : usize, end : usize, input : &String, groups : &ArrayList(Option(String)), group_spans : &ArrayList(Option(Range(usize))), group_names : &ArrayList(GroupNameEntry)) -> Self)(
+  new : (fn(value : String, index : usize, end : usize, input : &String, groups : ArrayList(Option(String)), group_spans : ArrayList(Option(Range(usize))), group_names : &ArrayList(GroupNameEntry)) -> Self)(
     Self(
       _value : value,
       _index : index,
@@ -61,8 +61,8 @@ impl(
   ),
   /// The matched text itself — the same bytes as
   /// `input().substring(index(), end())`, captured at match time.
-  value : (fn(self : &Self) -> String)(
-    self._value
+  value : (fn(self : &Self) -> &String)(
+    &self._value
   ),
   /// Start position of the match as a **byte** offset into the input.
   ///
@@ -90,8 +90,8 @@ impl(
   /// The whole string the match was found in, not just the matched part. The
   /// match holds a reference to it, so the offsets `index()` / `end()` /
   /// `span()` / `group_span()` stay meaningful for as long as the match does.
-  input : (fn(self : &Self) -> String)(
-    self._input
+  input : (fn(self : &Self) -> &String)(
+    &self._input
   ),
   /// The text of capture group `idx`, 1-based, with `0` meaning the whole
   /// match — the same numbering `$1` and `\1` use in patterns.
@@ -102,11 +102,11 @@ impl(
   /// against `group_count()` first if that matters.
   group : (fn(self : &Self, idx : usize) -> Option(String))(
     cond(
-      (idx == usize(0)) => .Some(self._value),
+      (idx == usize(0)) => .Some(self._value.clone()),
       true => {
         actual_idx := (idx - usize(1));
         cond(
-          (actual_idx < self._groups.len()) => self._groups(actual_idx),
+          (actual_idx < self._groups.len()) => self._groups(actual_idx).clone(),
           true => .None
         )
       }

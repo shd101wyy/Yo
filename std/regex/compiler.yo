@@ -387,7 +387,7 @@ impl(
     // `ranges` cannot alias the receiver's container chain.
     prog := self._program;
     idx := prog.classes.len();
-    prog.classes.push(ClassEntry(ranges : ranges, negated : negated));
+    prog.classes.push(ClassEntry(ranges : ranges.clone(), negated : negated));
     idx
   })
 );
@@ -555,7 +555,7 @@ impl(
   _extract_literal_prefix : (fn(self : &Self) -> unit)({
     prefix := ArrayList(u8).new();
     pc := usize(0);
-    instrs := self._program.instructions;
+    instrs := &self._program.instructions;
     (done : bool) = false;
     while((pc < instrs.len()) && !done, {
       instr := instrs(pc);
