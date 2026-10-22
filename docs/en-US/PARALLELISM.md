@@ -320,8 +320,7 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs/enums/tuples composed of Send
   fields, atomic objects whose fields are all Sync (`Arc`, `Mutex`, `Channel`, the `Atomic*`
   wrappers), `Dyn(Trait, Send)` (the concrete type is checked at `dyn(...)`, and its payload is
-  atomically counted: `dyn(v)` boxes a value type with `arc`), `Iso(T)` (see
-  `THREAD_SAFETY.md`), and function values (a named function or a closure) whose captures are
+  atomically counted: `dyn(v)` boxes a value type with `arc`), and function values (a named function or a closure) whose captures are
   all Send and whose code reaches no non-Send module global — judged from the value where the
   compiler can see it: a spawn body, an `Impl(Fn(...), Send)` or `Impl(FnOnce(...), Send)` argument, a generic
   `where(T <: Send)` argument, a captured variable
@@ -332,6 +331,12 @@ implement `Sync` can be shared between threads (an `Arc` payload, a module-level
   function values capturing any of those or reaching a non-Send global, and a bare
   `fn(...)` type whose value is not known there (a struct field, a `Channel(fn() -> unit)`
   payload) — see "Functions and Closures Across Threads" in `THREAD_SAFETY.md`
+
+An `Rc` graph stays on its thread (Rust's rule). Until `String` and the collections become
+`Send` by move (`plans/VALUES_BY_DEFAULT.md` V2b), neither can be moved to another thread:
+share data that is `Send` and `Sync` through an `Arc`, rebuild the value on the receiving
+thread from `Send` parts, or serialize it. The one-shot isolated handoff that covered this
+case was removed in v0.2.68 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`).
 
 ```yo
 // ✅ Sendable

@@ -438,7 +438,7 @@ static inline void __yo_rc_forget_payload(void* ptr) {
   });
   em.emit_string_line(
     `
-// Atomic reference counting functions for Iso types (thread-safe)
+// Atomic reference counting functions for atomic ref objects (Arc; thread-safe)
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
 //   - Increment: relaxed (no ordering needed for new reference creation)
 //   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
@@ -658,7 +658,7 @@ static void __yo_decr_rc_tracked(void* ptr) {
   }
 }
 
-// Atomic reference counting functions for Iso types (thread-safe)
+// Atomic reference counting functions for atomic ref objects (Arc; thread-safe)
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
 //   - Increment: relaxed (no ordering needed for new reference creation)
 //   - Decrement: acq_rel (acquire on last drop to see all prior writes; release to publish our writes)
@@ -677,7 +677,7 @@ static void __yo_decr_rc_atomic(void* ptr) {
 
   if ((old_count & __YO_RC_COUNT) == 1) {
     // Last reference - deallocate
-    // Note: No GC tracking needed for Iso types (they don't participate in cycles)
+    // Note: No GC tracking needed for atomic objects (they don't participate in cycles)
     if (header->dispose_fn) {
       header->dispose_fn(ptr);
     }

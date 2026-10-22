@@ -54,9 +54,9 @@ Measured 2026-10-20 with #1486's tree binary:
   becomes unsound without any change to the walk.
 - The walk also feeds `Type.impls(T, Acyclic)` for a type with no
   declaration (`tests/ref_enum.test.yo`, "a ref enum with no RC cycle is
-  Acyclic"). Inference would widen what the `Acyclic` bound of `iso()`,
-  `Iso(T)`, `arc` and `RwLock` accepts, not only what the collector
-  tracks.
+  Acyclic"). Inference would widen what the `Acyclic` bound of
+  `arc` and `RwLock` accepts, not only what the collector tracks (the
+  isolated-transfer type was deleted 2026-10-21, macro plan Part A).
 - Only `VcSort` would benefit. `AstExpr` and `VcTerm` stay declared,
   because their `args : ArrayList(Self)` is a shared mutable cell today.
   Decision 21's 2026-10-18 amendment moves `VcSort` to `Box` children

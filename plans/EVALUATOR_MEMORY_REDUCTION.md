@@ -885,7 +885,7 @@ corrections to the design above:**
 ### Phase 3 — `Option(ref)` niche (F4): layout change, full battery
 
 1. **Spec**: `Option(T)` where `T` is a reference-semantics handle
-   (`ref(struct)`, `ref(enum)`, `atomic(ref(...))`, `Box`, `Arc`, `Iso`,
+   (`ref(struct)`, `ref(enum)`, `atomic(ref(...))`, `Box`, `Arc`,
    `dyn`? — decide per representation; `dyn` is a fat pointer, exclude) is
    emitted as the bare pointer with `NULL` = `.None`. Mirrors the existing
    `Option(*T)` rule (`yo-design.instructions.md` "Option(*T).None is

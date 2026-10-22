@@ -143,7 +143,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [ResumableException](#resumableexception)
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
-- [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
     - [Importing a name twice](#importing-a-name-twice)
@@ -1458,7 +1457,7 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
 - **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
-- **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
+- **`Arc(T)`** provides atomic-RC ownership for thread-shared cases; a `Send` value is transferred to another thread by moving it.
 - **`*(T)` raw pointers** are available only in a file that declares `pragma(Pragma.AllowUnsafe);`. Inside such a file the `unsafe(...)` wrap is the per-operation AUDIT MARKER that `yo unsafe-report` keys on — and the convention `std/`, `src/` and `tests/` follow — not a second compiler gate: a bare `p.*` in a pragma'd file compiles. In a file WITHOUT the pragma the whole raw-pointer surface is rejected, including the `*(T)` type itself.
 
 `unsafe(...)` is a regular builtin call that takes exactly one expression. It is purely a compile-time marker — at codegen time it lowers to its inner expression, no runtime cost.
@@ -2287,7 +2286,7 @@ transition, so two rules apply:
   stay usable.
 - **No other alias keeps the old state.** A `ref` handle copied into a second
   name before the transition still has the old type. Keep a typestate handle
-  in one name, the way `Iso(T)` keeps a uniquely owned value.
+  in one name.
 
 The phantom parameter must currently be on a `ref(struct(...))`. A method on
 a phantom generic ENUM is not yet found through a `comptime(K) : Type`
@@ -3503,9 +3502,9 @@ assert(sum(&t) == 3);
   global allocator. The cell is freed through its owner, and `Box.clone(b)`
   lands where `b` lives (an arena box's clone stays in the arena).
   `Box.allocator(b)` reads the owner back (`.None` for the global allocator).
-- **Cycles.** A `Box` is part of its owner's value: the cycle collector and
-  `^`'s uniqueness walk trace its payload in place, so an `Rc` cycle closed
-  through a `Box` is collected like any other.
+- **Cycles.** A `Box` is part of its owner's value: the cycle collector
+  traces its payload in place, so an `Rc` cycle closed through a `Box` is
+  collected like any other.
 
 ## Rc and Reference-Counted Cells
 
@@ -3529,8 +3528,8 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > simply the one-field case.
 >
 > What this means in practice: sharing is silent, an `Rc` cycle leaks unless
-> broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
-> about uniqueness.
+> broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Rc.try_unwrap` are how you
+> ask about uniqueness.
 >
 > The shared cell used to be spelled `Box(V)` / `box(v)`. `Box` is now a
 > different type: the uniquely owned, uncounted cell, like Rust's `Box<T>`
@@ -4190,10 +4189,6 @@ See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 ## Parallelism
 
 Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programming in Yo.
-
-## Isolated Types
-
-Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 ## Arc Types
 

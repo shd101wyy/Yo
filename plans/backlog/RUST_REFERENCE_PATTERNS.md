@@ -736,9 +736,10 @@ handles := chunks.into_iter().map(c => Thread.spawn({ c }(io : Io) => reduce(c))
 ```
 
 - `Arc(Mutex(S))` for a shared accumulator; a channel for results.
-- Moving a whole `Rc` graph to one other thread is `^v` (`Iso(T)`,
-  `PARALLELISM_RULES.md` D2): the uniqueness check is deep and runs once,
-  at the move — the thing Rust cannot do with `Rc` at all.
+- A whole `Rc` graph does not move to another thread (Rust's rule; the
+  isolated transfer that did it, `PARALLELISM_RULES.md` D2, was deleted on
+  2026-10-21): restructure with `Arc`, rebuild into `Send` values, or
+  serialize. `Rc.try_unwrap` takes the value out of a uniquely held `Rc`.
 - **Not yet decided:** a `par_map`/`par_join` std layer is
   [`LANGUAGE_FEATURE_CANDIDATES.md`](LANGUAGE_FEATURE_CANDIDATES.md) §1,
   whose open question is exactly this section — whether `Arc` sharing plus
@@ -875,7 +876,7 @@ at V5 states this list up front.
 
 | Rust shape | Why Yo does not express it | What you write instead | What it costs |
 | --- | --- | --- | --- |
-| lending stack data to other threads — `thread::scope`, rayon `par_iter` over a local `Vec` | a reference is never `Send` (D38 E, O8); the fill is a scoped spawn whose join is structural (decision 43's trigger 2), a parallelism-runtime design parked on a counted need | `Arc(ArrayList(T))` read sharing, owned chunks moved in and joined, `^v` for a whole `Rc` graph (§7.4) | one `Arc` allocation and count traffic, or the chunking copy |
+| lending stack data to other threads — `thread::scope`, rayon `par_iter` over a local `Vec` | a reference is never `Send` (D38 E, O8); the fill is a scoped spawn whose join is structural (decision 43's trigger 2), a parallelism-runtime design parked on a counted need | `Arc(ArrayList(T))` read sharing, owned chunks moved in and joined (a whole `Rc` graph does not cross, §7.4) | one `Arc` allocation and count traffic, or the chunking copy |
 | a reference inside a counted cell — `Rc<&'a T>`, `Rc<Vec<&'a T>>` | an `Rc`/`Arc` payload is `Escapable` (O9): the cycle collector runs drops at an unbounded later time, after the places an inner reference names may have died; Rust escapes only because a leaked cycle never runs `Drop` | `Rc(T)` elements, ids, or own the values; a `Box` or `Dyn` payload may carry the origin instead | a count, a lookup, or a copy |
 | a `&mut` through a shared handle held across an `await`, shared by several tasks | §3.13 A2 and decision 46: an exclusive lend through an `Rc`/`Arc` is E0919 | own the state in the task, `Arc(Mutex(S))`, or a channel | a lock, or a message |
 | self-referential values and `Pin` — a parser holding `&self.buf`, an intrusive node pointing at its siblings | O5: a type may never name its own place or fields; heap storage never relocates so `Pin` has nothing to police — safe Rust cannot write these either | offsets into the owned buffer (§2.3), an arena of indices (§4.1), or `pragma(Pragma.AllowUnsafe)` (§11) | a bounds check, or unsafe |

@@ -43,7 +43,13 @@ places it in the current `with_allocator` scope, else the global allocator
 
 - Use `Arc(T)` when you want to share **one existing value** across threads or closures.
 - Use `atomic(ref(struct(...)))` when you are defining your **own shared type**.
-- Use `Iso(T)` when ownership should be **transferred**, not shared.
+- To **transfer** a value to another thread rather than share it, move it: a `Send` value moves
+  into a spawned closure or through a `Channel`. An `Rc` graph is thread-local (Rust's rule);
+  `Rc.try_unwrap` takes the value out of a uniquely held `Rc`. Until `String` and the
+  collections become `Send` by move (`plans/VALUES_BY_DEFAULT.md` V2b), neither crosses a
+  thread: share data that is `Send` and `Sync` through an `Arc`, rebuild the value on the
+  receiving thread from `Send` parts, or serialize it. (The one-shot isolated handoff that
+  used to cover this was removed in v0.2.68.)
 - `Arc(T)` only accepts child types that are both `Send` and `Sync`. A regular
   `ref(struct(...))` value is neither. A type that is `Send` but not `Sync` (one that opts out
   with `impl(T, !(Sync()))`) goes in a `Mutex(T)` instead, which serializes access.
@@ -149,13 +155,13 @@ Arc.make_mut(&mut b) = i32(2); // b gets a cell of its own
 assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ```
 
-## `Arc` vs `atomic(ref(struct(...)))` vs `Iso`
+## `Arc` vs `atomic(ref(struct(...)))`
 
 | Need                                            | Preferred tool             |
 | ----------------------------------------------- | -------------------------- |
 | Share one existing value                        | `Arc(T)`                   |
 | Define a reusable shared reference-counted type | `atomic(ref(struct(...)))` |
-| Transfer unique ownership across scopes/threads | `Iso(T)`                   |
+| Hand a `Send` value to another thread           | a move (spawn, `Channel`)  |
 
 ## Semantics
 
@@ -168,4 +174,3 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 ## Related docs
 
 - `docs/en-US/PARALLELISM.md` — thread and thread-pool model
-- `docs/en-US/ISOLATED.md` — unique ownership with `Iso(T)`

@@ -360,7 +360,6 @@ type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
     Rc(.ExprT) => Option(bool).Some(true),
     Rc(.ComptimeListT(_)) => Option(bool).Some(true),
     // Runtime-only types — not comptime.
-    Rc(.IsoT(_)) => Option(bool).Some(false),
     Rc(.DynT(_, _, _, _)) => Option(bool).Some(false),
     Rc(.Void) => Option(bool).Some(false),
     Rc(.Union(_, _, _)) => Option(bool).Some(false),
@@ -402,7 +401,7 @@ type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
 ///
 /// Returns `Some(true)` for unconditionally-Send/Acyclic value & comptime-data
 /// leaves; `.None` for nominal (Struct/EnumT/Union — defer to the auto-derive
-/// registry) and structural/conditional types (Iso/Dyn/Pointer/Func — defer to
+/// registry) and structural/conditional types (Dyn/Pointer/Func — defer to
 /// generic-impl matching / where-constraints).
 /// Returns Some(true) for EXACTLY the primitives the prelude declares
 /// `impl(<prim>, Send())` for: `unit, void, bool, i8..i64, u8..u64, f32, f64,
@@ -783,7 +782,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
 /// - A tuple, array, closure, anonymous record or `fn` pointer is `Copy`
 ///   structurally and declares nothing.
 /// - Anything else that is not a value `struct`/`enum`/`newtype` (a `Dyn`,
-///   an `Iso`, a blanket `T`, a C opaque type) cannot.
+///   a blanket `T`, a C opaque type) cannot.
 /// - A value nominal type must not be move-only (a `Drop` would run once
 ///   per copy), and every field and payload
 ///   must be `Copy`. The first one that is not is named.

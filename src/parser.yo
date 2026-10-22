@@ -80,12 +80,12 @@ make_parse_error_raw :: (fn(module_path : &String, message : &String) -> YoError
 /// The PREFIX-capable operators (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
 /// Rule 1): a BARE one of these in expression position, followed by a
 /// primary-starter, is a prefix CALL binding exactly one postfix
-/// expression — `-1`, `!x`, `&v`, `~m`, `*T`, `?T`, `^v`, `&mut v` (one
+/// expression — `-1`, `!x`, `&v`, `~m`, `*T`, `?T`, `&mut v` (one
 /// token, plans/VALUES_BY_DEFAULT.md decision 33), and chains like
 /// `**i32` = `*(*(i32))`. `+` and the rest stay infix-only. The prefix
 /// dot (`.Variant`) has its own branch in parse_primary_end.
 _is_prefix_op_token :: (fn(t : &Token) -> bool)(
-  (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "^") || (t.value == "&mut"))
+  (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "&mut"))
 );
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
 /// prefix sigil on one identifier (plans/VALUES_BY_DEFAULT.md decision 35).

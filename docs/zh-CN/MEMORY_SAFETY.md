@@ -20,7 +20,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 
 - **值类型。** `i32`、`bool`、`str`（指向**静态**字符串字节的视图 —— 背后存储永生）、struct、enum、tuple、`Array(T, N)`。
 - **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`LinkedList(T)`、`String`。
-- **共享所有权。** 引用语义类型（`ref(struct(...))`/`ref(enum(...))`，单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）、`Iso(T)`（所有权转移）。
+- **共享所有权。** 引用语义类型（`ref(struct(...))`/`ref(enum(...))`，单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）。
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
 - **闭包和高阶函数** —— 在安全类型上。
 - **泛型、trait、GADT。** Yo 的全部类型系统特性。
@@ -146,7 +146,7 @@ p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
 xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
 ```
 
-- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子、`Iso` 值，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
+- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
 - **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `arena.allocator()` 传进 spawn 体，并在那里调用 `with_allocator`。
 - **arena 不会在活跃块之下死亡。** 只要还有活跃块，`Arena.deinit()`（最后一个 `Arena` 句柄消失时也会调用）就会 **panic**：`Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`。在 Zig 中这是释放后使用；在 Yo 中它是确定的、显式的失败。通过过期的 `Allocator` 副本从已 deinit 的 arena 分配同样会 panic，即使之后的 `Arena.new` 已经复用了这个已死 arena 的簿记。簿记从不释放，而且每个句柄和 `Allocator` 值都记录了自己属于哪一个 arena，所以过期的句柄或副本访问到的是一个与它不再匹配的状态，既不是已释放的内存，也不是下一个 arena。
 - **进程生命周期的 arena 调用 `abandon()`。** 它停止跟踪并且永不释放区域，此后 `deinit` 不做任何事。适用于启动表和字符串驻留表。
@@ -344,7 +344,7 @@ d := state.wrapping_sub(inc);
 - **它防止 UB。** 它不防止逻辑错误、panic、死循环或资源耗尽。`panic("...")` 仍然会终止程序；无界的 `while(true, ...)` 仍然会挂起。
 - **它作用于你的代码。** 标准库的 bug 仍然可能导致 UB，因为标准库内部使用原始指针。缓解措施是审计、模糊测试和 `yo unsafe-report` 清单 —— 与 Swift、Go、Java 处理它们 unsafe 内部的方法相同。
 - **FFI 是调用方的问题。** 用错误的参数类型调用 C 函数或违反它的前置契约是 C 层面的 UB。包在 extern 调用外的 `unsafe(...)` 是逐站点的审查标记；它并不验证契约。
-- **跨线程的数据竞争**由 `Send` / `Iso(T)` / `Arc(T)` 处理，不在这个模型中。它们是正交的。
+- **跨线程的数据竞争**由 `Send` / `Sync` / `Arc(T)` 处理，不在这个模型中。它们是正交的。
 - **在 `pragma(Pragma.AllowUnsafe);` 文件内部**，所有保证都失效 —— 这正是 opt-in 的意义。你接受文件内所有内容的审计责任。
 
 定调：**安全的 Yo 代码无法违反内存安全。Unsafe 表面被限定在显式通过 pragma opt-in 的文件中 —— 主要是标准库 —— 它规模小、按发布版审计、有模糊测试覆盖。**

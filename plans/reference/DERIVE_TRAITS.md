@@ -1075,7 +1075,6 @@ TypeTag :: enum(
   Module,
   Trait,
   Ptr,
-  Iso,
   Arc,
   Dyn,
   Expr,

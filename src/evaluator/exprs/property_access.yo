@@ -1381,13 +1381,14 @@ Raw pointer operations may dereference invalid memory.`
       prop_name_tt := ast_expr_token(&property_expr).value;
       // `<:` WITNESS member access:
       // a TraitT whose `is_concrete` carries the receiver type — e.g.
-      // `(Rc(i32) <: Isolation).can_isolate` — resolves the method against
+      // `(Rc(i32) <: SomeTrait).method` — resolves the method against
       // the generic impl registry (trait-filtered) and stamps the RESOLVED
       // method type + VALUE. Without this the arm below returned the trait
       // FIELD's declared type with no value, so codegen fell back to a
       // record-member call through the witness's TYPE C name (`(bool(*)(
-      // void*))__yo_tN.can_isolate)(x)` — undeclared identifier; rc layer 3,
-      // repro issues/repros/iso-witness-member-call.yo).
+      // void*))__yo_tN.method)(x)` — undeclared identifier; rc layer 3,
+      // repro issues/repros/iso-witness-member-call.yo, whose prelude trait
+      // was deleted on 2026-10-21).
       tt_recv_opt := match(
         type_val_inner,
         Rc(.TraitT(_, _, _, _, _, ic, _, _, _, _)) => ic,

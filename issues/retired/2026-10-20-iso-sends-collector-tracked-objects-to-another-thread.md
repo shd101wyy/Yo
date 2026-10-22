@@ -8,7 +8,7 @@ cycle collector. The receiving thread frees it, and the sender's next
 collection or its exit reads freed memory (AddressSanitizer
 heap-use-after-free; SIGSEGV without it).
 
-**Status:** open; **no fix — the window is ACCEPTED until `Iso` is deleted** (maintainer, 2026-10-21), as for the `Iso` `Send` hole (`issues/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`). `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A deletes `^v` and retires this doc (A2). **Found:** 2026-10-20 with the v0.2.66 seed, while checking
+**Status:** RETIRED 2026-10-21: `Iso(T)`, `^v`, `Var.*` and `Isolation` were deleted by the branch `refactor/remove-iso` (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A, pulled forward to v0.2.68 by the maintainer), so no value can be isolated and handed to another thread and the use-after-free is gone with the feature; the open-bug repro under `issues/repros/` was deleted with it. Was: open, no fix, the window accepted until `Iso` is deleted (maintainer, 2026-10-21), as for the `Iso` `Send` hole (`issues/retired/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`). **Found:** 2026-10-20 with the v0.2.66 seed, while checking
 the cycle walk's holder asymmetry: `ref(struct(e : X))` with `X` a
 cycle-capable reference enum reads acyclic, and `ref(struct(y : Y))` with `Y`
 a cycle-capable reference struct reads cyclic. The walk in
@@ -19,7 +19,7 @@ develop `7def2203b`. Related:
 
 ## Reproducer
 
-```yo
+```yo ignore
 pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
 { Thread } :: import("std/thread");
@@ -146,7 +146,7 @@ option 2 makes it pass as written.
 
 ## Test
 
-`issues/repros/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.yo` (open-bug repro, `test(...)`-shaped; it fails until the fix), "an isolated graph leaves no collector entry on the
+The repro `2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.yo` (deleted from `issues/repros/` with this doc's retirement; it was the open-bug repro, `test(...)`-shaped; it fails until the fix), "an isolated graph leaves no collector entry on the
 sending thread". It isolates an `_IsoTreeHolder` holding a tracked
 `_IsoTree.Node`, has a spawned thread extract and drop it, and asserts the
 main thread's `Gc.tracked_count()` is back to its base. The assertion reads a

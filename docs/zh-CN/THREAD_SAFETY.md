@@ -10,7 +10,7 @@ Yo 默认为安全代码（非 pragma 代码）提供**无数据竞争**保证�
 
 与 Rust 一样，两个标记特质回答两个不同的问题：
 
-- **`Send`**：该类型的值可以被**移动**到另一个线程。通道的载荷、被派生的闭包和 `Iso` 都以这种方式跨线程。
+- **`Send`**：该类型的值可以被**移动**到另一个线程。通道的载荷和被派生的闭包都以这种方式跨线程。
 - **`Sync`**：该类型的值的多个副本可以被多个线程同时**读取**。`Arc` 的载荷、原子对象和模块级全局变量都以这种方式共享。
 
 ### 自动派生
@@ -42,7 +42,7 @@ Raw :: struct(p : ?*u8);
 
 标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync, Acyclic)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: (Send, Acyclic)`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
 
-`String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，请使用 `Iso`（见下文）。
+`String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，`String` 或集合不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值，该值是 `Send` 时就可以移动。过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除（`plans/backlog/MACRO_AND_ISO_REMOVAL.md`）。
 
 ### 手动 Send 与 Sync 实现需要 Pragma
 
@@ -245,27 +245,6 @@ impl(MyHandle, !Sync()); // 也不是 Sync
 
 标准库中用于：**`JoinHandle(T)`**（异步任务句柄）和 **`Io`**（异步运行时），两者都声明了 `!(Send())` 和 `!(Sync())`。负向实现不需要 `pragma`。
 
-## Iso(T) — 唯一所有权转移
-
-`Iso(T)` 包装一个**非** `Send` 的值，一次性地转移给另一个线程：`T` 是任何能触及非原子单元的值 —— 普通的 `ref(struct)` 对象图，或持有 `ArrayList` 的结构体 —— 而 `Iso(T)` 本身是 `Send`，不要求 `T <: Send`。依据是唯一性 —— 在使用的那一刻，最多只有一个线程持有内部值。
-
-```yo
-data := rc(MyData(...));
-match(
-  ^data, // '^' 构造 Iso；`data` 不唯一时为 .None
-  .Some(iso) => Thread(unit).spawn(io => {
-    inner := iso.extract(); // 返回 T；第二次 extract 会 panic
-    // ... 只在本线程使用 inner ...
-  }),
-  .None => ()
-);
-```
-
-**实际强制的内容**（`plans/reference/PARALLELISM_RULES.md` D2）。`^v` 是安全代码中唯一的构造方式（原始的 `Iso(T)(v)` 需要 pragma）。它在编译期检查 `v` 拥有它的值、没有其他别名、不能形成引用环，并在运行期遍历值的整张对象图：从它可达的每个非原子对象的引用计数都必须恰好为 1，否则 `^v` 返回 `.None` —— 内部有别名的值（`Wrap(items : shared)`）会被拒绝，而不是被移走。值内部的原子对象按设计就是共享的，遍历在此停止。`T` 必须至少触及一个非原子单元（`Iso(i32)` 和 `Iso(Point)` 是编译错误：这样的值按原样移动即可）。`extract()` 的原子一次性标志保证值只被交出一次。详见 `docs/zh-CN/ISOLATED.md`。
-
-- `Iso(Arc(T))`、`Iso(<原子对象>)` 和 `Iso(Iso(T))` 在编译时被拒绝 —— 冗余（直接发送该值）
-- `Arc(Iso(T))` 在编译时被拒绝 —— 矛盾（Arc 共享，Iso 唯一）
-
 ## 字段可见性 — `_` 前缀约定
 
 名称以 `_` 开头的字段仅对定义类型的**文件和目录**私有。用户代码无法访问 `mutex._value` 或 `mutex._handle`。同一目录内的访问是被允许的。
@@ -284,7 +263,7 @@ match(
 - **死锁预防**：与 Rust 相同，锁的顺序由使用者负责。
 - **`AtomicPtr(T)`**：用于无锁数据结构的泛型原子指针，暂缓。安全代码不能构造或解引用裸指针，这个原语只有带 pragma 的代码才能用；等 `std/` 中出现具体的使用者时再加入。
 - **`Sender(T)` / `Receiver(T)` 拆分**：目前 `Channel(T)` 在同一个句柄上同时暴露发送端和接收端，Rust 式的拆分是之后的易用性改进。
-- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread*.test.yo`、`arc`、`atomic_object`、`iso*`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`、`unsafe_cast_rc_borrow`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
+- **TSan 覆盖线程语料，而不是所有程序**：Linux/Clang 的 CI 作业（必需的状态检查）在 `--sanitize thread` 下运行 `tests/sync`，并通过 `scripts/tsan-thread-corpus.sh` 运行线程语料：`tests/thread*.test.yo`、`arc`、`atomic_object`、`send_sync`、`cross_thread_wake`、`spawn_blocking`、`parallelism_soundness`、`encoding/html`、`unsafe_cast_rc_borrow`。每个文件至少要派生一个线程（一个线程都不派生的文件报告为 HOLLOW）。一个双向棘轮（`scripts/bootstrap/tsan-known-failing.tsv`）在未列出的文件报告竞争、或已列出的文件不再报告竞争时让作业失败。编译期规则由 `tests/thread_safety.test.yo` 和 `tests/parallelism_soundness.test.yo` 固定，后者为每条规则各带一个拒绝用例和一个过度拒绝的金丝雀用例。
 
 ## 已知缺口
 
@@ -296,4 +275,3 @@ match(
 - `docs/en-US/PARALLELISM.md` — Thread / ThreadPool / Channel API
 - `plans/reference/PARALLELISM_RULES.md` — 编译器强制执行的规则（D1–D9）
 - `plans/archive/PARALLELISM_SOUNDNESS.md` — 2026-09-25 的审计及其修复计划（已关闭）
-- `docs/zh-CN/ISOLATED.md` — Iso(T) 设计细节

@@ -10,8 +10,8 @@ Yo provides **data-race-freedom by default** for safe (non-pragma'd) code. Every
 
 Two marker traits answer two different questions, as in Rust:
 
-- **`Send`**: a value of the type may be **moved** to another thread. A channel's payload, a
-  spawned closure and an `Iso` cross threads this way.
+- **`Send`**: a value of the type may be **moved** to another thread. A channel's payload and a
+  spawned closure cross threads this way.
 - **`Sync`**: copies of a value of the type may be **read** from several threads at once. An
   `Arc`'s payload, an atomic object and a module-level global are shared this way.
 
@@ -53,7 +53,12 @@ not in an `Arc`.
 `String` and the collections are not `Send` yet: today their buffer is a shared, non-atomically
 counted cell, so a copy left on the sending thread would race on its count. Once their buffers
 become uniquely owned (`plans/VALUES_BY_DEFAULT.md` V2b), moving one hands over its only owner and
-`Channel(String)` works with no compiler change. Until then, use `Iso` (below).
+`Channel(String)` works with no compiler change. Until then, a `String` or a collection does not
+cross a thread: share data that is `Send` and `Sync` through an `Arc`, rebuild the value on the
+receiving thread from `Send` parts, or serialize it. An `Rc` graph stays on its thread (Rust's
+rule); `Rc.try_unwrap` takes the value out of a uniquely held `Rc`, and that value moves when it
+is `Send`. The one-shot isolated handoff that used to cover this case was removed in v0.2.68
+(`plans/backlog/MACRO_AND_ISO_REMOVAL.md`).
 
 ### Manual Send and Sync Impls Require Pragma
 
@@ -337,38 +342,6 @@ This is used by the standard library for:
 
 Both declare `!(Send())` and `!(Sync())`. Negative impls do **not** require `pragma(Pragma.AllowUnsafe)` — they are restrictive (removing a capability), never permissive. Anyone can declare `impl(MyType, !(Send()))` freely.
 
-## Iso(T) — Unique Ownership Transfer
-
-`Iso(T)` wraps a non-`Send` value for one-shot transfer to another thread: `T` is any value that
-reaches a non-atomic cell — a plain `ref(struct)` graph, or a struct holding an `ArrayList` — and
-`Iso(T)` itself is `Send` without requiring `T <: Send`. The argument
-for that is uniqueness — at the moment of use, at most one thread holds the inner value.
-
-```yo
-data := rc(MyData(...));
-match(
-  ^data, // '^' constructs the Iso; .None if `data` is not unique
-  .Some(iso) => Thread(unit).spawn(io => {
-    inner := iso.extract(); // returns T; panics on a second extract
-    // ... use inner on this thread only ...
-  }),
-  .None => ()
-);
-```
-
-**What is enforced** (`plans/reference/PARALLELISM_RULES.md` D2). `^v` is the only constructor in
-safe code (the raw `Iso(T)(v)` needs the pragma). It checks at compile time that `v` owns its
-value, has no other alias and cannot form a reference cycle, and at run time walks the value's
-whole graph: every non-atomic object reachable from it must have a reference count of exactly
-1, or `^v` answers `.None` — an aliased interior (`Wrap(items : shared)`) is refused, not moved.
-An atomic object inside the value is shared by design and stops the walk. `T` must reach at
-least one non-atomic cell (`Iso(i32)` and `Iso(Point)` are compile errors: such a value is moved
-as it is). `extract()`'s atomic one-shot flag
-hands the value out exactly once. Details: `docs/en-US/ISOLATED.md`.
-
-- `Iso(Arc(T))`, `Iso(<atomic object>)` and `Iso(Iso(T))` are rejected at compile time — redundant (send the value directly)
-- `Arc(Iso(T))` is rejected at compile time — contradictory (Arc shares, Iso is unique)
-
 ## Field Visibility — `_`-Prefix Convention
 
 Fields whose names start with `_` are private to the **file and directory** that defines the containing type:
@@ -398,7 +371,7 @@ Non-`_`-prefixed fields (like `arc.*`) are readable but not writable in safe cod
 - **Deadlock prevention** — same as Rust. Lock ordering is the user's responsibility.
 - **`AtomicPtr(T)`** — generic atomic pointer for lock-free data structures. Deferred since safe code cannot construct or deref raw pointers, so the primitive would only be usable from pragma'd code. Will be added when a concrete `std/` consumer surfaces.
 - **`Sender(T)` / `Receiver(T)` split** — currently `Channel(T)` exposes both send and receive ends on the same handle. Rust-style split halves are a future ergonomic refinement.
-- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `iso*`, `send_sync`, `cross_thread_wake`, `spawn_blocking`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
+- **TSan covers the thread corpus, not every program.** The Linux/Clang CI job (a required status check) runs `tests/sync` and, through `scripts/tsan-thread-corpus.sh`, the thread corpus under `--sanitize thread`: `tests/thread*.test.yo`, `arc`, `atomic_object`, `send_sync`, `cross_thread_wake`, `spawn_blocking`, `parallelism_soundness`, `encoding/html`, `unsafe_cast_rc_borrow`. Each file must spawn at least one thread (a file that spawns none is reported HOLLOW), and a both-ways ratchet (`scripts/bootstrap/tsan-known-failing.tsv`) fails the job when an unlisted file reports a race or a listed one stops reporting one. The compile-time rules are pinned by `tests/thread_safety.test.yo` and `tests/parallelism_soundness.test.yo`, which carries one rejection block and one over-rejection canary per rule.
 
 ## Known Holes
 
@@ -413,5 +386,4 @@ function-value route found while closing it (rule D9). A violation found later i
 - `plans/archive/PARALLELISM_SOUNDNESS.md` — the 2026-09-25 audit and its fix plan (closed)
 - `plans/archive/THREAD_SAFETY.md` — the original design document with its 27-vector inventory (see its correction banner)
 - `docs/en-US/PARALLELISM.md` — Thread, ThreadPool, and Channel API
-- `docs/en-US/ISOLATED.md` — `Iso(T)` design details
 - `docs/en-US/MEMORY_SAFETY.md` — memory safety pass

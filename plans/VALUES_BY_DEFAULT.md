@@ -55,8 +55,8 @@ Progress:
   - V3b Generation A (#1240);
   - decision 32 Generation A, `Rc.clone(w)` (#1241);
   - decision 36 Generation A, the `Copy` trait (#1253);
-  - the `Send`/`Sync` split with decision 38 E and the widened `Iso`
-    bound, Generation A (#1254);
+  - the `Send`/`Sync` split with decision 38 E and the widened bound of
+    the isolated-transfer type (deleted 2026-10-21), Generation A (#1254);
   - local borrows, Generation A: `y := &place`, last-use live ranges,
     place-based exclusivity, rules 3 and 4, and decision 25's re-points
     (#1255; see V3's "Local borrows");
@@ -641,12 +641,15 @@ cannot be copied.
   is `Send` and `Sync` (amended 2026-10-07, second audit #1264 finding 2). A value
   is `Send` iff every field is. A move-only value follows the same rules: a
   `File` is `Send`, and a `Mutex(T)` is `Sync` when `T` is `Send`.
-- **`Iso(T)` / `^v`.** `T` is any value that reaches at least one non-atomic
-  cell. The deep `ref_count == 1` walk is unchanged.
+- **No isolated transfer** (decided 2026-10-20, deleted 2026-10-21 at
+  v0.2.68, `plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A). Data that
+  crosses threads must itself be `Send`; an `Rc` graph is thread-local, and
+  `Rc.try_unwrap` takes the value out of a uniquely held handle. There is no
+  runtime uniqueness walk.
 - **Reflection** keeps its names and changes its reading:
   - `Type.contains_rc_type` means "reaches a non-atomic cell";
-  - `Var.is_owning_the_rc_value` and `Var.has_other_aliases` are about the
-    handle a value holds.
+  - the `Var.*` introspectors were deleted with the isolated transfer
+    (2026-10-21).
 
 ### 3.7 `Dyn`, closures, async
 
@@ -705,7 +708,11 @@ notions, as Rust does:
     nothing.
   - `Mutex(T)` requires `T <: Send` and is itself `Sync`.
   - `Arc(String)` and `Arc(ArrayList(T))` are legal read-only sharing.
-- **`Iso(T)` / `^v`** remain the explicit "fail if shared" transfer.
+- **Rust's thread rule.** No wrapper moves a non-`Send` graph to another
+  thread: it stays where it is, and `Rc.try_unwrap` takes the value out of a
+  uniquely held `Rc`. The isolated-transfer type that was the explicit "fail
+  if shared" transfer was deleted on 2026-10-21
+  (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A).
 - **`Arc` reads** need no new mechanism: auto-dereference yields a borrowed
   place, and the `Sync` bound makes copying a field out safe.
 
@@ -902,7 +909,7 @@ and every free routes through the owner prefix.
   is created:
   - `box`/`rc`/`arc`;
   - a collection or `String` buffer (through `current_allocator()`);
-  - a `Dyn` cell, an `Iso` value, or an async state machine.
+  - a `Dyn` cell or an async state machine.
 - **An explicit `clone()` lands where its source lives**, not in the
   current scope. This is today's `ArrayList.clone` rule
   (`std/collections/array_list.yo`), as in Rust's `Vec<T, A>: Clone`, and
@@ -2240,7 +2247,7 @@ and in git, not a silent edit.
       - `addr` was rejected because it has 558 uses as an identifier
         (socket addresses), and Yo has no shadowing.
       - `addr_of` is Rust's `ptr::addr_of!`, and it is unused in the tree.
-    - **`&mut` is one prefix token**, like `^` in `^v`. So `&mut s.items`
+    - **`&mut` is one prefix token.** So `&mut s.items`
       borrows `s.items`, and `&&` (logical and) is unaffected.
     - **Vocabulary.** Declarations, arguments and scrutinees use the same
       sigils (decision 42): `s : &String`, `self : &mut Self`,
@@ -4558,8 +4565,8 @@ and in git, not a silent edit.
 3. **V3, compiler:** move-only values and the general predicate.
    - Generation A landed in #1217. It also brings decision 26 for move-only
      payloads.
-   - `Send`/`Sync` with decision 38 E, and `Iso`'s bound, landed in
-     Generation A (feat/vbd-send-sync).
+   - `Send`/`Sync` with decision 38 E, and the isolated-transfer bound
+     (deleted 2026-10-21), landed in Generation A (feat/vbd-send-sync).
    - Local borrows (`y := &place`, last-use live ranges, decision 25's
      re-pointing without the projection step): Generation A on
      feat/vbd-local-borrows (V3, "Local borrows").
@@ -4575,10 +4582,11 @@ and in git, not a silent edit.
    `!(T <: Copy)`.
 7. **V2b:** projections, unique buffers, and the explicit-copy kind for
    `String`, the collections and `Dyn`. **V2c:** decision 17 for `Rc`/`Arc`.
-   - **`Iso` is deleted between B11 and B12** (decided 2026-10-20): Part A
-     of `plans/backlog/MACRO_AND_ISO_REMOVAL.md`, once `String` and the
-     collections are `Send` by move, and before V2c, decision 46 step 3,
-     decision 43 step 2 and V5. That plan's B1/B2 (`for`/`for_await` as
+   - **The isolated-transfer type is deleted at v0.2.68** (decided
+     2026-10-20 for between B11 and B12; pulled forward on 2026-10-21 by the
+     maintainer): Part A of `plans/backlog/MACRO_AND_ISO_REMOVAL.md`, before
+     V2c, decision 46 step 3, decision 43 step 2 and V5. B8 carries its
+     replacement probe. That plan's B1/B2 (`for`/`for_await` as
      parse-time desugars) follow decision 43 step 3, its release is decision
      43's step-2→4 release, and its Part C rides with step 4's Generation B.
 8. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
@@ -4741,8 +4749,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   (`shared_cell_canonical_names`, what `dyn(v)` synthesizes). The canonical
   spelling stays `Box`/`box`, because the std a seed-built compiler reads
   defines `Box` under every seed. The prelude gained `Rc(V)`, a second
-  definition with `Box`'s impls (`Isolation`, `Hash`, `Eq`, `Clone`,
-  `Default`, `Deref`), and `rc(v)` now returns `Rc(V)`. The seed lowers that
+  definition with `Box`'s impls (`Hash`, `Eq`, `Clone`, `Default`, `Deref`,
+  and the isolation trait deleted on 2026-10-21), and `rc(v)` now returns `Rc(V)`. The seed lowers that
   much, because nothing in `std/` or `src/` constructs or matches an `Rc`.
   So in Generation A, `Rc` and `Box` are two types, and assigning one to the
   other is a type error. `tests/rc_cell.test.yo` covers `Rc` everywhere
@@ -4889,7 +4897,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     (field, method, place write through `Box`, `&Box`/`&mut Box` parameters,
     nested `Rc(Box(T))`/`Box(Rc(T))`/`Box(Box(T))`, the E0616 clash, the
     miss message, `derive(T, Hash)` through an `Rc` field),
-    `tests/cycle_collector.test.yo`, `tests/iso.test.yo`.
+    `tests/cycle_collector.test.yo`, `tests/iso.test.yo` (deleted 2026-10-21
+    with the type it tested).
 - **Generation B, seed-gated: the site moves and the non-last-use copies.**
   The v0.2.59 seed compiles `src/` against the tree's `std/`, and it rejects
   `b.*` on the new `Box` (E0406, measured 2026-10-12: `yo check --std-path
@@ -5107,15 +5116,12 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     - **Tests** (`tests/send_sync.test.yo`): a `Send`-but-not-`Sync` type
       (plain data with `impl(T, !(Sync()))`) is rejected by `arc`, `RwLock`
       and `std/imm`'s `Vec`, and accepted by `Mutex` and `Channel`.
-- **`Iso(T)`'s bound widens to "reaches a non-atomic cell" — landed
-  (feat/vbd-send-sync).** `type_reaches_non_atomic_cell`
-  (`src/types/utils.yo`) is the bound at `Iso(T)` and `__yo_iso_unique`. A
-  value child is held inline: its uniqueness walk starts at the cells it
-  holds (`__yo_iso_roots_<Iso>`, through the collector's `_traverse_value`),
-  and its dispose drops it field by field
-  (`generate_iso_uniqueness_functions`). Tests: `^` isolates a struct
-  holding a list and moves it to another thread, refuses one whose list is
-  aliased, and rejects `Iso(<plain struct>)`.
+- **The isolated-transfer bound widened to "reaches a non-atomic cell" —
+  landed (feat/vbd-send-sync); deleted with the type on 2026-10-21
+  (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A).** That bound was
+  `type_reaches_non_atomic_cell` (`src/types/utils.yo`), which stays: it is
+  `Send`'s field-level refusal, and `Box` tracing and the `Acyclic` derivation
+  read it.
 - **Local borrows:** `y := &place`, last-use live ranges, decision 18's
   place-based exclusivity, and decision 25's re-pointing (without the
   projection step).
@@ -7128,12 +7134,19 @@ heavy run, the command is given in item 2.
      - Tier 1: `yo build --std-path ./std` with the seed (the stage-1
        check); `tests/collections/*`, `tests/string/*`,
        `tests/move_only.test.yo`, `tests/copy_trait.test.yo`,
-       `tests/cycle_collector.test.yo`, `tests/iso.test.yo`,
+       `tests/cycle_collector.test.yo`,
        `tests/for_macro_borrow*.test.yo`, `tests/index.test.yo`,
        `tests/rc.test.yo`, `tests/async_await.test.yo`,
        `tests/comptime.test.yo` (CTFE now runs a value list),
        `tests/encoding/*` (`JsonValue`); in-process internal (the LSP files
        read `JsonValue`); cli-diff; fixpoint.
+     - **The isolated-transfer replacement probe gates B8** (moved here
+       from `plans/backlog/MACRO_AND_ISO_REMOVAL.md` A6 when Part A was
+       pulled forward to v0.2.68, maintainer 2026-10-21). B8 adds it as a
+       test: a `String` and an `ArrayList(String)` moved into a spawned
+       thread and back by value. It must pass on B8's tree. It cannot pass
+       earlier: from v0.2.68 until B8, no `String` or collection crosses a
+       thread.
      - Goldens: `audit-implicit-copy-lists-copies-of-live-values`,
        `fix-migrate-explicit-copy` (its left-as-written sites are E0901
        now), the seven runtime-panic `inout-*-panics` cases (on a value
@@ -7670,10 +7683,11 @@ design are superseded and never built). This section is the PR sequence
 references only mean something once collections are uniquely owned values,
 and V4's `TypeValue` conversion, because step 1 adds `TypeValue` variants
 and must not be written twice. Each step is its own PR, with its own
-measured `check ./src` time and stage-2 RSS. `Iso` is gone before step 2
-(`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A), ahead of step 3 (N2), the
-step that lets references sit in fields, so no reference stored in a field
-can reach an `Iso` graph; that plan's `for` desugar follows step 3
+measured `check ./src` time and stage-2 RSS. The isolated-transfer type is
+gone before step 2 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` Part A, at
+v0.2.68), ahead of step 3 (N2), the step that lets references sit in fields,
+so no reference stored in a field can ride a uniquely owned graph to another
+thread; that plan's `for` desugar follows step 3
 and its macro deletion rides with step 4.
 
 0. **N0, no prerequisite (added 2026-10-20):** the negative-test corpus
@@ -7981,7 +7995,8 @@ release placement is the VBD session's call in
    Any time; it is the measurement instrument.
 2. **W2 — `Arc`, `Mutex`, `RwLock`, `Channel` and the thread APIs
    without `Acyclic`** (std and docs; the S2 issue retired). Any time
-   after Part A deletes `Iso`, so no `Acyclic` user is left behind it.
+   after Part A (landed 2026-10-21; the isolated-transfer type is gone),
+   so no `Acyclic` user is left behind it.
 3. **W3 — `Weak(T)`** (the weak count in decision 46's freed header bits,
    the dead flag, the two free paths, `traverse_fn`/`Trace` skip `Weak`),
    **W4 — `ArcWeak(T)`.** Generation A; W3 needs V2c's explicit handle
@@ -8214,7 +8229,7 @@ once `SEED_VERSION` parses it.
     Management, §Closures with Reference-Semantics Types, §Testing with
     Reference-Semantics Types);
   - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (replaced,
-    §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
+    §3.14), CYCLE_COLLECTION, ARC, THREAD_SAFETY, PARALLELISM,
     DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
   - the instruction files, the three skills (re-record the seven skill-tree

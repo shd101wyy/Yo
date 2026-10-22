@@ -14,7 +14,7 @@ Program ::= (WsOrComment | ';')* [Expression ((WsOrComment | ';')+ Expression)*]
 ;; 表达式 — 最基本的构造
 ;; Yo 中一切皆为表达式
 Expression ::=
-  | PrefixExpression                 ;; -x、!flag、&v、*T、?T、^v
+  | PrefixExpression                 ;; -x、!flag、&v、*T、?T
   | PrimaryExpression PrimaryEnd*
 
 ;; 前缀表达式 — 裸前缀运算符只绑定恰好一个后缀表达式：
@@ -22,7 +22,7 @@ Expression ::=
 ;; `**T` = `*(*(T))`，`?*T` = `?(*(T))`。
 ;; （plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md 规则 1）
 PrefixExpression ::= PrefixOperator Operand
-PrefixOperator   ::= '-' | '!' | '~' | '&' | '*' | '?' | '^'
+PrefixOperator   ::= '-' | '!' | '~' | '&' | '*' | '?'
 
 ;; 主表达式 — 任何表达式的起始点
 PrimaryExpression ::=
@@ -379,7 +379,7 @@ Separator ::= ',' | ';'
    - 合法：`func(arg1, arg2)`
    - 非法：`func (arg1, arg2)` 或 `func arg1, arg2`
    - 控制流关键字也是调用：写 `return(value)`、`return()`、`unwind(value)` 或 `unwind()`
-   - 前缀运算符（`-` `!` `~` `&` `*` `?` `^`）只绑定恰好一个后缀表达式（plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md 规则 1）：`-1`、`!ready`、`&x`、`?*T`、`3 - -3` 都合法；中缀操作数仍需括号（`-(1 + 2)`），括号调用形式（`-(x)`）不变
+   - 前缀运算符（`-` `!` `~` `&` `*` `?`）只绑定恰好一个后缀表达式（plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md 规则 1）：`-1`、`!ready`、`&x`、`?*T`、`3 - -3` 都合法；中缀操作数仍需括号（`-(1 + 2)`），括号调用形式（`-(x)`）不变
 
 3. **中缀运算符**：没有优先级
    - 同一运算符的链在任意操作数个数下都左结合：`a + b + c` ⇒ `(a + b) + c`，`20 - 5 - 4 - 3` ⇒ `(((20 - 5) - 4) - 3)`

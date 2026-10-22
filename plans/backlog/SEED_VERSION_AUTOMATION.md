@@ -479,7 +479,7 @@ byte index.
 `plans/VALUES_BY_DEFAULT.md` §6 V1 step 2. Generation A
 (`feat/vbd-v1-step2-box`) added the unique `Box(V)` to the prelude and the
 compiler support behind it: `b.*` as the payload place, patterns through it,
-the GC/`Iso` walk, the niche. The prelude half is plain std Yo the v0.2.59
+the GC walk (and the isolated-transfer walk, deleted since), the niche. The prelude half is plain std Yo the v0.2.59
 seed lowers, but the seed rejects `b.*` on a `Box` (E0406), so `src/` cannot
 use one yet.
 

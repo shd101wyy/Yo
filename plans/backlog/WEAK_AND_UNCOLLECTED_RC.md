@@ -284,8 +284,8 @@ API that promises not to leak — and a possible `yo check` lint under
   48 declarations on the compiler's containers; the trait itself, its
   primitive impls and the structural derivation in `trait_checking.yo`
   STAY (§4), beside `Send`, `Sync`, `Copy`, `Escapable` and
-  `TrivialDrop`; `Iso`'s bound goes with `Iso`
-  (`MACRO_AND_ISO_REMOVAL.md`);
+  `TrivialDrop`; the isolated-transfer type's bound already went with
+  that type (`MACRO_AND_ISO_REMOVAL.md` Part A, 2026-10-21);
 - `--cycle-collector` itself, once `Off` is the only mode;
 - the docs: `CYCLE_COLLECTION.md` (both languages) is replaced by the
   draft's end state (a page on `Weak`, leaks and the oracle), `ARC.md`

@@ -15,14 +15,13 @@ CC=${CC:-clang}
 KNOWN=scripts/bootstrap/tsan-known-failing.tsv
 OUT=${OUT:-/tmp/tsan-thread-corpus}
 mkdir -p "$OUT"
-# Only files that spawn threads: tests/thread_safety, tests/atomic_object and
-# tests/iso_api_surface check their rules at compile time or on one thread,
+# Only files that spawn threads: tests/thread_safety and tests/atomic_object
+# check their rules at compile time or on one thread,
 # where TSan has nothing to observe (every run of them was HOLLOW).
 FILES=(
   tests/thread.test.yo
   tests/thread_pool.test.yo
   tests/arc.test.yo
-  tests/iso.test.yo
   tests/send_sync.test.yo
   tests/cross_thread_wake.test.yo
   tests/spawn_blocking.test.yo

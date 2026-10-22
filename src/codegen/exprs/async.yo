@@ -29,7 +29,6 @@
   is_unit_type,
   is_some_type,
   is_dyn_type,
-  is_iso_type,
   is_atomic_reference_struct_type,
   is_reference_struct_type,
   is_rc_type
@@ -728,7 +727,7 @@ emit_async_block_struct_definition :: (
 /// The C type string for a dependency check, or `None` to skip the edge — i.e.
 /// when the type isn't registered yet (it's from an external function, not an
 /// inline async block). Named types (Tuple/Union/Struct/Enum/Dyn) are guarded via
-/// the registry; the always-panic trait/iso lowerings are treated as "skip".
+/// the registry; the always-panic trait lowerings are treated as "skip".
 /// Only the top-level type is guarded (not panics nested inside e.g. Pointer
 /// recursion), which suffices for async dependency graphs (futures are embedded
 /// by value, not behind a pointer).
@@ -742,7 +741,6 @@ _dep_named_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationConte
 _dep_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
   match(
     t,
-    Rc(.IsoT({})) => Option(String).None,
     Rc(.FnTraitT({})) => Option(String).None,
     Rc(.FutureTraitT({})) => Option(String).None,
     Rc(.Tuple(_, _)) => _dep_named_type_string(t, context),
@@ -1050,7 +1048,7 @@ _inline_rc_field_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
 _rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_retain((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
-    (is_iso_type(field_type) || is_atomic_reference_struct_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc_atomic((void*)${field_ref.clone()}); }`),
+    is_atomic_reference_struct_type(field_type) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_incr_rc_atomic((void*)${field_ref.clone()}); }`),
     (is_reference_struct_type(field_type) || (is_some_type(field_type) && is_rc_type(field_type))) => match(
       get_dup_function_for_type(field_type, context),
       .Some(dup_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${dup_fn}(${field_ref.clone()}); }`),
@@ -1069,7 +1067,7 @@ _rc_field_retain_line :: (fn(field_ref : &String, field_type : &TypeValue, inden
 _rc_field_drop_line :: (fn(field_ref : &String, field_type : &TypeValue, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}__yo_dyn_release((void*)(${field_ref.clone()}).data, (const void*)(${field_ref.clone()}).vtable);`),
-    (is_iso_type(field_type) || is_atomic_reference_struct_type(field_type)) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
+    is_atomic_reference_struct_type(field_type) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { __yo_decr_rc_atomic((void*)${field_ref.clone()}); }`),
     (is_reference_struct_type(field_type) || (is_some_type(field_type) && is_rc_type(field_type))) => match(
       get_drop_function_for_type(field_type, context),
       .Some(drop_fn) => Option(String).Some(`${indent.clone()}if (${field_ref.clone()} != NULL) { ${drop_fn}(${field_ref.clone()}); }`),

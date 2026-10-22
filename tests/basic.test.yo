@@ -530,8 +530,6 @@ test("Test type auto derive Comptime", {
   comptime_assert(Type.impls(*Rc(i32), Comptime) == false);
   // Function
   comptime_assert(Type.impls(fn() -> unit, Comptime));
-  // Iso type is runtime only
-  comptime_assert(Type.impls(Iso(Rc(i32)), Comptime) == false);
   // Value structs with comptime-compatible fields are Comptime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Comptime) == true);
@@ -689,8 +687,6 @@ test("Test type auto derive Runtime", {
   comptime_assert(Type.impls(*Rc(i32), Runtime));
   // Function
   comptime_assert(Type.impls(fn() -> unit, Runtime));
-  // Iso type is runtime only
-  comptime_assert(Type.impls(Iso(Rc(i32)), Runtime));
   // Value structs with runtime-compatible fields are Runtime
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Runtime) == true);

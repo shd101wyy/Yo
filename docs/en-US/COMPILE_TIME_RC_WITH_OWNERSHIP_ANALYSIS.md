@@ -161,7 +161,7 @@ Point(x : i32(3), y : i32(4)); // temp_var owns the Point(x: i32(3), y: i32(4)),
 
 ### Reading the Count: `ref_count(x)`
 
-The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`, `Iso`) are read with an atomic load.
+The builtin `ref_count(x)` returns the current reference count of the cell `x` holds, as a `usize`. For a value type (a plain `struct`, an integer) it is always `1`, known at compile time. Atomically counted handles (`Arc(T)`, `atomic(ref(...))`) are read with an atomic load.
 
 ```yo
 b := Rc(i32)(3);

@@ -15,11 +15,11 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_iso_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell, value_type_owns_buffer } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ get_dispose_function_for_type, dispose_function_takes_pointer, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
+{ get_dispose_function_for_type, dispose_function_takes_pointer, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
 _has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
@@ -71,10 +71,9 @@ _box_trace_fn_of :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -
     .None => Option(String).None
   )
 );
-/// Traversal functions are emitted when the cycle collector needs them OR the
-/// program uses `Iso`, whose uniqueness walk (rule D2) descends through them.
+/// Traversal functions are emitted when the cycle collector needs them.
 needs_traversal_functions :: (fn(context : &FunctionGenerationContext) -> bool)(
-  context.base.needs_cycle_gc || (context.base.iso_types.len() > usize(0))
+  context.base.needs_cycle_gc
 );
 /// The C expression a traversal passes to its visitor as a managed child's own
 /// traverse function: `(void*)__yo_traverse_<C>` when one exists, the
@@ -305,7 +304,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
 /// counted child reachable at the C lvalue `access`, descending INLINE through
 /// value structs / value enums (incl. `Option`) / tuples / inline arrays, but
 /// STOPPING at managed handles (each is one graph edge; the collector calls the
-/// handle's own traverse_fn). Atomic (Iso) handles never participate.
+/// handle's own traverse_fn). Atomic handles never participate.
 // The visit-callback expression for the CURRENT traversal emission (`visit`
 // for auto-derived traverse fns; the GcTracer expr for explicit Trace). It is
 // held in a module GLOBAL rather than threaded as a `visit_expr : String`
@@ -355,7 +354,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
       .None => ()
     );
   });
-  // Managed handle (ref(struct)/ref(enum)) — one graph edge. Atomic (Iso) RC types
+  // Managed handle (ref(struct)/ref(enum)) — one graph edge. Atomic RC types
   // do not participate in cycle collection.
   if(is_reference_struct_type(ty) || is_reference_enum_type(ty), {
     if(is_atomic_reference_struct_type(ty) || is_atomic_reference_enum_type(ty), {
@@ -577,7 +576,7 @@ generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationCont
 /// Generate constructor implementations for every concrete object type: emits
 /// the cycle-GC traversal functions first (when needed), then the constructors.
 generate_ref_struct_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  // Traversal functions: for the cycle collector, and for Iso's uniqueness walk.
+  // Traversal functions: for the cycle collector.
   if(needs_traversal_functions(context), {
     _emit_traversal_prototypes(context);
     generate_ref_struct_traversal_functions(context);
@@ -857,138 +856,4 @@ generate_ref_enum_constructor_functions :: (fn(context : &FunctionGenerationCont
 generate_closure_constructor_functions :: (fn(context : &FunctionGenerationContext) -> unit)(
   ()
 );
-/// Rule D2 (plans/reference/PARALLELISM_RULES.md): `^v` proves the value's
-/// whole reference graph unique before it becomes an `Iso` — every reachable
-/// NON-atomic object must have `ref_count == 1` (an atomic object is shared by
-/// design and stops the walk). The walk runs on the sending thread, where
-/// every reachable non-atomic count is stable, and uses an explicit worklist
-/// (a million-node list must not recurse a million frames). It descends through
-/// the traversal functions, which hand each child's own traverse function to
-/// the visitor, so it needs no per-object header state and works in a program
-/// without the cycle collector. No visited set: reaching an object twice means
-/// its count is at least 2, which already fails.
-/// (issues/fixed/iso-checks-only-the-wrapper-refcount-not-the-interior.md)
-/// The worklist starts in a 64-item buffer on `__yo_iso_uq_run`'s stack and
-/// moves to the heap only when a walk outgrows it; the heap copy is freed
-/// when that walk ends. A worklist cached in a thread-local outlived its
-/// thread and was reported by LSan on every program that used `^`
-/// (issues/fixed/the-iso-uniqueness-walk-leaks-its-worklist-per-thread.md).
-generate_iso_uniqueness_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
-  if(context.base.iso_types.len() == usize(0), {
-    return(());
-  });
-  em := context.base.emitter;
-  em.emit_string_line(
-    `typedef struct { void* ptr; void (*traverse)(void*, void (*)(void*, void*)); } __yo_iso_uq_item_t;
-static _Thread_local __yo_iso_uq_item_t* __yo_iso_uq_items = NULL;
-static _Thread_local size_t __yo_iso_uq_len = 0;
-static _Thread_local size_t __yo_iso_uq_cap = 0;
-static _Thread_local bool __yo_iso_uq_heap = false;
-static _Thread_local bool __yo_iso_uq_failed = false;
-static void __yo_iso_uq_visit(void* child, void* child_traverse) {
-  if (__yo_iso_uq_failed || child == NULL) return;
-  if (child_traverse == (void*)__yo_traverse_atomic_stop) return;
-  if (child_traverse == NULL || (((__yo_rc_prefix_t*)child)->ref_count & __YO_RC_COUNT) != 1) {
-    __yo_iso_uq_failed = true;
-    return;
-  }
-  if (__yo_iso_uq_len == __yo_iso_uq_cap) {
-    size_t cap = __yo_iso_uq_cap * 2;
-    __yo_iso_uq_item_t* grown = (__yo_iso_uq_item_t*)(__yo_iso_uq_heap
-        ? realloc(__yo_iso_uq_items, cap * sizeof(__yo_iso_uq_item_t))
-        : malloc(cap * sizeof(__yo_iso_uq_item_t)));
-    if (!grown) {
-      fflush(stdout); fprintf(stderr, "panic: out of memory in the Iso uniqueness walk\\n");
-      __yo_abort();
-    }
-    if (!__yo_iso_uq_heap) memcpy(grown, __yo_iso_uq_items, __yo_iso_uq_len * sizeof(__yo_iso_uq_item_t));
-    __yo_iso_uq_items = grown;
-    __yo_iso_uq_cap = cap;
-    __yo_iso_uq_heap = true;
-  }
-  __yo_iso_uq_items[__yo_iso_uq_len].ptr = child;
-  __yo_iso_uq_items[__yo_iso_uq_len].traverse = (void (*)(void*, void (*)(void*, void*)))child_traverse;
-  __yo_iso_uq_len++;
-}
-static bool __yo_iso_uq_run_roots(void* root, void* root_traverse, void (*value_roots)(void*)) {
-  __yo_iso_uq_item_t local[64];
-  __yo_iso_uq_items = local;
-  __yo_iso_uq_cap = 64;
-  __yo_iso_uq_heap = false;
-  __yo_iso_uq_failed = false;
-  __yo_iso_uq_len = 0;
-  if (value_roots) value_roots(root); else __yo_iso_uq_visit(root, root_traverse);
-  while (__yo_iso_uq_len > 0 && !__yo_iso_uq_failed) {
-    __yo_iso_uq_item_t it = __yo_iso_uq_items[--__yo_iso_uq_len];
-    it.traverse(it.ptr, __yo_iso_uq_visit);
-  }
-  if (__yo_iso_uq_heap) free(__yo_iso_uq_items);
-  __yo_iso_uq_items = NULL;
-  __yo_iso_uq_cap = 0;
-  __yo_iso_uq_heap = false;
-  __yo_iso_uq_len = 0;
-  return !__yo_iso_uq_failed;
-}
-static bool __yo_iso_uq_run(void* root, void* root_traverse) {
-  return __yo_iso_uq_run_roots(root, root_traverse, NULL);
-}`
-  );
-  keys := context.base.iso_types.keys();
-  (go : bool) = true;
-  while(go, {
-    match(
-      keys.next(),
-      .Some(iso_name) => match(
-        context.base.iso_types.get(iso_name.clone()),
-        .Some(info) => match(
-          info.iso_type,
-          Rc(.IsoT(child)) => {
-            child_c := get_type_string(&child, &context.base);
-            if(is_reference_struct_type(&child) || is_reference_enum_type(&child), {
-              em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
-              em.emit_string_line(`  return __yo_iso_uq_run((void*)value, ${_child_traverse_fn_expr(&child, context)});`);
-              em.emit_string_line(`}`);
-            }, {
-              // A VALUE child (plans/VALUES_BY_DEFAULT.md §3.6): the walk's
-              // roots are the cells the value holds inline, visited by the
-              // collector's compositional traversal; the value itself has no
-              // count.
-              em.emit_string_line(`static void __yo_iso_roots_${iso_name}(void* __yo_p) {`);
-              em.emit_string_line(`  ${child_c} value = *(${child_c}*)__yo_p;`);
-              saved_visit := g_traverse_visit_expr;
-              g_traverse_visit_expr = String.from("__yo_iso_uq_visit");
-              _traverse_value(String.from("value"), &child, context);
-              g_traverse_visit_expr = saved_visit;
-              em.emit_string_line(`}`);
-              em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
-              em.emit_string_line(`  return __yo_iso_uq_run_roots((void*)&value, NULL, __yo_iso_roots_${iso_name});`);
-              em.emit_string_line(`}`);
-              // Its dispose drops the value field by field
-              // (types/generation.yo leaves it to this function context).
-              if(!info.dispose_generated, {
-                em.emit_string_line(`static void __yo_iso_dispose_${iso_name}(${iso_name} iso) {`);
-                em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
-                drop_tail := generate_drop_code_for_value(String.from("iso->value"), &child, context);
-                if(drop_tail.len() > usize(0), {
-                  em.emit_string_line(`    ${drop_tail};`);
-                });
-                em.emit_string_line(String.from("  }"));
-                em.emit_string_line(String.from("}"));
-                em.emit_string_line(`static void __yo_dispose_iso_${iso_name}(void* ptr) {`);
-                em.emit_string_line(`  __yo_iso_dispose_${iso_name}((${iso_name})ptr);`);
-                em.emit_string_line(String.from("}"));
-                info.dispose_generated = true;
-              });
-            });
-          },
-          _ => ()
-        ),
-        .None => ()
-      ),
-      .None => {
-        go = false;
-      }
-    );
-  });
-});
-export(dispose_fn_thunk, generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_iso_uniqueness_functions, needs_traversal_functions, generate_closure_constructor_functions, _traverse_value, set_traverse_visit_expr);
+export(dispose_fn_thunk, generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, needs_traversal_functions, generate_closure_constructor_functions, _traverse_value, set_traverse_visit_expr);

@@ -7,7 +7,6 @@
 { t_bool, t_i32 } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
 {
-  is_iso_type,
   is_dyn_type,
   is_reference_struct_type,
   is_atomic_reference_struct_type,
@@ -44,12 +43,6 @@ box_labels :: (fn() -> ArrayList(String))({
   l := ArrayList(String).new();
   l.push(String.from("*"));
   l
-});
-test("is_iso_type matches IsoT only", {
-  iso_ty := rc(TypeValueNode.IsoT(t_i32()));
-  assert(is_iso_type(&iso_ty), "IsoT");
-  assert(!is_iso_type(t_i32()), "i32 is not Iso");
-  assert(!is_iso_type(t_bool()), "bool is not Iso");
 });
 test("is_dyn_type matches DynT only", {
   empty_traits := ArrayList(TypeValue).new();

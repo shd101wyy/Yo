@@ -65,11 +65,12 @@ inside the VBD campaign, for deleting the macro layer (`for`/`for_await`
 become parse-time desugars following the `if` → `cond` precedent,
 `unsafe.drop` becomes a direct `___drop` call, and the three collection
 literals are replaced by ordinary `from` constructors — LLM authoring does
-not need the sugar) and the builtin `Iso(T)`/`^v` (Rust's thread rule:
-cross-thread data is `Send`; `Rc.try_unwrap` is the bridge; deleted after
-V2b's collection flips). It reverses
-[`reference/MACRO_POLICY`](reference/MACRO_POLICY.md) and supersedes the `Iso`
-carve-outs in [`VALUES_BY_DEFAULT`](VALUES_BY_DEFAULT.md) §3.6/§3.8.
+not need the sugar) and the builtin isolated-transfer type with its `^`
+constructor (Rust's thread rule: cross-thread data is `Send`;
+`Rc.try_unwrap` is the bridge; Part A, deleted at v0.2.68, pulled forward on
+2026-10-21). It reverses
+[`reference/MACRO_POLICY`](reference/MACRO_POLICY.md) and supersedes the
+isolated-transfer carve-outs in [`VALUES_BY_DEFAULT`](VALUES_BY_DEFAULT.md) §3.6/§3.8.
 Safe mode's open work is listed in [`SAFE_MODE`](SAFE_MODE.md); the
 verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)

@@ -849,7 +849,7 @@ validate_capture_trait_requirements :: (
                           _capture_judgement_type(&info.ty, &info.value),
                           .None => (),
                           .Some(judged) => if(!type_implements_trait_bool(&judged, &trait_type, env), {
-                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
+                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${trait_name}. To move it across threads, share it through an Arc (its contents must be Send + Sync + Acyclic), rebuild it on the other thread from ${trait_name} values, or capture a ${trait_name} projection of it instead.`;
                             _raise_capture_trait_violation(ctx, exn, &info.token, &var_msg);
                           })
                         )
