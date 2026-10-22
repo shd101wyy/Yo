@@ -3,7 +3,7 @@
 **Status:** a record, 2026-10-23. The probe is the never-merged branch
 `probe/v2b-b8-flip-census` (worktree `~/Workspace/Yo-wt/b8-probe`). The
 measurements were taken on develop `e30c0d8ed`; after the review (§10) the
-branch was rebased onto develop `95162303d` and re-gated there. It holds
+branch was rebased onto develop `b14840077` and re-gated there. It holds
 the B8 std change, the edits that unmask the errors after it, and the
 issues the probe filed. The std flip is NOT for
 landing. This doc is N4's output for `plans/VALUES_BY_DEFAULT.md`, B8:
@@ -459,6 +459,12 @@ The branch was rebased onto develop `95162303d` (#1540, #1542, #1543 and
 | `markdown_yo` v0.0.20 against develop's std | 54/54 | 54/54 |
 | The eleven repros against develop's std | all reproduce | all reproduce, identically |
 
+develop then moved to `b14840077` (#1547, std only: `std/prelude.yo` and
+`std/allocator.yo`, no `src/` change, so the `95162303d` tree binary is
+also that commit's). After a second clean rebase onto it, `yo check ./std
+--std-path ./std` on the flipped std passes 172/172 again under both the
+seed (64 s) and the tree binary (44 s).
+
 The runtime runs (§6), the `src/` frontier (§3, §4) and the test-file
-checks (§5) were not repeated on `95162303d`. Their numbers are
+checks (§5) were not repeated on `95162303d` or `b14840077`. Their numbers are
 `e30c0d8ed`'s. Logs: `~/Workspace/Yo-wt/vbd-logs/b8-probe/review-fix/`.
