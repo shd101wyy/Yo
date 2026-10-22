@@ -4,14 +4,15 @@
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
 in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
 `arc(...)` are available everywhere through the prelude. `Arc(T)` itself requires
-`T <: (Send, Sync, Acyclic)`, which keeps `Arc` from laundering non-thread-safe values into a
+`T <: (Send, Sync)`, which keeps `Arc` from laundering non-thread-safe values into a
 thread-shareable wrapper. Each bound has its own reason:
 
 - `Sync`: every handle reads the payload from its own thread.
 - `Send`: the last handle may be dropped on any thread, and the payload's `Drop` runs there
   (as Rust's `Arc<T>: Send + Sync` needs `T: Send + Sync`).
-- `Acyclic`: atomic reference counts are not cycle-collected, so an `Arc` cycle would never be
-  freed.
+
+The payload need not be `Acyclic`, as in Rust. A cycle of `Arc` handles leaks: see
+[Cycles](#cycles).
 
 `Arc(T)` is itself `Send` and `Sync` under the same bound. The prelude states both impls
 explicitly: a closure payload (`Arc(Impl(Fn() -> unit))`) is `Sync` only by value, through its
@@ -20,7 +21,7 @@ captures, which the type-level derivation cannot see.
 ## Current definition
 
 ```yo
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -30,7 +31,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
   )
 );
 
-arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
+arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))(
   ...
 );
 ```
@@ -170,6 +171,29 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 - **Borrowed deref**: `.*` gives borrowed access to the wrapped value.
 - **Drop behavior**: when the last reference is dropped, the inner value is dropped and the allocation is freed.
 - **Closure capture**: capturing an `Arc` in a closure duplicates the shared reference.
+
+## Cycles
+
+Atomic reference counts are not cycle-collected. A payload that holds an `Arc` back to its own
+cell, directly or through a `Mutex`, closes a cycle whose counts never reach zero, and the cells
+stay allocated until the process exits, as they would in Rust:
+
+```yo
+{ Mutex } :: import("std/sync/mutex");
+
+Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+
+a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+b := a;
+a.with_lock(v => {
+  v.peer = .Some(b); // a -> mutex -> node -> a: this cell is never freed
+});
+```
+
+Break the cycle by clearing a back edge (`v.peer = .None` under the lock) before the last handle
+that reaches it is dropped. Compile with `--allocator fixed --debug-heap` to see a leaked cycle:
+the exit report counts the blocks still live
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md#debugging-the-leak-report)).
 
 ## Related docs
 

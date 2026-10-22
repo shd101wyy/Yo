@@ -145,9 +145,8 @@ impl(
 /// Thread-safe bounded channel for passing values between threads.
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
-/// T must implement `Send` (values transfer between threads) and `Acyclic`
-/// (atomic reference counting is only sound for acyclic data).
-Channel :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+/// T must implement `Send` (values transfer between threads).
+Channel :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -172,21 +171,17 @@ Channel :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type
     )
   )
 );
-// O7 residual: an Acyclic-element Channel cannot form a cycle — atomic RC is
-// only sound for acyclic data, and this lets the sync containers nest
-// inside each other and inside the imm family (same contract as std/imm).
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Acyclic());
 // SAFETY: `_data` is the ring buffer the channel owns. Every slot access
 // happens under `_mutex`, and a value is moved in by `send` and out by `recv`,
 // so the channel may be moved and shared across threads when `T` may be moved
 // (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding a raw pointer
 // opts in).
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Send());
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Channel(T), Sync());
+impl(generic(T : Type), where(T <: Send), Channel(T), Send());
+impl(generic(T : Type), where(T <: Send), Channel(T), Sync());
 impl(
   generic(T : Type),
   Channel(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Create a bounded channel with the given capacity.
   /// Capacity must be > 0.
   new : (fn(capacity : usize) -> Self)({
@@ -371,7 +366,7 @@ impl(
 impl(
   generic(T : Type),
   Channel(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
@@ -397,7 +392,7 @@ impl(
 /// `atomic(ref(...))` for the same reason `Channel` is: the handle is meant
 /// to be moved into another thread, and its reference count has to be atomic
 /// for that to be sound.
-Sender :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+Sender :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(ref(struct(_ch : Channel(T))))
 );
 export(Sender);
@@ -408,19 +403,14 @@ export(Sender);
 /// sender can act on. (The underlying `Channel` is MPMC and a second consumer
 /// is expressible by sharing the `Channel` itself; what a `Receiver` adds is
 /// the single-owner lifetime, and cloning it would take that away.)
-Receiver :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+Receiver :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(ref(struct(_ch : Channel(T))))
 );
 export(Receiver);
-// Both handles hold one `Channel(T)` and nothing else, so neither can be part
-// of a cycle as long as the element type cannot — the same residual argument
-// `Channel(T)` itself carries.
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Sender(T), Acyclic());
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Receiver(T), Acyclic());
 impl(
   generic(T : Type),
   Sender(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Attach a new producer to `ch` and count it. Internal: `Channel.receiver`,
   /// `Channel.pair`, `Receiver.sender` and `clone` are the callers.
   ///
@@ -463,7 +453,7 @@ impl(
 impl(
   generic(T : Type),
   Sender(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Another producer over the same queue, counted.
   Clone(
     clone : (fn(self : &Self) -> Self)({
@@ -475,7 +465,7 @@ impl(
 impl(
   generic(T : Type),
   Sender(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Dropping a `Sender` gives up its stake in the queue; dropping the LAST
   /// one closes the channel.
   ///
@@ -505,7 +495,7 @@ impl(
 impl(
   generic(T : Type),
   Receiver(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
   /// `Channel.pair` are the only callers.
   _attach : (fn(ch : &Channel(T)) -> Self)(
@@ -570,7 +560,7 @@ impl(
 impl(
   generic(T : Type),
   Receiver(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Dropping the consumer disconnects the queue from the sending side:
   /// there is nobody left to drain it, so a `send` that would block on a full
   /// buffer fails instead, and senders already parked are woken to find out.
@@ -589,7 +579,7 @@ impl(
 impl(
   generic(T : Type),
   Channel(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Create a bounded queue and its single consumer — the tuple-free half of
   /// the `Sender`/`Receiver` split. Mint producers with `Receiver.sender()`
   /// and `Sender.clone()`.

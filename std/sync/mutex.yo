@@ -60,10 +60,10 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 /// returns a `MutexGuard` and relies on its lifetime; Yo has no lifetimes
 /// to lean on, so the scope is the closure body.
 ///
-/// `T` must be `Send` (it crosses threads) and `Acyclic` (the handle is
-/// atomically reference-counted, and atomic RC is only sound for data that
-/// cannot form a cycle). The `Acyclic` impl below is what lets a
-/// `Mutex(T)` nest inside another sync container.
+/// `T` must be `Send` (it crosses threads). It need not be `Acyclic`, as
+/// in Rust: a cycle closed through a mutex (`Arc(Mutex(Node))` with a
+/// `Node` that holds such a handle) leaks, because atomic cells are never
+/// cycle-collected (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2).
 ///
 /// A `Mutex(T)` value is a SHARED HANDLE, which is why every method takes
 /// `self : Self` rather than `self : &mut Self`: copying the handle (into a
@@ -82,7 +82,7 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 /// or waiting on a `Cond` with a mutex the caller does not hold is a panic with
 /// a message naming the API — never the platform-dependent deadlock, silent
 /// recursion or undefined behaviour of the OS primitive underneath.
-Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -94,15 +94,11 @@ Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))
     )
   )
 );
-// O7 residual: an Acyclic-element Mutex cannot form a cycle — atomic RC is
-// only sound for acyclic data, and this lets the sync containers nest
-// inside each other and inside the imm family (same contract as std/imm).
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Acyclic());
 // SAFETY: every access to `_value` happens under `_handle`, one thread at a
 // time, so the mutex is Sync whenever `T` may be moved between threads: Sync
 // for `T <: Send`, not `T <: Sync` (plans/VALUES_BY_DEFAULT.md §3.8).
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Send());
-impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Sync());
+impl(generic(T : Type), where(T <: Send), Mutex(T), Send());
+impl(generic(T : Type), where(T <: Send), Mutex(T), Sync());
 
 /// An UNGUARDED lock with no protected value. `lock` / `try_lock` /
 /// `unlock` are the whole API and balancing them is the caller's job — no
@@ -174,7 +170,7 @@ impl(
 // Allocated locally inside with_lock; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees unlock under both normal return
 // and unwind(...).
-__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
   ref(
     struct(
       _mutex : Mutex(T)
@@ -183,7 +179,7 @@ __MutexUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> compt
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   __MutexUnlocker(T),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
@@ -194,7 +190,7 @@ impl(
 
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   Mutex(T),
   /// Wrap `value` in a new, unlocked mutex — Rust's `Mutex::new`.
   ///
@@ -336,7 +332,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   Mutex(T),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({

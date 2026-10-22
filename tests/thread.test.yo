@@ -280,7 +280,7 @@ test("Thread spawn releases captures on every iteration of a loop", {
 // See issues/fixed/generic-channel-send-specialisation-is-called-but-never-emitted.md
 // and issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
 _spawn_zst_relay :: (
-  fn(generic(T : Type), cb : &Impl(Fn(io : Io) -> T), where(T <: (Send, Acyclic))) -> Channel(T)
+  fn(generic(T : Type), cb : &Impl(Fn(io : Io) -> T), where(T <: Send)) -> Channel(T)
 )({
   chan := Channel(T).new(usize(1));
   sink := chan;

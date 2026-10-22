@@ -3,18 +3,19 @@
 `Arc(T)` 用于通过原子引用计数共享单个值的所有权。它**不再是编译器内置类型**。
 在当前设计里，`Arc` 在 `std/prelude.yo` 中被定义为一个薄包装的
 `atomic(ref(struct(...)))`，因此 `Arc` 与 `arc(...)` 会通过 prelude 自动可用。
-`Arc(T)` 本身要求 `T <: (Send, Sync, Acyclic)`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。每个约束各有原因：
+`Arc(T)` 本身要求 `T <: (Send, Sync)`，这样就不会把非线程安全的值伪装成可跨线程共享的包装。每个约束各有原因：
 
 - `Sync`：每个句柄都在自己的线程上读取载荷。
 - `Send`：最后一个句柄可能在任意线程上被释放，载荷的 `Drop` 就在那个线程上运行（与 Rust 的 `Arc<T>: Send + Sync` 要求 `T: Send + Sync` 相同）。
-- `Acyclic`：原子引用计数不参与循环回收，`Arc` 形成的环永远不会被释放。
+
+与 Rust 一样，载荷不必是 `Acyclic`。`Arc` 句柄形成的环会泄漏：见[环](#环)。
 
 在同样的约束下，`Arc(T)` 自身也是 `Send` 和 `Sync`。prelude 显式写出这两个 impl：闭包载荷（`Arc(Impl(Fn() -> unit))`）只能按值、通过它的捕获判断是否为 `Sync`，类型层面的派生看不到这些捕获。
 
 ## 当前定义
 
 ```yo
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -24,7 +25,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
   )
 );
 
-arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
+arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))(
   ...
 );
 ```
@@ -143,6 +144,24 @@ assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
 - **借用解引用**：`.*` 提供对内部值的借用访问。
 - **销毁行为**：最后一个引用被释放时，会先 drop 内部值，再释放分配。
 - **闭包捕获**：闭包捕获 `Arc` 时会复制这份共享引用。
+
+## 环
+
+原子引用计数不参与循环回收。如果载荷直接或经由 `Mutex` 持有指回自身单元的 `Arc`，就会形成一个计数永远不会归零的环，这些单元会一直保持分配状态直到进程退出，与 Rust 中的情况相同：
+
+```yo
+{ Mutex } :: import("std/sync/mutex");
+
+Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+
+a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+b := a;
+a.with_lock(v => {
+  v.peer = .Some(b); // a -> mutex -> node -> a：这个单元永远不会被释放
+});
+```
+
+在丢弃最后一个能到达环的句柄之前，清除一条回边（在锁内执行 `v.peer = .None`）即可打破环。使用 `--allocator fixed --debug-heap` 编译可以看到泄漏的环：退出报告会统计仍然存活的块（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md#调试泄漏报告)）。
 
 ## 相关文档
 

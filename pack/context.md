@@ -321,7 +321,7 @@ a no-op for `yo check` unless `--test-bodies` is passed.)
 
 ## Threads (separate runtime)
 
-`Thread(T)`, `ThreadPool`, `Channel` with `Send`/`Acyclic` bounds live in
+`Thread(T)`, `ThreadPool`, `Channel` with `Send` bounds live in
 `std/thread` — this is the multi-threaded story, distinct from async. Don't
 reach for it to parallelize I/O; that's the event loop's job.
 

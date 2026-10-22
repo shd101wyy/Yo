@@ -47,14 +47,14 @@ The runtime automatically initializes the event loop when the thread starts (`__
 
 ```yo
 // `T` is what the thread's body produces. `Thread(unit)` is the value-less
-// thread; any `Send + Acyclic` type may be carried out.
+// thread; any `Send` type may be carried out.
 Thread :: (
-  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+  fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
 )(ref(struct(handle : __yo_thread_t, _joined : bool, _result : Channel(T))));
 impl(
   generic(T : Type),
   Thread(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   // Spawn a new OS thread running the given closure.
   // The closure receives its own per-thread Io event loop.
   spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),

@@ -45,8 +45,8 @@ An atomic object's copies share one payload, so it is `Send` only when that payl
 `Sync` whenever `T` is `Send`.
 
 The std types follow the same split. A type that shares its payload between threads asks for
-`Sync`: `Arc(T)` and `RwLock(T)` (concurrent read guards) need `T <: (Send, Sync, Acyclic)`. A type that hands its payload to one thread at a time asks
-only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: (Send, Acyclic)`. So a type that is `Send`
+`Sync`: `Arc(T)` and `RwLock(T)` (concurrent read guards) need `T <: (Send, Sync)`. A type that hands its payload to one thread at a time asks
+only for `Send`: `Mutex(T)` and `Channel(T)` need `T <: Send`. So a type that is `Send`
 but opts out of `Sync` with `impl(T, !(Sync()))` can go in a `Mutex` or through a `Channel`, but
 not in an `Arc`.
 

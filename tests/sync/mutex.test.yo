@@ -57,16 +57,18 @@ test("Mutex with_lock body may end in a statement (unit R)", {
   });
   assert(m.with_lock(v => v) == i32(42), "the unit-bodied write landed");
 });
-// O7 residual (plans/archive/STD_API_AUDIT.md §8): the sync containers carry the same
-// Acyclic requirement as the imm family — atomic RC cannot collect cycles, so
-// a cyclic ATOMIC payload would leak silently and unavoidably.
-test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles", {
-  // atomic() so the payload IS Send — a plain ref struct fails the Send bound
-  // first and the expect-error would pass vacuously without touching Acyclic.
+// Decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2) dropped the
+// O7 `Acyclic` requirement (plans/archive/STD_API_AUDIT.md §8): as in Rust, a
+// cyclic payload is accepted, and a cycle closed through it leaks unless a
+// back edge is cleared.
+test("a cyclic element type is accepted", {
+  // atomic() so the payload is Send: the test reaches the dropped bound, not
+  // the Send one.
   CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
-  comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
-  comptime_expect_error(Mutex(CyclicNode));
-  assert(true, "rejected at comptime");
+  comptime_assert(Type.impls(CyclicNode, Send), "the payload is Send");
+  comptime_assert(!Type.impls(CyclicNode, Acyclic), "the payload is cyclic");
+  m := Mutex(CyclicNode).new(CyclicNode(v : i32(1), next : .None));
+  assert(m.with_lock(n => n.v) == i32(1), "the mutex holds the node");
 });
 // ============================================================================
 // Concurrency — the property the whole type exists for

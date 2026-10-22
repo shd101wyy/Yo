@@ -10024,12 +10024,19 @@ export(
 ///
 /// Use `arc(value)` to allocate. Access the inner value with `a.*`.
 ///
+/// The payload must be `Send` and `Sync`, as Rust's `Arc<T>` requires; it
+/// need not be `Acyclic` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2). An
+/// atomic cell is never cycle-collected, so a cycle of `Arc` handles leaks,
+/// as in Rust: break it by clearing a back edge before the last handle that
+/// reaches it is dropped. `--allocator fixed --debug-heap` counts the leaked
+/// cells at exit.
+///
 /// ## Example
 /// ```yo
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "inner value is 42");
 /// ```
-Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Type))(
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -10054,7 +10061,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
 /// a := arc(i32(42));
 /// assert(a.* == i32(42), "the payload");
 /// ```
-arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
+arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None, where(V <: (Send, Sync))) -> Arc(V))(
   match(
     alloc,
     // The cell constructor allocates from the thread's current scope, so an
@@ -10076,19 +10083,19 @@ arc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .N
 // `Sync` because every handle reads the payload from its own thread; `Send`
 // because the last handle may be dropped on any thread, and the payload's
 // `Drop` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
-// `Arc<T>: Send + Sync` needs `T: Send + Sync`); `Acyclic` because an `Arc`
-// cycle is never collected. `Arc(T)` is then `Send` and `Sync` itself. The
+// `Arc<T>: Send + Sync` needs `T: Send + Sync`). `Arc(T)` is then `Send`
+// and `Sync` itself. The
 // impls are explicit because the atomic-object derivation asks the payload
 // TYPE for `Sync`, and an `Impl(Fn(...))` payload answers only by value
 // (its captures), so `Arc(Impl(Fn() -> unit))` would not derive `Send`.
-impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Send());
-impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Sync());
+impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Send());
+impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Sync());
 /// `Rc`'s doors, for `Arc` (plans/VALUES_BY_DEFAULT.md decision 46). The
 /// count is read atomically; a handle the caller owns, with a count of 1, is
 /// the only one on any thread.
 impl(
   generic(T : Type),
-  where(T <: (Send, Sync, Acyclic)),
+  where(T <: (Send, Sync)),
   Arc(T),
   /// The payload by value when `self` is the only handle to its cell, else
   /// `.Err(self)`. Rust's `Arc::try_unwrap`.
@@ -10108,7 +10115,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Sync, Acyclic, Clone)),
+  where(T <: (Send, Sync, Clone)),
   Arc(T),
   /// The payload, written: when another handle shares the cell, `self` first
   /// moves to a fresh cell holding a clone of the payload. Rust's
@@ -10149,7 +10156,7 @@ Deref :: trait(
 export(Deref);
 impl(generic(T : Type), Rc(T), Deref(Target : T));
 impl(generic(T : Type), Box(T), Deref(Target : T));
-impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Deref(Target : T));
+impl(generic(T : Type), where(T <: (Send, Sync)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(
   "Yo",

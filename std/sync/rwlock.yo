@@ -70,7 +70,7 @@ pragma(Pragma.AllowUnsafe);
 
 /// Reader-writer lock built on `Mutex` and `Cond`, owning the protected `T`.
 /// Uses atomic reference counting for safe cross-thread sharing.
-RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
+RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Sync))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -84,17 +84,13 @@ RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime
     )
   )
 );
-// O7 residual: an Acyclic-element RwLock cannot form a cycle — atomic RC is
-// only sound for acyclic data, and this lets the sync containers nest
-// inside each other and inside the imm family (same contract as std/imm).
-impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), RwLock(T), Acyclic());
 
 // __RwLockReadUnlocker / __RwLockWriteUnlocker — private objects that release
 // the corresponding acquisition on Drop. Allocated locally inside
 // with_read / with_write; Yo's drop-on-scope-exit and drop-on-unwind machinery
 // guarantees the release under a normal return and an unwind(...) alike.
 // Mirrors `__MutexUnlocker` in ./mutex.
-__RwLockReadUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
+__RwLockReadUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Sync))) -> comptime(Type))(
   ref(
     struct(
       _lock : RwLock(T)
@@ -103,7 +99,7 @@ __RwLockReadUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic)
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Sync, Acyclic)),
+  where(T <: (Send, Sync)),
   __RwLockReadUnlocker(T),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
@@ -112,7 +108,7 @@ impl(
   )
 );
 
-__RwLockWriteUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime(Type))(
+__RwLockWriteUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Sync))) -> comptime(Type))(
   ref(
     struct(
       _lock : RwLock(T)
@@ -121,7 +117,7 @@ __RwLockWriteUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic
 );
 impl(
   generic(T : Type),
-  where(T <: (Send, Sync, Acyclic)),
+  where(T <: (Send, Sync)),
   __RwLockWriteUnlocker(T),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
@@ -132,7 +128,7 @@ impl(
 
 impl(
   generic(T : Type),
-  where(T <: (Send, Sync, Acyclic)),
+  where(T <: (Send, Sync)),
   RwLock(T),
   /// Create a new reader-writer lock protecting `value`.
   new : (fn(value : T) -> Self)(
