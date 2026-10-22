@@ -7078,12 +7078,12 @@ heavy run, the command is given in item 2.
             0.16 GB for (a), and 6.8 GB at 140 s against 0.48 GB.
          2. **Two migration defects that change semantics (S1).** Both
             are filed open with reproducers:
-            - `issues/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.md`:
+            - `issues/fixed/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.md`:
               `fargs.clone()` inside `AstExpr`'s share-on-recursion
               `Clone` (`src/expr.yo:440`). Every AST clone becomes a deep
               copy, and `strip_mut_marker` rewrites a copy, which is (b)'s
               error.
-            - `issues/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.md`:
+            - `issues/fixed/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.md`:
               `target_list := if(c, entry.negative_traits.clone(), …)`
               at `src/env.yo:3359` and `:3578`, followed by
               `target_list.push`. The where-clause constraints are lost.

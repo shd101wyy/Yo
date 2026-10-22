@@ -80,15 +80,48 @@ copy path), which carries no destination, so `_copy_written_after`
 (`src/main.yo:2828`) checks only the source's writes and never sees
 `target.push`.
 
-## Fix (proposed, not on this branch)
+## Fix
 
-Carry the binding's declaration key to the arm-tail copies of a conditional
-RHS (`if`/`cond`/`match`, nested), so the written-after guard judges them
-against the binding exactly as it judges a plain `r := s`. The test is the
-reproducer above as a
-`tests/cli-cases/fix-migrate-explicit-copy-conditional-arm` case: today it
-inserts two clones; fixed, both sites are listed and the trailing run prints
-`1 1`.
+Fixed 2026-10-22 on `fix/explicit-copy-s1-tool-defects`, as the doc
+proposed. A binding's or an assignment's destination now reaches the copies
+made at the result positions of its right-hand side.
+
+- `set_expr_as_needs_to_call_dup` (`src/evaluator/utils.yo`) is where every
+  store that carries a `copy_dest_decl` arrives: a binding, an assignment, a
+  capture-list entry. When the migration runs, it calls
+  `record_copy_tail_dests` first, before any early return. A temporary
+  holding a conditional's result is an owning temp and returns early, which
+  is why the destination never reached the arms before.
+- `record_copy_tail_dests` walks the right-hand side's result positions: a
+  block's tail and each `cond`/`match` arm's body, nested. An `if` is a
+  `cond` after the parser's desugaring. For each leaf it records
+  (destination key, leaf's leftmost token position).
+- `_run_migrate_explicit_copy` (`src/main.yo`) indexes those records by
+  position. `_tail_dest_written_after` judges a site at such a position
+  against each of its destinations exactly as `_copy_written_after` judges
+  `dst_decl`. A written destination lists the site as "the copy is written
+  afterwards".
+
+A `return(...)` inside an arm leaves the function and is not a result
+position of the right-hand side, so it is not walked. A conditional whose
+binding is never written keeps its arm copies cloned.
+
+Repro (`issues/repros/2026-10-22-explicit-copy-migration-clones-a-conditional-arm-whose-binding-is-written-afterwards.yo`):
+
+| | output of `yo fix main.yo --migrate explicit-copy` | migrated program prints |
+| --- | --- | --- |
+| before (3cb59050d) | `inserted 2`, `if(negated, entry.no.clone(), entry.yes.clone())` | `0 0` |
+| after | `inserted 0`, 2 sites listed as written afterwards, file unchanged | `1 1` |
+
+## Test
+
+`tests/cli-cases/fix-migrate-explicit-copy-conditional-arm` runs the
+reproducer's `if` shape, a `match` whose arm is a block ending in a nested
+`if`, and a conditional binding that is never written. A trailing
+`build run` runs the migrated program. Its goldens expect the five `target`
+arm copies listed, the two `seen` copies cloned (`inserted 2`), and `2 2 2`.
+With the pre-fix binary the case is GOLDEN-DIFF: it inserts 7 and prints
+`0 0 0`.
 
 The 89 `return:` insertions of the 2026-10-22 regeneration
 (`plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-22.md` lists only the
