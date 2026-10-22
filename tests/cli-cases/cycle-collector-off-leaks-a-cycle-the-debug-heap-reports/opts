@@ -1,0 +1,9 @@
+# `--cycle-collector off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1, W1):
+# the fixture's garbage cycle is tracked and collected under the default
+# `auto`, untracked and leaked under `off`, and the `--debug-heap` oracle's
+# live-at-exit count is the leak's only witness under `off`. The last command
+# pins the flag's validation. The test binary's output rides the runner's `-v`
+# output with its build chatter, so stdout keeps only the probe line, the
+# report's live-at-exit count and the error.
+stdout_keep_match=(cycle: tracked [0-9]+, disposed [0-9]+|live at exit: [0-9]+ blocks|invalid --cycle-collector .*)
+timeout=600

@@ -1,0 +1,10 @@
+# plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §7 W1: tests/cycle_collector.test.yo
+# runs under both `--cycle-collector` modes with its leak expectations flipped.
+# The language suite runs it under the default `auto`; this case is its `off`
+# run (the file reads the mode through the runtime's hook and expects every
+# garbage cycle to stay undisposed). Only the summary is kept: the batch
+# compile's chatter moves with the compiler. The leak verdict is off because
+# leaking is the expectation here; the file's `Drop` counters are the oracle.
+env=YO_TEST_LEAK_VERDICT=0
+stdout_keep=^(\$ yo |rc=|.*[0-9]+ passed|yo: error)
+timeout=900

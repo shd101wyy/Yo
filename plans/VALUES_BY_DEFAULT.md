@@ -7997,7 +7997,8 @@ release placement is the VBD session's call in
 
 1. **W1 — `--cycle-collector off`** and `build.cycle_collector`
    (compiler-only; the lightweight runtime forced, `Gc` no-ops, docs).
-   Any time; it is the measurement instrument.
+   Any time; it is the measurement instrument. Built 2026-10-22
+   (`WEAK_AND_UNCOLLECTED_RC.md` §1, "As built").
 2. **W2 — `Arc`, `Mutex`, `RwLock`, `Channel` and the thread APIs
    without `Acyclic`** (std and docs; the S2 issue retired). Any time
    after Part A (landed 2026-10-21; the isolated-transfer type is gone),
