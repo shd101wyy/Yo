@@ -974,3 +974,75 @@ test("a local derive's error reaches comptime_expect_error", {
   LdS :: struct(s : String);
   comptime_expect_error(derive(LdS, Copy, Clone), "its field `s` has type `String`");
 });
+// ============================================================================
+// An exit from a derive-generated body before a value local is moved drops
+// it, as the same body written by hand does: an early `return` and an effect
+// `unwind` both release `__x` before it reaches `Self(x : __x, …)`
+// (issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md).
+(mut(g_de_exit_drops) : i32) = i32(0);
+DeExitB :: struct(n : i32);
+impl(
+  DeExitB,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_de_exit_drops = (g_de_exit_drops + i32(1));
+    })
+  )
+);
+_de_exit_get :: (fn(k : i32) -> Option(DeExitB))(
+  cond(
+    (k == i32(0)) => .Some(DeExitB(n : k)),
+    true => .None
+  )
+);
+DeExitRaise :: (ctl() -> unit);
+_de_exit_get_or_raise :: (fn(k : i32, raise : DeExitRaise) -> DeExitB)({
+  cond(
+    (k != i32(0)) => raise(),
+    true => ()
+  );
+  DeExitB(n : k)
+});
+DeExitMake :: trait(
+  de_make : (fn(k : i32) -> Result(Self, i32)),
+  de_make_unwind : (fn(k : i32) -> Result(Self, i32))
+);
+__derive_de_exit_make :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  ret_body :: "({ __x := match(_de_exit_get(i32(0)), .Some(__j) => __j, .None => { return(.Err(i32(1))); }); __y := match(_de_exit_get(k), .Some(__j) => __j, .None => { return(.Err(i32(2))); }); .Ok(Self(x : __x, y : __y)) })";
+  unwind_body :: "({ (raise : DeExitRaise) = (() -> { unwind(.Err(i32(3))); }); __x := _de_exit_get_or_raise(i32(0), raise); __y := _de_exit_get_or_raise(k, raise); .Ok(Self(x : __x, y : __y)) })";
+  ctx.make_impl(
+    quote(
+      DeExitMake(
+        de_make : (k -> unquote(ret_body.to_expr())),
+        de_make_unwind : (k -> unquote(unwind_body.to_expr()))
+      )
+    )
+  )
+});
+derive_rule(DeExitMake, __derive_de_exit_make);
+DeExitPair :: struct(x : DeExitB, y : DeExitB);
+derive(DeExitPair, DeExitMake);
+_de_exit_make_is_err :: (fn(k : i32) -> bool)({
+  r := DeExitPair.de_make(k);
+  r.is_err()
+});
+_de_exit_make_unwind_is_err :: (fn(k : i32) -> bool)({
+  r := DeExitPair.de_make_unwind(k);
+  r.is_err()
+});
+test("an early return from a derive-generated body drops a live value local", {
+  g_de_exit_drops = i32(0);
+  assert(_de_exit_make_is_err(i32(1)), "the second lookup fails");
+  assert(g_de_exit_drops == i32(1), "__x is dropped once before the early return");
+  g_de_exit_drops = i32(0);
+  assert(!_de_exit_make_is_err(i32(0)), "both lookups succeed");
+  assert(g_de_exit_drops == i32(2), "the result owns both values; nothing is dropped twice");
+});
+test("an effect unwind out of a derive-generated body drops a live value local", {
+  g_de_exit_drops = i32(0);
+  assert(_de_exit_make_unwind_is_err(i32(1)), "the handler unwinds out of de_make_unwind");
+  assert(g_de_exit_drops == i32(1), "__x is dropped once on the unwind");
+  g_de_exit_drops = i32(0);
+  assert(!_de_exit_make_unwind_is_err(i32(0)), "no unwind");
+  assert(g_de_exit_drops == i32(2), "the result owns both values; nothing is dropped twice");
+});

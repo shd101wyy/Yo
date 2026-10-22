@@ -1,0 +1,40 @@
+{ println } :: import("std/fmt");
+Raise :: (ctl() -> unit);
+Q :: struct(n : i32);
+Make :: trait(make : (fn(k : i32, raise : Raise) -> Self));
+impl(
+  Q,
+  Make(
+    make : (fn(k : i32, raise : Raise) -> Self)({
+      raise();
+      Q(n : k)
+    })
+  )
+);
+plain_make :: (fn(k : i32, raise : Raise) -> Q)({
+  raise();
+  Q(n : k)
+});
+via_trait :: (fn() -> i32)({
+  (raise : Raise) = (
+    () -> {
+      unwind(i32(7));
+    }
+  );
+  q := Q.make(i32(0), raise);
+  q.n
+});
+via_plain_fn :: (fn() -> i32)({
+  (raise : Raise) = (
+    () -> {
+      unwind(i32(8));
+    }
+  );
+  q := plain_make(i32(0), raise);
+  q.n
+});
+main :: (fn() -> unit)({
+  println(via_plain_fn());
+  println(via_trait());
+});
+export(main);

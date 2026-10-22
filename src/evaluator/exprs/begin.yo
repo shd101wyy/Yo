@@ -3423,6 +3423,13 @@ _evaluate_begin_expression_impl :: (
   // is released by nobody. Codegen's escape checks emit them position-gated
   // (only at escape points BEFORE the consumption — see
   // `generate_consumed_var_drops_for_escape`'s moved-before-cleanup gate).
+  // A local or parameter of code the compiler parsed from a string
+  // (`auto-generated://`: a `derive_rule` body built with `.to_expr()`) is
+  // eligible like a written one. The attach walk and the escape gate order
+  // tokens within ONE stream and decline when the exit and the consumption
+  // cannot be ordered, so they need no module-path exemption. One used to
+  // sit here, and every early exit of a derive-generated body skipped the drop
+  // (issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md).
   match(
     current_frame_opt,
     .Some(fr2) => {
@@ -3432,8 +3439,7 @@ _evaluate_begin_expression_impl :: (
         match(
           fr2.variables.get(evi),
           .Some(ev) => {
-            not_auto := !ev.token.module_path.starts_with(String.from("auto-generated://"));
-            eligible := (ev.consumed_at_token.is_some() && ev.initialized_at_token.is_some() && not_auto && (!_variable_is_captured_by_current_function(&ev, ctx) && _variable_can_need_drop_ignoring_consumed(&ev)));
+            eligible := (ev.consumed_at_token.is_some() && ev.initialized_at_token.is_some() && (!_variable_is_captured_by_current_function(&ev, ctx) && _variable_can_need_drop_ignoring_consumed(&ev)));
             init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(&begin_tok, &it), .None => false);
             if(eligible && init_ok, {
               drop_code := `___drop(${ev.name})`;
@@ -3471,8 +3477,7 @@ _evaluate_begin_expression_impl :: (
           match(
             params_fr2.variables.get(pei),
             .Some(pev) => {
-              p_not_auto := !pev.token.module_path.starts_with(String.from("auto-generated://"));
-              p_eligible := (pev.is_parameter && (pev.consumed_at_token.is_some() && (pev.initialized_at_token.is_some() && (p_not_auto && (!_variable_is_captured_by_current_function(&pev, ctx) && _variable_can_need_drop_ignoring_consumed(&pev))))));
+              p_eligible := (pev.is_parameter && (pev.consumed_at_token.is_some() && (pev.initialized_at_token.is_some() && (!_variable_is_captured_by_current_function(&pev, ctx) && _variable_can_need_drop_ignoring_consumed(&pev)))));
               if(p_eligible, {
                 p_drop_code := `___drop(${pev.name})`;
                 p_drop_expr := generate_expr_from_code(&p_drop_code, exn);
