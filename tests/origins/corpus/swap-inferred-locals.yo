@@ -1,0 +1,18 @@
+// N0 corpus row `swap-inferred-locals` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: `swap` on unannotated reference locals: their flow-inferred sets widen to {x, y} at the `&mut` lends (O2; §7, flow inference at a `&mut` lend).
+// Expected once decision 43's rules land: accepted (as Rust accepts it).
+_swap :: (fn(generic(r : Origin), a : &mut&(i32, r), b : &mut&(i32, r)) -> unit)({
+  t := a.*;
+  a.* = b.*;
+  b.* = t;
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  mut(ra) := &x;
+  mut(rb) := &y;
+  _swap(&mut ra, &mut rb);
+  _ := (ra.* + rb.*);
+  ()
+});
+export(main);

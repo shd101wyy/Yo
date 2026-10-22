@@ -1,0 +1,20 @@
+// N0 corpus row `effect-resume-capture` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a handler resuming with a view of a capture: its result origins may name the operation's parameters, never the handler's captures (O7 effect handlers).
+// Expected once decision 43's rules land: rejected: the resume value's origin `x` is not within the operation's `key`.
+_Ask :: (ctl(key : &i32) -> &(i32, key));
+_use :: (fn(ask : _Ask) -> i32)({
+  k := i32(1);
+  r := ask(&k);
+  r.*
+});
+main :: (fn() -> unit)({
+  x := i32(5);
+  (ask : _Ask) = (
+    key -> {
+      return(&x);
+    }
+  );
+  _ := _use(ask);
+  ()
+});
+export(main);

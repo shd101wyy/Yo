@@ -1,0 +1,14 @@
+// N0 corpus row `rc-mut-through-deref` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): `&mut h.*.x` through an `Rc` (O9, decision 46) — expressible today.
+// Expected once decision 43's rules land: rejected: E0919 (today too).
+_X :: struct(x : i32);
+derive(_X, Copy, Clone);
+_bump :: (fn(v : &mut i32) -> unit)({
+  v = (v + i32(1));
+});
+main :: (fn() -> unit)({
+  h := rc(_X(x : i32(1)));
+  _bump(&mut h.*.x);
+  ()
+});
+export(main);

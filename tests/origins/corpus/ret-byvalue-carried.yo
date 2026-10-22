@@ -1,0 +1,12 @@
+// N0 corpus row `ret-byvalue-carried` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: a result naming the origin a by-value parameter CARRIES, not the parameter's own slot (O3 return rule, the control for `ret-byvalue-param`; the superseded design's `parse_int(input)` row).
+// Expected once decision 43's rules land: accepted.
+_View :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(r : &(i32, p), n : i32));
+_first :: (fn(generic(p : Origin), v : _View(p)) -> &(i32, p))(v.r);
+main :: (fn() -> unit)({
+  x := i32(1);
+  r := _first(_View(x)(r : &x, n : i32(0)));
+  _ := r.*;
+  ()
+});
+export(main);

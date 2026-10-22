@@ -1,0 +1,15 @@
+// N0 corpus row `push-outside-union` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a push outside the declared union (O6).
+// Expected once decision 43's rules land: rejected: the union-violating push, naming {x, y} and {z}.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := i32(2);
+  z := i32(3);
+  mut(both) := ArrayList(&(i32, (x, y))).new();
+  both.push(&x);
+  both.push(&z);
+  _ := (y + both.len());
+  ()
+});
+export(main);

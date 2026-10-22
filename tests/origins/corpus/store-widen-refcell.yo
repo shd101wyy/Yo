@@ -1,0 +1,20 @@
+// N0 corpus row `store-widen-refcell` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a widening through a lent `&RefCell(&(T, p))` (O3-3: a `RefCell` payload is invariant).
+// Expected once decision 43's rules land: rejected: `r` is fixed to `x` through the `RefCell` payload.
+{ RefCell } :: import("std/sync/refcell");
+_store_cell :: (fn(generic(r : Origin), c : &RefCell(Option(&(i32, r))), v : &(i32, r)) -> unit)(
+  c.with_mut(s => {
+    s = .Some(v);
+  })
+);
+main :: (fn() -> unit)({
+  x := i32(1);
+  cell := RefCell(Option(&(i32, x))).new(.Some(&x));
+  {
+    y := i32(2);
+    _store_cell(&cell, &y);
+  };
+  _ := cell.with(s => s.is_some());
+  ()
+});
+export(main);

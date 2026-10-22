@@ -1,0 +1,9 @@
+// N0 corpus row `ret-byvalue-param` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a result naming a by-value parameter's own place (the return rule; E0912's rule).
+// Expected once decision 43's rules land: rejected: E0912, a by-value parameter's slot is the callee's frame.
+_own :: (fn(v : i32) -> &(i32, v))(&v);
+main :: (fn() -> unit)({
+  _ := _own(i32(1));
+  ()
+});
+export(main);

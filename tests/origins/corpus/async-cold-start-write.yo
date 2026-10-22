@@ -1,0 +1,17 @@
+// N0 corpus row `async-cold-start-write` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a future capturing `&mut x` made, then `x` written before the await (O8; expected hole: captures in a state machine across a cold start).
+// Expected once decision 43's rules land: rejected: E0911 at the write.
+_run :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    mut(x) := i32(1);
+    fut := io.async({ &mut x }(io : Io) => {
+      x = (x + i32(1));
+    });
+    x = i32(5);
+    io.await(fut, io);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  io.await(_run(io), io);
+});
+export(main);

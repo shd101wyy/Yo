@@ -590,6 +590,32 @@ findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not
 drift. Grep separately inside `quote(`, `impl(` and `io.async(` bodies; the
 compiler will not name those sites for you.
 
+## Decision 43's origins corpus: `tests/origins/` is not run by `yo test`
+
+`tests/origins/corpus/<id>.yo` holds decision 43's N0 corpus
+(`plans/backlog/REFERENCES_AND_ORIGINS.md` §8): programs spelled in the
+origin syntax N1–N3 will land. Most cannot pass before those phases, so they
+are plain `.yo` files, never `.test.yo`, and the language suite never runs
+them. Their gate is `scripts/origins-corpus.sh`, run from the repository
+root with the binary to test:
+
+```bash
+YO=yo-out/x86_64-unknown-linux-gnu/bin/yo bash scripts/origins-corpus.sh today   # the N0 gate, about 6 minutes
+PHASES=N1 YO=... bash scripts/origins-corpus.sh target                           # a later phase's gate
+```
+
+- `tests/origins/corpus.tsv` is the manifest: each row's anchor, kind,
+  phase, the verdict expected once the rules land, and what `yo check` does
+  today (the first error's code and a text it contains). `today` mode fails
+  when a row's first error changes. A change can be progress or a
+  regression: decide which, then re-record the row's `today` column.
+- `tests/origins/model_corpus.test.yo` IS in the fast suite. It runs every
+  row through the reference checker `tests/origins/model.yo` and asserts the
+  manifest's `expect` column. A new row needs the fixture, the manifest row
+  and a `verdict("<id>", …, "<expect>");` call; the script cross-checks all
+  three.
+- The runner is not wired into CI.
+
 ## Build system tests
 
 - The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `resolver.test.yo`, `manifest.test.yo`, `toml_edit.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.

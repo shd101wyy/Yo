@@ -1,0 +1,29 @@
+// N0 corpus row `cursor-two-items` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: two items from one `&mut` cursor held at once (O3 step 2).
+// Expected once decision 43's rules land: accepted.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+_Cursor :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(xs : &mut(ArrayList(i32), p), i : usize));
+_iter_mut :: (fn(xs : &mut ArrayList(i32)) -> _Cursor(xs))(_Cursor(xs)(xs : xs, i : usize(0)));
+_next :: (fn(generic(p : Origin), self : &mut _Cursor(p)) -> Option(&mut(i32, p)))(
+  cond(
+    (self.i < self.xs.len()) => {
+      k := self.i;
+      self.i = (k + usize(1));
+      .Some(unsafe(&mut self.xs.ptr().unwrap().add(k).*))
+    },
+    true => .None
+  )
+);
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  mut(it) := _iter_mut(&mut xs);
+  a := _next(&mut it);
+  b := _next(&mut it);
+  _ := a.is_some();
+  _ := b.is_some();
+  ()
+});
+export(main);

@@ -1,0 +1,21 @@
+// N0 corpus row `get2-mut-pair` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): POSITIVE: `get2_mut`'s two `&mut(T, xs)` out of one lend, both held (O3 step 2).
+// Expected once decision 43's rules land: accepted.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+_get2_mut :: (fn(xs : &mut ArrayList(i32), i : usize, j : usize, requires(i != j)) -> Tuple(&mut(i32, xs), &mut(i32, xs)))(
+  unsafe({
+    base := xs.ptr().unwrap();
+    (&mut base.add(i).*, &mut base.add(j).*)
+  })
+);
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  (a, b) := _get2_mut(&mut xs, usize(0), usize(1));
+  a.* = i32(3);
+  b.* = i32(4);
+  ()
+});
+export(main);

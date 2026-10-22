@@ -1,0 +1,21 @@
+// N0 corpus row `drop-order-user-drop` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a container with a user `Drop` declared before its root: the drop uses the roots, so the root's earlier scope-end drop conflicts (expected hole: drop order x `may_dangle`).
+// Expected once decision 43's rules land: rejected: E0911 at `x`'s scope-end drop.
+{ ArrayList } :: import("std/collections/array_list");
+_Log :: (fn(comptime(p) : Origin) -> comptime(Type))(struct(items : ArrayList(&(i32, p))));
+impl(
+  generic(p : Origin),
+  _Log(p),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _ := self.items.len();
+    })
+  )
+);
+main :: (fn() -> unit)({
+  mut(log) := _Log(items : ArrayList(&i32).new());
+  x := i32(1);
+  log.items.push(&x);
+  ()
+});
+export(main);

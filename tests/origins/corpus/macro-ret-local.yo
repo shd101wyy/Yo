@@ -1,0 +1,19 @@
+// N0 corpus row `macro-ret-local` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a macro expansion returning a borrow of a local it declares, from the caller's frame (O3 return rule, §5 route 1; §4's macro lowering).
+// Expected once decision 43's rules land: rejected: E0912 inside the expansion.
+pragma(Pragma.AllowMacroDef);
+_lend_new :: (fn(quote(v) : Expr) -> unquote(Expr))(
+  quote({
+    y := unquote(v);
+    return(&y);
+  })
+);
+_pick :: (fn(xs : &i32) -> &i32)({
+  _lend_new(i32(2));
+});
+main :: (fn() -> unit)({
+  x := i32(1);
+  _ := _pick(&x);
+  ()
+});
+export(main);

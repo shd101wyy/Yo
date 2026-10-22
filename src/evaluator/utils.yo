@@ -65,7 +65,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_capture_type,
   expr_info_set_deferred_dup_expressions,
   expr_info_index_trait_ptr_type,
-  lookup_method_callee_type
+  lookup_method_callee_type,
+  mark_call_scoped_share_dup
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -3649,6 +3650,13 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
             .Atom(_, _) => ()
           );
           g_dup_use_site_tokens.insert(ast_expr_id(&dup_expr), ast_expr_token(rhs));
+          // The post-call drop below balances this +1, so it is never a
+          // dup/drop pair candidate: cancelling it against a forced source's
+          // scope-end drop (`f(&mut xs, &xs)`) skipped that drop and emitted
+          // neither half of the pair, so the source leaked and the `&`
+          // argument lost the +1 that keeps it alive
+          // (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
+          mark_call_scoped_share_dup(ast_expr_id(&dup_expr));
           dup_list := ArrayList(AstExpr).new();
           dup_list.push(dup_expr);
           expr_info_set_deferred_dup_expressions(&ei, Option(ArrayList(AstExpr)).Some(dup_list));

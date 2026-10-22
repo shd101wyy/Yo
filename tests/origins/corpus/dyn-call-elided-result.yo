@@ -1,0 +1,15 @@
+// N0 corpus row `dyn-call-elided-result` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): a call through `Dyn(Trait)` maps its result from the trait method's signature: an elided result covers every reference parameter, so `o` stays frozen (§5 route 5).
+// Expected once decision 43's rules land: rejected: E0911 at the write to `o` while `r` lives.
+_Pick :: trait(pick : (fn(self : &Self, other : &i32) -> &i32));
+_P :: struct(v : i32);
+impl(_P, _Pick(pick : (fn(self : &Self, other : &i32) -> &i32)(&self.v)));
+main :: (fn() -> unit)({
+  (d : Dyn(_Pick)) = dyn(_P(v : i32(1)));
+  mut(o) := i32(2);
+  r := d.pick(&o);
+  o = i32(3);
+  _ := r.*;
+  ()
+});
+export(main);

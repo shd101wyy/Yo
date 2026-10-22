@@ -1,0 +1,15 @@
+// N0 corpus row `index-mut-twice` (plans/backlog/REFERENCES_AND_ORIGINS.md §8 N0;
+// manifest tests/origins/corpus.tsv): `&mut xs(i)` beside `&mut xs(j)`: index places on one root overlap whatever the indices (O3 step 2, decision 28's overlap; the superseded design's index row).
+// Expected once decision 43's rules land: rejected: E0911 at the second lend.
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  a := &mut xs(usize(0));
+  b := &mut xs(usize(1));
+  a.* = i32(3);
+  b.* = i32(4);
+  ()
+});
+export(main);
