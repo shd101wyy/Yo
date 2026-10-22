@@ -40,7 +40,7 @@ Raw :: struct(p : ?*u8);
 
 原子对象的所有副本共享同一个载荷，所以只有当该载荷是 `Sync` 时它才是 `Send`。`Mutex(T)` 是一个例外，恰好印证了这条规则：它一次只把 `T` 交给一个线程，所以只要 `T` 是 `Send`，它就是 `Sync`。
 
-标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync, Acyclic)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: (Send, Acyclic)`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
+标准库类型遵循同样的划分。在线程之间共享载荷的类型要求 `Sync`：`Arc(T)` 和 `RwLock(T)`（并发的读守卫）要求 `T <: (Send, Sync)`。一次只把载荷交给一个线程的类型只要求 `Send`：`Mutex(T)` 和 `Channel(T)` 要求 `T <: Send`。因此，一个是 `Send` 但用 `impl(T, !(Sync()))` 退出 `Sync` 的类型可以放进 `Mutex` 或通过 `Channel` 传递，但不能放进 `Arc`。
 
 `String` 和各集合类型目前还不是 `Send`：它们的缓冲区现在是一个共享的、非原子计数的单元，留在发送线程上的副本会在计数上产生竞争。一旦它们的缓冲区变为唯一所有（`plans/VALUES_BY_DEFAULT.md` V2b），移动一个值就是交出它唯一的所有者，`Channel(String)` 无需修改编译器即可工作。在那之前，`String` 或集合不能跨线程：通过 `Arc` 共享同时满足 `Send` 和 `Sync` 的数据，在接收线程上用 `Send` 的部分重建该值，或将其序列化。`Rc` 对象图只属于它所在的线程（Rust 的规则）；`Rc.try_unwrap` 从唯一持有的 `Rc` 中取出值，该值是 `Send` 时就可以移动。过去覆盖这种情况的一次性隔离移交已在 v0.2.68 中移除（`plans/backlog/MACRO_AND_ISO_REMOVAL.md`）。
 

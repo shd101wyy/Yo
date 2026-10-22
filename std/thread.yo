@@ -78,7 +78,7 @@ extern(
 /// however many copies of the handle exist
 /// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md).
 Thread :: (
-  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+  fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
 )(
   ref(
     struct(
@@ -93,7 +93,7 @@ Thread :: (
 impl(
   generic(T : Type),
   Thread(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   /// Spawn a new OS thread running the given closure.
   /// The closure receives its own per-thread Io event loop.
   /// `sink(cb) : Impl(FnOnce(...), Send)` (plans/VALUES_BY_DEFAULT.md
@@ -140,7 +140,7 @@ impl(
 impl(
   generic(T : Type),
   Thread(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       cond(
@@ -382,7 +382,7 @@ spawn :: (fn(pool : &ThreadPool, sink(cb) : Impl(FnOnce(io : Io) -> unit, Send))
 /// every specialization — the first `T` won and every other one miscompiled
 /// (this helper is the fix; no issue doc was filed).
 _take_blocking_result :: (
-  fn(generic(T : Type), chan : &Channel(T), where(T <: (Send, Acyclic))) -> T
+  fn(generic(T : Type), chan : &Channel(T), where(T <: Send)) -> T
 )(
   match(
     chan.try_recv(),
@@ -402,7 +402,7 @@ spawn_blocking :: (
     generic(T : Type),
     sink(cb) : Impl(Fn() -> T, Send),
     io : Io,
-    where(T <: (Send, Acyclic))
+    where(T <: Send)
   ) -> Impl(Future(T, Io))
 )({
   // EAGER: the worker starts here, in the function body, and the returned

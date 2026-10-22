@@ -1,49 +1,63 @@
 # An `Arc` cycle through `Mutex` passes the `Acyclic` bound
 
 **Severity:** S2 — a value struct that reaches itself through
-`Arc(Mutex(Self))` is derived `Acyclic`, so `arc` and `Mutex` accept it and a
-program can close an `Arc` cycle; atomic cells are never cycle-collected
-(`docs/en-US/ARC.md`), so the cycle leaks for the life of the process. The
-bound exists to reject exactly this shape. Bounded: it needs a
-self-recursive payload type and a write under the lock.
+`Arc(Mutex(Self))` (or `Arc(Self)`) is derived `Acyclic`, so a
+`where(T <: Acyclic)` bound accepts a type whose values can close a cycle of
+strong edges. The marker exists to reject exactly this shape. Bounded: it
+needs a self-recursive payload type, and since decision 48 W2 no std API
+requires the bound, so only a user-written bound reads the wrong answer.
 
-**Status:** open. **Found:** 2026-10-21 with the v0.2.67 seed, while
-answering the maintainer's question whether an `UnsafeArc` without the
-`Acyclic` bound is needed (it already is not enforced for this shape).
+**Status:** open, as a DERIVATION bug; retired as a LEAK by W2.
+**Found:** 2026-10-21 with the v0.2.67 seed, while answering the
+maintainer's question whether an `UnsafeArc` without the `Acyclic` bound is
+needed (it already is not enforced for this shape).
+
+**2026-10-22, decision 48 W2** (`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`
+§2, §4): `Arc`, `Mutex`, `RwLock`, `OnceCell`, `Channel`/`Sender`/`Receiver`
+and `Thread` no longer require `Acyclic`, as Rust's do not. The `Arc` cycle
+this doc first reported is now a legal program that leaks by design
+(`docs/en-US/ARC.md` §Cycles), and the leak is observable under
+`--allocator fixed --debug-heap`
+(`tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle`). What stays wrong
+is the derivation: `Acyclic` remains a derived structural marker (plan
+verdict 5) that user bounds will read, and it answers `true` for `Node`. The
+fix is plan phase W5. Until then the reproducer below is the derivation test
+W5 turns into a `tests/send_sync.test.yo` row.
 
 ## Reproducer
 
 `issues/repros/2026-10-21-an-arc-cycle-through-mutex-passes-the-acyclic-bound.yo`:
 
 ```yo
-pragma(Pragma.AllowUnsafe);
-{ printf } :: import("std/libc/stdio.yo");
+{ println } :: import("std/fmt");
 { Mutex } :: import("std/sync/mutex");
-Gc :: import("std/gc");
+// Each type reaches itself through an atomic cell, so none is Acyclic.
 Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
-form_cycle :: (fn() -> unit)({
-  a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
-  b := a;
-  a.with_lock(v => {
-    v.peer = .Some(b);
-  });
-});
+NodeDirect :: struct(id : i32, peer : Arc(Self));
+// Recursion with no cell on the back edge stays Acyclic.
+BoxNode :: struct(id : i32, next : Option(Box(Self)));
+NODE_ACYCLIC :: Type.impls(Node, Acyclic);
+ARC_NODE_ACYCLIC :: Type.impls(Arc(Mutex(Node)), Acyclic);
+NODE_DIRECT_ACYCLIC :: Type.impls(NodeDirect, Acyclic);
+BOX_NODE_ACYCLIC :: Type.impls(BoxNode, Acyclic);
 main :: (fn() -> unit)({
-  before := Gc.tracked_count();
-  form_cycle();
-  mid := Gc.tracked_count();
-  Gc.collect();
-  after := Gc.tracked_count();
-  unsafe(printf("before=%lu mid=%lu after=%lu\n", before, mid, after));
+  println(`Node <: Acyclic: ${NODE_ACYCLIC} (expected false)`);
+  println(`Arc(Mutex(Node)) <: Acyclic: ${ARC_NODE_ACYCLIC} (expected false)`);
+  println(`NodeDirect <: Acyclic: ${NODE_DIRECT_ACYCLIC} (expected false)`);
+  println(`BoxNode <: Acyclic: ${BOX_NODE_ACYCLIC} (expected true)`);
 });
 export(main);
 ```
 
-`yo check` accepts it. Compiled with `--sanitize address --allocator system`
-and run with `ASAN_OPTIONS=detect_leaks=1`, LeakSanitizer reports 112 bytes
-leaked in 3 allocations (the `Arc` cell, the mutex, the payload's box); the
-program prints `before=0 mid=0 after=0` (`Gc.tracked_count` never sees an
-`Arc`, by design).
+With the tree at `feat/arc-without-acyclic` (2026-10-22) the first three
+lines print `true`; the fourth prints `true`, as it should.
+
+Before W2 the original reproducer formed the cycle: `yo check` accepted
+`arc(Mutex(Node).new(...))` with `Node.peer` set under the lock, and with
+`--sanitize address --allocator system`, `ASAN_OPTIONS=detect_leaks=1`,
+LeakSanitizer reported 112 bytes leaked in 3 allocations (the `Arc` cell,
+the mutex, the payload's box). That program is now valid and its leak is
+the documented behaviour.
 
 A control with the recursion spelled through a non-atomic cell
 (`Option(Rc(RefCell(Self)))`) is the separate
@@ -56,9 +70,11 @@ The trait checker derives `Acyclic` for a value struct from its fields
 `value_acyclic_obligations`). `Node`'s field reaches `Arc(Mutex(Node))`;
 `Arc(V)` is an atomic object, whose `Acyclic` is answered from the
 definition-time registry (`can_type_form_rc_cycle`) rather than from its
-payload, and `Mutex(T)`'s `impl(..., where(T <: (Send, Acyclic)), Mutex(T),
-Acyclic())` needs `Node <: Acyclic` again, which is the obligation being
-derived. The recursion guard answers the in-progress pair coinductively
+payload. Before W2, `Mutex(T)`'s `impl(..., where(T <: (Send, Acyclic)),
+Mutex(T), Acyclic())` needed `Node <: Acyclic` again, which is the obligation
+being derived; W2 deleted that impl and the answer did not change, and
+`NodeDirect` (`Arc(Self)`, no `Mutex`) answers the same, so the re-entry is
+through `Arc`'s own payload walk. The recursion guard answers the in-progress pair coinductively
 (`g_trait_check_recursion_guard` / `g_ondemand_marker_guard`), which is
 right for `Send` (a type is `Send` unless some field is not) and wrong for
 `Acyclic` (a type that reaches itself through a cell IS cyclic). The same
@@ -68,15 +84,20 @@ value-struct path through an atomic cell has no such re-rooting.
 
 ## Expected
 
-`arc(Mutex(Node).new(...))` (and `Mutex(Node).new` before it) is rejected:
-`Node` is not `Acyclic`, because it reaches itself through `Arc(Mutex(Self))`.
-The fix is in the derivation: when the `Acyclic` obligation for a value
-struct re-enters itself through an atomic cell, the answer is "not
-Acyclic", exactly as `can_type_form_rc_cycle` answers for a reference root.
-A recursive value type with no cell on the back edge (`Option(Box(Self))`,
-`ArrayList(Self)`) must stay `Acyclic`.
+`Type.impls(Node, Acyclic)` is `false`: `Node` reaches itself through
+`Arc(Mutex(Self))`. The fix is in the derivation (W5): when the `Acyclic`
+obligation for a value struct re-enters itself through an atomic cell, the
+answer is "not Acyclic", exactly as `can_type_form_rc_cycle` answers for a
+reference root. A recursive value type with no cell on the back edge
+(`Option(Box(Self))`, `ArrayList(Self)`) must stay `Acyclic`.
 
 ## Test
 
-The reproducer, as a `comptime_expect_error` case in `tests/send_sync.test.yo`
-(the `Acyclic` bound's home), beside a positive control for `Option(Box(Self))`.
+At W5: the reproducer's four verdicts as `comptime_assert` rows in
+`tests/send_sync.test.yo` (the `Acyclic` marker's home), `BoxNode` the
+positive control. A `comptime_expect_error` on a bound no longer applies:
+std carries no `Acyclic` bound after W2.
+
+A related shape with a different cause, an object that holds a cyclic cell
+behind an `Option` or a raw pointer (`OnceCell(Cyclic)`, `Channel(Cyclic)`), is
+`issues/2026-10-22-an-object-holding-a-cyclic-cell-behind-an-option-or-a-pointer-derives-acyclic.md`.

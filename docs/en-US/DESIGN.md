@@ -4194,10 +4194,12 @@ Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programm
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
 a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Sync, Acyclic)`: `Sync` because every handle reads the payload
-from its own thread, `Send` because the last handle may be dropped (and the payload disposed) on
-any thread, and `Acyclic` because atomic RC is not cycle-collected. So it only wraps
-thread-shareable values, and `Arc(T)` is itself `Send` and `Sync` under that bound. Use `Arc(T)` when you want to share a single value.
+`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Sync)`: `Sync` because every handle reads the payload
+from its own thread, and `Send` because the last handle may be dropped (and the payload disposed) on
+any thread. So it only wraps thread-shareable values, and `Arc(T)` is itself `Send` and `Sync`
+under that bound. As in Rust, the payload need not be `Acyclic`: atomic RC is not
+cycle-collected, so a cycle of `Arc` handles leaks unless a back edge is cleared first
+([ARC.md](./ARC.md#cycles)). Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
 ```yo

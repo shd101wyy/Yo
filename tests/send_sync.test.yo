@@ -289,3 +289,50 @@ test("a generic function's move-only closure parameter moves into a closure it p
   seen := AtomicI32(i32(9));
   assert(_ss_relay(() => seen.load(MemoryOrder.Acquire)) == i32(9), "the relay ran the moved closure");
 });
+// ============================================================================
+// Decision 48 W2: `Arc` and the sync types do not require `Acyclic`
+// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2)
+// ============================================================================
+// As in Rust, an `Arc` cycle is legal and leaks unless a back edge is
+// cleared. `SsPeer` reaches itself through `Arc(Mutex(Self))`; the leak
+// itself, seen by `--debug-heap`, is the cli-case
+// tests/cli-cases/test-debug-heap-sees-an-arc-mutex-cycle.
+SsPeer :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+test("an Arc(Mutex(Node)) cycle compiles, and clearing the back edge breaks it", {
+  a := arc(Mutex(SsPeer).new(SsPeer(id : i32(1), peer : .None)));
+  b := a;
+  a.with_lock(v => {
+    v.peer = .Some(b);
+  });
+  assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
+  a.with_lock(v => {
+    v.peer = .None;
+  });
+  assert(a.with_lock(v => v.peer.is_none()), "the back edge is cleared");
+});
+// A cyclic atomic payload: `Send` and `Sync`, never `Acyclic`. Each container
+// takes it, and the derived marker on the container still says no.
+SsCyclic :: atomic(ref(struct(v : i32, next : Option(Self))));
+test("Arc, Mutex, RwLock, Channel and Thread take a cyclic payload", {
+  comptime_assert(Type.impls(SsCyclic, Send) && Type.impls(SsCyclic, Sync), "the payload may cross threads");
+  comptime_assert(!Type.impls(SsCyclic, Acyclic), "the payload reaches itself");
+  comptime_assert(!Type.impls(Arc(SsCyclic), Acyclic), "an Arc of it is not Acyclic");
+  comptime_assert(!Type.impls(Mutex(SsCyclic), Acyclic), "a Mutex of it is not Acyclic");
+  comptime_assert(!Type.impls(RwLock(SsCyclic), Acyclic), "an RwLock of it is not Acyclic");
+  comptime_assert(Type.impls(Mutex(i32), Acyclic) && Type.impls(Arc(i32), Acyclic), "an acyclic payload keeps the container Acyclic");
+  a := arc(SsCyclic(v : i32(1), next : .None));
+  assert(a.*.v == i32(1), "the Arc holds the node");
+  m := Mutex(SsCyclic).new(SsCyclic(v : i32(2), next : .None));
+  assert(m.with_lock(n => n.v) == i32(2), "the Mutex holds the node");
+  l := RwLock(SsCyclic).new(SsCyclic(v : i32(3), next : .None));
+  assert(l.with_read(n => n.v) == i32(3), "the RwLock holds the node");
+  ch := Channel(SsCyclic).new(usize(1));
+  _sent := ch.send(SsCyclic(v : i32(4), next : .None));
+  match(
+    ch.recv(),
+    .Some(n) => assert(n.v == i32(4), "the node moved through the Channel"),
+    .None => assert(false, "a node was sent")
+  );
+  t := Thread(SsCyclic).spawn((tio : Io) => SsCyclic(v : i32(5), next : .None));
+  assert(t.join().v == i32(5), "the node came back from the thread");
+});

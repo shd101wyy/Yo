@@ -1,0 +1,15 @@
+{ assert } :: import("std/assert");
+{ Mutex } :: import("std/sync/mutex");
+// Decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2): `Arc` no
+// longer requires `Acyclic`, so this cycle compiles. Atomic cells are never
+// cycle-collected: the cell, its mutex and the node stay live at exit, and
+// the `--debug-heap` report counts them.
+Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
+test("an Arc(Mutex(Node)) cycle is left closed", {
+  a := arc(Mutex(Node).new(Node(id : i32(1), peer : .None)));
+  b := a;
+  a.with_lock(v => {
+    v.peer = .Some(b);
+  });
+  assert(a.with_lock(v => v.peer.is_some()), "the cycle is closed");
+});

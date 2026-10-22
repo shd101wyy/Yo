@@ -1,0 +1,23 @@
+{ println } :: import("std/fmt");
+{ Channel } :: import("std/sync/channel");
+{ OnceCell } :: import("std/sync/once");
+// A cell type that reaches itself: not Acyclic, correctly.
+Cyclic :: atomic(ref(struct(v : i32, next : Option(Self))));
+// Objects that hold a `Cyclic` reach that cycle, so none of them is Acyclic.
+HoldsDirect :: atomic(ref(struct(x : Cyclic)));
+HoldsOption :: atomic(ref(struct(x : Option(Cyclic))));
+CYCLIC :: Type.impls(Cyclic, Acyclic);
+HOLDS_DIRECT :: Type.impls(HoldsDirect, Acyclic);
+HOLDS_OPTION :: Type.impls(HoldsOption, Acyclic);
+ARC_OPTION :: Type.impls(Arc(Option(Cyclic)), Acyclic);
+ONCE_CELL :: Type.impls(OnceCell(Cyclic), Acyclic);
+CHANNEL :: Type.impls(Channel(Cyclic), Acyclic);
+main :: (fn() -> unit)({
+  println(`Cyclic <: Acyclic: ${CYCLIC} (expected false)`);
+  println(`HoldsDirect <: Acyclic: ${HOLDS_DIRECT} (expected false)`);
+  println(`HoldsOption <: Acyclic: ${HOLDS_OPTION} (expected false)`);
+  println(`Arc(Option(Cyclic)) <: Acyclic: ${ARC_OPTION} (expected false)`);
+  println(`OnceCell(Cyclic) <: Acyclic: ${ONCE_CELL} (expected false)`);
+  println(`Channel(Cyclic) <: Acyclic: ${CHANNEL} (expected false)`);
+});
+export(main);

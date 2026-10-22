@@ -111,7 +111,7 @@ impl(
   /// you do not hold is undefined behaviour in the OS primitive, and a
   /// Windows `CRITICAL_SECTION` held twice would be released one level only.
   wait_with : (
-    fn(generic(T : Type), self : &Self, m : &Mutex(T), where(T <: (Send, Acyclic))) -> unit
+    fn(generic(T : Type), self : &Self, m : &Mutex(T), where(T <: Send)) -> unit
   )({
     m._park_begin();
     self._wait_raw(m._raw_handle_ptr());
@@ -156,7 +156,7 @@ impl(
   /// `m.with_lock(...)`, exactly as `wait_with`.
   /// PANICS unless the calling thread holds `m`, exactly as `wait_with`.
   wait_timeout_with : (
-    fn(generic(T : Type), self : &Self, m : &Mutex(T), timeout : Duration, where(T <: (Send, Acyclic))) -> bool
+    fn(generic(T : Type), self : &Self, m : &Mutex(T), timeout : Duration, where(T <: Send)) -> bool
   )({
     m._park_begin();
     woke := self._wait_timeout_raw(m._raw_handle_ptr(), timeout);

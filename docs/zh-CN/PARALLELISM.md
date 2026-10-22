@@ -47,14 +47,14 @@ Yo 提供两种并行执行机制：
 
 ```yo
 // `T` 是线程体产出的类型。`Thread(unit)` 即无返回值的线程；
-// 任何满足 `Send + Acyclic` 的类型都可以被带出线程。
+// 任何满足 `Send` 的类型都可以被带出线程。
 Thread :: (
-  fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type)
+  fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
 )(ref(struct(handle : __yo_thread_t, _joined : bool, _result : Channel(T))));
 impl(
   generic(T : Type),
   Thread(T),
-  where(T <: (Send, Acyclic)),
+  where(T <: Send),
   // 派生一个新的操作系统线程，运行给定的闭包。
   // 该闭包会获得自己的每线程 Io 事件循环。
   spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),

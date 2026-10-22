@@ -1,0 +1,9 @@
+# Decision 48 W2 (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §2): `Arc` no longer
+# requires `Acyclic`, so an `Arc(Mutex(Node))` cycle compiles and, never being
+# cycle-collected, leaks. Under `--allocator fixed --debug-heap` the exit report
+# counts the leaked blocks (the cell, the mutex, the node's box); the control
+# that clears the back edge first leaves none. The test binary's stderr rides
+# the runner's `-v` output with its build chatter, so stdout keeps only the
+# leak count and the pass line.
+stdout_keep_match=live at exit: [0-9]+ blocks / [0-9]+ bytes|[0-9]+ passed
+timeout=600
