@@ -860,6 +860,149 @@ test("Reject adjacent different operators without parentheses", {
   parse(`x := 1 + 2 * 3;`, `test.yo`, exn);
   assert(false, "expected an adjacent-different-operator parse error");
 });
+// ─── E0003's canonical-grouping hint ────────────────────────────────────────
+// The pair table these follow is in
+// issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md.
+/// Parse `src` and return the thrown diagnostic's text, "" when it parses
+/// (a handler is capture-free, so the text travels as the fn's value).
+_parse_error_text :: (fn(src : &String) -> String)({
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => unwind(ye.to_string()),
+          .None => unwind(String.from("<not a YoError>"))
+        );
+      }
+    )
+  );
+  parse(src, `test.yo`, exn);
+  String.new()
+});
+/// Parse `src`, expecting E0003. A non-empty `want` is the exact hint sentence
+/// the message must carry; an empty one means the pair has no canonical
+/// grouping, so the message must carry no hint at all.
+_expect_e0003 :: (fn(src : &String, want : &String) -> unit)({
+  s := _parse_error_text(src);
+  assert(s.contains(`Adjacent different operators need parentheses`), "expected E0003");
+  if(want.len() > usize(0), {
+    if(!s.contains(want), {
+      println(`E0003 hint mismatch: expected "${want}" in: ${s}`);
+      assert(false, "missing canonical grouping hint");
+    });
+  }, {
+    if(s.contains(`Wrap the right-hand side`) || s.contains(`Parenthesize`), {
+      println(`E0003 claims a grouping for a hint-free pair: ${s}`);
+      assert(false, "this mix has no canonical grouping");
+    });
+  });
+});
+test("E0003 names the wrap-the-right-side grouping for a binding operator", {
+  _expect_e0003(`x := 1 + 2;`, `Wrap the right-hand side in parentheses: name := (1 + 2).`);
+});
+test("E0003 names the wrap-the-right-side grouping for a fn-type annotation", {
+  // `:` next to a fn type is the biggest forced-paren population.
+  _expect_e0003(`next : fn() -> void;`, `Wrap the right-hand side in parentheses: name : (fn() -> void).`);
+});
+test("E0003 names the whole condition for a comparison before an arm arrow", {
+  _expect_e0003(
+    `cond(n <= i32(1) => i32(1), true => i32(0));`,
+    `Parenthesize the whole condition: (condition) => value.`
+  );
+});
+test("E0003 does not group inside a condition with two computational operators", {
+  // The parser stops at the INNERMOST operator (`&&`), so naming its operands,
+  // `(q && r) => value`, would pick `p == (q && r)`: a different program.
+  _expect_e0003(
+    `cond(p == q && r => i32(1), true => i32(0));`,
+    `Parenthesize the whole condition: (condition) => value.`
+  );
+});
+test("E0003 names the annotated-binding grouping for a typed assignment", {
+  // `x : i32 = v` groups on the LEFT — `(x : i32) = v`, never `x : (i32 = v)`.
+  _expect_e0003(`x : i32 = 5;`, `Parenthesize the annotated binding: (name : Type) = value.`);
+});
+test("E0003 stays hint-free when both groupings are real programs", {
+  // `1 + 2 * 3` has two legitimate groupings (LLM authoring audit §3.1).
+  _expect_e0003(`1 + 2 * 3;`, ``);
+});
+test("E0003 names the annotated-parameter grouping for `:` next to `=>`", {
+  // `x : i32 => x` closes the annotation before the arrow: `(x : i32) => x`.
+  _expect_e0003(`x : i32 => x;`, `Parenthesize the annotated parameter: (name : Type) => body.`);
+});
+test("E0003 names the annotated-parameter grouping for `:` next to a lambda `->`", {
+  // `->` after a non-fn-type left operand is a lambda arrow: `(self : Self) -> {...}`.
+  _expect_e0003(`self : Self -> { 1 };`, `Parenthesize the annotated parameter: (name : Type) -> body.`);
+});
+test("E0003 names the fn-type grouping for a fn-type arrow next to `=`", {
+  // `x : fn() -> void = f` first fails at `->`: the fn type closes before the
+  // binding, `(fn() -> void) = f` (then `(x : (fn() -> void)) = f`).
+  _expect_e0003(`x : fn() -> void = f;`, `Parenthesize the function type: (fn(...) -> T) = value.`);
+});
+test("E0003 names the fn-type grouping for a fn-type arrow next to `=>`", {
+  _expect_e0003(`f : fn() -> void => f();`, `Parenthesize the function type: (fn(...) -> T) => value.`);
+});
+test("E0003 names the labeled-return grouping for a fn-type arrow next to `:`", {
+  // `fn() -> r : i32` is a labeled return, `fn() -> (r : i32)`.
+  _expect_e0003(`fn() -> r : i32;`, `Wrap the right-hand side in parentheses: fn(...) -> (r : i32).`);
+});
+test("E0003 names the wrap-the-right-side grouping for a lambda body", {
+  _expect_e0003(`f := (x -> x + 1);`, `Wrap the right-hand side in parentheses: params -> (x + 1).`);
+});
+test("E0003 stays hint-free for an arrow next to a binding", {
+  // `c => x = 5`: the lattice's `(c => x) = 5` is never a program, while the
+  // arm body `c => (x = 5)` is what an author means — not unique, no hint.
+  _expect_e0003(`c => x = 5;`, ``);
+});
+test("E0003 stays hint-free for a lambda arrow next to a binding", {
+  // `err -> flag = true` means the body `err -> (flag = true)`, against the lattice.
+  _expect_e0003(`h := (err -> flag = true);`, ``);
+});
+test("E0003 stays hint-free for an annotation next to `:=`", {
+  // `(x : i32) := 5` is rejected (an annotated binding takes `=`) and
+  // `x : (i32 := 5)` is no annotation, so neither grouping is a Yo form.
+  _expect_e0003(`x : i32 := 5;`, ``);
+});
+test("E0003 stays hint-free for two different binding operators", {
+  _expect_e0003(`x := y = 5;`, ``);
+});
+test("E0003 stays hint-free for a binding next to `:`", {
+  // `x := (y : i32)` compiles, but the parenthesized `y : i32` declares `y`
+  // instead of ascribing a type: the lattice grouping is a different program.
+  _expect_e0003(`x := y : i32;`, ``);
+});
+test("E0003 stays hint-free for an arm arrow next to `:`", {
+  _expect_e0003(`cond(c => y : i32, true => i32(0));`, ``);
+});
+test("E0003 stays hint-free for a computational operator next to `->`", {
+  // Neither `(a + b) -> c` nor `a + (b -> c)` is a Yo form.
+  _expect_e0003(`a + b -> c;`, ``);
+});
+test("E0003's right-hand side ends at its last token, before a trailing comment", {
+  _expect_e0003(
+    `cond(c => i32(1), true => a - b // fallback\n);`,
+    `Wrap the right-hand side in parentheses: left => (a - b).`
+  );
+});
+test("E0003 shows no right-hand side source when it holds a comment", {
+  _expect_e0003(
+    `x := a +\n  // a comment inside the right-hand side\n  b;`,
+    `Wrap the right-hand side in parentheses: name := (...).`
+  );
+});
+test("E0003's right-hand side stops at an interpolation's end", {
+  _expect_e0003(
+    String.from("s := `v=${a := b + c}`;\nf1 :: i32(1);\nf2 :: i32(2);\n"),
+    `Wrap the right-hand side in parentheses: name := (b + c).`
+  );
+});
+test("E0003 copies a literal in the right-hand side verbatim", {
+  _expect_e0003(
+    String.from("x := \"a    b\" + c;"),
+    String.from("Wrap the right-hand side in parentheses: name := (\"a    b\" + c).")
+  );
+});
 // ─── Decision 42: `&T` / `&mut T` in the declaration slots ──────────────────
 // The parse rewrites each slot into the internal mode form every later pass
 // reads, headed by `__yo_imm` / `__yo_mut` (plans/VALUES_BY_DEFAULT.md

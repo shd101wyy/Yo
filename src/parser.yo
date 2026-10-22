@@ -23,6 +23,11 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BK_IMPORT,
   BK_ANON_STRUCT,
+  BK_FN,
+  BK_UNSAFE_FN,
+  BK_CTL,
+  BK_FN_TRAIT,
+  BK_FN_ONCE_TRAIT,
   make_err_expr,
   ast_expr_to_string,
   ast_expr_is_atom,
@@ -86,6 +91,47 @@ make_parse_error_raw :: (fn(module_path : &String, message : &String) -> YoError
 /// dot (`.Variant`) has its own branch in parse_primary_end.
 _is_prefix_op_token :: (fn(t : &Token) -> bool)(
   (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "&mut"))
+);
+/// The BINDING operators for E0003's canonical-grouping hint (`= := :: ?=`),
+/// the lowest tier of the structural lattice `_e0003_tier` encodes.
+_is_binding_group_op :: (fn(v : &String) -> bool)(
+  (v == "=") || (v == ":=") || (v == "::") || (v == "?=")
+);
+/// The tier of `v` in the structural lattice E0003's grouping hint follows
+/// (issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md):
+/// 0 binding (`= := :: ?=`) < 1 arm/lambda arrow `=>` < 2 `:` < 3 `->` <
+/// 4 computational (every other infix operator, `<:` and `..`
+/// included). A lower tier binds looser: it takes the whole other side as its
+/// operand. The grammar has no such tiers; only the diagnostic reads them.
+_e0003_tier :: (fn(v : &String) -> u8)(
+  cond(
+    _is_binding_group_op(v) => u8(0),
+    (v == "=>") => u8(1),
+    (v == ":") => u8(2),
+    (v == "->") => u8(3),
+    true => u8(4)
+  )
+);
+/// The head of a fn type (`fn`, `unsafe_fn`, `ctl`, `Fn`, `FnOnce`) when
+/// `e` is that head's parameter list (`fn(x : i32)`), "" otherwise: E0003's
+/// hint reads `->` as the fn-type arrow only after such a head, and as a
+/// lambda arrow (`err -> {...}`) after anything else.
+_e0003_fn_type_head :: (fn(e : &AstExpr) -> String)(
+  match(
+    e,
+    .FnCall(_, hf, _, h_infix, _) => cond(
+      h_infix => String.new(),
+      true => match(
+        hf,
+        .Atom(_, ht) => cond(
+          ((ht.value == BK_FN) || (ht.value == BK_UNSAFE_FN) || (ht.value == BK_CTL) || (ht.value == BK_FN_TRAIT) || (ht.value == BK_FN_ONCE_TRAIT)) => ht.value,
+          true => String.new()
+        ),
+        .FnCall(_, _, _, _, _) => String.new()
+      )
+    ),
+    .Atom(_, _) => String.new()
+  )
 );
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
 /// prefix sigil on one identifier (plans/VALUES_BY_DEFAULT.md decision 35).
@@ -1657,15 +1703,22 @@ impl(
           cond(
             (tok.value == rhs_op_value) =>
               self.parse_left_assoc_op(primary_expr, &tok, &rhs, rhs_start, rhs_end, exn),
-            true =>
+            true => {
+              hint := self.e0003_grouping_hint(&tok, &primary_expr, &rhs_op_value, &rhs, rhs_start, rhs_end);
+              (msg : String) = `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`;
+              if(hint.len() > usize(0), {
+                msg = `${msg} ${hint}`;
+              });
               exn.throw(
                 dyn(
                   make_parse_error(
                     &tok,
-                    `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`
+                    &msg
                   )
                 )
-              )
+              );
+              ParseResult(expr : primary_expr, index : idx)
+            }
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();
@@ -1692,6 +1745,161 @@ impl(
         exn.throw(dyn(make_parse_error(&tok, `paren-less function and operator calls are not supported; use parentheses`)));
         ParseResult(expr : primary_expr, index : idx)
       }
+    )
+  }),
+  /// The source text of the token range [start, end) for E0003's grouping
+  /// hint, or "" when it cannot be shown faithfully. Trivia after the last
+  /// token is dropped; each token is copied verbatim (its bytes up to the next
+  /// token's offset, so a string or template literal keeps its spacing) and a
+  /// whitespace run between tokens becomes one space. A comment, a token
+  /// spanning lines (a multi-line literal), a literal ending the token list
+  /// (an interpolation span, whose end no next token gives), or a result over
+  /// 72 bytes yields "": pasted back, none would be the operand on one line.
+  _rhs_source_snippet : (fn(self : &Self, start : usize, end : usize) -> String)({
+    // `end` is past the trivia after the operand (`a - b // note`): stop at
+    // its last real token.
+    stop := end;
+    while(stop > start, {
+      trailing_trivia := match(
+        self.tokens.get(stop - usize(1)),
+        .Some(lt) => ((lt.kind == TokenKind.Whitespace) || (lt.kind == TokenKind.SingleLineComment) || (lt.kind == TokenKind.MultiLineComment) || (lt.kind == TokenKind.DocLineComment) || (lt.kind == TokenKind.InnerDocLineComment) || (lt.kind == TokenKind.DocBlockComment) || (lt.kind == TokenKind.InnerDocBlockComment)),
+        .None => false
+      );
+      if(trailing_trivia == false, {
+        break;
+      });
+      stop = (stop - usize(1));
+    });
+    sb := StringBuilder.new();
+    ok := true;
+    pending_space := false;
+    i := start;
+    while(ok && (i < stop), {
+      match(
+        self.tokens.get(i),
+        .None => {
+          ok = false;
+        },
+        .Some(t) => cond(
+          (t.kind == TokenKind.Whitespace) => {
+            pending_space = (sb.len() > usize(0));
+          },
+          ((t.kind == TokenKind.SingleLineComment) || (t.kind == TokenKind.MultiLineComment) || (t.kind == TokenKind.DocLineComment) || (t.kind == TokenKind.InnerDocLineComment) || (t.kind == TokenKind.DocBlockComment) || (t.kind == TokenKind.InnerDocBlockComment)) => {
+            ok = false;
+          },
+          true => {
+            b0 := usize(t.byte_offset);
+            is_literal := ((t.kind == TokenKind.StringLit) || (t.kind == TokenKind.TemplateString) || (t.kind == TokenKind.CharLit));
+            (b1 : usize) = match(
+              self.tokens.get(i + usize(1)),
+              .Some(nx) => usize(nx.byte_offset),
+              .None => cond(is_literal => b0, true => (b0 + t.value.len()))
+            );
+            if((b1 <= b0) || (b1 > self.input_string.len()), {
+              ok = false;
+            }, {
+              raw := self.input_string.substring(b0, b1);
+              if(raw.contains("\n") || raw.contains("\r"), {
+                ok = false;
+              }, {
+                if(pending_space, {
+                  sb.write_byte(u8(32));
+                  pending_space = false;
+                });
+                sb.write_string(&raw);
+              });
+            });
+          }
+        )
+      );
+      i = (i + usize(1));
+    });
+    cond(
+      (ok && (sb.len() > usize(0)) && (sb.len() <= usize(72))) => sb.to_string(),
+      true => String.new()
+    )
+  }),
+  /// E0003's canonical-grouping hint. No precedence means the unparenthesized
+  /// mix is a parse error, but where the adjacent operators have exactly ONE
+  /// canonical grouping the diagnostic names it, so an author (LLM or human)
+  /// gets the grouping to copy instead of a bare rejection.
+  ///
+  /// The parser's right operand is greedy, so `tok` is the LEFT operator with
+  /// left operand `lhs`, and `rhs_op` the root operator of the right operand
+  /// `rhs` (a deeper mismatch inside that operand already threw). The verdict
+  /// per pair follows `_e0003_tier`'s lattice, with every pair whose lattice
+  /// grouping is not a Yo form, or not the only reading, left hint-free — the
+  /// full table is in the issue doc `_e0003_tier` names. `->` is two arrows:
+  /// a fn type when its left operand is a `fn(`/`unsafe_fn(`/`ctl(`/`Fn(`/
+  /// `FnOnce(` head, a lambda arrow otherwise (`err -> {...}`).
+  ///
+  /// - a binding then `=>`/`->`/computational, `:` then computational
+  ///   (`x := a + b`, a named argument `P(x : a + b)`), `:` then a fn type,
+  ///   `=>` then `->`/computational, either `->` then computational, and a
+  ///   fn type then `:` (the labeled return `fn() -> (r : T)`): wrap the
+  ///   right-hand side, rendered from source when it fits on one line;
+  /// - `:` then `=`/`?=`: the annotated binding `(name : Type) = value`;
+  /// - `:` then `=>` or a lambda `->`: the annotated parameter
+  ///   `(name : Type) => body`;
+  /// - a fn type then `=`/`?=`/`=>` (`x : fn() -> T = f`): wrap the fn type;
+  /// - a computational operator then `=>` (`n <= i32(1) => v`): wrap the
+  ///   WHOLE condition — the operator the parser stops at is the innermost
+  ///   one, so naming its operands (`p == q && r` stops at `&&`) would pick a
+  ///   grouping inside the condition;
+  /// - everything else is hint-free: two computational operators (both
+  ///   groupings are real programs, plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md
+  ///   §3.1), two different binding operators, an arrow then a binding
+  ///   (`c => x = v`), a binding or `=>` then `:` (`x := (y : T)` declares
+  ///   `y`, it does not ascribe), `:`/fn-type `->` then `:=`/`::` (an
+  ///   annotated `:=`/`::` target is rejected), a lambda `->` then
+  ///   `:`/`=>`, and a computational operator then `:`/`->`/a binding.
+  e0003_grouping_hint : (
+    fn(self : &Self, tok : &Token, lhs : &AstExpr, rhs_op : &String, rhs : &AstExpr, rhs_start : usize, rhs_end : usize) -> String
+  )({
+    outer := tok.value;
+    outer_tier := _e0003_tier(&outer);
+    rhs_tier := _e0003_tier(rhs_op);
+    rhs_is_assign := ((rhs_op == "=") || (rhs_op == "?="));
+    rhs_is_arm := (rhs_op == "=>");
+    // The fn-type head of `->`'s left operand (`fn`, `ctl`, ...), "" for a lambda arrow.
+    outer_fn_head := cond((outer == "->") => _e0003_fn_type_head(lhs), true => String.new());
+    rhs_fn_head := cond(
+      (rhs_op == "->") => match(
+        rhs,
+        .FnCall(_, _, rargs, _, _) => match(rargs.get(usize(0)), .Some(rl) => _e0003_fn_type_head(&rl), .None => String.new()),
+        .Atom(_, _) => String.new()
+      ),
+      true => String.new()
+    );
+    outer_is_fn_type := (outer_fn_head.len() > usize(0));
+    wrap_rhs := cond(
+      (outer_tier == u8(0)) => ((rhs_tier != u8(0)) && (rhs_op != ":")),
+      (outer == "=>") => ((rhs_op == "->") || (rhs_tier == u8(4))),
+      (outer == ":") => ((rhs_tier == u8(4)) || ((rhs_op == "->") && (rhs_fn_head.len() > usize(0)))),
+      (outer == "->") => ((rhs_tier == u8(4)) || (outer_is_fn_type && (rhs_op == ":"))),
+      true => false
+    );
+    cond(
+      wrap_rhs => {
+        left := cond(
+          ((outer_tier == u8(0)) || (outer == ":")) => String.from("name"),
+          (outer == "=>") => String.from("left"),
+          outer_is_fn_type => `${outer_fn_head}(...)`,
+          true => String.from("params")
+        );
+        snippet := self._rhs_source_snippet(rhs_start, rhs_end);
+        shown := cond((snippet.len() > usize(0)) => snippet, true => String.from("..."));
+        `Wrap the right-hand side in parentheses: ${left} ${outer} (${shown}).`
+      },
+      ((outer == ":") && rhs_is_assign) =>
+        `Parenthesize the annotated binding: (name : Type) ${rhs_op} value.`,
+      ((outer == ":") && (rhs_is_arm || (rhs_op == "->"))) =>
+        `Parenthesize the annotated parameter: (name : Type) ${rhs_op} body.`,
+      (outer_is_fn_type && (rhs_is_assign || rhs_is_arm)) =>
+        `Parenthesize the function type: (${outer_fn_head}(...) -> T) ${rhs_op} value.`,
+      ((outer_tier == u8(4)) && rhs_is_arm) =>
+        `Parenthesize the whole condition: (condition) => value.`,
+      true => String.new()
     )
   }),
   /// True if the token at `idx` can start a prefix operand (a primary or
