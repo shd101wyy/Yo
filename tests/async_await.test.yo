@@ -8051,3 +8051,37 @@ test("an argument lent both &mut and & to one call in an io.async body keeps its
   assert(n == usize(5), `the bound and the awaited calls' borrowed lists survived the writes, got ${n.to_string()}`);
   assert(g_alias_disposed == (before + i32(13)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
+// The share a borrowed projection takes for one call is declared at every
+// fused site of its wrapper: awaiting one wrapper twice in a task emits the
+// wrapper's block twice in one C function, and the second copy of the dup
+// passed its result temp undeclared (the first copy's C block had closed).
+_AliasLock :: ref(struct(file : ArrayList(_AliasBox)));
+_alias_peek :: (fn(b : &ArrayList(_AliasBox), io : Io) -> Impl(Future(usize, Io)))({
+  n := b.len();
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    n
+  })
+});
+_alias_release :: (fn(lock : _AliasLock, io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    n := io.await(_alias_peek(&lock.file, io), io);
+    n
+  })
+);
+test("a borrowed projection's share is declared at each fused site of one wrapper", {
+  before := g_alias_disposed;
+  n := io.await(
+    io.async((io : Io) => {
+      xs := ArrayList(_AliasBox).new();
+      xs.push(_AliasBox(tag : i32(1)));
+      lock := _AliasLock(file : xs);
+      a := io.await(_alias_release(lock, io), io);
+      b := io.await(_alias_release(lock, io), io);
+      (a + b)
+    }),
+    io
+  );
+  assert(n == usize(2), `both sites read the borrowed list, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(1)), `the box is released once, got ${(g_alias_disposed - before).to_string()}`);
+});

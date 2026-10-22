@@ -2268,11 +2268,11 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
   tail
 });
 /// Does `arg` carry a share taken for this call: the one a by-value parameter
-/// takes of it (`is_by_value_param_share_dup`), or the caller-owned +1 of an
-/// argument a `&mut` argument of the same call aliases
-/// (`is_call_scoped_share_dup`; its post-call drop is the call's)? Its other
-/// deferred dups are not emitted in a state machine: the slot moves with
-/// the task.
+/// takes of it (`is_by_value_param_share_dup`), or Aliasing Stage 0's
+/// caller-owned +1 of a borrowed projection or of an argument a `&mut`
+/// argument of the same call aliases (`is_call_scoped_share_dup`; its
+/// post-call drop is the call's)? Its other deferred dups are not emitted in
+/// a state machine: the slot moves with the task.
 _fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(false));
   dl := match(expr_info_deferred_dup_expressions(&ei), .Some(d) => d, .None => return(false));
@@ -2339,7 +2339,10 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // by-value parameter is the wrapper's to drop, so an argument carrying
   // that parameter's share takes it here, on its own spelling, as a call in
   // a state machine does (`_materialize_arg`, other_fn_call.yo)
-  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md).
+  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md);
+  // so does an argument carrying a call-scoped share, which the call's own
+  // drops below release
+  // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
   rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
   (ai : usize) = usize(0);

@@ -64,9 +64,13 @@ use-after-free rather than an over-release.
 
 ## Fix
 
-Both predicates now also accept an aliased argument's caller-owned share
+Both predicates now also accept a call-scoped share
 (`is_call_scoped_share_dup`), renamed `_arg_carries_call_share` and
-`_fused_arg_carries_call_share`. The dup is emitted on the slot's own
+`_fused_arg_carries_call_share`. That mark covers every `+1`
+`set_expr_as_needs_to_call_dup_for_borrowed_projection` synthesizes: the
+aliased argument's and also a borrowed projection's (`f(&r.name)`, where
+`r` is a task slot or a capture). A state machine now takes and releases
+both, as the plain call path already did. The dup is emitted on the slot's own
 spelling, as the by-value share already was. Its result temp has a task
 slot, so Rule 1 of `generate_deferred_dup_expressions` stores it there, and
 the call's own post-call drop releases it through that slot:
@@ -83,6 +87,15 @@ mut"), so `f(&mut xs, &xs)` itself never reaches the fused-await path; the
 fused predicate changes for a projection argument a fused wrapper's `&`
 parameter receives, whose post-call drop `emit_fused_await` already emits
 through `generate_deferred_drop_expressions(&site.call, …)`.
+
+Measured on `src/main.yo` (develop at c8d297cc1 against this fix, both
+`--emit-c --optimize 2`): the emitted C differs by 153 new `__yo_incr_rc`
+dups, each released by a matching new post-call `__yo_decr_rc` through the
+dup temp's task slot (153 of each, none removed). They are borrowed
+projections of captures and slots in the compiler's own `io.async` bodies
+(`ctx.project_dir`, `pkg.url`, `manifest.path`, `resp.body`, …). The task
+slots already existed in the state structs, so no layout changes. The only
+other hunks are two renumbered `temp_dup_enum_N` locals.
 
 ## Test
 

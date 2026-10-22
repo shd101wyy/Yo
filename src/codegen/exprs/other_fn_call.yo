@@ -624,11 +624,12 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // dup, except the share a by-value parameter takes of a still
         // implicitly copyable value (`_mark_by_value_param_shares`,
         // calls/helper.yo): that +1 is the callee's, and the slot keeps its
-        // own reference; and except the caller-owned +1 an argument aliased
-        // by a `&mut` argument of the same call takes for the call
-        // (`mark_call_scoped_share_dup`, evaluator/utils.yo), which keeps the
-        // `&` argument alive while the callee replaces the slot's value and
-        // which the call's own post-call drop releases
+        // own reference; and except Aliasing Stage 0's caller-owned +1 of a
+        // borrowed projection or of an argument a `&mut` argument of the
+        // same call aliases (`mark_call_scoped_share_dup`,
+        // evaluator/utils.yo), which keeps the `&` argument alive while the
+        // callee replaces the value it borrows and which the call's own
+        // post-call drop releases, as outside a state machine
         // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
         // Both are emitted on the slot's own spelling.
         sm_share := (is_sm && _arg_carries_call_share(arg, context));
@@ -640,8 +641,8 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
   )
 );
 /// Does `arg` carry a share taken for this call: a by-value parameter's
-/// (`is_by_value_param_share_dup`) or an aliased argument's caller-owned +1
-/// (`is_call_scoped_share_dup`)?
+/// (`is_by_value_param_share_dup`) or Aliasing Stage 0's caller-owned +1 of a
+/// borrowed projection or an aliased argument (`is_call_scoped_share_dup`)?
 _arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(arg),
