@@ -7144,6 +7144,68 @@ heavy run, the command is given in item 2.
             like `Environment.module_path`). This is a prerequisite: it
             removes the population cost, and the fix is not a hand edit
             of the 11 sites.
+            - **As built 2026-10-22** (branch `perf/share-token-input`):
+              both fields are `Rc(String)`. The lexer makes one cell per
+              lexing (`tokenize_shared`; `tokenize(&String, &String)`
+              wraps its arguments once), and `Parser` holds the two cells.
+              A token synthesized by the parser, desugaring, gensym, match
+              lowering, the formatter or the evaluator copies its origin
+              token's cells. A token with no source shares one module-level
+              cell (`empty_token_text()`, `placeholder_token`,
+              `raii_token`). A template interpolation's sub-parser shares
+              the enclosing module's path cell, and lexes in place over the
+              token's `input` cell. The synthetic-token cache keeps one path
+              cell per module, sharing the caller's buffer. An env built
+              from a token (`impl.yo`'s def-time env) now shares that
+              token's cell instead of wrapping a new one. Readers spell
+              `tok.input.*` / `&tok.module_path.*`. A plain copy of the
+              `Rc` is a count bump, and `Rc` Eq compares payloads, so token
+              equality keeps its meaning.
+            - Purpose check, `yo fix ./src/<f>.yo --migrate explicit-copy
+              --dry-run --hot-path src/evaluator --hot-path src/lexer.yo
+              --hot-path src/env.yo --std-path ./std`, develop `e30c0d8ed`
+              against the branch, each with its own stage 1. On develop,
+              the tool inserts `.clone()` at the 11 `input` field stores
+              (parser 8, `expr.yo` 1, formatter 2) and at their 11
+              `module_path` siblings. It also lists about 20 more token
+              copies as "source written afterwards". On the branch it
+              neither inserts nor lists any token-cell copy: a cell copy is
+              exempt from the explicit-copy rule. The only token site left is
+              a payload copy, `Span(path : close_tok.module_path.*)` in a
+              parse error, which both trees clone. The insertion counts are
+              parser 21 → 7, `expr.yo` 7 → 5 and formatter 8 → 4. Three
+              sites are new, all small text: `Parser.new`'s two
+              `rc(input_string)`/`rc(module_path)` (listed, once per parse),
+              `rc(sp.expr_text)` for an interpolation body (one clone of
+              that body's text), and `rc(mark.value)` for a projection
+              marker (one clone of the marker name).
+            - Measured with stage-1 binaries built by the v0.2.68 seed with
+              clang, both checking the develop `e30c0d8ed` tree, so the
+              input is the same. Two runs each, back to back
+              (develop/branch/develop/branch), under one normal heavy-lock
+              ticket, each capped at 12 GB. The load average was 7–9.
+
+              | input | binary | user s | max RSS kB |
+              | --- | --- | --- | --- |
+              | `std/rand.yo` | develop | 12.80, 11.50 | 141,336, 141,424 |
+              | `std/rand.yo` | branch | 11.57, 11.81 | 139,932, 140,032 |
+              | `src/main.yo` | develop | 498.1, 555.1 | 1,057,116, 1,053,832 |
+              | `src/main.yo` | branch | 533.6, 506.2 | 1,054,860, 1,058,604 |
+
+              `std/rand.yo` uses 1.4 MB less (−1.0 %). `src/main.yo` is
+              within the noise: the means are +1.3 MB (+0.12 %), and two
+              runs of the same binary differ by 3–4 MB. User time is also
+              within the noise. As expected, the change recovers little
+              today, because `String` stays a ref type until B8. Its effect
+              is that the B1 sites become count bumps.
+            - A first build of the branch measured +7.8 MB on
+              `src/main.yo` in both runs (1,062,696 and 1,061,528 kB against
+              1,053,792 and 1,054,848). The cause was the synthetic-token
+              cache. It wrapped the path in `rc(module_path.clone())`, and
+              an `auto-generated://` path carries the whole generated
+              snippet, so every generated module's text was copied once
+              more. The cell now shares the caller's buffer, and the second
+              build's numbers are the ones in the table.
          2. Fix the two tool defects, each with its cli-case. Done
             2026-10-22 (branch `fix/explicit-copy-s1-tool-defects`; the
             issue docs carry the mechanism), with a third defect from the
