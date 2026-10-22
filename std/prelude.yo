@@ -313,6 +313,18 @@ export(Drop);
 /// `mem::drop`. A use of `x` afterwards is a use of a moved value (E0901).
 drop :: (fn(generic(T : Type), sink(x) : T) -> unit)(());
 export(drop);
+/// Run the destructor of the value `p` points at, in place: its `Drop` impl
+/// and the release of everything it owns, without moving it out — Rust's
+/// `ptr::drop_in_place`. The slot keeps its now-dead bytes, so the caller must
+/// treat it as uninitialized: not read it, not drop it again, only overwrite
+/// it (`consume(p.* = v)`) or free it. This is how a collection destroys an
+/// element it owns through a raw pointer. Like every raw-pointer operation it
+/// needs `pragma(Pragma.AllowUnsafe)`; safe code ends a value with `drop(x)`.
+drop_in_place :: (fn(generic(T : Type), p : *(T)) -> unit)(
+  // SAFETY: the caller owns the live value at `p` and gives it up here.
+  unsafe(___drop(p.*))
+);
+export(drop_in_place);
 /// === Cycle-GC tracing ===
 /// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
 /// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,
@@ -9959,7 +9971,7 @@ impl(
     /// Drops the payload, then frees the cell through its owner prefix.
     drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: the box is the cell's only owner, and this runs once.
-      ___drop(unsafe(self._cell.*));
+      unsafe(drop_in_place(self._cell));
       block := _box_owner_of((*void)(self._cell));
       owner := unsafe(block.*);
       match(
