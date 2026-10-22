@@ -92,7 +92,7 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 
 ## 放置单个单元：`alloc` 参数
 
-`box` 和 `arc` 接受可选的 `alloc : Option(Allocator)`，因此不需要作用域也能放置单个
+`box`、`rc` 和 `arc` 接受可选的 `alloc : Option(Allocator)`，因此不需要作用域也能放置单个
 单元。`.Some(a)` 把单元放在 `a` 中；默认值 `.None` 跟随当前作用域，没有作用域时使用
 全局分配器。单元通过放置它的分配器释放，无论最后一个句柄在哪个线程上被 drop。Yo
 不会把值自动包装成 `Option`，所以调用方要写 `.Some(...)`：
@@ -103,19 +103,20 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 arena := Arena.new(usize(1) << usize(16));
 {
   b := box(i32(1), alloc : .Some(arena.allocator()));
-  a := arc(i32(2), alloc : .Some(arena.allocator()));
-  assert(arena.live_blocks() == usize(2), "both cells are in the arena");
+  r := rc(i32(2), alloc : .Some(arena.allocator()));
+  a := arc(i32(3), alloc : .Some(arena.allocator()));
+  assert(arena.live_blocks() == usize(3), "all three cells are in the arena");
 };
-assert(arena.live_blocks() == usize(0), "both were freed into the arena");
+assert(arena.live_blocks() == usize(0), "all three were freed into the arena");
 arena.deinit();
 ```
 
-显式的 `alloc` 只对这一个单元优先于当前作用域，之后作用域保持不变。两者到达 `a`
-的方式不同：`box` 在调用者的作用域下直接调用 `a` 的 `alloc`；`arc` 则像
+显式的 `alloc` 只对这一个单元优先于当前作用域，之后作用域保持不变。它们到达 `a`
+的方式不同：`box` 在调用者的作用域下直接调用 `a` 的 `alloc`；`rc` 和 `arc` 则像
 `with_allocator` 一样，在构造期间把 `a` 设为当前作用域（直到单元原语自己接受分配器
 为止）。因此在 `a` 的回调内部，`current_allocator()` 对 `box` 是调用者的作用域，对
-`arc` 是 `a`；用于 `arc` 的分配器必须遵守[编写自己的分配器](#编写自己的分配器)中的
-回调规则。
+`rc` 和 `arc` 是 `a`；用于 `rc` 或 `arc` 的分配器必须遵守
+[编写自己的分配器](#编写自己的分配器)中的回调规则。
 
 ## 容器
 
@@ -258,8 +259,8 @@ Allocator :: struct(ctx : ?*void, vtable : *AllocatorVTable);
 - `free(ctx, ptr)` 释放这样的块。没有大小参数。
 - 回调不能通过作用域分配：其中不能有 `ArrayList.new()`、`String`、不带 `alloc` 的
   `box(...)` 或 `ref` 构造器。回调运行时，当前作用域可能正是它自己的分配器（在
-  `with_allocator(a, …)` 之下，以及 `arc(v, alloc : .Some(a))` 时），这样的分配会再次
-  调用 `alloc`，递归直到栈溢出。请从 `GlobalAllocator` 或你自己持有的缓冲区获取内存，
+  `with_allocator(a, …)` 之下，以及 `rc(v, alloc : .Some(a))` 和
+  `arc(v, alloc : .Some(a))` 时），这样的分配会再次调用 `alloc`，递归直到栈溢出。请从 `GlobalAllocator` 或你自己持有的缓冲区获取内存，
   如下面的示例所示。
 
 你的函数永远看不到 16 字节的所有者前缀：`std/allocator` 会向你的 `alloc` 多要 16

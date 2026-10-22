@@ -3548,10 +3548,15 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // rc allocates a fresh cell whose ref_count is 1
-rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
+  ...
+);
 ```
 
 `rc` is the constructor, not the count: the count is `ref_count(x)`.
+`alloc : .Some(a)` places the cell in the allocator `a`; the default, `.None`,
+places it in the current `with_allocator` scope, else the global allocator
+([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
 
 ### Usage Examples
 

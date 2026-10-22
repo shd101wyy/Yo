@@ -3381,10 +3381,15 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 );
 
 // rc 分配一个新单元，其 ref_count 为 1
-rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
+  ...
+);
 ```
 
 `rc` 是构造函数，不是计数：计数是 `ref_count(x)`。
+`alloc : .Some(a)` 把单元放到分配器 `a` 中；默认值 `.None` 把它放到当前
+`with_allocator` 作用域中，没有作用域时放到全局分配器
+（[EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)）。
 
 ### 使用示例
 

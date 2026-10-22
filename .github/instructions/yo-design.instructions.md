@@ -97,7 +97,9 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
     )
   )
 );
-rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
+  ...
+);
 ```
 
 The old shared spelling `Box(V)` / `box(v)` was deleted (V1 step 1 Generation B part 2).
@@ -117,15 +119,15 @@ below it borrow), the cycle collector's walk traces its payload in place
 the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
 `SEED_VERSION` carries this (the v0.2.59 seed rejects `b.*` on it, E0406).
 
-`arc(v, (alloc : Option(Allocator)) ?= .None)` takes the same parameter. Its `.Some(a)` arm
-sets the thread's allocation scope to `a` around the `Arc(V)(v)` constructor (which allocates
-from the current scope) and restores it, through the prelude's `__yo_scope_set` extern: no
-codegen, and the default path is unchanged. That swap is the stopgap until V5's
-`__yo_atomic_cell` takes the allocator itself (VALUES_BY_DEFAULT §3.2). Unlike `box`'s
+`rc(v, (alloc : Option(Allocator)) ?= .None)` and `arc(v, (alloc : Option(Allocator)) ?= .None)`
+take the same parameter. The `.Some(a)` arm sets the thread's allocation scope to `a` around
+the `Rc(V)(v)` / `Arc(V)(v)` constructor (which allocates from the current scope) and restores
+it, through the prelude's `__yo_scope_set` extern: no codegen, and the default path is
+unchanged. That swap is the stopgap until V5's `__yo_cell`/`__yo_atomic_cell` take the
+allocator themselves (VALUES_BY_DEFAULT §3.2). Unlike `box`'s
 explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
 allocator whose callbacks allocate through the scope recurses until the stack overflows
 (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
-`rc` has no `alloc` parameter yet.
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,

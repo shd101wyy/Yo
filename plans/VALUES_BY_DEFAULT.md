@@ -483,8 +483,10 @@ c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
     thread scope to `a` around the construction, so `a`'s own callbacks run
     with `a` current. An allocator whose `alloc` allocates through the scope
     then recurses until the stack overflows, while `box(v, alloc : .Some(a))`
-    (which calls `a`'s vtable directly) does not. `__yo_atomic_cell` taking
-    the allocator removes the difference
+    (which calls `a`'s vtable directly) does not. `rc`'s explicit path
+    (2026-10-22) takes the same swap and has the same limitation.
+    `__yo_cell`/`__yo_atomic_cell` taking the allocator removes the
+    difference
     (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
 
 **`ref_count(x)`** reads the count of the cell `x` holds (decision 11, which
@@ -4647,8 +4649,16 @@ and in git, not a silent edit.
   default path is unchanged. Tests: `tests/arc.test.yo` (placed and
   released into an arena, the scope restored, an explicit allocator winning
   inside another scope, the last handle dropped after a thread read it).
-  - `rc` still has no `alloc`, although §3.2 gives it one; the same swap
-    adds it.
+- `rc` gains the `alloc` parameter (2026-10-22,
+  `feat/rc-alloc-parameter`), by the same swap: the non-atomic cell
+  constructor allocates from the thread's current scope too, so `.Some(a)`
+  sets the scope to `a` around `Rc(V)(value)` and restores it. Std-only, no
+  codegen, no seed gate; the default path is unchanged. Tests:
+  `tests/rc.test.yo` (placed and released into an arena, the scope
+  restored, an explicit allocator winning inside another scope, several
+  handles released once, `Rc.try_unwrap` freeing a placed cell) and
+  `tests/explicit_allocators.test.yo` (a cycle closed through a placed `Rc`
+  is collected into the arena).
 
 **Remaining, Generation A:**
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
@@ -4657,7 +4667,6 @@ and in git, not a silent edit.
   Today they do not.
 - **Diagnostics:** E0406/E0610 learn "`w` is a `Box(P)`; its payload `P`
   has no field `x` either" when auto-deref also misses.
-- **`rc` gains the `alloc` parameter** (§3.2; `arc`'s mechanism above).
 
 **Decision 32, Generation B: the wrapper/payload name clash is an error,**
 in `evaluate_property_access` and `_try_find_receiver_method`. It waits for

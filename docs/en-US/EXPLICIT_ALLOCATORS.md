@@ -100,7 +100,7 @@ when no scope is active (the global allocator).
 
 ## Placing one cell: the `alloc` parameter
 
-`box` and `arc` take an optional `alloc : Option(Allocator)`, so one cell can
+`box`, `rc` and `arc` take an optional `alloc : Option(Allocator)`, so one cell can
 be placed without a scope. `.Some(a)` places the cell in `a`; the default,
 `.None`, follows the current scope, else the global allocator. The cell is
 freed through the allocator that placed it, on whichever thread drops the last
@@ -113,20 +113,21 @@ handle. Yo does not wrap a value into an `Option`, so the caller writes
 arena := Arena.new(usize(1) << usize(16));
 {
   b := box(i32(1), alloc : .Some(arena.allocator()));
-  a := arc(i32(2), alloc : .Some(arena.allocator()));
-  assert(arena.live_blocks() == usize(2), "both cells are in the arena");
+  r := rc(i32(2), alloc : .Some(arena.allocator()));
+  a := arc(i32(3), alloc : .Some(arena.allocator()));
+  assert(arena.live_blocks() == usize(3), "all three cells are in the arena");
 };
-assert(arena.live_blocks() == usize(0), "both were freed into the arena");
+assert(arena.live_blocks() == usize(0), "all three were freed into the arena");
 arena.deinit();
 ```
 
 An explicit `alloc` wins over the current scope for that one cell, and the
-scope is unchanged afterwards. The two differ in how they reach `a`: `box`
-calls `a`'s `alloc` directly, under the caller's scope, while `arc` makes `a`
+scope is unchanged afterwards. They differ in how they reach `a`: `box` calls
+`a`'s `alloc` directly, under the caller's scope, while `rc` and `arc` make `a`
 the current scope for the construction, as `with_allocator` does (until the
 cell primitive takes the allocator itself). So inside `a`'s callbacks
-`current_allocator()` is the caller's scope for `box` and `a` for `arc`, and an
-allocator used with `arc` must follow the callback rule in
+`current_allocator()` is the caller's scope for `box` and `a` for `rc` and
+`arc`, and an allocator used with `rc` or `arc` must follow the callback rule in
 [Writing your own allocator](#writing-your-own-allocator).
 
 ## Containers
@@ -292,7 +293,8 @@ The contract:
 - The callbacks must not allocate through the scope: no `ArrayList.new()`,
   `String`, `box(...)` without `alloc`, or `ref` constructor inside them. They
   can run with their own allocator as the current scope (under
-  `with_allocator(a, …)`, and for `arc(v, alloc : .Some(a))`), so such an
+  `with_allocator(a, …)`, and for `rc(v, alloc : .Some(a))` and
+  `arc(v, alloc : .Some(a))`), so such an
   allocation calls back into `alloc` and recurses until the stack overflows.
   Get memory from `GlobalAllocator` or from a buffer you own, as the example
   below does.
