@@ -144,7 +144,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, _ic_decl_key, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -847,6 +847,12 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   });
   Option(AstExpr).Some(cur)
 });
+/// A capture-list entry written as the shorthand `x`: the record literal's
+/// shorthand reaches the evaluator as `x : x`, whose label and initializer
+/// are one token.
+_cap_entry_is_shorthand :: (fn(label_e : &AstExpr, init_e : &AstExpr) -> bool)(
+  ast_expr_is_atom(label_e) && ast_expr_is_atom(init_e) && (ast_expr_token(label_e).byte_offset == ast_expr_token(init_e).byte_offset)
+);
 /// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
 /// writes the literal. Each entry becomes one field of the capture struct:
 /// - `x` (or `x : e`) is by value: plain data copies, and a value that is
@@ -999,7 +1005,21 @@ _evaluate_capture_list :: (
       ctx.expected_type = Option(ExpectedTypeCtx).None;
       ev_val := evaluate_expression_raw(&init_e, env, ctx, exn);
       ctx.expected_type = saved_vexp;
-      set_expr_as_needs_to_call_dup(&ev_val, ctx, exn, "field-store");
+      // For `yo fix --migrate explicit-copy`: the copy's destination is the
+      // capture the body sees, declared at the entry's label, so a write to
+      // it in the body (`seen.push(x)`) is a write of the copy the caller's
+      // value may share a buffer with; and a shorthand entry `x` names the
+      // capture and its source together, so its `.clone()` spells `x :
+      // x.clone()`
+      // (issues/fixed/2026-10-21-explicit-copy-rewrites-a-capture-list-shorthand-into-an-unparseable-clone.md).
+      set_expr_as_needs_to_call_dup(
+        &ev_val,
+        ctx,
+        exn,
+        "field-store",
+        copy_dest_decl : if(migrate_explicit_copy_on(), Option(String).Some(_ic_decl_key(&name_tok)), Option(String).None),
+        copy_capture_label : if(migrate_explicit_copy_on() && _cap_entry_is_shorthand(&label_e, &init_e), Option(String).Some(label.clone()), Option(String).None)
+      );
       val_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_val)), .Some(vi) => vi.ty, .None => t_unit());
       // The field must OWN its reference. An owning temp is consumed by the
       // call above (the store moves it) and a move-only atom read moves at

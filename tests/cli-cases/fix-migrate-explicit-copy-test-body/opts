@@ -1,0 +1,8 @@
+# `yo fix <path> --migrate explicit-copy` over a test file lists a `test(...)`
+# body whose trial evaluation fails. The trial swallows the error so the file
+# still evaluates, and the body's copies were dropped in silence: the
+# `t := s` copy in "skipped" is never judged. The body that evaluates
+# ("copies") gets its `.clone()`; the expected_tree pins the rewritten file,
+# and the trailing `check` proves it still evaluates.
+stdout_keep=^fix:
+timeout=240

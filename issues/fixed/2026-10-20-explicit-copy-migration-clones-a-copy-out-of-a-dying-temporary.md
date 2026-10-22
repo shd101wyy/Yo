@@ -58,12 +58,14 @@ Not covered:
 
 - An index of a temporary (`make().tags(usize(0))`) is not a `.` chain, so
   it is still classified by the old rules
-  (`issues/2026-10-20-explicit-copy-return-split-calls-a-temporary-a-borrowed-binding.md`).
+  (`issues/fixed/2026-10-20-explicit-copy-return-split-calls-a-temporary-a-borrowed-binding.md`,
+  fixed 2026-10-22).
 - A temp-rooted `match` binding is judged by its root alone, with no
   liveness: every copy of it is listed, including one made while the binding
   is still read later in its arm (`hs.push(z); hs.push(z); z`), where a
   `.clone()` is the right edit
-  (`issues/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md`).
+  (`issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md`,
+  fixed 2026-10-22).
 
 ## Test
 

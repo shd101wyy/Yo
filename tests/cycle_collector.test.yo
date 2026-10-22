@@ -7,6 +7,32 @@ Gc :: import("std/gc");
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
 { VList } :: import("./fixtures/owned_buffer.yo");
+// This file runs under both `--cycle-collector` modes
+// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §7 W1), with the leak expectations
+// flipped: under `auto` a garbage cycle is collected, under `off` nothing is
+// tracked, `Gc.collect()` does nothing and the cycle leaks (its `Drop` never
+// runs; `--allocator fixed --debug-heap` reports the blocks at exit). The
+// mode is the compile FLAG, read through the runtime's hook, so a broken `off`
+// that still emitted the collector fails here instead of passing as `auto`.
+extern(
+  "Yo",
+  __yo_cycle_collector_off : (fn() -> bool)
+);
+collector_off :: (fn() -> bool)(unsafe(__yo_cycle_collector_off()));
+/// The tracked count `n` the collector reports under `auto`; 0 under `off`.
+tracked :: (fn(n : u64) -> u64)(cond(collector_off() => u64(0), true => n));
+/// The `n` cells a collection disposes under `auto`; none under `off`.
+collected :: (fn(n : i32) -> i32)(cond(collector_off() => i32(0), true => n));
+/// Whether constructions since `before` registered with the collector: some
+/// did under `auto`, none can under `off`.
+registered_since :: (fn(before : u64) -> bool)(
+  cond(
+    collector_off() => (Gc.tracked_count() == before),
+    true => (Gc.tracked_count() > before)
+  )
+);
+(mut(g_list_disposed) : i32) = i32(0);
+(mut(g_node_disposed) : i32) = i32(0);
 List :: ref(
   struct(
     value : i32,
@@ -18,6 +44,7 @@ impl(
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing List with value %d\n", self.value));
+      g_list_disposed = (g_list_disposed + i32(1));
     })
   )
 );
@@ -34,9 +61,11 @@ test("Test cycle collection", {
   test_list :: (fn() -> unit)({
     form_cycle(); // create cycle
     c := List(7, .None);
-    assert(Gc.tracked_count() == 3, "Expected 3 tracked objects before GC");
+    assert(Gc.tracked_count() == tracked(u64(3)), "Expected 3 tracked objects before GC");
+    before := g_list_disposed;
     Gc.collect(); // manually trigger the GC collection
-    assert(Gc.tracked_count() == 1, "Expected 1 tracked object after GC");
+    assert(Gc.tracked_count() == tracked(u64(1)), "Expected 1 tracked object after GC");
+    assert(g_list_disposed == (before + collected(i32(2))), "the cycle's two cells are disposed (auto) or leaked (off)");
   });
   test_list();
 });
@@ -47,12 +76,14 @@ test("Test freeing many objects", {
     x := List(1, .Some(y));
   });
   // Run 100 times to accumulate leaks
+  before := g_list_disposed;
   mut(i) := 0;
   while(i < 100, {
     test_leak();
     i = (i + 1);
   });
   assert(Gc.tracked_count() == 0, "Expect no leak from test_leak();");
+  assert(g_list_disposed == (before + i32(300)), "counting frees an acyclic chain under both modes");
 });
 // --- New tests for Bug 1: Reachable objects through cycles ---
 // Node type with a child pointer (can form cycles)
@@ -67,6 +98,7 @@ impl(
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing Node with value %d\n", self.value));
+      g_node_disposed = (g_node_disposed + i32(1));
     })
   )
 );
@@ -82,10 +114,10 @@ test("Live root reaching into cycle - reachable objects preserved", {
   do_test :: (fn() -> unit)({
     root := create_chain_with_cycle();
     // root(1), b(2), c(3) — all tracked
-    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked objects");
+    assert(Gc.tracked_count() == tracked(u64(3)), "Expected 3 tracked objects");
     Gc.collect();
     // All 3 should still be alive (root is live, b and c are reachable from root)
-    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked objects after GC (all reachable)");
+    assert(Gc.tracked_count() == tracked(u64(3)), "Expected 3 tracked objects after GC (all reachable)");
     // Verify the objects are still accessible (not freed)
     assert(root.value == 1, "root value should be 1");
     inner := root.child;
@@ -108,10 +140,12 @@ test("Live root reaching into cycle - reachable objects preserved", {
       }
     );
   });
+  before := g_node_disposed;
   do_test();
   // After do_test, root is freed by RC. b ↔ c cycle remains — need GC to collect.
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "All should be freed after scope exit + GC");
+  assert(g_node_disposed == (before + i32(1) + collected(i32(2))), "root by its count, b and c by the collector");
 });
 test("Longer chain into cycle - all reachable objects preserved", {
   // root → a → b → c → b (cycle between b and c)
@@ -124,15 +158,17 @@ test("Longer chain into cycle - all reachable objects preserved", {
   });
   do_test :: (fn() -> unit)({
     root := create_long_chain();
-    assert(Gc.tracked_count() == u64(4), "Expected 4 tracked objects");
+    assert(Gc.tracked_count() == tracked(u64(4)), "Expected 4 tracked objects");
     Gc.collect();
     // All 4 should survive — all reachable from root
-    assert(Gc.tracked_count() == u64(4), "Expected 4 after GC (all reachable from root)");
+    assert(Gc.tracked_count() == tracked(u64(4)), "Expected 4 after GC (all reachable from root)");
     assert(root.value == 1, "root intact");
   });
+  before := g_node_disposed;
   do_test();
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "All freed after scope exit + GC");
+  assert(g_node_disposed == (before + i32(2) + collected(i32(2))), "root and a by their counts, b and c by the collector");
 });
 test("Mixed live and garbage - only garbage collected", {
   // Create two independent structures:
@@ -150,10 +186,12 @@ test("Mixed live and garbage - only garbage collected", {
     live_root.child = .Some(live_child);
     create_garbage_cycle();
     // 4 tracked: live_root, live_child, a(100), b(200)
-    assert(Gc.tracked_count() == u64(4), "Expected 4 tracked objects");
+    assert(Gc.tracked_count() == tracked(u64(4)), "Expected 4 tracked objects");
+    before := g_node_disposed;
     Gc.collect();
     // Only 2 should remain (live_root and live_child); a,b are garbage
-    assert(Gc.tracked_count() == u64(2), "Expected 2 after GC (garbage cycle collected)");
+    assert(Gc.tracked_count() == tracked(u64(2)), "Expected 2 after GC (garbage cycle collected)");
+    assert(g_node_disposed == (before + collected(i32(2))), "the garbage pair is disposed (auto) or leaked (off)");
     // Verify live objects are intact
     assert(live_root.value == 1, "live_root intact");
     match(
@@ -183,11 +221,13 @@ test("Garbage cycle collected while live objects survive", {
     garbage_a.child = .Some(garbage_b);
     // garbage_a ↔ garbage_b cycle (only internal refs → garbage)
     // live's RC=1 is owned by the saved temp from field assignment (not part of cycle)
-    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked");
+    assert(Gc.tracked_count() == tracked(u64(3)), "Expected 3 tracked");
+    before := g_node_disposed;
     Gc.collect();
     // garbage_a and garbage_b collected (cycle with only internal refs)
     // live survives (its RC=1 from the saved temp, no cycle edges)
-    assert(Gc.tracked_count() == u64(1), "Only live remains after collecting garbage cycle");
+    assert(Gc.tracked_count() == tracked(u64(1)), "Only live remains after collecting garbage cycle");
+    assert(g_node_disposed == (before + collected(i32(2))), "the garbage pair is disposed (auto) or leaked (off)");
     assert(live.value == 1, "live intact after GC");
   });
   do_test();
@@ -197,6 +237,7 @@ test("Garbage cycle collected while live objects survive", {
 test("Multiple GC passes don't corrupt state", {
   do_test :: (fn() -> unit)({
     root := Node(1, .None);
+    before := g_node_disposed;
     // Create and abandon multiple cycles
     mut(i) := 0;
     while(i < 10, {
@@ -212,7 +253,8 @@ test("Multiple GC passes don't corrupt state", {
       j = (j + 1);
     });
     // Only root should remain
-    assert(Gc.tracked_count() == u64(1), "Only root should remain after multiple GC passes");
+    assert(Gc.tracked_count() == tracked(u64(1)), "Only root should remain after multiple GC passes");
+    assert(g_node_disposed == (before + collected(i32(20))), "the ten abandoned pairs are disposed (auto) or leaked (off)");
     assert(root.value == 1, "root intact after multiple GC passes");
   });
   do_test();
@@ -224,8 +266,9 @@ test("Self-referential object collected correctly", {
     a := Node(42, .None);
     a.child = .Some(a);
     // a points to itself — simplest possible cycle
-    assert(Gc.tracked_count() == u64(1), "Expected 1 tracked");
+    assert(Gc.tracked_count() == tracked(u64(1)), "Expected 1 tracked");
   });
+  before := g_node_disposed;
   // After do_test, 'a' stack ref is dropped → RC=1 (self-ref only)
   // Normal RC can't free it (RC never reaches 0), but the cycle should be collectable
   do_test();
@@ -233,6 +276,7 @@ test("Self-referential object collected correctly", {
   // (depends on whether RC drop triggered dealloc or it needs GC)
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "Self-referential cycle collected");
+  assert(g_node_disposed == (before + collected(i32(1))), "the self-cycle is disposed (auto) or leaked (off)");
 });
 test("Three-node cycle all garbage", {
   do_test :: (fn() -> unit)({
@@ -243,9 +287,11 @@ test("Three-node cycle all garbage", {
     b.child = .Some(c);
     c.child = .Some(a);
   });
+  before := g_node_disposed;
   do_test();
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "Three-node cycle collected");
+  assert(g_node_disposed == (before + collected(i32(3))), "the three-node cycle is disposed (auto) or leaked (off)");
 });
 test("Diamond reference pattern - all reachable", {
   // root → a, root → b, a → shared, b → shared, shared → a (cycle)
@@ -256,17 +302,19 @@ test("Diamond reference pattern - all reachable", {
     shared.child = .Some(a);
     // root has two children: a and b. We'll use List for this since Node only has one child.
     // Instead, just keep a, b, shared on stack and verify GC doesn't collect them.
-    assert(Gc.tracked_count() == u64(3), "Expected 3 tracked (a, b, shared)");
+    assert(Gc.tracked_count() == tracked(u64(3)), "Expected 3 tracked (a, b, shared)");
     Gc.collect();
     // All on stack → all live
-    assert(Gc.tracked_count() == u64(3), "All live — on stack");
+    assert(Gc.tracked_count() == tracked(u64(3)), "All live — on stack");
     assert(a.value == 2, "a intact");
     assert(b.value == 3, "b intact");
     assert(shared.value == 4, "shared intact");
   });
+  before := g_node_disposed;
   do_test();
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "All freed after scope + GC");
+  assert(g_node_disposed == (before + i32(1) + collected(i32(2))), "b by its count, the a <-> shared pair by the collector");
 });
 // --- ref(enum(...)) cycle collection (Phase-4 reference-semantics enums) ---
 // A recursive ref(enum) with a direct Self-typed variant field can form an RC
@@ -410,7 +458,7 @@ test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
   });
   do_test();
   Gc.collect();
-  assert(g_knode_disposed == i32(1), "the node of the list-closed cycle was disposed");
+  assert(g_knode_disposed == collected(i32(1)), "the node of the list-closed cycle was disposed (auto) or leaked (off)");
   assert(Gc.tracked_count() == base, "and neither it nor its list stays tracked");
   assert(Type.can_form_rc_cycle(KNode), "the walk finds the cycle back through the list");
   assert(!Type.impls(KNode, Acyclic), "so the node is not Acyclic");
@@ -447,7 +495,7 @@ test("A cons-list cycle closed through its Rc(Self) tail is collected", {
   // release the cell on the cycle.
   before := g_rcons_disposed;
   Gc.collect();
-  assert(g_rcons_disposed == (before + i32(1)), "the cons cell on the Rc-closed cycle was disposed");
+  assert(g_rcons_disposed == (before + collected(i32(1))), "the cons cell on the Rc-closed cycle was disposed (auto) or leaked (off)");
   assert(Gc.tracked_count() == base, "and neither it nor its Rc stays tracked");
   assert(Type.can_form_rc_cycle(RCons), "the walk finds the cycle back through the Rc");
   assert(!Type.impls(RCons, Acyclic), "so the cons cell is not Acyclic");
@@ -523,14 +571,17 @@ test("A dispose that resurrects a cycle member leaves no dangling handle", {
     return(k);
   });
   k := do_test();
+  // Under `off` no collection runs, so no dispose stores anything: the pair
+  // leaks and the keeper stays empty.
   match(
     k.next,
     .Some(n) => {
+      assert(!collector_off(), "no dispose runs without a collector");
       assert((n.v == 1) || (n.v == 2), "the resurrected node is readable");
       assert(ref_count(n) >= usize(1), "the resurrected node's count is at least 1");
     },
     .None => {
-      assert(false, "the keeper must hold the resurrected node");
+      assert(collector_off(), "the keeper must hold the resurrected node");
     }
   );
 });
@@ -563,6 +614,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
   match(
     k.next,
     .Some(b) => {
+      assert(!collector_off(), "no dispose runs without a collector");
       assert(b.v == 2, "the stored node is b");
       match(
         b.next,
@@ -575,7 +627,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
       );
     },
     .None => {
-      assert(false, "the keeper must hold the stored node");
+      assert(collector_off(), "the keeper must hold the stored node");
     }
   );
   // Drop the resurrected reference and refuse further stores: the pair is
@@ -589,7 +641,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
   });
   clear(&k);
   Gc.collect();
-  assert(Gc.tracked_count() == (base + u64(1)), "only the keeper remains after the pair became unreachable again");
+  assert(Gc.tracked_count() == (base + tracked(u64(1))), "only the keeper remains after the pair became unreachable again");
 });
 // A cycle closed only through unique `Box` payloads (V1 step 2): a `Box` is
 // part of its owner's value, so the collector must trace its payload in
@@ -620,7 +672,7 @@ test("A cycle closed through Box payloads is collected", {
   });
   do_test();
   Gc.collect();
-  assert(g_bnode_disposed == i32(2), "both nodes of the Box-closed cycle were disposed");
+  assert(g_bnode_disposed == collected(i32(2)), "both nodes of the Box-closed cycle were disposed (auto) or leaked (off)");
   assert(Gc.tracked_count() == base, "and are no longer tracked");
 });
 // A declared `Acyclic` exempts a tree (plans/VALUES_BY_DEFAULT.md §3.12,
@@ -641,7 +693,7 @@ test("a declared Acyclic tree's nodes are not cycle candidates", {
   t := AcyTree.Node(AcyTree.Leaf(1), AcyTree.Leaf(2));
   assert(Gc.tracked_count() == before, "an AcyTree node is never registered with the collector");
   c := CycTree.Node(CycTree.Leaf(1), CycTree.Leaf(2));
-  assert(Gc.tracked_count() > before, "a CycTree node is registered");
+  assert(registered_since(before), "a CycTree node is registered (auto only)");
   assert(match(t, .Node(_, _) => true, .Leaf(_) => false) && match(c, .Node(_, _) => true, .Leaf(_) => false));
 });
 // The compiler's own trees declare `Acyclic` the same way: `AstExpr`
@@ -715,7 +767,7 @@ test("declared-Acyclic compiler trees keep their containers and holders off the 
   e := RExpr.FnCall(RExpr.Atom(1), ArrayList(RExpr).new());
   assert(Gc.tracked_count() == before, "an RExpr node and its args list are never registered");
   w := RExprTwin.FnCall(RExprTwin.Atom(1), ArrayList(RExprTwin).new());
-  assert(Gc.tracked_count() > before, "the twin's node and list are");
+  assert(registered_since(before), "the twin's node and list are (auto only)");
   assert(match(e, .FnCall(_, _) => true, .Atom(_) => false) && match(w, .FnCall(_, _) => true, .Atom(_) => false));
 });
 // A cycle closed through a VALUE that owns a heap buffer (V2b's unique
@@ -763,7 +815,7 @@ test("A cycle closed through a buffer-owning value's slots is collected", {
   });
   do_test();
   Gc.collect();
-  assert(g_vnode_disposed == i32(2), "both nodes of the buffer-closed cycle were disposed");
+  assert(g_vnode_disposed == collected(i32(2)), "both nodes of the buffer-closed cycle were disposed (auto) or leaked (off)");
   assert(Gc.tracked_count() == base, "and are no longer tracked");
 });
 test("A value without a buffer still cannot implement Trace", {

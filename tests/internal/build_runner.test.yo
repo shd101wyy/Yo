@@ -26,6 +26,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> Buil
     optimize : String.from(""),
     allocator : String.from(""),
     heap_size : usize(0),
+    cycle_collector : String.from("auto"),
     sanitize : String.from(""),
     emit_c_to : String.from(""),
     emit_chunks : usize(0),
@@ -113,6 +114,26 @@ test("register_executable carries the fixed-allocator heap size", {
   got := reg.artifacts(usize(0));
   assert(got.heap_size == usize(65536), "heap_size is copied on registration");
   assert(got.allocator == `fixed`, "allocator is copied on registration");
+});
+test("register_executable carries the cycle-collector mode", {
+  // plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1: `build.cycle_collector` rides
+  // the artifact like heap_size; a missed copy would build `off` as `auto`.
+  // The build.yo -> --cycle-collector argv path is pinned by the
+  // build-cycle-collector-off cli-case.
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  a := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
+  a.cycle_collector = String.from("off");
+  reg.register_executable(&a, exn);
+  got := reg.artifacts(usize(0));
+  assert(got.cycle_collector == `off`, "cycle_collector is copied on registration");
 });
 test("child compile flags: the four levels map to four distinct --optimize values", {
   /// issues/fixed/build-release-small-is-identical-to-release-safe.md: release-small

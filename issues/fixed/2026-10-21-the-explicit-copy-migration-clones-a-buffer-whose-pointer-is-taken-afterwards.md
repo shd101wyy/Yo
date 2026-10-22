@@ -2,7 +2,7 @@
 
 **Severity:** S2: `yo fix --migrate explicit-copy` rewrites a valid `AllowUnsafe` module into a heap-use-after-free without listing the site. The workaround is to review every field-store site in an unsafe module by hand. markdown_yo's `BlockState` needed this for 12 sites.
 
-**Status:** OPEN.
+**Status:** FIXED 2026-10-22 on `fix/explicit-copy-migration-defects`.
 **Found:** 2026-10-21, during VALUES_BY_DEFAULT V2b B2's sweep of
 `markdown_yo` (`src/block/state.yo`). The binary was the explicit-copy
 guards build (`feat/explicit-copy-guards` at 8954cb9b6), which is develop
@@ -77,3 +77,38 @@ In the `markdown_yo` sweep (branch `feat/explicit-copy-sweep`), the 12
 edits: each pointer is taken before the struct literal, and the field store
 stays a move. The B2 dry runs found no site of this shape in `tests/`,
 `build.yo` or `scripts/build_site.yo`.
+
+## Fix
+
+The migration records every raw pointer a call derives from a variable.
+`try_to_call_function_with_arguments` (`src/evaluator/calls/helper.yo`)
+calls `record_copy_pointer` (`src/evaluator/utils.yo`) once the call's
+result type is known. When that type is a raw view
+(`type_representation_contains_raw_ptr`: `*T`, `?*T`, a value holding one
+that owns no buffer of its own), each argument rooted in a named variable
+(the receiver included, `_ic_place_root_decl`) is recorded by declaration
+key. An argument lent with `&x` or `&mut x` is the place `x`
+(`record_copy_pointer_place` reads through the marker), so a helper that
+takes `&marks` and returns a pointer it derived from its parameter
+(`first_ptr(&marks)`) ties the pointer to `marks`. The address-of builtin
+records its operand the same way: `evaluate_address_call`
+(`src/evaluator/builtins/ptr_fns.yo`) calls `record_copy_pointer_place`, so
+`addr_of(marks(usize(0)))` roots at `marks` even though the index inside it
+returns an `i32`. `_run_migrate_explicit_copy` lists a site whose source or destination
+variable has such a pointer anywhere in the module: "a raw pointer into its
+source is taken, so the program may reach one buffer through both; move it
+with the pointer taken first, or spell the copy (`.clone()`) by hand".
+
+The rule is position-free on purpose. A pointer taken before the copy and
+read after it aliases the same buffer, and a listing costs a hand edit where
+a wrong `.clone()` costs a dangling pointer.
+
+## Test
+
+`tests/cli-cases/fix-migrate-explicit-copy-raw-pointer`, whose fixture is the
+reproducer plus the two other ways of taking the pointer: `addr_of(marks(i))`
+and a helper `first_ptr(&marks)`. Its goldens expect the three sites listed,
+no `.clone()` inserted (`expected_tree` pins the file unchanged), and the
+trailing `check` passing. Before the addr_of and lent-borrow cases were
+covered, the run cloned both, and the migrated program failed under
+`--sanitize address` with a heap-use-after-free.

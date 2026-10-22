@@ -75,6 +75,10 @@ BuildArtifact :: ref(
     allocator : String,
     /// Fixed-region heap bytes for allocator == "fixed" (default 16 MiB).
     heap_size : usize,
+    /// `--cycle-collector` mode: "auto" (default) or "off"
+    /// (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1). Only an executable
+    /// sets it (std/build.yo's `Executable.cycle_collector`).
+    cycle_collector : String,
     sanitize : String,
     /// Redirect the single generated C file here ("" = default sidecar).
     /// REQUIRED, not defaulted: `?=` needs a compile-time-known value and
@@ -253,6 +257,7 @@ impl(
         optimize : artifact.optimize,
         allocator : artifact.allocator,
         heap_size : artifact.heap_size,
+        cycle_collector : artifact.cycle_collector,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
         emit_chunks : artifact.emit_chunks,
@@ -283,6 +288,7 @@ impl(
         optimize : artifact.optimize,
         allocator : artifact.allocator,
         heap_size : artifact.heap_size,
+        cycle_collector : artifact.cycle_collector,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
         emit_chunks : artifact.emit_chunks,
@@ -313,6 +319,7 @@ impl(
         optimize : artifact.optimize,
         allocator : artifact.allocator,
         heap_size : artifact.heap_size,
+        cycle_collector : artifact.cycle_collector,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
         emit_chunks : artifact.emit_chunks,
@@ -983,6 +990,7 @@ _build_new_artifact :: (
     optimize : &String,
     allocator : &String,
     heap_size : usize,
+    cycle_collector : &String,
     sanitize : &String,
     emit_c_to : &String,
     emit_chunks : usize
@@ -996,6 +1004,7 @@ _build_new_artifact :: (
     optimize : optimize,
     allocator : allocator,
     heap_size : heap_size,
+    cycle_collector : cycle_collector,
     sanitize : sanitize,
     emit_c_to : emit_c_to,
     emit_chunks : emit_chunks,
@@ -1218,6 +1227,7 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         _build_extract_string_or(&args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
         _build_extract_usize_or(&args, usize(8), usize(16777216), ctx),
+        _build_extract_string_or(&args, usize(9), "cycle_collector", String.from("auto"), expr, ctx, exn),
         _build_extract_string_or(&args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
         _build_extract_string_or(&args, usize(6), "emit_c_to", String.new(), expr, ctx, exn),
         _build_extract_usize_or(&args, usize(7), usize(0), ctx)
@@ -1236,6 +1246,7 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
         usize(16777216),
+        String.from("auto"),
         String.from("none"),
         String.new(),
         usize(0)
@@ -1254,6 +1265,7 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
         usize(16777216),
+        String.from("auto"),
         String.from("none"),
         String.new(),
         usize(0)

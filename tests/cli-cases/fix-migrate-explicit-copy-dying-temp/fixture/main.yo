@@ -1,8 +1,8 @@
-//! `yo fix --migrate explicit-copy` lists a copy out of a temporary that dies
-//! right after it instead of cloning it: a `match` binding of a call's result
-//! (`make_opt()`, `m.get(k)`) and a field of one (`make().name`), returned
-//! from a function too. Such a copy is usually a move. A field of a live local
-//! (`h.name`) still gets its `.clone()`.
+//! `yo fix --migrate explicit-copy` lists a field of a temporary that dies
+//! right after the copy (`make().name`, returned from a function too) instead
+//! of cloning it: such a copy is usually a move. A `match` binding of a call's
+//! result (`make_opt()`, `m.get(k)`) whose only use is the arm's tail is a
+//! move too. A field of a live local (`h.name`) still gets its `.clone()`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");

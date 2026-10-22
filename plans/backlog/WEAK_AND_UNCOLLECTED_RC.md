@@ -6,13 +6,14 @@ constraints, how would you suggest we do that? I also want to introduce
 Weak"). It reopens decision 46's "No `Weak`: the cycle collector stays"
 (`plans/VALUES_BY_DEFAULT.md` §4, amended the same day to point here) and
 settles the `UnsafeRc`/`UnsafeArc` question the maintainer raised first:
-**no second handle type** (agreed 2026-10-21). **W2 is implemented
+**no second handle type** (agreed 2026-10-21). W1 (`--cycle-collector
+off`) was built 2026-10-22 (§1, "As built"). **W2 is implemented
 (2026-10-22, `feat/arc-without-acyclic`):** `Arc` and the std/sync and
 thread APIs carry no `Acyclic` bound, and the sync containers' declared
 `Acyclic` impls are gone (the marker is derived). ARC.md and DESIGN.md lost
 the `Acyclic` sentence and gained a Cycles section that breaks a cycle by
 clearing its back edge; §2's "gain the ArcWeak one" moves to W4, since
-`ArcWeak` does not exist before it. The other phases are not started.
+`ArcWeak` does not exist before it. The other phases have not started.
 
 ## 0. Verdict
 
@@ -83,6 +84,43 @@ clearing its back edge; §2's "gain the ArcWeak one" moves to W4, since
 - **What it does not change.** Counting, drops, `Drop` order, the owner
   prefix, allocators, `RefCell`'s marks, `Arc`. A program that compiles
   under `Auto` compiles under `Off`; only its leaks differ.
+- **As built (W1, 2026-10-22).** Where the text above left a choice, the
+  simplest one consistent with it:
+  - The flag sets `CodeGenContext.cycle_collector_off`, and
+    `compute_needs_cycle_gc` returns early on it, so `Off` is exactly the
+    program a type set with no cycle root already compiles to. That
+    program's header is the lightweight runtime's 8-byte
+    `__yo_ref_header_t` (`ref_count u32 | type_id u16 | borrow_count u16`),
+    not the cycle-GC program's 16-byte small header: below the 16 bytes
+    promised above. That header has no `gc_flags` byte and no `dispose_fn`
+    (dispose dispatches on `type_id`), while §3.2–3.3 put the weak count
+    and `__YO_RC_DEAD` in the packed word beside `gc_flags`. W3 must
+    therefore lay the weak count and the dead flag out in the lightweight
+    header as well, or switch `Off` to the small header at that point. The lightweight runtime already defines `Gc.collect()`
+    as a no-op and `Gc.tracked_count()` as 0, so std/gc is unchanged apart
+    from its doc.
+  - The runtime declares `__yo_cycle_collector_off()`, beside
+    `__yo_debug_heap_on()`. It returns the FLAG, not the runtime selected
+    from it, so `tests/cycle_collector.test.yo` reads its mode through an
+    `extern "Yo"` and flips its expectations: tracked counts become 0, and
+    `Drop` counters stay put for every garbage cycle. A broken `Off` that
+    still emitted the collector fails that file instead of passing it as
+    `Auto`. There is no public `Gc` API for the mode: W6 deletes `std/gc`.
+  - `yo compile` and `yo test` take `--cycle-collector auto|off`, and
+    `yo test` forwards it to every batch compile. `build.cycle_collector`
+    is on `Executable` only, beside `allocator`; the library artifacts take
+    no allocator either. It reaches `__yo_build_executable` as a tenth
+    positional argument. A seed's builtin reads nine and ignores the
+    tenth, so no new builtin was needed and `std/build.yo` stays buildable
+    by the seed (no Generation A). The build runner adds
+    `--cycle-collector off` to the child argv only for `off`, so a default
+    build's argv and artifact stamp are unchanged.
+  - The leak witness under `Off` is `--allocator fixed --debug-heap`'s
+    `live at exit: N blocks` line, pinned by the cli-case
+    `cycle-collector-off-leaks-a-cycle-the-debug-heap-reports`. The
+    language suite runs `tests/cycle_collector.test.yo` under `Auto`, and
+    the cli-case `test-cycle-collector-suite-under-off` runs it under
+    `Off`. `build-cycle-collector-off` pins the build path.
 - **Why a build choice and not a type.** The collector's cost and benefit
   are program-wide (the compiler itself runs with the collector mostly
   idle; a request server with per-request graphs wants it on), and a

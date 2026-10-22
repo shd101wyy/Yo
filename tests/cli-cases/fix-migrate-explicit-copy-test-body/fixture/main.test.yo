@@ -1,0 +1,17 @@
+//! `yo fix --migrate explicit-copy` over a test file: a `test(...)` body whose
+//! trial evaluation fails (`missing_function` is undefined) is swallowed by
+//! the trial, so its copies are never judged. The run lists the body instead
+//! of passing over it; the body that evaluates gets its `.clone()`.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+test("copies", {
+  s := String.from("a");
+  t := s;
+  println(`${s} ${t}`);
+});
+test("skipped", {
+  s := String.from("a");
+  t := s;
+  println(`${s} ${t}`);
+  missing_function(s);
+});

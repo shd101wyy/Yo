@@ -6938,6 +6938,26 @@ heavy run, the command is given in item 2.
        path is an explicit flag, not a default: the tool cannot know which
        directories are hot, and the measurement that named `src/evaluator/`
        (1,268 of the 3,271 `src/` insertions) is this plan's, not the tool's.
+     - The regeneration's tool prerequisites (2026-10-22, branch
+       `fix/explicit-copy-migration-defects`): the four defects B2's sweep
+       and the guards' review filed are fixed, each with a
+       `tests/cli-cases/fix-migrate-explicit-copy-*` case.
+       - A capture list's shorthand entry `x` is rewritten to
+         `x : x.clone()`, and a capture the closure body writes is listed
+         as written afterwards.
+       - A copy whose source or destination has a raw pointer derived from
+         it (`.ptr()`, `addr_of(x(i))`, a helper taking `&x` that returns a
+         pointer) is listed, not cloned: the clone would leave the pointer
+         dangling (markdown_yo's `BlockState`, 12 sites).
+       - A `match` binding of a temporary is judged with liveness at the end
+         of its arm, not listed wholesale: a copy read again is cloned, the
+         last use is a move and is not listed. A copy in the arm's guard is
+         always cloned, since a failing guard hands the payload on.
+       - A place rooted in a call's owned result is no longer called "a
+         borrowed binding", and an element of a dying temporary
+         (`make().tags(i)`) is listed as one.
+       - A `test(...)` body whose trial evaluation fails is listed and
+         counted, instead of its copies passing unmigrated in silence.
      - Step 1 done (2026-10-21, `perf/share-module-path-input-string`):
        - `Environment.module_path` is an `Rc(String)`. Each root env
          (module, evaluator, `main`) gets one cell, and every env derived
@@ -7997,7 +8017,8 @@ release placement is the VBD session's call in
 
 1. **W1 — `--cycle-collector off`** and `build.cycle_collector`
    (compiler-only; the lightweight runtime forced, `Gc` no-ops, docs).
-   Any time; it is the measurement instrument.
+   Any time; it is the measurement instrument. Built 2026-10-22
+   (`WEAK_AND_UNCOLLECTED_RC.md` §1, "As built").
 2. **W2 — `Arc`, `Mutex`, `RwLock`, `Channel` and the thread APIs
    without `Acyclic`** (std and docs; the S2 issue retired). Any time
    after Part A (landed 2026-10-21; the isolated-transfer type is gone),

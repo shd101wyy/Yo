@@ -1,0 +1,23 @@
+//! `yo fix --migrate explicit-copy` roots a copied place in a call's owned
+//! result, not in the function binding the call names. `first_tag` returns
+//! an element of a temporary that dies after the copy: listed as usually a
+//! move. The scrutinee `grab(&s).*.maybe` reads an `Rc` pointee that outlives
+//! the handle, a genuine copy of an owned place: it gets `.clone()`.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Holder :: struct(name : String, tags : ArrayList(String), maybe : Option(String));
+make :: (fn() -> Holder)({
+  tags := ArrayList(String).new();
+  tags.push(String.from("t"));
+  Holder(name : String.from("m"), tags : tags, maybe : .Some(String.from("y")))
+});
+first_tag :: (fn() -> String)(make().tags(usize(0)));
+Shelf :: struct(h : Rc(Holder));
+grab :: (fn(s : &Shelf) -> Rc(Holder))(s.h);
+main :: (fn() -> unit)({
+  s := Shelf(h : rc(make()));
+  b := match(grab(&s).*.maybe, .Some(z) => z, .None => String.new());
+  println(`${first_tag()} ${b} ${s.h.*.name}`);
+});
+export(main);

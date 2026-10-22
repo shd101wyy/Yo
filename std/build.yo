@@ -31,6 +31,9 @@
 //! `TestSuite`, `BuildModule`, `target_host`, the `Optimize`/`AllocatorKind`/
 //! `Sanitize` enums — is what `yo init` scaffolds and what is expected to
 //! keep its names and meanings. Write build files against that.
+//! `CycleCollector` is the exception: it lives only until the cycle collector
+//! is deleted (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §6), after which `Off`
+//! is the only behavior and the field goes.
 // ── Optimization levels ──────────────────────────────────────────────
 /// Optimization level for compiled artifacts.
 Optimize :: enum(
@@ -66,6 +69,21 @@ AllocatorKind :: enum(
 );
 derive(AllocatorKind, Copy, Clone);
 export(AllocatorKind);
+// ── Cycle collector ──────────────────────────────────────────────────
+/// Whether the compiled artifact carries the reference-cycle collector
+/// (`yo compile --cycle-collector auto|off`,
+/// plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1).
+CycleCollector :: enum(
+  /// The collector runs whenever some type of the program can form a
+  /// reference cycle (the default).
+  Auto,
+  /// No collector: every reference cell uses the lightweight RC runtime,
+  /// `Gc.collect()` does nothing and `Gc.tracked_count()` is 0. A reference
+  /// cycle leaks, as in Rust; `--debug-heap` reports it at exit.
+  Off
+);
+derive(CycleCollector, Copy, Clone);
+export(CycleCollector);
 // ── Sanitizers ───────────────────────────────────────────────────────
 /// Runtime sanitizer to enable.
 Sanitize :: enum(
@@ -123,6 +141,9 @@ Executable :: struct(
   /// 64 KiB..4 GiB, rounded down to a 16-byte granule). Ignored by the other
   /// allocators.
   (heap_size : usize) ?= usize(16777216),
+  /// Reference-cycle collector (`CycleCollector.Off` = Rust's model: a cycle
+  /// leaks).
+  (cycle_collector : CycleCollector) ?= CycleCollector.Auto,
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None,
   /// Write the single generated C file to this path instead of the default
@@ -315,7 +336,15 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .Leak => "leak",
     .Thread => "thread"
   );
-  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks, config.heap_size);
+  // The tenth argument: a seed whose builtin reads nine ignores it, so this
+  // file stays buildable by the seed (the `--cycle-collector` flag is the
+  // compiler's, not the seed's).
+  cc_str :: match(
+    config.cycle_collector,
+    .Auto => "auto",
+    .Off => "off"
+  );
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks, config.heap_size, cc_str);
   Step(name : config.name, kind : StepKind.Executable)
 });
 export(executable);
