@@ -7070,12 +7070,19 @@ heavy run, the command is given in item 2.
               `target_list.push`. The where-clause constraints are lost.
               (d) still has this defect and passes `check src/main.yo`, so
               `check` alone does not catch it.
-         3. **The rest is CPU-cheap.** A 150 s `perf` sample of (c) against
-            (a), on glibc `-O2 -g` rebuilds of their C, shows the time in
-            libc (memcpy and malloc: self 36% against 25%), the parser's
-            `String.clone`, and `_frame_index_for`/`_frame_positions`
-            (`src/env.yo`, +3.8 points inclusive). Explicit `.clone()`
-            callers outside the parser stay under 0.3% each.
+         3. **The CPU profile is of (c), not (d).** A 150 s `perf` sample
+            of (c) against (a), on glibc `-O2 -g` rebuilds of their C,
+            shows the time in libc (memcpy and malloc: self 36% against
+            25%), the parser's `String.clone`, and
+            `_frame_index_for`/`_frame_positions` (`src/env.yo`, +3.8
+            points inclusive). Explicit `.clone()` callers outside the
+            parser stay under 0.3% each. Three limits on that reading: (c)
+            is dominated by the `Token.input` memcpy, so the sample says
+            little about (d)'s residual, which was not profiled; a clone
+            the C compiler inlined at `-O2` is charged to its caller and
+            is not counted as a clone caller; and the machine-local
+            symbolizer mislabels some function names, so only its
+            file:line values are cited here.
        - Next, in order:
          1. Share `Token.input` and `Token.module_path` (an `Rc(String)`
             like `Environment.module_path`). This is a prerequisite: it
