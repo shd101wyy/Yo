@@ -82,17 +82,14 @@ f(&(sm->var_xs), tmp);
 __yo_decr_rc((void*)(sm->var_tmp)); memset(&(sm->var_tmp), 0, sizeof(sm->var_tmp));
 ```
 
-Emitting these dups in state machines exposed one more gate. A synthesized
-dup renders as a bare `__yo_incr_rc(...)` whose result temp
-`generate_deferred_dup_expressions` (`src/codegen/exprs/drop_dup.yo`)
-declares unless it is already declared, and "already declared" read the
-function's monotonic `declared_c_var_names`. A fused await site emits its
-wrapper's block once per site, so a task that awaits one wrapper twice (the
-compiler's own `release_store_lock(&lock)`, which lends `lock.file`) emitted
-the second copy of the dup after the first copy's C block had closed:
-`use of undeclared identifier` in the stage-2 C. The gate now asks the
-emitter's open block-scope stack (`scope_stack_contains`), the liveness
-signal the drop gates already use.
+Emitting these dups in state machines made one more bug reachable from a
+task's own body: a synthesized dup's result temp was declared only at the
+first fused site of a wrapper awaited twice, so the second site used an
+undeclared temp. The compiler's own `release_store_lock(&lock)`, which lends
+`lock.file`, broke the stage-2 C that way. The bug was already on develop
+through a wrapper's synchronous prologue (since #1528); it has its own doc,
+`issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md`,
+and is fixed on the same branch.
 
 A `&mut` wrapper parameter keeps an await unfused ("a wrapper parameter is
 mut"), so `f(&mut xs, &xs)` itself never reaches the fused-await path.
@@ -123,10 +120,8 @@ callees replace it three times. Before the fix the test runner's ASan build
 reports `heap-use-after-free`; after it the borrowed lists keep their
 lengths and every box is released exactly once.
 
-Same file, "a borrowed projection's share is declared at each fused site of
-one wrapper": a task awaits one wrapper twice, and the wrapper's block lends
-`&lock.file`. Develop compiles it (it takes no share there). Before the
-declaration gate it failed to compile (`use of undeclared identifier`).
+The declaration gate's two tests are listed in
+`issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md`.
 
 ## Relation to decision 28 and decision 43
 

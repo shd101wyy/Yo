@@ -8054,7 +8054,8 @@ test("an argument lent both &mut and & to one call in an io.async body keeps its
 // The share a borrowed projection takes for one call is declared at every
 // fused site of its wrapper: awaiting one wrapper twice in a task emits the
 // wrapper's block twice in one C function, and the second copy of the dup
-// passed its result temp undeclared (the first copy's C block had closed).
+// passed its result temp undeclared (the first copy's C block had closed)
+// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
 _AliasLock :: ref(struct(file : ArrayList(_AliasBox)));
 _alias_peek :: (fn(b : &ArrayList(_AliasBox), io : Io) -> Impl(Future(usize, Io)))({
   n := b.len();
@@ -8084,4 +8085,31 @@ test("a borrowed projection's share is declared at each fused site of one wrappe
   );
   assert(n == usize(2), `both sites read the borrowed list, got ${n.to_string()}`);
   assert(g_alias_disposed == (before + i32(1)), `the box is released once, got ${(g_alias_disposed - before).to_string()}`);
+});
+// The same declaration gate on develop since the synchronous share landed
+// (#1528): a fused wrapper's synchronous prologue runs on the plain call path,
+// so its own aliased call takes the +1, and awaiting that wrapper twice in one
+// task passed the second site's dup temp undeclared
+// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
+_alias_prologue :: (fn(io : Io) -> Impl(Future(usize, Io)))({
+  mut(ys) := ArrayList(_AliasBox).new();
+  ys.push(_AliasBox(tag : i32(3)));
+  n := _alias_clobber(&mut ys, &ys);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    n
+  })
+});
+test("an aliased call in a wrapper's prologue compiles at each fused site of one task", {
+  before := g_alias_disposed;
+  n := io.await(
+    io.async((io : Io) => {
+      a := io.await(_alias_prologue(io), io);
+      b := io.await(_alias_prologue(io), io);
+      (a + b)
+    }),
+    io
+  );
+  assert(n == usize(2), `each prologue's borrowed list survived the writes, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(8)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
 });
