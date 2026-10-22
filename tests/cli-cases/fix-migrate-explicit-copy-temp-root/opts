@@ -1,0 +1,13 @@
+# `yo fix <path> --migrate explicit-copy` roots a copied place in a call's
+# owned result, read through the ExprInfo table, not in the function binding
+# the call names
+# (issues/fixed/2026-10-20-explicit-copy-return-split-calls-a-temporary-a-borrowed-binding.md).
+# `first_tag` returns an element of `make()`'s dying result: listed as
+# usually a move, where the run used to call it "returned from a borrowed
+# binding" and advise a projection that would borrow the dying temporary.
+# The scrutinee `grab(&s).*.maybe` reads an `Rc` pointee that outlives the
+# handle: a genuine copy of an owned place, so it gets `.clone()` (it was
+# listed as "returned from a borrowed binding" too). The expected_tree pins
+# the rewritten main.yo, and the trailing `check` proves it still evaluates.
+stdout_keep=^fix:
+timeout=240

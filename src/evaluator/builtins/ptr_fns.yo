@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, record_copy_pointer_place } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -205,6 +205,10 @@ evaluate_address_call :: (
   ctx.expected_type = old_expected;
   match(eval_arg_gerr, .Some(eval_arg_ge) => exn.throw(&eval_arg_ge), .None => ());
   eval_arg := match(eval_arg_gout.get(usize(0)), .Some(eval_arg_g) => eval_arg_g, .None => make_err_expr());
+  // `yo fix --migrate explicit-copy`: the pointer reaches the storage of the
+  // variable the operand is rooted in (`addr_of(marks(i))`), whose copies
+  // the migration must then not `.clone()`.
+  record_copy_pointer_place(&arg_expr, env, &ptok);
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
     arg_info_opt,

@@ -275,27 +275,43 @@ So a copy whose source, or whose destination variable, is written after it (a
 store into a field or element, a `&mut` argument or receiver the callee may
 write, a `&mut` borrow) is listed with its position and left for a hand edit:
 `&mut` where the write was meant to reach the source, `.clone()` where it was
-not. A write the migration cannot see is the residual: one made through the
-copy after it left the function, stored in a field, passed by value or
-returned. `--dry-run` prints every insertion with how the copy is made
-(`binding`, `return`, `field-store`, …) so those can be reviewed.
+not. A capture list's entry counts as such a copy, and a write to the capture
+in the closure body (`{ seen }() => seen.push(x)`) as a write of it. A write
+the migration cannot see is the residual: one made through the copy after it
+left the function, stored in a field, passed by value or returned.
+`--dry-run` prints every insertion with how the copy is made (`binding`,
+`return`, `field-store`, …) so those can be reviewed.
+
+A capture list's shorthand entry `{ s }` names the capture and its source
+together, so its copy is spelled `{ s : s.clone() }`.
 
 These sites are also left as written:
 
-- a copy made by a closure capture;
+- a copy made by an implicit closure capture;
 - a binding a macro wrote;
 - a position copied at two types (a generic body);
 - a site whose source text does not print as the evaluated expression;
-- a copy out of a temporary that dies at the end of its statement (a `match`
-  binding of a call's result, such as `.Some(v) => v` over `m.get(k)`, or a
-  field of one, `make().name`): that copy is usually a move. Every copy of
-  such a binding is listed, including one made while the binding is still
-  read later in its arm; spell `.clone()` there by hand. A field read through
-  a dereference (`grab().*.name`) is not one: the pointee can outlive the
-  handle, so it is rewritten;
+- a copy whose source or destination has a raw pointer derived from it
+  anywhere in the module (`marks.ptr()`, `addr_of(marks(i))`, or a helper
+  taking `&marks` and returning a pointer): the program reaches the buffer
+  through the pointer, which a `.clone()` would leave dangling or pointing at
+  the other side. Move the value instead, taking the pointer first;
+- a copy out of a temporary that dies at the end of its statement (a field or
+  an element of a call's result, `make().name`, `make().tags(i)`): that copy
+  is usually a move. A field read through a dereference (`grab().*.name`) is
+  not one: the pointee can outlive the handle, so it is rewritten. A `match`
+  binding of a call's result (`.Some(v) => v` over `m.get(k)`) is judged at
+  the end of its arm instead: a copy made while the binding is read again is
+  rewritten, and its last use is a move, neither rewritten nor listed. A copy
+  made in the arm's guard is always rewritten: a failing guard passes the
+  same value on to the next arm;
 - with `--hot-path <path>` (repeatable), every copy in a file under that path.
   On a hot path a deep copy per operation adds up, and the hand edit is
   usually a borrow or a shared value rather than a `.clone()`.
+
+A `test(...)` body whose trial evaluation fails is listed too, and counted in
+the summary: the trial swallows its error so the file still evaluates, but
+some of the body's copies may be left unmigrated, so review it by hand.
 
 A clone the move checker later finds redundant is for decision 27's lint.
 

@@ -140,10 +140,10 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
-{ set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
+{ set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
   render_diagnostics_for_mode,
   set_error_format,
@@ -2872,13 +2872,26 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// borrow, a module-level binding, a borrowed binding): a write through the
 /// result is out of sight, and the hand edit is usually a projection.
 ///
+/// A copy whose source or destination has a raw pointer derived from it
+/// (`record_copy_pointer`: `marks.ptr()`, anywhere in the module) is listed
+/// as well: the program reaches that buffer through the pointer, and a
+/// `.clone()` hands one side a fresh buffer the pointer does not see, or
+/// leaves it dangling. A closure capture list's shorthand entry `x` is
+/// spelled `x : x.clone()` (`ExplicitCopySite.capture_label`), and a write to
+/// the capture in the closure body is a write of the copy. A `test(...)` body
+/// whose trial evaluation fails is listed (`take_skipped_test_bodies`) and
+/// counted in the summary: its copies past the error are never recorded, and
+/// one reached before it but judged at its block's end is lost with the
+/// error, so the body is reviewed by hand.
+///
 /// Two guards list sites a `.clone()` would serve badly
 /// (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1"). A copy out of a
-/// temporary that dies right after it (`ExplicitCopySite.src_dying`: a
-/// `match` binding of `m.get(k)`'s result, a field of `make()`, not one
-/// reached through a dereference) is usually a move, so nothing is inserted;
-/// it is checked first. Every copy of such a binding is listed, not only its
-/// last use: the guard sees no liveness. A copy in a file under
+/// temporary that dies right after it (`ExplicitCopySite.src_dying`: a field
+/// or an element of `make()`, not one reached through a dereference) is
+/// usually a move, so nothing is inserted; it is checked first. A `match`
+/// binding of a temporary (`m.get(k)`'s result) is judged with liveness
+/// instead, at the end of its arm: a copy read again is cloned, the last use
+/// is a move and is neither rewritten nor listed. A copy in a file under
 /// one of `hot_paths` (`--hot-path`, repeatable; B1 passes `src/evaluator`)
 /// is listed for a hand edit instead of rewritten: there a per-operation deep
 /// copy compounds (the parked B1 sweep measured ~80x on the evaluator), and
@@ -2901,6 +2914,7 @@ _run_migrate_explicit_copy :: (
   });
   set_migrate_explicit_copy(false);
   sites := take_explicit_copy_sites();
+  skipped_tests := take_skipped_test_bodies();
   // The writes, by declaration key: a site whose source or destination is
   // written after it was sharing a buffer the program may rely on.
   writes_by_decl := HashMap(String, ArrayList(CopyWrite)).new();
@@ -2912,6 +2926,13 @@ _run_migrate_explicit_copy :: (
     lst := match(writes_by_decl.get(key.clone()), .Some(l) => l, .None => ArrayList(CopyWrite).new());
     lst.push(w);
     writes_by_decl.insert(key, lst);
+  });
+  // The variables a raw pointer was derived from, by declaration key.
+  pointer_decls := HashSet(String).new();
+  pointers := take_copy_pointers();
+  (pdi : usize) = usize(0);
+  while(pdi < pointers.len(), pdi = (pdi + usize(1)), {
+    pointer_decls.insert(pointers(pdi).decl.clone());
   });
   site_paths := ArrayList(String).new();
   (spi : usize) = usize(0);
@@ -2925,6 +2946,7 @@ _run_migrate_explicit_copy :: (
   });
   (n_inserted : usize) = usize(0);
   (n_skipped : usize) = usize(0);
+  (n_skipped_tests : usize) = usize(0);
   (ti : usize) = usize(0);
   while(ti < files.len(), ti = (ti + usize(1)), {
     file := match(files.get(ti), .Some(f) => f, .None => String.new());
@@ -2969,6 +2991,18 @@ _run_migrate_explicit_copy :: (
         );
       });
     });
+    // A test body the trial could not evaluate: its copies past the error
+    // were never recorded, and a copy reached before it but judged at its
+    // block's end (an owning local's) was lost when the trial unwound.
+    listed_tests := HashSet(String).new();
+    (sti : usize) = usize(0);
+    while(sti < skipped_tests.len(), sti = (sti + usize(1)), {
+      sk := skipped_tests(sti);
+      if((canonical_module_path(sk.test_tok.module_path.clone()) == canon) && listed_tests.insert(sk.test_tok.byte_offset.to_string()), {
+        n_skipped_tests = (n_skipped_tests + usize(1));
+        println(`fix: ${file}:${(sk.test_tok.row + u32(1)).to_string()}:${(sk.test_tok.column + u32(1)).to_string()}: the body of test ${sk.name} does not evaluate (${sk.error}); its copies may be left unmigrated, so review the body by hand`);
+      });
+    });
     if(mine.len() == usize(0), {
       continue;
     });
@@ -3003,11 +3037,10 @@ _run_migrate_explicit_copy :: (
     while(mi < mine.len(), mi = (mi + usize(1)), {
       st := mine(mi);
       at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
-      // A copy out of a temporary that dies right after it is usually a
-      // move (for a `match` binding, the copy-trait audit's
-      // temporary-as-move rule; for a field read, `_ic_dying_temp_source`'s
-      // own). Listed, so a value read again (a genuine copy) is spelled by
-      // hand.
+      // A copy out of a temporary that dies right after it (a field or an
+      // element of a call's owned result, `_ic_dying_temp_source`) is
+      // usually a move. Listed, so a value read again (a genuine copy) is
+      // spelled by hand.
       match(
         dying.get(`${st.row.to_string()}:${st.col.to_string()}`),
         .Some(what) => {
@@ -3047,6 +3080,23 @@ _run_migrate_explicit_copy :: (
         .Some(which) => {
           n_skipped = (n_skipped + usize(1));
           println(`fix: ${at}: \`${st.expect}\` is copied and ${which} is written afterwards, so the two may share a buffer on purpose; spell a borrow (\`&mut\`) or the copy (\`.clone()\`) by hand`);
+          continue;
+        },
+        .None => ()
+      );
+      // A raw pointer into the source's or the copy's buffer: the program
+      // reaches that buffer through the pointer, which a `.clone()` would
+      // leave pointing at the other side, or dangling once it dies.
+      pointed := cond(
+        (!st.src_decl.is_empty() && pointer_decls.contains(st.src_decl.clone())) => Option(String).Some(String.from("its source")),
+        (!st.dst_decl.is_empty() && pointer_decls.contains(st.dst_decl.clone())) => Option(String).Some(String.from("the copy")),
+        true => Option(String).None
+      );
+      match(
+        pointed,
+        .Some(which) => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: \`${st.expect}\` is copied and a raw pointer into ${which} is taken, so the program may reach one buffer through both; move it with the pointer taken first, or spell the copy (\`.clone()\`) by hand`);
           continue;
         },
         .None => ()
@@ -3092,17 +3142,27 @@ _run_migrate_explicit_copy :: (
             .None => true
           );
           n_inserted = (n_inserted + usize(1));
+          // A capture list's shorthand entry `x` names the capture and its
+          // source: the copy is the source's, so the entry becomes
+          // `x : x.clone()`.
+          label_prefix := if(st.capture_label.is_empty(), String.new(), `${st.capture_label} : `);
           if(dry_run, {
-            println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${if(needs_parens, `(${cand})`, cand.clone())}.clone()\``);
+            println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${label_prefix}${if(needs_parens, `(${cand})`, cand.clone())}.clone()\``);
           });
+          // One opener per site, so the label stays before the parenthesis.
           if(needs_parens, {
             at_idx.push(start);
-            at_text.push(String.from("("));
+            at_text.push(`${label_prefix}(`);
             at_close.push(false);
             at_idx.push(end);
             at_text.push(String.from(").clone()"));
             at_close.push(true);
           }, {
+            if(!label_prefix.is_empty(), {
+              at_idx.push(start);
+              at_text.push(label_prefix);
+              at_close.push(false);
+            });
             at_idx.push(end);
             at_text.push(String.from(".clone()"));
             at_close.push(true);
@@ -3160,7 +3220,8 @@ _run_migrate_explicit_copy :: (
     run_fmt(&fmt_argv, io, exn);
   });
   verb := if(dry_run, String.from("would insert"), String.from("inserted"));
-  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
+  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s); ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
   });

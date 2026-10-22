@@ -2,7 +2,7 @@
 
 **Severity:** S3. A listing gives misleading advice: `yo fix --migrate explicit-copy` says a returned element of a temporary is "returned from a borrowed binding" and suggests a projection (`-> &T`), but a projection there would borrow a temporary that dies when the function returns.
 
-**Status:** OPEN. Filed 2026-10-20 while landing the dying-temporary guard
+**Status:** FIXED 2026-10-22 on `fix/explicit-copy-migration-defects`. Filed 2026-10-20 while landing the dying-temporary guard
 (`issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md`),
 which covers the `.` field form (`make().name`) but not an index.
 
@@ -57,3 +57,38 @@ index result is a non-owning temporary whose callee is a value, a method
 call's callee is a function value. Then stop at an owning temporary (dying)
 in both walkers. Add the reproducer as a line of
 `tests/cli-cases/fix-migrate-explicit-copy-dying-temp` with the fix.
+
+## Fix
+
+Both walkers now classify a step by its ExprInfo (`src/evaluator/utils.yo`):
+
+- `_ic_owning_temp` reads whether an expression's ExprInfo names a temporary,
+  and whether that temporary owns its value (a call's owned result) or not
+  (a projection).
+- `_ic_place_root_borrow` walks with `_ic_place_root_var(..., stop_ctx)`,
+  which stops with no root at a call whose ExprInfo names an owning
+  temporary. `make()` and `grab(&s)` are rooted in no variable, so neither
+  is "a borrowed binding". A borrow a method returns (`p.get()`, a
+  non-owning temporary) still walks on to its receiver. The write recorder
+  keeps the old walk: a write rooted at a call's callee names no copy site's
+  variable.
+- `_ic_dying_temp_source` follows an index step as well as a `.` step. An
+  index is a non-infix call whose ExprInfo carries `index_trait_ptr_type`,
+  and its callee is the container. A method call is not followed: a method
+  returning `&T` may point into storage the temporary does not own. A
+  container that is an owning temporary makes the copy "an element of a
+  temporary" (or "a field of a temporary") that dies after the copy.
+
+The first reproducer is now listed as an element of a dying temporary. The
+second, the scrutinee `grab(&s).*.maybe`, is a genuine copy of an owned
+place and gets `.clone()`; the binding `z` over the cloned scrutinee is a
+single-use move, judged at its arm's end.
+
+## Test
+
+`tests/cli-cases/fix-migrate-explicit-copy-temp-root`, with both
+reproducers. Its goldens expect `first_tag`'s `make().tags(usize(0))` listed
+as an element of a temporary that dies after the copy, and the scrutinee
+rewritten to `grab(&s).*.maybe.clone()`. The trailing `check` proves the
+result evaluates. The rewritten program prints `t y m` under
+`--sanitize address`.

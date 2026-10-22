@@ -1,11 +1,16 @@
 # `yo fix <path> --migrate explicit-copy` lists, and does not clone, a copy out
-# of a temporary that dies right after it: a `match` binding of a call's
-# result (`make_opt()`, `m.get(k)`; the copy-trait audit's temporary-as-move
-# rule) and a field read whose receiver is an owning temporary
-# (`make().name`, bound and returned). Before the guard the run inserted four
-# `.clone()` calls there, and named `first_name`'s dying `make()` "a borrowed
-# binding" (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1";
+# of a temporary that dies right after it: a field read whose receiver is an
+# owning temporary (`make().name`, bound and returned). Before the guard the
+# run inserted four `.clone()` calls there and at the `match` bindings, and
+# named `first_name`'s dying `make()` "a borrowed binding"
+# (plans/VALUES_BY_DEFAULT.md B1, "Path to a landable B1";
 # issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md).
+# A `match` binding of a call's result (`make_opt()`, `m.get(k)`; the
+# copy-trait audit's temporary-as-move rule) is judged with liveness at the
+# end of its arm: `z`, `v` and `w` are each used once, at the arm's tail, so
+# each copy is a move and is neither rewritten nor listed (the guard listed
+# all three until
+# issues/fixed/2026-10-21-explicit-copy-dying-temporary-guard-lists-every-copy-of-a-reused-match-binding.md).
 # The field of a live local (`d := h.name`) still gets its `.clone()`, and so
 # does a field read through a dereference of a dying `Rc` handle
 # (`grab(&s).*.name`): the pointee outlives the handle in `s.h` and is read
