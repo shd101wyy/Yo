@@ -7356,7 +7356,41 @@ heavy run, the command is given in item 2.
          borrows, borrows inside `io.async` bodies) is accepted by the
          v0.2.68 seed. `yo check ./std --std-path ./std` with the seed
          passes 172/172.
-       - Tier 1: GATE_RESULTS
+       - Cost today: `String` and `ArrayList` are still `ref` types, so
+         every `.clone()` above is a real copy now. For example,
+         `String.to_string` now allocates the copy that Rust's does, which
+         moved two cli goldens:
+         - `compile-profile`: 91 → 94 std functions.
+         - `test-debug-heap-sees-an-arc-mutex-cycle`: 16 → 18 allocations.
+           The four live-at-exit blocks shrank from 400 to 384 bytes.
+           Bisected: reverting only `to_string.yo` restores 400.
+
+         No RSS or time was measured.
+       - Tier 1, on the rebased head:
+         - `yo build --std-path ./std` with the v0.2.68 seed passes.
+         - `check ./std` passes 172/172 under both the seed and the tree
+           binary, and `check ./src` passes 275/275.
+         - The 72 test files that exercise the touched APIs were run one per
+           call: `tests/collections/*`, `tests/string/*`,
+           `tests/encoding/*`, `tests/io/*`, `tests/http/*`, `fs`, `net`,
+           `url`, `regex`, `cli`, `process`, `fmt`/`format_specs`, `path`,
+           `log`, `glob`, the `error*` files, and the files that name a
+           changed API. 69 pass. The 3 failures are LeakSanitizer verdicts,
+           which CI does not enforce, and each fails the same way with
+           develop's own std:
+           - `tests/net/tcp.test.yo`:
+             `issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md`.
+           - `tests/net/unix.test.yo`:
+             `issues/2026-10-22-an-aborted-accept-leaks-its-peer-address-buffers.md`.
+           - `tests/http/http_limits.test.yo`, which fails only some of the
+             time:
+             `issues/2026-10-23-a-fetch-cut-off-by-a-1ms-timeout-sometimes-leaks-16-bytes.md`.
+         - `tests/internal/compile.test.yo` passes 4/4 under CI's
+           `YO_TEST_LEAK_VERDICT=0`. With the verdict on, it shows the four
+           leaks of
+           `issues/2026-10-18-four-compile-test-cases-fail-the-local-leak-verdict-on-develop.md`.
+         - cli-diff: 424 pass, 1 skip (network), and the two re-recorded
+           goldens above.
    - **B4 (b). Hand edits in `src/`, by directory.** Split by N1's counts
      into PRs of at most ~250 sites (likely `src/evaluator/`, then
      `src/codegen/`, then the rest).
