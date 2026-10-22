@@ -7268,6 +7268,52 @@ heavy run, the command is given in item 2.
        PR.
    - **B5. The collection globals become `RefCell` globals** (open
      question 1).
+     - **Status 2026-10-22 (as built, `feat/v2b-b5-refcell-globals`): the
+       `src/` sweep is done; `tests/` is not.**
+       - N6 on the tip found 348 column-0 `ArrayList`/`HashMap`/`HashSet`
+         globals in `src/` with 1,500 uses in 64 files (the 353 above
+         predates some deletions). 343 have a `recv-mut` lend or a write in
+         the census. Two more, `g_range_ty_cache` and
+         `g_range_incl_ty_cache` (`evaluator/calls/index_trait.yo`), had no
+         census line because they were written through a local alias. All
+         345 are now unmarked `RefCell` globals used through `with` and
+         `with_mut`.
+       - Three stay plain bindings because nothing writes them after the
+         initializer: `g_empty_value_cell` (`env.yo`) and
+         `g_empty_path_collection` (`expr_info.yo`), the shared empty
+         sentinels, and `g_scope_names` (`expr_info.yo`), which is only
+         read.
+       - A runtime global cannot be exported, so every use was in the
+         declaring file. The rewrite was mechanical: `G.m(args)` became
+         `G.with_mut(x => x.m(args))` when the census called the receiver
+         `recv-mut`, and `G.with(x => x.m(args))` otherwise.
+       - The hand edits:
+         - the indexed stores (`G(i) = v`) became `with_mut` blocks;
+         - `type_identity_slot(&G, ty)` became
+           `G.with(xs => type_identity_slot(xs, ty))`;
+         - `_note_fid_in(&mut G, …)` moved inside `with_mut`;
+         - the three `G.drain((G.len() - n) .. G.len())` read the bound
+           from the closure's binding, since a nested access to the same
+           cell panics;
+         - arguments that run analysis code (the fusion verdict, the SMT
+           sort encoder, the env snapshot, the intern key) are evaluated
+           before the access.
+       - No `src/` global is reached from a spawned thread: the compiler
+         spawns none, and `build_runner`'s `io.spawn` tasks share one event
+         loop.
+       - Left as they are, for B7–B9:
+         - twelve `keys()`/`values()`/`into_iter()` iterators still leave the
+           closure holding the map's handle;
+         - three accessors (`env_reads`, `codegen_read_keys`,
+           `get_module_level_init_exprs`) return the global's handle through
+           `with(xs => xs)`, which keeps today's sharing; the flip turns
+           those reads into E0901, and they become `.clone()`.
+       - The 24 `tests/` globals were not converted. They are the scenarios
+         that pin today's handle-global rules (`global_lend`,
+         `ref_field_borrow`, `send_sync`, `parallelism_soundness`, the D1
+         cli fixtures) or ownership traces (`rc`, `move_only`,
+         `algebraic_effects`, `async/sm_ownership`). B8, which changes those
+         rules, rewrites them with their expectations.
      - Scope: the 353 `src/` globals (~1,570 uses, 66 files; N6 gives the
        written ones) and the 24 in `tests/`. A global nothing writes after
        its initializer stays as it is.
