@@ -1832,6 +1832,15 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
     i = (i + usize(1));
   });
 });
+/// Judge, at the end of a `match` arm, the pending copies of the arm's
+/// pattern bindings (`frame`) against the arm's guard and body (`scanned`):
+/// a binding of an owned temporary holds its copies pending for `yo fix
+/// --migrate explicit-copy` (`audit_record_implicit_copy`), and an arm whose
+/// body is one expression has no block epilogue of its own to judge them.
+audit_judge_arm_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)(
+  _audit_judge_implicit_copies(frame, scanned, ctx)
+);
+export(audit_judge_arm_copies);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(

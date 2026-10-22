@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -9412,6 +9412,11 @@ try_to_call_function_with_arguments :: (
       });
       if(s9_dbg, {
         eprintln(`[s-final] ret=${type_to_string(&return_type)}`);
+      });
+      // `yo fix --migrate explicit-copy`: a raw pointer derived from an
+      // argument (`marks.ptr()`) ties that variable's buffer to the pointer.
+      if(migrate_explicit_copy_on(), {
+        record_copy_pointer(&return_type, &adjusted_args, &caller_env_m, &tok);
       });
       FuncCallResult(
         callee_env : callee_env_m,

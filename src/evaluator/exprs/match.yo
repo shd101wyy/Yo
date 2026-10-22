@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { emit_warning } :: import("../../diagnostics.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut } :: import("../utils.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
-{ evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm } :: import("./begin.yo");
+{ evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
   Pattern,
@@ -295,6 +295,18 @@ _gadt_refined_expected :: (
 });
 /// The result type of a body given the running expected type (the arm's
 /// type unless a concrete expected type is in force).
+/// Judge the copies the arm's pattern bindings hold pending (the arm frame
+/// sits at `arm_frame` in `env`) against the arm's guard and body, before the
+/// frame is popped (`audit_judge_arm_copies`, exprs/begin.yo).
+_judge_arm_copies :: (fn(env : &Environment, arm_frame : usize, guard : &Option(AstExpr), body : Option(AstExpr), ctx : &EvalContext) -> unit)({
+  if(!audit_pending_copies_enabled(), {
+    return(());
+  });
+  scanned := ArrayList(AstExpr).new();
+  match(guard, .Some(g) => scanned.push(g), .None => ());
+  match(body, .Some(b) => scanned.push(b), .None => ());
+  match(env.frames.get(arm_frame), .Some(fr) => audit_judge_arm_copies(&fr, &scanned, ctx), .None => ());
+});
 _arm_result_type :: (fn(ctx : &EvalContext, body_ty : &TypeValue) -> TypeValue)(
   cond(
     match(ctx.expected_type, .Some(et) => (!type_contains_some_type(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
@@ -1367,6 +1379,7 @@ evaluate_match :: (
     guard_false := match(guard_val, .Some(b) => !(b), .None => false);
     should_process := ((gadt_reachable && !(ct_variant_miss)) && !(guard_false));
     if(!(should_process), {
+      _judge_arm_copies(&env, base_frame_count, &guard_ast, Option(AstExpr).None, ctx);
       while(env.frames.len() > base_frame_count, {
         env.pop_frame_nonmutating();
       });
@@ -1535,6 +1548,7 @@ evaluate_match :: (
       });
       ctx.expected_type = old_expected;
       ctx.is_executing = old_executing;
+      _judge_arm_copies(&env, base_frame_count, &guard_ast, Option(AstExpr).Some(body_ast), ctx);
       while(env.frames.len() > base_frame_count, {
         env.pop_frame_nonmutating();
       });

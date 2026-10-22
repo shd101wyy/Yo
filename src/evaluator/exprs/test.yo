@@ -12,6 +12,7 @@
 //! Returns unit (no-op, preserves original env).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ Token } :: import("../../token.yo");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -51,8 +52,9 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
-{ evaluate_expression_raw } :: import("./expr.yo");
+{ format_error_message, format_eval_failure, render_any_error } :: import("../../error.yo");
+{ evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
+{ migrate_explicit_copy_on } :: import("../utils.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // _trial_eval_test_body
@@ -89,24 +91,52 @@ set_strict_test_bodies :: (fn(on : bool) -> unit)({
   g_strict_test_bodies = on;
 });
 strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
+/// A test body whose trial evaluation failed while `yo fix --migrate
+/// explicit-copy` was recording: the swallow keeps the module evaluating, so
+/// the body's copies are recorded only as far as the trial reached. The
+/// migration lists each one (`take_skipped_test_bodies`) instead of passing
+/// over it in silence. `test_tok` is the `test` keyword, `name` the name as
+/// written, `error` the first line of the trial's error.
+SkippedTestBody :: struct(test_tok : Token, name : String, error : String);
+(g_skipped_test_bodies : ArrayList(SkippedTestBody)) = ArrayList(SkippedTestBody).new();
+take_skipped_test_bodies :: (fn() -> ArrayList(SkippedTestBody))({
+  out := g_skipped_test_bodies.split_off(usize(0));
+  out
+});
 _trial_eval_test_body :: (
   fn(
     body : &AstExpr,
     original_body : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    outer_exn : Exception
+    outer_exn : Exception,
+    /// The `test` keyword and the name as written, for the migration's
+    /// listing of a body the trial could not evaluate.
+    test_tok : &Token,
+    test_name : &String
   ) -> unit
 )({
   // Strict mode hands the trial the CALLER's exception, so a real error
-  // propagates; the default builds the swallowing one. A `->` function
-  // cannot capture `outer_exn`, so the choice is made here rather than
-  // inside a forwarding handler.
+  // propagates; the default swallows it (a guarded evaluation). A `->`
+  // function cannot capture `outer_exn`, so the choice is made here rather
+  // than inside a forwarding handler.
   evaluated := cond(
     g_strict_test_bodies => evaluate_expression_raw(body, env, ctx, outer_exn),
     true => {
-      inner_exn := Exception(throw : (_err -> unwind(())));
-      evaluate_expression_raw(body, env, ctx, inner_exn)
+      out := ArrayList(AstExpr).new();
+      trial_err := evaluate_expression_guarded(body, env, ctx, &mut out);
+      match(
+        out.get(usize(0)),
+        .Some(ev) => ev,
+        .None => {
+          if(migrate_explicit_copy_on(), {
+            message := match(trial_err, .Some(te) => render_any_error(&te), .None => String.from("the trial evaluation failed"));
+            first_line := match(message.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.new());
+            g_skipped_test_bodies.push(SkippedTestBody(test_tok : test_tok.clone(), name : test_name.clone(), error : first_line));
+          });
+          return(());
+        }
+      )
     }
   );
   body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
@@ -297,7 +327,7 @@ evaluate_test :: (
   // Trial-evaluate the body (best effort; errors are swallowed — see the
   // helper). This surfaces obvious mistakes early; the authoritative check
   // is the test runner's compile step.
-  _trial_eval_test_body(&test_body_expr, &original_test_body_expr, &env, ctx, exn);
+  _trial_eval_test_body(&test_body_expr, &original_test_body_expr, &env, ctx, exn, &ast_expr_token(expr), &ast_expr_to_string(&test_name_expr));
   // Restore context.
   ctx.is_executing = old_is_executing;
   ctx.is_validating_function_definition = old_is_validating;
@@ -316,3 +346,4 @@ evaluate_test :: (
 });
 export(evaluate_test);
 export(set_strict_test_bodies, strict_test_bodies);
+export(SkippedTestBody, take_skipped_test_bodies);
