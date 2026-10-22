@@ -2,6 +2,7 @@
 // same garbage cycle is collected under `auto` and leaks under `off`, where
 // `Gc` no-ops and the `--debug-heap` report counts the two cells at exit.
 Gc :: import("std/gc");
+{ println } :: import("std/fmt");
 (mut(g_disposed) : i32) = i32(0);
 Pair :: ref(
   struct(
@@ -26,5 +27,6 @@ test("a garbage cycle", {
   make_cycle();
   tracked := Gc.tracked_count();
   Gc.collect();
-  println(`cycle: tracked ${tracked.to_string()}, disposed ${g_disposed.to_string()}`);
+  disposed := g_disposed;
+  println(`cycle: tracked ${tracked.to_string()}, disposed ${disposed.to_string()}`);
 });

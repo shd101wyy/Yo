@@ -1,4 +1,5 @@
 Gc :: import("std/gc");
+{ println } :: import("std/fmt");
 (mut(g_disposed) : i32) = i32(0);
 Pair :: ref(
   struct(
@@ -23,6 +24,7 @@ main :: (fn() -> unit)({
   make_cycle();
   tracked := Gc.tracked_count();
   Gc.collect();
-  println(`cycle: tracked ${tracked.to_string()}, disposed ${g_disposed.to_string()}`);
+  disposed := g_disposed;
+  println(`cycle: tracked ${tracked.to_string()}, disposed ${disposed.to_string()}`);
 });
 export(main);

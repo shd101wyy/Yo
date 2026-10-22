@@ -359,6 +359,52 @@ tracked_count(); // u64——回收器当前跟踪的对象数
 | `YO_GC_THRESHOLD` | 提高触发回收的分配阈值——也可以完全禁用回收器 |
 | `YO_GC_FULL_PCT` | 全量扫描的增长因子，以回收后存活集的百分比表示（默认 200，即 2 倍存活）。调低以限制峰值内存；调高以减少扫描次数但增大单次规模 |
 
+## 不带回收器编译：`--cycle-collector off`
+
+回收器正在分阶段移除（决策 48，`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`）。
+在此之前，程序可以选择不带回收器编译。这就是 Rust 的 `Rc` 模型：单元由最后一个
+引用释放，引用环会泄漏。
+
+```bash
+yo compile main.yo --cycle-collector off      # auto（默认）| off
+yo test ./tests --cycle-collector off         # 转发给每个测试二进制
+```
+
+在 `build.yo` 中，这一选择是可执行产物的一个字段：
+
+```yo
+build :: import("std/build");
+
+exe :: build.executable({
+  name : "app",
+  root : "./src/main.yo",
+  cycle_collector : build.CycleCollector.Off
+});
+```
+
+在 `off` 下：
+
+- 无论程序的类型如何，都使用轻量级引用计数运行时。没有单元向回收器注册，也不生成
+  遍历函数。每个引用单元都使用该运行时的 8 字节头；在 `auto` 下，可成环类型的单元
+  带 56 字节头，其他单元带 16 字节头。
+- `collect()` 什么也不做，`tracked_count()` 恒为 0。
+- 计数、`Drop` 及其顺序、分配器、`RefCell` 和 `Arc` 都不变。能在 `auto` 下编译的
+  程序也能在 `off` 下编译；区别只在于泄漏。
+- 垃圾环永远不会被释放，环上单元的 `Drop` 也永远不会运行。要找出它，用固定区域
+  分配器的泄漏检查构建：退出时的报告会统计仍然存活的块。
+
+对于只有一个两单元垃圾环的程序：
+
+```bash
+yo compile main.yo --cycle-collector off --allocator fixed --debug-heap -o app
+./app
+# heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
+```
+
+`YO_GC_THRESHOLD=0` 是同一选择的运行时形式。它停止自动回收，但保留跟踪代码、
+注册和大对象头，`collect()` 仍会回收。`--cycle-collector off` 则在编译时把这些
+全部去掉。
+
 ## 编译器支持
 
 ### 自动跟踪

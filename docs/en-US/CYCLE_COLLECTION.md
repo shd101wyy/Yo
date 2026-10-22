@@ -363,6 +363,57 @@ variables read by the emitted runtime:
 | `YO_GC_THRESHOLD` | Raises the allocation threshold that triggers a collection — or DISABLES the collector entirely |
 | `YO_GC_FULL_PCT` | Full-scan growth factor, as a percent of post-collection live set (default 200, i.e. 2x-live). Lower to cap peak memory; raise for fewer but larger scans |
 
+## Compiling without the collector: `--cycle-collector off`
+
+The collector is being removed in stages (decision 48,
+`plans/backlog/WEAK_AND_UNCOLLECTED_RC.md`). Until then, a program can be
+compiled without it. That gives Rust's `Rc` model: a cell is freed by its last
+reference, and a reference cycle leaks.
+
+```bash
+yo compile main.yo --cycle-collector off      # auto (the default) | off
+yo test ./tests --cycle-collector off         # forwarded to every test binary
+```
+
+In `build.yo` the same choice is a field of the executable:
+
+```yo
+build :: import("std/build");
+
+exe :: build.executable({
+  name : "app",
+  root : "./src/main.yo",
+  cycle_collector : build.CycleCollector.Off
+});
+```
+
+Under `off`:
+
+- The program gets the lightweight reference-counting runtime whatever its
+  types. No cell registers with a collector and no traverse function is
+  emitted. Every reference cell gets that runtime's 8-byte header; under
+  `auto` a cell of a cycle-capable type carries 56 bytes and any other cell 16.
+- `collect()` does nothing and `tracked_count()` is always 0.
+- Counting, `Drop` and its order, allocators, `RefCell` and `Arc` are
+  unchanged. A program that compiles under `auto` compiles under `off`; only
+  its leaks differ.
+- A garbage cycle is never freed, and its cells' `Drop` never runs. To find
+  one, build with the fixed-region allocator's leak oracle: the report at exit
+  counts the blocks still live.
+
+For a program whose one garbage cycle has two cells:
+
+```bash
+yo compile main.yo --cycle-collector off --allocator fixed --debug-heap -o app
+./app
+# heap: peak 448.0 B of 16.0 MiB, 16 allocations, live at exit: 2 blocks / 96 bytes
+```
+
+`YO_GC_THRESHOLD=0` is the run-time version of the same choice. It stops the
+automatic collections but keeps the tracking code, the registrations and the
+large headers, and `collect()` still collects. `--cycle-collector off` removes
+all of that when the program is compiled.
+
 ## Compiler Support
 
 ### Automatic Tracking
