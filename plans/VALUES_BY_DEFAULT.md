@@ -7156,9 +7156,10 @@ heavy run, the command is given in item 2.
             - Cases: `fix-migrate-explicit-copy-clone-impl` and
               `-conditional-arm`. Each ends in `build run` of the migrated
               program.
-            - Dry run of this branch's `src/` with `--hot-path
-              src/evaluator`, pre-fix tool (3cb59050d) against the fixed
-              one, same tree: 646 insertions and 1,960 listed become 638
+            - Dry run of this branch's `src/` (on develop d0e65d0fa) with
+              `--hot-path src/evaluator`, pre-fix tool (3cb59050d) against
+              the fixed one, same tree: 646 insertions and 1,960 listed
+              become 638
               and 1,968. No site appears or disappears. Exactly 8 move from
               inserted to listed: `src/expr.yo:440` (`fargs`) and
               `src/pattern.yo:102/111/112` (`Pattern`'s deep `Clone`, now
@@ -7167,7 +7168,9 @@ heavy run, the command is given in item 2.
             - With item 3's flags (`--hot-path src/evaluator --hot-path
               src/lexer.yo --hot-path src/env.yo`): 620 inserted and 1,986
               listed (#1539's run: 646 and 1,956). The widened paths add
-              18 hot sites, 458 against 440.
+              18 hot sites, 458 against 440. Rebased onto develop
+              95162303d, the same run gives 620 and 1,987: one more
+              site listed as returned from a borrowed binding.
             - Insertions by kind: field-store 316, binding 113, return 84,
               param 78, assign 29.
             - Each dry run took 5:49–6:23 wall at 1.3 GB max RSS.
