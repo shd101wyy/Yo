@@ -248,7 +248,7 @@ impl(
   /// else can write them (until VALUES_BY_DEFAULT V2b makes the buffer
   /// unique, a plain `t := s` still shares it).
   into_bytes : (fn(sink(self) : Self) -> ArrayList(u8))(
-    self._bytes
+    match(self, String(_bytes : b) => b)
   ),
   /// Get a str view into the string's UTF-8 bytes
   /// PRIVILEGED raw pointer to the heap buffer for C interop and pragma'd
@@ -2097,15 +2097,15 @@ impl(
   String,
   /// Returns a rune iterator over the string's Unicode characters
   chars : (fn(self : &Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0), _end : self.len())
+    StringChars(_string : self.clone(), _byte_index : usize(0), _end : self.len())
   ),
   /// Returns a byte iterator over the string's raw UTF-8 bytes
   bytes : (fn(self : &Self) -> StringBytes)(
-    StringBytes(_string : self, _index : usize(0), _end : self.len())
+    StringBytes(_string : self.clone(), _index : usize(0), _end : self.len())
   ),
   /// Consume the string and return a rune iterator (default iteration)
   into_iter : (fn(self : &Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0), _end : self.len())
+    StringChars(_string : self.clone(), _byte_index : usize(0), _end : self.len())
   )
 );
 /// === Rune-aware indexing (D4 vocabulary) ===
@@ -2136,7 +2136,7 @@ impl(
   /// the replacement for the `while(i < s.len()) { s.at(i) }` shape, which
   /// now visits continuation bytes and hands back `.None` at each of them.
   char_indices : (fn(self : &Self) -> StringCharIndices)(
-    StringCharIndices(_string : self, _byte_index : usize(0), _end : self.len())
+    StringCharIndices(_string : self.clone(), _byte_index : usize(0), _end : self.len())
   ),
   /// The largest byte offset `<= index` that sits on a rune boundary.
   ///
@@ -2366,7 +2366,7 @@ impl(
   /// assert(iter.next() == .None, "done");
   /// ```
   lines : (fn(self : &Self) -> StringLines)(
-    StringLines(_string : self, _byte_index : usize(0), _end : self.len())
+    StringLines(_string : self.clone(), _byte_index : usize(0), _end : self.len())
   ),
   /// Returns a new string containing `n` copies of `self`.
   /// Returns an empty string when `n == 0` or `self` is empty.
@@ -2427,14 +2427,7 @@ impl(
         total_bytes := usize(0);
         k := usize(0);
         while(k < count, k = (k + usize(1)), {
-          item_opt := items.get(k);
-          match(
-            item_opt,
-            .Some(item) => {
-              total_bytes = (total_bytes + item.len());
-            },
-            .None => ()
-          );
+          total_bytes = (total_bytes + items(k).len());
         });
         cond(
           (count > usize(1)) => {
@@ -2445,15 +2438,12 @@ impl(
         buf := ArrayList(u8).with_capacity(total_bytes);
         m := usize(0);
         while(m < count, m = (m + usize(1)), {
-          item_opt := items.get(m);
-          match(
-            item_opt,
-            .Some(item) => {
+          {
+            {
               {
-                al := &item._bytes;
                 p := usize(0);
-                while(p < al.len(), p = (p + usize(1)), {
-                  byte_opt := al.get(p);
+                while(p < items(m).len(), p = (p + usize(1)), {
+                  byte_opt := items(m).get_byte(p);
                   match(
                     byte_opt,
                     .Some(b) => {
@@ -2484,9 +2474,8 @@ impl(
                 },
                 true => ()
               );
-            },
-            .None => ()
-          );
+            };
+          };
         });
         cond(
           (buf.len() == usize(0)) => Self(_bytes : ArrayList(u8).new()),
