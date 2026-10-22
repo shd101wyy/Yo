@@ -181,7 +181,7 @@ impl(
     Item : T,
     IntoIter : PriorityQueueIter(T),
     into_iter : (fn(self : &Self) -> PriorityQueueIter(T))(
-      PriorityQueueIter(T)(_data : self._data, _index : usize(0))
+      PriorityQueueIter(T)(_data : __probe_dup(&self._data), _index : usize(0))
     )
   )
 );
@@ -226,7 +226,7 @@ impl(
   /// Borrowing walk over the heap array, in unsorted order (D14) — see
   /// `PriorityQueueIterPtr` for the invariant this can break.
   iter : (fn(self : &mut Self) -> PriorityQueueIterPtr(T))(
-    PriorityQueueIterPtr(T)(_data : self._data, _index : usize(0))
+    PriorityQueueIterPtr(T)(_data : __probe_dup(&self._data), _index : usize(0))
   )
 );
 /// `Default` — the empty queue.

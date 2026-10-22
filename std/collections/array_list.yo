@@ -578,7 +578,7 @@ impl(
                     while(i < elements_after, i = (i + usize(1)), {
                       dst := dst_ptr.add(i);
                       src := src_ptr.add(i);
-                      dst.* = src.*;
+                      dst.* = __probe_dup(&src.*);
                     });
                     // Drop the non-overlapping tail stale pointers
                     j := usize(0);
@@ -753,7 +753,7 @@ impl(
       (new_len > self._length) => {
         self.reserve(new_len - self._length);
         while(self._length < new_len, {
-          self.push(value);
+          self.push(__probe_dup(&value));
         });
       },
       true => ()
@@ -848,7 +848,7 @@ impl(
                     while(i < slice_length, i = (i + usize(1)), {
                       src := src_ptr.add(start + i);
                       dst := dst_ptr.add(i);
-                      consume(dst.* = src.*);
+                      consume(dst.* = __probe_dup(&src.*));
                     });
                     // Set the length of the new list
                     new_list._length = slice_length;
@@ -1256,7 +1256,7 @@ impl(
   /// the list mid-walk: a reallocation invalidates the pointers already
   /// yielded.
   iter : (fn(self : &Self) -> ArrayListIterPtr(T))(
-    ArrayListIterPtr(T)(_list : self, _index : usize(0), _back_taken : usize(0))
+    ArrayListIterPtr(T)(_list : __probe_dup(&self), _index : usize(0), _back_taken : usize(0))
   ),
   /// The positions `0 .. len()`, a `Range(usize)` that holds no handle to the
   /// list: the index cursor of decision 39 (plans/VALUES_BY_DEFAULT.md).
@@ -1621,8 +1621,8 @@ _stable_sort_by :: (
   while(i < n, {
     while(scratch(i) != i, {
       j := scratch(i);
-      tmp := unsafe((ptr.add(i)).*);
-      unsafe((ptr.add(i)).* = (ptr.add(j)).*);
+      tmp := __probe_dup(&unsafe((ptr.add(i)).*));
+      unsafe((ptr.add(i)).* = __probe_dup(&((ptr.add(j)).*)));
       unsafe((ptr.add(j)).* = tmp);
       scratch(i) = scratch(j);
       scratch(j) = j;
@@ -1930,7 +1930,7 @@ impl(
     if(size == usize(0), {
       __yo_panic("ArrayList.chunks: size must be non-zero");
     });
-    ArrayListChunks(T)(_src : self, _index : usize(0), _size : size)
+    ArrayListChunks(T)(_src : __probe_dup(&self), _index : usize(0), _size : size)
   }),
   /// Overlapping windows of EXACTLY `size`, advancing one element at a time —
   /// Rust's `windows`. Yields nothing when the list is shorter than `size`.
@@ -1940,7 +1940,7 @@ impl(
     if(size == usize(0), {
       __yo_panic("ArrayList.windows: size must be non-zero");
     });
-    ArrayListWindows(T)(_src : self, _index : usize(0), _size : size)
+    ArrayListWindows(T)(_src : __probe_dup(&self), _index : usize(0), _size : size)
   }),
   /// Sort by a caller-supplied strict "less" WITHOUT preserving the order of
   /// equal elements (heapsort). Rust's `sort_unstable_by`.
@@ -1969,7 +1969,7 @@ impl(
     kept := Self.with_capacity(n);
     (i : usize) = usize(0);
     while(i < n, i = (i + usize(1)), {
-      v := self(i);
+      v := __probe_dup(&self(i));
       cond(
         pred(&v) => {
           kept.push(v);
@@ -1985,7 +1985,7 @@ impl(
     (i : usize) = usize(0);
     n := other.len();
     while(i < n, i = (i + usize(1)), {
-      self.push(other(i));
+      self.push(__probe_dup(&other(i)));
     });
   })
 );
@@ -2022,3 +2022,8 @@ impl(
     )
   })
 );
+// B8 FLIP PROBE ONLY: the iterators hold a value list now, so a copy of one
+// is a clone (B7's iterator shapes decide the real answer).
+derive(generic(T : Type), where(T <: Clone), ArrayListIter(T), Clone);
+derive(generic(T : Type), where(T <: Clone), ArrayListChunks(T), Clone);
+derive(generic(T : Type), where(T <: Clone), ArrayListWindows(T), Clone);

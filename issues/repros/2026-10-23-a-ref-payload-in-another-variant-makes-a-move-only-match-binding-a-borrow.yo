@@ -1,0 +1,10 @@
+{ println } :: import("std/fmt");
+I :: struct(a : i32);
+R :: ref(struct(b : i32));
+E :: enum(A(i : I), B(r : R));
+main :: (fn() -> unit)({
+  e := E.A(I(a : i32(7)));
+  x := match(e, .A(o) => o, .B(_) => I(a : i32(0)));
+  println(&x.a);
+});
+export(main);

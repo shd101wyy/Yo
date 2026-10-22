@@ -10556,7 +10556,7 @@ impl(
 );
 __borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
   __yo_borrow_acquire(c);
-  __BorrowGuard(C)(_c : c)
+  __BorrowGuard(C)(_c : __probe_dup(&c))
 });
 /// Whether the borrowed `for`'s source is a place the macro can borrow where
 /// it stands: a variable, or a field path rooted at one (`xs`, `self.items`,
@@ -12986,7 +12986,7 @@ __probe_copy_at :: (fn(generic(T : Type), p : *T) -> T)(p.*);
 __probe_clone_at :: (fn(generic(T : Type), p : *T) -> T)(p.*.clone());
 __probe_read_elem :: (fn(generic(T : Type), p : *T) -> T)(
   cond(
-    (Type.impls(T, Clone) && !(Type.impls(T, Copy)) && !(Type.impls(T, Deref))) => __probe_clone_at(p),
+    (Type.impls(T, Clone) && !Type.impls(T, Copy) && !Type.impls(T, Deref)) => __probe_clone_at(p),
     true => __probe_copy_at(p)
   )
 );
@@ -12994,7 +12994,7 @@ __probe_copy_ref :: (fn(generic(T : Type), v : &T) -> T)(v);
 __probe_clone_ref :: (fn(generic(T : Type), v : &T) -> T)(v.clone());
 __probe_dup :: (fn(generic(T : Type), v : &T) -> T)(
   cond(
-    (Type.impls(T, Clone) && !(Type.impls(T, Copy)) && !(Type.impls(T, Deref))) => __probe_clone_ref(v),
+    (Type.impls(T, Clone) && !Type.impls(T, Copy) && !Type.impls(T, Deref)) => __probe_clone_ref(v),
     true => __probe_copy_ref(v)
   )
 );

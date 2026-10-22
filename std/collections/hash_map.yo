@@ -656,10 +656,10 @@ impl(
       true => ()
     );
     (ctrl_ptr.add(slot)).* = h2_hash(hash);
-    new_bucket := MapEntry(K, V)(key : key, value : value);
+    new_bucket := MapEntry(K, V)(key : __probe_dup(&key), value : __probe_dup(&value));
     consume((data_ptr.add(slot)).* = new_bucket);
     self.size = (self.size + usize(1));
-    value
+    __probe_dup(&value)
   }),
   /// Copy of the value stored under `key`, or `.None` — O(1) average.
   ///
@@ -935,7 +935,7 @@ impl(
   /// See `HashMapEntry` for the invalidation rule.
   entry : (fn(self : &mut Self, key : &K) -> HashMapEntry(K, V))({
     hash := self._hash(key);
-    HashMapEntry(K, V)(_map : self, _key : key, _hash : hash, _slot : Self._probe(self, key, hash))
+    HashMapEntry(K, V)(_map : self, _key : __probe_dup(&key), _hash : hash, _slot : Self._probe(self, key, hash))
   }),
   /// The value for `key`, inserting `default` first when absent.
   get_or_insert : (fn(self : &mut Self, key : &K, default : &V) -> V)(
@@ -1086,7 +1086,7 @@ impl(
       },
       .Vacant(_) => ()
     );
-    self
+    __probe_dup(&self)
   }),
   /// Remove this key from the map, returning the value it held.
   ///

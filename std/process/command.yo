@@ -769,14 +769,15 @@ impl(
   /// convenience.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
     bytes := data.clone();
-    io.async(e =>
-      cond(
-        (bytes.len() == usize(0)) => usize(0),
-        true => {
-          e.io.await(self.write_all(bytes.ptr().unwrap(), bytes.len(), e.io), e);
-          bytes.len()
-        }
-      )
+    io.async(
+      e =>
+        cond(
+          (bytes.len() == usize(0)) => usize(0),
+          true => {
+            e.io.await(self.write_all(bytes.ptr().unwrap(), bytes.len(), e.io), e);
+            bytes.len()
+          }
+        )
     )
   })
 );

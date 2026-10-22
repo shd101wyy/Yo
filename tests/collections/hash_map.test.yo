@@ -762,7 +762,7 @@ test("entry.or_insert_with only calls make on the vacant path", {
   m := HashMap(i32, i32).new();
   // The recorder is an ArrayList because a closure captures by VALUE, and an
   // ArrayList copy shares its buffer — an i32 counter would not come back out.
-  calls := ArrayList(i32).new();
+  mut(calls) := ArrayList(i32).new();
   assert(
     m.entry(i32(1)).or_insert_with(() => {
       calls.push(i32(1));
@@ -896,7 +896,7 @@ test("extend merges another map, overwriting on duplicates", {
 test("extend accepts any IntoIterator over entries, not just a map", {
   a := HashMap(i32, i32).new();
   a.insert(i32(1), i32(10));
-  entries := ArrayList(MapEntry(i32, i32)).new();
+  mut(entries) := ArrayList(MapEntry(i32, i32)).new();
   entries.push(MapEntry(i32, i32)(key : i32(2), value : i32(20)));
   entries.push(MapEntry(i32, i32)(key : i32(1), value : i32(99)));
   a.extend(&entries);

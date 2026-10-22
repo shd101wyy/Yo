@@ -96,7 +96,7 @@ impl(
   })
 );
 test("borrowed for: a read-only user method with a typed local, through an alias, does not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(6));
   xs.push(i32(8));
   bag := Bag(items : xs, version : i32(0));
@@ -130,7 +130,7 @@ impl(
     total
   }),
   doubled_copy : (fn(self : &Self) -> ArrayList(i32))({
-    copy := self.items.clone();
+    mut(copy) := self.items.clone();
     mut(i) := usize(0);
     while(i < copy.len(), {
       copy(i) = (copy(i) * i32(2));
@@ -141,7 +141,7 @@ impl(
   })
 );
 test("borrowed for: user methods iterating the collection or mutating a fresh copy, through an alias, do not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(2));
   xs.push(i32(3));
   bag := Bag(items : xs, version : i32(0));

@@ -3556,7 +3556,7 @@ future_opt_bytes :: (fn(n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8))
   count := Rc(usize)(n);
   io.async((io : Io) => {
     io.await(yield(io), io);
-    b := ArrayList(u8).new();
+    mut(b) := ArrayList(u8).new();
     (mut(i) : usize) = usize(0);
     while(i < count.*, {
       b.push(u8(7));
@@ -4093,7 +4093,7 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
 _cached_identity :: (fn(rio : Io) -> Impl(Future(String, Io)))(
   rio.async((aio : Io) => {
     match(
-      g_cached_identity,
+      &g_cached_identity,
       .Some(known) => {
         return(known);
       },

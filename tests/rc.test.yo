@@ -232,7 +232,7 @@ test("Test array index access - no RC leak for inline use", {
 test("Test ArrayList index access - no RC leak", {
   // ArrayList of Rc(i32) - inline access
   {
-    list := ArrayList(Rc(i32)).new();
+    mut(list) := ArrayList(Rc(i32)).new();
     list.push(Rc(i32)(100));
     list.push(Rc(i32)(200));
     list.push(Rc(i32)(300));
@@ -245,14 +245,14 @@ test("Test ArrayList index access - no RC leak", {
   };
   // ArrayList of Rc(i32) - assigned access
   {
-    list := ArrayList(Rc(i32)).new();
+    mut(list) := ArrayList(Rc(i32)).new();
     list.push(Rc(i32)(42));
     elem := list(usize(0));
     assert(elem.* == 42, "assigned elem.* should work");
   };
   // ArrayList of String - inline access
   {
-    list := ArrayList(String).new();
+    mut(list) := ArrayList(String).new();
     list.push(`hello`);
     list.push(`world`);
     assert(list(usize(0)) == `hello`, "list(0) == hello");
@@ -262,7 +262,7 @@ test("Test ArrayList index access - no RC leak", {
   };
   // ArrayList of String - assigned access
   {
-    list := ArrayList(String).new();
+    mut(list) := ArrayList(String).new();
     list.push(`test`);
     s := list(usize(0)).clone();
     assert(s == `test`, "assigned string from ArrayList should work");
@@ -334,7 +334,7 @@ test("Test array index in expressions - no RC leak", {
 test("Test chained method calls - no duplicate var", {
   // Regression test: chained method calls on ArrayList should not
   // cause duplicate temp variable declarations in generated C.
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
   list.push(i32(30));
@@ -380,13 +380,13 @@ test("Test early return of reassigned RC variable does not leak", {
           i = (i + usize(1));
         },
         .None => {
-          return(result);
+          return(result.clone());
         }
       );
     });
     result
   });
-  parts := ArrayList(str).new();
+  mut(parts) := ArrayList(str).new();
   parts.push("hello ");
   parts.push("world");
   s := build_string(&parts);
@@ -402,7 +402,7 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
   // escape drops — so rc hit 0, the buffer was freed, and the caller received a
   // dangling pointer. See issues/fixed/yo-return-owned-local-in-branch-double-drop.md.
   build :: (fn(early : bool) -> ArrayList(i32))({
-    out := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
     if(early, {
       out.push(i32(7));
       return(out);
@@ -575,7 +575,7 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
 // the pair, and mark the variable consumed — leaking one reference on every
 // path that did not take the arm (issues/fixed/where-constraints-arraylist-96b-leak.md).
 CondMoveHolder :: struct(items : ArrayList(i32));
-g_cond_move_seen := ArrayList(ArrayList(i32)).new();
+mut(g_cond_move_seen) := ArrayList(ArrayList(i32)).new();
 cond_move_make_fresh :: (fn() -> ArrayList(i32))({
   l := ArrayList(i32).new();
   g_cond_move_seen.push(l);

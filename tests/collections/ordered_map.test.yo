@@ -57,7 +57,7 @@ test("OrderedMap iteration in insertion order", {
   m.insert(`a`, i32(1));
   m.insert(`m`, i32(13));
   // keys
-  ks := ArrayList(String).new();
+  mut(ks) := ArrayList(String).new();
   it := m.keys();
   while(true, {
     n := it.next();
@@ -73,7 +73,7 @@ test("OrderedMap iteration in insertion order", {
   assert(ks(usize(1)) == `a`, "a second");
   assert(ks(usize(2)) == `m`, "m third");
   // values
-  vs := ArrayList(i32).new();
+  mut(vs) := ArrayList(i32).new();
   vit := m.values();
   while(true, {
     n := vit.next();
@@ -116,7 +116,7 @@ test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
   m := OrderedMap(String, i32).new();
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
-  keys := ArrayList(String).new();
+  mut(keys) := ArrayList(String).new();
   mut(total) := i32(0);
   for(m.into_iter(), e => {
     keys.push(e.key.clone());
@@ -207,7 +207,7 @@ test("OrderedMap Default is the empty map", {
 // `IndexMap::swap_remove`. O(1), and the iteration order changes: that trade
 // is the reason it exists beside the order-preserving O(n) `remove`.
 _keys :: (fn(m : &OrderedMap(String, i32)) -> ArrayList(String))({
-  out := ArrayList(String).new();
+  mut(out) := ArrayList(String).new();
   it := m.keys();
   while(true, {
     match(

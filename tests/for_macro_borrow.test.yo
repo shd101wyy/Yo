@@ -59,7 +59,7 @@ test("for-loop body interacts with outer locals", {
   assert(hits == i32(2), "two elements (20, 30) exceed threshold 15");
 });
 test("for(list, (x) => body) on ArrayList iterates and reads", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(2));
   list.push(i32(3));
   list.push(i32(5));
@@ -70,7 +70,7 @@ test("for(list, (x) => body) on ArrayList iterates and reads", {
   assert(sum == i32(10), "ArrayList sum 2+3+5=10");
 });
 test("ArrayList index writes mutate in place", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
@@ -87,7 +87,7 @@ test("String elements mutate in place through the inout binding", {
   // `String` is a value: the value form `s => ...` borrows each element and
   // may not write it (E0908, `tests/cli-cases/inout-write-through-a-borrowed-for-is-e0908`).
   // The borrowed `inout` form writes the element in the list's buffer.
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("a"));
   names.push(String.from("b"));
   for(&mut names, s => {
@@ -186,7 +186,7 @@ bump_i32 :: (fn(v : &mut i32) -> unit)({
   v = (v + i32(1));
 });
 test("for(list, inout(x) => body) mutates ArrayList elements in place", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
@@ -199,7 +199,7 @@ test("for(list, inout(x) => body) mutates ArrayList elements in place", {
   assert(list.len() == usize(3), "length untouched");
 });
 test("borrowed for over struct elements: field writes land in the buffer", {
-  enemies := ArrayList(Enemy).new();
+  mut(enemies) := ArrayList(Enemy).new();
   enemies.push(Enemy(hp : i32(3), name : String.from("a")));
   enemies.push(Enemy(hp : i32(1), name : String.from("b")));
   for(&mut enemies, e => {
@@ -209,7 +209,7 @@ test("borrowed for over struct elements: field writes land in the buffer", {
   assert(enemies(usize(1)).hp == i32(0), "b: 1 -> 0");
 });
 test("borrowed for over RC elements: no per-element dup, mutate through the reference", {
-  names := ArrayList(String).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("x"));
   names.push(String.from("y"));
   first := names(usize(0));
@@ -223,7 +223,7 @@ test("borrowed for over RC elements: no per-element dup, mutate through the refe
   assert(ref_count(first) == before, "counts unchanged after the loop");
 });
 test("borrowed for: element handed to an inout parameter, break and continue", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   mut(i) := i32(0);
   while(i < i32(6), {
     list.push(i);
@@ -294,11 +294,12 @@ comptime_expect_error(
     i32(0)
   })
 );
+derive(Enemy, Clone);
 test("nested borrowed loops over two collections", {
-  a := ArrayList(i32).new();
+  mut(a) := ArrayList(i32).new();
   a.push(i32(1));
   a.push(i32(2));
-  b := ArrayList(i32).new();
+  mut(b) := ArrayList(i32).new();
   b.push(i32(10));
   b.push(i32(20));
   for(&mut a, x => {
@@ -315,7 +316,7 @@ test("nested borrowed loops over two collections", {
 // elements could alias.
 comptime_expect_error(
   nested_borrowed_loops_over_the_same_collection :: (fn() -> unit)({
-    a := ArrayList(i32).new();
+    mut(a) := ArrayList(i32).new();
     a.push(i32(1));
     total := i32(0);
     for(&mut a, x => {
@@ -327,7 +328,7 @@ comptime_expect_error(
 );
 test("borrowed for over a rvalue collection", {
   make :: (fn() -> ArrayList(i32))({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(5));
     xs
   });
@@ -387,7 +388,7 @@ test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
 comptime_expect_error(
   borrowed_element_captured :: (fn() -> unit)({
     run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&mut xs, x => {
       run(() => {
@@ -400,7 +401,7 @@ comptime_expect_error(
 // form is a compile error (use the value form).
 comptime_expect_error(
   borrowed_form_over_a_chain :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&mut xs.into_iter().map(v => (v + i32(1))), x => {
       x = i32(0);
@@ -415,7 +416,7 @@ comptime_expect_error(
 // (issues/fixed/2026-10-17-a-local-borrow-a-macro-expansion-declares-is-never-live-in-the-callers-code.md).
 comptime_expect_error(
   push_on_the_borrowed_collection :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&mut xs, x => {
       xs.push(x);
@@ -424,7 +425,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   read_of_the_borrowed_collection :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     total := i32(0);
     for(&mut xs, x => {
@@ -458,7 +459,7 @@ comptime_expect_error(
 // CURRENT buffer, so growth that reallocates mid-walk is read correctly, never
 // from the freed buffer (issues/collection-iterators-have-no-sound-post-v2b-shape.md).
 test("indices(): a walk that grows its list reads the re-derived buffer", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   xs.push(i32(3));
@@ -498,7 +499,7 @@ test("indices(): a walk that grows its list reads the re-derived buffer", {
 // `clone` pushing into its result, an iterator's own cursor). The panic side is
 // pinned by tests/cli-cases/inout-for-alias-push-panics.
 test("borrowed for: read-only and fresh-storage methods through an alias do not trip the flag", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   ys := xs; // a second handle of the same list

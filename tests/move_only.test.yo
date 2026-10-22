@@ -204,7 +204,7 @@ _mo_one_match_arm :: (fn(k : i32, keep : &mut ArrayList(_MoFd)) -> unit)({
 test("move-only: a value moved in one arm is dropped at the end of the others", {
   before := g_mo_disposed;
   before_sum := g_mo_sum;
-  keep := ArrayList(_MoFd).new();
+  mut(keep) := ArrayList(_MoFd).new();
   assert(_mo_one_arm(true, &mut keep) == i32(1), "moved into the list");
   assert(g_mo_disposed == before, "the list owns it: not disposed");
   assert(_mo_one_arm(false, &mut keep) == i32(1), "kept");
@@ -259,7 +259,7 @@ test("move-only: an assignment statement drops the old value at the assignment",
   mut(h) := _MoPair(fd : _MoFd(n : i32(3)), tag : i32(0));
   h.fd = _MoFd(n : i32(4));
   assert(g_mo_disposed == (before + i32(2)), "a field store's too");
-  xs := ArrayList(_MoFd).new();
+  mut(xs) := ArrayList(_MoFd).new();
   xs.push(_MoFd(n : i32(5)));
   xs(usize(0)) = _MoFd(n : i32(6));
   assert(g_mo_disposed == (before + i32(3)), "an index store's too");
@@ -494,7 +494,7 @@ test("consuming match: an owned local's payload moves into the arm", {
 test("consuming match: the parts an arm does not bind are dropped when it is entered", {
   before := g_mo_disposed;
   before_sum := g_mo_sum;
-  keep := ArrayList(_MoFd).new();
+  mut(keep) := ArrayList(_MoFd).new();
   {
     p := _mo_two(i32(2));
     match(
@@ -568,7 +568,7 @@ test("consuming match: a `return` inside an arm drops the owned binding once", {
 });
 test("move-only: a value moved before a `continue` is not dropped again at the exit", {
   before := g_mo_disposed;
-  keep := ArrayList(_MoFd).new();
+  mut(keep) := ArrayList(_MoFd).new();
   assert(_mo_local_in_loop(&mut keep) == i32(2), "0 + 2 before the break at 3");
   assert(g_mo_disposed == (before + i32(3)), "0 and 2 at the iteration's end, 3 at the break; 1 is the keeper's");
   keep.clear();
@@ -576,7 +576,7 @@ test("move-only: a value moved before a `continue` is not dropped again at the e
 });
 test("consuming match: in a loop, `continue` after a move and `break` while owning drop each value once", {
   before := g_mo_disposed;
-  keep := ArrayList(_MoFd).new();
+  mut(keep) := ArrayList(_MoFd).new();
   assert(_mo_match_in_loop(&mut keep) == i32(2), "0 + 2 added before the break at 3");
   assert(keep.len() == usize(1), "1 was moved into the keeper");
   assert(g_mo_disposed == (before + i32(3)), "0 and 2 at the arm's end, 3 at the break");
@@ -800,7 +800,7 @@ test("a move inside an operator's operand moves once", {
 // ran `Drop` while the list still owned the element.
 // The method writes container storage (a global list), so the mutation
 // summary cannot prove it read-only and Stage 0 applied.
-(g_mo_seen : ArrayList(i32)) = ArrayList(i32).new();
+(mut(g_mo_seen) : ArrayList(i32)) = ArrayList(i32).new();
 impl(
   _MoFd,
   _mo_note : (fn(self : &Self) -> i32)({

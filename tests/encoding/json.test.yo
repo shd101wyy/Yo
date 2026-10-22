@@ -109,7 +109,7 @@ test("json.parse mixed array", {
   assert(arr(usize(0)).as_number().unwrap() == f64(1), "element 0 is 1");
   assert(arr(usize(1)).as_string().unwrap() == "two", "element 1 is two");
   assert(arr(usize(2)).as_bool().unwrap() == true, "element 2 is true");
-  is_null := match(arr(usize(3)), .Null => true, _ => false);
+  is_null := match((arr(usize(3))).clone(), .Null => true, _ => false);
   assert(is_null, "element 3 is null");
 });
 // ===== Parse Objects =====
@@ -240,7 +240,7 @@ test("json.stringify empty array", {
   assert(result == "[]", "empty array should stringify to []");
 });
 test("json.stringify array", {
-  items := ArrayList(JsonValue).new();
+  mut(items) := ArrayList(JsonValue).new();
   items.push(.Number(f64(1)));
   items.push(.Number(f64(2)));
   items.push(.Number(f64(3)));
@@ -254,8 +254,8 @@ test("json.stringify empty object", {
   assert(result == "{}", "empty object should stringify to {}");
 });
 test("json.stringify object", {
-  keys := ArrayList(String).new();
-  vals := ArrayList(JsonValue).new();
+  mut(keys) := ArrayList(String).new();
+  mut(vals) := ArrayList(JsonValue).new();
   keys.push(String.from("a"));
   vals.push(.Number(f64(1)));
   keys.push(String.from("b"));
@@ -306,8 +306,8 @@ impl(
   _TPoint,
   ToJson(
     to_json : (fn(self : &Self) -> JsonValue)({
-      keys := ArrayList(String).new();
-      values := ArrayList(JsonValue).new();
+      mut(keys) := ArrayList(String).new();
+      mut(values) := ArrayList(JsonValue).new();
       keys.push(`x`);
       values.push(self.x.to_json());
       keys.push(`y`);
@@ -397,7 +397,7 @@ test("json Option roundtrip", {
   );
 });
 test("json ArrayList roundtrip", {
-  list := ArrayList(i32).new();
+  mut(list) := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
@@ -509,7 +509,7 @@ _DGeneric :: struct(tag : Option(i32), items : ArrayList(i32), name : String);
 derive(_DGeneric, ToJson(_DGeneric));
 derive(_DGeneric, FromJson(_DGeneric));
 test("derived roundtrip with Option and ArrayList fields", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   v := _DGeneric(tag : Option(i32).Some(i32(5)), items : xs, name : `g`);
@@ -539,7 +539,7 @@ test("derived roundtrip with a None Option field", {
 // parser stopped at the end of the first value and never checked it had
 // consumed the input, so `[1,2][3,4]` came back `.Ok([1,2])`.
 test("json_parse_result rejects content after the top-level value", {
-  cases := ArrayList(String).new();
+  mut(cases) := ArrayList(String).new();
   cases.push(`[1,2][3,4]`.to_string());
   cases.push(`1 garbage`.to_string());
   cases.push(`[1,2]]]]`.to_string());
@@ -568,7 +568,7 @@ test("json.parse throws on content after the value, and names the position", {
 });
 test("JsonValue Default is null", {
   v := JsonValue.default();
-  assert(match(v, .Null => true, _ => false), "default JsonValue is .Null");
+  assert(match(&v, .Null => true, _ => false), "default JsonValue is .Null");
   assert(json.stringify(&v) == `null`, "the default value stringifies as null");
 });
 test("JsonValue variant predicates", {
@@ -677,7 +677,7 @@ test("an Int renders in decimal, never through %g", {
 test("an integer beyond 2^53 survives exactly — the reason the arm exists", {
   // As an f64 this value is indistinguishable from 2^53; as an Int it is exact.
   v := json.parse("9007199254740993").unwrap();
-  assert(match(v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
+  assert(match(&v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
   assert(v.as_i64().unwrap() == i64(9007199254740993), "as_i64 must be exact above 2^53");
   assert(json.stringify(&v) == "9007199254740993", `must round-trip exactly, got ${json.stringify(&v)}`);
 });
@@ -693,7 +693,7 @@ test("both arms are numbers, and Int widens to f64", {
 });
 test("integer ToJson emits Int, so a round trip is stable", {
   v := i32(7).to_json();
-  assert(match(v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
+  assert(match(&v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
   assert(json.stringify(&v) == "7", `must render as 7, got ${json.stringify(&v)}`);
   // FromJson still accepts both arms.
   back := i32.from_json(json.parse("7").unwrap()).unwrap();

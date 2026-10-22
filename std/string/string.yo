@@ -248,7 +248,9 @@ impl(
   /// else can write them (until VALUES_BY_DEFAULT V2b makes the buffer
   /// unique, a plain `t := s` still shares it).
   into_bytes : (fn(sink(self) : Self) -> ArrayList(u8))(
-    match(self, String(_bytes : b) => b)
+    // B8 PROBE: a move out of the newtype has no spelling that compiles
+    // (issues/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md).
+    self._bytes.clone()
   ),
   /// Get a str view into the string's UTF-8 bytes
   /// PRIVILEGED raw pointer to the heap buffer for C interop and pragma'd
@@ -1945,6 +1947,7 @@ StringChars :: struct(
   /// iteration composable on one iterator.
   _end : usize
 );
+derive(StringChars, Clone);
 impl(
   StringChars,
   Iterator(
@@ -2231,6 +2234,7 @@ StringLines :: struct(
   /// Exclusive BACK cursor — see `StringChars._end`.
   _end : usize
 );
+derive(StringLines, Clone);
 /// A line's content, with ONE trailing `\r` dropped.
 ///
 /// `lines()` splits on `\n` and must not leave the carriage return of a

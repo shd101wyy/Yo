@@ -58,7 +58,7 @@ test("Test Index trait address-of", {
   assert(arr(usize(1)) == i32(999), "arr(1) should be 999 after mutation through pointer");
 });
 test("Test Index trait on ArrayList", {
-  (list : ArrayList(i32)) = ArrayList(i32).new();
+  (mut(list) : ArrayList(i32)) = ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
   list.push(i32(30));
@@ -68,7 +68,7 @@ test("Test Index trait on ArrayList", {
   assert(list(usize(2)) == i32(30), "list(2) should be 30");
 });
 test("Test Index trait address-of on ArrayList", {
-  (list : ArrayList(i32)) = ArrayList(i32).new();
+  (mut(list) : ArrayList(i32)) = ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
@@ -233,22 +233,22 @@ test("String's Index reads a byte and has no IndexMut; byte_at / get_byte agree"
 test("Test Index on ArrayList(String) - RC dup on extract", {
   // Extracting a String from ArrayList via Index must dup the RC.
   // Without dup: drop(s) frees internal bytes, then drop(list) double-frees.
-  (list : ArrayList(String)) = ArrayList(String).new();
+  (mut(list) : ArrayList(String)) = ArrayList(String).new();
   list.push(`hello`);
   list.push(`world`);
-  (s : String) = list(usize(0));
+  (s : String) = (list(usize(0))).clone();
   assert(s == `hello`, "extracted string should be hello");
   // s is dropped, then list is dropped — both must work without UAF
 });
 test("Test Index on ArrayList(String) - RC dup in loop", {
   // Loop extracting RC elements must dup each one correctly.
-  (list : ArrayList(String)) = ArrayList(String).new();
+  (mut(list) : ArrayList(String)) = ArrayList(String).new();
   list.push(`alpha`);
   list.push(`beta`);
   list.push(`gamma`);
   (mut(i) : usize) = usize(0);
   while(i < list.len(), {
-    (elem : String) = list(i);
+    (elem : String) = list(i).clone();
     assert(elem.len() > usize(0), "element should not be empty");
     // elem is dropped at end of iteration; list elements must remain valid
     i = (i + usize(1));
@@ -258,23 +258,23 @@ test("Test Index on ArrayList(String) - RC dup in loop", {
 });
 test("Test Index on ArrayList(String) - RC dup in cond branches", {
   // Index inside cond branches must produce correct dup.
-  (list : ArrayList(String)) = ArrayList(String).new();
+  (mut(list) : ArrayList(String)) = ArrayList(String).new();
   list.push(`first`);
   list.push(`second`);
   (flag : bool) = true;
   (result : String) = cond(
-    flag => list(usize(0)),
-    true => list(usize(1))
+    flag => (list(usize(0))).clone(),
+    true => (list(usize(1))).clone()
   );
   assert(result == `first`, "should pick first element");
 });
 test("Test Index on ArrayList(String) - multiple extracts same index", {
   // Multiple extracts from the same index must each dup.
-  (list : ArrayList(String)) = ArrayList(String).new();
+  (mut(list) : ArrayList(String)) = ArrayList(String).new();
   list.push(`shared`);
-  (a : String) = list(usize(0));
-  (b : String) = list(usize(0));
-  (c : String) = list(usize(0));
+  (a : String) = (list(usize(0))).clone();
+  (b : String) = (list(usize(0))).clone();
+  (c : String) = (list(usize(0))).clone();
   assert(a == `shared`, "a should be shared");
   assert(b == `shared`, "b should be shared");
   assert(c == `shared`, "c should be shared");
@@ -282,11 +282,11 @@ test("Test Index on ArrayList(String) - multiple extracts same index", {
 });
 test("Test Index on ArrayList(ArrayList(u8)) - nested RC", {
   // Index on nested RC types must dup the outer container.
-  (outer : ArrayList(ArrayList(u8))) = ArrayList(ArrayList(u8)).new();
-  (inner : ArrayList(u8)) = ArrayList(u8).new();
+  (mut(outer) : ArrayList(ArrayList(u8))) = ArrayList(ArrayList(u8)).new();
+  (mut(inner) : ArrayList(u8)) = ArrayList(u8).new();
   inner.push(u8(42));
   outer.push(inner);
-  (extracted : ArrayList(u8)) = outer(usize(0));
+  (extracted : ArrayList(u8)) = (outer(usize(0))).clone();
   assert(extracted.len() == usize(1), "extracted should have 1 element");
   assert(extracted(usize(0)) == u8(42), "extracted[0] should be 42");
   // extracted and outer both hold references to the same ArrayList(u8)
@@ -299,7 +299,7 @@ test("Test NOT operator on Index trait field access", {
     is_image : bool
   );
   derive(Marker, Copy, Clone);
-  (markers : ArrayList(Marker)) = ArrayList(Marker).new();
+  (mut(markers) : ArrayList(Marker)) = ArrayList(Marker).new();
   markers.push(Marker(active : true, is_image : false));
   markers.push(Marker(active : true, is_image : true));
   // Direct ! on Index trait field access
@@ -682,7 +682,7 @@ test("Typed binding from index call with operator-expression argument", {
   // under a typed `u8` binding, the index ARGUMENT (`end_idx - usize(1)`) was
   // evaluated with the ambient expected type still set, producing a swallowed
   // usize-vs-u8 unify error in the self-hosted evaluator (String.trim's shape).
-  al := ArrayList(u8).new();
+  mut(al) := ArrayList(u8).new();
   al.push(u8(7));
   al.push(u8(9));
   end_idx := usize(2);
@@ -713,18 +713,18 @@ impl(
   )
 );
 test("Index with a by-value String key keeps the caller's key alive", {
-  k := Keyed(entries : ArrayList(String).new());
+  mut(k) := Keyed(entries : ArrayList(String).new());
   k.entries.push(String.from("alpha"));
   k.entries.push(String.from("beta"));
   key := String.from("alpha");
-  first := k(key);
-  second := k(key);
+  first := k(key.clone()).clone();
+  second := k(key.clone()).clone();
   assert(first == second, "same key indexes the same entry");
   assert(key.len() == usize(5), "the by-value index did not consume the caller's key");
-  assert(k(key) == key, "still sound after a third dispatch");
+  assert(k(key.clone()) == key, "still sound after a third dispatch");
 });
 test("Index with an owning-temp String key moves it", {
-  k := Keyed(entries : ArrayList(String).new());
+  mut(k) := Keyed(entries : ArrayList(String).new());
   k.entries.push(String.from("gamma"));
   got := k(String.from("gamma")).clone();
   assert(got == String.from("gamma"), "temp-key dispatch");
@@ -733,7 +733,7 @@ test("HashMap Index with a by-value String key", {
   m := HashMap(String, String).new();
   m.insert(String.from("one"), String.from("1"));
   key := String.from("one");
-  assert(m(key) == String.from("1"), "map index by String key");
+  assert(m(key.clone()) == String.from("1"), "map index by String key");
   assert(key.len() == usize(3), "key still alive after the dispatch");
   assert(m(key) == String.from("1"), "second dispatch through the same key");
 });
@@ -882,7 +882,7 @@ impl(
   })
 );
 test("V2b: nested and field writes go through IndexMut at every level", {
-  g := Rows(rows : ArrayList(Trio).new());
+  mut(g) := Rows(rows : ArrayList(Trio).new());
   g.rows.push(Trio(a : i32(1), b : i32(2), c : i32(3)));
   g.rows.push(Trio(a : i32(4), b : i32(5), c : i32(6)));
   assert(g(usize(1))(usize(2)) == i32(6), "nested read");
@@ -1005,7 +1005,7 @@ test("V2b: a projection call binds a local borrow", {
   s := n.name_mut(usize(1));
   s.push_str("!");
   kept := n.name(usize(1));
-  copy := kept;
+  copy := kept.clone();
   assert(copy == "xyz!", "a by-value read of the borrow copies the element");
   assert(n.second == "xyz!", "and the element is still the caller's");
 });
@@ -1014,7 +1014,7 @@ test("V2b: a projection call binds a local borrow", {
 // initialized an `int32_t` with the `int32_t *` the projection returns
 // (clang: int-from-pointer).
 test("V2b: a std collection's index method call binds a local borrow", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(7));
   r := xs.index(usize(0));
   assert((r + i32(0)) == i32(7), "r reads the element through the borrow");
@@ -1062,7 +1062,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   _v2b_std_write_through_read :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(7));
     xs.index(usize(0)) = i32(1);
   }),
@@ -1351,7 +1351,7 @@ impl(
   )
 );
 test("V2b: a projection that drops a local before yielding its place", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(5));
   xs.push(i32(6));
   c := Chain(items : xs);
@@ -1467,8 +1467,8 @@ test("IndexMut: a String key survives the write it indexes", {
   ms := HashMap(String, i32).new();
   ms.insert(String.from("key-long-enough-to-heap"), i32(1));
   s := String.from("key-long-enough-to-heap");
-  ms(s) = i32(5);
-  assert(ms(s) == i32(5), "the write landed");
+  ms(s.clone()) = i32(5);
+  assert(ms(s.clone()) == i32(5), "the write landed");
   assert(s.len() == usize(23), "the key string is alive after the write");
 });
 // The nested access `mm(i)(k) = v`: the inner index_mut's receiver is itself

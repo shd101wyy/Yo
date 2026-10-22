@@ -9,20 +9,20 @@ utf16 :: import("std/encoding/utf16");
 // Since Yo doesn't support \x escapes in string literals, we construct
 // multi-byte UTF-8 strings from bytes.
 _make_str_2 :: (fn(b0 : u8, b1 : u8) -> String)({
-  arr := ArrayList(u8).new();
+  mut(arr) := ArrayList(u8).new();
   arr.push(b0);
   arr.push(b1);
   String.from_bytes(arr)
 });
 _make_str_3 :: (fn(b0 : u8, b1 : u8, b2 : u8) -> String)({
-  arr := ArrayList(u8).new();
+  mut(arr) := ArrayList(u8).new();
   arr.push(b0);
   arr.push(b1);
   arr.push(b2);
   String.from_bytes(arr)
 });
 _make_str_4 :: (fn(b0 : u8, b1 : u8, b2 : u8, b3 : u8) -> String)({
-  arr := ArrayList(u8).new();
+  mut(arr) := ArrayList(u8).new();
   arr.push(b0);
   arr.push(b1);
   arr.push(b2);
@@ -35,7 +35,7 @@ _make_str_4 :: (fn(b0 : u8, b1 : u8, b2 : u8, b3 : u8) -> String)({
 /// 3-byte CESU-8 sequence — invalid UTF-8 — despite the documented "rejects
 /// unpaired surrogates" contract.
 _lone_low_surrogate_rejected :: (fn() -> bool)({
-  data := ArrayList(u16).new();
+  mut(data) := ArrayList(u16).new();
   data.push(u16(0x0041));
   data.push(u16(0xDC00));
   match(utf16.to_utf8(&data), .Ok(_) => false, .Err(_) => true)
@@ -88,7 +88,7 @@ test("utf16.to_utf8 empty", {
   assert(result == "", "should be empty string");
 });
 test("utf16.to_utf8 ASCII", {
-  data := ArrayList(u16).new();
+  mut(data) := ArrayList(u16).new();
   data.push(u16(72));
   data.push(u16(101));
   data.push(u16(108));
@@ -99,7 +99,7 @@ test("utf16.to_utf8 ASCII", {
 });
 test("utf16.to_utf8 BMP character", {
   // U+20AC = € (euro sign)
-  data := ArrayList(u16).new();
+  mut(data) := ArrayList(u16).new();
   data.push(u16(0x20AC));
   s := utf16.to_utf8(&data).unwrap();
   bytes := s;
@@ -110,7 +110,7 @@ test("utf16.to_utf8 BMP character", {
 });
 test("utf16.to_utf8 surrogate pair", {
   // U+1F600 as surrogate pair: D83D DE00
-  data := ArrayList(u16).new();
+  mut(data) := ArrayList(u16).new();
   data.push(u16(0xD83D));
   data.push(u16(0xDE00));
   s := utf16.to_utf8(&data).unwrap();
@@ -155,7 +155,7 @@ test("utf16.to_utf8_exn still throws for callers inside an effect scope", {
       }
     )
   );
-  data := ArrayList(u16).new();
+  mut(data) := ArrayList(u16).new();
   data.push(u16(0x0041));
   data.push(u16(0xDC00));
   utf16.to_utf8_exn(&data, exn);
@@ -174,7 +174,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
   // the variant could not carry it at all.
   //
   // A high surrogate at the END of the input: it promised a partner.
-  data := ArrayList(u16).new();
+  mut(data) := ArrayList(u16).new();
   data.push(u16(65)); // 'A'
   data.push(u16(0xD83D));
   assert(
@@ -192,7 +192,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
   );
   // A high surrogate followed by something that is not a low surrogate. The
   // HIGH one is at fault, so it is the one reported.
-  d2 := ArrayList(u16).new();
+  mut(d2) := ArrayList(u16).new();
   d2.push(u16(0xD83D));
   d2.push(u16(65)); // 'A', not a low surrogate
   assert(
@@ -209,7 +209,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
     "a high surrogate with the wrong partner is named, at index 0"
   );
   // A bare LOW surrogate.
-  d3 := ArrayList(u16).new();
+  mut(d3) := ArrayList(u16).new();
   d3.push(u16(65));
   d3.push(u16(66));
   d3.push(u16(0xDE00));
@@ -233,7 +233,7 @@ test("utf16.to_utf8 names the unpaired surrogate and where it was", {
     "pos() gives the code-unit index"
   );
   // And a valid pair still decodes, so the guard has not become too eager.
-  ok := ArrayList(u16).new();
+  mut(ok) := ArrayList(u16).new();
   ok.push(u16(0xD83D));
   ok.push(u16(0xDE00));
   assert(utf16.to_utf8(&ok).is_ok(), "a real surrogate pair still decodes");

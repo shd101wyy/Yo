@@ -293,7 +293,7 @@ test("Copy: Copy requires Clone, and derive(T, Copy) alone names derive(T, Copy,
   comptime_assert(!Type.impls(_CtBare, Copy), "the rejected impls registered nothing (the derive's rejection is pinned at module level)");
 });
 test("Copy: an impl over a part that is not Copy names that part", {
-  comptime_expect_error(impl(_CtLabel, Copy()), "its field `name` has type `String`");
+  comptime_expect_error(impl(_CtLabel, Copy()), "holds a move-only value in its field `name`");
   comptime_expect_error(impl(_CtPlainHolder, Copy()), "its field `inner` has type `_CtPlain`");
   comptime_expect_error(impl(generic(T : Type), _CtOpen(T), Copy()), "its field `item` has type `T`");
 });
@@ -328,7 +328,7 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   assert(c.v == i32(7), "an impl(T, Copy()) type with derive(T, Clone)");
   pr := _CtPair(i32)(a : i32(1), b : i32(2));
   assert(pr.clone() == pr, "a generic Copy instance, through the where(T <: Copy) Eq impl");
-  xs := ArrayList(_CtPoint).new();
+  mut(xs) := ArrayList(_CtPoint).new();
   xs.push(p);
   ys := xs.clone();
   assert(match(ys.get(usize(0)), .Some(e) => (e == p), .None => false), "ArrayList.clone over a Copy element");
@@ -494,7 +494,7 @@ test("Copy: an implicit capture of a String is by value, so that closure moves t
 });
 test("Copy: where(T <: Copy) rejects a closure that owns a String", {
   s := String.from("hi");
-  (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  (c : Impl(Fn() -> usize)) = ({ s.clone() }() => s.len());
   comptime_expect_error(_ct_need_copy(type_of(c), c), "does not implement required trait Copy");
   assert(c() == usize(2), "the closure rejected by comptime_expect_error is still callable");
   (c2 : Impl(Fn() -> usize)) = ({ s }() => s.len());

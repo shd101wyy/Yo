@@ -1,0 +1,20 @@
+// issues/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md
+// Expected: prints 4, then "drop B".
+// Actual: clang: error: no member named '_b' in 'struct __yo_t_..._struct' (the C type of `W` is
+// its field type `B`; the pattern reads `self._b`).
+{ println } :: import("std/fmt");
+B :: struct(n : i32);
+impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(println("drop B"))));
+W :: newtype(_b : B);
+impl(
+  W,
+  into_b : (fn(sink(self) : Self) -> B)(
+    match(self, W(_b : b) => b)
+  )
+);
+main :: (fn() -> unit)({
+  w := W(_b : B(n : i32(4)));
+  b := w.into_b();
+  println(&b.n);
+});
+export(main);

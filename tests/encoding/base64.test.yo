@@ -10,7 +10,7 @@ test("base64.encode empty input", {
   assert(result == "", "empty input should produce empty string");
 });
 test("base64.encode Hello", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(72));
   data.push(u8(101));
   data.push(u8(108));
@@ -22,20 +22,20 @@ test("base64.encode Hello", {
   assert(base64.base64_encode(&data) == result, "base64_encode alias delegates to base64.encode");
 });
 test("base64.encode single byte", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(65));
   result := base64.encode(&data);
   assert(result == "QQ==", "A should encode to QQ==");
 });
 test("base64.encode two bytes", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(65));
   data.push(u8(66));
   result := base64.encode(&data);
   assert(result == "QUI=", "AB should encode to QUI=");
 });
 test("base64.encode three bytes no padding", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(65));
   data.push(u8(66));
   data.push(u8(67));
@@ -44,7 +44,7 @@ test("base64.encode three bytes no padding", {
 });
 test("base64.encode Man", {
   // "Man" -> "TWFu"
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(77));
   data.push(u8(97));
   data.push(u8(110));
@@ -53,7 +53,7 @@ test("base64.encode Man", {
 });
 // ===== URL-safe Encoding =====
 test("base64.encode_url no padding", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(65));
   result := base64.encode_url(&data);
   // URL-safe should not have padding
@@ -93,7 +93,7 @@ test("base64.decode invalid character error", {
 });
 // ===== Roundtrip Tests =====
 test("base64 roundtrip", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   mut(i) := u8(0);
   while(i < u8(255), i = (i + u8(1)), {
     data.push(i);
@@ -108,7 +108,7 @@ test("base64 roundtrip", {
   });
 });
 test("base64 url roundtrip", {
-  data := ArrayList(u8).new();
+  mut(data) := ArrayList(u8).new();
   data.push(u8(0xFB));
   data.push(u8(0xFF));
   data.push(u8(0xFE));

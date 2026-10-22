@@ -25,18 +25,18 @@ impl(
   })
 );
 test("strict: read-only calls, fresh-storage mutation, element writes and other collections are accepted", {
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
-  ys := xs; // a second handle of the borrowed list
-  others := ArrayList(i32).new();
-  names := ArrayList(String).new();
+  ys := xs.clone(); // a second handle of the borrowed list
+  mut(others) := ArrayList(i32).new();
+  mut(names) := ArrayList(String).new();
   names.push(String.from("a"));
   mut(total) := i32(0);
   for(&mut xs, x => {
     total = (total + (x * i32(ys.len())));
     assert(ys.contains(x), "read-only method through the alias");
-    snapshot := ys.clone();
+    mut(snapshot) := ys.clone();
     snapshot.push(i32(9));
     others.push(x); // a different collection
     x = (x + i32(10));
@@ -55,7 +55,7 @@ test("strict: read-only calls, fresh-storage mutation, element writes and other 
 });
 comptime_expect_error(
   push_on_borrowed_rejected :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&mut xs, x => {
       xs.push(x);
@@ -64,7 +64,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   pop_on_borrowed_rejected :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     for(&mut xs, x => {
       xs.pop();
@@ -73,7 +73,7 @@ comptime_expect_error(
 );
 comptime_expect_error(
   alias_push_rejected :: (fn() -> unit)({
-    xs := ArrayList(i32).new();
+    mut(xs) := ArrayList(i32).new();
     xs.push(i32(1));
     ys := xs;
     for(&mut xs, x => {

@@ -8,8 +8,8 @@
 { rune, String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 _runes :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := rune))) -> ArrayList(rune))({
-  out := ArrayList(rune).new();
-  mut(iter) := it;
+  mut(out) := ArrayList(rune).new();
+  mut(iter) := __probe_dup(&it);
   while(runtime(true), {
     match(
       iter.next(),
@@ -24,8 +24,8 @@ _runes :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := rune))) ->
   out
 });
 _lines :: (fn(generic(I : Type), it : &I, where(I <: Iterator(Item := String))) -> ArrayList(String))({
-  out := ArrayList(String).new();
-  mut(iter) := it;
+  mut(out) := ArrayList(String).new();
+  mut(iter) := __probe_dup(&it);
   while(runtime(true), {
     match(
       iter.next(),

@@ -277,7 +277,7 @@ test("range yields the half-open key window in order", {
   while(i < i32(10), i = (i + i32(1)), {
     m.insert(i, i * i32(10));
   });
-  seen := ArrayList(i32).new();
+  mut(seen) := ArrayList(i32).new();
   mut(it) := m.range(i32(3) .. i32(6));
   while(runtime(true), {
     match(
@@ -332,7 +332,7 @@ test("adjacent ranges partition without overlap", {
     m.insert(i, i);
   });
   drain := (fn(mm : &BTreeMap(i32, i32), lo : i32, hi : i32) -> ArrayList(i32))({
-    out := ArrayList(i32).new();
+    mut(out) := ArrayList(i32).new();
     mut(it) := mm.range(lo .. hi);
     while(runtime(true), {
       match(

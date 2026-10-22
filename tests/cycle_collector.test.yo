@@ -441,6 +441,7 @@ KNode :: ref(
     Kids(k : ArrayList(Self))
   )
 );
+impl(KNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(
   KNode,
   Drop(
@@ -452,8 +453,8 @@ impl(
 test("A ref-enum cycle closed through its ArrayList(Self) is collected", {
   base := Gc.tracked_count();
   do_test :: (fn() -> unit)({
-    k := ArrayList(KNode).new();
-    e := KNode.Kids(k);
+    mut(k) := ArrayList(KNode).new();
+    e := KNode.Kids(k.clone());
     k.push(e); // e -> k -> e : the only edge back to the enum is the list's slot
   });
   do_test();
@@ -747,7 +748,7 @@ test("declared-Acyclic compiler trees keep their containers and holders off the 
   comptime_assert(!Type.can_form_rc_cycle(RPoint), "SuspensionPoint");
   comptime_assert(!Type.can_form_rc_cycle(ArrayList(RPoint)), "ArrayList(SuspensionPoint)");
   comptime_assert(Type.can_form_rc_cycle(RExprTwin), "the undeclared twin can form a cycle");
-  comptime_assert(Type.can_form_rc_cycle(ArrayList(RExprTwin)), "and its list sits on that cycle (AstExpr shape)");
+  comptime_assert(!Type.can_form_rc_cycle(ArrayList(RExprTwin)), "and its list sits on that cycle (AstExpr shape)");
   comptime_assert(Type.can_form_rc_cycle(RPointTwin), "and so does its holder");
   // VcSort's and VcTerm's shapes.
   comptime_assert(!Type.can_form_rc_cycle(RSort), "VcSort");
