@@ -225,10 +225,7 @@ impl(
   ///
   /// The array is taken by `sink`, so the caller's binding ends at the call
   /// and its elements are now the list's. A caller that keeps the array
-  /// passes a copy bound to a local first: `c := arr.clone();
-  /// ArrayList(T).from(c)`. The inline `from(arr.clone())` does not compile
-  /// yet (E0610 inside this function; open S2,
-  /// issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md).
+  /// passes a copy: `ArrayList(T).from(arr.clone())`.
   /// `N` comes from the array's type, so the exact capacity is reserved up
   /// front and no growth happens.
   from : (fn(generic(N : usize), sink(arr) : Array(T, N)) -> Self)({

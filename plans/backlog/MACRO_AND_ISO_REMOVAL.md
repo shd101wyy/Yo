@@ -626,11 +626,11 @@ Part C deletes the macros.
   - **Landed (B3, `feat/macro-b3-collection-constructors`).** The three
     callers above were updated (the comment now names `ArrayList.from`; both
     goldens re-recorded). The copying spelling `ArrayList(T).from(arr.clone())`
-    is blocked by a pre-existing S2: an inline dot-call argument misbinds a
-    `generic(N : usize)` binder
-    (`issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md`),
-    so until it is fixed the clone is bound to a local first
-    (`c := arr.clone(); ArrayList(T).from(c)`).
+    was blocked by a pre-existing S2: an inline dot-call argument misbound a
+    `generic(N : usize)` binder, so the clone was bound to a local first.
+    Fixed 2026-10-22
+    (`issues/fixed/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md`);
+    the inline spelling now compiles and the workaround sites were simplified.
   - **As built (B3).** `from` is an inherent static, not a `From` impl: the
     prelude's `From(Source)` takes `value : &Source`, a borrow, so a
     consuming constructor cannot implement it. `ArrayList.from` moves the

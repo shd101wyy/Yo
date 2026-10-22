@@ -9523,6 +9523,26 @@ Fix: wrap the call:
             // leaked e.g. a single-expr fn body's expected `bool` into the
             // first argument, so `zimpl(zp.to_bytes(), ...)` synthesized
             // unify(ArrayList(u8), bool) and the whole module failed.
+            //
+            // A generic callee's declared parameter type names the callee's
+            // binders, which belong to THIS call, not to the caller: an
+            // argument's own return-vs-expected synthesis (Step 10 of
+            // `try_to_call_function_with_arguments`, the method-call arm)
+            // binds them in the expected type's env. Given the caller's env,
+            // that binding outlived the argument, so the next call of the
+            // same callee in the body unified its argument against the first
+            // call's `T` (`count(labels.clone()) + count(nums.clone())`:
+            // E0601 "i32" and "String"), and a caller binder of the same name
+            // was shadowed for the rest of the body. A child scope of the
+            // caller's env (a snapshot plus one private frame) keeps every
+            // caller binding visible and drops the argument's bindings with
+            // it, as the named-fn path's callee env does
+            // (issues/fixed/2026-10-21-generic-arraylist-inference-from-two-clone-arguments-unifies-their-element-types.md).
+            (fv_arg_exp_env : Environment) = env;
+            if(forall_names.len() > usize(0), {
+              fv_arg_exp_env = snapshot_env(env);
+              _fv_child_frame := fv_arg_exp_env.push_frame(false);
+            });
             arg_saved_expected := ctx.expected_type;
             ctx.expected_type = match(
               vs_override,
@@ -9552,10 +9572,10 @@ Fix: wrap the call:
                   // (needed for spawn/parallelism specialization).
                   is_some_type(&apt) => match(
                     extract_fn_trait_from_type(&apt),
-                    .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env)),
+                    .Some(_) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : fv_arg_exp_env)),
                     .None => Option(ExpectedTypeCtx).None
                   ),
-                  true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : env))
+                  true => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : apt, env : fv_arg_exp_env))
                 ),
                 .None => Option(ExpectedTypeCtx).None
               )

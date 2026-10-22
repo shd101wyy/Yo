@@ -50,10 +50,9 @@ test("ArrayList.from with String elements (RC types)", {
 });
 test("ArrayList.from moves a named array, and a clone of it keeps the array", {
   arr := [`a`, `b`, `c`];
-  // Bound first: `from(arr.clone())` inline misbinds `N`
-  // (issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md).
-  dup := arr.clone();
-  copy := ArrayList(String).from(dup);
+  // The clone inline: a method-call argument binds `N` from its own result
+  // (issues/fixed/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md).
+  copy := ArrayList(String).from(arr.clone());
   assert(arr(usize(0)) == `a`, "the clone left the array usable");
   moved := ArrayList(String).from(arr);
   assert(copy.len() == usize(3), "copy len");

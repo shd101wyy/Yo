@@ -520,6 +520,46 @@ test("soundness canary: a method-call argument binds the callee's type parameter
   x := i32(1);
   assert(_take_opt(x._wrap_some()), "Some through the method call");
 });
+// issues/fixed/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md:
+// the same adopt, for a VALUE binder. The expected `Array(i32, N)` keeps its
+// unresolved length in the Array's length variable, which the deep SomeT test
+// does not see, so a method call passed straight to it adopted `Array(i32, N)`
+// and `N` was bound to a type (E0604 in the callee's body).
+_len_param :: (fn(generic(N : usize), arr : Array(i32, N)) -> usize)(N);
+_Arr3 :: struct(a : Array(i32, 3));
+impl(_Arr3, get : (fn(self : &Self) -> Array(i32, 3))(self.a));
+_Arr4 :: struct(a : Array(i32, 4));
+impl(_Arr4, get : (fn(self : &Self) -> Array(i32, 4))(self.a));
+test("soundness canary: a method-call argument binds the callee's length parameter", {
+  w3 := _Arr3(a : [i32(1), i32(2), i32(3)]);
+  w4 := _Arr4(a : [i32(1), i32(2), i32(3), i32(4)]);
+  assert(_len_param(w3.get()) == usize(3), "N = 3 through the method call");
+  assert(_len_param(w4.get()) == usize(4), "N = 4 through a second call in the same body");
+  a2 := [i32(5), i32(6)];
+  assert(_len_param(a2.clone()) == usize(2), "N = 2 through .clone()");
+});
+// issues/fixed/2026-10-21-generic-arraylist-inference-from-two-clone-arguments-unifies-their-element-types.md:
+// a method call's return-vs-expected synthesis bound the generic callee's `T`
+// in the CALLER's env, where it outlived the argument. The next call of the
+// same callee unified against it, and a caller binder of the same name was
+// shadowed for the rest of the body.
+_count_items :: (fn(generic(T : Type), items : ArrayList(T)) -> usize)(items.len());
+_count_both :: (fn(labels : ArrayList(String), nums : ArrayList(i32)) -> usize)(_count_items(labels.clone()) + _count_items(nums.clone()));
+_count_then_own_t :: (fn(generic(T : Type), xs : ArrayList(T), names : ArrayList(String)) -> usize)({
+  n := _count_items(names.clone());
+  ys := ArrayList(T).new();
+  ys.push(xs(usize(0)));
+  n + ys.len()
+});
+test("soundness canary: two method-call arguments bind one callee's type parameter per call", {
+  labels := ArrayList(String).new();
+  labels.push(`a`);
+  nums := ArrayList(i32).new();
+  nums.push(i32(1));
+  nums.push(i32(2));
+  assert(_count_both(labels.clone(), nums.clone()) == usize(3), "String then i32");
+  assert(_count_then_own_t(nums.clone(), labels.clone()) == usize(2), "the caller's T stays i32");
+});
 // issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md
 // (Phase 2.4): a kind-annotated binder is inferred from an argument's
 // instantiation, and `F(A)` in the result is applied.
