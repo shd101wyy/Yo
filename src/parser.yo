@@ -94,14 +94,14 @@ _is_binding_group_op :: (fn(v : &String) -> bool)(
 );
 /// The tier of `v` in the structural lattice E0003's grouping hint follows
 /// (issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md):
-/// 0 binding (`= := :: ?=`) < 1 arm/lambda arrow (`=>`, `=>>`) < 2 `:` < 3
-/// `->` < 4 computational (every other infix operator, `<:` and `..`
+/// 0 binding (`= := :: ?=`) < 1 arm/lambda arrow `=>` < 2 `:` < 3 `->` <
+/// 4 computational (every other infix operator, `<:` and `..`
 /// included). A lower tier binds looser: it takes the whole other side as its
 /// operand. The grammar has no such tiers; only the diagnostic reads them.
 _e0003_tier :: (fn(v : &String) -> u8)(
   cond(
     _is_binding_group_op(v) => u8(0),
-    ((v == "=>") || (v == "=>>")) => u8(1),
+    (v == "=>") => u8(1),
     (v == ":") => u8(2),
     (v == "->") => u8(3),
     true => u8(4)
@@ -1776,14 +1776,13 @@ impl(
   /// - `->` then `:` (`fn() -> r : i32`): wrap the right-hand side too — the
   ///   labeled return `-> (r : T)`, against the lattice's `->` over `:`;
   /// - `:` then `=`/`?=`: the annotated binding `(name : Type) = value`;
-  /// - `:` then `=>`/`=>>`: the annotated parameter `(name : Type) => body`;
-  /// - `->` then `=`/`?=`/`=>`/`=>>` (`x : fn() -> T = f`), and a
-  ///   computational operator then `->`/`=>`/`=>>` (`n <= i32(1) => v`): wrap
-  ///   the left side;
+  /// - `:` then `=>`: the annotated parameter `(name : Type) => body`;
+  /// - `->` then `=`/`?=`/`=>` (`x : fn() -> T = f`), and a computational
+  ///   operator then `->`/`=>` (`n <= i32(1) => v`): wrap the left side;
   /// - everything else is hint-free: two computational operators (both
   ///   groupings are real programs — the E0003 repair was declined as
   ///   non-unique, plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §3.1),
-  ///   two different operators of one tier (`x := y = z`, `a => b =>> c`),
+  ///   two different binding operators (`x := y = z`),
   ///   an arrow then a binding (`c => x = v`: the lattice's `(c => x) = v`
   ///   is never a program, the arm body `c => (x = v)` is what is meant),
   ///   `:`/`->` then `:=`/`::` (an annotated `:=`/`::` target is rejected),
@@ -1796,7 +1795,7 @@ impl(
     outer_tier := _e0003_tier(&outer);
     rhs_tier := _e0003_tier(rhs_op);
     rhs_is_assign := ((rhs_op == "=") || (rhs_op == "?="));
-    rhs_is_arm := ((rhs_op == "=>") || (rhs_op == "=>>"));
+    rhs_is_arm := (rhs_op == "=>");
     wrap_rhs := ((outer_tier < rhs_tier) || ((outer == "->") && (rhs_op == ":")));
     cond(
       wrap_rhs => {

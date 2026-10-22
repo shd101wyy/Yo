@@ -28,7 +28,7 @@ the roundtrip is a copy-paste rather than a decision.
 
 - The grammar has **one enforcement point**: `parse_primary_end`'s infix
   branch (`src/parser.yo`). Files are expression lists; `::`, `:=`, `=`, `:`,
-  `?=` and the arrows `->`, `=>`, `=>>` are ordinary infix `FnCall` nodes —
+  `?=` and the arrows `->` and `=>` are ordinary infix `FnCall` nodes —
   there is no separate statement/arm/lambda grammar to hook a "declaration
   precedence" into. Any tier system is a change at that one branch (plus a
   rotation case: greedy full-expression RHS parsing means `a <= b => v`
@@ -44,7 +44,7 @@ the roundtrip is a copy-paste rather than a decision.
   the binding tier; and the two biggest populations force `->` ABOVE `:`
   (fn-type annotations) while `:` sits ABOVE `=>` (annotated lambda params) —
   the arrows land in different tiers. The corrected lattice, worked out in
-  full, is: computational (no internal precedence) > `->` > `:` > `=>`/`=>>` >
+  full, is: computational (no internal precedence) > `->` > `:` > `=>` >
   `= := :: ?=`, with same-tier different-token mixes staying errors.
 
 ## Recommendation
@@ -79,7 +79,10 @@ error is reported at the LEFT operator of that pair ("near" it), and the
 other operator is the root of its right operand — the next infix operator to
 the right. `x : fn() -> void = f` therefore fails at `->` against `=` before
 `:` is ever looked at. "Computational" is every infix operator not named in
-the lattice (arithmetic, comparison, `&&`, `||`, bitwise, `<:`, `..`, `..=`).
+the lattice (arithmetic, comparison, `&&`, `||`, bitwise, `<:`, `..`, `..=`,
+`==>`). The lattice's `=>>` twin is not a lexer token (`=>>` lexes as `=>`
+`>`, so `a => b =>> c` is an E0008 before any grouping question), so the
+table has no `=>>` rows.
 
 A pair gets a hint only when its lattice grouping is a Yo form AND is the
 only reading an author means; a pair where those disagree, or where neither
@@ -91,21 +94,20 @@ of each kind (the exact sentences).
 | --- | --- | --- | --- | --- |
 | `=` `:=` `::` `?=` | anything but a binding | `x := 1 + 2`, `f := x => x`, `F :: fn() -> T` | right | `Wrap the right-hand side in parentheses: name := (1 + 2).` |
 | `=` `:=` `::` `?=` | a different binding | `x := y = 5` | none: one tier | none |
-| `=>` `=>>` | `:`, `->`, computational | `c => a + b`, `c => fn() -> T` | right | wrap the right-hand side |
-| `=>` | `=>>`, or the reverse | `a => b =>> c` | none: one tier | none |
-| `=>` `=>>` | a binding | `c => x = 5` | not unique: the lattice says `(c => x) = 5`, never a program; an author means the arm body `c => (x = 5)` | none |
+| `=>` | `:`, `->`, computational | `c => a + b`, `c => fn() -> T` | right | wrap the right-hand side |
+| `=>` | a binding | `c => x = 5` | not unique: the lattice says `(c => x) = 5`, never a program; an author means the arm body `c => (x = 5)` | none |
 | `:` | `->`, computational | `name : fn() -> T`, `Foo(x : a + b)` | right | wrap the right-hand side |
 | `:` | `=` `?=` | `x : i32 = 5`, `x : T ?= d` | left | `Parenthesize the annotated binding: (name : Type) = value.` |
-| `:` | `=>` `=>>` | `x : i32 => x` | left (~2.1k annotated lambda/arm parameters in the tree) | `Parenthesize the annotated parameter: (name : Type) => body.` |
+| `:` | `=>` | `x : i32 => x` | left (~2.1k annotated lambda/arm parameters in the tree) | `Parenthesize the annotated parameter: (name : Type) => body.` |
 | `:` | `:=` `::` | `x : i32 := 5` | none: `(x : i32) := 5` is rejected by the evaluator (an annotated binding takes `=`), `x : (i32 := 5)` is no annotation | none |
 | `->` | computational | `fn() -> a + b` | right | wrap the right-hand side |
 | `->` | `:` | `fn() -> r : i32` | right: the labeled return `-> (r : T)` (228 sites in the tree, none of `(… -> T) : …`) — the lattice's `->` over `:` holds only with `:` on the LEFT | `Wrap the right-hand side in parentheses: name -> (r : i32).` |
 | `->` | `=` `?=` | `x : fn() -> void = f` | left: `(fn() -> void) = f`, the first step towards `(x : (fn() -> void)) = f` | `Parenthesize the left side: (a -> b) = value.` |
-| `->` | `=>` `=>>` | `f : fn() -> void => f()` | left: the fn type closes first, as in `(k : Impl(Fn() -> i32)) => k()` | `Parenthesize the left side: (a -> b) => value.` |
+| `->` | `=>` | `f : fn() -> void => f()` | left: the fn type closes first, as in `(k : Impl(Fn() -> i32)) => k()` | `Parenthesize the left side: (a -> b) => value.` |
 | `->` | `:=` `::` | `x : fn() -> T := f` | none: either grouping ends in an annotated `:=`/`::` target or a fn type as an alias name | none |
 | computational | computational | `1 + 2 * 3` | not unique: both groupings are real programs (the E0003 repair was declined for this, `plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §3.1) | none |
 | computational | `->` | `a + b -> c` | left | `Parenthesize the left side: (a + b) -> value.` |
-| computational | `=>` `=>>` | `n <= i32(1) => v` | left: an arm condition | `Parenthesize the left side: (a <= b) => value.` |
+| computational | `=>` | `n <= i32(1) => v` | left: an arm condition | `Parenthesize the left side: (a <= b) => value.` |
 | computational | `:` | `a + b : T` | none: the left of `:` is a name or pattern, never an expression, and `a + (b : T)` is not a form | none |
 | computational | a binding | `a + b = c` | none: `(a + b) = c` binds no place, `a + (b = c)` is not a form | none |
 
@@ -115,9 +117,9 @@ unparenthesized binding or arm (`e -> x = 1`, `x -> y => z`) would mean the
 right side; the tree has no such site, against the fn-type shapes above.
 
 Corrections made at takeover (2026-10-22), against the first version of the
-classifier: `:` next to `=>`/`=>>` said "wrap the right-hand side"
+classifier: `:` next to `=>` said "wrap the right-hand side"
 (`name : (i32 => x)`), the wrong grouping for an annotated parameter; and
 every arrow or binding on the left said "wrap the right-hand side"
 whatever came next, which named a grouping for the one-tier pairs, for
 `c => x = 5`, for `:`/`->` next to `:=`/`::`, and the wrong one for `->`
-next to `=`/`?=`/`=>`/`=>>`.
+next to `=`/`?=`/`=>`.

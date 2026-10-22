@@ -1125,28 +1125,6 @@ test("E0003 stays hint-free for two different binding operators", {
   parse(`x := y = 5;`, `test.yo`, exn);
   assert(false, "expected an adjacent-different-operator parse error");
 });
-test("E0003 stays hint-free for the two arm arrows", {
-  // `a => b =>> c`: `=>` and `=>>` share a tier, so neither grouping is canonical.
-  exn := Exception(
-    throw : (
-      err -> {
-        match(
-          downcast(err, YoError),
-          .Some(ye) => {
-            s := ye.to_string();
-            assert(s.contains(`Adjacent different operators need parentheses`), "wrong error message");
-            assert(!s.contains(`Wrap the right-hand side`), "this mix has no canonical grouping");
-            assert(!s.contains(`Parenthesize`), "this mix has no canonical grouping");
-          },
-          .None => assert(false, "expected a YoError diagnostic")
-        );
-        unwind(());
-      }
-    )
-  );
-  parse(`a => b =>> c;`, `test.yo`, exn);
-  assert(false, "expected an adjacent-different-operator parse error");
-});
 // ─── Decision 42: `&T` / `&mut T` in the declaration slots ──────────────────
 // The parse rewrites each slot into the internal mode form every later pass
 // reads, headed by `__yo_imm` / `__yo_mut` (plans/VALUES_BY_DEFAULT.md

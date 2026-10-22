@@ -178,7 +178,7 @@ priors conflict.
 A second alternative was worked out in full and declined the same day
 (`issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md`):
 give the STRUCTURAL operators tiers (computational over `->` over `:` over
-`=>`/`=>>` over `= := :: ?=`, same-tier mixes still erroring) so
+`=>` over `= := :: ?=`, same-tier mixes still erroring) so
 `x : i32 = (a + b) - c` parses without the outer groups. The maintainer's
 call: the single-sentence no-table rule is the asset — grouping verifiable by
 local inspection, no priors required — and the friction is one cheap
