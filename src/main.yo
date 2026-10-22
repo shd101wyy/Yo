@@ -1653,13 +1653,6 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
   });
   set_migrate_drop_trait(false);
   sites := take_destructor_sites();
-  // The variables a raw pointer was derived from, by declaration key.
-  pointer_decls := HashSet(String).new();
-  pointers := take_copy_pointers();
-  (pdi : usize) = usize(0);
-  while(pdi < pointers.len(), pdi = (pdi + usize(1)), {
-    pointer_decls.insert(pointers(pdi).decl.clone());
-  });
   site_paths := ArrayList(String).new();
   (spi : usize) = usize(0);
   while(spi < sites.len(), spi = (spi + usize(1)), {
@@ -2932,6 +2925,13 @@ _run_migrate_explicit_copy :: (
     lst.push(w);
     writes_by_decl.insert(key, lst);
   });
+  // The variables a raw pointer was derived from, by declaration key.
+  pointer_decls := HashSet(String).new();
+  pointers := take_copy_pointers();
+  (pdi : usize) = usize(0);
+  while(pdi < pointers.len(), pdi = (pdi + usize(1)), {
+    pointer_decls.insert(pointers(pdi).decl.clone());
+  });
   site_paths := ArrayList(String).new();
   (spi : usize) = usize(0);
   while(spi < sites.len(), spi = (spi + usize(1)), {
@@ -2994,7 +2994,7 @@ _run_migrate_explicit_copy :: (
     (sti : usize) = usize(0);
     while(sti < skipped_tests.len(), sti = (sti + usize(1)), {
       sk := skipped_tests(sti);
-      if((canonical_module_path(sk.test_tok.module_path.clone()) == canonical) && listed_tests.insert(sk.test_tok.byte_offset.to_string()), {
+      if((canonical_module_path(sk.test_tok.module_path.clone()) == canon) && listed_tests.insert(sk.test_tok.byte_offset.to_string()), {
         println(`fix: ${file}:${(sk.test_tok.row + u32(1)).to_string()}:${(sk.test_tok.column + u32(1)).to_string()}: the body of test ${sk.name} does not evaluate (${sk.error}); its copies are migrated only as far as evaluation reached`);
       });
     });
