@@ -153,11 +153,9 @@ primes := ArrayList(i32).from([i32(2), i32(3), i32(5)]);
 ages := HashMap(String, i32).from([(`ann`, i32(31)), (`bo`, i32(27))]);
 tags := HashSet(String).from([`a`, `b`]);
 one := ArrayList(i32).from([i32(7),]); // one element: the trailing comma is required
-// To keep the array, pass a clone, bound first (an inline `from(arr.clone())`
-// misbinds N: issues/2026-10-20-a-usize-generic-binder-is-misbound-from-a-method-call-argument.md).
+// To keep the array, pass a clone.
 arr := [i32(1), i32(2)];
-arr_copy := arr.clone();
-kept := ArrayList(i32).from(arr_copy);
+kept := ArrayList(i32).from(arr.clone());
 ```
 
 | Type             | Use when                                 |
