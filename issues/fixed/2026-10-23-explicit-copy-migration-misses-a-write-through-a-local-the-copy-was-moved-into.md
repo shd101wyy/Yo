@@ -41,7 +41,7 @@ function.
 
 `issues/repros/2026-10-23-explicit-copy-migration-misses-a-write-through-a-local-the-copy-was-moved-into.yo`.
 As written it prints `3 2 2 2`. `yo fix <file> --migrate explicit-copy` with the
-pre-fix tool (`fix/explicit-copy-s1-tool-defects` at 33200fcfb) reports
+pre-fix tool (`fix/explicit-copy-s1-tool-defects` at c97bfa20f) reports
 `inserted 6 \`.clone()\` call(s); 1 site(s) left as written`, and the
 migrated program prints `1 0 1 0`.
 
@@ -54,3 +54,47 @@ at). Nothing records that a variable's value is later stored in another
 variable, so a write through that second variable is invisible to the guard.
 A move makes no copy site at all, so the store `target := x` leaves no trace
 the driver can use.
+
+## Fix
+
+Fixed 2026-10-23 on `fix/explicit-copy-s1-tool-defects`. The guard now
+follows the copy's source and destination into every variable they are
+stored in after the site.
+
+- `record_copy_tail_dests` (`src/evaluator/utils.yo`) already walked a
+  store's result positions for the conditional-arm fix. It now walks every
+  position: the stored expression itself and, nested, each block tail and
+  arm body. At each one whose value is a place rooted in a local variable
+  (`x`, `x.f`, `xs(i)`; `_ic_place_root_var`, which stops at a call's own
+  result) it records a flow (`CopyFlow`) from that variable into the store's
+  destination. Every binding, assignment and capture-list entry reaches it
+  through `set_expr_as_needs_to_call_dup`, before any early return, so a
+  move (no copy site) records its flow too.
+- `_decl_written_after` (`src/main.yo`) judges a declaration against its
+  own writes and then follows the flows recorded after the site,
+  transitively and in the same module, judging each variable they reach.
+  The driver applies it to the destination, to each result position's
+  destination, and to the source. A store of the source into a local that
+  is written afterwards (`snapshot := list; t := list; t.push(v)`) lists the
+  copy into `snapshot`.
+- The direct reasons are printed first ("its source" or "the copy" is
+  written, then a result position's destination), and the flow-based ones
+  after them, so an arm copy keeps the more specific reason.
+
+A flow is field-insensitive, like the guard's writes: `t := e.yes;
+t.push(v)` also lists an earlier `a := e.no`. That errs on the side of
+listing. Field- or element-precise flows would need a per-path key.
+
+| | `yo fix <repro> --migrate explicit-copy` | migrated program prints |
+| --- | --- | --- |
+| before (c97bfa20f, the previous head) | `inserted 6`, 1 listed | `1 0 1 0` |
+| after | `inserted 1` (`peek`, whose local is never written), 6 listed | `3 2 2 2` |
+
+## Test
+
+`tests/cli-cases/fix-migrate-explicit-copy-moved-into-local` runs the
+reproducer: a straight-line move, a block tail, an arm that is a block
+ending in a local, an assignment, a source moved after the copy, and a
+control (`peek`) whose local is never written. A trailing `build run` runs
+the migrated program. The goldens expect six sites listed, one inserted,
+and `3 2 2 2`. With the pre-fix binary the case is GOLDEN-DIFF.
