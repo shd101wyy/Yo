@@ -860,6 +860,118 @@ test("Reject adjacent different operators without parentheses", {
   parse(`x := 1 + 2 * 3;`, `test.yo`, exn);
   assert(false, "expected an adjacent-different-operator parse error");
 });
+test("E0003 names the wrap-the-right-side grouping for a binding operator", {
+  // `x := a + b` has exactly one mainstream grouping, so the diagnostic
+  // says which side to wrap instead of leaving the writer to guess.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Wrap the right-hand side in parentheses: name := (1 + 2).`),
+            "missing canonical grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x := 1 + 2;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 names the wrap-the-right-side grouping for a fn-type annotation", {
+  // `:` next to `->` is the biggest forced-paren population (`name : (fn() -> T)`),
+  // and the grouping is unique — the fn-type arrow belongs inside the annotation.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Wrap the right-hand side in parentheses: name : (fn() -> void).`),
+            "missing canonical grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`next : fn() -> void;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 names the left-side grouping for an arm arrow", {
+  // The greedy RHS puts the arm arrow INSIDE the comparison's right operand;
+  // the canonical repair wraps the condition, not the right side.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Parenthesize the left side: (a <= b) => value.`),
+            "missing left-side grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`cond(n <= i32(1) => i32(1), true => i32(0));`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 names the annotated-binding grouping for a typed assignment", {
+  // `x : i32 = v` groups on the LEFT — `(x : i32) = v`, never `x : (i32 = v)`.
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(
+            ye.to_string().contains(`Parenthesize the annotated binding: (name : Type) = value.`),
+            "missing annotated-binding grouping hint"
+          ),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`x : i32 = 5;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
+test("E0003 stays hint-free when both groupings are real programs", {
+  // `1 + 2 * 3` has two legitimate groupings; claiming one would be exactly
+  // the non-unique repair the LLM authoring audit declined (§3.1).
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`Adjacent different operators need parentheses`), "wrong error message");
+            assert(
+              !s.contains(`parentheses: name`),
+              "an arithmetic mix must not claim a canonical grouping"
+            );
+            assert(
+              !s.contains(`Parenthesize the left side`),
+              "an arithmetic mix must not claim a canonical grouping"
+            );
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  parse(`1 + 2 * 3;`, `test.yo`, exn);
+  assert(false, "expected an adjacent-different-operator parse error");
+});
 // ─── Decision 42: `&T` / `&mut T` in the declaration slots ──────────────────
 // The parse rewrites each slot into the internal mode form every later pass
 // reads, headed by `__yo_imm` / `__yo_mut` (plans/VALUES_BY_DEFAULT.md

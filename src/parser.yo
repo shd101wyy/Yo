@@ -87,6 +87,18 @@ make_parse_error_raw :: (fn(module_path : &String, message : &String) -> YoError
 _is_prefix_op_token :: (fn(t : &Token) -> bool)(
   (t.kind == TokenKind.Operator) && ((t.value == "-") || (t.value == "!") || (t.value == "~") || (t.value == "&") || (t.value == "*") || (t.value == "?") || (t.value == "&mut"))
 );
+/// The BINDING operators for E0003's canonical-grouping hint: one of these
+/// next to a different operator has exactly one mainstream grouping — the
+/// whole right-hand side is its operand (`x := (a + b)`, never `(x := a) + b`).
+_is_binding_group_op :: (fn(v : &String) -> bool)(
+  (v == "=") || (v == ":=") || (v == "::") || (v == "?=")
+);
+/// The arm/lambda arrows for the same hint: `=>`, its `=>>` twin, and the
+/// `->` lambda arrow all take the whole right-hand side as their body
+/// (`c => (a + b)`, `err -> (x + 1)`).
+_is_arrow_group_op :: (fn(v : &String) -> bool)(
+  (v == "->") || (v == "=>") || (v == "=>>")
+);
 /// A capture-list borrow pun in decision 42's spelling: `&y` or `&mut z`, a
 /// prefix sigil on one identifier (plans/VALUES_BY_DEFAULT.md decision 35).
 /// Only a closure's capture list gives it a meaning; an ordinary record
@@ -1657,15 +1669,22 @@ impl(
           cond(
             (tok.value == rhs_op_value) =>
               self.parse_left_assoc_op(primary_expr, &tok, &rhs, rhs_start, rhs_end, exn),
-            true =>
+            true => {
+              hint := self.e0003_grouping_hint(&tok, &rhs_op_value, rhs_start, rhs_end);
+              (msg : String) = `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`;
+              if(hint.len() > usize(0), {
+                msg = `${msg} ${hint}`;
+              });
               exn.throw(
                 dyn(
                   make_parse_error(
                     &tok,
-                    `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`
+                    &msg
                   )
                 )
-              )
+              );
+              ParseResult(expr : primary_expr, index : idx)
+            }
           )
         }, {
           rhs_args := ArrayList(AstExpr).new();
@@ -1692,6 +1711,73 @@ impl(
         exn.throw(dyn(make_parse_error(&tok, `paren-less function and operator calls are not supported; use parentheses`)));
         ParseResult(expr : primary_expr, index : idx)
       }
+    )
+  }),
+  /// The source text of the token range [start, end) for E0003's
+  /// grouping hint: the original bytes sliced by token offsets, with
+  /// whitespace runs collapsed to single spaces so a multi-line RHS stays
+  /// a one-line hint. Token spacing is the author's own, and valid source
+  /// never spaces a callee from its `(`, so the collapse cannot invent a
+  /// shape that re-lexes differently.
+  _rhs_source_snippet : (fn(self : &Self, start : usize, end : usize) -> String)({
+    (start_byte : usize) = match(
+      self.tokens.get(start),
+      .Some(first) => usize(first.byte_offset),
+      .None => usize(0)
+    );
+    (end_byte : usize) = match(
+      self.tokens.get(end),
+      .Some(after) => usize(after.byte_offset),
+      .None => self.input_string.len()
+    );
+    raw := self.input_string.substring(start_byte, end_byte);
+    sb := StringBuilder.new();
+    n := raw.len();
+    i := usize(0);
+    prev_space := true;
+    while(i < n, {
+      b := raw.byte_at(i);
+      is_ws := ((b == u8(32)) || (b == u8(9)) || (b == u8(10)) || (b == u8(13)));
+      if(is_ws, {
+        if(prev_space == false, {
+          sb.write_byte(u8(32));
+          prev_space = true;
+        });
+      }, {
+        sb.write_byte(b);
+        prev_space = false;
+      });
+      i = (i + usize(1));
+    });
+    sb.to_string().trim()
+  }),
+  /// E0003's canonical-grouping hint. No precedence means the unparenthesized
+  /// mix is a parse error, but where the adjacent operators have exactly ONE
+  /// mainstream grouping the diagnostic names it, so an author (LLM or human)
+  /// carrying C-family habits gets the grouping to copy instead of a bare
+  /// rejection. A binding operator, an arm/lambda arrow, or a `:` annotation
+  /// next to a fn-type arrow takes the whole right-hand side
+  /// (`name := (a + b)`, `name : (fn() -> T)`); a `:` followed by `=`/`?=`
+  /// groups on the left (`(name : Type) = value`); an arm arrow as the RHS
+  /// of an operator groups on the left too (`(n <= i32(1)) => value`).
+  /// Computational next to computational stays hint-free — both groupings
+  /// are real programs, which is why the E0003 repair was declined
+  /// (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §3.1).
+  e0003_grouping_hint : (
+    fn(self : &Self, tok : &Token, rhs_op : &String, rhs_start : usize, rhs_end : usize) -> String
+  )({
+    outer := tok.value;
+    if((outer == ":") && ((rhs_op == "=") || (rhs_op == "?=")), {
+      return(`Parenthesize the annotated binding: (name : Type) ${rhs_op} value.`);
+    });
+    cond(
+      (_is_binding_group_op(&outer) || _is_arrow_group_op(&outer) || (outer == ":")) => {
+        snippet := self._rhs_source_snippet(rhs_start, rhs_end);
+        `Wrap the right-hand side in parentheses: name ${outer} (${snippet}).`
+      },
+      _is_arrow_group_op(rhs_op) =>
+        `Parenthesize the left side: (a ${outer} b) ${rhs_op} value.`,
+      true => String.new()
     )
   }),
   /// True if the token at `idx` can start a prefix operand (a primary or

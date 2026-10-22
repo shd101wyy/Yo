@@ -167,11 +167,27 @@ where no mainstream prior can disagree (bitwise — the classic disagreement
 zone, e.g. C's `&` below `==` — stays parens-required).
 
 Deferred by maintainer preference for the loud-failure property. Revisit
-trigger: if measured agentic-workflow friction from paren errors turns out
-to be a real cost (e.g. a meaningful fraction of compile roundtrips in LLM
+trigger: if measured agentic-workflow friction from paren errors turns out to
+be a real cost (e.g. a meaningful fraction of compile roundtrips in LLM
 sessions are precedence-paren errors), the consensus core is the shape to
 adopt — never a full C-style table, whose lower reaches are exactly where
 priors conflict.
+
+### Re-examined 2026-10-22: structural-operator tiers — RE-AFFIRMED no
+
+A second alternative was worked out in full and declined the same day
+(`issues/questions/2026-10-22-should-the-structural-operators-carry-precedence.md`):
+give the STRUCTURAL operators tiers (computational > `->` > `:` > `=>`/`=>>`
+> `= := :: ?=`, same-tier mixes still erroring) so `x : i32 = (a + b) - c`
+parses without the outer groups. The maintainer's call: the single-sentence
+no-table rule is the asset — grouping verifiable by local inspection, no
+priors required — and the friction is one cheap roundtrip (the 2026-09-19
+authoring audit: syntax is not where models fail; parser 7 of 218 open
+issues). What shipped instead: the E0003 diagnostic names the canonical
+grouping for the mixes that have exactly one mainstream reading
+(`x := 1 + 2` → "Wrap the right-hand side in parentheses: name := (1 + 2)"),
+keeping the grammar untouched. The worked-out lattice is recorded in the
+question doc so the pre-registered revisit does not re-derive it.
 
 ## Implementation sketch (Part 1 only)
 
