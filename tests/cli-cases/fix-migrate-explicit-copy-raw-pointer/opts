@@ -4,7 +4,9 @@
 # `make` stores `marks` into a field and caches `marks.ptr()` beside it; the
 # run used to spell `marks : marks.clone()`, which leaves `_m` pointing into
 # the local buffer freed when `make` returns (an ASan heap-use-after-free).
-# The expected_tree pins main.yo unchanged, and the trailing `check` proves it
-# still evaluates.
+# `make_addr` takes the pointer with `addr_of(marks(usize(0)))` and
+# `make_lent` through a helper given `&marks`; both were still cloned after
+# the first fix. All three are listed. The expected_tree pins main.yo
+# unchanged, and the trailing `check` proves it still evaluates.
 stdout_keep=^fix:
 timeout=240

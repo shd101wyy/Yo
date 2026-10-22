@@ -4,7 +4,9 @@
 # The two `hs.push(z)` copies are made while `z` is read again, so each gets
 # `.clone()`; the arm's tail `z` is the last use, a move, neither rewritten
 # nor listed. The dying-temporary guard used to list all three as "usually a
-# move". The expected_tree pins the rewritten main.yo, and the trailing
-# `check` proves it still evaluates.
+# move". A copy in a guard, `keep(g)`, is cloned: a failing guard hands the
+# payload to the next arm, which binds it again (the liveness judging first
+# dropped it as a move). The expected_tree pins the rewritten main.yo, and
+# the trailing `check` proves it still evaluates.
 stdout_keep=^fix:
 timeout=240
