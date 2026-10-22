@@ -73,16 +73,17 @@ _dns_error_of :: (fn(code : i32) -> DnsError)(
     true => DnsError.Other
   )
 );
-lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
+lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))({
+  __probe_host := host.clone();
   io.async(e => {
-    host_cstr_bytes := match(host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(NetError.DNSFailed(host : host, reason : DnsError.NotFound))));
+    host_cstr_bytes := match(__probe_host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(NetError.DNSFailed(host : __probe_host.clone(), reason : DnsError.NotFound))));
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
     ret := e.io.await(IO_dns.getaddrinfo(host_cstr, .None, .None, result_ptr), e.io);
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);
-        e.exn.throw(dyn(NetError.DNSFailed(host : host, reason : _dns_error_of(ret))));
+        e.exn.throw(dyn(NetError.DNSFailed(host : __probe_host.clone(), reason : _dns_error_of(ret))));
       },
       true => ()
     );
@@ -136,15 +137,16 @@ lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), Io
     IO_dns.free_result(result_ptr);
     return(addrs);
   })
-);
+});
 /// Resolve a hostname and pair every result with `port` — the
 /// `SocketAddr`-shaped form of `lookup_host`, and what a caller about to
 /// connect actually wants. Inherits everything above, INCLUDING the repeated
 /// addresses: `port` is attached to each entry as it comes, so a duplicated
 /// IP yields two identical `SocketAddr`s.
-resolve :: (fn(host : &String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
+resolve :: (fn(host : &String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))({
+  __probe_host := host.clone();
   io.async(e => {
-    addrs := e.io.await(lookup_host(host, io), e);
+    addrs := e.io.await(lookup_host(&__probe_host, io), e);
     result := ArrayList(SocketAddr).new();
     i := usize(0);
     while(runtime(i < addrs.len()), {
@@ -154,5 +156,5 @@ resolve :: (fn(host : &String, port : u16, io : Io) -> Impl(Future(ArrayList(Soc
     });
     return(result);
   })
-);
+});
 export(lookup_host, resolve);

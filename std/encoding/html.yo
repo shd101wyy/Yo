@@ -214,11 +214,11 @@ _slice_runes :: (
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
 decode :: (fn(input : &String) -> String)({
   if(input.chars().count() == usize(0), {
-    return(input);
+    return(input.clone());
   });
   // Quick check: if no '&', return as-is
   if(!input.contains(`&`), {
-    return(input);
+    return(input.clone());
   });
   table := _char_table(input);
   (len : usize) = table.len();
@@ -393,7 +393,7 @@ decode :: (fn(input : &String) -> String)({
 /// (plans/archive/STD_API_AUDIT.md D2 + §7 P0).
 encode :: (fn(input : &String) -> String)({
   out := String.with_capacity(input.len());
-  bytes := input;
+  bytes := input.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {

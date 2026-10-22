@@ -155,7 +155,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(.Some(values(i)));
+              return(.Some(values(i).clone()));
             },
             true => ()
           );
@@ -196,7 +196,7 @@ impl(
   as_string : (fn(self : &Self) -> Option(String))(
     match(
       self,
-      .Str(s) => .Some(s),
+      .Str(s) => .Some(s.clone()),
       _ => .None
     )
   ),
@@ -204,7 +204,7 @@ impl(
   as_array : (fn(self : &Self) -> Option(ArrayList(JsonValue)))(
     match(
       self,
-      .Array(items) => .Some(items),
+      .Array(items) => .Some(items.clone()),
       _ => .None
     )
   ),
@@ -216,7 +216,7 @@ impl(
         result := ArrayList(JsonKV).new();
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
-          result.push(JsonKV(key : keys(i), value : values(i)));
+          result.push(JsonKV(key : keys(i).clone(), value : values(i).clone()));
         });
         .Some(result)
       },
@@ -228,7 +228,7 @@ impl(
 /// zero? The RFC is explicit that `"01"` is not an index, so it must not
 /// silently resolve to element 1.
 _is_rfc6901_index :: (fn(token : &String) -> bool)({
-  b := token;
+  b := token.clone();
   if(b.len() == usize(0), {
     return(false);
   });
@@ -336,12 +336,12 @@ impl(
   insert : (fn(self : &mut Self, key : String, value : JsonValue) -> Option(JsonValue))({
     // The payload lists are taken into locals, written, and stored back: a
     // `match` binding is a copy of them once collections are values.
-    keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
-    values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
+    keys := match(self, .Object(k, _) => k.clone(), _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
+    values := match(self, .Object(_, v) => v.clone(), _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
     i := usize(0);
     while(i < keys.len(), i = (i + usize(1)), {
       if(keys(i) == key, {
-        old := values(i);
+        old := values(i).clone();
         values(i) = value;
         self = Self.Object(keys, values);
         return(Option(JsonValue).Some(old));
@@ -357,8 +357,8 @@ impl(
   ///
   /// Panics when `self` is not an object.
   remove : (fn(self : &mut Self, key : &String) -> Option(JsonValue))({
-    keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
-    values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
+    keys := match(self, .Object(k, _) => k.clone(), _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
+    values := match(self, .Object(_, v) => v.clone(), _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
     i := usize(0);
     while(i < keys.len(), i = (i + usize(1)), {
       if(keys(i) == key, {
@@ -374,7 +374,7 @@ impl(
   ///
   /// Panics when `self` is not an array.
   push : (fn(self : &mut Self, value : JsonValue) -> unit)({
-    items := match(self, .Array(xs) => xs, _ => __yo_panic("JsonValue.push: requires the .Array variant"));
+    items := match(self, .Array(xs) => xs.clone(), _ => __yo_panic("JsonValue.push: requires the .Array variant"));
     items.push(value);
     self = Self.Array(items);
   }),
@@ -387,20 +387,20 @@ impl(
   /// valid index and resolves to `.None`, not to element 1.
   pointer : (fn(self : &Self, path : &String) -> Option(JsonValue))({
     if(path.is_empty(), {
-      return(Option(JsonValue).Some(self));
+      return(Option(JsonValue).Some(self.clone()));
     });
     if(!path.starts_with(`/`), {
       return(Option(JsonValue).None);
     });
     // `"/a/b"`.split("/") is ["", "a", "b"] — drop the leading empty token.
     tokens := path.split(`/`);
-    (current : JsonValue) = self;
+    (current : JsonValue) = self.clone();
     ti := usize(1);
     while(ti < tokens.len(), ti = (ti + usize(1)), {
-      raw := tokens(ti);
+      raw := tokens(ti).clone();
       token := raw.replace(`~1`, `/`).replace(`~0`, `~`);
       step := match(
-        current,
+        &current,
         .Object(_, _) => current.get(&token),
         .Array(items) => cond(
           _is_rfc6901_index(&token) => match(
@@ -558,7 +558,7 @@ impl(
   /// A cursor over `src` positioned at byte 0. `src` is stored by reference
   /// (an `ArrayList` is a `ref` type), so the parser does not copy the input.
   new : (fn(src : &ArrayList(u8)) -> Self)(
-    Self(src : src, pos : usize(0))
+    Self(src : src.clone(), pos : usize(0))
   ),
   /// The byte at the cursor WITHOUT consuming it, or `.None` at end of
   /// input. Every `.None` here becomes `JsonError.UnexpectedEnd` at the
@@ -1225,7 +1225,7 @@ export(
 // ============================================================================
 _write_str_escaped :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
-  bytes := s;
+  bytes := s.clone();
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes.byte_at(i);
@@ -1557,7 +1557,7 @@ _json_eq :: (fn(lhs : &JsonValue, rhs : &JsonValue) -> bool)(
         });
         i := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          key := a_keys(i);
+          key := a_keys(i).clone();
           (found : bool) = false;
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {
@@ -1770,8 +1770,8 @@ impl(
 // JsonValue round-trips through itself, so generic code can hold raw JSON.
 impl(
   JsonValue,
-  ToJson(to_json : (fn(self : &Self) -> JsonValue)(self)),
-  FromJson(from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(.Ok(v)))
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(self.clone())),
+  FromJson(from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(.Ok(v.clone())))
 );
 impl(
   generic(T : Type),

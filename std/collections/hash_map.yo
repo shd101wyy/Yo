@@ -671,7 +671,7 @@ impl(
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
-      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.value),
+      .Some(index) => .Some(__probe_read_elem(addr_of((Self._data_ptr(self).add(index)).*.value))),
       .None => .None
     )
   }),
@@ -728,7 +728,7 @@ impl(
       Self._find_bucket(self, key, hash),
       .Some(index) => {
         p := Self._data_ptr(self).add(index);
-        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value))
+        Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : __probe_read_elem(addr_of(p.*.key)), value : __probe_read_elem(addr_of(p.*.value))))
       },
       .None => Option(MapEntry(K, V)).None
     )
@@ -1048,7 +1048,7 @@ impl(
   value : (fn(self : &Self) -> Option(V))(
     match(
       self._slot,
-      .Occupied(index) => Option(V).Some((self._map._data_ptr().add(index)).*.value),
+      .Occupied(index) => Option(V).Some(__probe_read_elem(addr_of((self._map._data_ptr().add(index)).*.value))),
       .Vacant(_) => Option(V).None
     )
   ),
@@ -1056,7 +1056,7 @@ impl(
   or_insert : (fn(self : &mut Self, default : &V) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
+      .Occupied(index) => __probe_read_elem(addr_of((self._map._data_ptr().add(index)).*.value)),
       .Vacant(index) => self._map._insert_at(index, self._hash, &self._key, default)
     )
   ),
@@ -1065,7 +1065,7 @@ impl(
   or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
+      .Occupied(index) => __probe_read_elem(addr_of((self._map._data_ptr().add(index)).*.value)),
       .Vacant(index) => self._map._insert_at(index, self._hash, &self._key, make())
     )
   ),
@@ -1275,7 +1275,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.key);
+                result = .Some(__probe_read_elem(addr_of((data_ptr.add(self._index)).*.key)));
               },
               true => ()
             );
@@ -1323,7 +1323,7 @@ impl(
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                result = .Some((data_ptr.add(self._index)).*.value);
+                result = .Some(__probe_read_elem(addr_of((data_ptr.add(self._index)).*.value)));
               },
               true => ()
             );

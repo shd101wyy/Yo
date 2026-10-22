@@ -496,8 +496,9 @@ impl(
   /// Returns the number of bytes written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
+    __probe_data := data.clone();
     io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
+      r := e.io.await(IO_tcp.stream_write(fd, __probe_data.ptr().unwrap(), __probe_data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
@@ -505,8 +506,9 @@ impl(
   /// Returns the number of bytes written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
+    __probe_data := data.clone();
     io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
+      r := e.io.await(IO_tcp.stream_write(fd, __probe_data.ptr().unwrap(), __probe_data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),

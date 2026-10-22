@@ -9281,8 +9281,8 @@ impl(
   unwrap_or : (fn(self : &Self, or_value : &OkType) -> OkType)(
     match(
       self,
-      .Ok(value) => value,
-      .Err(_) => or_value
+      .Ok(value) => __probe_dup(&value),
+      .Err(_) => __probe_dup(&or_value)
     )
   ),
   /// Extract the `Ok` value, panicking with `msg` if `Err`.

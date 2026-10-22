@@ -158,6 +158,7 @@ TomlError :: enum(
   /// table (`a = 1` then `a.b = 2`).
   ExpectedTable(key : String, pos : usize)
 );
+derive(TomlError, Clone);
 derive(
   TomlError,
   Error(
@@ -257,6 +258,7 @@ TomlValue :: enum(
   /// A TOML table, keys in insertion order.
   Table(keys : ArrayList(String), values : ArrayList(Self))
 );
+derive(TomlValue, Clone);
 impl(
   TomlValue,
   /// Create a new empty table.
@@ -276,7 +278,7 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(Option(TomlValue).Some(values(i)));
+              return(Option(TomlValue).Some(values(i).clone()));
             },
             true => ()
           );
@@ -301,13 +303,13 @@ impl(
     });
     // The payload lists are taken into locals, written, and stored back: a
     // `match` binding is a copy of them once collections are values.
-    keys := match(self, .Table(k, _) => k, _ => ArrayList(String).new());
-    values := match(self, .Table(_, v) => v, _ => ArrayList(TomlValue).new());
+    keys := match(self, .Table(k, _) => k.clone(), _ => ArrayList(String).new());
+    values := match(self, .Table(_, v) => v.clone(), _ => ArrayList(TomlValue).new());
     i := usize(0);
     while(i < keys.len(), i = (i + usize(1)), {
       cond(
         (keys(i) == key) => {
-          old := values(i);
+          old := values(i).clone();
           values(i) = value;
           self = Self.Table(keys, values);
           return(Option(TomlValue).Some(old));
@@ -346,7 +348,7 @@ impl(
   ),
   /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self : &Self) -> Option(String))(
-    match(self, .Str(s) => Option(String).Some(s), _ => Option(String).None)
+    match(self, .Str(s) => Option(String).Some(s.clone()), _ => Option(String).None)
   ),
   /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self : &Self) -> Option(i64))(
@@ -366,7 +368,7 @@ impl(
   ),
   /// Extract the array items, or `.None` if not an `Array`.
   as_array : (fn(self : &Self) -> Option(ArrayList(TomlValue)))(
-    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items), _ => Option(ArrayList(TomlValue)).None)
+    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items.clone()), _ => Option(ArrayList(TomlValue)).None)
   ),
   /// True for a TOML string.
   is_string : (fn(self : &Self) -> bool)(
@@ -460,9 +462,9 @@ impl(
   new : (fn(src : &ArrayList(u8)) -> Self)({
     root := TomlValue.new_table();
     p := Self(
-      src : src,
+      src : src.clone(),
       pos : usize(0),
-      root : root,
+      root : root.clone(),
       cur : root,
       cur_path : String.new(),
       paths : ArrayList(String).new(),
@@ -621,7 +623,7 @@ impl(
     });
     cond(
       !replaced => {
-        self.paths.push(path);
+        self.paths.push(path.clone());
         self.kinds.push(kind);
       },
       true => ()
@@ -1268,7 +1270,7 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
         _clean_radix(&b, i + usize(2), n, radix),
         .Some(s) => s,
         .None => {
-          return(bad);
+          return(bad.clone());
         }
       );
       return(

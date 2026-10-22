@@ -1,0 +1,34 @@
+// issues/2026-10-22-a-move-in-one-cond-arm-is-reported-at-the-other-arm.md
+// Expected: E0901 at line 28 with "value moved here" at line 18 (`slot = .Some(x)`).
+// Actual: the note points at line 21, the `true => ()` arm, which does not move `x`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+B :: struct(n : i32);
+impl(B, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+main :: (fn() -> unit)({
+  x := B(n : i32(1));
+  (mut(slot) : Option(B)) = .None;
+  (mut(done) : bool) = false;
+  (o : Option(i32)) = .Some(i32(3));
+  match(
+    o,
+    .Some(v) => {
+      cond(
+        (v > i32(2)) => {
+          slot = .Some(x);
+          done = true;
+        },
+        true => ()
+      );
+    },
+    .None => ()
+  );
+  cond(
+    !done => {
+      slot = .Some(x);
+    },
+    true => ()
+  );
+  println(&done);
+});
+export(main);
