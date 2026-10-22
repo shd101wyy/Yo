@@ -128,7 +128,8 @@ allocator themselves (VALUES_BY_DEFAULT §3.2). Both bind that `match` (`cell :=
 instead of ending in it: a tail `match` is typed by the declared `Rc(V)`/`Arc(V)`, and for the
 `rc`/`arc` call that `dyn(...)` synthesizes around a closure capturing a generic function's
 `Impl(Fn)` parameter that `V` is unbound, a second C type for the result
-(`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`).
+(`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
+the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`).
 Unlike `box`'s
 explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
 allocator whose callbacks allocate through the scope recurses until the stack overflows

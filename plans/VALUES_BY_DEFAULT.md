@@ -4666,7 +4666,9 @@ and in git, not a silent edit.
     could not build the compiler (`analyze_await_points` has that closure),
     and `arc` had failed the same way for user code since #1519
     (`issues/fixed/2026-10-22-a-dyn-closure-in-a-generic-fn-boxes-through-a-cell-typed-by-the-unbound-return.md`;
-    tests in `tests/rc.test.yo` and `tests/arc.test.yo`).
+    tests in `tests/rc.test.yo` and `tests/arc.test.yo`). The evaluator gap
+    behind it is open as
+    `issues/2026-10-23-a-generic-constructors-specialization-keeps-its-declared-return-for-a-capture-struct-argument.md`.
 
 **Remaining, Generation A:**
 - **The exclusivity assert moves to the write-through-`Rc` site** (§3.10).
