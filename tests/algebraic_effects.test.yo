@@ -2365,3 +2365,44 @@ test("an unwind passes through a frame whose destructors make calls", {
   assert(run_ref_guard(i32(0)) == i32(-7), "the unwind passes a frame whose ref Drop makes a call");
   assert(g_esc_drops == (before + i32(2)), "the ref destructor ran once on the escape path");
 });
+// Regression (issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md):
+// a temporary lent to a call is released right after the call returns, BEFORE
+// the call's unwind check, and its destructor's own call cleared the escape
+// flag there. The frame went on as if the call had returned its dummy result.
+_esc_make_guard :: (fn(n : i32) -> _EscGuard)(_EscGuard(n : n));
+_esc_make_list :: (fn() -> ArrayList(String))({
+  xs := ArrayList(String).new();
+  xs.push(String.from("a heap string the list owns"));
+  xs
+});
+test("an unwind passes a call whose temporary argument's destructor makes a call", {
+  Raise :: (ctl(code : i32) -> bool);
+  fails :: (fn(g : &_EscGuard, raise : Raise) -> bool)(raise(g.n));
+  fails_list :: (fn(xs : &ArrayList(String), raise : Raise) -> bool)(raise(i32(xs.len())));
+  through_temp :: (fn(raise : Raise) -> i32)({
+    mut(r) := i32(1);
+    if(fails(&_esc_make_guard(i32(0)), raise), {
+      r = i32(2);
+    });
+    r
+  });
+  through_list_temp :: (fn(raise : Raise) -> i32)({
+    mut(r) := i32(1);
+    if(fails_list(&_esc_make_list(), raise), {
+      r = i32(2);
+    });
+    r
+  });
+  run_temp :: (fn() -> i32)({
+    (raise : Raise) = (code -> unwind(i32(-7)));
+    through_temp(raise)
+  });
+  run_list_temp :: (fn() -> i32)({
+    (raise : Raise) = (code -> unwind(i32(-8)));
+    through_list_temp(raise)
+  });
+  before := g_esc_drops;
+  assert(run_temp() == i32(-7), "the unwind passes the call whose temporary's Drop makes a call");
+  assert(g_esc_drops == (before + i32(1)), "the temporary's destructor ran once");
+  assert(run_list_temp() == i32(-8), "the unwind passes the call whose temporary list destroys its elements");
+});

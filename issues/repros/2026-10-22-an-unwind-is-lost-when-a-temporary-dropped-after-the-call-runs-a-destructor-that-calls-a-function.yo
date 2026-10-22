@@ -1,0 +1,38 @@
+{ println } :: import("std/fmt");
+Raise :: (ctl(code : i32) -> bool);
+mut(HELPER_CALLS) := i32(0);
+helper :: (fn(n : i32) -> unit)({
+  HELPER_CALLS = (HELPER_CALLS + n);
+});
+Noisy :: struct(n : i32);
+impl(
+  Noisy,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(helper(self.n))
+  )
+);
+make_noisy :: (fn(n : i32) -> Noisy)(Noisy(n : n));
+fails :: (fn(x : &Noisy, raise : Raise) -> bool)(raise(x.n));
+middle :: (fn(raise : Raise) -> i32)({
+  mut(r) := i32(0);
+  if(fails(&make_noisy(i32(1)), raise), {
+    r = i32(1);
+  });
+  println("BUG: middle continued after the handler unwound");
+  r
+});
+run :: (fn() -> i32)({
+  (raise : Raise) = (
+    code -> {
+      unwind(i32(-1));
+    }
+  );
+  middle(raise)
+});
+main :: (fn() -> unit)({
+  a := run();
+  println(&a);
+  calls := HELPER_CALLS;
+  println(&calls);
+});
+export(main);

@@ -12,7 +12,7 @@
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, expr_info_deferred_dup_expressions, scope_variables } :: import("../../expr_info.yo");
 { generate_deferred_dup_expressions, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
-{ emit_effect_unwind_check } :: import("./return.yo");
+{ emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Emit a recursive self-call `<currentFunctionName>(<args>)`. If the recur
 /// has a result variable name, emit it into a named temp first (so enclosing
@@ -164,7 +164,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
             // dup-for-value UAF, gmalloc-traced: clone at +5276, freed at
             // +5320, consumed at +5340). Expression-level flush: skip
             // param-targeted drops (drop_dup.yo _drop_target_is_parameter).
-            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+            generate_call_deferred_drops(expr, indent.clone(), context, true);
             // Escape propagation (see generate_recur's doc comment): drops
             // and a dummy return, so a throw inside the recursion cannot be
             // mistaken for a result.
@@ -187,7 +187,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         uline.push_string(&call_code);
         uline.push_str(";");
         uem.emit_string_line(&uline);
-        generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+        generate_call_deferred_drops(expr, indent.clone(), context, true);
         emit_effect_unwind_check(indent.clone(), context, false, expr);
         return(String.from(""));
       });
@@ -206,7 +206,7 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       fline.push_string(call_code.clone());
       fline.push_str(";");
       fem.emit_string_line(&fline);
-      generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+      generate_call_deferred_drops(expr, indent.clone(), context, true);
       emit_effect_unwind_check(indent.clone(), context, false, expr);
       fresh
     },

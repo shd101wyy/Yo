@@ -25,7 +25,7 @@
 { generate_deferred_drop_expressions, emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
-{ emit_effect_unwind_check } :: import("./return.yo");
+{ emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
 { generate_thread_spawn_call, generate_worker_spawn_call } :: import("./parallelism.yo");
 { assert, panic } :: import("std/assert");
 /// Monotonic counter for ref-spill temporaries (`__yo_ref_spill_N`). Must be
@@ -1653,7 +1653,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 cm_em3 := context.base.emitter;
                 cm_em3.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 cm_em3.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&ei.ty), &context.base)} ${cm_pt.clone()} = ${cm_call};`);
-                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+                generate_call_deferred_drops(expr, indent.clone(), context, true);
                 emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr);
                 return(Option(String).Some(`(*${cm_pt})`));
               });
@@ -1672,7 +1672,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               cml.push_str(";");
               cm_em.emit_string_line(&cml);
               _emit_borrow_releases(&cm_bc, indent.clone(), context);
-              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              generate_call_deferred_drops(expr, indent.clone(), context, cm_may_unwind);
               if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
               return(Option(String).Some(String.from("")));
             });
@@ -1693,7 +1693,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 cm_em2.emit_string_line(&cmd);
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(&cm_bc2, indent.clone(), context);
-                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+                generate_call_deferred_drops(expr, indent.clone(), context, cm_may_unwind);
                 if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
                 return(Option(String).Some(tv));
               },
@@ -1794,7 +1794,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               rml.push_str(";");
               rm_em.emit_string_line(&rml);
               _emit_borrow_releases(&rm_bc, indent.clone(), context);
-              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              generate_call_deferred_drops(expr, indent.clone(), context, rm_may_unwind);
               if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
               return(Option(String).Some(String.from("")));
             });
@@ -1815,7 +1815,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 rm_em2.emit_string_line(&rmd);
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(&rm_bc2, indent.clone(), context);
-                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+                generate_call_deferred_drops(expr, indent.clone(), context, rm_may_unwind);
                 if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
                 return(Option(String).Some(tv));
               },
@@ -2461,7 +2461,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               proj_tmp := `__yo_ref_spill_${proj_n.to_string()}`;
               em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               em.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&result_type), &context.base)} ${proj_tmp.clone()} = ${proj_call};`);
-              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              generate_call_deferred_drops(expr, indent.clone(), context, true);
               emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
               return(Option(String).Some(`(*${proj_tmp})`));
             });
@@ -2494,7 +2494,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             line.push_str(");");
             em.emit_string_line(&line);
             _emit_borrow_releases(&ou_bc, indent.clone(), context);
-            generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+            generate_call_deferred_drops(expr, indent.clone(), context, ou_may_unwind);
             if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
             return(Option(String).Some(String.from("")));
           });
@@ -2576,7 +2576,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
                 _emit_borrow_releases(&ou_bc2, indent.clone(), context);
               });
-              generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+              generate_call_deferred_drops(expr, indent.clone(), context, ou_may_unwind);
               if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
               return(Option(String).Some(tv));
             },
@@ -2842,7 +2842,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     ucall.push_str(";");
     em.emit_string_line(&ucall);
     _emit_borrow_releases(&fp_bc, indent.clone(), context);
-    generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+    generate_call_deferred_drops(expr, indent.clone(), context, ou_may_unwind);
     if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
     return(Option(String).Some(String.from("")));
   });
@@ -2889,7 +2889,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       _store_temp_var_to_state_machine_if_needed(fp_tv.clone(), indent.clone(), context);
       _emit_borrow_releases(&fp_bc2, indent.clone(), context);
     });
-    generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+    generate_call_deferred_drops(expr, indent.clone(), context, true);
     emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
     return(Option(String).Some(fp_tv));
   });
