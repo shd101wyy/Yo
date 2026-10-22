@@ -1895,7 +1895,7 @@ _ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
 });
 _ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));
-  if((tok.module_path == site.module_path) && (tok.byte_offset > site.byte_offset), {
+  if((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset), {
     acc.later = true;
   });
 });
@@ -1911,7 +1911,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
     return(());
   });
   tok := ast_expr_token(e);
-  if((tok.byte_offset == site.byte_offset) && (tok.module_path == site.module_path), {
+  if((tok.byte_offset == site.byte_offset) && (tok.module_path.* == site.module_path), {
     acc.site_seen = true;
   });
   ei_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e));
