@@ -2701,12 +2701,11 @@ _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
         (same : bool) = true;
         i := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          key := a_keys(i).clone();
           (found : bool) = false;
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {
             cond(
-              (b_keys(j) == key) => {
+              (b_keys(j) == a_keys(i)) => {
                 found = true;
                 cond(
                   !recur(&a_values(i), &b_values(j)) => {

@@ -139,7 +139,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
           // ENOENT - try to create parents
           (errno == i32(ENOENT)) => {
             // Walk the path and create each component
-            bytes := path_s.clone();
+            bytes := &path_s;
             i := usize(1);
             // On Windows, skip past drive letter root (e.g., "C:\")
             // to avoid trying to mkdir "C:" which fails with EACCES
@@ -433,11 +433,14 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     entries := ArrayList(DirEntry).new();
     (i : usize) = usize(0);
     while(runtime(i < raw.len()), {
-      r := raw(i).clone();
+      // The entry's fields are read where they live in `raw`; only the name
+      // is copied out, once, into the owned `DirEntry`.
+      dt := raw(i).dt;
+      name := raw(i).name.clone();
       (ft : FileType) = cond(
-        (r.dt == DT_REG) => FileType.File,
-        (r.dt == DT_DIR) => FileType.Directory,
-        (r.dt == DT_LNK) => FileType.Symlink,
+        (dt == DT_REG) => FileType.File,
+        (dt == DT_DIR) => FileType.Directory,
+        (dt == DT_LNK) => FileType.Symlink,
         true => FileType.Other
       );
       // `DT_UNKNOWN` is not exotic: XFS, many network and overlay
@@ -459,16 +462,16 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
       // (issues/fixed/seed-built-compiler-read-dir-reports-every-entry-as-the-zero-file-type.md).
       // Keep this form until SEED_VERSION carries the fix.
       cond(
-        (r.dt == DT_UNKNOWN) => {
-          ft = e.io.await(_file_type_or_other(path.join(Path.new(r.name.clone())), e.io), e.io);
+        (dt == DT_UNKNOWN) => {
+          ft = e.io.await(_file_type_or_other(path.join(Path.new(&name)), e.io), e.io);
         },
         true => ()
       );
       entries.push(
         DirEntry(
-          name : r.name.clone(),
+          name : name,
           file_type : ft,
-          ino : r.ino,
+          ino : raw(i).ino,
           parent : path.clone()
         )
       );

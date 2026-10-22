@@ -59,6 +59,14 @@ is either:
 - the I/O request owns the buffers and frees them when it completes,
   cancelled or not.
 
+The same leak class was fixed for the HTTP read buffer in
+`issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md`
+(#1453): `std/http/wire.yo` replaced its `malloc`/`free` pair with an owned
+`ArrayList(u8)` local that lives in the state machine, so the machine's
+dispose drops it on every exit path, abort included. That pattern is the
+first option above for these two buffers; it still has to answer the
+cancellation question for a pending `accept`.
+
 The Windows half of the same abort path is
 `issues/2026-10-20-an-abandoned-windows-blocking-accept-keeps-the-completion-port-open.md`.
 The existing test is the regression test: it fails today and must pass after

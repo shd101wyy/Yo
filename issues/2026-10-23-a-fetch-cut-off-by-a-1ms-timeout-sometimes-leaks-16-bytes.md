@@ -7,8 +7,8 @@ intermittently. CI runs with `YO_TEST_LEAK_VERDICT=0` and cannot see the leak.
 
 > Found 2026-10-23 by B3's Tier 1 gate (`feat/v2b-b3-std-explicit-copies`).
 > It is not caused by B3: it reproduces with develop's own std under both
-> the develop `e30c0d8ed` tree binary and the develop `95162303d` tree
-> binary. Machine: Linux x86_64 under WSL2, kernel
+> the develop `e30c0d8ed` tree binary and a tree binary built from develop
+> `95162303d`'s `src/` with the B3 branch's std. Machine: Linux x86_64 under WSL2, kernel
 > 6.18.54.1-microsoft-standard-WSL2.
 
 ## Symptom
@@ -26,10 +26,14 @@ intermittently. CI runs with `YO_TEST_LEAK_VERDICT=0` and cannot see the leak.
 
 | binary | std | runs | failed |
 | --- | --- | --- | --- |
-| develop `95162303d` tree | develop | 2 | 2 |
-| develop `95162303d` tree | B3 branch | 3 | 3 |
-| develop `e30c0d8ed` tree | develop | 2 | 1 |
-| develop `e30c0d8ed` tree | B3 branch | 1 | 0 |
+| `95162303d`'s `src/`, built with the B3 std | develop | 2 | 2 |
+| `95162303d`'s `src/`, built with the B3 std | B3 branch | 3 | 3 |
+| develop `e30c0d8ed` tree (its own std) | develop | 2 | 1 |
+| develop `e30c0d8ed` tree (its own std) | B3 branch | 1 | 0 |
+
+The "binary" column names the compiler; the "std" column names the
+`--std-path` the test was compiled against. The run that settles B3's
+innocence is the third row: develop's compiler with develop's std.
 
 The failure depends on timing: the 1 ms deadline can fire during the
 connect, the send or the receive.
@@ -47,6 +51,13 @@ buffer that is held across an await and freed only after the await, so an
 aborted task never frees it. That is not confirmed. Rebuild the batch with
 symbols (`YO_KEEP_BATCH=1`, then compile the kept `.c` with `-g`) to name the
 allocation site.
+
+The same class was fixed for the HTTP read buffer in
+`issues/fixed/2026-10-16-a-fetch-that-times-out-leaks-an-8-kib-buffer.md`
+(#1453): `std/http/wire.yo` replaced a `malloc`/`free` pair held across an
+await with an owned `ArrayList(u8)` local, which the state machine's dispose
+drops on every exit path, abort included. Once the 16-byte site is named,
+that is the first fix to try.
 
 The test itself is the regression test: it must pass its leak verdict
 repeatedly after the fix.

@@ -1193,17 +1193,17 @@ impl(
     parts := q.split(`&`);
     i := usize(0);
     while(i < parts.len(), i = (i + usize(1)), {
-      part := parts(i).clone();
-      if(part.len() > usize(0), {
+      // Each pair is read where it lives in `parts`: no copy of it is taken.
+      if(parts(i).len() > usize(0), {
         match(
-          part.index_of(`=`),
+          parts(i).index_of(`=`),
           .Some(j) => {
-            k := _form_decode(part.substring(usize(0), j));
-            v := _form_decode(part.substring(j + usize(1), part.len()));
+            k := _form_decode(parts(i).substring(usize(0), j));
+            v := _form_decode(parts(i).substring(j + usize(1), parts(i).len()));
             out.push((k, v));
           },
           .None => {
-            out.push((_form_decode(&part), String.new()));
+            out.push((_form_decode(&parts(i)), String.new()));
           }
         );
       });

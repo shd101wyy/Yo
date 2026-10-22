@@ -345,8 +345,14 @@ impl(
   String,
   ToString(
     to_string : (fn(self : &Self) -> String)(
-      // String already is a string, just return a clone
-      self.clone()
+      // Shares the receiver until B8 (plans/VALUES_BY_DEFAULT.md B3's
+      // deferred list): string interpolation lowers EVERY part, literal and
+      // `String` alike, to `part.to_string()` and joins them with `+`, so a
+      // copy here would allocate one throwaway String per part of every
+      // template while `String` is still a `ref` type. At B8 this becomes
+      // the `.clone()` an owned result needs, so B8 also has to stop routing
+      // a `String` part through `to_string` (append it by borrow instead).
+      self
     )
   )
 );
