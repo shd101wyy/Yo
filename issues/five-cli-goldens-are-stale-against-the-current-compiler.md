@@ -56,3 +56,21 @@ two flaky LSP ones need the harness to sort completions before comparing.
 
 Related: the same run's GATE 3 failed for a different, pre-existing reason —
 [`tier1-check-std-now-requires-a-z3-solver.md`](tier1-check-std-now-requires-a-z3-solver.md).
+
+## 2026-10-22: two of the cases are stale again on develop `c8d297cc1`
+
+A full `scripts/cli-diff-test.sh` run with a binary built from
+`c8d297cc1` plus the `--cycle-collector` branch reported two
+GOLDEN-DIFFs. That branch touches neither `std/prelude.yo` nor `src/lsp/`:
+
+- `lsp-analysis-resilience`: completion request 9 lost exactly four labels,
+  `Iso`, `Isolation`, `Var` and `^`, and the remaining labels kept their
+  order. These are the names #1530 deleted from the prelude, so the golden
+  is stale (not the tail-order flake described above).
+- `lsp-member-definition`: the go-to-definition target in `std/prelude.yo`
+  moved from line 8283 to line 8260. Both goldens were last recorded by
+  #1527, and #1530 is the only later change to the prelude (it deleted 113
+  lines, 23 of them above that line), so this golden is stale too.
+
+Both outputs are correct. The fix is to re-record the two goldens with a
+commit message that names #1530.
