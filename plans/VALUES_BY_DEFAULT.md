@@ -7339,6 +7339,19 @@ heavy run, the command is given in item 2.
            local.
          - `NfaCompiler.compile`'s `group_names` field store. It is left
            as it is, for B8's probe.
+       - **The dry run after B3** (the rebased tree binary, develop
+         `95162303d` plus this branch) lists 32 sites and would insert 2:
+         - 29 of the listed sites are the deferred ones above, and 2 are the
+           no-edit moves.
+         - The 32nd is new: `ArrayList.push`'s `value`, "copied in a generic
+           body". It appeared with develop's compiler changes (#1542/#1543),
+           not with a std edit. Its only later mention is the proof-only
+           `ensures` clause, so at run time the copy is a move. B8's probe
+           shows whether E0901 agrees.
+         - The 2 insertions come from the projections:
+           `match(url.host(), …)` and `match(url.query(), …)` in
+           `std/http/client.yo` copy the borrowed `Option` they match, so
+           the tool's `.clone()` is applied there.
        - Seed constraint: every form used here (projections, local
          borrows, borrows inside `io.async` bodies) is accepted by the
          v0.2.68 seed. `yo check ./std --std-path ./std` with the seed

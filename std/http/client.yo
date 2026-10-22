@@ -530,7 +530,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
     }
   );
   host := match(
-    url.host(),
+    url.host().clone(),
     .Some(h) => h,
     .None => {
       exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
@@ -549,7 +549,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
     true => ()
   );
   match(
-    url.query(),
+    url.query().clone(),
     .Some(q) => {
       req_path = `${req_path}?${q}`;
     },
