@@ -3,7 +3,6 @@
 //! Handles:
 //!   `(params) -> body`   — regular anonymous function (expected type must be Func)
 //!   `(params) => body`   — closure (expected type must be SomeT or FnTraitT with Fn trait)
-//!   `(params) =>> body` — async closure (like `=>` but marks io.async context)
 //!
 //! Definition-time body evaluation (the closure-body def-eval wall):
 //! non-generic bodies evaluate at definition time under a function-body
@@ -1147,8 +1146,8 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   // No expected type in context is a HARD ERROR: an anonymous-function
   // literal has no type of its own, so there is nothing to check its
-  // parameters and body against. The gate is operator-agnostic (`->`, `=>`
-  // and `=>>` alike).
+  // parameters and body against. The gate is operator-agnostic (`->` and `=>`
+  // alike).
   //
   // The former leniency (`_synthesize_default_func_type`, which built an
   // all-`SomeT` Func and DISCARDED the user's parameter annotations) is what
@@ -1184,7 +1183,7 @@ evaluate_anonymous_function_implementation :: (
     .None => env
   );
   // -------------------------------------------------------------------------
-  // Determine whether this is a closure (`=>` / `=>>`) or regular function
+  // Determine whether this is a closure (`=>`) or regular function
   // (`->`).  For closures the expected type is normally SomeT or FnTraitT
   // (the Fn-trait wrapper); for regular functions it is Func.
   // -------------------------------------------------------------------------

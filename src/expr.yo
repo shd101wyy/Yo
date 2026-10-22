@@ -1034,7 +1034,7 @@ exprs_are_equal :: (fn(e1 : &AstExpr, e2 : &AstExpr) -> bool)(
 /// be recursed into when scanning for unwind/return/await.
 ///
 ///
-/// A simplified port: checks for `->`, `=>`, `=>>` operators, and the
+/// A simplified port: checks for the `->` and `=>` operators, and the
 /// `(fn(...) -> T)({body})` pattern (outer FnCall whose func is a fn-type call).
 is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
   match(
@@ -1042,7 +1042,7 @@ is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false,
     .FnCall(_, .Atom(_, tok), _, _, _) => {
       v := tok.value.clone();
-      (v == "->") || (v == "=>") || (v == "=>>")
+      (v == "->") || (v == "=>")
     },
     .FnCall(_, .FnCall(_, .Atom(_, inner_tok), _, _, _), _, _, _) => {
       iv := inner_tok.value.clone();

@@ -390,8 +390,8 @@ its elements through it makes a call. A call's deferred drops ran between the
 call and its unwind check, and a destructor's own call cleared
 `__yo_effect_escaped` there, losing the unwind
 (`issues/fixed/2026-10-22-an-unwind-is-lost-when-a-temporary-dropped-after-the-call-runs-a-destructor-that-calls-a-function.md`).
-The tree's codegen saves and restores the flag around those drops
-(`generate_call_deferred_drops`), but the seed compiles the compiler: with
+The tree's codegen saves the flag before those drops and merges it back after
+them (`flag | saved`, `generate_call_deferred_drops`), but the seed compiles the compiler: with
 `ArrayList._free_elements` calling `drop_in_place`, the v0.2.67-seed-built
 compiler lost unwinds in its own parser (`yo fmt --check
 src/evaluator/context.yo` crashed on a null `AstExpr`; `tests/async_await.test.yo`
