@@ -391,8 +391,9 @@ Under `off`:
 
 - The program gets the lightweight reference-counting runtime whatever its
   types. No cell registers with a collector and no traverse function is
-  emitted. Every reference cell gets that runtime's 8-byte header; under
-  `auto` a cell of a cycle-capable type carries 56 bytes and any other cell 16.
+  emitted. Every reference cell gets that runtime's 8-byte header. In a
+  program that does run the collector, a cell of a cycle-capable type
+  carries 56 bytes and any other cell 16.
 - `collect()` does nothing and `tracked_count()` is always 0.
 - Counting, `Drop` and its order, allocators, `RefCell` and `Arc` are
   unchanged. A program that compiles under `auto` compiles under `off`; only
