@@ -168,7 +168,7 @@ surrogate_escape_error_message :: (fn() -> String)(
 /// The shared content-hash behind the stable id/name schemes.
 fnv1a64 :: (fn(s : &String) -> u64)({
   (state : u64) = u64(14695981039346656037);
-  bytes := s;
+  bytes := s.clone();
   (i : usize) = usize(0);
   while(i < bytes.len(), {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
@@ -322,7 +322,7 @@ TopLevelAnchor :: struct(row : usize, column : usize, label : String);
 (g_top_level_anchors : HashMap(String, Rc(ArrayList(TopLevelAnchor)))) = HashMap(String, Rc(ArrayList(TopLevelAnchor))).new();
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   owner := _stable_type_id_owner_key(module_path);
-  g_top_level_anchors.insert(owner.*, rc(anchors));
+  g_top_level_anchors.insert(owner.*.clone(), rc(anchors.clone()));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -446,11 +446,12 @@ _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(module_path));
-      g_stable_type_id_owner_memo.insert(module_path, c);
+      g_stable_type_id_owner_memo.insert(module_path.clone(), c);
       c
     }
   )
 );
+derive(TopLevelAnchor, Clone);
 /// A stable ID for a definition: `<prefix><module_stem>_<anchor>_r<row
 /// offset>c<column>` (`_anchored_position`). Content-derived (defining module,
 /// enclosing top-level statement, offset within it), so an edit anywhere ELSE

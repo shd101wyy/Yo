@@ -1,0 +1,20 @@
+// issues/2026-10-22-a-swallowed-test-body-error-inside-a-while-loop-breaks-the-next-derive.md
+// Expected (yo check, no --test-bodies): evaluator OK, as without the trailing derive, or
+// with --test-bodies the E0917 on `c.bump()`.
+// Actual: "Cannot initialize a variable that is defined outside the while loop" at an
+// auto-generated `__derive_optT_*` binding of the trailing `derive(R, Copy, Clone)`.
+{ assert } :: import("std/assert");
+C :: struct(n : i32);
+impl(C, bump : (fn(self : &mut Self) -> unit)({
+  self.n = (self.n + i32(1));
+}));
+test("a write to a non-mut local inside a while loop", {
+  c := C(n : i32(0));
+  (mut(i) : i32) = i32(0);
+  while(i < i32(3), i = (i + i32(1)), {
+    c.bump();
+  });
+  assert(c.n == i32(3), "bumped");
+});
+R :: struct(key : i32);
+derive(R, Copy, Clone);
