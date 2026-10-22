@@ -21,6 +21,7 @@
 { type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Global counter for generating unique SomeType IDs.
 // ---------------------------------------------------------------------------
@@ -833,10 +834,10 @@ _patch_self_shell :: (
 /// shells constantly: the linear scan was the top frame of `check` on a
 /// `TypeValue :: Rc(TypeValueNode)` tree (plans/VALUES_BY_DEFAULT.md decision
 /// 21's "As built" note), as the struct registry below was before it.
-(g_enum_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+(g_enum_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
-  if((enum_id.len() > usize(0)) && g_enum_finals.get(enum_id).is_none(), {
-    g_enum_finals.insert(enum_id, ty);
+  if((enum_id.len() > usize(0)) && g_enum_finals.with(m => m.get(enum_id)).is_none(), {
+    g_enum_finals.with_mut(m => m.insert(enum_id, ty));
     bump_type_key_epoch();
   });
 });
@@ -849,7 +850,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
       if(vns.len() > usize(0), {
         return(t);
       });
-      match(g_enum_finals.get(&eid), .Some(f) => f, .None => t)
+      match(g_enum_finals.with(m => m.get(&eid)), .Some(f) => f, .None => t)
     },
     _ => t
   )
@@ -869,12 +870,12 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 // (calls/comptime_fn.yo); a constructor with no record, or a position past
 // it (a variadic argument), counts as phantom
 // (issues/fixed/method-on-a-phantom-generic-enum-is-not-found-through-a-comptime-type-param.md).
-(g_ctor_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+(g_ctor_phantom_positions : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
 /// Record a type constructor's phantom positions (see
 /// `g_ctor_phantom_positions`); the first record wins.
 register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(bool)) -> unit)({
-  if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.contains_key(func_id), {
-    _prev := g_ctor_phantom_positions.insert(func_id, phantom);
+  if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.with(m => m.contains_key(func_id)), {
+    _prev := g_ctor_phantom_positions.with_mut(m => m.insert(func_id, phantom));
     bump_type_key_epoch();
   });
 });
@@ -883,7 +884,7 @@ register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(b
 /// position the payloads already determine only adds a redundant key part;
 /// leaving a phantom one unkeyed makes two instantiations one C type.
 ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))({
-  rec := g_ctor_phantom_positions.get(func_id);
+  rec := g_ctor_phantom_positions.with(m => m.get(func_id));
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < n_args, {
@@ -901,17 +902,17 @@ ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))
 // Keyed by id, not stored on `EnumT`: phantomness is a fact about the
 // constructor, which substitution keeps along with the id. Only an
 // instantiation with at least one phantom position is recorded.
-(g_enum_phantom_positions : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+(g_enum_phantom_positions : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
 _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(bool)) -> unit)({
-  if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.contains_key(enum_id), {
-    _prev := g_enum_phantom_positions.insert(enum_id, phantom);
+  if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.with(m => m.contains_key(enum_id)), {
+    _prev := g_enum_phantom_positions.with_mut(m => m.insert(enum_id, phantom));
     bump_type_key_epoch();
   });
 });
 /// The phantom-position flags recorded for an enum instantiation (see
 /// `g_enum_phantom_positions`), or an empty list when it has none.
 enum_phantom_positions :: (fn(enum_id : &String) -> ArrayList(bool))(
-  match(g_enum_phantom_positions.get(enum_id), .Some(m) => m, .None => ArrayList(bool).new())
+  match(g_enum_phantom_positions.with(m => m.get(enum_id)), .Some(m) => m, .None => ArrayList(bool).new())
 );
 /// Stamp an enum instantiation's type arguments onto its finalized form in the
 /// enum-final registry (keyed by the self-shell id), so a leaked self-shell
@@ -928,12 +929,12 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
   _register_enum_phantom_positions(enum_id.clone(), phantom.clone());
   shell_key := `${enum_id}__self_shell`;
   match(
-    g_enum_finals.get(&shell_key),
+    g_enum_finals.with(m => m.get(&shell_key)),
     .Some(final_ty) => match(
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
-        _ := g_enum_finals.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
+        _ := g_enum_finals.with_mut(m => m.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args))));
         bump_type_key_epoch();
       }),
       _ => ()
@@ -955,10 +956,10 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
 /// Keyed by struct id; the FIRST registration wins (the list this replaced
 /// was scanned front to back). A map because struct compatibility now
 /// resolves shells on every comparison (plans/reference/TYPE_IDENTITY.md).
-(g_struct_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+(g_struct_finals : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
-  if((struct_id.len() > usize(0)) && g_struct_finals.get(struct_id).is_none(), {
-    g_struct_finals.insert(struct_id, ty);
+  if((struct_id.len() > usize(0)) && g_struct_finals.with(m => m.get(struct_id)).is_none(), {
+    g_struct_finals.with_mut(m => m.insert(struct_id, ty));
     bump_type_key_epoch();
   });
 });
@@ -969,7 +970,7 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
     t,
     Rc(.Struct({ id : sid, field_types : fts })) => cond(
       (fts.len() > usize(0)) => t,
-      true => match(g_struct_finals.get(&sid), .Some(f) => f, .None => t)
+      true => match(g_struct_finals.with(m => m.get(&sid)), .Some(f) => f, .None => t)
     ),
     _ => t
   )
@@ -984,18 +985,18 @@ resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
 /// for it (issues/fixed/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
 /// Selection only: identity stays with the id. The first binding wins (an
 /// alias `Y :: X` does not rename X).
-(g_type_binding_names : HashMap(String, String)) = HashMap(String, String).new();
+(g_type_binding_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_binding_name :: (fn(type_id : &String, name : &String) -> unit)({
-  if((type_id.len() > usize(0)) && g_type_binding_names.get(type_id).is_none(), {
-    g_type_binding_names.insert(type_id, name);
+  if((type_id.len() > usize(0)) && g_type_binding_names.with(m => m.get(type_id)).is_none(), {
+    g_type_binding_names.with_mut(m => m.insert(type_id, name));
   });
 });
 type_binding_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_binding_names.get(type_id)
+  g_type_binding_names.with(m => m.get(type_id))
 );
 /// Drop every binding name (a reset of the evaluator universe).
 clear_type_binding_names :: (fn() -> unit)({
-  g_type_binding_names.clear();
+  g_type_binding_names.with_mut(m => m.clear());
 });
 
 /// Impl-level generic VALUE-binder kinds (`N : usize` in
@@ -1013,14 +1014,14 @@ clear_type_binding_names :: (fn() -> unit)({
 /// PURE: builtin scalar names, no env involvement. Keyed by
 /// `<name>@<frame level>` (the SomeT's identity pair); cleared when the
 /// impl's evaluation finishes.
-(_some_binder_kinds : HashMap(String, String)) = HashMap(String, String).new();
+(_some_binder_kinds : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_some_binder_kind :: (
   fn(name : &String, lvl : usize, kind_name : &String) -> unit
 )({
-  _some_binder_kinds.insert(`${name}@${lvl.to_string()}`, kind_name);
+  _some_binder_kinds.with_mut(m => m.insert(`${name}@${lvl.to_string()}`, kind_name));
 });
 clear_some_binder_kind :: (fn(name : &String, lvl : usize) -> unit)({
-  _some_binder_kinds.remove(`${name}@${lvl.to_string()}`);
+  _some_binder_kinds.with_mut(m => m.remove(`${name}@${lvl.to_string()}`));
 });
 /// Definition-time-trial flag STORAGE. The flag's semantics and public
 /// accessors live in evaluator/context.yo (`in_def_time_trial` /
@@ -1039,7 +1040,7 @@ trial_flag_set :: (fn(v : bool) -> bool)({
 /// registers, so type binders are unaffected.
 resolve_some_binder_kind :: (fn(name : &String, lvl : usize) -> Option(TypeValue))(
   match(
-    _some_binder_kinds.get(`${name}@${lvl.to_string()}`),
+    _some_binder_kinds.with(m => m.get(`${name}@${lvl.to_string()}`)),
     .Some(kind_name) => cond(
       (kind_name == "usize") => Option(TypeValue).Some(t_usize()),
       (kind_name == "isize") => Option(TypeValue).Some(t_isize()),

@@ -7,6 +7,7 @@ import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./definitions.yo");
+{ RefCell } :: import("std/sync/refcell");
 
 // ---------------------------------------------------------------------------
 // Display names for instantiated generics
@@ -20,7 +21,7 @@ import("std/fmt");
 // constructor call that produced it (`Ctor(rendered args)`). Rendering-only:
 // nothing but `type_to_string` reads it, so identity is untouched
 // (issues/fixed/lsp-shows-internal-type-placeholders-to-users.md).
-(g_type_display_names : HashMap(String, String)) = HashMap(String, String).new();
+(g_type_display_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// The type-key epoch: bumped whenever a registry that `type_key`
 /// (types/type_key.yo) reads gains or changes an entry. `type_key` and
 /// `type_to_string` of one `TypeValue` handle are functions of the handle's
@@ -39,18 +40,18 @@ type_key_epoch :: (fn() -> u64)(g_type_key_epoch);
 /// Record `display` (`Ctor(Arg, …)`) for the type with id `type_id`. The
 /// first registration wins — one id is minted by one constructor call.
 register_type_display_name :: (fn(type_id : &String, display : &String) -> unit)({
-  if(!g_type_display_names.contains_key(type_id.clone()), {
-    _prev := g_type_display_names.insert(type_id, display);
+  if(!g_type_display_names.with(m => m.contains_key(type_id.clone())), {
+    _prev := g_type_display_names.with_mut(m => m.insert(type_id, display));
     bump_type_key_epoch();
   });
 });
 /// The registered display name for `type_id`, if any.
 type_display_name :: (fn(type_id : &String) -> Option(String))(
-  g_type_display_names.get(type_id)
+  g_type_display_names.with(m => m.get(type_id))
 );
 /// Drop every registered display name (a reset of the evaluator universe).
 clear_type_display_names :: (fn() -> unit)({
-  g_type_display_names.clear();
+  g_type_display_names.with_mut(m => m.clear());
   bump_type_key_epoch();
 });
 /// Is `s` already on the expansion path? (`visited`, see `_tts`.)

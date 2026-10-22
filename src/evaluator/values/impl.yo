@@ -132,6 +132,7 @@ pragma(Pragma.AllowUnsafe);
 { synthesize_types, SynthesizeOptions, TypePair }
 :: import("../types/synthesizer.yo");
 { Exception, AnyError } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 /// Stamp a generic impl's `generic(T)` names onto a method's FuncVal so the call
 /// site recognizes the method as generic and SPECIALIZES it. A method defined in
 /// `impl(generic(T), C(T), m : (fn(self : Self) -> T))` is evaluated to a FuncVal
@@ -254,10 +255,10 @@ GenericImplEntry :: struct(
 /// can be checked against it (rule 3 is order-independent). Owner-tagged and
 /// purged with the generic registry (LSP invalidation).
 ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty : TypeValue, site : String);
-(g_concrete_trait_impls : ArrayList(ConcreteTraitImpl)) = ArrayList(ConcreteTraitImpl).new();
-(g_concrete_trait_impl_owners : ArrayList(String)) = ArrayList(String).new();
+(g_concrete_trait_impls : RefCell(ArrayList(ConcreteTraitImpl))) = RefCell(ArrayList(ConcreteTraitImpl)).new(ArrayList(ConcreteTraitImpl).new());
+(g_concrete_trait_impl_owners : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 // Registry storage (two parallel ArrayLists — avoids HashMap dependency).
-(g_impl_registry_keys : ArrayList(String)) = ArrayList(String).new();
+(g_impl_registry_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
   ArrayList(ArrayList(GenericImplEntry)).new();
 // Owner tags, bucket-parallel to `g_impl_registry_entry_lists` (same outer
@@ -307,24 +308,24 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 /// (`trait_impl_site_of` for a concrete impl, `GenericImplEntry.site` for a
 /// generic one), so the reverse check at a later `Copy` impl can tell a
 /// hand-written `Clone` from a derived one.
-(g_hand_written_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_hand_written_clone_sites : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// The hand-written `Clone` impls outside std, by the same site keys: the
 /// impls whose `clone()` runs user code. E0916's structural-clone exemption
 /// (`type_clone_runs_no_user_code`, trait_checking.yo) refuses a `mut(G)`
 /// global's `G.clone()` that reaches one of them.
-(g_user_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_user_clone_sites : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Does `ty` have a hand-written `Clone` impl outside std: its concrete impl,
 /// or a generic one whose receiver shape could match it (conservatively: a
 /// shape match counts even where the impl's bounds would refuse `ty`)?
 type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)({
-  if(g_user_clone_sites.len() == usize(0), {
+  if(g_user_clone_sites.with(m => m.len()) == usize(0), {
     return(false);
   });
   tid := type_id_or_empty(ty);
   if(!tid.is_empty(), {
     match(
       trait_impl_site_of(&tid, &get_trait_key(clone_tt)),
-      .Some(site) => if(g_user_clone_sites.contains_key(&site), {
+      .Some(site) => if(g_user_clone_sites.with(m => m.contains_key(&site)), {
         return(true);
       }),
       .None => ()
@@ -335,7 +336,7 @@ type_has_user_clone_impl :: (fn(ty : &TypeValue, clone_tt : &TypeValue) -> bool)
   while(bi < bucket.len(), bi = (bi + usize(1)), {
     match(
       bucket.get(bi),
-      .Some(ce) => if(g_user_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(&ce.receiver_type_pattern, ty), {
+      .Some(ce) => if(g_user_clone_sites.with(m => m.contains_key(ce.site.clone())) && _root_shapes_could_match(&ce.receiver_type_pattern, ty), {
         return(true);
       }),
       .None => ()
@@ -445,9 +446,9 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   // Find existing bucket for this key, or create a new one.
   (key_idx : Option(usize)) = Option(usize).None;
   (ki : usize) = usize(0);
-  (n_keys : usize) = g_impl_registry_keys.len();
+  (n_keys : usize) = g_impl_registry_keys.with(xs => xs.len());
   while(ki < n_keys, {
-    existing_key := match(g_impl_registry_keys.get(ki), .Some(k) => k, .None => String.from(""));
+    existing_key := match(g_impl_registry_keys.with(xs => xs.get(ki)), .Some(k) => k, .None => String.from(""));
     if(existing_key == key, {
       key_idx = Option(usize).Some(ki);
       ki = n_keys; // break
@@ -481,7 +482,7 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       new_list.push(entry);
       new_owners := ArrayList(String).new();
       new_owners.push(owner);
-      g_impl_registry_keys.push(key);
+      g_impl_registry_keys.with_mut(xs => xs.push(key));
       g_impl_registry_entry_lists.push(new_list);
       g_impl_registry_entry_owners.push(new_owners);
     }
@@ -504,9 +505,9 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
   // discipline).
   (key_idx : Option(usize)) = Option(usize).None;
   (ki : usize) = usize(0);
-  (n_keys : usize) = g_impl_registry_keys.len();
+  (n_keys : usize) = g_impl_registry_keys.with(xs => xs.len());
   while(ki < n_keys, {
-    existing_key := match(g_impl_registry_keys.get(ki), .Some(k) => k, .None => String.from(""));
+    existing_key := match(g_impl_registry_keys.with(xs => xs.get(ki)), .Some(k) => k, .None => String.from(""));
     if(existing_key == entry.trait_key, {
       key_idx = Option(usize).Some(ki);
       ki = n_keys; // break
@@ -544,7 +545,7 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
   forget_trait_impl_site_if_from(String.from("generic"), &_generic_impl_trait_site_shape(entry), &entry.site);
   // A hand-written `Clone` the exclusion check itself recorded just before
   // throwing on it.
-  g_hand_written_clone_sites.remove(entry.site.clone());
+  g_hand_written_clone_sites.with_mut(m => m.remove(entry.site.clone()));
   bump_trait_impl_epoch();
 });
 // ---------------------------------------------------------------------------
@@ -561,18 +562,18 @@ MoveOnlyDecl :: struct(
   trait_name : String,
   owner : String
 );
-(g_move_only_decls : ArrayList(MoveOnlyDecl)) = ArrayList(MoveOnlyDecl).new();
+(g_move_only_decls : RefCell(ArrayList(MoveOnlyDecl))) = RefCell(ArrayList(MoveOnlyDecl)).new(ArrayList(MoveOnlyDecl).new());
 /// `type_key` → answer; cleared whenever a declaration is added or purged.
-(g_move_only_memo : HashMap(String, String)) = HashMap(String, String).new();
+(g_move_only_memo : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// The identity front cache of `g_move_only_memo` (see `type_identity_slot`,
 /// types/type_key.yo): handles sorted by address, their answers, and the
 /// type-key epoch they were keyed in. Cleared with the memo.
-(g_move_only_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-(g_move_only_fast_answers : ArrayList(String)) = ArrayList(String).new();
+(g_move_only_fast : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_move_only_fast_answers : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (mut(g_move_only_fast_epoch) : u64) = u64(0);
 /// `type_key`s being answered: a generic impl's where-clause check can ask
 /// about the same type again (it reaches `type_contains_rc_type`).
-(g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_move_only_in_flight : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Drop every generic-impl entry registered by `owner` (a `file://` abs
 /// module path). Phase B2 — called for each module the LSP invalidates.
 purge_generic_impls_owned_by :: (fn(owner : &String) -> unit)({
@@ -610,12 +611,12 @@ purge_concrete_trait_impls_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
-  (i : usize) = g_concrete_trait_impl_owners.len();
+  (i : usize) = g_concrete_trait_impl_owners.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_concrete_trait_impl_owners.get(i), .Some(o) => (o == owner), .None => false) && (i < g_concrete_trait_impls.len()), {
-      g_concrete_trait_impls.drain(i .. (i + usize(1)));
-      g_concrete_trait_impl_owners.drain(i .. (i + usize(1)));
+    if(match(g_concrete_trait_impl_owners.with(xs => xs.get(i)), .Some(o) => (o == owner), .None => false) && (i < g_concrete_trait_impls.with(xs => xs.len())), {
+      g_concrete_trait_impls.with_mut(xs => xs.drain(i .. (i + usize(1))));
+      g_concrete_trait_impl_owners.with_mut(xs => xs.drain(i .. (i + usize(1))));
     });
   });
   purge_move_only_decls_owned_by(owner);
@@ -626,12 +627,12 @@ purge_move_only_decls_owned_by :: (fn(owner : &String) -> unit)({
   if(owner.len() == usize(0), {
     return(());
   });
-  (i : usize) = g_move_only_decls.len();
+  (i : usize) = g_move_only_decls.with(xs => xs.len());
   (changed : bool) = false;
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_move_only_decls.get(i), .Some(d) => (d.owner == owner), .None => false), {
-      g_move_only_decls.drain(i .. (i + usize(1)));
+    if(match(g_move_only_decls.with(xs => xs.get(i)), .Some(d) => (d.owner == owner), .None => false), {
+      g_move_only_decls.with_mut(xs => xs.drain(i .. (i + usize(1))));
       changed = true;
     });
   });
@@ -702,14 +703,14 @@ generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usiz
 // are out of scope here — they only feed vacuous `comptime_assert`s in the
 // tests.
 // ---------------------------------------------------------------------------
-(g_negative_impl_registry : ArrayList(String)) = ArrayList(String).new();
+(g_negative_impl_registry : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 has_negative_impl :: (fn(type_id : &String, trait_id : &String) -> bool)({
   key := `${type_id}:${trait_id}`;
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < g_negative_impl_registry.len()) && !found, {
+  while((i < g_negative_impl_registry.with(xs => xs.len())) && !found, {
     match(
-      g_negative_impl_registry.get(i),
+      g_negative_impl_registry.with(xs => xs.get(i)),
       .Some(k) => if(k == key, {
         found = true;
       }),
@@ -721,7 +722,7 @@ has_negative_impl :: (fn(type_id : &String, trait_id : &String) -> bool)({
 });
 register_negative_impl :: (fn(type_id : &String, trait_id : &String) -> unit)({
   if(!has_negative_impl(type_id, trait_id), {
-    g_negative_impl_registry.push(`${type_id}:${trait_id}`);
+    g_negative_impl_registry.with_mut(xs => xs.push(`${type_id}:${trait_id}`));
   });
 });
 // Matches a generic impl's receiver-type pattern against a concrete type
@@ -743,7 +744,7 @@ register_negative_impl :: (fn(type_id : &String, trait_id : &String) -> unit)({
 // `Array(T, U).len`'s body `return(U)` returned a TYPE ("Return type
 // mismatch. Expected usize, but got Type" — the array-family hollow).
 // Single-threaded evaluator; cleared at each try_match entry.
-(g_last_match_binding_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+(g_last_match_binding_vals : RefCell(ArrayList(EvalValue))) = RefCell(ArrayList(EvalValue)).new(ArrayList(EvalValue).new());
 /// Set while `generic_pattern_implements_trait` asks whether a generic impl
 /// covers an OPEN receiver pattern (decision 36's `Copy: Clone` check at a
 /// generic `Copy` impl). A forall bound to a different-id SomeT is then a
@@ -1650,7 +1651,7 @@ try_match_generic_impl :: (
   // Synthesis succeeded — collect the concrete binding for each generic param
   // (in declaration order). If any param stayed abstract, there is no match.
   bindings := ArrayList(TypeValue).new();
-  g_last_match_binding_vals.clear();
+  g_last_match_binding_vals.with_mut(xs => xs.clear());
   (all_bound : bool) = true;
   (vi : usize) = usize(0);
   while((vi < n_forall) && all_bound, {
@@ -1681,7 +1682,7 @@ try_match_generic_impl :: (
       _pre_where_or_resolve(&entry.forall_some_types, &pre_where_bindings, &match_env, &fa_some2, &fa_name2, unify_base - usize(1)),
       .Some(t) => {
         bindings.push(t);
-        g_last_match_binding_vals.push(fa_val2);
+        g_last_match_binding_vals.with_mut(xs => xs.push(fa_val2));
       },
       .None => {
         // Structural field synthesis left this param abstract: the receiver
@@ -1693,7 +1694,7 @@ try_match_generic_impl :: (
           _bind_forall_from_type_args(&entry.receiver_type_pattern, &resolved_concrete, &fa_some2),
           .Some(t2) => {
             bindings.push(t2);
-            g_last_match_binding_vals.push(EvalValue.UnitVal);
+            g_last_match_binding_vals.with_mut(xs => xs.push(EvalValue.UnitVal));
           },
           .None => {
             // THIRD recovery — through a where-constraint's ASSOCIATED-TYPE
@@ -1787,7 +1788,7 @@ try_match_generic_impl :: (
               wcr_bound,
               .Some(wcr_t) => {
                 bindings.push(wcr_t);
-                g_last_match_binding_vals.push(EvalValue.UnitVal);
+                g_last_match_binding_vals.with_mut(xs => xs.push(EvalValue.UnitVal));
               },
               .None => {
                 all_bound = false;
@@ -1896,9 +1897,9 @@ find_matching_generic_impl :: (
   (entry_list_opt : Option(ArrayList(GenericImplEntry))) =
     Option(ArrayList(GenericImplEntry)).None;
   (ki : usize) = usize(0);
-  (n_keys : usize) = g_impl_registry_keys.len();
+  (n_keys : usize) = g_impl_registry_keys.with(xs => xs.len());
   while(ki < n_keys, {
-    k := match(g_impl_registry_keys.get(ki), .Some(k) => k, .None => String.from(""));
+    k := match(g_impl_registry_keys.with(xs => xs.get(ki)), .Some(k) => k, .None => String.from(""));
     if(k == key, {
       entry_list_opt = g_impl_registry_entry_lists.get(ki);
       ki = n_keys; // break
@@ -2020,8 +2021,8 @@ _trait_instances_agree :: (fn(entry : &GenericImplEntry, bindings : &ArrayList(T
 /// The generic-impl bucket for a base trait key (empty when none).
 _generic_impl_bucket :: (fn(key : &String) -> ArrayList(GenericImplEntry))({
   (ki : usize) = usize(0);
-  while(ki < g_impl_registry_keys.len(), {
-    if(match(g_impl_registry_keys.get(ki), .Some(k) => (k == key), .None => false), {
+  while(ki < g_impl_registry_keys.with(xs => xs.len()), {
+    if(match(g_impl_registry_keys.with(xs => xs.get(ki)), .Some(k) => (k == key), .None => false), {
       return(match(g_impl_registry_entry_lists.get(ki), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
     });
     ki = (ki + usize(1));
@@ -2062,8 +2063,8 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
     );
     bi = (bi + usize(1));
   });
-  g_concrete_trait_impls.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site));
-  g_concrete_trait_impl_owners.push(registration_owner());
+  g_concrete_trait_impls.with_mut(xs => xs.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site)));
+  g_concrete_trait_impl_owners.with_mut(xs => xs.push(registration_owner()));
 });
 /// A canonical DECLARATION-IDENTITY render of `t`, for the generic-impl
 /// coherence keys: every nominal type contributes the identity
@@ -2272,9 +2273,9 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
     .None => ()
   );
   (ci : usize) = usize(0);
-  while(ci < g_concrete_trait_impls.len(), {
+  while(ci < g_concrete_trait_impls.with(xs => xs.len()), {
     match(
-      g_concrete_trait_impls.get(ci),
+      g_concrete_trait_impls.with(xs => xs.get(ci)),
       .Some(cr) => if((cr.base_key == entry.trait_key) && (cr.site != entry.site), {
         match(
           try_match_generic_impl(&cr.receiver_ty, entry, env, true),
@@ -2362,7 +2363,7 @@ MethodCandidate :: struct(
 // miss copies the method's full capture arrays (avg ~600 entries). Keying
 // on func_id + binding type_keys + value-binder raws collapses ~167k
 // RETAINED copies (3.87 GB live in a self-emit) to the distinct set.
-(g_ifc_memo : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+(g_ifc_memo : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
 /// `g_ifc_memo` keys by owner. A memo entry is only a cache, so dropping the
 /// entries a removed module's evaluation wrote costs at most a recompute.
 (g_ifc_memo_owned : OwnedKeys) = owned_keys_new();
@@ -2374,7 +2375,7 @@ purge_ifc_memo_owned_by :: (fn(owner : &String) -> unit)({
     match(
       keys.get(i),
       .Some(k) => {
-        _r := g_ifc_memo.remove(&k);
+        _r := g_ifc_memo.with_mut(m => m.remove(&k));
       },
       .None => ()
     );
@@ -2449,7 +2450,7 @@ _inject_forall_captures :: (
           );
         };
         match(
-          g_ifc_memo.get(memo_key.clone()),
+          g_ifc_memo.with(m => m.get(memo_key.clone())),
           .Some(cached) => Option(EvalValue).Some(cached),
           .None => {
             new_cns := ArrayList(String).new();
@@ -2579,7 +2580,7 @@ _inject_forall_captures :: (
             // Flat names/types only when not aligned (see above).
             injected := EvalValue.FuncVal(rc(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
             owned_keys_record(&g_ifc_memo_owned, memo_key.clone());
-            g_ifc_memo.insert(memo_key, injected);
+            g_ifc_memo.with_mut(m => m.insert(memo_key, injected));
             Option(EvalValue).Some(injected)
           }
         )
@@ -2608,7 +2609,7 @@ find_methods_from_generic_impls :: (
     });
   });
   // Iterate all key buckets.
-  n_keys := g_impl_registry_keys.len();
+  n_keys := g_impl_registry_keys.with(xs => xs.len());
   // An empty no-op guard (was `if(method_name == "index", { });`, an empty
   // record where unit is expected — an arm/body is `()`, never `{}`).
   if(method_name == "index", ());
@@ -2697,9 +2698,9 @@ find_methods_from_generic_impls :: (
           match_binding_vals := ArrayList(EvalValue).new();
           {
             (mbv_i : usize) = usize(0);
-            while(mbv_i < g_last_match_binding_vals.len(), {
+            while(mbv_i < g_last_match_binding_vals.with(xs => xs.len()), {
               match(
-                g_last_match_binding_vals.get(mbv_i),
+                g_last_match_binding_vals.with(xs => xs.get(mbv_i)),
                 .Some(.IntLit(mbv_raw)) => {
                   match_binding_vals.push(EvalValue.IntLit(mbv_raw.clone()));
                 },
@@ -2869,7 +2870,7 @@ find_associated_type_from_generic_impls :: (
   });
   (found : Option(TypeValue)) = Option(TypeValue).None;
   // Iterate all key buckets.
-  n_keys := g_impl_registry_keys.len();
+  n_keys := g_impl_registry_keys.with(xs => xs.len());
   (ki : usize) = usize(0);
   while((ki < n_keys) && found.is_none(), {
     // No `continue` in these registry loops — see
@@ -3068,7 +3069,7 @@ find_generic_impl_method_value :: (
   });
   concrete_base_id := _receiver_base_type_id_for_doc(&resolved);
   concrete_name := _type_name_for_doc(&resolved);
-  n_keys := g_impl_registry_keys.len();
+  n_keys := g_impl_registry_keys.with(xs => xs.len());
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     entry_list := match(
@@ -3141,7 +3142,7 @@ get_generic_impl_doc_entries :: (
   concrete_base_id := _receiver_base_type_id_for_doc(&resolved);
   concrete_name := _type_name_for_doc(&resolved);
   wanted_name := if(receiver_type_name.len() > usize(0), receiver_type_name.clone(), concrete_name.clone());
-  n_keys := g_impl_registry_keys.len();
+  n_keys := g_impl_registry_keys.with(xs => xs.len());
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     // No `continue` in these registry loops — see
@@ -3655,7 +3656,7 @@ _substitute_self_in_method_ty :: (
 ///     identifier and throws `Variable "return" not found`.
 /// The error `_materialize_default_body`'s swallow ate, for the caller's
 /// re-raise (a module-level channel: the handler is capture-free).
-(g_mat_default_err : ArrayList(YoError)) = ArrayList(YoError).new();
+(g_mat_default_err : RefCell(ArrayList(YoError))) = RefCell(ArrayList(YoError)).new(ArrayList(YoError).new());
 _materialize_default_body :: (
   fn(
     body : &AstExpr,
@@ -3672,8 +3673,8 @@ _materialize_default_body :: (
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[mat-default-swallow] ${_err.to_string()}`);
         });
-        g_mat_default_err.clear();
-        match(downcast(_err, YoError), .Some(ye) => g_mat_default_err.push(ye), .None => ());
+        g_mat_default_err.with_mut(xs => xs.clear());
+        match(downcast(_err, YoError), .Some(ye) => g_mat_default_err.with_mut(xs => xs.push(ye)), .None => ());
         unwind(())
       }
     )
@@ -5950,7 +5951,7 @@ evaluate_module_value :: (
                           });
                           d_out := ArrayList(AstExpr).new();
                           d_depths := forcing_depths();
-                          g_mat_default_err.clear();
+                          g_mat_default_err.with_mut(xs => xs.clear());
                           _materialize_default_body(&d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), &d_env, ctx, &mut d_out);
                           truncate_forcing_depths(d_depths);
                           d_env.pop_frame();
@@ -5969,9 +5970,9 @@ evaluate_module_value :: (
                           );
                           if((d_out.len() == usize(0)) && d_concrete && !propagate_def_time_errors(), {
                             match(
-                              g_mat_default_err.get(usize(0)),
+                              g_mat_default_err.with(xs => xs.get(usize(0))),
                               .Some(d_err) => {
-                                g_mat_default_err.clear();
+                                g_mat_default_err.with_mut(xs => xs.clear());
                                 exn.throw(
                                   dyn(
                                     reanchor_primary_at(
@@ -5989,7 +5990,7 @@ evaluate_module_value :: (
                           // receiver or signature still has a type variable.
                           if((d_out.len() == usize(0)) && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                             match(
-                              g_mat_default_err.get(usize(0)),
+                              g_mat_default_err.with(xs => xs.get(usize(0))),
                               .Some(d_kept) => {
                                 d_kept_code := match(d_kept.diagnostics.get(usize(0)), .Some(d) => match(d.code, .Some(c) => c, .None => String.from("-")), .None => String.from("-"));
                                 eprintln(`[kept] site=mat-default code=${d_kept_code} owner=${d_label}`);
@@ -6165,15 +6166,15 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
     _clear_move_only_memo();
   });
   if(g_move_only_fast_epoch != type_key_epoch(), {
-    g_move_only_fast.clear();
-    g_move_only_fast_answers.clear();
+    g_move_only_fast.with_mut(xs => xs.clear());
+    g_move_only_fast_answers.with_mut(xs => xs.clear());
     g_move_only_fast_epoch = type_key_epoch();
   });
-  (slot : usize) = type_identity_slot(&g_move_only_fast, ty);
-  if(type_identity_slot_holds(&g_move_only_fast, slot, ty), {
-    fast := match(g_move_only_fast_answers.get(slot), .Some(a) => a, .None => String.new());
+  (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
+  if(g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
+    fast := match(g_move_only_fast_answers.with(xs => xs.get(slot)), .Some(a) => a, .None => String.new());
     if(type_key_memo_check_enabled(), {
-      slow := g_move_only_memo.get(type_key(ty));
+      slow := g_move_only_memo.with(m => m.get(type_key(ty)));
       if(match(slow, .Some(m) => (m != fast), .None => true), {
         panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: nominal_declares_move_only(${type_to_string(ty)}): the identity cache answers "${fast}", the type_key memo ${match(slow, .Some(m) => `answers "${m}"`, .None => String.from("has no entry"))}`);
       });
@@ -6183,23 +6184,23 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   key_epoch := type_key_epoch();
   key := type_key(ty);
   match(
-    g_move_only_memo.get(key.clone()),
+    g_move_only_memo.with(m => m.get(key.clone())),
     .Some(m) => {
       _record_move_only_fast(ty, key_epoch, &m);
       return(m);
     },
     .None => ()
   );
-  if(g_move_only_in_flight.contains_key(key.clone()), {
+  if(g_move_only_in_flight.with(m => m.contains_key(key.clone())), {
     return(String.new());
   });
-  g_move_only_in_flight.insert(key.clone(), true);
+  g_move_only_in_flight.with_mut(m => m.insert(key.clone(), true));
   tid := type_id_or_empty(ty);
   (found : String) = String.new();
   (i : usize) = usize(0);
-  while((i < g_move_only_decls.len()) && found.is_empty(), {
+  while((i < g_move_only_decls.with(xs => xs.len())) && found.is_empty(), {
     match(
-      g_move_only_decls.get(i),
+      g_move_only_decls.with(xs => xs.get(i)),
       .Some(d) => {
         hit := match(
           d.generic,
@@ -6214,8 +6215,8 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
     );
     i = (i + usize(1));
   });
-  g_move_only_in_flight.remove(key.clone());
-  g_move_only_memo.insert(key, found.clone());
+  g_move_only_in_flight.with_mut(m => m.remove(key.clone()));
+  g_move_only_memo.with_mut(m => m.insert(key, found.clone()));
   _record_move_only_fast(ty, key_epoch, &found);
   found
 });
@@ -6227,27 +6228,27 @@ _record_move_only_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : &String
     return(());
   });
   if(g_move_only_fast_epoch != key_epoch, {
-    g_move_only_fast.clear();
-    g_move_only_fast_answers.clear();
+    g_move_only_fast.with_mut(xs => xs.clear());
+    g_move_only_fast_answers.with_mut(xs => xs.clear());
     g_move_only_fast_epoch = key_epoch;
   });
-  if(g_move_only_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
-    g_move_only_fast.clear();
-    g_move_only_fast_answers.clear();
+  if(g_move_only_fast.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+    g_move_only_fast.with_mut(xs => xs.clear());
+    g_move_only_fast_answers.with_mut(xs => xs.clear());
   });
-  (slot : usize) = type_identity_slot(&g_move_only_fast, ty);
-  if(!type_identity_slot_holds(&g_move_only_fast, slot, ty), {
-    g_move_only_fast.insert(slot, ty);
-    g_move_only_fast_answers.insert(slot, answer);
+  (slot : usize) = g_move_only_fast.with(xs => type_identity_slot(xs, ty));
+  if(!g_move_only_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
+    g_move_only_fast.with_mut(xs => xs.insert(slot, ty));
+    g_move_only_fast_answers.with_mut(xs => xs.insert(slot, answer));
   });
 });
 _clear_move_only_memo :: (fn() -> unit)({
-  g_move_only_memo.clear();
-  g_move_only_fast.clear();
-  g_move_only_fast_answers.clear();
+  g_move_only_memo.with_mut(m => m.clear());
+  g_move_only_fast.with_mut(xs => xs.clear());
+  g_move_only_fast_answers.with_mut(xs => xs.clear());
 });
 _add_move_only_decl :: (fn(d : &MoveOnlyDecl) -> unit)({
-  g_move_only_decls.push(d);
+  g_move_only_decls.with_mut(xs => xs.push(d));
   _clear_move_only_memo();
   note_move_only_possible();
 });
@@ -6341,9 +6342,9 @@ _check_copy_clone_exclusion :: (
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         if(!is_std_module_path(&trait_tok.module_path, &ctx.std_path), {
-          g_user_clone_sites.insert(site.clone(), true);
+          g_user_clone_sites.with_mut(m => m.insert(site.clone(), true));
         });
-        g_hand_written_clone_sites.insert(site, true);
+        g_hand_written_clone_sites.with_mut(m => m.insert(site, true));
         if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
         });
@@ -6351,7 +6352,7 @@ _check_copy_clone_exclusion :: (
       if(key == get_trait_key(&cc.copy_tt), {
         match(
           trait_impl_site_of(receiver_type_id, &clone_key),
-          .Some(clone_site) => if(g_hand_written_clone_sites.contains_key(clone_site.clone()), {
+          .Some(clone_site) => if(g_hand_written_clone_sites.with(m => m.contains_key(clone_site.clone())), {
             exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site)))));
           }),
           .None => ()
@@ -6388,9 +6389,9 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
       clone_key := get_base_trait_key(&cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         if(!is_std_module_path(&trait_tok.module_path, &ctx.std_path), {
-          g_user_clone_sites.insert(entry.site.clone(), true);
+          g_user_clone_sites.with_mut(m => m.insert(entry.site.clone(), true));
         });
-        g_hand_written_clone_sites.insert(entry.site.clone(), true);
+        g_hand_written_clone_sites.with_mut(m => m.insert(entry.site.clone(), true));
         if(_pattern_implements_via_hook(&entry.receiver_type_pattern, &cc.copy_tt, &env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).None))));
         });
@@ -6401,7 +6402,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
+            .Some(ce) => if(g_hand_written_clone_sites.with(m => m.contains_key(ce.site.clone())) && _receiver_patterns_could_overlap(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
               exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()
@@ -6521,7 +6522,7 @@ export(generic_pattern_implements_trait);
 export(type_has_user_clone_impl);
 export(GenericImplEntry, MethodCandidate);
 /// Entries in the injection memo (the B2 plateau test's probe).
-ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.len());
+ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.with(m => m.len()));
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
 export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only);

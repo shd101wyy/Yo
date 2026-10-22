@@ -800,21 +800,21 @@ _is_c_identifier_byte :: (fn(b : u8) -> bool)(
 /// else — the counter is per (prefix, function), not global — and unique
 /// within the function's C scope. NOT for file-scope names (two functions
 /// mint colliding `<prefix>0`); those derive from their own identity.
-(g_fresh_local_counts : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_fresh_local_counts : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
 /// Reset the fresh-local counters — per-EMISSION state (see
 /// ref_spill_counter_reset for the reasoning).
 fresh_local_counts_reset :: (fn() -> unit)({
-  g_fresh_local_counts.clear();
+  g_fresh_local_counts.with_mut(m => m.clear());
   ()
 });
 fresh_local_name :: (fn(prefix : &String, current_function_name : &String) -> String)({
   key := `${prefix}@${current_function_name}`;
   k := match(
-    g_fresh_local_counts.get(&key),
+    g_fresh_local_counts.with(m => m.get(&key)),
     .Some(n) => n,
     .None => usize(0)
   );
-  g_fresh_local_counts.insert(key, k + usize(1));
+  g_fresh_local_counts.with_mut(m => m.insert(key, k + usize(1)));
   `${prefix}${k.to_string()}`
 });
 /// Pattern-payload literal classification, shared by the sync match emitter
@@ -1488,14 +1488,14 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
 /// issues/fixed/yo-self-stage2-get-type-string-cycle.md). On a revisit the SomeT
 /// is treated as UNRESOLVED (registered-name / void* fallback) — the same
 /// "bounded by a monotonic visited set" convention type_to_string follows.
-(g_gts_some_stack : ArrayList(String)) = ArrayList(String).new();
+(g_gts_some_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _gts_stack_contains :: (fn(sid : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  n := g_gts_some_stack.len();
+  n := g_gts_some_stack.with(xs => xs.len());
   while((i < n) && !found, {
     match(
-      g_gts_some_stack.get(i),
+      g_gts_some_stack.with(xs => xs.get(i)),
       .Some(x) => if(x == sid, {
         found = true;
       }),
@@ -1640,9 +1640,9 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
             _ => ()
           );
         });
-        g_gts_some_stack.push(sid.clone());
+        g_gts_some_stack.with_mut(xs => xs.push(sid.clone()));
         gts_out := recur(&rct, context);
-        g_gts_some_stack.drain((g_gts_some_stack.len() - usize(1)) .. g_gts_some_stack.len());
+        g_gts_some_stack.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
         gts_out
       },
       .None => (

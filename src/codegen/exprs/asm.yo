@@ -20,6 +20,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { EvalValue } :: import("../../value.yo");
 { Arch, is_target_wasm } :: import("../../target.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Constraint tables
 // ---------------------------------------------------------------------------
@@ -498,10 +499,10 @@ _join_comma :: (fn(parts : &ArrayList(String)) -> String)({
   });
   out
 });
-(g_asm_temp_counter : ArrayList(usize)) = ArrayList(usize).new();
+(g_asm_temp_counter : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
 _next_asm_temp :: (fn() -> usize)({
-  n := g_asm_temp_counter.len();
-  g_asm_temp_counter.push(n);
+  n := g_asm_temp_counter.with(xs => xs.len());
+  g_asm_temp_counter.with_mut(xs => xs.push(n));
   n
 });
 /// Generate C code for asm().

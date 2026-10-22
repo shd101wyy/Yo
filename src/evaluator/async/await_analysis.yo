@@ -723,7 +723,7 @@ get_local_variables_from_body :: (
 /// `g_method_callee_values`. Set in `evaluate_anonymous_function_implementation`
 /// for marked io.async closures with awaits; read by the async dispatch +
 /// `generate_async_block` + `preregister_async_blocks_in_expr`.
-(g_closure_await_analysis : HashMap(String, AwaitAnalysisResult)) = HashMap(String, AwaitAnalysisResult).new();
+(g_closure_await_analysis : RefCell(HashMap(String, AwaitAnalysisResult))) = RefCell(HashMap(String, AwaitAnalysisResult)).new(HashMap(String, AwaitAnalysisResult).new());
 /// Register a closure's await analysis by func_id (only when it has awaits).
 /// Record `result` for codegen; a command that never generates code records
 /// nothing (`codegen_tables_enabled`).
@@ -731,11 +731,11 @@ register_closure_await_analysis :: (fn(func_id : &String, result : &AwaitAnalysi
   if(!codegen_tables_enabled(), {
     return(());
   });
-  g_closure_await_analysis.insert(func_id, result);
+  g_closure_await_analysis.with_mut(m => m.insert(func_id, result));
 });
 /// The await analysis recorded for `func_id`, if any.
 get_closure_await_analysis :: (fn(func_id : &String) -> Option(AwaitAnalysisResult))(
-  g_closure_await_analysis.get(func_id.clone())
+  g_closure_await_analysis.with(m => m.get(func_id.clone()))
 );
 export(
   // Types (re-exported for convenience — canonical home is await_analysis_types.yo)

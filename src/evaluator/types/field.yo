@@ -47,6 +47,7 @@ import("std/fmt");
 { HashSet } :: import("std/collections/hash_set");
 { ArrayList } :: import("std/collections/array_list");
 { type_implements_fn } :: import("../trait_checking.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // TypeField
 // ---------------------------------------------------------------------------
@@ -84,14 +85,14 @@ EvalTypeFieldResult :: struct(
 /// `register_struct_fields` is called by `evaluate_struct_type` after building
 /// the struct. `get_struct_fields` is used by code that needs field extras
 /// (defaults, is_comptime, doc_comment, etc.).
-(g_struct_field_registry : HashMap(String, ArrayList(TypeField))) = HashMap(String, ArrayList(TypeField)).new();
+(g_struct_field_registry : RefCell(HashMap(String, ArrayList(TypeField)))) = RefCell(HashMap(String, ArrayList(TypeField))).new(HashMap(String, ArrayList(TypeField)).new());
 register_struct_fields :: (fn(id : &String, fields : &ArrayList(TypeField)) -> unit)({
   // `insert` returns the previous entry (D9); a re-registration legitimately
   // replaces one, so the value is discarded. `{ e; }` is unit-valued.
-  g_struct_field_registry.insert(id, fields);
+  g_struct_field_registry.with_mut(m => m.insert(id, fields));
 });
 get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
-  g_struct_field_registry.get(id)
+  g_struct_field_registry.with(m => m.get(id))
 );
 /// The bindings a closure capture struct's fields hold, by declaration site:
 /// `<struct id>|<label>|<decl site>` per field, and every struct id with a
@@ -100,20 +101,20 @@ get_struct_fields :: (fn(id : &String) -> Option(ArrayList(TypeField)))(
 /// pattern binding may shadow). A struct id is shared by re-evaluations of one
 /// closure, so a label accumulates every site they resolved it to; each is a
 /// binding declared outside the closure.
-(g_capture_field_decl_sites : HashSet(String)) = HashSet(String).new();
-(g_capture_structs_with_sites : HashSet(String)) = HashSet(String).new();
+(g_capture_field_decl_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+(g_capture_structs_with_sites : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_capture_field_decl_site :: (fn(struct_id : &String, label : &String, decl_site : &String) -> unit)({
-  g_capture_field_decl_sites.insert(`${struct_id}|${label}|${decl_site}`);
-  g_capture_structs_with_sites.insert(struct_id);
+  g_capture_field_decl_sites.with_mut(s => s.insert(`${struct_id}|${label}|${decl_site}`));
+  g_capture_structs_with_sites.with_mut(s => s.insert(struct_id));
 });
 /// Whether field `label` of capture struct `struct_id` holds the binding
 /// declared at `decl_site`.
 is_capture_field_binding :: (fn(struct_id : &String, label : &String, decl_site : &String) -> bool)(
-  g_capture_field_decl_sites.contains(`${struct_id}|${label}|${decl_site}`)
+  g_capture_field_decl_sites.with(s => s.contains(`${struct_id}|${label}|${decl_site}`))
 );
 /// Whether capture struct `struct_id` recorded its fields' declaration sites.
 capture_struct_has_decl_sites :: (fn(struct_id : &String) -> bool)(
-  g_capture_structs_with_sites.contains(struct_id)
+  g_capture_structs_with_sites.with(s => s.contains(struct_id))
 );
 // ---------------------------------------------------------------------------
 // evaluate_type_field

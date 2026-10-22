@@ -45,6 +45,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalModuleFieldResult, evaluate_module_field } :: import("../types/record.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // The `cInclude` side-table. `FuncMeta` carries no `c_include` field
 // (adding one would touch all 13 FuncMeta constructors and risk the
@@ -55,14 +56,14 @@ pragma(Pragma.AllowUnsafe);
 // re-evaluation re-records the same mapping, and a stale entry can at worst
 // re-emit a header the target already knows.
 // ---------------------------------------------------------------------------
-(g_extern_c_includes : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+(g_extern_c_includes : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 /// Record `header` for `name`. A name may be declared under several headers
 /// (two `c_include` modules binding the same symbol); every one is kept, in
 /// first-seen order, so codegen can `#include` them all instead of whichever
 /// module happened to be evaluated last.
 record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
   match(
-    g_extern_c_includes.get(name.clone()),
+    g_extern_c_includes.with(m => m.get(name.clone())),
     .Some(list) => {
       (i : usize) = usize(0);
       (seen : bool) = false;
@@ -81,24 +82,24 @@ record_c_include_for_extern :: (fn(name : &String, header : &String) -> unit)({
         // are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
         grown := list;
         grown.push(header);
-        g_extern_c_includes.insert(name, grown);
+        g_extern_c_includes.with_mut(m => m.insert(name, grown));
       });
     },
     .None => {
       list := ArrayList(String).new();
       list.push(header);
-      g_extern_c_includes.insert(name, list);
+      g_extern_c_includes.with_mut(m => m.insert(name, list));
     }
   );
 });
 /// The FIRST C header a `c_include`d extern symbol was declared under, if any
 /// (the registration slot of `register_extern_function` holds one header).
 get_c_include_for_extern :: (fn(name : &String) -> Option(String))(
-  match(g_extern_c_includes.get(name), .Some(l) => l.get(usize(0)), .None => Option(String).None)
+  match(g_extern_c_includes.with(m => m.get(name)), .Some(l) => l.get(usize(0)), .None => Option(String).None)
 );
 /// Every C header a `c_include`d extern symbol was declared under.
 get_c_includes_for_extern :: (fn(name : &String) -> ArrayList(String))(
-  match(g_extern_c_includes.get(name), .Some(l) => l, .None => ArrayList(String).new())
+  match(g_extern_c_includes.with(m => m.get(name)), .Some(l) => l, .None => ArrayList(String).new())
 );
 /// The already-bound type a `c_include` `Name : Type` field should ADOPT, or
 /// `.None` when the name is free (the ordinary opaque-handle case).

@@ -49,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
 { push_copy_pending, clear_copy_pending } :: import("../trait_checking.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Derive-impl failure channel
 //
@@ -59,23 +60,23 @@ pragma(Pragma.AllowUnsafe);
 // the message travels through a module-level box — the same shape as
 // anonymous_function.yo's `g_anon_swallow_msg`. Single-threaded evaluator.
 // ---------------------------------------------------------------------------
-(g_derive_impl_err : ArrayList(String)) = ArrayList(String).new();
+(g_derive_impl_err : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// The generated body's error code, carried onto the "derive on … failed"
 /// re-raise.
-(g_derive_impl_code : ArrayList(String)) = ArrayList(String).new();
+(g_derive_impl_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_derive_impl_err :: (fn(msg : &String, code : &Option(String)) -> unit)({
-  g_derive_impl_err.clear();
-  g_derive_impl_err.push(msg);
-  g_derive_impl_code.clear();
-  match(code, .Some(c) => g_derive_impl_code.push(c), .None => ());
+  g_derive_impl_err.with_mut(xs => xs.clear());
+  g_derive_impl_err.with_mut(xs => xs.push(msg));
+  g_derive_impl_code.with_mut(xs => xs.clear());
+  match(code, .Some(c) => g_derive_impl_code.with_mut(xs => xs.push(c)), .None => ());
 });
 _clear_derive_impl_err :: (fn() -> unit)({
-  g_derive_impl_err.clear();
-  g_derive_impl_code.clear();
+  g_derive_impl_err.with_mut(xs => xs.clear());
+  g_derive_impl_code.with_mut(xs => xs.clear());
 });
 _derive_impl_err_message :: (fn() -> String)(
   match(
-    g_derive_impl_err.get(usize(0)),
+    g_derive_impl_err.with(xs => xs.get(usize(0))),
     .Some(m) => m.clone(),
     .None => String.from("the generated impl failed to evaluate")
   )
@@ -387,7 +388,7 @@ call_registered_derive_rule :: (
   _derive_eval_guarded(desugar_if_calls(&result_expr), caller_env, ctx, &mut impl_out);
   if(impl_out.len() == usize(0), {
     raw_msg := _derive_impl_err_message();
-    impl_code := g_derive_impl_code.get(usize(0));
+    impl_code := g_derive_impl_code.with(xs => xs.get(usize(0)));
     _clear_derive_impl_err();
     msg := _derive_strip_error_prefix(&raw_msg);
     exn.throw(
@@ -496,7 +497,7 @@ process_trait_arg :: (
 // of a generic function) registers them once
 // (issues/fixed/a-derive-inside-a-function-body-is-silently-ignored.md).
 // ---------------------------------------------------------------------------
-(g_derive_eval_err : ArrayList(AnyError)) = ArrayList(AnyError).new();
+(g_derive_eval_err : RefCell(ArrayList(AnyError))) = RefCell(ArrayList(AnyError)).new(ArrayList(AnyError).new());
 _evaluate_derive_guarded :: (
   fn(
     expr : &AstExpr,
@@ -508,7 +509,7 @@ _evaluate_derive_guarded :: (
   guard_exn := Exception(
     throw : (
       _d_err -> {
-        g_derive_eval_err.push(_d_err);
+        g_derive_eval_err.with_mut(xs => xs.push(_d_err));
         unwind(())
       }
     )
@@ -532,7 +533,7 @@ evaluate_derive :: (
   ctx.is_validating_function_definition = false;
   ctx.is_analyzing_ctfe_capability = false;
   ctx.is_executing = true;
-  err_mark := g_derive_eval_err.len();
+  err_mark := g_derive_eval_err.with(xs => xs.len());
   out := ArrayList(AstExpr).new();
   _evaluate_derive_guarded(expr, env, ctx, &mut out);
   clear_copy_pending();
@@ -543,12 +544,12 @@ evaluate_derive :: (
     out.get(usize(0)),
     .Some(done) => done,
     .None => {
-      if(g_derive_eval_err.len() > err_mark, {
+      if(g_derive_eval_err.with(xs => xs.len()) > err_mark, {
         match(
-          g_derive_eval_err.pop(),
+          g_derive_eval_err.with_mut(xs => xs.pop()),
           .Some(d_err) => {
-            while(g_derive_eval_err.len() > err_mark, {
-              _ := g_derive_eval_err.pop();
+            while(g_derive_eval_err.with(xs => xs.len()) > err_mark, {
+              _ := g_derive_eval_err.with_mut(xs => xs.pop());
             });
             exn.throw(&d_err);
           },

@@ -56,6 +56,7 @@
 { TypeValue, TypeValueNode, FuncMeta, SharedList, no_types } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
 _append_b :: (fn(sb : &mut StringBuilder, x : bool) -> unit)(
   if(x, sb.write_str("1"), sb.write_str("0"))
 );
@@ -691,7 +692,7 @@ type_intern_key :: (fn(t : &TypeValue, depth : usize, visited : &mut HashSet(Str
 /// thing being measured.
 (g_ti_probe_on : bool) = debug_knob(`YO_TYPE_INTERN_PROBE`).is_some();
 (mut(g_ti_total) : usize) = usize(0);
-(g_ti_distinct : HashSet(u64)) = HashSet(u64).new();
+(g_ti_distinct : RefCell(HashSet(u64))) = RefCell(HashSet(u64)).new(HashSet(u64).new());
 /// Second question the same walk answers: WHERE the 11.12 M live
 /// `ArrayList(TypeValue)` objects come from. Each is 80 B of which 56 B is the
 /// RC header, and `Func` carries five of them (forall / param / implicit /
@@ -791,7 +792,8 @@ type_intern_probe_record :: (fn(t : &TypeValue) -> unit)({
     return(());
   });
   g_ti_total = (g_ti_total + usize(1));
-  _ := g_ti_distinct.insert(fnv1a64(type_intern_key(t, usize(0), HashSet(String).new())));
+  h := fnv1a64(type_intern_key(t, usize(0), HashSet(String).new()));
+  _ := g_ti_distinct.with_mut(s => s.insert(h));
   _ti_walk(t, usize(0));
   ()
 });
@@ -813,20 +815,20 @@ type_intern_probe_report :: (fn() -> String)({
   (n_enum : usize) = g_ti_enum;
   (n_some : usize) = g_ti_some;
   (n_other : usize) = g_ti_other;
-  head := `[type-intern] retained_types=${n_total.to_string()} distinct=${g_ti_distinct.len().to_string()} nodes=${n_nodes.to_string()}`;
+  head := `[type-intern] retained_types=${n_total.to_string()} distinct=${g_ti_distinct.with(s => s.len()).to_string()} nodes=${n_nodes.to_string()}`;
   lists := ` lists=${n_lists.to_string()} empty_lists=${n_lists_empty.to_string()}`;
   kinds := ` func=${n_func.to_string()} struct=${n_struct.to_string()} enum=${n_enum.to_string()}`;
   rest := ` some=${n_some.to_string()} other=${n_other.to_string()}`;
   head + lists + kinds + rest
 });
-(g_type_intern : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+(g_type_intern : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 /// `g_type_intern` keys by owner. Interning is a structural dedupe with no
 /// identity contract (every consumer compares structurally), so dropping a
 /// removed module's entries is safe: live nodes stay valid, and the next
 /// intern of that shape canonicalises a fresh node (Phase 1 step 5).
 (g_type_intern_owned : OwnedKeys) = owned_keys_new();
 /// Interned shapes (the B2 plateau test's probe).
-type_intern_entry_count :: (fn() -> usize)(g_type_intern.len());
+type_intern_entry_count :: (fn() -> usize)(g_type_intern.with(m => m.len()));
 /// Drop the intern entries `owner`'s evaluation added.
 purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
   keys := owned_keys_take(&g_type_intern_owned, owner);
@@ -835,7 +837,7 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
     match(
       keys.get(i),
       .Some(k) => {
-        _r := g_type_intern.remove(&k);
+        _r := g_type_intern.with_mut(m => m.remove(&k));
       },
       .None => ()
     );
@@ -846,12 +848,12 @@ purge_type_intern_owned_by :: (fn(owner : &String) -> unit)({
 intern_type :: (fn(t : &TypeValue) -> TypeValue)({
   key := type_intern_key(t, usize(0), HashSet(String).new());
   match(
-    g_type_intern.get(&key),
+    g_type_intern.with(m => m.get(&key)),
     .Some(canon) => canon,
     .None => {
       owned_keys_record(&g_type_intern_owned, key.clone());
-      g_type_intern.insert(key.clone(), t);
-      match(g_type_intern.get(&key), .Some(c) => c, .None => rc(TypeValueNode.Unit))
+      g_type_intern.with_mut(m => m.insert(key.clone(), t));
+      match(g_type_intern.with(m => m.get(&key)), .Some(c) => c, .None => rc(TypeValueNode.Unit))
     }
   )
 });

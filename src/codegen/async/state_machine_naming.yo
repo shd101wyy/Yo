@@ -14,6 +14,7 @@
 { fnv1a64 } :: import("../../utils.yo");
 { scope_variables } :: import("../../expr_info.yo");
 { ExprId } :: import("../../expr.yo");
+{ RefCell } :: import("std/sync/refcell");
 /// The C field
 /// name for a LOCAL state-machine capture is derived from the variable's
 /// NAME and declaration site, not its evaluator id (per
@@ -24,11 +25,11 @@
 /// id string (the join key the whole SM machinery already uses), filled by
 /// `register_sm_captured_names` from the function-SM builder and from the
 /// async-block struct emitter.
-(g_sm_local_field_names : HashMap(String, String)) = HashMap(String, String).new();
+(g_sm_local_field_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Record the stable field name for a local capture (idempotent — a
 /// re-registered SM re-derives the same name).
 register_sm_local_field_name :: (fn(variable_id : &String, field : &String) -> unit)({
-  _ := g_sm_local_field_names.insert(variable_id, field);
+  _ := g_sm_local_field_names.with_mut(m => m.insert(variable_id, field));
 });
 /// Assign every LOCAL capture its stable field name — `var_<name>_<hash of
 /// the binding's declaration site>` — and record the assignments. The suffix
@@ -68,7 +69,7 @@ register_sm_captured_names :: (
 /// was empty).
 sm_local_field_name :: (fn(variable_id : &String) -> String)(
   match(
-    g_sm_local_field_names.get(variable_id.clone()),
+    g_sm_local_field_names.with(m => m.get(variable_id.clone())),
     .Some(stable) => stable,
     .None => {
       pre := String.from("var_");
@@ -157,12 +158,12 @@ sm_slot_of_variable :: (
 /// owns and releases them. Filled by `compute_cross_boundary_variables`; read
 /// by the temp-to-slot store, which must not also put one in a local slot
 /// (the abort dispose would then drop it a second time).
-(g_await_consumed_temps : HashSet(String)) = HashSet(String).new();
+(g_await_consumed_temps : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 note_await_consumed_temp :: (fn(name : &String) -> unit)({
-  g_await_consumed_temps.insert(name);
+  g_await_consumed_temps.with_mut(s => s.insert(name));
 });
 is_await_consumed_temp :: (fn(name : &String) -> bool)(
-  g_await_consumed_temps.contains(name)
+  g_await_consumed_temps.with(s => s.contains(name))
 );
 /// The task-slot fields of NAMED locals, each with a move flag
 /// (`uint8_t __yo_mv_<field>`) beside it in its state-machine struct. A move
@@ -174,9 +175,9 @@ is_await_consumed_temp :: (fn(name : &String) -> bool)(
 /// (issues/fixed/a-local-read-after-it-moves-inside-a-task-reads-an-emptied-slot.md).
 /// Filled by the struct emitter, which runs before the resume function.
 /// Field names carry the variable id, so a name identifies one struct's field.
-(g_sm_move_flag_fields : HashSet(String)) = HashSet(String).new();
+(g_sm_move_flag_fields : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 note_sm_move_flag_field :: (fn(field : &String) -> unit)({
-  g_sm_move_flag_fields.insert(field);
+  g_sm_move_flag_fields.with_mut(s => s.insert(field));
 });
 /// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
 /// (`sm-><field>`), or `.None` when the slot has none. A capture-list field
@@ -192,7 +193,7 @@ sm_move_flag_of :: (fn(sm_code : &String, (owns_captures : bool) ?= false) -> Op
     return(Option(String).None);
   });
   field := sm_code.substring(usize(4), sm_code.len());
-  if(!g_sm_move_flag_fields.contains(field.clone()), {
+  if(!g_sm_move_flag_fields.with(s => s.contains(field.clone())), {
     return(Option(String).None);
   });
   if(field.starts_with("__capture."), {

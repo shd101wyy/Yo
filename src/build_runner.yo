@@ -68,6 +68,7 @@ _(env : warm_dbg_env) :: import("std/env");
 { resolve_all_system_libraries } :: import("./pkg_config.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { TargetInfo, parse_target, host_target, is_target_windows, is_target_macos, is_target_wasm } :: import("./target.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Build options
 // ---------------------------------------------------------------------------
@@ -347,7 +348,7 @@ _artifact_output_dir :: (
 /// project: a dependency's modules import THEIR dependencies by name too, and
 /// they are compiled as part of this project's artifacts. Empty for a project
 /// without `yo.toml`. Set by `resolve_build_import_roots`.
-(g_import_lines : ArrayList(String)) = ArrayList(String).new();
+(g_import_lines : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// The project's manifest — the nearest `yo.toml` at or above `project_dir`
 /// — or `.None` when it has none. A manifest that does not parse fails the
 /// build with its message.
@@ -390,8 +391,8 @@ _has_fetchable_unavailable :: (fn(roots : &ImportRoots) -> bool)({
 _import_lines :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_import_lines.len(), {
-    match(g_import_lines.get(i), .Some(l) => out.push(l), .None => ());
+  while(i < g_import_lines.with(xs => xs.len()), {
+    match(g_import_lines.with(xs => xs.get(i)), .Some(l) => out.push(l), .None => ());
     i = (i + usize(1));
   });
   out
@@ -415,7 +416,7 @@ resolve_build_import_roots :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    g_import_lines.clear();
+    g_import_lines.with_mut(xs => xs.clear());
     has_manifest := manifest_opt.is_some();
     if(!has_manifest && (registry.referenced_dependencies.len() > usize(0)), {
       e.exn.throw(dyn(`Error: build.dependency("${registry.referenced_dependencies(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
@@ -452,8 +453,8 @@ resolve_build_import_roots :: (
       lines.push(`${r.name}=${r.root}`);
       li = (li + usize(1));
     });
-    g_import_lines.clear();
-    g_import_lines.append(&mut lines);
+    g_import_lines.with_mut(xs => xs.clear());
+    g_import_lines.with_mut(xs => xs.append(&mut lines));
     e.io.await(_link_store_trees(&manifest, e.io, e.exn), e);
     ()
   })
@@ -537,8 +538,8 @@ _names_a_symlink :: (fn(entries : &ArrayList(DirEntry), name : &String) -> bool)
 /// `yo.toml`, not ours (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.2).
 /// Filled by `_evaluate_dependency_builds`, read by `compile_artifact` through
 /// `_package_import_lines`.
-(g_dep_import_dirs : ArrayList(String)) = ArrayList(String).new();
-(g_dep_import_texts : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+(g_dep_import_dirs : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_dep_import_texts : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
 /// The `--imports` lines for an artifact of `package_dir` — this project's
 /// closure when the artifact is ours (`package_dir` empty), the package's own
 /// when it came from a dependency's build file.
@@ -547,11 +548,11 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
     return(_import_lines());
   });
   (i : usize) = usize(0);
-  while(i < g_dep_import_dirs.len(), {
-    dir := g_dep_import_dirs(i);
+  while(i < g_dep_import_dirs.with(xs => xs.len()), {
+    dir := g_dep_import_dirs.with(xs => xs(i));
     if(dir == package_dir, {
       out := ArrayList(String).new();
-      lines := g_dep_import_texts(i);
+      lines := g_dep_import_texts.with(xs => xs(i));
       (j : usize) = usize(0);
       while(j < lines.len(), {
         out.push(lines(j));
@@ -566,15 +567,15 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
 /// Record a package's import closure (see `g_dep_import_dirs`).
 _record_package_import_lines :: (fn(package_dir : &String, lines : &ArrayList(String)) -> unit)({
   (i : usize) = usize(0);
-  while(i < g_dep_import_dirs.len(), {
-    dir := g_dep_import_dirs(i);
+  while(i < g_dep_import_dirs.with(xs => xs.len()), {
+    dir := g_dep_import_dirs.with(xs => xs(i));
     if(dir == package_dir, {
       return(());
     });
     i = (i + usize(1));
   });
-  g_dep_import_dirs.push(package_dir);
-  g_dep_import_texts.push(lines);
+  g_dep_import_dirs.with_mut(xs => xs.push(package_dir));
+  g_dep_import_texts.with_mut(xs => xs.push(lines));
 });
 /// The `-D` options a dependency sees: the consumer's `-D<dep>.<name>=<value>`
 /// with the prefix stripped. A dependency never reads the parent's own

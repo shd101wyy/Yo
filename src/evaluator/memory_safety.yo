@@ -20,6 +20,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
 { type_to_string } :: import("../types/string.yo");
 { canonical_module_path } :: import("../utils.yo");
+{ RefCell } :: import("std/sync/refcell");
 // NOTE: the compiler reuses the language's own `Pragma` enum
 // (defined in `std/prelude.yo`, auto-loaded into every module) as the
 // pragma-kind type — one source of truth, no duplicate enum. `Pragma`
@@ -31,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 PragmaEntry :: struct(module_path : String, kind : Pragma);
 /// Per-file pragma registry. Keyed by canonical module URI (the value of
 /// `token.module_path`, e.g. `file:///path/to/foo.yo`).
-(g_privileged_files : ArrayList(PragmaEntry)) = ArrayList(PragmaEntry).new();
+(g_privileged_files : RefCell(ArrayList(PragmaEntry))) = RefCell(ArrayList(PragmaEntry)).new(ArrayList(PragmaEntry).new());
 /// Has `module_path` declared a given pragma?
 ///
 /// The registry stores keys through `canonical_module_path`: two spellings
@@ -49,10 +50,10 @@ file_has_pragma :: (fn(module_path : &Option(String), kind : Pragma) -> bool)(
       key := canonical_module_path(mp.clone());
       (found : bool) = false;
       (i : usize) = usize(0);
-      n := g_privileged_files.len();
+      n := g_privileged_files.with(xs => xs.len());
       while((i < n) && !found, {
         match(
-          g_privileged_files.get(i),
+          g_privileged_files.with(xs => xs.get(i)),
           .Some(entry) => if((entry.module_path == key) && (entry.kind == kind), {
             found = true;
           }),
@@ -69,12 +70,12 @@ file_has_pragma :: (fn(module_path : &Option(String), kind : Pragma) -> bool)(
 register_file_pragma :: (fn(module_path : &String, kind : Pragma) -> unit)({
   canonical := canonical_module_path(module_path);
   if(!file_has_pragma(Option(String).Some(canonical.clone()), kind), {
-    g_privileged_files.push(PragmaEntry(module_path : canonical, kind : kind));
+    g_privileged_files.with_mut(xs => xs.push(PragmaEntry(module_path : canonical, kind : kind)));
   });
 });
 /// Reset the registry. Used between independent `check` runs.
 _clear_pragma_registry :: (fn() -> unit)({
-  g_privileged_files.clear();
+  g_privileged_files.with_mut(xs => xs.clear());
   ()
 });
 /// Drop pragma entries for a single module (LSP edit / cache invalidation).
@@ -82,10 +83,10 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
   key := canonical_module_path(module_path);
   kept := ArrayList(PragmaEntry).new();
   (i : usize) = usize(0);
-  n := g_privileged_files.len();
+  n := g_privileged_files.with(xs => xs.len());
   while(i < n, {
     match(
-      g_privileged_files.get(i),
+      g_privileged_files.with(xs => xs.get(i)),
       .Some(entry) => if(entry.module_path != key, {
         kept.push(entry);
       }),
@@ -93,8 +94,8 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_privileged_files.clear();
-  g_privileged_files.append(&mut kept);
+  g_privileged_files.with_mut(xs => xs.clear());
+  g_privileged_files.with_mut(xs => xs.append(&mut kept));
   ()
 });
 /// Is the module path implicitly unsafe-capable for pointer ops?
@@ -215,20 +216,20 @@ _is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 /// re-anchoring (calls/function.yo `evaluate_function_call`) asks it for every
 /// evaluated call, and the lexical absolutization can hit `cwd()`. The std
 /// root is fixed per process; a different one resets the table.
-(g_std_path_memo : HashMap(String, bool)) = HashMap(String, bool).new();
-(g_std_path_memo_root : ArrayList(String)) = ArrayList(String).new();
+(g_std_path_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+(g_std_path_memo_root : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
-  if(match(g_std_path_memo_root.get(usize(0)), .Some(r) => (r != std_path), .None => true), {
-    g_std_path_memo.clear();
-    g_std_path_memo_root.clear();
-    g_std_path_memo_root.push(std_path.clone());
+  if(match(g_std_path_memo_root.with(xs => xs.get(usize(0))), .Some(r) => (r != std_path), .None => true), {
+    g_std_path_memo.with_mut(m => m.clear());
+    g_std_path_memo_root.with_mut(xs => xs.clear());
+    g_std_path_memo_root.with_mut(xs => xs.push(std_path.clone()));
   });
   match(
-    g_std_path_memo.get(mp),
+    g_std_path_memo.with(m => m.get(mp)),
     .Some(b) => b,
     .None => {
       b := _is_std_module_path(mp.clone(), std_path);
-      g_std_path_memo.insert(mp, b);
+      g_std_path_memo.with_mut(m => m.insert(mp, b));
       b
     }
   )
@@ -245,10 +246,10 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 /// (E0917 on a global, E0916) no longer consult it: globals Generation B
 /// swept std and src. Locals Generation B sweeps those trees and drops this
 /// exemption.
-(g_mut_rule_exempt_memo : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_mut_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(
-    g_mut_rule_exempt_memo.get(mp),
+    g_mut_rule_exempt_memo.with(m => m.get(mp)),
     .Some(b) => b,
     .None => {
       (sp : String) = std_path.clone();
@@ -264,7 +265,7 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
       b := (
         mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store)))))
       );
-      g_mut_rule_exempt_memo.insert(mp.clone(), b);
+      g_mut_rule_exempt_memo.with_mut(m => m.insert(mp.clone(), b));
       b
     }
   )

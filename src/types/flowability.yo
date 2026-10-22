@@ -46,6 +46,7 @@
 { TypeValue, TypeValueNode, no_types, no_flags } :: import("./definitions.yo");
 { is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
 { expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
+{ RefCell } :: import("std/sync/refcell");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy }
 :: import("./utils.yo");
 /// A 1-element mutable box holding the error thrown during a swallowed
@@ -62,23 +63,23 @@
 /// An `ArrayList` mutated only inside the top-level `flag_/clear_` fns is used
 /// rather than a reassignable global, because this very source forbids
 /// reassigning a module-level global from inside a closure.
-(g_flow_violation_box : ArrayList(YoError)) = ArrayList(YoError).new();
+(g_flow_violation_box : RefCell(ArrayList(YoError))) = RefCell(ArrayList(YoError)).new(ArrayList(YoError).new());
 /// Record `err` as a rejection for the def-time re-raise (unguarded: the
 /// caller decides; `raise_flow_violation` is the guarded flag-and-throw).
 flag_flow_violation :: (fn(err : &YoError) -> unit)({
-  g_flow_violation_box.clear();
-  g_flow_violation_box.push(err);
+  g_flow_violation_box.with_mut(xs => xs.clear());
+  g_flow_violation_box.with_mut(xs => xs.push(err));
   ()
 });
 /// Reset the flag (called before each def-time body eval and after each catch).
 clear_flow_violation :: (fn() -> unit)({
-  g_flow_violation_box.clear();
+  g_flow_violation_box.with_mut(xs => xs.clear());
   ()
 });
 /// True iff a rejection was flagged since the last reset.
-flow_violation_pending :: (fn() -> bool)(g_flow_violation_box.len() > usize(0));
+flow_violation_pending :: (fn() -> bool)(g_flow_violation_box.with(xs => xs.len()) > usize(0));
 /// The flagged rejection, for the def-time caller to re-raise.
-flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.get(usize(0)));
+flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.with(xs => xs.get(usize(0))));
 /// "Propagate all def-time body-eval errors" mode. Normally `_trial_eval_fn_body`
 /// SWALLOWS any error thrown while evaluating a function body at definition time
 /// (the def-eval wall: it masks def-time body-eval errors so
@@ -92,11 +93,11 @@ flow_violation_error :: (fn() -> Option(YoError))(g_flow_violation_box.get(usize
 /// reassigning a module-level global from inside a closure. comptime_expect_error sets it
 /// false again deterministically (the eval's local-unwinding exn returns control
 /// to the caller, which clears it), so no non-expect-error path is affected.
-(g_propagate_def_time_errors_box : ArrayList(bool)) = ArrayList(bool).new();
+(g_propagate_def_time_errors_box : RefCell(ArrayList(bool))) = RefCell(ArrayList(bool)).new(ArrayList(bool).new());
 /// Enter/leave "propagate all def-time body-eval errors" mode.
 set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
-  g_propagate_def_time_errors_box.clear();
-  g_propagate_def_time_errors_box.push(on);
+  g_propagate_def_time_errors_box.with_mut(xs => xs.clear());
+  g_propagate_def_time_errors_box.with_mut(xs => xs.push(on));
   ()
 });
 /// True iff def-time body-eval errors should propagate (set during a
@@ -109,28 +110,28 @@ set_propagate_def_time_errors :: (fn(on : bool) -> unit)({
 /// through the OUTER exn, abandoning the enclosing begin. The wrapper sets
 /// this flag instead (only in propagate mode); the cee helper counts a set
 /// flag as an observed throw.
-(g_cee_observed_error_box : ArrayList(bool)) = ArrayList(bool).new();
+(g_cee_observed_error_box : RefCell(ArrayList(bool))) = RefCell(ArrayList(bool)).new(ArrayList(bool).new());
 /// The TEXT of each error observed while a `comptime_expect_error` argument is
 /// evaluated, so its expected-text argument can be checked against what was
 /// actually raised (a case must not go green on an unrelated error).
-(g_cee_observed_messages : ArrayList(String)) = ArrayList(String).new();
+(g_cee_observed_messages : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 set_cee_observed_error :: (fn() -> unit)({
-  g_cee_observed_error_box.clear();
-  g_cee_observed_error_box.push(true);
+  g_cee_observed_error_box.with_mut(xs => xs.clear());
+  g_cee_observed_error_box.with_mut(xs => xs.push(true));
 });
 clear_cee_observed_error :: (fn() -> unit)({
-  g_cee_observed_error_box.clear();
-  g_cee_observed_messages.clear();
+  g_cee_observed_error_box.with_mut(xs => xs.clear());
+  g_cee_observed_messages.with_mut(xs => xs.clear());
 });
 record_cee_error_message :: (fn(msg : &String) -> unit)({
-  g_cee_observed_messages.push(msg);
+  g_cee_observed_messages.with_mut(xs => xs.push(msg));
 });
-cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.clone());
+cee_observed_messages :: (fn() -> ArrayList(String))(g_cee_observed_messages.with(xs => xs.clone()));
 cee_observed_error :: (fn() -> bool)(
-  match(g_cee_observed_error_box.get(usize(0)), .Some(b) => b, .None => false)
+  match(g_cee_observed_error_box.with(xs => xs.get(usize(0))), .Some(b) => b, .None => false)
 );
 propagate_def_time_errors :: (fn() -> bool)(
-  match(g_propagate_def_time_errors_box.get(usize(0)), .Some(v) => v, .None => false)
+  match(g_propagate_def_time_errors_box.with(xs => xs.get(usize(0))), .Some(v) => v, .None => false)
 );
 /// Throw `err`, a deliberate user-facing rejection, flagging it first so a
 /// definition-time swallow re-raises it at `check` time. Not flagged during

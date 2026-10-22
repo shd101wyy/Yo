@@ -23,6 +23,7 @@
 //! Net effect: cache + per-module isolation, with all effects kept at
 //! the orchestration layer.
 { String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
 { TypeValue, TypeValueNode, shared_list } :: import("../types/definitions.yo");
@@ -40,27 +41,27 @@
 // partial ModuleVal, instead of erroring "module not preloaded" — the loader
 // returns the in-progress module for cycles.
 // ---------------------------------------------------------------------------
-(g_loading_keys : ArrayList(String)) = ArrayList(String).new();
-(g_loading_envs : ArrayList(Environment)) = ArrayList(Environment).new();
-(g_import_edge_importers : ArrayList(String)) = ArrayList(String).new();
-(g_import_edge_imports : ArrayList(String)) = ArrayList(String).new();
+(g_loading_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_loading_envs : RefCell(ArrayList(Environment))) = RefCell(ArrayList(Environment)).new(ArrayList(Environment).new());
+(g_import_edge_importers : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_import_edge_imports : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (mut(g_import_closure_installed) : bool) = false;
-(g_loading_key_by_canonical : HashMap(String, String)) = HashMap(String, String).new();
+(g_loading_key_by_canonical : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Canonical spellings and import closures are handed out as `Rc`s, so a
 /// memo hit shares the stored value instead of copying a path (or a whole
 /// set) per lookup: once collections and `String` are values
 /// (VALUES_BY_DEFAULT V2b), a copy out of a map is a deep one
 /// (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
-(_canonical_memo : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
-(g_import_closure_memo : HashMap(String, Rc(HashSet(String)))) = HashMap(String, Rc(HashSet(String))).new();
-(g_always_visible_owners : ArrayList(String)) = ArrayList(String).new();
+(_canonical_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
+(g_import_closure_memo : RefCell(HashMap(String, Rc(HashSet(String))))) = RefCell(HashMap(String, Rc(HashSet(String)))).new(HashMap(String, Rc(HashSet(String))).new());
+(g_always_visible_owners : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Keep the registries' owner tag in sync with the loading-stack top
 /// (Phase B2, plans/reference/INCREMENTAL_COMPILATION.md). The tag lives in
 /// type_trait_methods.yo — see `set_registration_owner`'s doc there.
 _sync_registration_owner :: (fn() -> unit)({
-  n := g_loading_keys.len();
+  n := g_loading_keys.with(xs => xs.len());
   owner := cond(
-    (n > usize(0)) => match(g_loading_keys.get(n - usize(1)), .Some(k) => k.clone(), .None => String.new()),
+    (n > usize(0)) => match(g_loading_keys.with(xs => xs.get(n - usize(1))), .Some(k) => k.clone(), .None => String.new()),
     true => String.new()
   );
   set_registration_owner(&owner);
@@ -71,9 +72,9 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
     set_import_closure_fn(import_closure_of);
     g_import_closure_installed = true;
   });
-  g_loading_key_by_canonical.insert(_canonical(path).*, path.clone());
-  g_loading_keys.push(path);
-  g_loading_envs.push(env);
+  g_loading_key_by_canonical.with_mut(m => m.insert(_canonical(path).*, path.clone()));
+  g_loading_keys.with_mut(xs => xs.push(path));
+  g_loading_envs.with_mut(xs => xs.push(env));
   _sync_registration_owner();
 });
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
@@ -81,18 +82,18 @@ register_loading :: (fn(path : &String, env : &Environment) -> unit)({
 /// `.None` for a module never loaded through this loader.
 loading_key_for_module :: (fn(module : &String) -> Option(String))({
   canon := _canonical(module);
-  g_loading_key_by_canonical.get(&canon.*)
+  g_loading_key_by_canonical.with(m => m.get(&canon.*))
 });
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
 unregister_loading :: (fn(path : &String) -> unit)({
-  (i : usize) = g_loading_keys.len();
+  (i : usize) = g_loading_keys.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_loading_keys.get(i),
+      g_loading_keys.with(xs => xs.get(i)),
       .Some(k) => if(k == path, {
-        g_loading_keys.drain(i .. (i + usize(1)));
-        g_loading_envs.drain(i .. (i + usize(1)));
+        g_loading_keys.with_mut(xs => xs.drain(i .. (i + usize(1))));
+        g_loading_envs.with_mut(xs => xs.drain(i .. (i + usize(1))));
         _sync_registration_owner();
         return(());
       }),
@@ -105,19 +106,19 @@ unregister_loading :: (fn(path : &String) -> unit)({
 /// loader uses it to attribute import-graph edges to their importer.
 current_loading_module :: (fn() -> Option(String))(
   cond(
-    (g_loading_keys.len() > usize(0)) => g_loading_keys.last(),
+    (g_loading_keys.with(xs => xs.len()) > usize(0)) => g_loading_keys.with(xs => xs.last()),
     true => Option(String).None
   )
 );
 /// The live env of a currently-loading module, or `.None`.
 loading_env :: (fn(path : &String) -> Option(Environment))({
-  (i : usize) = g_loading_keys.len();
+  (i : usize) = g_loading_keys.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_loading_keys.get(i),
+      g_loading_keys.with(xs => xs.get(i)),
       .Some(k) => if(k == path, {
-        return(g_loading_envs.get(i));
+        return(g_loading_envs.with(xs => xs.get(i)));
       }),
       .None => ()
     );
@@ -128,9 +129,9 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 // path) maps to `g_module_cache_vals(i)` (that module's exports as a
 // `ModuleVal`). Parallel arrays rather than a HashMap to keep the value
 // type (`EvalValue`) simple and avoid extra trait requirements.
-(g_module_cache_keys : ArrayList(String)) = ArrayList(String).new();
-(g_module_cache_vals : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
-(g_module_cache_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_module_cache_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_module_cache_vals : RefCell(ArrayList(EvalValue))) = RefCell(ArrayList(EvalValue)).new(ArrayList(EvalValue).new());
+(g_module_cache_types : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 // Import graph, as parallel edge arrays: `g_import_edge_importers(i)`
 // imported `g_import_edge_imports(i)` (both `file://…` abs paths). Fed by
 // the demand loader on EVERY import request — cache hits included, since a
@@ -142,11 +143,11 @@ loading_env :: (fn(path : &String) -> Option(Environment))({
 /// touches every edge endpoint).
 _canonical :: (fn(p : &String) -> Rc(String))(
   match(
-    _canonical_memo.get(p),
+    _canonical_memo.with(m => m.get(p)),
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(p));
-      _canonical_memo.insert(p, c);
+      _canonical_memo.with_mut(m => m.insert(p, c));
       c
     }
   )
@@ -156,14 +157,14 @@ _canonical :: (fn(p : &String) -> Rc(String))(
 /// at import time and dropped on invalidation, both rare next to the
 /// method-resolution lookups that consume the closure.
 _clear_import_closure_memo :: (fn() -> unit)({
-  g_import_closure_memo.clear();
+  g_import_closure_memo.with_mut(m => m.clear());
 });
 /// Mark a module whose registrations every module may see without importing
 /// it: the prelude, whose impls carry `${std_path}/prelude.yo` as their owner
 /// (stamped by mm_load_prelude_file, which also calls this so every prelude
 /// load path gets both) but which is implicitly in scope everywhere.
 mark_owner_always_visible :: (fn(module : &String) -> unit)({
-  g_always_visible_owners.push(_canonical(module).*);
+  g_always_visible_owners.with_mut(xs => xs.push(_canonical(module).*));
   _clear_import_closure_memo();
 });
 /// Every module reachable from `module` through import edges, `module`
@@ -172,7 +173,7 @@ mark_owner_always_visible :: (fn(module : &String) -> unit)({
 import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   start := _canonical(module);
   match(
-    g_import_closure_memo.get(&start.*),
+    g_import_closure_memo.with(m => m.get(&start.*)),
     .Some(s) => {
       return(s);
     },
@@ -181,9 +182,9 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   seen := HashSet(String).new();
   _ := seen.insert(start.*);
   (ai : usize) = usize(0);
-  while(ai < g_always_visible_owners.len(), {
+  while(ai < g_always_visible_owners.with(xs => xs.len()), {
     match(
-      g_always_visible_owners.get(ai),
+      g_always_visible_owners.with(xs => xs.get(ai)),
       .Some(o) => {
         _ := seen.insert(o);
       },
@@ -195,13 +196,13 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
   work.push(start.*);
   while(work.len() > usize(0), {
     p := match(work.pop(), .Some(x) => x, .None => String.new());
-    n := g_import_edge_importers.len();
+    n := g_import_edge_importers.with(xs => xs.len());
     (i : usize) = usize(0);
     while(i < n, {
-      from_p := match(g_import_edge_importers.get(i), .Some(a) => (_canonical(&a).* == p), .None => false);
+      from_p := match(g_import_edge_importers.with(xs => xs.get(i)), .Some(a) => (_canonical(&a).* == p), .None => false);
       if(from_p, {
         match(
-          g_import_edge_imports.get(i),
+          g_import_edge_imports.with(xs => xs.get(i)),
           .Some(t) => {
             tc := _canonical(&t);
             if(seen.insert(tc.*), {
@@ -215,52 +216,52 @@ import_closure_of :: (fn(module : &String) -> Rc(HashSet(String)))({
     });
   });
   closure := rc(seen);
-  g_import_closure_memo.insert(start.*, closure);
+  g_import_closure_memo.with_mut(m => m.insert(start.*, closure));
   closure
 });
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
 /// dropped (a module importing the same dep from several sites is one edge).
 record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
   (i : usize) = usize(0);
-  n := g_import_edge_importers.len();
+  n := g_import_edge_importers.with(xs => xs.len());
   while(i < n, {
     same := (
-      match(g_import_edge_importers.get(i), .Some(a) => (a == importer), .None => false) &&
-        match(g_import_edge_imports.get(i), .Some(b) => (b == imported), .None => false)
+      match(g_import_edge_importers.with(xs => xs.get(i)), .Some(a) => (a == importer), .None => false) &&
+        match(g_import_edge_imports.with(xs => xs.get(i)), .Some(b) => (b == imported), .None => false)
     );
     if(same, {
       return(());
     });
     i = (i + usize(1));
   });
-  g_import_edge_importers.push(importer);
-  g_import_edge_imports.push(imported);
+  g_import_edge_importers.with_mut(xs => xs.push(importer));
+  g_import_edge_imports.with_mut(xs => xs.push(imported));
   _clear_import_closure_memo();
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
 /// invalidated: its re-evaluation re-records its (possibly changed) edges.
 _drop_edges_from :: (fn(importer : &String) -> unit)({
   _clear_import_closure_memo();
-  (i : usize) = g_import_edge_importers.len();
+  (i : usize) = g_import_edge_importers.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    same := match(g_import_edge_importers.get(i), .Some(a) => (a == importer), .None => false);
+    same := match(g_import_edge_importers.with(xs => xs.get(i)), .Some(a) => (a == importer), .None => false);
     if(same, {
-      g_import_edge_importers.drain(i .. (i + usize(1)));
-      g_import_edge_imports.drain(i .. (i + usize(1)));
+      g_import_edge_importers.with_mut(xs => xs.drain(i .. (i + usize(1))));
+      g_import_edge_imports.with_mut(xs => xs.drain(i .. (i + usize(1))));
     });
   });
 });
 /// Reset the cache. Call between independent `check` runs so module
 /// values from a previous file don't leak into the next.
 clear_module_cache :: (fn() -> unit)({
-  g_module_cache_keys.clear();
-  g_module_cache_vals.clear();
-  g_module_cache_types.clear();
-  g_loading_keys.clear();
-  g_loading_envs.clear();
-  g_import_edge_importers.clear();
-  g_import_edge_imports.clear();
+  g_module_cache_keys.with_mut(xs => xs.clear());
+  g_module_cache_vals.with_mut(xs => xs.clear());
+  g_module_cache_types.with_mut(xs => xs.clear());
+  g_loading_keys.with_mut(xs => xs.clear());
+  g_loading_envs.with_mut(xs => xs.clear());
+  g_import_edge_importers.with_mut(xs => xs.clear());
+  g_import_edge_imports.with_mut(xs => xs.clear());
   set_registration_owner(String.new());
   ()
 });
@@ -268,10 +269,10 @@ clear_module_cache :: (fn() -> unit)({
 _module_cache_index :: (fn(path : &String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
-  n := g_module_cache_keys.len();
+  n := g_module_cache_keys.with(xs => xs.len());
   while((i < n) && idx.is_none(), {
     match(
-      g_module_cache_keys.get(i),
+      g_module_cache_keys.with(xs => xs.get(i)),
       .Some(k) => if(k == path, {
         idx = Option(usize).Some(i);
       }),
@@ -296,9 +297,9 @@ register_module :: (fn(path : &String, module_value : &EvalValue, module_type : 
     eprintln(`[warmcache] register ${path.clone()}`);
   });
   if(!module_cache_has(path.clone()), {
-    g_module_cache_keys.push(path);
-    g_module_cache_vals.push(module_value);
-    g_module_cache_types.push(module_type);
+    g_module_cache_keys.with_mut(xs => xs.push(path));
+    g_module_cache_vals.with_mut(xs => xs.push(module_value));
+    g_module_cache_types.with_mut(xs => xs.push(module_type));
   });
 });
 /// Pure lookup used as `ctx.load_module`. On a hit, returns the cached
@@ -309,12 +310,12 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
     _module_cache_index(path.clone()),
     .Some(i) => LoadModuleResult(
       module_value : match(
-        g_module_cache_vals.get(i),
+        g_module_cache_vals.with(xs => xs.get(i)),
         .Some(v) => v,
         .None => EvalValue.UnitVal
       ),
       module_type : match(
-        g_module_cache_types.get(i),
+        g_module_cache_types.with(xs => xs.get(i)),
         .Some(t) => t,
         .None => rc(TypeValueNode.Unit)
       ),
@@ -390,7 +391,7 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
     .Some(i) => {
       (patched : bool) = false;
       match(
-        g_module_cache_vals.get(i),
+        g_module_cache_vals.with(xs => xs.get(i)),
         .Some(mv) =>
           match(
             mv,
@@ -425,11 +426,13 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
       // rebuilt module type, and every later load reads that one.
       if(patched, {
         match(
-          g_module_cache_types.get(i),
+          g_module_cache_types.with(xs => xs.get(i)),
           .Some(mt) => match(
             _module_type_with_field(&mt, name, &var.ty),
             .Some(rebuilt) => {
-              g_module_cache_types(i) = rebuilt;
+              g_module_cache_types.with_mut(xs => {
+                xs(i) = rebuilt;
+              });
             },
             .None => ()
           ),
@@ -447,9 +450,9 @@ remove_module :: (fn(path : &String) -> unit)({
   match(
     _module_cache_index(path.clone()),
     .Some(i) => {
-      g_module_cache_keys.drain(i .. (i + usize(1)));
-      g_module_cache_vals.drain(i .. (i + usize(1)));
-      g_module_cache_types.drain(i .. (i + usize(1)));
+      g_module_cache_keys.with_mut(xs => xs.drain(i .. (i + usize(1))));
+      g_module_cache_vals.with_mut(xs => xs.drain(i .. (i + usize(1))));
+      g_module_cache_types.with_mut(xs => xs.drain(i .. (i + usize(1))));
     },
     .None => ()
   );
@@ -490,11 +493,11 @@ invalidate_module :: (fn(path : &String) -> ArrayList(String))({
       // (dependents are INCOMING edges — unaffected — but keep the order
       // obvious anyway).
       (ei : usize) = usize(0);
-      while(ei < g_import_edge_imports.len(), {
-        hits := match(g_import_edge_imports.get(ei), .Some(t) => (t == p), .None => false);
+      while(ei < g_import_edge_imports.with(xs => xs.len()), {
+        hits := match(g_import_edge_imports.with(xs => xs.get(ei)), .Some(t) => (t == p), .None => false);
         if(hits, {
           match(
-            g_import_edge_importers.get(ei),
+            g_import_edge_importers.with(xs => xs.get(ei)),
             .Some(dep) => {
               worklist.push(dep);
             },

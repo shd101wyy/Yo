@@ -87,6 +87,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind, reserved_builtin_binding_message } :: import("../../token.yo");
 { set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
 // `evaluator/types/macro_registry.yo`).
@@ -340,7 +341,7 @@ get_func_param_assigned_values :: (fn(func_id : &String) -> ArrayList(Option(Eva
 // `comptime_float`) must lower the arg to its runtime type, or the specialized
 // body dispatches to the COMPTIME impl (`__yo_comptime_float_neg`, undeclared).
 // Keyed/copied like the defaults (fn-type-expr id → FuncVal id).
-(g_func_param_comptime : HashMap(String, ArrayList(bool))) = HashMap(String, ArrayList(bool)).new();
+(g_func_param_comptime : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
 register_func_param_comptime :: (fn(func_id : &String, flags : &ArrayList(bool)) -> unit)({
   // Keep the table sparse — only register when at least one param is comptime.
   (any_ct : bool) = false;
@@ -357,14 +358,14 @@ register_func_param_comptime :: (fn(func_id : &String, flags : &ArrayList(bool))
   });
   if(any_ct, {
     record_owned_func_id(func_id.clone());
-    g_func_param_comptime.insert(func_id, flags);
+    g_func_param_comptime.with_mut(m => m.insert(func_id, flags));
   });
 });
 copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_param_comptime.get(from_id.clone()),
+    g_func_param_comptime.with(m => m.get(from_id.clone())),
     .Some(flags) => {
-      g_func_param_comptime.insert(to_id.clone(), flags);
+      g_func_param_comptime.with_mut(m => m.insert(to_id.clone(), flags));
     },
     .None => ()
   );
@@ -377,25 +378,25 @@ copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
 // lineage. (Substitution-based re-resolution would keep the def-era
 // instance and split the lineage: the imm_map `_alloc_pairs` expected/actual
 // struct-id mismatch.)
-(g_func_return_type_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
+(g_func_return_type_expr : RefCell(HashMap(String, AstExpr))) = RefCell(HashMap(String, AstExpr)).new(HashMap(String, AstExpr).new());
 register_func_return_type_expr :: (fn(func_id : &String, e : &AstExpr) -> unit)({
   record_owned_func_id(func_id.clone());
-  g_func_return_type_expr.insert(func_id, e);
+  g_func_return_type_expr.with_mut(m => m.insert(func_id, e));
 });
 copy_func_return_type_expr :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
-    g_func_return_type_expr.get(from_id.clone()),
+    g_func_return_type_expr.with(m => m.get(from_id.clone())),
     .Some(e) => {
-      g_func_return_type_expr.insert(to_id.clone(), e.clone());
+      g_func_return_type_expr.with_mut(m => m.insert(to_id.clone(), e.clone()));
     },
     .None => ()
   );
 });
 get_func_return_type_expr :: (fn(func_id : &String) -> Option(AstExpr))(
-  g_func_return_type_expr.get(func_id.clone())
+  g_func_return_type_expr.with(m => m.get(func_id.clone()))
 );
 get_func_param_comptime :: (fn(func_id : &String) -> ArrayList(bool))(
-  match(g_func_param_comptime.get(func_id.clone()), .Some(f) => f, .None => ArrayList(bool).new())
+  match(g_func_param_comptime.with(m => m.get(func_id.clone())), .Some(f) => f, .None => ArrayList(bool).new())
 );
 // Parallel side-table: per-parameter default-value EXPRESSIONS (the `?= EXPR`
 // AST). The value table above suffices for the call-site count check and the
@@ -618,13 +619,13 @@ get_func_where_constraints :: (fn(func_id : &String) -> ArrayList(WhereConstrain
 (g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
 /// Phase V4 `decreases(M)` termination measure (at most one per fn).
-(g_func_decreases_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
+(g_func_decreases_expr : RefCell(HashMap(String, AstExpr))) = RefCell(HashMap(String, AstExpr)).new(HashMap(String, AstExpr).new());
 /// V6 task 5 (FORMAL_VERIFICATION.md): `assumed()` in the signature — the
 /// fn's contracts gate callers but its BODY is outside the verifiable
 /// subset and is never walked. Sparse (present ⇒ true), like the other
 /// contract tables; same keys and lifecycle (fn-type-expr id at the
 /// signature, re-keyed under the FuncVal id at the application).
-(g_func_assumed_body : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_func_assumed_body : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// V6 task 3 (FORMAL_VERIFICATION.md §7): the REFINED parameters of each
 /// fn — parallel to the parameter list, the predicate ghost_fn's func_id
 /// per position ("" = not refined). `refine(T, p)` evaluates to `T` (the
@@ -680,14 +681,14 @@ get_func_refined_params :: (
 /// `denom : refine(i32, non_zero)` annotations only for now; NAMED
 /// aliases (`NonZero(i32)`) re-route through std/spec's comptime fns and
 /// need the type-level wrapper — the std/spec rework slice.
-(g_refine_annotation_preds : HashMap(usize, String)) = HashMap(usize, String).new();
+(g_refine_annotation_preds : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
 register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> unit)({
-  g_refine_annotation_preds.insert(expr_id, pred_fid);
+  g_refine_annotation_preds.with_mut(m => m.insert(expr_id, pred_fid));
   ()
 });
 refine_annotation_pred :: (fn(expr_id : usize) -> String)(
   match(
-    g_refine_annotation_preds.get(&expr_id),
+    g_refine_annotation_preds.with(m => m.get(&expr_id)),
     .Some(fid) => fid,
     .None => String.from("")
   )
@@ -697,7 +698,7 @@ refine_annotation_pred :: (fn(expr_id : usize) -> String)(
 /// above. `ensures(...)` predicates name the return value through this label
 /// (decision D3: no magic `result` identifier); the body-wrapping lowering
 /// binds `<label> := (<body>)` instead of the Phase-0 magic binding.
-(g_func_return_label : HashMap(String, String)) = HashMap(String, String).new();
+(g_func_return_label : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Register the signature's `requires(...)` predicates. No-op when empty
 /// (keeps the table sparse, like the where-constraints table).
 register_func_requires_exprs :: (fn(func_id : &String, preds : &ArrayList(AstExpr)) -> unit)({
@@ -719,7 +720,7 @@ register_func_decreases_expr :: (fn(func_id : &String, measure : &Option(AstExpr
     measure,
     .Some(m) => {
       record_owned_func_id(func_id.clone());
-      g_func_decreases_expr.insert(func_id, m);
+      g_func_decreases_expr.with_mut(tbl => tbl.insert(func_id, m));
     },
     .None => ()
   );
@@ -728,21 +729,21 @@ register_func_decreases_expr :: (fn(func_id : &String, measure : &Option(AstExpr
 register_func_assumed_body :: (fn(func_id : &String, assumed : bool) -> unit)({
   if(assumed, {
     record_owned_func_id(func_id.clone());
-    g_func_assumed_body.insert(func_id, true);
+    g_func_assumed_body.with_mut(m => m.insert(func_id, true));
   });
 });
 /// Whether `func_id`'s signature carried `assumed()` (the body is outside
 /// the verifiable subset; contracts still gate callers).
 has_func_assumed_body :: (fn(func_id : &String) -> bool)(
   match(
-    g_func_assumed_body.get(func_id.clone()),
+    g_func_assumed_body.with(m => m.get(func_id.clone())),
     .Some(_) => true,
     .None => false
   )
 );
 /// Return the `decreases(M)` measure for `func_id` (None when absent).
 get_func_decreases_expr :: (fn(func_id : &String) -> Option(AstExpr))(
-  g_func_decreases_expr.get(func_id.clone())
+  g_func_decreases_expr.with(m => m.get(func_id.clone()))
 );
 /// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
 copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
@@ -761,16 +762,16 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_decreases_expr.get(from_id.clone()),
+    g_func_decreases_expr.with(m => m.get(from_id.clone())),
     .Some(m) => {
-      g_func_decreases_expr.insert(to_id, m);
+      g_func_decreases_expr.with_mut(tbl => tbl.insert(to_id, m));
     },
     .None => ()
   );
   match(
-    g_func_assumed_body.get(from_id.clone()),
+    g_func_assumed_body.with(m => m.get(from_id.clone())),
     .Some(a) => {
-      g_func_assumed_body.insert(to_id, a);
+      g_func_assumed_body.with_mut(m => m.insert(to_id, a));
     },
     .None => ()
   );
@@ -782,9 +783,9 @@ copy_func_contract_exprs :: (fn(from_id : &String, to_id : &String) -> unit)({
     .None => ()
   );
   match(
-    g_func_return_label.get(from_id.clone()),
+    g_func_return_label.with(m => m.get(from_id.clone())),
     .Some(label) => {
-      g_func_return_label.insert(to_id, label);
+      g_func_return_label.with_mut(m => m.insert(to_id, label));
     },
     .None => ()
   );
@@ -814,14 +815,14 @@ register_func_return_label :: (
     label,
     .Some(l) => {
       record_owned_func_id(func_id.clone());
-      g_func_return_label.insert(func_id, l.clone());
+      g_func_return_label.with_mut(m => m.insert(func_id, l.clone()));
     },
     .None => ()
   );
 });
 /// Return the labeled-return name for `func_id` (None when unlabeled).
 get_func_return_label :: (fn(func_id : &String) -> Option(String))(
-  g_func_return_label.get(func_id.clone())
+  g_func_return_label.with(m => m.get(func_id.clone()))
 );
 /// Register all three contract artifacts under one id (V6 task 1: the
 /// trait-contract INHERITANCE writer, reached through the hook below).
@@ -1193,14 +1194,14 @@ _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
 /// (`evaluate_comptime_fn_call`'s checking-phase guard), so every evaluation of
 /// `Ord(K)` mints a TraitT with a FRESH id; (constructor funcId, arguments) is
 /// the identity those mints share (`_wcc_same_instantiation`). First stamp wins.
-(g_trait_type_args : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
+(g_trait_type_args : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 /// Record the instantiation arguments of the trait with `trait_id` (first wins).
 register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
   match(
-    g_trait_type_args.get(trait_id.clone()),
+    g_trait_type_args.with(m => m.get(trait_id.clone())),
     .Some(_) => (),
     .None => {
-      g_trait_type_args.insert(trait_id, args);
+      g_trait_type_args.with_mut(m => m.insert(trait_id, args));
     }
   );
 });
@@ -1212,7 +1213,7 @@ register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)
 /// minted before the reset and compared after it finds no entry, which only
 /// keeps a duplicate bound (`_wcc_same_instantiation` answers false).
 reset_trait_type_args :: (fn() -> unit)({
-  g_trait_type_args.clear();
+  g_trait_type_args.with_mut(m => m.clear());
   ()
 });
 /// Whether the traits with ids `a` and `b` are one instantiation of one
@@ -1229,14 +1230,14 @@ _wcc_same_instantiation :: (fn(a : &String, b : &String) -> bool)({
     return(false);
   });
   a_args := match(
-    g_trait_type_args.get(a),
+    g_trait_type_args.with(m => m.get(a)),
     .Some(l) => l,
     .None => {
       return(false);
     }
   );
   b_args := match(
-    g_trait_type_args.get(b),
+    g_trait_type_args.with(m => m.get(b)),
     .Some(l) => l,
     .None => {
       return(false);
@@ -5449,18 +5450,18 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
         _r2 := g_func_param_defaults.remove(id.clone());
         _r3 := g_func_variadic_params.remove(id.clone());
         _r4 := g_func_param_assigned_values.remove(id.clone());
-        _r5 := g_func_param_comptime.remove(id.clone());
-        _r6 := g_func_return_type_expr.remove(id.clone());
+        _r5 := g_func_param_comptime.with_mut(m => m.remove(id.clone()));
+        _r6 := g_func_return_type_expr.with_mut(m => m.remove(id.clone()));
         _r7 := g_func_param_default_exprs.remove(id.clone());
         _r8 := g_func_param_type_exprs.remove(id.clone());
         _r9 := g_func_where_constraints.remove(id.clone());
         _r10 := g_func_where_clause_exprs.remove(id.clone());
         _r11 := g_func_requires_exprs.remove(id.clone());
         _r12 := g_func_ensures_exprs.remove(id.clone());
-        _r13 := g_func_decreases_expr.remove(id.clone());
-        _r14 := g_func_assumed_body.remove(id.clone());
+        _r13 := g_func_decreases_expr.with_mut(m => m.remove(id.clone()));
+        _r14 := g_func_assumed_body.with_mut(m => m.remove(id.clone()));
         _r15 := g_func_refined_params.remove(id.clone());
-        _r16 := g_func_return_label.remove(id.clone());
+        _r16 := g_func_return_label.with_mut(m => m.remove(id.clone()));
       },
       .None => ()
     );
@@ -5469,7 +5470,7 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
 });
 export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
-function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len() + g_func_param_defaults.len() + g_func_variadic_params.len() + g_func_param_assigned_values.len() + g_func_param_comptime.len() + g_func_return_type_expr.len() + g_func_param_default_exprs.len() + g_func_param_type_exprs.len() + g_func_where_constraints.len() + g_func_where_clause_exprs.len() + g_func_requires_exprs.len() + g_func_ensures_exprs.len() + g_func_decreases_expr.len() + g_func_assumed_body.len() + g_func_refined_params.len() + g_func_return_label.len());
+function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.len() + g_macro_return_is_unquote.len() + g_func_param_defaults.len() + g_func_variadic_params.len() + g_func_param_assigned_values.len() + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.len() + g_func_param_type_exprs.len() + g_func_where_constraints.len() + g_func_where_clause_exprs.len() + g_func_requires_exprs.len() + g_func_ensures_exprs.len() + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.len() + g_func_return_label.with(m => m.len()));
 export(purge_function_side_tables, function_side_table_entry_count);
 export(evaluate_function_parameters);
 export(apply_where_clause_constraints);

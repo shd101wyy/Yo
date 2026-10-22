@@ -18,6 +18,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, TypeValueNode, no_types } :: import("./definitions.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Forward reference slot for _universe_of
 // (needed by _determine_type_universe which is defined before the function)
@@ -91,12 +92,12 @@ _UniverseMemoEntry :: struct(ty : TypeValue, universe : TypeValue);
 /// `evaluator/calls/helper.yo`), and those copies can have different
 /// universes. Nothing mutates a type object during one walk, so an identity
 /// hit is exact.
-(g_universe_memo : HashMap(String, ArrayList(_UniverseMemoEntry))) = HashMap(String, ArrayList(_UniverseMemoEntry)).new();
+(g_universe_memo : RefCell(HashMap(String, ArrayList(_UniverseMemoEntry)))) = RefCell(HashMap(String, ArrayList(_UniverseMemoEntry))).new(HashMap(String, ArrayList(_UniverseMemoEntry)).new());
 /// Set when the name-cycle guard answered for a type on the current path:
 /// a result computed under it depends on that path, so it is not memoized.
 (mut(g_universe_guard_fired) : bool) = false;
 _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue))({
-  bucket := match(g_universe_memo.get(key), .Some(b) => b, .None => return(Option(TypeValue).None));
+  bucket := match(g_universe_memo.with(m => m.get(key)), .Some(b) => b, .None => return(Option(TypeValue).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
@@ -123,9 +124,9 @@ _universe_memo_compute :: (
   new_visited.push(name);
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
-    bucket := match(g_universe_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
+    bucket := match(g_universe_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
     bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
-    _ := g_universe_memo.insert(key, bucket);
+    _ := g_universe_memo.with_mut(m => m.insert(key, bucket));
   });
   g_universe_guard_fired = (g_universe_guard_fired || outer_fired);
   r
@@ -265,7 +266,7 @@ g_type_of_type_visited_fn =
 /// Get the meta-type (type universe) of any `TypeValue`.
 ///
 type_of_type :: (fn(ty : &TypeValue) -> TypeValue)({
-  g_universe_memo.clear();
+  g_universe_memo.with_mut(m => m.clear());
   g_universe_guard_fired = false;
   _universe_of(ty, ArrayList(String).new())
 });

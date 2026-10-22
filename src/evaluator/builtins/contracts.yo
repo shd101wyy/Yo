@@ -78,6 +78,7 @@
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { assert, panic } :: import("std/assert");
 { expr_info_adopt_env, expr_info_macro_expansion, lookup_method_callee_value } :: import("../../expr_info.yo");
+{ RefCell } :: import("std/sync/refcell");
 /// Evaluate any of the no-op contract markers (`requires` / `ensures` /
 /// `invariant` / `ghost` in expression position). Each argument is evaluated
 /// (so expression-level errors surface), but the call itself returns `unit`.
@@ -142,7 +143,7 @@ _evaluate_contract_marker :: (
 /// effects are inert. Declared EARLY: the contract-marker handlers
 /// (evaluate_ghost and friends) read `_is_verify_target`, and importers
 /// can force those lazily before line 900 evaluates.
-(g_verify_target_paths : ArrayList(String)) = ArrayList(String).new();
+(g_verify_target_paths : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Declared HERE, above `set_verify_target_paths`, which resets it (a runtime
 /// global must be bound before the first definition that reaches it).
 /// 5b container bounds elision
@@ -150,23 +151,23 @@ _evaluate_contract_marker :: (
 /// in a verify-mode target file → the specialized `IndexUnchecked`
 /// `index_unchecked` method of its receiver. Codegen calls it instead of
 /// `index` only when the node's `index-in-bounds` site is proved.
-(g_index_unchecked_twins : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+(g_index_unchecked_twins : RefCell(HashMap(ExprId, EvalValue))) = RefCell(HashMap(ExprId, EvalValue)).new(HashMap(ExprId, EvalValue).new());
 set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
-  g_verify_target_paths.clear();
-  g_verify_target_paths.extend(paths);
+  g_verify_target_paths.with_mut(xs => xs.clear());
+  g_verify_target_paths.with_mut(xs => xs.extend(paths));
   // A new verification recording starts: forget the previous compile's
   // container twins (watch rounds). Unlike the proved-site table, which
   // `_run_contract_verification` clears AFTER evaluation, twins are recorded
   // DURING evaluation, so they reset here.
-  g_index_unchecked_twins.clear();
+  g_index_unchecked_twins.with_mut(m => m.clear());
   ()
 });
 _is_verify_target :: (fn(module_path : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_verify_target_paths.len()) && !found, {
+  while((i < g_verify_target_paths.with(xs => xs.len())) && !found, {
     match(
-      g_verify_target_paths.get(i),
+      g_verify_target_paths.with(xs => xs.get(i)),
       .Some(p) => if(p == module_path, {
         found = true;
       }),
@@ -392,13 +393,13 @@ _evaluate_transparent_unary :: (
 /// V5 task 3: the ghost-fn registry. `ghost_fn(...)` registers the wrapped
 /// function's func_id here; function.yo's call arm rejects calls to these
 /// from non-ghost context (a ghost_fn has no runtime semantics).
-(g_ghost_fn_ids : HashSet(String)) = HashSet(String).new();
+(g_ghost_fn_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 register_ghost_fn :: (fn(func_id : &String) -> unit)({
-  g_ghost_fn_ids.insert(func_id);
+  g_ghost_fn_ids.with_mut(s => s.insert(func_id));
   ()
 });
 is_ghost_fn :: (fn(func_id : &String) -> bool)(
-  g_ghost_fn_ids.contains(func_id)
+  g_ghost_fn_ids.with(s => s.contains(func_id))
 );
 /// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
 /// every registered ghost_fn. The refinement machinery reads it: a
@@ -413,13 +414,13 @@ GhostFnDef :: ref(
     body : AstExpr
   )
 );
-(g_ghost_fn_defs : HashMap(String, GhostFnDef)) = HashMap(String, GhostFnDef).new();
+(g_ghost_fn_defs : RefCell(HashMap(String, GhostFnDef))) = RefCell(HashMap(String, GhostFnDef)).new(HashMap(String, GhostFnDef).new());
 register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
-  g_ghost_fn_defs.insert(func_id, GhostFnDef(params : params, body : body));
+  g_ghost_fn_defs.with_mut(m => m.insert(func_id, GhostFnDef(params : params, body : body)));
   ()
 });
 ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
-  g_ghost_fn_defs.get(func_id)
+  g_ghost_fn_defs.with(m => m.get(func_id))
 );
 /// The refinement CHAIN registry: an outer predicate's func_id → the
 /// predicates of the refinement it wraps (outermost inner first —
@@ -1414,7 +1415,7 @@ VerifyTask :: ref(
     requires_enforced : ArrayList(bool)
   )
 );
-(g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
+(g_verify_tasks : RefCell(ArrayList(VerifyTask))) = RefCell(ArrayList(VerifyTask)).new(ArrayList(VerifyTask).new());
 // ============================================================================
 // Proved guard sites (5b: plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md §4.1)
 // ============================================================================
@@ -1435,44 +1436,44 @@ ProvedGuardSite :: struct(
   /// `index-in-bounds`.
   class : String
 );
-(g_proved_guard_sites : HashMap(ExprId, ArrayList(ProvedGuardSite))) = HashMap(ExprId, ArrayList(ProvedGuardSite)).new();
+(g_proved_guard_sites : RefCell(HashMap(ExprId, ArrayList(ProvedGuardSite)))) = RefCell(HashMap(ExprId, ArrayList(ProvedGuardSite))).new(HashMap(ExprId, ArrayList(ProvedGuardSite)).new());
 /// Node ids whose guard codegen elided (a set: multi-pass emission may ask
 /// twice for one node).
-(g_elided_guard_nodes : HashSet(String)) = HashSet(String).new();
+(g_elided_guard_nodes : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 record_proved_guard_site :: (fn(site : &ProvedGuardSite) -> unit)({
-  existing := match(g_proved_guard_sites.get(&site.node_id), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
+  existing := match(g_proved_guard_sites.with(m => m.get(&site.node_id)), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
   existing.push(site);
-  g_proved_guard_sites.insert(site.node_id, existing);
+  g_proved_guard_sites.with_mut(m => m.insert(site.node_id, existing));
   ()
 });
 /// Drop every recorded site and the elision count (the start of a compile).
 clear_proved_guard_sites :: (fn() -> unit)({
-  g_proved_guard_sites.clear();
-  g_elided_guard_nodes.clear();
+  g_proved_guard_sites.with_mut(m => m.clear());
+  g_elided_guard_nodes.with_mut(s => s.clear());
   ()
 });
 record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)({
-  g_index_unchecked_twins.insert(node_id, twin);
+  g_index_unchecked_twins.with_mut(m => m.insert(node_id, twin));
   ()
 });
 /// Drop the twin recorded for `node_id`: a subscript promoted to `IndexMut`
 /// without an unchecked-write twin keeps its checked `index_mut`.
 forget_index_unchecked_twin :: (fn(node_id : ExprId) -> unit)({
-  _ftw := g_index_unchecked_twins.remove(&node_id);
+  _ftw := g_index_unchecked_twins.with_mut(m => m.remove(&node_id));
   ()
 });
 index_unchecked_twin_of :: (fn(node_id : ExprId) -> Option(EvalValue))(
-  g_index_unchecked_twins.get(&node_id)
+  g_index_unchecked_twins.with(m => m.get(&node_id))
 );
 /// How many distinct guards codegen elided since the last clear.
 elided_guard_count :: (fn() -> usize)(
-  g_elided_guard_nodes.len()
+  g_elided_guard_nodes.with(s => s.len())
 );
 /// Did a proof record exactly this node, this class, and this node's own
 /// canonical position? Any mismatch is `false`.
 _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
-    g_proved_guard_sites.get(ast_expr_id(expr)),
+    g_proved_guard_sites.with(m => m.get(ast_expr_id(expr))),
     .Some(sites) => {
       tok := ast_expr_token(expr);
       canon := canonical_module_path(&tok.module_path);
@@ -1493,7 +1494,7 @@ _guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
 /// elision when it answers yes.
 guard_site_is_proved :: (fn(expr : &AstExpr, class : str) -> bool)({
   if(_guard_site_recorded(expr, class), {
-    g_elided_guard_nodes.insert(`${ast_expr_id(expr).to_string()}/${class}`);
+    g_elided_guard_nodes.with_mut(s => s.insert(`${ast_expr_id(expr).to_string()}/${class}`));
     return(true);
   });
   false
@@ -1502,7 +1503,7 @@ guard_site_is_proved :: (fn(expr : &AstExpr, class : str) -> bool)({
 /// `divisor-nonzero` and `div-no-overflow`). One guard, counted once.
 guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) -> bool)({
   if(_guard_site_recorded(expr, class_a) && _guard_site_recorded(expr, class_b), {
-    g_elided_guard_nodes.insert(`${ast_expr_id(expr).to_string()}/${class_a}+${class_b}`);
+    g_elided_guard_nodes.with_mut(s => s.insert(`${ast_expr_id(expr).to_string()}/${class_a}+${class_b}`));
     return(true);
   });
   false
@@ -1512,13 +1513,13 @@ guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) 
 /// the body never gets ExprInfo), the real message is recorded here keyed
 /// by the task's fn_id, so the verifier can report the CAUSE instead of
 /// the misleading "untyped expression" at the hollow body root.
-(g_verify_def_eval_failures : HashMap(String, String)) = HashMap(String, String).new();
+(g_verify_def_eval_failures : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> unit)({
-  g_verify_def_eval_failures.insert(fn_id, msg);
+  g_verify_def_eval_failures.with_mut(m => m.insert(fn_id, msg));
   ()
 });
 verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
-  g_verify_def_eval_failures.get(fn_id)
+  g_verify_def_eval_failures.with(m => m.get(fn_id))
 );
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
@@ -1554,9 +1555,9 @@ resolve_verify_mode :: (fn(module_path : &String) -> String)(
 register_verify_task :: (fn(t : &VerifyTask) -> unit)({
   (dup : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_verify_tasks.len()) && !dup, {
+  while((i < g_verify_tasks.with(xs => xs.len())) && !dup, {
     match(
-      g_verify_tasks.get(i),
+      g_verify_tasks.with(xs => xs.get(i)),
       .Some(prev) => if(prev.fn_id == t.fn_id, {
         dup = true;
       }),
@@ -1565,7 +1566,7 @@ register_verify_task :: (fn(t : &VerifyTask) -> unit)({
     i = (i + usize(1));
   });
   if(!dup, {
-    g_verify_tasks.push(t);
+    g_verify_tasks.with_mut(xs => xs.push(t));
   });
   ()
 });
@@ -1590,7 +1591,7 @@ evaluated_for_verify :: (
 /// Drain the registry (move the tasks out and reset it) for the verifier
 /// pass. `yo verify` drains once after evaluating the target set.
 take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
-  out := g_verify_tasks.split_off(usize(0));
+  out := g_verify_tasks.with_mut(xs => xs.split_off(usize(0)));
   out
 });
 /// V6 task 1 (FORMAL_VERIFICATION.md): trait-contract INHERITANCE at impl
@@ -1829,25 +1830,25 @@ CallsiteContracts :: struct(
   reqs : ArrayList(AstExpr),
   enss : ArrayList(AstExpr)
 );
-(g_callsite_contracts : HashMap(String, CallsiteContracts)) = HashMap(String, CallsiteContracts).new();
+(g_callsite_contracts : RefCell(HashMap(String, CallsiteContracts))) = RefCell(HashMap(String, CallsiteContracts)).new(HashMap(String, CallsiteContracts).new());
 register_callsite_contracts :: (
   fn(call_id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr)) -> unit
 )({
-  _ := g_callsite_contracts.insert(call_id, CallsiteContracts(reqs : reqs, enss : enss));
+  _ := g_callsite_contracts.with_mut(m => m.insert(call_id, CallsiteContracts(reqs : reqs, enss : enss)));
 });
 callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
-  g_callsite_contracts.get(call_id)
+  g_callsite_contracts.with(m => m.get(call_id))
 );
 /// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
 /// was minted from. Written at the specialization mint (calls/helper.yo)
 /// so the verifier's mutual-recursion cliques can be spelled in BASE fids
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
-(g_specialized_base : HashMap(String, String)) = HashMap(String, String).new();
+(g_specialized_base : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
-  _ := g_specialized_base.insert(spec_id, base_id);
+  _ := g_specialized_base.with_mut(m => m.insert(spec_id, base_id));
 });
 specialized_base_of :: (fn(id : &String) -> Option(String))(
-  g_specialized_base.get(id)
+  g_specialized_base.with(m => m.get(id))
 );
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).

@@ -66,6 +66,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_param_comptime } :: import("../types/function.yo");
 { evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
 { Exception } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Private types
 // ---------------------------------------------------------------------------
@@ -201,14 +202,13 @@ _ctor_ids_agree :: (fn(a : &TypeValue, b : &TypeValue) -> bool)({
 /// every module in a compilation, so a plain global is the same thing here.
 /// Only SUCCESSFUL resolutions are cached, so an early call against an env
 /// that cannot see the prelude does not poison later ones.
-(g_range_ty_cache : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-(g_range_incl_ty_cache : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_range_ty_cache : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_range_incl_ty_cache : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 _cached_range_type :: (
   fn(inclusive : bool, env : &Environment, ctx : &EvalContext) -> Option(TypeValue)
-)({
-  cache := if(inclusive, g_range_incl_ty_cache, g_range_ty_cache);
+)(
   match(
-    cache.get(usize(0)),
+    if(inclusive, g_range_incl_ty_cache.with(xs => xs.get(usize(0))), g_range_ty_cache.with(xs => xs.get(usize(0)))),
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));
@@ -216,14 +216,14 @@ _cached_range_type :: (
       match(
         resolved,
         .Some(rt) => {
-          cache.push(rt.clone());
+          if(inclusive, g_range_incl_ty_cache.with_mut(xs => xs.push(rt.clone())), g_range_ty_cache.with_mut(xs => xs.push(rt.clone())));
           Option(TypeValue).Some(rt)
         },
         .None => Option(TypeValue).None
       )
     }
   )
-});
+);
 /// Is `arg_type` a `Range(...)` / `RangeInclusive(...)`?
 ///
 /// Resolve the prelude

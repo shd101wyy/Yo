@@ -1008,13 +1008,13 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
   match(env.function_declaration_frame_level, .Some(l) => (l == SCOPE_HUSK_MARK), .None => false)
 );
 /// Extern-C global name → its declared types (see `register_extern_c_global`).
-(g_extern_c_globals : HashMap(String, ArrayList(TypeValue))) = HashMap(String, ArrayList(TypeValue)).new();
+(g_extern_c_globals : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 /// Method-call expr id → resolved method FuncVal (see `record_method_callee_value`).
-(g_method_callee_values : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
+(g_method_callee_values : RefCell(HashMap(ExprId, EvalValue))) = RefCell(HashMap(ExprId, EvalValue)).new(HashMap(ExprId, EvalValue).new());
 /// Local borrow binding's `imm(y)`/`mut(y)` node id → the hidden owning local
 /// that holds the reference cell its re-points step into (plans/VALUES_BY_DEFAULT.md
 /// decision 25; see `record_local_borrow_step_pin`).
-(g_local_borrow_step_pins : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
+(g_local_borrow_step_pins : RefCell(HashMap(ExprId, Variable))) = RefCell(HashMap(ExprId, Variable)).new(HashMap(ExprId, Variable).new());
 /// `YO_SCOPE_RELEASE`: `release` (the default) releases each outermost
 /// function body's recorded envs at scope exit; `shadow` keeps them, answers
 /// codegen from the envs and counts where the records would differ (the
@@ -1030,36 +1030,36 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 (mut(g_scope_mode) : usize) = usize(0);
 (mut(g_scope_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
 (mut(g_scope_depth) : usize) = usize(0);
-(g_scope_log_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
-(g_scope_log_ids : ArrayList(ExprId)) = ArrayList(ExprId).new();
-(g_scope_atom_exc : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
+(g_scope_log_infos : RefCell(ArrayList(ExprInfo))) = RefCell(ArrayList(ExprInfo)).new(ArrayList(ExprInfo).new());
+(g_scope_log_ids : RefCell(ArrayList(ExprId))) = RefCell(ArrayList(ExprId)).new(ArrayList(ExprId).new());
+(g_scope_atom_exc : RefCell(HashMap(ExprId, ArrayList(Variable)))) = RefCell(HashMap(ExprId, ArrayList(Variable))).new(HashMap(ExprId, ArrayList(Variable)).new());
 (g_scope_names : HashMap(ExprId, ArrayList(ScopeNameRecord))) = HashMap(ExprId, ArrayList(ScopeNameRecord)).new();
-(g_scope_husks : HashMap(ExprId, Environment)) = HashMap(ExprId, Environment).new();
-(g_scope_bound : HashMap(ExprId, ScopeBound)) = HashMap(ExprId, ScopeBound).new();
+(g_scope_husks : RefCell(HashMap(ExprId, Environment))) = RefCell(HashMap(ExprId, Environment)).new(HashMap(ExprId, Environment).new());
+(g_scope_bound : RefCell(HashMap(ExprId, ScopeBound))) = RefCell(HashMap(ExprId, ScopeBound)).new(HashMap(ExprId, ScopeBound).new());
 /// Names codegen asks of an info that carries none of them itself.
-(g_scope_queried : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
+(g_scope_queried : RefCell(HashMap(ExprId, String))) = RefCell(HashMap(ExprId, String)).new(HashMap(ExprId, String).new());
 /// Compact records: the variables of a released info's names that live in
 /// frames its body pushed (beyond the husk's), one-variable lists unboxed.
 /// The husk lookup supplies the rest of each answer.
-(g_scope_one : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
-(g_scope_inner : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
+(g_scope_one : RefCell(HashMap(ExprId, Variable))) = RefCell(HashMap(ExprId, Variable)).new(HashMap(ExprId, Variable).new());
+(g_scope_inner : RefCell(HashMap(ExprId, ArrayList(Variable)))) = RefCell(HashMap(ExprId, ArrayList(Variable))).new(HashMap(ExprId, ArrayList(Variable)).new());
 (mut(g_scope_prefix_bad) : usize) = usize(0);
 /// A released info whose env shares only its first `k` frames with the husk.
-(g_scope_klen : HashMap(ExprId, usize)) = HashMap(ExprId, usize).new();
+(g_scope_klen : RefCell(HashMap(ExprId, usize))) = RefCell(HashMap(ExprId, usize)).new(HashMap(ExprId, usize).new());
 (mut(g_scope_rereleased) : usize) = usize(0);
 (mut(g_scope_stale_key) : usize) = usize(0);
 /// Shadow mode: the info object each id was released with (release mode
 /// tells a re-logged object by its husk env).
-(g_scope_shadow_objs : HashMap(ExprId, ExprInfo)) = HashMap(ExprId, ExprInfo).new();
+(g_scope_shadow_objs : RefCell(HashMap(ExprId, ExprInfo))) = RefCell(HashMap(ExprId, ExprInfo)).new(HashMap(ExprId, ExprInfo).new());
 (mut(g_scope_released) : usize) = usize(0);
 (mut(g_scope_kept) : usize) = usize(0);
 (mut(g_scope_mismatch) : usize) = usize(0);
 (mut(g_scope_checked) : usize) = usize(0);
-(g_scope_samples : ArrayList(String)) = ArrayList(String).new();
+(g_scope_samples : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (mut(g_scope_calls) : usize) = usize(0);
 (mut(g_scope_path) : usize) = usize(0);
-(g_scope_mm_kinds : HashMap(String, usize)) = HashMap(String, usize).new();
-(g_scope_logged : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
+(g_scope_mm_kinds : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
+(g_scope_logged : RefCell(HashMap(ExprId, bool))) = RefCell(HashMap(ExprId, bool)).new(HashMap(ExprId, bool).new());
 (mut(g_scope_unlogged) : usize) = usize(0);
 (mut(g_scope_logged_unreleased) : usize) = usize(0);
 /// Turn the release on for `compile`'s shared table (or off with `.None`).
@@ -1074,16 +1074,17 @@ scope_release_active :: (fn() -> bool)(g_scope_mode != usize(0));
 /// node's env. That env is kept until the release records its lookup.
 scope_release_note_binding :: (fn(key : ExprId, env : &Environment, name : &String) -> unit)(
   if(g_scope_mode != usize(0), {
-    g_scope_bound.insert(key, ScopeBound(name : name, env : expr_info_env_snapshot(env)));
+    bound := ScopeBound(name : name, env : expr_info_env_snapshot(env));
+    g_scope_bound.with_mut(m => m.insert(key, bound));
   })
 );
 /// Shadow mode: a whole-env read (`kind`) keyed by `key`; counted apart
 /// by whether `key`'s env is released.
 scope_release_note_hard :: (fn(kind : &String, key : ExprId) -> unit)(
   if(g_scope_mode == usize(1), {
-    k := if(g_scope_husks.contains_key(&key), `hard-released/${kind}`, `hard-kept/${kind}`);
-    mp := match(g_scope_mm_kinds.get(k.clone()), .Some(c) => c, .None => usize(0));
-    g_scope_mm_kinds.insert(k, mp + usize(1));
+    k := if(g_scope_husks.with(m => m.contains_key(&key)), `hard-released/${kind}`, `hard-kept/${kind}`);
+    mp := match(g_scope_mm_kinds.with(m => m.get(k.clone())), .Some(c) => c, .None => usize(0));
+    g_scope_mm_kinds.with_mut(m => m.insert(k, mp + usize(1)));
   })
 );
 /// Codegen looks a property atom's own token up through it (an extern C
@@ -1091,7 +1092,7 @@ scope_release_note_hard :: (fn(kind : &String, key : ExprId) -> unit)(
 /// atom), and its info names nothing, so the release records that name.
 scope_release_note_query :: (fn(key : ExprId, name : &String) -> unit)(
   if(g_scope_mode != usize(0), {
-    g_scope_queried.insert(key, name);
+    g_scope_queried.with_mut(m => m.insert(key, name));
   })
 );
 /// 0 off, 1 shadow (envs kept, answers compared), 2 release.
@@ -1100,20 +1101,20 @@ scope_release_mode :: (fn() -> usize)(g_scope_mode);
 /// reports a decision that differs from the env's.
 scope_release_note_mismatch :: (fn(kind : &String) -> unit)({
   g_scope_mismatch = (g_scope_mismatch + usize(1));
-  mp := match(g_scope_mm_kinds.get(kind.clone()), .Some(c) => c, .None => usize(0));
-  g_scope_mm_kinds.insert(kind, mp + usize(1));
+  mp := match(g_scope_mm_kinds.with(m => m.get(kind.clone())), .Some(c) => c, .None => usize(0));
+  g_scope_mm_kinds.with_mut(m => m.insert(kind, mp + usize(1)));
 });
 scope_release_depth :: (fn() -> usize)(g_scope_depth);
 scope_release_set_depth :: (fn(d : usize) -> unit)({
   g_scope_depth = d;
 });
-scope_release_mark :: (fn() -> usize)(g_scope_log_ids.len());
+scope_release_mark :: (fn() -> usize)(g_scope_log_ids.with(xs => xs.len()));
 _scope_log :: (fn(id : ExprId, info : &ExprInfo) -> unit)(
   if((g_scope_mode != usize(0)) && (g_scope_depth > usize(0)), {
-    g_scope_log_infos.push(info);
-    g_scope_log_ids.push(id);
+    g_scope_log_infos.with_mut(xs => xs.push(info));
+    g_scope_log_ids.with_mut(xs => xs.push(id));
     if(g_scope_mode == usize(1), {
-      g_scope_logged.insert(id, true);
+      g_scope_logged.with_mut(m => m.insert(id, true));
     });
   })
 );
@@ -1203,9 +1204,9 @@ _scope_keeps_env :: (fn(id : ExprId, info : &ExprInfo) -> bool)(
 scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
   husk := Environment(frames : rc(copy_env_frames(entry)), module_path : entry.module_path, function_declaration_frame_level : Option(usize).Some(SCOPE_HUSK_MARK), frozen : true);
   (i : usize) = mark;
-  while(i < g_scope_log_ids.len(), {
-    id := g_scope_log_ids.get(i).unwrap();
-    info := g_scope_log_infos.get(i).unwrap();
+  while(i < g_scope_log_ids.with(xs => xs.len()), {
+    id := g_scope_log_ids.with(xs => xs.get(i)).unwrap();
+    info := g_scope_log_infos.with(xs => xs.get(i)).unwrap();
     // An env that shares no frame with the husk (a module-level binding
     // forced inside the body, a nested evaluation's own env) has nothing the
     // husk can stand in for: kept. A partial share records its length.
@@ -1224,7 +1225,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
     shares_husk := ((k > usize(0)) || capture_shaped);
     already := cond(
       (g_scope_mode == usize(2)) => _is_scope_husk(&info.env),
-      true => match(g_scope_shadow_objs.get(&id), .Some(o) => unsafe(__yo_ptr_eq(&o, &info)), .None => false)
+      true => match(g_scope_shadow_objs.with(m => m.get(&id)), .Some(o) => unsafe(__yo_ptr_eq(&o, &info)), .None => false)
     );
     if(already, {
       // This info object was released by an earlier body (logged again
@@ -1241,11 +1242,11 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       // earlier records.
       _r_prev := _scope_take_inner(id);
       if(g_scope_mode == usize(1), {
-        g_scope_shadow_objs.insert(id, info);
+        g_scope_shadow_objs.with_mut(m => m.insert(id, info));
       });
-      _r_k := g_scope_klen.remove(&id);
+      _r_k := g_scope_klen.with_mut(m => m.remove(&id));
       if(!capture_shaped && (k < husk.frames.len()), {
-        g_scope_klen.insert(id, k);
+        g_scope_klen.with_mut(m => m.insert(id, k));
       });
       match(
         info.source_variable,
@@ -1253,7 +1254,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
           av := get_variables_from_env(&info.env, sv.name.clone());
           ok := ((av.len() == usize(1)) && (av.get(usize(0)).unwrap().id == sv.id));
           if(!ok, {
-            g_scope_atom_exc.insert(id, av);
+            g_scope_atom_exc.with_mut(m => m.insert(id, av));
           });
         },
         .None => ()
@@ -1264,7 +1265,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       _scope_target_names(&info.deferred_drop_expressions, &mut names);
       _scope_target_names(expr_info_deferred_dup_expressions(&info), &mut names);
       _scope_target_names(expr_info_consumed_variable_drop_expressions(&info), &mut names);
-      match(g_scope_queried.remove(&id), .Some(qn) => names.push(qn), .None => ());
+      match(g_scope_queried.with_mut(m => m.remove(&id)), .Some(qn) => names.push(qn), .None => ());
       // A closure literal: codegen resolves each capture label through it
       // (the capture struct's initializer, `_enclosing_closure_capture_read`).
       match(
@@ -1282,7 +1283,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         ),
         .None => ()
       );
-      bound := g_scope_bound.remove(&id);
+      bound := g_scope_bound.with_mut(m => m.remove(&id));
       bound_name := match(bound, .Some(br) => br.name, .None => String.new());
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
@@ -1316,29 +1317,29 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
       });
       cond(
         (inner.len() == usize(1)) => {
-          g_scope_one.insert(id, inner.get(usize(0)).unwrap());
+          g_scope_one.with_mut(m => m.insert(id, inner.get(usize(0)).unwrap()));
         },
         (inner.len() > usize(1)) => {
-          g_scope_inner.insert(id, inner);
+          g_scope_inner.with_mut(m => m.insert(id, inner));
         },
         true => ()
       );
       if(g_scope_mode == usize(2), {
         info.env = info_husk;
       }, {
-        g_scope_husks.insert(id, info_husk);
+        g_scope_husks.with_mut(m => m.insert(id, info_husk));
       });
       g_scope_released = (g_scope_released + usize(1));
     }));
     i = (i + usize(1));
   });
-  g_scope_log_infos.truncate(mark);
-  g_scope_log_ids.truncate(mark);
+  g_scope_log_infos.with_mut(xs => xs.truncate(mark));
+  g_scope_log_ids.with_mut(xs => xs.truncate(mark));
 });
 /// Remove and return `id`'s recorded inner variables.
 _scope_take_inner :: (fn(id : ExprId) -> ArrayList(Variable))({
-  out := match(g_scope_inner.remove(&id), .Some(vs) => vs, .None => ArrayList(Variable).new());
-  match(g_scope_one.remove(&id), .Some(v) => out.push(v), .None => ());
+  out := match(g_scope_inner.with_mut(m => m.remove(&id)), .Some(vs) => vs, .None => ArrayList(Variable).new());
+  match(g_scope_one.with_mut(m => m.remove(&id)), .Some(v) => out.push(v), .None => ());
   out
 });
 /// Append each of `vs` not already in `into` (by id).
@@ -1372,7 +1373,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
       .Some(sv) => if(sv.name == name, {
         return(
           match(
-            g_scope_atom_exc.get(&key),
+            g_scope_atom_exc.with(m => m.get(&key)),
             .Some(exc) => exc,
             .None => {
               one := ArrayList(Variable).new();
@@ -1402,9 +1403,9 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
     .None => ()
   );
   g_scope_path = usize(4);
-  base := match(g_scope_klen.get(&key), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
+  base := match(g_scope_klen.with(m => m.get(&key)), .Some(k) => get_variables_from_env_before(husk, k, name), .None => get_variables_from_env(husk, name));
   match(
-    g_scope_one.get(&key),
+    g_scope_one.with(m => m.get(&key)),
     .Some(v) => if((v.name == name) && !_scope_has_id(&base, v.id), {
       g_scope_path = usize(3);
       base.push(v);
@@ -1412,7 +1413,7 @@ _scope_record_answer :: (fn(key : ExprId, husk : &Environment, name : &String) -
     .None => ()
   );
   match(
-    g_scope_inner.get(&key),
+    g_scope_inner.with(m => m.get(&key)),
     .Some(vs) => {
       (vi : usize) = usize(0);
       while(vi < vs.len(), {
@@ -1439,7 +1440,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
   // release mode would read it).
   cur_info := match(g_scope_table, .Some(t) => t.data.with(m => m.get(&key)), .None => Option(ExprInfo).None);
   still_released := match(
-    g_scope_shadow_objs.get(&key),
+    g_scope_shadow_objs.with(m => m.get(&key)),
     .Some(o) => match(cur_info, .Some(ci) => unsafe(__yo_ptr_eq(&o, &ci)), .None => false),
     .None => false
   );
@@ -1447,15 +1448,15 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
     g_scope_stale_key = (g_scope_stale_key + usize(1));
     return(truth);
   });
-  if(!g_scope_husks.contains_key(&key), {
-    if(g_scope_logged.contains_key(&key), {
+  if(!g_scope_husks.with(m => m.contains_key(&key)), {
+    if(g_scope_logged.with(m => m.contains_key(&key)), {
       g_scope_logged_unreleased = (g_scope_logged_unreleased + usize(1));
     }, {
       g_scope_unlogged = (g_scope_unlogged + usize(1));
     });
   });
   match(
-    g_scope_husks.get(&key),
+    g_scope_husks.with(m => m.get(&key)),
     .Some(husk) => {
       g_scope_checked = (g_scope_checked + usize(1));
       rec := _scope_record_answer(key, &husk, name);
@@ -1470,10 +1471,10 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         has_dd := match(kinfo, .Some(ki) => ki.deferred_drop_expressions.is_some(), .None => false);
         tstr := type_to_string_short(&kinfo);
         mk := `${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
-        mp := match(g_scope_mm_kinds.get(mk.clone()), .Some(c) => c, .None => usize(0));
-        g_scope_mm_kinds.insert(mk, mp + usize(1));
-        if((g_scope_samples.len() < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
-          g_scope_samples.push(`key=${key.to_string()} name=${name} truth=${truth.len().to_string()} rec=${rec.len().to_string()}`);
+        mp := match(g_scope_mm_kinds.with(m => m.get(mk.clone())), .Some(c) => c, .None => usize(0));
+        g_scope_mm_kinds.with_mut(m => m.insert(mk, mp + usize(1)));
+        if((g_scope_samples.with(xs => xs.len()) < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
+          g_scope_samples.with_mut(xs => xs.push(`key=${key.to_string()} name=${name} truth=${truth.len().to_string()} rec=${rec.len().to_string()}`));
         });
       });
     },
@@ -1493,14 +1494,14 @@ scope_release_report :: (fn() -> unit)(
     (n_calls : usize) = g_scope_calls;
     (n_unlogged : usize) = g_scope_unlogged;
     (n_logged_unreleased : usize) = g_scope_logged_unreleased;
-    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.len().to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.len().to_string()} inner=${g_scope_inner.len().to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.len().to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
-    kit := g_scope_mm_kinds.into_iter();
+    eprintln(`[scope-release] mode=${g_scope_mode_wanted.to_string()} released=${n_released.to_string()} kept=${n_kept.to_string()} atom_exc=${g_scope_atom_exc.with(m => m.len()).to_string()} name_recs=${g_scope_names.len().to_string()} one=${g_scope_one.with(m => m.len()).to_string()} inner=${g_scope_inner.with(m => m.len()).to_string()} prefix_bad=${n_prefix_bad.to_string()} klen=${g_scope_klen.with(m => m.len()).to_string()} rereleased=${n_rereleased.to_string()} stale_key=${n_stale_key.to_string()} checked=${n_checked.to_string()} mismatch=${n_mismatch.to_string()} calls=${n_calls.to_string()} unlogged=${n_unlogged.to_string()} logged_unreleased=${n_logged_unreleased.to_string()}`);
+    kit := g_scope_mm_kinds.with(m => m.into_iter());
     while(runtime(true), {
       match(kit.next(), .Some(kv) => eprintln(`[scope-release-kind] ${kv.value.to_string()} ${kv.key}`), .None => break);
     });
     (i : usize) = usize(0);
-    while(i < g_scope_samples.len(), {
-      eprintln(`[scope-release-sample] ${g_scope_samples.get(i).unwrap()}`);
+    while(i < g_scope_samples.with(xs => xs.len()), {
+      eprintln(`[scope-release-sample] ${g_scope_samples.with(xs => xs.get(i)).unwrap()}`);
       i = (i + usize(1));
     });
   })
@@ -1543,12 +1544,12 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
 /// Sharing is on only while one table holds the whole program (`compile`'s
 /// shared table): `check` gives each module a table that dies with it, and a
 /// process-wide map would outlive those (+20 MB on `check src/main.yo`).
-(g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
+(g_name_path_collections : RefCell(HashMap(String, PathCollection))) = RefCell(HashMap(String, PathCollection)).new(HashMap(String, PathCollection).new());
 (mut(g_share_name_paths) : bool) = false;
 set_name_path_sharing :: (fn(on : bool) -> unit)({
   g_share_name_paths = on;
   if(!on, {
-    g_name_path_collections.clear();
+    g_name_path_collections.with_mut(xs => xs.clear());
   });
 });
 _fresh_name_path_collection :: (fn(name : &String) -> PathCollection)({
@@ -1563,11 +1564,11 @@ path_collection_of_name :: (fn(name : &String) -> PathCollection)(
     !g_share_name_paths,
     _fresh_name_path_collection(name),
     match(
-      g_name_path_collections.get(name),
+      g_name_path_collections.with(xs => xs.get(name)),
       .Some(pc) => pc,
       .None => {
         pc := _fresh_name_path_collection(name);
-        _prev := g_name_path_collections.insert(name, pc);
+        _prev := g_name_path_collections.with_mut(xs => xs.insert(name, pc));
         pc
       }
     )
@@ -1596,13 +1597,13 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
 /// codegen reads. Off unless `YO_CODEGEN_READS` / `YO_CODEGEN_KEEP` is set
 /// (`codegen_c.yo` switches it on for collect + emit only).
 (mut(g_codegen_read_log_on) : bool) = false;
-(g_codegen_read_keys : HashSet(usize)) = HashSet(usize).new();
+(g_codegen_read_keys : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
 });
-codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys);
+codegen_read_keys :: (fn() -> HashSet(usize))(g_codegen_read_keys.with(s => s));
 _logged_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprInfo))({
-  _i := g_codegen_read_keys.insert(id);
+  _i := g_codegen_read_keys.with_mut(s => s.insert(id));
   table.data.with(m => m.get(&id))
 });
 /// Retrieve the ExprInfo for the given expression id, or None. Stays
@@ -1640,16 +1641,16 @@ expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize
 // is shared — harmless, ids never collide). See
 // issues/fixed/yo-self-flowability-swallow.md.
 // ---------------------------------------------------------------------------
-(g_method_callee_types : HashMap(ExprId, TypeValue)) = HashMap(ExprId, TypeValue).new();
+(g_method_callee_types : RefCell(HashMap(ExprId, TypeValue))) = RefCell(HashMap(ExprId, TypeValue)).new(HashMap(ExprId, TypeValue).new());
 /// Record the resolved method `Func` type for a method-call expr id.
 record_method_callee_type :: (fn(call_id : ExprId, ty : &TypeValue) -> unit)({
   record_owned_expr_id(call_id);
-  g_method_callee_types.insert(call_id, ty);
+  g_method_callee_types.with_mut(m => m.insert(call_id, ty));
   ()
 });
 /// Look up the resolved method `Func` type for a method-call expr id, if any.
 lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
-  g_method_callee_types.get(&call_id)
+  g_method_callee_types.with(m => m.get(&call_id))
 );
 // ---------------------------------------------------------------------------
 // Io-builtin marker side-tables.
@@ -1666,26 +1667,26 @@ lookup_method_callee_type :: (fn(call_id : ExprId) -> Option(TypeValue))(
 // and the await-analysis classifiers read the second table. Plain Strings
 // only — no TypeValue refs held across module boundaries.
 // ---------------------------------------------------------------------------
-(g_io_builtin_struct_fields : HashMap(String, String)) = HashMap(String, String).new();
+(g_io_builtin_struct_fields : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Record that `struct_id`.`field_label` holds an io-builtin function.
 record_io_builtin_struct_field :: (fn(struct_id : &String, field_label : &String, marker : &String) -> unit)({
-  g_io_builtin_struct_fields.insert(`${struct_id}\n${field_label}`, marker);
+  g_io_builtin_struct_fields.with_mut(m => m.insert(`${struct_id}\n${field_label}`, marker));
   ()
 });
 /// Look up the io-builtin marker for `struct_id`.`field_label`, if any.
 lookup_io_builtin_struct_field :: (fn(struct_id : &String, field_label : &String) -> Option(String))(
-  g_io_builtin_struct_fields.get(`${struct_id}\n${field_label}`)
+  g_io_builtin_struct_fields.with(m => m.get(`${struct_id}\n${field_label}`))
 );
-(g_io_builtin_calls : HashMap(ExprId, String)) = HashMap(ExprId, String).new();
+(g_io_builtin_calls : RefCell(HashMap(ExprId, String))) = RefCell(HashMap(ExprId, String)).new(HashMap(ExprId, String).new());
 /// Record the io-builtin marker for a call expr id.
 record_io_builtin_call :: (fn(call_id : ExprId, marker : &String) -> unit)({
   record_owned_expr_id(call_id);
-  g_io_builtin_calls.insert(call_id, marker);
+  g_io_builtin_calls.with_mut(m => m.insert(call_id, marker));
   ()
 });
 /// Look up the io-builtin marker for a call expr id, if any.
 lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
-  g_io_builtin_calls.get(&call_id)
+  g_io_builtin_calls.with(m => m.get(&call_id))
 );
 // Method-callee VALUE side-table (parallel to g_method_callee_types). Codegen's
 // generate_other_function_call dispatches via the callee's ExprInfo value, but a
@@ -1698,14 +1699,14 @@ lookup_io_builtin_call :: (fn(call_id : ExprId) -> Option(String))(
 /// right after its store: the statement's value (the old value) is unused and
 /// explicit-copy, so it is dropped at the assignment, as Rust drops it
 /// (`record_immediate_old_value_drop`, evaluator/exprs/begin.yo).
-(g_immediate_old_value_drops : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
+(g_immediate_old_value_drops : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 record_immediate_old_value_drop :: (fn(assign_id : ExprId, drop_expr : &AstExpr) -> unit)({
   record_owned_expr_id(assign_id);
-  g_immediate_old_value_drops.insert(assign_id, drop_expr);
+  g_immediate_old_value_drops.with_mut(m => m.insert(assign_id, drop_expr));
   ()
 });
 lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
-  g_immediate_old_value_drops.get(&assign_id)
+  g_immediate_old_value_drops.with(m => m.get(&assign_id))
 );
 /// `consume(e)` call node ids whose argument's owned value the consume
 /// releases on the spot: `e` names an owned local (or is an owning result
@@ -1713,23 +1714,23 @@ lookup_immediate_old_value_drop :: (fn(assign_id : ExprId) -> Option(AstExpr))(
 /// returns `unit`, so nothing else takes the value
 /// (`evaluate_consume`, evaluator/builtins/consume.yo; `generate_consume`,
 /// codegen/exprs/consume.yo).
-(g_consume_releases : HashSet(ExprId)) = HashSet(ExprId).new();
+(g_consume_releases : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
 record_consume_release :: (fn(consume_id : ExprId) -> unit)({
   record_owned_expr_id(consume_id);
-  _i := g_consume_releases.insert(consume_id);
+  _i := g_consume_releases.with_mut(s => s.insert(consume_id));
 });
 is_consume_release :: (fn(consume_id : ExprId) -> bool)(
-  g_consume_releases.contains(&consume_id)
+  g_consume_releases.with(s => s.contains(&consume_id))
 );
 /// Record the resolved/specialized method FuncVal for a method-call expr id.
 record_method_callee_value :: (fn(call_id : ExprId, v : &EvalValue) -> unit)({
   record_owned_expr_id(call_id);
-  g_method_callee_values.insert(call_id, v);
+  g_method_callee_values.with_mut(m => m.insert(call_id, v));
   ()
 });
 /// Look up the resolved/specialized method FuncVal for a method-call expr id.
 lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
-  g_method_callee_values.get(&call_id)
+  g_method_callee_values.with(m => m.get(&call_id))
 );
 /// Record the step pin of the local borrow bound by the `imm(y)`/`mut(y)`
 /// node `lhs_id`: codegen declares it (null) beside the binding, each re-point
@@ -1737,11 +1738,11 @@ lookup_method_callee_value :: (fn(call_id : ExprId) -> Option(EvalValue))(
 /// last one on every exit path.
 record_local_borrow_step_pin :: (fn(lhs_id : ExprId, pin : &Variable) -> unit)({
   record_owned_expr_id(lhs_id);
-  g_local_borrow_step_pins.insert(lhs_id, pin);
+  g_local_borrow_step_pins.with_mut(m => m.insert(lhs_id, pin));
   ()
 });
 lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
-  g_local_borrow_step_pins.get(&lhs_id)
+  g_local_borrow_step_pins.with(m => m.get(&lhs_id))
 );
 // Names of extern-C GLOBAL symbols declared via `c_include` (e.g. `stdout`,
 // `stderr`, `stdin`). `is_extern` is modelled only on the `Func` TypeValue
@@ -1759,9 +1760,9 @@ lookup_local_borrow_step_pin :: (fn(lhs_id : ExprId) -> Option(Variable))(
 _push_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)({
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(g_extern_c_globals.remove(name.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  list := match(g_extern_c_globals.with_mut(m => m.remove(name.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(ty);
-  g_extern_c_globals.insert(name, list);
+  g_extern_c_globals.with_mut(m => m.insert(name, list));
 });
 /// Yo binding name → C symbol name, for extern-C globals bound under a
 /// DIFFERENT name by a destructuring rename (`{ stdout : out } :: c_include(...)`,
@@ -1769,12 +1770,12 @@ _push_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)({
 /// own C name. Functions and opaque types carry their C name on the type
 /// (`FuncMeta.extern_name`, the SomeT's name); a global's lived only in the
 /// variable name, so the rename has to be recorded somewhere codegen can read.
-(g_extern_c_global_c_names : HashMap(String, String)) = HashMap(String, String).new();
+(g_extern_c_global_c_names : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// The source-namespace ids minted by `c_include(...)` module values. The
 /// destructurer consults this to know that a field it binds is an extern-C
 /// symbol (and so may need a C-name alias) rather than an ordinary module
 /// export that merely shares a name with one.
-(g_extern_c_module_ids : HashSet(String)) = HashSet(String).new();
+(g_extern_c_module_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Mark `name` as an extern-C global symbol with its DECLARED type (called by
 /// c_include per field). The type is what identifies "this resolved binding
 /// IS the global": the match is BY DECLARED TYPE, so a LOCAL
@@ -1790,7 +1791,7 @@ register_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)(
 /// codegen keeps working for the new name.
 register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : &TypeValue) -> unit)({
   _push_extern_c_global(yo_name.clone(), ty);
-  g_extern_c_global_c_names.insert(yo_name, c_name);
+  g_extern_c_global_c_names.with_mut(m => m.insert(yo_name, c_name));
   ()
 });
 /// The C symbol behind the extern-C global bound as `yo_name` — the recorded
@@ -1798,26 +1799,26 @@ register_extern_c_global_alias :: (fn(yo_name : &String, c_name : &String, ty : 
 /// Returns a CLONE (never the registry's own String — a caller that appends
 /// to it in place would corrupt the stored name).
 extern_c_global_c_name :: (fn(yo_name : &String) -> String)(
-  match(g_extern_c_global_c_names.get(yo_name.clone()), .Some(c) => c.clone(), .None => yo_name)
+  match(g_extern_c_global_c_names.with(m => m.get(yo_name.clone())), .Some(c) => c.clone(), .None => yo_name)
 );
 /// Every declared type recorded for the extern-C global `name` (empty when
 /// the name was never declared). Consumers match a resolved binding against
 /// this list by `type_key`.
 get_extern_c_global_types :: (fn(name : &String) -> ArrayList(TypeValue))(
-  match(g_extern_c_globals.get(name), .Some(l) => l, .None => ArrayList(TypeValue).new())
+  match(g_extern_c_globals.with(m => m.get(name)), .Some(l) => l, .None => ArrayList(TypeValue).new())
 );
 /// True if `name` is a c_include'd extern-C global symbol (name-only check).
 is_extern_c_global :: (fn(name : &String) -> bool)(
-  g_extern_c_globals.get(name).is_some()
+  g_extern_c_globals.with(m => m.get(name)).is_some()
 );
 /// Record `sns_id` as the id of a `c_include(...)` module value.
 register_extern_c_module_id :: (fn(sns_id : &String) -> unit)({
-  g_extern_c_module_ids.insert(sns_id);
+  g_extern_c_module_ids.with_mut(s => s.insert(sns_id));
   ()
 });
 /// True if `sns_id` names a `c_include(...)` module value.
 is_extern_c_module_id :: (fn(sns_id : &String) -> bool)(
-  g_extern_c_module_ids.contains(sns_id)
+  g_extern_c_module_ids.with(s => s.contains(sns_id))
 );
 /// Registry of module-level RUNTIME globals, keyed "module_path|#|name".
 /// Populated by the evaluator at binding creation
@@ -1829,7 +1830,7 @@ is_extern_c_module_id :: (fn(sns_id : &String) -> bool)(
 /// declaration (unmangled) from the reads (mangled). Keyed by data, not
 /// object identity, so every copy of the variable resolves consistently.
 /// See issues/fixed/module-global-c-names-are-not-namespaced.md.
-(g_module_level_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_module_level_globals : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Declared HERE, beside `g_module_level_globals` rather than beside its own
 /// accessors further down, because `rollback_module_level_globals_to` below
 /// clears BOTH and a `(g_x : T) = ...` runtime binding is order-dependent —
@@ -1841,11 +1842,11 @@ is_extern_c_module_id :: (fn(sns_id : &String) -> bool)(
 /// BOTH registries: it IS a module-level global for name resolution and C
 /// naming, and this registry is only what tells codegen to route its reads
 /// through the accessor instead of reading the storage directly.
-(g_thread_locals : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_thread_locals : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// The module-level runtime bindings declared mutable with `mut(name)`
 /// (decision 47, plans/VALUES_BY_DEFAULT.md): Rust's `static mut`. Same key
 /// shape as `g_thread_locals`; an unmarked binding is Rust's `static`.
-(g_mut_globals : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_mut_globals : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Canonicalize a module path for the registry key. Token module paths
 /// carry TWO spellings of the same file — the CLI-arg spelling of the root
 /// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
@@ -1901,29 +1902,29 @@ _mg_canon :: (fn(module_path : &String) -> String)({
 /// nested `comptime_expect_error`s nest correctly. Only keys this recording
 /// window ADDED are rolled back; a name already registered stays.
 (mut(g_mg_recording_depth) : usize) = usize(0);
-(g_mg_recorded_keys : ArrayList(String)) = ArrayList(String).new();
+(g_mg_recorded_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 module_global_recording_mark :: (fn() -> usize)({
   g_mg_recording_depth = (g_mg_recording_depth + usize(1));
-  g_mg_recorded_keys.len()
+  g_mg_recorded_keys.with(xs => xs.len())
 });
 rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
-  while(g_mg_recorded_keys.len() > mark, {
+  while(g_mg_recorded_keys.with(xs => xs.len()) > mark, {
     match(
-      g_mg_recorded_keys.last(),
+      g_mg_recorded_keys.with(xs => xs.last()),
       .Some(k) => {
-        g_module_level_globals.remove(k.clone());
+        g_module_level_globals.with_mut(m => m.remove(k.clone()));
         // The thread-local registry is keyed identically and is a SUBSET, so
         // the same rollback key clears both. Without this a thread-local
         // declared inside a rejected `comptime_expect_error` would keep
         // routing later same-named reads through an accessor that was never
         // emitted.
-        g_thread_locals.remove(&k);
-        g_mut_globals.remove(&k);
+        g_thread_locals.with_mut(m => m.remove(&k));
+        g_mut_globals.with_mut(m => m.remove(&k));
         ()
       },
       .None => ()
     );
-    g_mg_recorded_keys.pop();
+    g_mg_recorded_keys.with_mut(xs => xs.pop());
     ()
   });
   if(g_mg_recording_depth > usize(0), {
@@ -1932,16 +1933,16 @@ rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
 });
 register_module_level_global :: (fn(module_path : &String, name : &String) -> unit)({
   mg_key := `${_mg_canon(module_path)}|#|${name}`;
-  if((g_mg_recording_depth > usize(0)) && g_module_level_globals.get(mg_key.clone()).is_none(), {
-    g_mg_recorded_keys.push(mg_key.clone());
+  if((g_mg_recording_depth > usize(0)) && g_module_level_globals.with(m => m.get(mg_key.clone())).is_none(), {
+    g_mg_recorded_keys.with_mut(xs => xs.push(mg_key.clone()));
   });
-  g_module_level_globals.insert(mg_key, true);
+  g_module_level_globals.with_mut(m => m.insert(mg_key, true));
   ()
 });
 /// True if module `module_path` declared the module-level runtime global
 /// `name`.
 is_module_level_global :: (fn(module_path : &String, name : &String) -> bool)(
-  g_module_level_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+  g_module_level_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
 );
 /// The C-name suffix for a module-level global declared in `module_path`
 /// (`_m<hash_one-of-canonical-path>`). Hashes the CANONICAL path so the
@@ -1953,17 +1954,17 @@ module_global_c_suffix :: (fn(module_path : &String) -> String)({
 });
 /// Record that module `module_path` declared the thread-local `name`.
 register_thread_local :: (fn(module_path : &String, name : &String) -> unit)({
-  g_thread_locals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
+  g_thread_locals.with_mut(m => m.insert(`${_mg_canon(module_path)}|#|${name}`, true));
   ()
 });
 /// Record that module `module_path` declared `name` with `mut(name)`.
 register_mut_global :: (fn(module_path : &String, name : &String) -> unit)({
-  g_mut_globals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
+  g_mut_globals.with_mut(m => m.insert(`${_mg_canon(module_path)}|#|${name}`, true));
   ()
 });
 /// True if module `module_path` declared `name` with `mut(name)`.
 is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
-  g_mut_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+  g_mut_globals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
 );
 /// The bindings below module level declared mutable with `mut(name)`
 /// (decision 47 step 2, plans/VALUES_BY_DEFAULT.md): locals, pattern and
@@ -1972,24 +1973,24 @@ is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
 /// keeps (a reassignment mints a new `Variable` with the same `token`), so
 /// the marker survives env copies and generic re-evaluation of a body whose
 /// tree already had the marker stripped.
-(g_mut_bindings : HashSet(String)) = HashSet(String).new();
+(g_mut_bindings : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 _mut_binding_key :: (fn(decl : &Token, name : &String) -> String)(`${_mg_canon(&decl.module_path)}|${decl.row.to_string()}:${decl.column.to_string()}|${name}`);
 /// Record that the binding `name` declared at `decl` is `mut(name)`.
 register_mut_binding :: (fn(decl : &Token, name : &String) -> unit)({
-  g_mut_bindings.insert(_mut_binding_key(decl, name));
+  g_mut_bindings.with_mut(s => s.insert(_mut_binding_key(decl, name)));
   ()
 });
 /// True if the binding `name` declared at `decl` was declared `mut(name)`.
 is_mut_binding :: (fn(decl : &Token, name : &String) -> bool)({
-  if(g_mut_bindings.len() == usize(0), {
+  if(g_mut_bindings.with(s => s.len()) == usize(0), {
     return(false);
   });
   key := _mut_binding_key(decl, name);
-  g_mut_bindings.contains(&key)
+  g_mut_bindings.with(s => s.contains(&key))
 });
 /// True if module `module_path` declared `name` as a thread-local.
 is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
-  g_thread_locals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+  g_thread_locals.with(m => m.get(`${_mg_canon(module_path)}|#|${name}`)).is_some()
 );
 /// A SomeT's resolution: the one it carries on the value (`SomeT.resolution`,
 /// immutable since #940). Every reader goes through here. The id-keyed
@@ -2019,7 +2020,7 @@ some_resolution :: (fn(t : &TypeValue) -> Option(TypeValue))(
 // holder — the synthesizer's same-constructor unification in particular —
 // recover the constructor fid.
 // (A durable-global side-table, like g_method_callee_values below.)
-(g_struct_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
+(g_struct_ctor_fids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Record the constructor funcId stamped onto the struct with `struct_id`.
 // ---------------------------------------------------------------------------
 // Per-branch first-initialization log (cross-branch type checks).
@@ -2057,11 +2058,11 @@ BranchInitRecord :: ref(
     after_consumed : Option(Token)
   )
 );
-(g_branch_init_log : ArrayList(BranchInitRecord)) = ArrayList(BranchInitRecord).new();
+(g_branch_init_log : RefCell(ArrayList(BranchInitRecord))) = RefCell(ArrayList(BranchInitRecord)).new(ArrayList(BranchInitRecord).new());
 /// var_id -> log indices of that variable's records. Keeps
 /// has_dominating_branch_init O(records-for-this-var × active groups) instead
 /// of a full-log scan per reassignment (the log spans the WHOLE compile).
-(g_branch_init_by_var : HashMap(usize, ArrayList(usize))) = HashMap(usize, ArrayList(usize)).new();
+(g_branch_init_by_var : RefCell(HashMap(usize, ArrayList(usize)))) = RefCell(HashMap(usize, ArrayList(usize))).new(HashMap(usize, ArrayList(usize)).new());
 /// Log a flow event. `record_branch_init` is the assignment form.
 record_flow_event :: (
   fn(
@@ -2076,23 +2077,25 @@ record_flow_event :: (
     after_consumed : &Option(Token)
   ) -> unit
 )({
-  idx := g_branch_init_log.len();
-  g_branch_init_log.push(
-    BranchInitRecord(
-      var_id : var_id,
-      ty : ty,
-      capture : capture,
-      kind : kind,
-      token : token,
-      before_init : before_init,
-      before_consumed : before_consumed,
-      after_init : after_init,
-      after_consumed : after_consumed
+  idx := g_branch_init_log.with(xs => xs.len());
+  g_branch_init_log.with_mut(
+    xs => xs.push(
+      BranchInitRecord(
+        var_id : var_id,
+        ty : ty,
+        capture : capture,
+        kind : kind,
+        token : token,
+        before_init : before_init,
+        before_consumed : before_consumed,
+        after_init : after_init,
+        after_consumed : after_consumed
+      )
     )
   );
-  lst := match(g_branch_init_by_var.remove(&var_id), .Some(l) => l, .None => ArrayList(usize).new());
+  lst := match(g_branch_init_by_var.with_mut(m => m.remove(&var_id)), .Some(l) => l, .None => ArrayList(usize).new());
   lst.push(idx);
-  g_branch_init_by_var.insert(var_id, lst);
+  g_branch_init_by_var.with_mut(m => m.insert(var_id, lst));
 });
 /// An assignment: the variable is initialized (its first initialization's
 /// token is kept) and no longer moved-from.
@@ -2115,8 +2118,8 @@ record_branch_init :: (
 record_branch_consume :: (fn(var_id : usize, token : &Token, before_init : &Option(Token), before_consumed : &Option(Token)) -> unit)(
   record_flow_event(var_id, rc(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
 );
-branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
-get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
+branch_init_log_len :: (fn() -> usize)(g_branch_init_log.with(xs => xs.len()));
+get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.with(xs => xs.get(i)));
 /// A branching construct's arm windows: flat `[arm_body_id, start, end]`
 /// triples, one per evaluated arm, each a `[start, end)` window into the log.
 /// Local to the `cond` / `match` evaluation that fills it and hands it to
@@ -2153,36 +2156,36 @@ arm_init_range_in :: (fn(ranges : &ArrayList(usize), arm_expr_id : usize) -> Opt
 /// eval are truncated by comptime_expect_error's state restore; a stale
 /// entry's window is a fixed HISTORICAL range, so it can never exclude records
 /// appended after it.
-(g_branch_group_stack : ArrayList(ArrayList(usize))) = ArrayList(ArrayList(usize)).new();
+(g_branch_group_stack : RefCell(ArrayList(ArrayList(usize)))) = RefCell(ArrayList(ArrayList(usize))).new(ArrayList(ArrayList(usize)).new());
 push_branch_group :: (fn() -> unit)({
   entry := ArrayList(usize).new();
-  entry.push(g_branch_init_log.len());
-  entry.push(g_branch_init_log.len());
-  g_branch_group_stack.push(entry);
+  entry.push(g_branch_init_log.with(xs => xs.len()));
+  entry.push(g_branch_init_log.with(xs => xs.len()));
+  g_branch_group_stack.with_mut(xs => xs.push(entry));
 });
 /// Mark the start of the NEXT arm in the innermost group: records made so far
 /// (by earlier sibling arms) become invisible to dominating-init queries.
 begin_branch_group_arm :: (fn() -> unit)({
   match(
-    g_branch_group_stack.pop(),
+    g_branch_group_stack.with_mut(xs => xs.pop()),
     .Some(old_entry) => {
       entry := ArrayList(usize).new();
       entry.push(match(old_entry.get(usize(0)), .Some(x) => x, .None => usize(0)));
-      entry.push(g_branch_init_log.len());
-      g_branch_group_stack.push(entry);
+      entry.push(g_branch_init_log.with(xs => xs.len()));
+      g_branch_group_stack.with_mut(xs => xs.push(entry));
     },
     .None => ()
   );
 });
 pop_branch_group :: (fn() -> unit)({
-  g_branch_group_stack.pop();
+  g_branch_group_stack.with_mut(xs => xs.pop());
   ()
 });
-branch_group_stack_len :: (fn() -> usize)(g_branch_group_stack.len());
+branch_group_stack_len :: (fn() -> usize)(g_branch_group_stack.with(xs => xs.len()));
 /// Drop stack entries stranded by a thrown-through arm evaluation.
 truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
-  while(g_branch_group_stack.len() > depth, {
-    g_branch_group_stack.pop();
+  while(g_branch_group_stack.with(xs => xs.len()) > depth, {
+    g_branch_group_stack.with_mut(xs => xs.pop());
     ()
   });
 });
@@ -2192,17 +2195,17 @@ truncate_branch_group_stack :: (fn(depth : usize) -> unit)({
 /// `use_trait_b`'s `where(T <: TraitDisambigB)` must pick B's `get_number`;
 /// at spec time T is bound concrete so the SomeT walk's trait filter no
 /// longer applies). Stack of id lists; the TOP is the active spec's set, empty = none.
-(g_active_where_trait_ids : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+(g_active_where_trait_ids : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
 push_active_where_trait_ids :: (fn(ids : &ArrayList(String)) -> unit)({
-  g_active_where_trait_ids.push(ids);
+  g_active_where_trait_ids.with_mut(xs => xs.push(ids));
 });
 pop_active_where_trait_ids :: (fn() -> unit)({
-  g_active_where_trait_ids.pop();
+  g_active_where_trait_ids.with_mut(xs => xs.pop());
   ()
 });
 active_where_trait_ids :: (fn() -> ArrayList(String))(
   match(
-    g_active_where_trait_ids.last(),
+    g_active_where_trait_ids.with(xs => xs.last()),
     .Some(top) => top,
     .None => ArrayList(String).new()
   )
@@ -2212,12 +2215,12 @@ active_where_trait_ids :: (fn() -> ArrayList(String))(
 /// (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.2) must not see the trial's constraints;
 /// `restore_active_where_trait_ids` puts the saved stack back afterwards.
 take_active_where_trait_ids :: (fn() -> ArrayList(ArrayList(String)))({
-  saved := g_active_where_trait_ids.split_off(usize(0));
+  saved := g_active_where_trait_ids.with_mut(xs => xs.split_off(usize(0)));
   saved
 });
 restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> unit)({
-  g_active_where_trait_ids.clear();
-  g_active_where_trait_ids.extend(saved);
+  g_active_where_trait_ids.with_mut(xs => xs.clear());
+  g_active_where_trait_ids.with_mut(xs => xs.extend(saved));
   ()
 });
 /// True when a prior assignment record for `var_id` exists on the CURRENT
@@ -2228,17 +2231,17 @@ restore_active_where_trait_ids :: (fn(saved : &ArrayList(ArrayList(String))) -> 
 has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   (found : bool) = false;
   match(
-    g_branch_init_by_var.get(&var_id),
+    g_branch_init_by_var.with(m => m.get(&var_id)),
     .Some(idxs) => {
       (ii : usize) = usize(0);
       while(ii < idxs.len(), {
         i := match(idxs.get(ii), .Some(x) => x, .None => usize(0));
         // Only assignments dominate (moves and joins are not inits).
-        (excluded : bool) = match(g_branch_init_log.get(i), .Some(r) => match(r.kind, .Assign => false, _ => true), .None => true);
+        (excluded : bool) = match(g_branch_init_log.with(xs => xs.get(i)), .Some(r) => match(r.kind, .Assign => false, _ => true), .None => true);
         (gi : usize) = usize(0);
-        while(gi < g_branch_group_stack.len(), {
+        while(gi < g_branch_group_stack.with(xs => xs.len()), {
           match(
-            g_branch_group_stack.get(gi),
+            g_branch_group_stack.with(xs => xs.get(gi)),
             .Some(g) => {
               gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
               ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
@@ -2261,7 +2264,7 @@ has_dominating_branch_init :: (fn(var_id : usize) -> bool)({
   found
 });
 /// The log indices of `var_id`'s assignment records, oldest first.
-branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_branch_init_by_var.get(&var_id));
+branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_branch_init_by_var.with(m => m.get(&var_id)));
 /// The earliest record of each variable that a COMPLETED SIBLING arm of the
 /// innermost active group touched (records in `[group_start,
 /// current_arm_start)`). Its before-state is the state before the branch,
@@ -2269,7 +2272,7 @@ branch_init_indices_for :: (fn(var_id : usize) -> Option(ArrayList(usize)))(g_br
 sibling_first_flow_records :: (fn() -> ArrayList(BranchInitRecord))({
   out := ArrayList(BranchInitRecord).new();
   match(
-    g_branch_group_stack.last(),
+    g_branch_group_stack.with(xs => xs.last()),
     .Some(g) => {
       gs := match(g.get(usize(0)), .Some(x) => x, .None => usize(0));
       ga := match(g.get(usize(1)), .Some(x) => x, .None => usize(0));
@@ -2286,7 +2289,7 @@ first_flow_records_in :: (fn(start : usize, end : usize) -> ArrayList(BranchInit
   (ri : usize) = start;
   while(ri < end, {
     match(
-      g_branch_init_log.get(ri),
+      g_branch_init_log.with(xs => xs.get(ri)),
       .Some(r) => if(seen.get(&r.var_id).is_none(), {
         seen.insert(r.var_id, true);
         out.push(r);
@@ -2302,14 +2305,14 @@ first_flow_records_in :: (fn(start : usize, end : usize) -> ArrayList(BranchInit
 last_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option(BranchInitRecord))({
   (found : Option(BranchInitRecord)) = Option(BranchInitRecord).None;
   match(
-    g_branch_init_by_var.get(&var_id),
+    g_branch_init_by_var.with(m => m.get(&var_id)),
     .Some(idxs) => {
       (k : usize) = idxs.len();
       while((k > usize(0)) && found.is_none(), {
         k = (k - usize(1));
         ix := match(idxs.get(k), .Some(x) => x, .None => usize(0));
         if((start <= ix) && (ix < end), {
-          found = g_branch_init_log.get(ix);
+          found = g_branch_init_log.with(xs => xs.get(ix));
         });
       });
     },
@@ -2322,13 +2325,13 @@ last_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option
 first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Option(BranchInitRecord))({
   (found : Option(BranchInitRecord)) = Option(BranchInitRecord).None;
   match(
-    g_branch_init_by_var.get(&var_id),
+    g_branch_init_by_var.with(m => m.get(&var_id)),
     .Some(idxs) => {
       (k : usize) = usize(0);
       while((k < idxs.len()) && found.is_none(), {
         ix := match(idxs.get(k), .Some(x) => x, .None => usize(0));
         if((start <= ix) && (ix < end), {
-          found = g_branch_init_log.get(ix);
+          found = g_branch_init_log.with(xs => xs.get(ix));
         });
         k = (k + usize(1));
       });
@@ -2338,12 +2341,12 @@ first_flow_record_in :: (fn(var_id : usize, start : usize, end : usize) -> Optio
   found
 });
 register_struct_ctor_fid :: (fn(struct_id : &String, ctor_fid : &String) -> unit)({
-  g_struct_ctor_fids.insert(struct_id, ctor_fid);
+  g_struct_ctor_fids.with_mut(m => m.insert(struct_id, ctor_fid));
   ()
 });
 /// The constructor funcId stamped for `struct_id`, if any.
 lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
-  g_struct_ctor_fids.get(struct_id)
+  g_struct_ctor_fids.with(m => m.get(struct_id))
 );
 /// Trait counterpart of the struct ctor-fid table. The generic-impl
 /// registry keys parameterized traits by the trait constructor's funcId
@@ -2351,20 +2354,20 @@ lookup_struct_ctor_fid :: (fn(struct_id : &String) -> Option(String))(
 /// share one bucket. `TraitT` cannot carry the fid; the id-keyed
 /// table is the same object-identity surrogate as the struct table above.
 /// First stamp wins.
-(g_trait_ctor_fids : HashMap(String, String)) = HashMap(String, String).new();
+(g_trait_ctor_fids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Record the constructor funcId for the trait with `trait_id` (first wins).
 register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)({
   match(
-    g_trait_ctor_fids.get(trait_id.clone()),
+    g_trait_ctor_fids.with(m => m.get(trait_id.clone())),
     .Some(_) => (),
     .None => {
-      g_trait_ctor_fids.insert(trait_id, ctor_fid);
+      g_trait_ctor_fids.with_mut(m => m.insert(trait_id, ctor_fid));
     }
   );
 });
 /// The constructor funcId stamped for `trait_id`, if any.
 lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
-  g_trait_ctor_fids.get(trait_id)
+  g_trait_ctor_fids.with(m => m.get(trait_id))
 );
 /// Effective constructor func_id of a struct type: the carried
 /// `constructor_func_id`, falling back to the id-keyed stamp table (a
@@ -2471,25 +2474,25 @@ adopt_receiver_struct_instance :: (
 // whose every runtime call produced a spec is SUPERSEDED and skipped by
 // should_skip_function_codegen. A fid with any unspecialized call keeps its
 // emission (status quo).
-(g_fid_rtcalls : HashMap(String, usize)) = HashMap(String, usize).new();
-(g_fid_specs : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_fid_rtcalls : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
+(g_fid_specs : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
 /// Count a runtime call dispatch for `fid`.
 record_fid_rtcall :: (fn(fid : &String) -> unit)({
-  n := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_rtcalls.insert(fid, n + usize(1));
+  n := match(g_fid_rtcalls.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  g_fid_rtcalls.with_mut(m => m.insert(fid, n + usize(1)));
   ()
 });
 /// Count a successful call-site specialization of `fid`.
 record_fid_spec :: (fn(fid : &String) -> unit)({
-  n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  g_fid_specs.insert(fid, n + usize(1));
+  n := match(g_fid_specs.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  g_fid_specs.with_mut(m => m.insert(fid, n + usize(1)));
   ()
 });
 /// True when every counted runtime call of `fid` was specialized (and at
 /// least one was) — the original body is dead and must not be emitted.
 fid_fully_specialized :: (fn(fid : &String) -> bool)({
-  specs := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
-  calls := match(g_fid_rtcalls.get(fid.clone()), .Some(v) => v, .None => usize(0));
+  specs := match(g_fid_specs.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
+  calls := match(g_fid_rtcalls.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
   (specs > usize(0)) && (specs >= calls)
 });
 // Macro-expansion side-table: a macro CALL's expanded form (e.g. `if(c, t, e)` →
@@ -2511,20 +2514,20 @@ fid_fully_specialized :: (fn(fid : &String) -> bool)({
 /// this error (its code, span and help) instead of the generic E0905
 /// (issues/fixed/an-ioasync-closure-calling-a-ctl-through-a-nested-bundle-field-ices-codegen.md).
 HollowBodyError :: struct(message : String, diagnostics : ArrayList(Diagnostic));
-(g_hollow_body_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
+(g_hollow_body_errors : RefCell(HashMap(String, HollowBodyError))) = RefCell(HashMap(String, HollowBodyError)).new(HashMap(String, HollowBodyError).new());
 record_hollow_body_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
-  g_hollow_body_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  g_hollow_body_errors.with_mut(m => m.insert(site, HollowBodyError(message : message, diagnostics : diagnostics)));
   ()
 });
 /// A body's definition succeeded after all (a later trial of the same body):
 /// forget what an earlier trial recorded.
 clear_hollow_body_error :: (fn(site : &String) -> unit)({
-  if(g_hollow_body_errors.len() > usize(0), {
-    _removed := g_hollow_body_errors.remove(site);
+  if(g_hollow_body_errors.with(m => m.len()) > usize(0), {
+    _removed := g_hollow_body_errors.with_mut(m => m.remove(site));
   });
   ()
 });
-lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_hollow_body_errors.get(site));
+lookup_hollow_body_error :: (fn(site : &String) -> Option(HollowBodyError))(g_hollow_body_errors.with(m => m.get(site)));
 /// The error a GENERIC body's definition-time trial swallowed and kept, keyed
 /// by the body's source position (`module:row:col`): the trial ran with the
 /// type variables abstract, so a call may still resolve it
@@ -2537,41 +2540,41 @@ trial_body_site :: (fn(body : &AstExpr) -> String)({
   tok := ast_expr_token(body);
   `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`
 });
-(g_generic_trial_errors : HashMap(String, HollowBodyError)) = HashMap(String, HollowBodyError).new();
+(g_generic_trial_errors : RefCell(HashMap(String, HollowBodyError))) = RefCell(HashMap(String, HollowBodyError)).new(HashMap(String, HollowBodyError).new());
 record_generic_trial_error :: (fn(site : &String, message : &String, diagnostics : &ArrayList(Diagnostic)) -> unit)({
-  g_generic_trial_errors.insert(site, HollowBodyError(message : message, diagnostics : diagnostics));
+  g_generic_trial_errors.with_mut(m => m.insert(site, HollowBodyError(message : message, diagnostics : diagnostics)));
   ()
 });
 /// A later trial of the same generic body succeeded: forget the record.
 clear_generic_trial_error :: (fn(site : &String) -> unit)({
-  if(g_generic_trial_errors.len() > usize(0), {
-    _removed := g_generic_trial_errors.remove(site);
+  if(g_generic_trial_errors.with(m => m.len()) > usize(0), {
+    _removed := g_generic_trial_errors.with_mut(m => m.remove(site));
   });
   ()
 });
-lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_generic_trial_errors.get(site));
+lookup_generic_trial_error :: (fn(site : &String) -> Option(HollowBodyError))(g_generic_trial_errors.with(m => m.get(site)));
 /// Where a specialization was first requested: the call's position and the
 /// instantiation it asked for (`twice` with T = bool). Keyed by the
 /// specialization's func id; written once, by the first call that minted it.
 SpecInstantiation :: struct(call_token : Token, description : String);
-(g_spec_instantiations : HashMap(String, SpecInstantiation)) = HashMap(String, SpecInstantiation).new();
+(g_spec_instantiations : RefCell(HashMap(String, SpecInstantiation))) = RefCell(HashMap(String, SpecInstantiation)).new(HashMap(String, SpecInstantiation).new());
 record_spec_instantiation :: (fn(spec_fid : &String, call_token : &Token, description : &String) -> unit)({
-  if(g_spec_instantiations.get(spec_fid.clone()).is_none(), {
-    g_spec_instantiations.insert(spec_fid, SpecInstantiation(call_token : call_token, description : description));
+  if(g_spec_instantiations.with(m => m.get(spec_fid.clone())).is_none(), {
+    g_spec_instantiations.with_mut(m => m.insert(spec_fid, SpecInstantiation(call_token : call_token, description : description)));
   });
   ()
 });
-lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.get(spec_fid));
-(g_macro_expansions : HashMap(ExprId, AstExpr)) = HashMap(ExprId, AstExpr).new();
+lookup_spec_instantiation :: (fn(spec_fid : &String) -> Option(SpecInstantiation))(g_spec_instantiations.with(m => m.get(spec_fid)));
+(g_macro_expansions : RefCell(HashMap(ExprId, AstExpr))) = RefCell(HashMap(ExprId, AstExpr)).new(HashMap(ExprId, AstExpr).new());
 /// Record the expanded form for a macro-call expr id.
 record_macro_expansion :: (fn(call_id : ExprId, expanded : &AstExpr) -> unit)({
   record_owned_expr_id(call_id);
-  g_macro_expansions.insert(call_id, expanded);
+  g_macro_expansions.with_mut(m => m.insert(call_id, expanded));
   ()
 });
 /// Look up the expanded form for a macro-call expr id, if recorded.
 lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
-  g_macro_expansions.get(&call_id)
+  g_macro_expansions.with(m => m.get(&call_id))
 );
 // Module-level mutable-variable init expressions, collected during module-body
 // evaluation (`evaluate_anonymous_module_begin_exprs`) and consumed by codegen
@@ -2581,21 +2584,21 @@ lookup_macro_expansion :: (fn(call_id : ExprId) -> Option(AstExpr))(
 // above). Dedup by expr id bounds re-collection across the evaluator's multiple
 // passes; codegen additionally dedups by resolved C variable name (a global may
 // still be recorded under distinct clone ids) to avoid duplicate C declarations.
-(g_module_level_init_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-(g_module_level_init_seen : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
+(g_module_level_init_exprs : RefCell(ArrayList(AstExpr))) = RefCell(ArrayList(AstExpr)).new(ArrayList(AstExpr).new());
+(g_module_level_init_seen : RefCell(HashMap(ExprId, bool))) = RefCell(HashMap(ExprId, bool)).new(HashMap(ExprId, bool).new());
 /// Record a module-level `:=` / `(x : T) = v` init expression for codegen.
 record_module_level_init_expr :: (fn(e : &AstExpr) -> unit)({
   eid := ast_expr_id(e);
-  already := match(g_module_level_init_seen.get(&eid), .Some(_) => true, .None => false);
+  already := match(g_module_level_init_seen.with(m => m.get(&eid)), .Some(_) => true, .None => false);
   if(!already, {
-    g_module_level_init_seen.insert(eid, true);
-    g_module_level_init_exprs.push(e);
+    g_module_level_init_seen.with_mut(m => m.insert(eid, true));
+    g_module_level_init_exprs.with_mut(xs => xs.push(e));
   });
   ()
 });
 /// All collected module-level init expressions (for codegen declaration + init).
 get_module_level_init_exprs :: (fn() -> ArrayList(AstExpr))(
-  g_module_level_init_exprs
+  g_module_level_init_exprs.with(xs => xs)
 );
 // `expr_contains_loop_terminator` was relocated to `./expr_traversal.yo`
 /// The Variables named `name` that node `key`'s recorded scope sees, innermost
@@ -2735,29 +2738,29 @@ export(
 // dispatcher returns a marked node whose `ExprInfo` is already recorded without
 // re-evaluating it. Marks are keyed by node id, so a cloned body (fresh ids)
 // is never affected.
-(g_preevaluated_node_ids : HashSet(usize)) = HashSet(usize).new();
+(g_preevaluated_node_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 mark_node_preevaluated :: (fn(id : usize) -> unit)({
-  _m := g_preevaluated_node_ids.insert(id);
+  _m := g_preevaluated_node_ids.with_mut(s => s.insert(id));
 });
 unmark_node_preevaluated :: (fn(id : usize) -> unit)({
-  _u := g_preevaluated_node_ids.remove(&id);
+  _u := g_preevaluated_node_ids.with_mut(s => s.remove(&id));
 });
-node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.contains(&id));
+node_is_preevaluated :: (fn(id : usize) -> bool)(g_preevaluated_node_ids.with(s => s.contains(&id)));
 /// Dup nodes that store a value into the capture struct of a closure typed
 /// `FnOnce(...)` (plans/VALUES_BY_DEFAULT.md decision 37). That container dies
 /// at its call, which can come before the source local's last use, so
 /// `_optimize_dup_drop_pairs` must never cancel such a dup against the local's
 /// scope-end drop (the pair is a move only while the container outlives the
 /// local's uses — the AGENTS.md pitfall).
-(g_call_once_capture_dup_ids : HashSet(usize)) = HashSet(usize).new();
+(g_call_once_capture_dup_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// Dups that share a still implicitly copyable argument into a by-value
 /// parameter (`_mark_by_value_param_shares`, evaluator/calls/helper.yo): the
 /// dup/drop pair optimizer never cancels them.
-(g_by_value_param_share_dup_ids : HashSet(usize)) = HashSet(usize).new();
+(g_by_value_param_share_dup_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 mark_by_value_param_share_dup :: (fn(id : usize) -> unit)({
-  _m := g_by_value_param_share_dup_ids.insert(id);
+  _m := g_by_value_param_share_dup_ids.with_mut(s => s.insert(id));
 });
-is_by_value_param_share_dup :: (fn(id : usize) -> bool)(g_by_value_param_share_dup_ids.contains(&id));
+is_by_value_param_share_dup :: (fn(id : usize) -> bool)(g_by_value_param_share_dup_ids.with(s => s.contains(&id)));
 /// The caller-owned +1 an aliased argument takes for one call (Aliasing
 /// Stage 0, `set_expr_as_needs_to_call_dup_for_borrowed_projection`,
 /// evaluator/utils.yo). Its own post-call `___drop` balances it, so the
@@ -2765,52 +2768,52 @@ is_by_value_param_share_dup :: (fn(id : usize) -> bool)(g_by_value_param_share_d
 /// drop: that "move" left the source undropped and the callee's `&` argument
 /// unprotected
 /// (issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md).
-(g_call_scoped_share_dup_ids : HashSet(usize)) = HashSet(usize).new();
+(g_call_scoped_share_dup_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 mark_call_scoped_share_dup :: (fn(id : usize) -> unit)({
-  _m := g_call_scoped_share_dup_ids.insert(id);
+  _m := g_call_scoped_share_dup_ids.with_mut(s => s.insert(id));
 });
-is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.contains(&id));
+is_call_scoped_share_dup :: (fn(id : usize) -> bool)(g_call_scoped_share_dup_ids.with(s => s.contains(&id)));
 mark_call_once_capture_dup :: (fn(id : usize) -> unit)({
-  _m := g_call_once_capture_dup_ids.insert(id);
+  _m := g_call_once_capture_dup_ids.with_mut(s => s.insert(id));
 });
-is_call_once_capture_dup :: (fn(id : usize) -> bool)(g_call_once_capture_dup_ids.contains(&id));
+is_call_once_capture_dup :: (fn(id : usize) -> bool)(g_call_once_capture_dup_ids.with(s => s.contains(&id)));
 /// The `___drop(name)` nodes the function-body drop pass schedules for an
 /// `FnOnce` closure's capture frame (decision 37): codegen skips every other
 /// drop of a capture name inside a closure body, because the closure owns its
 /// captures, but these the body owns.
-(g_fnonce_capture_drop_ids : HashSet(usize)) = HashSet(usize).new();
+(g_fnonce_capture_drop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 mark_fnonce_capture_drop :: (fn(id : usize) -> unit)({
-  _m := g_fnonce_capture_drop_ids.insert(id);
+  _m := g_fnonce_capture_drop_ids.with_mut(s => s.insert(id));
 });
-is_fnonce_capture_drop :: (fn(id : usize) -> bool)(g_fnonce_capture_drop_ids.contains(&id));
+is_fnonce_capture_drop :: (fn(id : usize) -> bool)(g_fnonce_capture_drop_ids.with(s => s.contains(&id)));
 /// The `___drop(<callee>)` nodes released right after an `FnOnce(...)` call
 /// whose callee does not own its captures (an `Fn` closure in an `FnOnce`
 /// slot; `_record_fnonce_callee_release`, calls/function.yo). They are neither
 /// a parameter's scope-end drop nor a capture's: emitted at the post-call
 /// flush, whatever the callee is (a parameter, a capture of the enclosing
 /// closure).
-(g_fnonce_post_call_release_ids : HashSet(usize)) = HashSet(usize).new();
+(g_fnonce_post_call_release_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 mark_fnonce_post_call_release :: (fn(id : usize) -> unit)({
-  _m := g_fnonce_post_call_release_ids.insert(id);
+  _m := g_fnonce_post_call_release_ids.with_mut(s => s.insert(id));
 });
-is_fnonce_post_call_release :: (fn(id : usize) -> bool)(g_fnonce_post_call_release_ids.contains(&id));
+is_fnonce_post_call_release :: (fn(id : usize) -> bool)(g_fnonce_post_call_release_ids.with(s => s.contains(&id)));
 // `YO_SPEC_REPORT=1` also counts evaluations per AST node id (the re-evaluation
 // multiplicity behind the exponential method-chain cost,
 // issues/fixed/debug-probe-line-costs-gigabytes-at-compile-time.md). Read once at
 // startup so the per-node hook costs one branch when the knob is unset.
 (g_node_eval_counting : bool) = debug_knob(`YO_SPEC_REPORT`).is_some();
-(g_node_eval_counts : HashMap(usize, usize)) = HashMap(usize, usize).new();
-(g_node_eval_labels : HashMap(usize, String)) = HashMap(usize, String).new();
+(g_node_eval_counts : RefCell(HashMap(usize, usize))) = RefCell(HashMap(usize, usize)).new(HashMap(usize, usize).new());
+(g_node_eval_labels : RefCell(HashMap(usize, String))) = RefCell(HashMap(usize, String)).new(HashMap(usize, String).new());
 /// Count one evaluation of node `id` (no-op unless `YO_SPEC_REPORT` is set).
 record_node_eval :: (fn(id : usize, tok : &Token) -> unit)({
   if(!g_node_eval_counting, {
     return(());
   });
-  n := match(g_node_eval_counts.get(&id), .Some(v) => v, .None => usize(0));
+  n := match(g_node_eval_counts.with(m => m.get(&id)), .Some(v) => v, .None => usize(0));
   if(n == usize(0), {
-    _pl := g_node_eval_labels.insert(id, `${tok.value}@${tok.module_path}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`);
+    _pl := g_node_eval_labels.with_mut(m => m.insert(id, `${tok.value}@${tok.module_path}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`));
   });
-  _pc := g_node_eval_counts.insert(id, n + usize(1));
+  _pc := g_node_eval_counts.with_mut(m => m.insert(id, n + usize(1)));
 });
 /// `YO_SPEC_REPORT=1`: at exit, print the specialization population — total
 /// nodes minted by `clone_expr_fresh_ids`, total specializations and runtime
@@ -2824,13 +2827,13 @@ print_spec_report_if_requested :: (fn() -> unit)({
   (total_calls : usize) = usize(0);
   rows := ArrayList(String).new();
   counts := ArrayList(usize).new();
-  ks := g_fid_specs.keys();
+  ks := g_fid_specs.with(m => m.keys());
   (going : bool) = true;
   while(going, {
     match(
       ks.next(),
       .Some(fid) => {
-        n := match(g_fid_specs.get(fid.clone()), .Some(v) => v, .None => usize(0));
+        n := match(g_fid_specs.with(m => m.get(fid.clone())), .Some(v) => v, .None => usize(0));
         total_specs = (total_specs + n);
         rows.push(fid.clone());
         counts.push(n);
@@ -2840,7 +2843,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
       }
     );
   });
-  cs := g_fid_rtcalls.values();
+  cs := g_fid_rtcalls.with(m => m.values());
   (going2 : bool) = true;
   while(going2, {
     match(
@@ -2884,13 +2887,13 @@ print_spec_report_if_requested :: (fn() -> unit)({
   (total_evals : usize) = usize(0);
   ids := ArrayList(usize).new();
   ecounts := ArrayList(usize).new();
-  eks := g_node_eval_counts.keys();
+  eks := g_node_eval_counts.with(m => m.keys());
   (going3 : bool) = true;
   while(going3, {
     match(
       eks.next(),
       .Some(id) => {
-        c := match(g_node_eval_counts.get(&id), .Some(v) => v, .None => usize(0));
+        c := match(g_node_eval_counts.with(m => m.get(&id)), .Some(v) => v, .None => usize(0));
         total_evals = (total_evals + c);
         ids.push(id);
         ecounts.push(c);
@@ -2916,7 +2919,7 @@ print_spec_report_if_requested :: (fn() -> unit)({
       eshown = usize(30);
     }, {
       eid := match(ids.get(ebest), .Some(i) => i, .None => usize(0));
-      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.get(&eid), .Some(l) => l, .None => String.from("?"))}`);
+      eprintln(`[spec-report]   evals=${ebc.to_string()} id=${eid.to_string()} ${match(g_node_eval_labels.with(m => m.get(&eid)), .Some(l) => l, .None => String.from("?"))}`);
       ecounts(ebest) = usize(0);
       eshown = (eshown + usize(1));
     });
@@ -2945,13 +2948,13 @@ purge_expr_side_tables :: (fn(ids : &ArrayList(usize)) -> unit)({
   });
 });
 _purge_expr_side_tables_at :: (fn(id : usize) -> unit)({
-  _t := g_method_callee_types.remove(&id);
-  _b := g_io_builtin_calls.remove(&id);
-  _v := g_method_callee_values.remove(&id);
-  _m := g_macro_expansions.remove(&id);
-  _p := g_local_borrow_step_pins.remove(&id);
-  _d := g_immediate_old_value_drops.remove(&id);
-  _c := g_consume_releases.remove(&id);
+  _t := g_method_callee_types.with_mut(m => m.remove(&id));
+  _b := g_io_builtin_calls.with_mut(m => m.remove(&id));
+  _v := g_method_callee_values.with_mut(m => m.remove(&id));
+  _m := g_macro_expansions.with_mut(m => m.remove(&id));
+  _p := g_local_borrow_step_pins.with_mut(m => m.remove(&id));
+  _d := g_immediate_old_value_drops.with_mut(m => m.remove(&id));
+  _c := g_consume_releases.with_mut(s => s.remove(&id));
 });
 /// Drop the metadata an EXECUTED fresh-id clone left behind: every node of
 /// `root`'s tree whose id lies in `[lo, hi)` (the ids the clone minted, see
@@ -2997,7 +3000,7 @@ purge_executed_clone_metadata :: (fn(table : &ExprInfoTable, root : &AstExpr, lo
 });
 /// Total entries across those tables (the B2 plateau test's probe).
 expr_side_table_entry_count :: (fn() -> usize)(
-  g_method_callee_types.len() + g_io_builtin_calls.len() + g_method_callee_values.len() + g_macro_expansions.len() + g_immediate_old_value_drops.len() + g_consume_releases.len()
+  g_method_callee_types.with(m => m.len()) + g_io_builtin_calls.with(m => m.len()) + g_method_callee_values.with(m => m.len()) + g_macro_expansions.with(m => m.len()) + g_immediate_old_value_drops.with(m => m.len()) + g_consume_releases.with(s => s.len())
 );
 export(record_module_level_init_expr, get_module_level_init_exprs);
 export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_entry_count);
@@ -3013,23 +3016,23 @@ export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_en
 /// dropped at apply time instead of corrupting the file.
 MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
 (mut(g_migrate_param_modes) : bool) = false;
-(g_migrate_edits : ArrayList(MigrateEdit)) = ArrayList(MigrateEdit).new();
-(g_migrate_edit_keys : HashSet(String)) = HashSet(String).new();
+(g_migrate_edits : RefCell(ArrayList(MigrateEdit))) = RefCell(ArrayList(MigrateEdit)).new(ArrayList(MigrateEdit).new());
+(g_migrate_edit_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_param_modes :: (fn(on : bool) -> unit)({
   g_migrate_param_modes = on;
 });
 take_migrate_edits :: (fn() -> ArrayList(MigrateEdit))({
-  out := g_migrate_edits.split_off(usize(0));
-  g_migrate_edit_keys.clear();
+  out := g_migrate_edits.with_mut(xs => xs.split_off(usize(0)));
+  g_migrate_edit_keys.with_mut(s => s.clear());
   out
 });
 record_migrate_edit :: (fn(tok : &Token, len : usize, replacement : &String, expect : &String) -> unit)({
   key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(g_migrate_edit_keys.contains(&key), {
+  if(g_migrate_edit_keys.with(s => s.contains(&key)), {
     return(());
   });
-  g_migrate_edit_keys.insert(key);
-  g_migrate_edits.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect));
+  g_migrate_edit_keys.with_mut(s => s.insert(key));
+  g_migrate_edits.with_mut(xs => xs.push(MigrateEdit(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect)));
 });
 /// Whether `yo fix --migrate params` is recording.
 migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
@@ -3059,8 +3062,8 @@ export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_m
 /// matches against the source text before it edits anything.
 AddrOfSite :: struct(path : String, row : usize, col : usize, expect : String, lent : bool);
 (mut(g_migrate_addr_of) : bool) = false;
-(g_addr_of_sites : ArrayList(AddrOfSite)) = ArrayList(AddrOfSite).new();
-(g_addr_of_site_keys : HashSet(String)) = HashSet(String).new();
+(g_addr_of_sites : RefCell(ArrayList(AddrOfSite))) = RefCell(ArrayList(AddrOfSite)).new(ArrayList(AddrOfSite).new());
+(g_addr_of_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_addr_of :: (fn(on : bool) -> unit)({
   g_migrate_addr_of = on;
 });
@@ -3075,15 +3078,15 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
   });
   reading := if(lent, String.from("lent"), String.from("addr"));
   key := `${amp_tok.module_path}:${amp_tok.row.to_string()}:${amp_tok.column.to_string()}:${reading}`;
-  if(g_addr_of_site_keys.contains(&key), {
+  if(g_addr_of_site_keys.with(s => s.contains(&key)), {
     return(());
   });
-  g_addr_of_site_keys.insert(key);
-  g_addr_of_sites.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent));
+  g_addr_of_site_keys.with_mut(s => s.insert(key));
+  g_addr_of_sites.with_mut(xs => xs.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent)));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
-  out := g_addr_of_sites.split_off(usize(0));
-  g_addr_of_site_keys.clear();
+  out := g_addr_of_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_addr_of_site_keys.with_mut(s => s.clear());
   out
 });
 export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site, take_addr_of_sites);
@@ -3096,8 +3099,8 @@ export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site,
 /// (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md).
 DestructorSite :: struct(path : String, row : usize, col : usize);
 (mut(g_migrate_drop_trait) : bool) = false;
-(g_destructor_sites : ArrayList(DestructorSite)) = ArrayList(DestructorSite).new();
-(g_destructor_site_keys : HashSet(String)) = HashSet(String).new();
+(g_destructor_sites : RefCell(ArrayList(DestructorSite))) = RefCell(ArrayList(DestructorSite)).new(ArrayList(DestructorSite).new());
+(g_destructor_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_drop_trait :: (fn(on : bool) -> unit)({
   g_migrate_drop_trait = on;
 });
@@ -3109,15 +3112,15 @@ record_destructor_site :: (fn(member_tok : &Token) -> unit)({
     return(());
   });
   key := `${member_tok.module_path}:${member_tok.row.to_string()}:${member_tok.column.to_string()}`;
-  if(g_destructor_site_keys.contains(&key), {
+  if(g_destructor_site_keys.with(s => s.contains(&key)), {
     return(());
   });
-  g_destructor_site_keys.insert(key);
-  g_destructor_sites.push(DestructorSite(path : member_tok.module_path.clone(), row : usize(member_tok.row), col : usize(member_tok.column)));
+  g_destructor_site_keys.with_mut(s => s.insert(key));
+  g_destructor_sites.with_mut(xs => xs.push(DestructorSite(path : member_tok.module_path.clone(), row : usize(member_tok.row), col : usize(member_tok.column))));
 });
 take_destructor_sites :: (fn() -> ArrayList(DestructorSite))({
-  out := g_destructor_sites.split_off(usize(0));
-  g_destructor_site_keys.clear();
+  out := g_destructor_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_destructor_site_keys.with_mut(s => s.clear());
   out
 });
 export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_destructor_site, take_destructor_sites);
@@ -3129,8 +3132,8 @@ export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_des
 /// against the source text before it edits anything.
 MarkerSite :: struct(path : String, row : usize, col : usize, expect : String, marker : String);
 (mut(g_migrate_markers) : bool) = false;
-(g_marker_sites : ArrayList(MarkerSite)) = ArrayList(MarkerSite).new();
-(g_marker_site_keys : HashSet(String)) = HashSet(String).new();
+(g_marker_sites : RefCell(ArrayList(MarkerSite))) = RefCell(ArrayList(MarkerSite)).new(ArrayList(MarkerSite).new());
+(g_marker_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_markers :: (fn(on : bool) -> unit)({
   g_migrate_markers = on;
 });
@@ -3141,14 +3144,14 @@ migrate_markers_on :: (fn() -> bool)(g_migrate_markers);
 /// position and marker.
 record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> unit)({
   key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
-  if(!g_marker_site_keys.insert(key), {
+  if(!g_marker_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_marker_sites.push(MarkerSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone()));
+  g_marker_sites.with_mut(xs => xs.push(MarkerSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone())));
 });
 take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
-  out := g_marker_sites.split_off(usize(0));
-  g_marker_site_keys.clear();
+  out := g_marker_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_marker_site_keys.with_mut(s => s.clear());
   out
 });
 export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, take_marker_sites);
@@ -3160,8 +3163,8 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// it edits anything.
 RcPatternSite :: struct(path : String, row : usize, col : usize, expect : String);
 (mut(g_migrate_rc_pattern) : bool) = false;
-(g_rc_pattern_sites : ArrayList(RcPatternSite)) = ArrayList(RcPatternSite).new();
-(g_rc_pattern_site_keys : HashSet(String)) = HashSet(String).new();
+(g_rc_pattern_sites : RefCell(ArrayList(RcPatternSite))) = RefCell(ArrayList(RcPatternSite)).new(ArrayList(RcPatternSite).new());
+(g_rc_pattern_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_rc_pattern :: (fn(on : bool) -> unit)({
   g_migrate_rc_pattern = on;
 });
@@ -3172,14 +3175,14 @@ migrate_rc_pattern_on :: (fn() -> bool)(g_migrate_rc_pattern);
 /// position.
 record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(!g_rc_pattern_site_keys.insert(key), {
+  if(!g_rc_pattern_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_rc_pattern_sites.push(RcPatternSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone()));
+  g_rc_pattern_sites.with_mut(xs => xs.push(RcPatternSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
 });
 take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
-  out := g_rc_pattern_sites.split_off(usize(0));
-  g_rc_pattern_site_keys.clear();
+  out := g_rc_pattern_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_rc_pattern_site_keys.with_mut(s => s.clear());
   out
 });
 export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_pattern_site, take_rc_pattern_sites);
@@ -3191,8 +3194,8 @@ export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_p
 /// it edits anything.
 DynSpellingSite :: struct(path : String, row : usize, col : usize, expect : String);
 (mut(g_migrate_dyn_spelling) : bool) = false;
-(g_dyn_spelling_sites : ArrayList(DynSpellingSite)) = ArrayList(DynSpellingSite).new();
-(g_dyn_spelling_site_keys : HashSet(String)) = HashSet(String).new();
+(g_dyn_spelling_sites : RefCell(ArrayList(DynSpellingSite))) = RefCell(ArrayList(DynSpellingSite)).new(ArrayList(DynSpellingSite).new());
+(g_dyn_spelling_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_dyn_spelling :: (fn(on : bool) -> unit)({
   g_migrate_dyn_spelling = on;
 });
@@ -3203,14 +3206,14 @@ migrate_dyn_spelling_on :: (fn() -> bool)(g_migrate_dyn_spelling);
 /// position.
 record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(!g_dyn_spelling_site_keys.insert(key), {
+  if(!g_dyn_spelling_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_dyn_spelling_sites.push(DynSpellingSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone()));
+  g_dyn_spelling_sites.with_mut(xs => xs.push(DynSpellingSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
 });
 take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
-  out := g_dyn_spelling_sites.split_off(usize(0));
-  g_dyn_spelling_site_keys.clear();
+  out := g_dyn_spelling_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_dyn_spelling_site_keys.with_mut(s => s.clear());
   out
 });
 export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, record_dyn_spelling_site, take_dyn_spelling_sites);
@@ -3219,8 +3222,8 @@ export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, recor
 /// `expect` the name, which the rewrite matches against the source text.
 MutableGlobalSite :: struct(path : String, row : usize, col : usize, expect : String);
 (mut(g_migrate_mutable_globals) : bool) = false;
-(g_mutable_global_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
-(g_mutable_global_site_keys : HashSet(String)) = HashSet(String).new();
+(g_mutable_global_sites : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
+(g_mutable_global_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_mutable_globals :: (fn(on : bool) -> unit)({
   g_migrate_mutable_globals = on;
 });
@@ -3230,14 +3233,14 @@ migrate_mutable_globals_on :: (fn() -> bool)(g_migrate_mutable_globals);
 /// Record the declaration `decl` of the written global `name`, once.
 record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   key := `${_mg_canon(&decl.module_path)}:${decl.row.to_string()}:${decl.column.to_string()}`;
-  if(!g_mutable_global_site_keys.insert(key), {
+  if(!g_mutable_global_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_mutable_global_sites.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+  g_mutable_global_sites.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
 });
 take_mutable_global_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mutable_global_sites.split_off(usize(0));
-  g_mutable_global_site_keys.clear();
+  out := g_mutable_global_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_mutable_global_site_keys.with_mut(s => s.clear());
   out
 });
 export(MutableGlobalSite, set_migrate_mutable_globals, migrate_mutable_globals_on, record_mutable_global_site, take_mutable_global_sites);
@@ -3246,10 +3249,10 @@ export(MutableGlobalSite, set_migrate_mutable_globals, migrate_mutable_globals_o
 /// cannot take the marker (decision 47: parameters stay immutable); it is
 /// recorded in `g_mut_param_sites` at the write, for the report.
 (mut(g_migrate_mut_bindings) : bool) = false;
-(g_mut_binding_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
-(g_mut_binding_site_keys : HashSet(String)) = HashSet(String).new();
-(g_mut_param_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
-(g_mut_param_site_keys : HashSet(String)) = HashSet(String).new();
+(g_mut_binding_sites : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
+(g_mut_binding_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+(g_mut_param_sites : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
+(g_mut_param_site_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 set_migrate_mut_bindings :: (fn(on : bool) -> unit)({
   g_migrate_mut_bindings = on;
 });
@@ -3262,47 +3265,47 @@ record_mut_binding_site :: (fn(decl : &Token, name : &String) -> unit)({
 });
 _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
-  if(!g_mut_binding_site_keys.insert(key), {
+  if(!g_mut_binding_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_mut_binding_sites.push(site);
+  g_mut_binding_sites.with_mut(xs => xs.push(site));
 });
 /// A write inside a `comptime_expect_error` argument is HELD, not recorded:
 /// whether its binding needs `mut` depends on what the case expects, which
 /// is known only once the argument has been evaluated
 /// (`settle_mut_binding_pending`).
-(g_mut_binding_pending : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
+(g_mut_binding_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_binding_site_pending :: (fn(decl : &Token, name : &String) -> unit)({
-  g_mut_binding_pending.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+  g_mut_binding_pending.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
 });
-mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.len());
+mut_binding_pending_mark :: (fn() -> usize)(g_mut_binding_pending.with(xs => xs.len()));
 /// A parameter write held the same way, by the position of the write.
-(g_mut_param_pending : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
+(g_mut_param_pending : RefCell(ArrayList(MutableGlobalSite))) = RefCell(ArrayList(MutableGlobalSite)).new(ArrayList(MutableGlobalSite).new());
 record_mut_param_site_pending :: (fn(at : &Token, name : &String) -> unit)({
-  g_mut_param_pending.push(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone()));
+  g_mut_param_pending.with_mut(xs => xs.push(MutableGlobalSite(path : at.module_path.clone(), row : usize(at.row), col : usize(at.column), expect : name.clone())));
 });
-mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.len());
+mut_param_pending_mark :: (fn() -> usize)(g_mut_param_pending.with(xs => xs.len()));
 /// Settle the writes held since `mark`. `keep` (the argument raised an error
 /// even with the writes accepted) records them: the case expects some OTHER
 /// error, and its binding needs `mut` for that error to stay the one raised.
 /// Otherwise the case expects the immutable-binding write itself, and its
 /// binding stays unmarked. Returns how many writes were held.
 settle_mut_binding_pending :: (fn(mark : usize, pmark : usize, keep : bool) -> usize)({
-  held := ((g_mut_binding_pending.len() - mark) + (g_mut_param_pending.len() - pmark));
+  held := ((g_mut_binding_pending.with(xs => xs.len()) - mark) + (g_mut_param_pending.with(xs => xs.len()) - pmark));
   if(keep, {
     (i : usize) = mark;
-    while(i < g_mut_binding_pending.len(), {
-      match(g_mut_binding_pending.get(i), .Some(site) => _record_mut_binding_site_at(site), .None => ());
+    while(i < g_mut_binding_pending.with(xs => xs.len()), {
+      match(g_mut_binding_pending.with(xs => xs.get(i)), .Some(site) => _record_mut_binding_site_at(site), .None => ());
       i = (i + usize(1));
     });
     (j : usize) = pmark;
-    while(j < g_mut_param_pending.len(), {
-      match(g_mut_param_pending.get(j), .Some(psite) => _record_mut_param_site_at(psite), .None => ());
+    while(j < g_mut_param_pending.with(xs => xs.len()), {
+      match(g_mut_param_pending.with(xs => xs.get(j)), .Some(psite) => _record_mut_param_site_at(psite), .None => ());
       j = (j + usize(1));
     });
   });
-  g_mut_binding_pending.truncate(mark);
-  g_mut_param_pending.truncate(pmark);
+  g_mut_binding_pending.with_mut(xs => xs.truncate(mark));
+  g_mut_param_pending.with_mut(xs => xs.truncate(pmark));
   held
 });
 /// Record a write `at` of the parameter `name`, once per position.
@@ -3311,19 +3314,19 @@ record_mut_param_site :: (fn(at : &Token, name : &String) -> unit)({
 });
 _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
-  if(!g_mut_param_site_keys.insert(key), {
+  if(!g_mut_param_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
-  g_mut_param_sites.push(site);
+  g_mut_param_sites.with_mut(xs => xs.push(site));
 });
 take_mut_binding_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_binding_sites.split_off(usize(0));
-  g_mut_binding_site_keys.clear();
+  out := g_mut_binding_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_mut_binding_site_keys.with_mut(s => s.clear());
   out
 });
 take_mut_param_sites :: (fn() -> ArrayList(MutableGlobalSite))({
-  out := g_mut_param_sites.split_off(usize(0));
-  g_mut_param_site_keys.clear();
+  out := g_mut_param_sites.with_mut(xs => xs.split_off(usize(0)));
+  g_mut_param_site_keys.with_mut(s => s.clear());
   out
 });
 export(set_migrate_mut_bindings, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, mut_binding_pending_mark, record_mut_param_site_pending, mut_param_pending_mark, settle_mut_binding_pending, record_mut_param_site, take_mut_binding_sites, take_mut_param_sites);

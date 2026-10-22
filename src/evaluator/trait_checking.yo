@@ -103,6 +103,7 @@ pragma(Pragma.AllowUnsafe);
   SynthesizeOptions
 } :: import("./types/synthesizer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries } :: import("./values/type_trait_methods.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Auto-derived trait registry (folded from former
 // `evaluator/types/trait_registry.yo`).
@@ -132,18 +133,18 @@ pragma(Pragma.AllowUnsafe);
 /// copies the target (`Self(self.n.clone())` on a newtype is a copy of the
 /// place `self.n` once the `u32` clone expands to its receiver). The `Copy`
 /// impl registered right after still checks every part.
-(g_copy_pending_keys : ArrayList(String)) = ArrayList(String).new();
+(g_copy_pending_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Types whose flip answer is being computed: asking `Copy` of a type can ask
 /// `type_contains_rc_type` of it again (through its `Copy` impl's checks),
 /// which asks the flip; an in-progress type answers "not lacking" there.
-(g_lacks_copy_in_progress : ArrayList(String)) = ArrayList(String).new();
-(g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_lacks_copy_in_progress : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_lacks_copy_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 (mut(g_lacks_copy_memo_epoch) : u64) = u64(0);
 /// The identity front cache of `g_lacks_copy_memo` (see `type_identity_slot`,
 /// types/type_key.yo): handles sorted by address, their answers, and the
 /// type-key epoch they were keyed in. Cleared with the memo.
-(g_lacks_copy_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-(g_lacks_copy_fast_answers : ArrayList(bool)) = ArrayList(bool).new();
+(g_lacks_copy_fast : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_lacks_copy_fast_answers : RefCell(ArrayList(bool))) = RefCell(ArrayList(bool)).new(ArrayList(bool).new());
 (mut(g_lacks_copy_fast_epoch) : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
 /// `trait_name`, resolved to its canonical env trait VALUE. If the trait isn't in
@@ -229,13 +230,13 @@ AssocTypeCheckResult :: struct(
 // Global recursion guard for type_implements_trait
 // ---------------------------------------------------------------------------
 /// Recursion guard to prevent infinite loops when checking trait implementations.
-(g_trait_check_recursion_guard : ArrayList(String)) = ArrayList(String).new();
+(g_trait_check_recursion_guard : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// On-demand marker re-derivation guard (step 4b): prevents infinite recursion
 /// when recomputing an auto-derived marker from a self-referential type's fields
 /// (e.g. `ListNode(_next : Option(Self))`). Keyed by `${type_id}:${trait_id}`.
-(g_ondemand_marker_guard : ArrayList(String)) = ArrayList(String).new();
+(g_ondemand_marker_guard : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Send derivation in-progress set.
-(g_send_derivation_in_progress : ArrayList(String)) = ArrayList(String).new();
+(g_send_derivation_in_progress : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 // ---------------------------------------------------------------------------
 // Helper: extract trait ID
 // ---------------------------------------------------------------------------
@@ -286,9 +287,9 @@ _is_thread_marker :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)({
 _ondemand_guard_contains :: (fn(key : &String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < g_ondemand_marker_guard.len()) && !found, {
+  while((i < g_ondemand_marker_guard.with(xs => xs.len())) && !found, {
     match(
-      g_ondemand_marker_guard.get(i),
+      g_ondemand_marker_guard.with(xs => xs.get(i)),
       .Some(k) => if(k == key, {
         found = true;
       }),
@@ -907,13 +908,13 @@ set_flip_prelude_env :: (fn(env : &Environment) -> unit)({
 /// Mark `ty` as the target of a `derive` that includes `Copy` (see
 /// `g_copy_pending_keys`).
 push_copy_pending :: (fn(ty : &TypeValue) -> unit)({
-  g_copy_pending_keys.push(type_key(ty));
+  g_copy_pending_keys.with_mut(xs => xs.push(type_key(ty)));
 });
 /// Forget every pending `Copy` derive target. Derives do not nest, so a
 /// derive clears the list on entry and on exit (and its guarded caller after
 /// a throw), and a failed derive leaves nothing behind.
 clear_copy_pending :: (fn() -> unit)({
-  g_copy_pending_keys.clear();
+  g_copy_pending_keys.with_mut(xs => xs.clear());
 });
 /// Whether `ty` has no `Clone` impl, asked in the flip's environment: a
 /// plain-data type with neither `Copy` nor `Clone` is move-only, and the E0901
@@ -1041,17 +1042,17 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   });
   // The identity cache answers only while no derive is pending: the pending
   // check below needs the key.
-  if(g_copy_pending_keys.is_empty(), {
+  if(g_copy_pending_keys.with(xs => xs.is_empty()), {
     if(g_lacks_copy_fast_epoch != type_key_epoch(), {
-      g_lacks_copy_fast.clear();
-      g_lacks_copy_fast_answers.clear();
+      g_lacks_copy_fast.with_mut(xs => xs.clear());
+      g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
       g_lacks_copy_fast_epoch = type_key_epoch();
     });
-    (slot : usize) = type_identity_slot(&g_lacks_copy_fast, &ty);
-    if(type_identity_slot_holds(&g_lacks_copy_fast, slot, &ty), {
-      fast := match(g_lacks_copy_fast_answers.get(slot), .Some(a) => a, .None => false);
+    (slot : usize) = g_lacks_copy_fast.with(xs => type_identity_slot(xs, &ty));
+    if(g_lacks_copy_fast.with(xs => type_identity_slot_holds(xs, slot, &ty)), {
+      fast := match(g_lacks_copy_fast_answers.with(xs => xs.get(slot)), .Some(a) => a, .None => false);
       if(type_key_memo_check_enabled(), {
-        slow := g_lacks_copy_memo.get(type_key(&ty));
+        slow := g_lacks_copy_memo.with(m => m.get(type_key(&ty)));
         if(match(slow, .Some(m) => (m != fast), .None => true), {
           panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: type_lacks_copy_for_flip(${type_to_string(&ty)}): the identity cache answers ${if(fast, "true", "false")}, the type_key memo ${match(slow, .Some(m) => if(m, "answers true", "answers false"), .None => "has no entry")}`);
         });
@@ -1063,14 +1064,14 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   key := type_key(&ty);
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
-  while(pi < g_copy_pending_keys.len(), {
-    if(match(g_copy_pending_keys.get(pi), .Some(pk) => (pk == key), .None => false), {
+  while(pi < g_copy_pending_keys.with(xs => xs.len()), {
+    if(match(g_copy_pending_keys.with(xs => xs.get(pi)), .Some(pk) => (pk == key), .None => false), {
       return(false);
     });
     pi = (pi + usize(1));
   });
   match(
-    g_lacks_copy_memo.get(key.clone()),
+    g_lacks_copy_memo.with(m => m.get(key.clone())),
     .Some(known) => {
       _record_lacks_copy_fast(&ty, key_epoch, known);
       return(known);
@@ -1078,13 +1079,13 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     .None => ()
   );
   (ipi : usize) = usize(0);
-  while(ipi < g_lacks_copy_in_progress.len(), {
-    if(match(g_lacks_copy_in_progress.get(ipi), .Some(ik) => (ik == key), .None => false), {
+  while(ipi < g_lacks_copy_in_progress.with(xs => xs.len()), {
+    if(match(g_lacks_copy_in_progress.with(xs => xs.get(ipi)), .Some(ik) => (ik == key), .None => false), {
       return(false);
     });
     ipi = (ipi + usize(1));
   });
-  g_lacks_copy_in_progress.push(key.clone());
+  g_lacks_copy_in_progress.with_mut(xs => xs.push(key.clone()));
   answer := cond(
     (type_is_comptime_only_full(&ty, &env) || type_is_control_bound(&ty)) => false,
     true => match(
@@ -1093,14 +1094,14 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
       .None => false
     )
   );
-  _ := g_lacks_copy_in_progress.pop();
+  _ := g_lacks_copy_in_progress.with_mut(xs => xs.pop());
   // The query itself may force pending impls (and bump the epoch); record
   // the answer under the epoch it was computed at.
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
     _clear_lacks_copy_memo();
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
-  g_lacks_copy_memo.insert(key, answer);
+  g_lacks_copy_memo.with_mut(m => m.insert(key, answer));
   _record_lacks_copy_fast(&ty, key_epoch, answer);
   answer
 });
@@ -1112,24 +1113,24 @@ _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) 
     return(());
   });
   if(g_lacks_copy_fast_epoch != key_epoch, {
-    g_lacks_copy_fast.clear();
-    g_lacks_copy_fast_answers.clear();
+    g_lacks_copy_fast.with_mut(xs => xs.clear());
+    g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
     g_lacks_copy_fast_epoch = key_epoch;
   });
-  if(g_lacks_copy_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
-    g_lacks_copy_fast.clear();
-    g_lacks_copy_fast_answers.clear();
+  if(g_lacks_copy_fast.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+    g_lacks_copy_fast.with_mut(xs => xs.clear());
+    g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
   });
-  (slot : usize) = type_identity_slot(&g_lacks_copy_fast, ty);
-  if(!type_identity_slot_holds(&g_lacks_copy_fast, slot, ty), {
-    g_lacks_copy_fast.insert(slot, ty);
-    g_lacks_copy_fast_answers.insert(slot, answer);
+  (slot : usize) = g_lacks_copy_fast.with(xs => type_identity_slot(xs, ty));
+  if(!g_lacks_copy_fast.with(xs => type_identity_slot_holds(xs, slot, ty)), {
+    g_lacks_copy_fast.with_mut(xs => xs.insert(slot, ty));
+    g_lacks_copy_fast_answers.with_mut(xs => xs.insert(slot, answer));
   });
 });
 _clear_lacks_copy_memo :: (fn() -> unit)({
-  g_lacks_copy_memo.clear();
-  g_lacks_copy_fast.clear();
-  g_lacks_copy_fast_answers.clear();
+  g_lacks_copy_memo.with_mut(m => m.clear());
+  g_lacks_copy_fast.with_mut(xs => xs.clear());
+  g_lacks_copy_fast_answers.with_mut(xs => xs.clear());
 });
 /// Empty when `ty` is `Copy`, and for a compile-time-only type: its copies
 /// never reach run time.
@@ -1662,7 +1663,7 @@ type_implements_trait :: (
       match(
         fields_opt,
         .Some(fields) => {
-          g_ondemand_marker_guard.push(ondemand_key.clone());
+          g_ondemand_marker_guard.with_mut(xs => xs.push(ondemand_key.clone()));
           (all_pass : bool) = true;
           (fi : usize) = usize(0);
           while((fi < fields.len()) && all_pass, {
@@ -1674,7 +1675,7 @@ type_implements_trait :: (
             });
             fi = (fi + usize(1));
           });
-          g_ondemand_marker_guard.drain((g_ondemand_marker_guard.len() - usize(1)) .. g_ondemand_marker_guard.len());
+          g_ondemand_marker_guard.with_mut(xs => xs.drain((xs.len() - usize(1)) .. xs.len()));
           if(all_pass, {
             return(TraitCheckResult(implemented : true, env : env));
           });
@@ -1882,11 +1883,11 @@ type_implements_trait :: (
   ).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
-  gn := g_trait_check_recursion_guard.len();
+  gn := g_trait_check_recursion_guard.with(xs => xs.len());
   (gi : usize) = usize(0);
   while(gi < gn, {
     entry := match(
-      g_trait_check_recursion_guard.get(gi),
+      g_trait_check_recursion_guard.with(xs => xs.get(gi)),
       .Some(s) => s,
       .None => {
         gi = (gi + usize(1));
@@ -1901,11 +1902,11 @@ type_implements_trait :: (
   if(already_checking, {
     return(TraitCheckResult(implemented : false, env : env));
   });
-  g_trait_check_recursion_guard.push(guard_key);
+  g_trait_check_recursion_guard.with_mut(xs => xs.push(guard_key));
   result := _find_matching_generic_impl(&target, trait_type, env);
   // Pop the guard key.
-  last_idx := (g_trait_check_recursion_guard.len() - usize(1));
-  g_trait_check_recursion_guard.remove(last_idx);
+  last_idx := (g_trait_check_recursion_guard.with(xs => xs.len()) - usize(1));
+  g_trait_check_recursion_guard.with_mut(xs => xs.remove(last_idx));
   if(!result, {
     return(TraitCheckResult(implemented : false, env : env));
   });
@@ -2158,18 +2159,18 @@ type_implements_runtime_full :: (fn(ty : &TypeValue, env : &Environment) -> bool
 ///
 ///
 begin_send_derivation :: (fn(type_id : &String) -> unit)({
-  g_send_derivation_in_progress.push(type_id);
+  g_send_derivation_in_progress.with_mut(xs => xs.push(type_id));
 });
 /// Remove a type from the Send auto-derivation in-progress set.
 ///
 ///
 end_send_derivation :: (fn(type_id : &String) -> unit)({
-  n := g_send_derivation_in_progress.len();
+  n := g_send_derivation_in_progress.with(xs => xs.len());
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
   while(i < n, {
     entry := match(
-      g_send_derivation_in_progress.get(i),
+      g_send_derivation_in_progress.with(xs => xs.get(i)),
       .Some(s) => s,
       .None => {
         i = (i + usize(1));
@@ -2184,7 +2185,7 @@ end_send_derivation :: (fn(type_id : &String) -> unit)({
   match(
     found_idx,
     .Some(idx) => {
-      g_send_derivation_in_progress.remove(idx);
+      g_send_derivation_in_progress.with_mut(xs => xs.remove(idx));
     },
     .None => ()
   );
@@ -2203,11 +2204,11 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
   // optimistically assume it implements the marker.
   ty_id := _type_id_for_trait_check(ty);
   (in_derivation : bool) = false;
-  nd := g_send_derivation_in_progress.len();
+  nd := g_send_derivation_in_progress.with(xs => xs.len());
   (id : usize) = usize(0);
   while(id < nd, {
     entry := match(
-      g_send_derivation_in_progress.get(id),
+      g_send_derivation_in_progress.with(xs => xs.get(id)),
       .Some(s) => s,
       .None => {
         id = (id + usize(1));

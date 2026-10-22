@@ -78,6 +78,7 @@
 } :: import("../async/await_analysis.yo");
 { debug_knob, display_module_path } :: import("../../utils.yo");
 { box_inner_type } :: import("../../pattern.yo");
+{ RefCell } :: import("std/sync/refcell");
 /// func_id → may-mutate verdict (true = may mutate), with the id of the body
 /// it was computed from.
 ///
@@ -90,9 +91,9 @@
 /// (issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
 _MsMemo :: struct(body_id : ExprId, mutates : bool);
 derive(_MsMemo, Copy, Clone);
-(g_ms_summary_by_fid : HashMap(String, _MsMemo)) = HashMap(String, _MsMemo).new();
+(g_ms_summary_by_fid : RefCell(HashMap(String, _MsMemo))) = RefCell(HashMap(String, _MsMemo)).new(HashMap(String, _MsMemo).new());
 /// func_ids whose bodies are currently being walked (cycle guard).
-(g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_ms_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// Builtin heads that are pure structure/control flow: walk the arguments,
 /// the head itself mutates nothing.
 _ms_head_is_safe_recurse :: (fn(h : &String) -> bool)(
@@ -220,13 +221,13 @@ impl(
     ) -> bool
   )({
     match(
-      g_ms_summary_by_fid.get(fid.clone()),
+      g_ms_summary_by_fid.with(m => m.get(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
         return(m.mutates);
       }),
       .None => ()
     );
-    if(g_ms_in_progress.get(fid.clone()).is_some(), {
+    if(g_ms_in_progress.with(m => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(false);
     });
@@ -235,10 +236,10 @@ impl(
     if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
       return(true);
     });
-    g_ms_in_progress.insert(fid, true);
+    g_ms_in_progress.with_mut(m => m.insert(fid, true));
     local_touched := ArrayList(String).new();
     mutates := _MsW.walk(body, table, &mut local_touched);
-    g_ms_in_progress.remove(fid.clone());
+    g_ms_in_progress.with_mut(m => m.remove(fid.clone()));
     // Remove the self edge (pure self-recursion does not poison memoization).
     (li : usize) = usize(0);
     filtered_touched := ArrayList(String).new();
@@ -253,7 +254,7 @@ impl(
       li = (li + usize(1));
     });
     if(mutates || (filtered_touched.len() == usize(0)), {
-      g_ms_summary_by_fid.insert(fid, _MsMemo(body_id : ast_expr_id(body), mutates : mutates));
+      g_ms_summary_by_fid.with_mut(m => m.insert(fid, _MsMemo(body_id : ast_expr_id(body), mutates : mutates)));
     });
     (ti : usize) = usize(0);
     while(ti < filtered_touched.len(), {
@@ -1309,8 +1310,8 @@ _MspAnalysis :: struct(mask : ParamMutationMask, ret : _MspRoot);
 /// The memoized analysis and the body it was computed from (a func id can
 /// name a new body after a watch re-evaluation — see `_MsMemo`).
 _MspMemo :: struct(body_id : ExprId, analysis : _MspAnalysis);
-(g_msp_by_fid : HashMap(String, _MspMemo)) = HashMap(String, _MspMemo).new();
-(g_msp_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_msp_by_fid : RefCell(HashMap(String, _MspMemo))) = RefCell(HashMap(String, _MspMemo)).new(HashMap(String, _MspMemo).new());
+(g_msp_in_progress : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 _MsP :: struct(_d : i32);
 impl(
   _MsP,
@@ -1403,13 +1404,13 @@ impl(
     fn(fid : &String, body : &AstExpr, table : &ExprInfoTable, touched : &mut ArrayList(String)) -> _MspAnalysis
   )({
     match(
-      g_msp_by_fid.get(fid.clone()),
+      g_msp_by_fid.with(m => m.get(fid.clone())),
       .Some(m) => if(m.body_id == ast_expr_id(body), {
         return(m.analysis);
       }),
       .None => ()
     );
-    if(g_msp_in_progress.get(fid.clone()).is_some(), {
+    if(g_msp_in_progress.with(m => m.get(fid.clone())).is_some(), {
       _ms_touched_add(touched, fid.clone());
       return(_MspAnalysis(mask : param_mutation_mask_new(), ret : _msp_root(MSP_ROOTED)));
     });
@@ -1422,7 +1423,7 @@ impl(
       all0.all = true;
       return(_MspAnalysis(mask : all0, ret : _msp_root(MSP_ROOTED)));
     });
-    g_msp_in_progress.insert(fid, true);
+    g_msp_in_progress.with_mut(m => m.insert(fid, true));
     local_touched := ArrayList(String).new();
     ctx := _MspCtx(
       fid : fid.clone(),
@@ -1507,7 +1508,7 @@ impl(
       );
       ri = (ri + usize(1));
     });
-    g_msp_in_progress.remove(fid.clone());
+    g_msp_in_progress.with_mut(m => m.remove(fid.clone()));
     filtered := ArrayList(String).new();
     (li : usize) = usize(0);
     while(li < local_touched.len(), {
@@ -1522,7 +1523,7 @@ impl(
     });
     result := _MspAnalysis(mask : mask, ret : ret);
     if(mask.all || (filtered.len() == usize(0)), {
-      g_msp_by_fid.insert(fid, _MspMemo(body_id : ast_expr_id(body), analysis : result));
+      g_msp_by_fid.with_mut(m => m.insert(fid, _MspMemo(body_id : ast_expr_id(body), analysis : result)));
     });
     (ti : usize) = usize(0);
     while(ti < filtered.len(), {
@@ -3494,7 +3495,7 @@ function_param_mutation_mask :: (
 // lines only; the knob stays as V2b's and V4/V5's census of those.
 // ===========================================================================
 (g_audit_rc_write : bool) = debug_knob(`YO_AUDIT_RC_WRITE`).is_some();
-(g_audit_rc_write_printed : HashSet(String)) = HashSet(String).new();
+(g_audit_rc_write_printed : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Whether `YO_AUDIT_RC_WRITE` is set.
 rc_write_audit_enabled :: (fn() -> bool)(g_audit_rc_write);
 /// The handle kind a step from a receiver of type `t` goes through: `rc` for
@@ -3626,7 +3627,7 @@ _rcw_report :: (fn(kind : str, place : &AstExpr, cross : &_RcwCross, in_closure 
   root_name := if(in_closure, String.from("capture"), _rcw_root_name(_MsP.classify(&cross.nearest, ctx)));
   proved := ((root_name == "fresh") || (root_name == "shell"));
   line := `${display_module_path(&tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()} [rc-write] kind=${kind} handle=${cross.kind} root=${root_name} proved=${if(proved, "yes", "no")} type=${type_to_string(&cross.ty)} \`${ast_expr_to_string(place)}\``;
-  if(g_audit_rc_write_printed.insert(line.clone()), {
+  if(g_audit_rc_write_printed.with_mut(s => s.insert(line.clone())), {
     eprintln(&line);
   });
 });
@@ -3810,7 +3811,7 @@ audit_rc_writes :: (fn(fid : &String, body : &AstExpr, table : &ExprInfoTable) -
 // ===========================================================================
 /// A memoized reach verdict and the body it was computed from (see `_MsMemo`).
 _GrMemo :: struct(body_id : ExprId, reach : Option(String));
-(g_gr_by_fid : HashMap(String, _GrMemo)) = HashMap(String, _GrMemo).new();
+(g_gr_by_fid : RefCell(HashMap(String, _GrMemo))) = RefCell(HashMap(String, _GrMemo)).new(HashMap(String, _GrMemo).new());
 // Cycle discipline. A recursive call to a function whose walk is in progress
 // answers `.None` optimistically, so a verdict computed under such an edge is
 // only CONDITIONAL: in `f → h → f`, `h` comes out clean although it reaches
@@ -3827,13 +3828,13 @@ _GrMemo :: struct(body_id : ExprId, reach : Option(String));
 // on demand). A parked function hit again under the same walk answers its
 // parked verdict with its low, rather than being re-walked (a call graph's
 // strongly connected component would otherwise be walked exponentially).
-(g_gr_in_progress : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_gr_in_progress : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
 (mut(g_gr_depth) : usize) = usize(0);
 (mut(g_gr_low) : Option(usize)) = Option(usize).None;
 _GrPend :: struct(body_id : ExprId, low : usize);
 derive(_GrPend, Copy, Clone);
-(g_gr_pending : HashMap(String, _GrPend)) = HashMap(String, _GrPend).new();
-(g_gr_pending_order : ArrayList(String)) = ArrayList(String).new();
+(g_gr_pending : RefCell(HashMap(String, _GrPend))) = RefCell(HashMap(String, _GrPend)).new(HashMap(String, _GrPend).new());
+(g_gr_pending_order : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _gr_note_low :: (fn(d : usize) -> unit)({
   g_gr_low = match(
     g_gr_low,
@@ -3844,13 +3845,13 @@ _gr_note_low :: (fn(d : usize) -> unit)({
 /// Retire the verdicts parked since `start`; `memoize` makes each final
 /// (clean), otherwise they are dropped.
 _gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
-  while(g_gr_pending_order.len() > start, {
+  while(g_gr_pending_order.with(xs => xs.len()) > start, {
     match(
-      g_gr_pending_order.pop(),
+      g_gr_pending_order.with_mut(xs => xs.pop()),
       .Some(pf) => match(
-        g_gr_pending.remove(pf.clone()),
+        g_gr_pending.with_mut(m => m.remove(pf.clone())),
         .Some(pe) => if(memoize, {
-          g_gr_by_fid.insert(pf, _GrMemo(body_id : pe.body_id, reach : Option(String).None));
+          g_gr_by_fid.with_mut(m => m.insert(pf, _GrMemo(body_id : pe.body_id, reach : Option(String).None)));
         }),
         .None => ()
       ),
@@ -3866,8 +3867,8 @@ _gr_settle_pending :: (fn(start : usize, memoize : bool) -> unit)({
 // global's declaration token, and each side consults the other as it records,
 // so the order the evaluator reaches the two sites in does not matter. The
 // value is the site's location, for the diagnostic.
-(g_d1_written : HashMap(String, String)) = HashMap(String, String).new();
-(g_d1_reached : HashMap(String, String)) = HashMap(String, String).new();
+(g_d1_written : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(g_d1_reached : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 _d1_global_key :: (fn(decl : &Token, name : &String) -> String)(
   `${decl.module_path}:${decl.row.to_string()}:${decl.column.to_string()}:${name}`
 );
@@ -3879,13 +3880,13 @@ _d1_location :: (fn(t : &Token) -> String)(
 d1_record_global_write :: (fn(decl : &Token, name : &String, write_tok : &Token) -> Option(String))({
   key := _d1_global_key(decl, name);
   match(
-    g_d1_written.get(key.clone()),
+    g_d1_written.with(m => m.get(key.clone())),
     .Some(_) => (),
     .None => {
-      g_d1_written.insert(key.clone(), _d1_location(write_tok));
+      g_d1_written.with_mut(m => m.insert(key.clone(), _d1_location(write_tok)));
     }
   );
-  g_d1_reached.get(&key)
+  g_d1_reached.with(m => m.get(&key))
 });
 /// `fid` is the function whose body this walk covers: the globals it reads and
 /// the functions it calls are recorded under it (`g_gr_reads_by_fid`,
@@ -3898,19 +3899,19 @@ _GrCtx :: ref(struct(table : ExprInfoTable, env : Environment, send : Option(Typ
 /// verdict is memoized for later type judgements), so an ordinary closure
 /// reading a global marked it thread-reached, and the next write anywhere
 /// was rejected (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
-(g_gr_reads_by_fid : HashMap(String, HashMap(String, String))) = HashMap(String, HashMap(String, String)).new();
-(g_gr_callees_by_fid : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
+(g_gr_reads_by_fid : RefCell(HashMap(String, HashMap(String, String)))) = RefCell(HashMap(String, HashMap(String, String))).new(HashMap(String, HashMap(String, String)).new());
+(g_gr_callees_by_fid : RefCell(HashMap(String, HashSet(String)))) = RefCell(HashMap(String, HashSet(String))).new(HashMap(String, HashSet(String)).new());
 _gr_note_read :: (fn(fid : &String, key : &String, loc : &String) -> unit)({
-  reads := match(g_gr_reads_by_fid.get(fid.clone()), .Some(m) => m, .None => HashMap(String, String).new());
+  reads := match(g_gr_reads_by_fid.with(m => m.get(fid.clone())), .Some(m) => m, .None => HashMap(String, String).new());
   if(!reads.contains_key(key.clone()), {
     reads.insert(key, loc);
   });
-  g_gr_reads_by_fid.insert(fid, reads);
+  g_gr_reads_by_fid.with_mut(m => m.insert(fid, reads));
 });
 _gr_note_callee :: (fn(ctx : &_GrCtx, callee : &String) -> unit)({
-  set := match(g_gr_callees_by_fid.get(ctx.fid.clone()), .Some(c) => c, .None => HashSet(String).new());
+  set := match(g_gr_callees_by_fid.with(m => m.get(ctx.fid.clone())), .Some(c) => c, .None => HashSet(String).new());
   set.insert(callee);
-  g_gr_callees_by_fid.insert(ctx.fid.clone(), set);
+  g_gr_callees_by_fid.with_mut(m => m.insert(ctx.fid.clone(), set));
 });
 /// Function `fid` runs on another thread (it is a `Send` closure, or code a
 /// `Send` value exposes): every global it or anything it calls reads is now
@@ -3936,7 +3937,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
     if(!seen.contains(f.clone()), {
       seen.insert(f.clone());
       match(
-        g_gr_reads_by_fid.get(f.clone()),
+        g_gr_reads_by_fid.with(m => m.get(f.clone())),
         .Some(reads) => {
           it := reads.keys();
           (go : bool) = true;
@@ -3946,7 +3947,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
               .Some(k) => {
                 if(violation.is_none(), {
                   match(
-                    g_d1_written.get(k.clone()),
+                    g_d1_written.with(m => m.get(k.clone())),
                     .Some(wloc) => {
                       rloc := match(reads.get(k.clone()), .Some(l) => l, .None => String.new());
                       gname := match(k.last_index_of(":"), .Some(ci) => k.substring(ci + usize(1), k.len()), .None => k.clone());
@@ -3955,11 +3956,11 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
                     .None => ()
                   );
                 });
-                if(!g_d1_reached.contains_key(k.clone()), {
+                if(!g_d1_reached.with(m => m.contains_key(k.clone())), {
                   match(
                     reads.get(k.clone()),
                     .Some(loc) => {
-                      g_d1_reached.insert(k, loc);
+                      g_d1_reached.with_mut(m => m.insert(k, loc));
                     },
                     .None => ()
                   );
@@ -3974,7 +3975,7 @@ d1_note_thread_reach :: (fn(fid : &String) -> Option(String))({
         .None => ()
       );
       match(
-        g_gr_callees_by_fid.get(f.clone()),
+        g_gr_callees_by_fid.with(m => m.get(f.clone())),
         .Some(cs) => {
           cit := cs.into_iter();
           (cgo : bool) = true;
@@ -4034,7 +4035,7 @@ _gr_atom :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
     _gr_note_read(ctx.fid.clone(), key.clone(), _d1_location(&tok));
     return(
       match(
-        g_d1_written.get(&key),
+        g_d1_written.with(m => m.get(&key)),
         .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&v.ty)}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(&tok)})`),
         .None => Option(String).None
       )
@@ -4261,14 +4262,14 @@ function_reaches_non_send_global :: (
 )({
   body_id := ast_expr_id(body);
   match(
-    g_gr_by_fid.get(fid.clone()),
+    g_gr_by_fid.with(m => m.get(fid.clone())),
     .Some(m) => if(m.body_id == body_id, {
       return(m.reach);
     }),
     .None => ()
   );
   match(
-    g_gr_in_progress.get(fid.clone()),
+    g_gr_in_progress.with(m => m.get(fid.clone())),
     .Some(d) => {
       _gr_note_low(d);
       return(Option(String).None);
@@ -4276,7 +4277,7 @@ function_reaches_non_send_global :: (
     .None => ()
   );
   match(
-    g_gr_pending.get(fid.clone()),
+    g_gr_pending.with(m => m.get(fid.clone())),
     .Some(pe) => if(pe.body_id == body_id, {
       _gr_note_low(pe.low);
       return(Option(String).None);
@@ -4285,7 +4286,7 @@ function_reaches_non_send_global :: (
   );
   // A body defined in a pragma'd file is the audited base.
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(body).module_path.clone())), {
-    g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None));
+    g_gr_by_fid.with_mut(m => m.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None)));
     return(Option(String).None);
   });
   if(expr_info_table_get(table, body_id).is_none(), {
@@ -4295,17 +4296,17 @@ function_reaches_non_send_global :: (
   g_gr_depth = (my_depth + usize(1));
   saved_low := g_gr_low;
   g_gr_low = Option(usize).None;
-  pending_start := g_gr_pending_order.len();
-  g_gr_in_progress.insert(fid.clone(), my_depth);
+  pending_start := g_gr_pending_order.with(xs => xs.len());
+  g_gr_in_progress.with_mut(m => m.insert(fid.clone(), my_depth));
   // This walk records the function's reads and callees afresh.
-  _r0 := g_gr_reads_by_fid.remove(fid.clone());
-  _r1 := g_gr_callees_by_fid.remove(fid.clone());
+  _r0 := g_gr_reads_by_fid.with_mut(m => m.remove(fid.clone()));
+  _r1 := g_gr_callees_by_fid.with_mut(m => m.remove(fid.clone()));
   // A module-level binding is one static every thread shares: the question is
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
   ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
   r := _gr_walk(body, &ctx);
-  g_gr_in_progress.remove(fid.clone());
+  g_gr_in_progress.with_mut(m => m.remove(fid.clone()));
   g_gr_depth = my_depth;
   // The lowest in-progress ANCESTOR this walk's subtree depended on.
   (ancestor_low : Option(usize)) = match(
@@ -4322,24 +4323,24 @@ function_reaches_non_send_global :: (
   cond(
     r.is_some() => {
       _gr_settle_pending(pending_start, false);
-      g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : r.clone()));
+      g_gr_by_fid.with_mut(m => m.insert(fid, _GrMemo(body_id : body_id, reach : r.clone())));
     },
     ancestor_low.is_none() => {
       _gr_settle_pending(pending_start, true);
-      g_gr_by_fid.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None));
+      g_gr_by_fid.with_mut(m => m.insert(fid, _GrMemo(body_id : body_id, reach : Option(String).None)));
     },
     true => {
       al := match(ancestor_low, .Some(x) => x, .None => usize(0));
       // What was parked under this walk was conditional on THIS walk (or
       // deeper ones, all finished); it now hangs on this walk's ancestor.
       (pi : usize) = pending_start;
-      while(pi < g_gr_pending_order.len(), {
+      while(pi < g_gr_pending_order.with(xs => xs.len()), {
         match(
-          g_gr_pending_order.get(pi),
+          g_gr_pending_order.with(xs => xs.get(pi)),
           .Some(pf) => match(
-            g_gr_pending.get(pf.clone()),
+            g_gr_pending.with(m => m.get(pf.clone())),
             .Some(pe) => if(pe.low >= my_depth, {
-              g_gr_pending.insert(pf.clone(), _GrPend(body_id : pe.body_id, low : al));
+              g_gr_pending.with_mut(m => m.insert(pf.clone(), _GrPend(body_id : pe.body_id, low : al)));
             }),
             .None => ()
           ),
@@ -4347,8 +4348,8 @@ function_reaches_non_send_global :: (
         );
         pi = (pi + usize(1));
       });
-      g_gr_pending.insert(fid.clone(), _GrPend(body_id : body_id, low : al));
-      g_gr_pending_order.push(fid);
+      g_gr_pending.with_mut(m => m.insert(fid.clone(), _GrPend(body_id : body_id, low : al)));
+      g_gr_pending_order.with_mut(xs => xs.push(fid));
     }
   );
   r
@@ -4407,11 +4408,11 @@ purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
     match(
       fids.get(i),
       .Some(f) => {
-        _a := g_ms_summary_by_fid.remove(f.clone());
-        _b := g_msp_by_fid.remove(f.clone());
-        _c := g_gr_by_fid.remove(f.clone());
-        _d := g_gr_reads_by_fid.remove(f.clone());
-        _e := g_gr_callees_by_fid.remove(f.clone());
+        _a := g_ms_summary_by_fid.with_mut(m => m.remove(f.clone()));
+        _b := g_msp_by_fid.with_mut(m => m.remove(f.clone()));
+        _c := g_gr_by_fid.with_mut(m => m.remove(f.clone()));
+        _d := g_gr_reads_by_fid.with_mut(m => m.remove(f.clone()));
+        _e := g_gr_callees_by_fid.with_mut(m => m.remove(f.clone()));
       },
       .None => ()
     );
@@ -4420,13 +4421,13 @@ purge_mutation_summaries :: (fn(fids : &ArrayList(String)) -> unit)({
 });
 /// Total memo entries (the LSP plateau probe).
 mutation_summary_entry_count :: (fn() -> usize)(
-  g_ms_summary_by_fid.len() + g_msp_by_fid.len() + g_gr_by_fid.len() + g_gr_reads_by_fid.len() + g_gr_callees_by_fid.len()
+  g_ms_summary_by_fid.with(m => m.len()) + g_msp_by_fid.with(m => m.len()) + g_gr_by_fid.with(m => m.len()) + g_gr_reads_by_fid.with(m => m.len()) + g_gr_callees_by_fid.with(m => m.len())
 );
 /// The memoized reach verdict of function `fid`, if one was computed: the
 /// closure's own, taken with its DEFINING env (a closure literal is walked
 /// where it is created — `validate_send_closure_global_reach`), for a later
 /// judgement that holds only the closure's type.
 d1_reach_memo :: (fn(fid : &String) -> Option(Option(String)))(
-  match(g_gr_by_fid.get(fid), .Some(m) => Option(Option(String)).Some(m.reach), .None => Option(Option(String)).None)
+  match(g_gr_by_fid.with(m => m.get(fid)), .Some(m) => Option(Option(String)).Some(m.reach), .None => Option(Option(String)).None)
 );
 export(summarize_function_bodies, purge_mutation_summaries, rc_write_audit_enabled, audit_rc_writes, mutation_summary_entry_count, function_may_mutate_rc_storage, function_param_mutation_mask, ParamMutationMask, param_mutation_mask_hits, param_mutation_mask_is_empty, strict_borrow_violations, function_reaches_non_send_global, d1_record_global_write, d1_reach_memo, d1_note_thread_reach);

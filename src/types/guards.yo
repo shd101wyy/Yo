@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, no_types } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { t_refine_inner } :: import("./definitions.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Type-declaration MODULE registry — which module declared a struct / enum /
 // union, keyed by the type id its declaration minted. `TypeValue` carries no
@@ -18,17 +19,17 @@ pragma(Pragma.AllowUnsafe);
 // decided 2026-09-16). A type with no entry (source-namespace module structs,
 // builtins) has no private members.
 // ---------------------------------------------------------------------------
-(g_type_decl_modules : HashMap(String, String)) = HashMap(String, String).new();
+(g_type_decl_modules : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_type_decl_module :: (fn(type_id : &String, module_path : &String) -> unit)({
   if((type_id.len() > usize(0)) && (module_path.len() > usize(0)), {
-    g_type_decl_modules.insert(type_id, module_path);
+    g_type_decl_modules.with_mut(m => m.insert(type_id, module_path));
   });
   ()
 });
 /// The module that declared the type with id `type_id`, if recorded (a clone —
 /// never the registry's own String).
 type_decl_module :: (fn(type_id : &String) -> Option(String))(
-  match(g_type_decl_modules.get(type_id), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
+  match(g_type_decl_modules.with(m => m.get(type_id)), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
 );
 // ---------------------------------------------------------------------------
 // enum id → DECLARATION identity (`stable_decl_key` of the `enum(...)` node),
@@ -44,10 +45,10 @@ type_decl_module :: (fn(type_id : &String) -> Option(String))(
 // keeps the shape-only rules, against std/prelude.yo's declarations only in
 // type_key (`register_prelude_enum_decl`).
 // ---------------------------------------------------------------------------
-(g_enum_decl_identities : HashMap(String, String)) = HashMap(String, String).new();
+(g_enum_decl_identities : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
   if((enum_id.len() > usize(0)) && (decl.len() > usize(0)), {
-    g_enum_decl_identities.insert(enum_id, decl);
+    g_enum_decl_identities.with_mut(m => m.insert(enum_id, decl));
   });
   ()
 });
@@ -56,20 +57,20 @@ register_enum_decl_identity :: (fn(enum_id : &String, decl : &String) -> unit)({
 /// undeclared synthetic rendition of the same shape: `create_option_type`'s
 /// `Option` is the prelude's `Option(T)`, never a user enum spelled
 /// `enum(None, Some(value : T))` that happens to be keyed first.
-(g_prelude_enum_decls : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_prelude_enum_decls : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 register_prelude_enum_decl :: (fn(decl : &String) -> unit)({
   if(decl.len() > usize(0), {
-    g_prelude_enum_decls.insert(decl, true);
+    g_prelude_enum_decls.with_mut(m => m.insert(decl, true));
   });
   ()
 });
 /// Whether declaration identity `decl` names an enum declared in std/prelude.yo.
 is_prelude_enum_decl :: (fn(decl : &String) -> bool)(
-  match(g_prelude_enum_decls.get(decl), .Some(_) => true, .None => false)
+  match(g_prelude_enum_decls.with(m => m.get(decl)), .Some(_) => true, .None => false)
 );
 /// The declaration identity recorded for enum id `enum_id` (a clone).
 enum_decl_identity :: (fn(enum_id : &String) -> Option(String))(
-  match(g_enum_decl_identities.get(enum_id), .Some(d) => Option(String).Some(d.clone()), .None => Option(String).None)
+  match(g_enum_decl_identities.with(m => m.get(enum_id)), .Some(d) => Option(String).Some(d.clone()), .None => Option(String).None)
 );
 /// Whether two enum ids are renditions of two DIFFERENT recorded declarations.
 /// An id without a recorded declaration answers `false` (no evidence).
@@ -77,8 +78,8 @@ enum_decls_differ :: (fn(a_id : &String, e_id : &String) -> bool)(
   cond(
     (a_id == e_id) => false,
     true => match(
-      g_enum_decl_identities.get(a_id),
-      .Some(ad) => match(g_enum_decl_identities.get(e_id), .Some(ed) => (ad != ed), .None => false),
+      g_enum_decl_identities.with(m => m.get(a_id)),
+      .Some(ad) => match(g_enum_decl_identities.with(m => m.get(e_id)), .Some(ed) => (ad != ed), .None => false),
       .None => false
     )
   )
@@ -118,12 +119,12 @@ is_prelude_io_struct :: (fn(t : &TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// The C name a Yo type was adopted under, and the header that defines it.
 AdoptedExternCType :: ref(struct(c_name : String, c_header : String));
-(g_adopted_extern_c_types : HashMap(String, AdoptedExternCType)) = HashMap(String, AdoptedExternCType).new();
+(g_adopted_extern_c_types : RefCell(HashMap(String, AdoptedExternCType))) = RefCell(HashMap(String, AdoptedExternCType)).new(HashMap(String, AdoptedExternCType).new());
 register_adopted_extern_c_type :: (
   fn(decl_id : &String, c_name : &String, header : &String) -> unit
 )({
   if((decl_id.len() > usize(0)) && (c_name.len() > usize(0)), {
-    g_adopted_extern_c_types.insert(decl_id, AdoptedExternCType(c_name : c_name, c_header : header));
+    g_adopted_extern_c_types.with_mut(m => m.insert(decl_id, AdoptedExternCType(c_name : c_name, c_header : header)));
   });
   ()
 });
@@ -141,7 +142,7 @@ type_decl_id :: (fn(t : &TypeValue) -> Option(String))(
 get_adopted_extern_c_type :: (fn(t : &TypeValue) -> Option(AdoptedExternCType))(
   match(
     type_decl_id(t),
-    .Some(did) => g_adopted_extern_c_types.get(&did),
+    .Some(did) => g_adopted_extern_c_types.with(m => m.get(&did)),
     .None => Option(AdoptedExternCType).None
   )
 );

@@ -34,13 +34,14 @@
 //! via the `g_size_of_type_fn` / `g_alignment_of_type_fn` slots).
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
 { eprintln } :: import("std/fmt");
 { debug_knob } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
-(g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
+(g_capture_borrows : RefCell(HashMap(String, ArrayList(CaptureBorrow)))) = RefCell(HashMap(String, ArrayList(CaptureBorrow))).new(HashMap(String, ArrayList(CaptureBorrow)).new());
 { TypeValue, TypeValueNode, t_refine_inner, no_types, SharedList } :: import("./definitions.yo");
 { type_intern_key } :: import("./intern.yo");
 { type_to_string } :: import("./string.yo");
@@ -480,18 +481,18 @@ register_capture_borrows :: (fn(struct_id : &String, borrows : &ArrayList(Captur
     });
     i = (i + usize(1));
   });
-  g_capture_borrows.insert(struct_id, borrows);
+  g_capture_borrows.with_mut(m => m.insert(struct_id, borrows));
 });
 /// The borrow entries recorded for the capture struct `struct_id`.
 capture_struct_borrows :: (fn(struct_id : &String) -> Option(ArrayList(CaptureBorrow)))(
   cond(
-    (g_capture_borrows.len() == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
-    true => g_capture_borrows.get(struct_id)
+    (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(ArrayList(CaptureBorrow)).None,
+    true => g_capture_borrows.with(m => m.get(struct_id))
   )
 );
 /// Some capture list has recorded a borrow: the fast path of every check that
 /// looks for one.
-capture_borrows_exist :: (fn() -> bool)(g_capture_borrows.len() > usize(0));
+capture_borrows_exist :: (fn() -> bool)(g_capture_borrows.with(m => m.len()) > usize(0));
 /// The place a borrow entry names, as written: `s.items`.
 capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
   out := b.root_name.clone();
@@ -511,7 +512,7 @@ capture_borrow_place_string :: (fn(b : &CaptureBorrow) -> String)({
 /// second-class type may not be a generic argument of a type constructor.
 collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)) -> unit)(
   cond(
-    (g_capture_borrows.len() == usize(0)) => (),
+    (g_capture_borrows.with(m => m.len()) == usize(0)) => (),
     true => _collect_type_borrows_inner(ty, out, u32(0))
   )
 );
@@ -526,7 +527,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     ty,
     Rc(.SomeT({ id : st_id, resolution : f_res })) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
       match(
-        g_capture_borrows.get(&st_id),
+        g_capture_borrows.with(m => m.get(&st_id)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
@@ -556,7 +557,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
     },
     Rc(.Struct({ id : sid, field_types : fields })) => {
       match(
-        g_capture_borrows.get(&sid),
+        g_capture_borrows.with(m => m.get(&sid)),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
@@ -595,7 +596,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
 /// 38 A's type-position rule rejects it.
 type_pointee_second_class :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   cond(
-    (g_capture_borrows.len() == usize(0)) => Option(TypeValue).None,
+    (g_capture_borrows.with(m => m.len()) == usize(0)) => Option(TypeValue).None,
     true => _pointee_second_class_inner(ty, u32(0))
   )
 );
@@ -661,7 +662,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
 /// constructor's argument.
 type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_capture_borrows.len() == usize(0)) => false,
+    (g_capture_borrows.with(m => m.len()) == usize(0)) => false,
     true => {
       bs := ArrayList(CaptureBorrow).new();
       _collect_type_borrows_inner(ty, &mut bs, u32(0));
@@ -672,7 +673,7 @@ type_is_second_class :: (fn(ty : &TypeValue) -> bool)(
 /// The first `mut` capture-list borrow `ty` carries (decision 38 B: such a
 /// value is lent exclusively, and it is move-only), if any.
 type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
-  if(g_capture_borrows.len() == usize(0), {
+  if(g_capture_borrows.with(m => m.len()) == usize(0), {
     return(Option(CaptureBorrow).None);
   });
   bs := ArrayList(CaptureBorrow).new();
@@ -694,11 +695,11 @@ type_first_mut_borrow :: (fn(ty : &TypeValue) -> Option(CaptureBorrow))({
 /// `mut` capture itself.
 _capture_struct_declares_mut :: (fn(ty : &TypeValue) -> bool)(
   cond(
-    (g_capture_borrows.len() == usize(0)) => false,
+    (g_capture_borrows.with(m => m.len()) == usize(0)) => false,
     true => match(
       ty,
       Rc(.Struct({ id : sid })) => match(
-        g_capture_borrows.get(&sid),
+        g_capture_borrows.with(m => m.get(&sid)),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
@@ -911,7 +912,7 @@ type_lacks_clone :: (fn(ty : &TypeValue) -> bool)(match(g_type_lacks_clone_fn, .
 /// make explicit-copy is printed once (`[flip] <type>`) where a copy of it is
 /// decided, so one pass over a tree names every type its sweep still needs.
 (g_flip_report : bool) = debug_knob(`YO_FLIP_REPORT`).is_some();
-(g_flip_reported : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_flip_reported : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
   // A closure is judged by its capture record, as in Rust: `Copy` exactly
   // when every by-value capture is (decision 36), whatever it owns. The
@@ -941,9 +942,9 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
   lacks := match(g_type_lacks_copy_fn, .Some(f) => f(&ty), .None => false);
   if(lacks && g_flip_report, {
     shown := type_to_string(&ty);
-    if(g_flip_reported.get(shown.clone()).is_none(), {
+    if(g_flip_reported.with(m => m.get(shown.clone())).is_none(), {
       eprintln(`[flip] ${shown}`);
-      _ := g_flip_reported.insert(shown, true);
+      _ := g_flip_reported.with_mut(m => m.insert(shown, true));
     });
     return(false);
   });
@@ -1531,16 +1532,16 @@ value_type_owns_buffer_outright :: (fn(ty : &TypeValue) -> bool)(
 /// compiler's `Rc`-child trees (decision 21) have no back edges, and
 /// `can_type_form_rc_cycle`'s codegen callers have no Environment to ask the
 /// trait registry, so the declaration is kept here.
-(g_declared_acyclic_ids : HashSet(String)) = HashSet(String).new();
+(g_declared_acyclic_ids : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 declare_acyclic_type_id :: (fn(id : &String) -> unit)({
-  _ := g_declared_acyclic_ids.insert(id.clone());
+  _ := g_declared_acyclic_ids.with_mut(s => s.insert(id.clone()));
 });
 /// Is `ty` a struct or enum whose `Acyclic` impl is declared?
 _declared_acyclic :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    Rc(.Struct({ id : sid })) => ((sid.len() > usize(0)) && g_declared_acyclic_ids.contains(&sid)),
-    Rc(.EnumT({ id : eid })) => ((eid.len() > usize(0)) && g_declared_acyclic_ids.contains(&eid)),
+    Rc(.Struct({ id : sid })) => ((sid.len() > usize(0)) && g_declared_acyclic_ids.with(s => s.contains(&sid))),
+    Rc(.EnumT({ id : eid })) => ((eid.len() > usize(0)) && g_declared_acyclic_ids.with(s => s.contains(&eid))),
     _ => false
   )
 );
@@ -2898,13 +2899,13 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
 // evaluator/types/enum.yo rejects those, so seeing one here means that check
 // was bypassed (yield unknown, never overflow the stack).
 // issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md.
-(g_size_walk_stack : ArrayList(String)) = ArrayList(String).new();
+(g_size_walk_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _size_walk_stack_has :: (fn(id : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_size_walk_stack.len()) && !found, {
+  while((i < g_size_walk_stack.with(xs => xs.len())) && !found, {
     match(
-      g_size_walk_stack.get(i),
+      g_size_walk_stack.with(xs => xs.get(i)),
       .Some(x) => if(x == id, {
         found = true;
       }),
@@ -3058,12 +3059,12 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
         _size_walk_stack_has(s_sz_id.clone()) => Option(usize).None,
         true => {
-          g_size_walk_stack.push(s_sz_id.clone());
+          g_size_walk_stack.with_mut(xs => xs.push(s_sz_id.clone()));
           out := cond(
             (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
             true => _c_aggregate_size(&sfts.items)
           );
-          g_size_walk_stack.pop();
+          g_size_walk_stack.with_mut(xs => xs.pop());
           out
         }
       ),
@@ -3107,9 +3108,9 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
       // overflow the stack.
       _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
       true => {
-        g_size_walk_stack.push(e_sz_id.clone());
+        g_size_walk_stack.with_mut(xs => xs.push(e_sz_id.clone()));
         out := _enum_value_size(&evf);
-        g_size_walk_stack.pop();
+        g_size_walk_stack.with_mut(xs => xs.pop());
         out
       }
     ),
@@ -3132,19 +3133,19 @@ _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
 /// it a struct DAG (`S(i) :: struct(a : S(i-1), b : S(i-1))`) is walked once
 /// per path through its 2^depth leaf tree
 /// (issues/fixed/defining-a-deep-struct-dag-is-exponential.md).
-(g_repr_memo : HashMap(String, ArrayList(_ReprMemoEntry))) = HashMap(String, ArrayList(_ReprMemoEntry)).new();
+(g_repr_memo : RefCell(HashMap(String, ArrayList(_ReprMemoEntry)))) = RefCell(HashMap(String, ArrayList(_ReprMemoEntry))).new(HashMap(String, ArrayList(_ReprMemoEntry)).new());
 /// The aggregate type objects on the current path: the same object reached
 /// again is a cycle, answered `false` there. By identity, not by id: two
 /// different types can share an id (an empty id, or a substituted copy).
-(g_repr_path : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_repr_path : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
 /// Set when the walk was cut, by a cycle or by the depth backstop: a `false`
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
 (mut(g_repr_cut) : bool) = false;
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
-  while(i < g_repr_path.len(), {
-    if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
+  while(i < g_repr_path.with(xs => xs.len()), {
+    if(match(g_repr_path.with(xs => xs.get(i)), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -3152,7 +3153,7 @@ _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   false
 });
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
-  bucket := match(g_repr_memo.get(key), .Some(b) => b, .None => return(Option(bool).None));
+  bucket := match(g_repr_memo.with(m => m.get(key)), .Some(b) => b, .None => return(Option(bool).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
@@ -3167,14 +3168,14 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   Option(bool).None
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
-  bucket := match(g_repr_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
+  bucket := match(g_repr_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
   bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
-  _ := g_repr_memo.insert(key, bucket);
+  _ := g_repr_memo.with_mut(m => m.insert(key, bucket));
 });
 /// Start a top-level predicate call: an empty memo, no cut.
 _repr_memo_reset :: (fn() -> unit)({
-  g_repr_memo.clear();
-  g_repr_path.clear();
+  g_repr_memo.with_mut(m => m.clear());
+  g_repr_path.with_mut(xs => xs.clear());
   g_repr_cut = false;
 });
 /// Internal: does `ty`'s representation transitively contain a raw pointer
@@ -3231,7 +3232,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            g_repr_path.with_mut(xs => xs.push(ty));
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3241,7 +3242,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
               });
               i = (i + usize(1));
             });
-            _ := g_repr_path.pop();
+            _ := g_repr_path.with_mut(xs => xs.pop());
             if(found || !g_repr_cut, {
               _repr_memo_store(&key, ty, found);
             });
@@ -3286,7 +3287,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            g_repr_path.with_mut(xs => xs.push(ty));
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3301,7 +3302,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
               });
               vi = (vi + usize(1));
             });
-            _ := g_repr_path.pop();
+            _ := g_repr_path.with_mut(xs => xs.pop());
             if(found || !g_repr_cut, {
               _repr_memo_store(&key, ty, found);
             });
@@ -3347,7 +3348,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            g_repr_path.with_mut(xs => xs.push(ty));
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3357,7 +3358,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
               });
               i = (i + usize(1));
             });
-            _ := g_repr_path.pop();
+            _ := g_repr_path.with_mut(xs => xs.pop());
             if(found || !g_repr_cut, {
               _repr_memo_store(&key, ty, found);
             });
@@ -3402,7 +3403,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            g_repr_path.with_mut(xs => xs.push(ty));
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3417,7 +3418,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
               });
               vi = (vi + usize(1));
             });
-            _ := g_repr_path.pop();
+            _ := g_repr_path.with_mut(xs => xs.pop());
             if(found || !g_repr_cut, {
               _repr_memo_store(&key, ty, found);
             });

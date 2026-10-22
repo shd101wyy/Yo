@@ -15,6 +15,7 @@
 { ArrayList } :: import("std/collections/array_list");
 json :: import("std/encoding/json");
 { JsonValue } :: import("std/encoding/json");
+{ RefCell } :: import("std/sync/refcell");
 /// The error-rendering format for this process: "human" (default), "short",
 /// or "json" (JSON Lines — one object per diagnostic, on stdout). Set once
 /// at CLI startup from `--error-format`/`YO_ERROR_FORMAT`; every edge that
@@ -60,7 +61,7 @@ warnings_enabled :: (fn() -> bool)(g_warnings_enabled);
 /// The collected warnings, deduped: a variable that lives in a frame
 /// walked twice (a re-evaluated generic body) warns once. Linear scan —
 /// per-scope emission keeps N small.
-(g_pending_warnings : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
+(g_pending_warnings : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
 emit_warning :: (fn(d : &Diagnostic) -> unit)({
   if(g_warnings_enabled, {
     // A `seen` flag and a loop-condition exit, NOT a `return` from inside
@@ -73,9 +74,9 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
     // condition drops every iteration's temp the loop's own way.
     (seen : bool) = false;
     (pi : usize) = usize(0);
-    while((pi < g_pending_warnings.len()) && !seen, {
+    while((pi < g_pending_warnings.with(xs => xs.len())) && !seen, {
       match(
-        g_pending_warnings.get(pi),
+        g_pending_warnings.with(xs => xs.get(pi)),
         .Some(p) => if((p.span.path == d.span.path) && (p.span.row == d.span.row) && (p.span.col == d.span.col) && (p.message == d.message), {
           seen = true;
         }),
@@ -84,14 +85,14 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
       pi = (pi + usize(1));
     });
     if(!seen, {
-      g_pending_warnings.push(d);
+      g_pending_warnings.with_mut(xs => xs.push(d));
     });
   });
 });
 /// Take (and clear) the pending warnings — the CLI edge renders whatever
 /// accumulated during the command, in the process's current format.
 take_warnings :: (fn() -> ArrayList(Diagnostic))({
-  out := g_pending_warnings.split_off(usize(0));
+  out := g_pending_warnings.with_mut(xs => xs.split_off(usize(0)));
   out
 });
 /// ── Diagnostic codes (P2, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────
@@ -559,22 +560,22 @@ edit_distance :: (fn(a : &String, b : &String) -> usize)({
 /// `export(...)` lines of every std module's PUBLIC file; empty when nothing
 /// filled it (the LSP, a compile without a std root) — then no import repair
 /// is offered, never a wrong one. Parallel arrays, a few hundred entries.
-(g_std_export_names : ArrayList(String)) = ArrayList(String).new();
-(g_std_export_modules : ArrayList(String)) = ArrayList(String).new();
+(g_std_export_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_std_export_modules : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 register_std_export :: (fn(name : &String, module_spec : &String) -> unit)({
-  g_std_export_names.push(name);
-  g_std_export_modules.push(module_spec);
+  g_std_export_names.with_mut(xs => xs.push(name));
+  g_std_export_modules.with_mut(xs => xs.push(module_spec));
 });
-std_export_index_size :: (fn() -> usize)(g_std_export_names.len());
+std_export_index_size :: (fn() -> usize)(g_std_export_names.with(xs => xs.len()));
 /// Every std module spec exporting `name`, in registration (sorted-walk) order.
 lookup_std_exporters :: (fn(name : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_std_export_names.len(), {
+  while(i < g_std_export_names.with(xs => xs.len()), {
     match(
-      g_std_export_names.get(i),
+      g_std_export_names.with(xs => xs.get(i)),
       .Some(n) => if(n == name, {
-        match(g_std_export_modules.get(i), .Some(m) => out.push(m.clone()), .None => ());
+        match(g_std_export_modules.with(xs => xs.get(i)), .Some(m) => out.push(m.clone()), .None => ());
       }),
       .None => ()
     );
