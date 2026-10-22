@@ -7385,6 +7385,11 @@ heavy run, the command is given in item 2.
            - `tests/http/http_limits.test.yo`, which fails only some of the
              time:
              `issues/2026-10-23-a-fetch-cut-off-by-a-1ms-timeout-sometimes-leaks-16-bytes.md`.
+         - The `tests/http/*` and `url` files were re-run after the two
+           client insertions, with the same results.
+         - `tests/internal/lsp_protocol.test.yo` and `error.test.yo`, which
+           import `std/encoding/json`, pass under CI's
+           `YO_TEST_LEAK_VERDICT=0`.
          - `tests/internal/compile.test.yo` passes 4/4 under CI's
            `YO_TEST_LEAK_VERDICT=0`. With the verdict on, it shows the four
            leaks of
