@@ -1,6 +1,6 @@
 # Ownership and Borrowing
 
-**Status: DRAFT (2026-10-13).** The replacement for
+**Status: DRAFT (2026-10-13; synced with the plans 2026-10-21).** The replacement for
 `docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`, promoted to
 `docs/en-US/OWNERSHIP_AND_BORROWING.md` and `docs/zh-CN/` at
 VALUES_BY_DEFAULT's V5, when the old page is deleted. The plans stay
@@ -20,6 +20,11 @@ of [`plans/backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md
 
 - **Every value has one owner.** A local, a field, an element or a parameter
   owns what it holds. When the owner goes away, the value is dropped.
+- **A binding is immutable unless it says `mut`.** `x := v` can be read,
+  lent `&` and moved; reassigning it, lending it `&mut`, calling a
+  `&mut self` method on it or writing one of its fields needs
+  `mut(x) := v` (E0917, decision 47). Parameters take no `mut`: a body
+  that writes one rebinds it, `mut(y) := x`.
 - **The last use of a value moves it.** `y := x`, passing `x` by value,
   storing it, capturing it and returning it all move `x` when nothing uses
   `x` afterwards. A later use is error E0901.
@@ -186,6 +191,27 @@ alive. The alternatives:
 - (planned: V2b) `take(&mut x.field)`, which leaves the type's `Default`
   behind, or `replace(&mut x.field, v)`.
 
+### Mutable bindings
+
+Where a binding is declared decides its lifetime, as in Zig; `mut(...)`
+around the name decides whether it can be written:
+
+| Spelling | Meaning |
+| --- | --- |
+| `x := v`, `(x : T) = v` | an immutable local or module-level binding |
+| `mut(x) := v`, `(mut(x) : T) = v` | a mutable one |
+| `x :: v` | a compile-time constant; a runtime write is E0918 |
+| `mut(x) :: v`, `comptime(mut(x)) := v` | mutable at compile time |
+| `thread_local(mut(st)) := v` | a thread-local mutable global |
+| `.Some(mut(v))`, `{ a, mut(b) } := pair` | per name in a pattern or destructuring |
+
+The four writes the marker gates: reassignment, a `&mut` lend (`&mut x`,
+`&mut x.f`, a `&mut x` capture), a `&mut self` call and a field or
+element write. Writing through a borrow is not writing the binding, so
+`a := &mut p.x; a = i32(10)` needs `mut(p)`, not `mut(a)`. An unmarked
+module-level binding is never written after its initializer, so it may
+be lent freely; lending a `mut(G)` to a call is E0916.
+
 ## 3. Drops
 
 A value is dropped when its owner stops holding it. Nothing is counted
@@ -218,9 +244,7 @@ Fd :: struct(n : i32);
 impl(
   Fd,
   Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      // close self.n here
-    })
+    drop : (fn(self : &mut Self) -> unit)(()) // close self.n here
   )
 );
 Holder :: struct(fd : Fd, tag : i32); // move-only: it holds a move-only field
@@ -267,7 +291,7 @@ impl(
 );
 
 main :: (fn() -> unit)({
-  c := Counter(n : i32(0));
+  mut(c) := Counter(n : i32(0));
   c.bump(); // receiver lent &mut, with no marker
   v := c.get(); // receiver lent &
   last := c.finish(); // receiver moved: c is not usable afterwards
@@ -288,7 +312,7 @@ bump :: (fn(n : &mut i32) -> unit)({
 peek :: (fn(n : &i32) -> i32)(n);
 
 main :: (fn() -> unit)({
-  x := i32(1);
+  mut(x) := i32(1);
   bump(&mut x); // x is 2
   y := peek(&x); // x stays usable
 });
@@ -351,7 +375,7 @@ Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 
 main :: (fn() -> unit)({
-  p := Point(x : i32(3), y : i32(4));
+  mut(p) := Point(x : i32(3), y : i32(4));
   a := &mut p.x;
   b := &mut p.y; // sibling fields borrow independently
   a = i32(10); // writes p.x
@@ -376,7 +400,7 @@ While it is live, its place is frozen:
   borrow.
 
 ```yo ignore
-x := i32(1);
+mut(x) := i32(1);
 y := &x;
 x = i32(2); // error[E0911]: Cannot write `x` here: `y` borrows `x` with `&` and is still live
 z := y; // ... because y is used here
@@ -389,8 +413,8 @@ then. A loop that mentions a borrow keeps it live for the whole loop.
 
 Two borrows conflict only if one place is a prefix of the other. Sibling
 fields are free (`&mut s.left` beside `&mut s.right`). Below an `Rc` or
-`Arc` dereference the cell is the unit, because another handle may reach
-it.
+`Arc` dereference nothing is written at all (section 10): a `&` borrow
+through the handle is ordinary, and a `&mut` one is E0919.
 
 ### A `&` borrow is read-only
 
@@ -416,11 +440,11 @@ A local borrow can be moved to a place reached from its own target, with
 cloning a node:
 
 ```yo
-Node :: struct(value : i32, next : Option(Box(Node)));
+Node :: struct(value : i32, next : Option(Box(Self)));
 List :: struct(head : Option(Box(Node)));
 
 append :: (fn(list : &mut List, v : i32) -> unit)({
-  cur := &mut list.head;
+  mut(cur) := &mut list.head;
   while(cur.is_some(), {
     match(
       cur,
@@ -437,7 +461,12 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
 - "Reached from `cur`" means through field steps, a `Box` or `Rc`
   dereference, or a binding of a `match` over `cur`. A sibling root, a
   module-level place or a call result is rejected. (planned: V2b) A
-  projection step joins the list.
+  projection step joins the list, and a `match` binding over a `Box`
+  payload becomes a place rather than a copy (decision 26), which is what
+  the walk above needs; today it re-points through `cur = &mut cur.next`.
+  (planned: REFERENCES_AND_ORIGINS N1) The `mut(cur)` marker on a
+  re-pointed borrow is checked from then; today it is neither required nor
+  accepted on a `&mut` initializer.
 - The declared place stays frozen for the whole walk: `list.head = .None`
   mid-walk is an error. A re-point while a borrow derived from the old
   target is live is E0911.
@@ -472,7 +501,7 @@ or as a `&mut` receiver, with no copy of the container:
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(10));
   xs(usize(0)) = i32(99); // writes in place
   v := xs(usize(0)); // a Copy element: copied out
@@ -596,7 +625,7 @@ A record before the parameters lists the captures and their modes:
 
 ```yo
 main :: (fn() -> unit)({
-  total := i32(0);
+  mut(total) := i32(0);
   k := i32(10);
   (i32(1) .. i32(3)).for_each({ &mut total }(x : i32) => {
     total = (total + x); // writes the caller's total
@@ -618,10 +647,12 @@ export(main);
 - A borrow names a place rooted at a local binding: no temporary, no
   module-level binding, nothing through an `Rc`/`Arc` dereference. To use
   a place inside an `Rc`, capture the handle (`{ &r }`) and derive
-  `r.*.items` in the body.
+  `r.*.items` in the body. (planned: REFERENCES_AND_ORIGINS N1) A `&`
+  capture through the dereference (`{ x : &h.*.x }`) becomes legal, with
+  the handle as its origin: `h` is frozen while the closure lives.
 - A closure holding a borrow is second-class today: it can be bound,
   called and lent, but returning it, storing it, putting it in a `Dyn`,
-  passing it to a by-value parameter or spawning it is E0909 (from N1 the
+  passing it to a by-value parameter or spawning it is E0909 (from N2 the
   restriction restates as the no-origin positions of section 11; a lent
   `Impl(Fn(...))` slot stays the non-escaping form). A `&mut` capture
   also makes it move-only.
@@ -686,13 +717,13 @@ export(main);
 { ArrayList } :: import("std/collections/array_list");
 
 main :: (fn() -> unit)({
-  xs := ArrayList(i32).new();
+  mut(xs) := ArrayList(i32).new();
   xs.push(i32(1));
   xs.push(i32(2));
   for(&mut xs, x => {
     x = (x * i32(2)); // doubles each element in place
   });
-  (total : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
   for(&xs, x => {
     total = (total + x);
   });
@@ -766,18 +797,25 @@ unique. (std adoption planned: Generation B)
 - (planned: V2c) Copying a handle needs `Rc.clone(r)`; today `r2 := r`
   still shares the cell implicitly.
 
-### Writing through `Rc`, and `RefCell` (planned: V1 write-site work)
+### Writing through `Rc`, and `RefCell`
 
-A plain write through an `Rc` compiles only where the compiler proves no
-conflicting borrow can be live, and is then an ordinary write with no
-run-time check. A write the compiler proves conflicting is an error; one it
-cannot decide (through a `Dyn`, a function value, an unrelated second
-handle) is an error naming the two repairs: restructure so the proof goes
-through, or put the payload in a `RefCell(T)`.
+The payload of an `Rc` is read-only through the handle, as in Rust
+(decision 46). A write through a plain `Rc` — an assignment to `h.*` or a
+place under it, a `&mut` argument or receiver whose place crosses the
+dereference, a local `&mut` borrow or re-point through it — is E0919,
+whatever the compiler could prove. The error names the doors:
+
+- `RefCell(T)` in the payload's type, for shared mutation;
+- `Rc.make_mut(&mut h)`, which clones the payload into a fresh cell when
+  it is shared (`T <: Clone`);
+- `Rc.try_unwrap(h)`, the payload by value when the count is 1;
+- (planned: REFERENCES_AND_ORIGINS N1) `Rc.get_mut(&mut h)`, `.None`
+  unless the count is 1.
 
 `RefCell(T)` is the one spelling of a dynamic exclusivity check. It panics
 on a conflicting borrow, as Rust's does, and exposes closures and
-expression-scoped projections, never a guard value:
+expression-scoped projections, never a guard value (`get` and `get_mut`
+are planned with N1; `with` and `with_mut` exist today):
 
 ```yo ignore
 counter := rc(RefCell(i32)(0));
@@ -843,9 +881,12 @@ origin parameters, which must be in scope wherever it goes. The positions
 that accept no origin parameters at all are `Send` values and threads,
 spawned tasks, `extern` signatures, module-level bindings, `Rc`/`Arc`
 payloads and a `Dyn(Trait)` written without an origin (`Dyn(Trait, p)`
-carries one) — E0909, the `Escapable` bound. A type may never name its own fields and a
-binding's type never its own place, so a value cannot contain a pointer
-into itself (section 14's pinning row).
+carries one) — E0909, the `Escapable` bound. A reference whose origin is
+empty (`str`'s static bytes, a lend of an unmarked module-level binding)
+is `Escapable`, and `Send` only when its pointee is `Sync`, as in Rust. A
+type may never name its own fields and a binding's type never its own
+place, so a value cannot contain a pointer into itself (section 14's
+pinning row).
 
 ```yo
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -922,8 +963,10 @@ the borrow.
   (planned: N3) The future's type carries its origins (`Future(T, p)`),
   forwarding works, and what stays E0909 narrows to the no-origin
   positions — spawn and `Send`.
-- A borrowing future may not borrow through an `Rc`/`Arc` dereference: own
-  the value in the task, or share `Rc(Mutex(S))`.
+- A borrowing future may hold a `&` borrow through an `Rc`/`Arc`
+  dereference, because the payload is read-only through the handle; a
+  `&mut` through one is E0919. Shared mutable state in a task is
+  `Rc(Mutex(S))` or `Arc(Mutex(S))`.
 - A `JoinHandle` is move-only: `join(self, io)` consumes it, and a dropped
   handle detaches its task. (std adoption planned: Generation B)
 - (planned: V3 async A4) `timeout` and a two-way `select` accept borrowing
@@ -939,7 +982,10 @@ The async runtime stays single-threaded.
 - **`Sync`: copies of the value may be read from several threads.**
   `Arc(T)` requires `T <: (Send, Sync)`; `Mutex(T)` requires `T <: Send` and
   is itself `Sync`.
-- A borrow, and anything holding one, is never `Send`.
+- A borrow of a place some frame owns, and anything holding one, is never
+  `Send`. A borrow with an empty origin (static bytes, an unmarked
+  module-level binding) is `Send` only when its pointee is `Sync`
+  (planned: N1).
 - `Thread.spawn` takes an `FnOnce` by value, so a spawned closure moves its
   captures in.
 - (planned: V2b) `Channel(String)` and `Arc(ArrayList(T))` become legal
@@ -956,13 +1002,17 @@ The async runtime stays single-threaded.
 | E0901 | use of a moved value; the note names `derive(T, Copy, Clone)`, `x.clone()`, `match(&x, …)` or `x : &T` |
 | E0907 | a value moved on some ways out of a loop and not on others |
 | E0908 | a write through a `&` borrow |
-| E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N2 a reference whose origins cannot follow it into the position (a `Send` value, a spawn, an `extern` signature, a module-level binding, a `Dyn` payload) |
-| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves a place an earlier argument lends to the call; (from N1) two `&mut` arguments of one call with intersecting origins |
+| E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N2 a reference whose origins cannot follow it into the position (a `Send` value, a spawn, an `extern` signature, a module-level binding, an `Rc`/`Arc` payload, a `Dyn(Trait)` payload written without an origin) |
+| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves or overwrites a place an earlier argument lends to the call; (planned: V2b or N1, whichever lands first) a `&mut` or moved argument overlapping any other argument of the call, by place |
 | E0911 | an access conflicts with a live local borrow, or a re-point while a derived borrow is live; (planned: V2b) overlapping call arguments; (from N1) an access conflicting with a live origin; (from N2) a push outside a container's declared origin union |
 | E0912 | a local borrow crosses the function boundary |
 | E0913 | a closure moves a capture out where its call cannot consume it |
 | E0914 | a call-site marker does not match the parameter's mode |
 | E0915 | an explicit destructor call (`x.drop()`); write `drop(x)` to end the value early |
+| E0916 | a `mut(G)` module-level binding, or a place under it, lent to a call |
+| E0917 | a write to an unmarked binding: reassignment, a `&mut` lend, a `&mut self` call or a field/element write; the message names `mut(x)`, or the rebind for a parameter |
+| E0918 | a runtime write to a `::` binding |
+| E0919 | a write through a plain `Rc` handle; the message names `RefCell`, `Rc.make_mut`, `Rc.try_unwrap` and `Arc(Mutex(T))` |
 
 ## 14. Coming from Rust or Swift
 
@@ -975,7 +1025,7 @@ The async runtime stays single-threaded.
 | deep copy | `x.clone()` | `x.clone()` | implicit copy-on-write |
 | move | implicit at last use; E0901 after | implicit; error after | `consume` |
 | shared ownership | `Rc(T)`, `Arc(T)`; `Rc.clone(r)` | `Rc<T>`, `Arc<T>`; `Rc::clone(&r)` | classes |
-| dynamic borrow check | `RefCell(T)` (planned) | `RefCell<T>` | exclusivity enforcement at run time |
+| dynamic borrow check | `RefCell(T)` (`with`/`with_mut` today; `get`/`get_mut` planned N1) | `RefCell<T>` | exclusivity enforcement at run time |
 | lifetimes | none: references carry origins — declared place sets, `&(T, p)` with checked elision (planned N1) | named lifetimes | none (`~Escapable`) |
 | match on an owned value | consumes; `match(&x, …)` borrows | default binding modes | copies |
 | closure capture | capture list `{ x, &y, &mut z }` | `move` or inferred | capture list `[x]` |
@@ -1015,7 +1065,7 @@ mutate on purpose becomes a value held in an `Rc`.
   34 operators and `Index`, 35 capture lists, 36 `Copy`, 37 `Fn`/`FnMut`/
   `FnOnce`, 38 closure soundness, 39 iteration, 40 no `Pin`, 41 `RefCell`,
   42 borrow spelling, 43 references as types, 44 `Dyn`, 45 `Drop` (the
-  `Dispose` rename).
+  `Dispose` rename), 46 `Rc` is read-only, 47 immutable bindings.
 - [`plans/backlog/REFERENCES_AND_ORIGINS.md`](backlog/REFERENCES_AND_ORIGINS.md):
   origins (O1–O10, the `Origin` kind and `&(T, p)`); phases N0–N3.
 - Related docs: [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md),
