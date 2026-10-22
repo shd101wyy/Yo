@@ -32,7 +32,7 @@ middle :: (fn(raise : Raise) -> i32)({
 });
 run :: (fn() -> i32)({
   (raise : Raise) = (
-    (code) -> {
+    code -> {
       unwind(i32(-1));
     }
   );
