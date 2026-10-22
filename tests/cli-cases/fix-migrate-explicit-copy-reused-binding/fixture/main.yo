@@ -1,0 +1,22 @@
+//! `yo fix --migrate explicit-copy` judges a `match` binding of a temporary
+//! with liveness, at the end of its arm: each copy of `z` made while `z` is
+//! read again is genuine and gets `.clone()`; its last use, the arm's tail,
+//! is a move and is neither rewritten nor listed.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+make_opt :: (fn() -> Option(String))(.Some(String.from("t")));
+main :: (fn() -> unit)({
+  hs := ArrayList(String).new();
+  b := match(
+    make_opt(),
+    .Some(z) => {
+      hs.push(z);
+      hs.push(z);
+      z
+    },
+    .None => String.new()
+  );
+  println(`${b} ${hs.len().to_string()}`);
+});
+export(main);

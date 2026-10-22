@@ -2,7 +2,7 @@
 
 **Severity:** S3. No wrong code: `yo fix --migrate explicit-copy` leaves genuine copies as written and lists them with the text "the copy is usually a move", so the user has to spell `.clone()` by hand where the tool could have inserted it.
 
-**Status:** OPEN. Filed 2026-10-21 by the adversarial review of
+**Status:** FIXED 2026-10-22 on `fix/explicit-copy-migration-defects`. Filed 2026-10-21 by the adversarial review of
 `feat/explicit-copy-guards`, which adds the dying-temporary guard
 (`issues/fixed/2026-10-20-explicit-copy-migration-clones-a-copy-out-of-a-dying-temporary.md`).
 
@@ -62,3 +62,33 @@ judge today runs at the end of a begin block, which an expression-bodied arm
 (`.Some(z) => z`) does not have, so the arm's own frame needs a judging
 point. Add the reproducer to
 `tests/cli-cases/fix-migrate-explicit-copy-dying-temp` with the fix.
+
+## Fix
+
+As the recommendation says, in three places:
+
+- `audit_record_implicit_copy` (`src/evaluator/utils.yo`) prints a
+  `temp-payload` copy's audit line at once (the copy is real today, so
+  `YO_AUDIT_IMPLICIT_COPY` is unchanged), but holds its migration site
+  pending under the binding's own id (`_audit_hold_implicit_copy`).
+- `evaluate_match` (`src/evaluator/exprs/match.yo`) judges the arm frame's
+  pending copies against the arm's guard and body before it pops the frame
+  (`_judge_arm_copies` → `audit_judge_arm_copies`, the begin block's
+  `_audit_judge_implicit_copies` exported). That is the judging point an
+  expression-bodied arm lacked. A copy with a later read of the binding is
+  recorded and cloned; the last use is a move and is neither rewritten nor
+  listed.
+- `_ic_dying_temp_source` no longer judges a `match` binding by its root:
+  it keeps only the field and element walk.
+
+The dry run of the reproducer now prints two insertions (10:15 and 11:15)
+and nothing for 12:7.
+
+## Test
+
+`tests/cli-cases/fix-migrate-explicit-copy-reused-binding`, whose fixture is
+the reproducer: its goldens expect the two `.clone()` insertions and no
+listing. `tests/cli-cases/fix-migrate-explicit-copy-dying-temp` was
+re-recorded: its three single-use bindings (`z`, `v`, `w`, each used once at
+the arm's tail) were listed as "usually a move" and are now silent moves (the
+summary goes from 5 sites left to 2; the rewritten tree is unchanged).

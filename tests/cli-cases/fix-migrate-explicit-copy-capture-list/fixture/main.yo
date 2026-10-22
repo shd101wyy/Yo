@@ -1,0 +1,17 @@
+//! `yo fix --migrate explicit-copy` at a closure capture list: the shorthand
+//! entry `s` names the capture and its source together, so its copy becomes
+//! `s : s.clone()` (a bare `{ s.clone() }` does not parse). The entry `seen`
+//! is written in the closure body (`seen.push`) and read by the caller after
+//! the call, so the two share a buffer on purpose: listed, not cloned.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  s := String.from("four");
+  (f : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  seen := ArrayList(i32).new();
+  (g : Impl(Fn() -> unit)) = ({ seen }() => seen.push(i32(1)));
+  g();
+  println(`${f()} ${s.len()} ${seen.len()}`);
+});
+export(main);
