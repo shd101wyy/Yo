@@ -230,7 +230,7 @@ test("___drop and the RC-release builtins are rejected in safe code", {
     pair.0.len()
   }, "'__yo_drop_tuple_element(...)' is not available in safe code");
   comptime_expect_error({
-    d := dyn(String.from("a"));
+    (d : Dyn(Fn() -> i32)) = dyn(() => i32(1));
     __yo_dyn_drop(d);
   }, "'__yo_dyn_drop(...)' is not available in safe code");
   // The gate is raised before the argument is examined, so any place shows it.
