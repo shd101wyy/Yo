@@ -66,12 +66,24 @@ tokenize :: (
     module_path : &String,
     exn : Exception
   ) -> ArrayList(Token)
-)(tokenize_span(input, module_path, usize(0), input.len(), usize(0), usize(0), usize(0), exn));
+)(tokenize_shared(rc(input), rc(module_path), exn));
+/// `tokenize` over cells the caller already holds: every token shares
+/// `input` and `module_path` (`Token.input`).
+tokenize_shared :: (
+  fn(
+    input : Rc(String),
+    module_path : Rc(String),
+    exn : Exception
+  ) -> ArrayList(Token)
+)({
+  end_byte := input.*.len();
+  tokenize_span(input, module_path, usize(0), end_byte, usize(0), usize(0), usize(0), exn)
+});
 /// Tokenizes the byte range `[start_byte, end_byte)` of `input` as if it sat
 /// at its real place in the file: the first rune is at `base_row` /
 /// `base_col` / `base_char` (0-based row and column, rune index), and every
 /// token — and every lexer diagnostic — carries positions and the `input`
-/// of the WHOLE file.
+/// of the WHOLE file. Every token shares the two cells.
 ///
 /// The parser lexes each template interpolation body through this, so an
 /// error inside `${...}` points at the file line it is on instead of `1:1` of
@@ -79,8 +91,8 @@ tokenize :: (
 /// (issues/fixed/template-interpolation-body-is-not-scanned-as-code.md).
 tokenize_span :: (
   fn(
-    input : &String,
-    module_path : &String,
+    input : Rc(String),
+    module_path : Rc(String),
     start_byte : usize,
     end_byte : usize,
     base_row : usize,
@@ -101,8 +113,8 @@ tokenize_span :: (
   char_byte_offsets := ArrayList(usize).new();
   {
     span := cond(
-      ((start_byte == usize(0)) && (end_byte == input.len())) => input,
-      true => input.substring(start_byte, end_byte)
+      ((start_byte == usize(0)) && (end_byte == input.*.len())) => input.*,
+      true => input.*.substring(start_byte, end_byte)
     );
     c_iter := span.char_indices();
     while(true, {
@@ -130,7 +142,6 @@ tokenize_span :: (
   // One-past-the-end byte offset, so a token that starts at EOF still gets a
   // usable (empty-slice) offset rather than 0.
   input_byte_len := end_byte;
-  input_bytes := input;
   null_rune := rune(u32(0));
   n := chars.len();
   i := usize(0);
@@ -170,7 +181,7 @@ tokenize_span :: (
         // `...#(xs)` was the operator spelling of `unquote_splicing(xs)`,
         // deleted 2026-10-10 (one spelling per operation): name the word.
         if((dot_run_len == usize(3)) && (next_after_dots.char == u32(0x23)), {
-          exn.throw(dyn(format_lexer_error(module_path, input, line, col, String.from(_REMOVED_SPLICE_OPERATOR_MESSAGE))));
+          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col, String.from(_REMOVED_SPLICE_OPERATOR_MESSAGE))));
         });
         // A run of four or more dots is not in the closed set: without this
         // check the whole run became ONE Operator token that bypassed the
@@ -182,8 +193,8 @@ tokenize_span :: (
           exn.throw(
             dyn(
               format_lexer_error(
-                module_path,
-                input,
+                &module_path.*,
+                &input.*,
                 line,
                 col,
                 `unknown operator in '${dot_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
@@ -237,15 +248,15 @@ tokenize_span :: (
           // `#(x)` was the operator spelling of `unquote(x)`, deleted
           // 2026-10-10 (one spelling per operation): name the word.
           if((tok_len == usize(0)) && (op_str.slice_copy(k .. (k + usize(1))) == "#"), {
-            exn.throw(dyn(format_lexer_error(module_path, input, line, col + k, String.from(_REMOVED_UNQUOTE_OPERATOR_MESSAGE))));
+            exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col + k, String.from(_REMOVED_UNQUOTE_OPERATOR_MESSAGE))));
             break;
           });
           if(tok_len == usize(0), {
             exn.throw(
               dyn(
                 format_lexer_error(
-                  module_path,
-                  input,
+                  &module_path.*,
+                  &input.*,
                   line,
                   col + k,
                   `unknown operator in '${op_str}': Yo has a closed operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
@@ -361,7 +372,7 @@ tokenize_span :: (
           );
         });
         if(nesting > usize(0), {
-          exn.throw(dyn(format_lexer_error(module_path, input, bc_start_ln, col, `unterminated block comment`)));
+          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, bc_start_ln, col, `unterminated block comment`)));
         });
         cm_str := cm_sb.to_string();
         tokens.push(Token(kind : block_kind, value : cm_str, row : u32(bc_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
@@ -441,7 +452,7 @@ tokenize_span :: (
         });
         char_is_valid := ((utf16_len == usize(1)) || ((utf16_len == usize(2)) && first_is_backslash));
         if(!char_is_valid, {
-          exn.throw(dyn(format_lexer_error(module_path, input, line, col, `invalid char literal: expected char to have length 1`)));
+          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col, `invalid char literal: expected char to have length 1`)));
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
@@ -479,7 +490,7 @@ tokenize_span :: (
                 match(
                   scan_unicode_escape(&chars, k + usize(1)),
                   .Bad(msg) => exn.throw(
-                    dyn(format_lexer_error(module_path, input, line, col, &msg))
+                    dyn(format_lexer_error(&module_path.*, &input.*, line, col, &msg))
                   ),
                   // A LONE surrogate half is rejected exactly like the braced
                   // form's: the four-digit form spells an astral code point
@@ -510,7 +521,7 @@ tokenize_span :: (
                       });
                       if(!paired, {
                         exn.throw(
-                          dyn(format_lexer_error(module_path, input, line, col, surrogate_escape_error_message()))
+                          dyn(format_lexer_error(&module_path.*, &input.*, line, col, surrogate_escape_error_message()))
                         );
                       });
                     });
@@ -572,8 +583,8 @@ tokenize_span :: (
           exn.throw(
             dyn(
               format_lexer_error(
-                module_path,
-                input,
+                &module_path.*,
+                &input.*,
                 line,
                 col,
                 `unterminated string literal — the line or file ended before the closing quote; use a backtick template for multiline text`
@@ -669,7 +680,7 @@ tokenize_span :: (
                   match(
                     scan_unicode_escape(&chars, k + usize(1)),
                     .Bad(msg) => exn.throw(
-                      dyn(format_lexer_error(module_path, input, line, col, &msg))
+                      dyn(format_lexer_error(&module_path.*, &input.*, line, col, &msg))
                     ),
                     .Ok(cp, consumed) => {
                       // A `\uXXXX` high surrogate combines with a following
@@ -701,7 +712,7 @@ tokenize_span :: (
                       // losing the whole literal part around it.
                       if((code >= u32(0xD800)) && (code <= u32(0xDFFF)), {
                         exn.throw(
-                          dyn(format_lexer_error(module_path, input, line, col, surrogate_escape_error_message()))
+                          dyn(format_lexer_error(&module_path.*, &input.*, line, col, surrogate_escape_error_message()))
                         );
                       });
                       cond((code == u32(0x5C)) => ts_sb.write_str("\\\\"), true => ts_sb.write_rune(rune(code)));
@@ -724,7 +735,7 @@ tokenize_span :: (
             ((ck.char == u32(0x24)) && (nck.char == u32(0x7B))) => {
               ts_sb.write_str("${");
               k = (k + usize(2));
-              body_end := interpolation_body_end(&input_bytes, char_byte_offsets.get(k).unwrap_or(&input_byte_len));
+              body_end := interpolation_body_end(&input.*, char_byte_offsets.get(k).unwrap_or(&input_byte_len));
               while((k < n) && (char_byte_offsets.get(k).unwrap_or(&input_byte_len) < body_end), {
                 bk := chars.get(k).unwrap_or(&null_rune);
                 if(bk.char == u32(0x0A), {
@@ -759,7 +770,7 @@ tokenize_span :: (
           );
         });
         if(!template_closed, {
-          exn.throw(dyn(format_lexer_error(module_path, input, tpl_start_ln, col, `unterminated template string`)));
+          exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, tpl_start_ln, col, `unterminated template string`)));
         });
         ts_val := ts_sb.to_string();
         tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : u32(tpl_start_ln), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
@@ -961,8 +972,8 @@ tokenize_span :: (
           exn.throw(
             dyn(
               format_lexer_error(
-                module_path,
-                input,
+                &module_path.*,
+                &input.*,
                 line,
                 col,
                 `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
@@ -980,7 +991,7 @@ tokenize_span :: (
       },
       // Unknown character: error
       true => {
-        exn.throw(dyn(format_lexer_error(module_path, input, line, col, `unexpected character`)));
+        exn.throw(dyn(format_lexer_error(&module_path.*, &input.*, line, col, `unexpected character`)));
         i = (i + usize(1));
       }
     );
@@ -992,4 +1003,4 @@ tokenize_span :: (
 // their concatenation is in this table, so the formatter's prefix-chain
 // tightening (`?*i32`, `**i32`) consults it instead of assuming every
 // operator pair would merge (the retired maximal-munch behavior).
-export(tokenize, tokenize_span, _is_two_char_operator);
+export(tokenize, tokenize_shared, tokenize_span, _is_two_char_operator);

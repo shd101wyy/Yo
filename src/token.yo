@@ -61,8 +61,15 @@ Token :: ref(
     /// they have no source text to index, and their `character` is 0 or copied
     /// (in which case `byte_offset` is copied alongside it).
     (byte_offset : u32) ?= u32(0),
-    module_path : String,
-    input : String
+    /// The source file's path and its whole text, each a SHARED cell: the
+    /// lexer makes one `Rc` per lexing and every token of the module copies
+    /// the handle (a count bump), and a token the parser or evaluator
+    /// synthesizes takes its origin token's cells, never a fresh copy of the
+    /// text (plans/VALUES_BY_DEFAULT.md B1: as plain `String`s, the explicit-
+    /// copy migration turned each synthesized token's `input` into a clone of
+    /// the module's source). Readers spell `tok.input.*` / `&tok.input.*`.
+    module_path : Rc(String),
+    input : Rc(String)
   )
 );
 derive(Token, Eq(Token));
@@ -303,6 +310,15 @@ intern_token_str :: (fn(s : &String) -> String)(
     }
   )
 );
+/// Shared `module_path`/`input` cells for synthetic tokens with no source
+/// (`Token.input`): `empty_token_text()` for a token minted with an empty
+/// path or text, and the `placeholder_token`/`raii_token` texts. A token
+/// copies one of these handles instead of allocating a cell per call.
+(g_empty_token_text : Rc(String)) = rc(String.from(""));
+(g_placeholder_token_text : Rc(String)) = rc(String.from("_"));
+(g_raii_token_text : Rc(String)) = rc(String.from("drop"));
+/// The shared empty cell (a module-level runtime binding is not exported).
+empty_token_text :: (fn() -> Rc(String))(g_empty_token_text);
 /// Synthetic placeholder token used as a sentinel position when constructing
 /// AST nodes that have no real source location.
 placeholder_token :: (fn() -> Token)(
@@ -312,8 +328,8 @@ placeholder_token :: (fn() -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("_"),
-    input : String.from("_")
+    module_path : g_placeholder_token_text,
+    input : g_placeholder_token_text
   )
 );
 /// Synthetic token used for `drop` (RAII) markers attached to compiler-generated
@@ -325,8 +341,8 @@ raii_token :: (fn() -> Token)(
     row : u32(0),
     column : u32(0),
     character : u32(0),
-    module_path : String.from("drop"),
-    input : String.from("drop")
+    module_path : g_raii_token_text,
+    input : g_raii_token_text
   )
 );
 find_matching_bracket :: (fn(tokens : &ArrayList(Token), start : usize) -> Option(usize))({
@@ -394,5 +410,6 @@ export(
   placeholder_token,
   raii_token,
   find_matching_bracket,
-  intern_token_str
+  intern_token_str,
+  empty_token_text
 );

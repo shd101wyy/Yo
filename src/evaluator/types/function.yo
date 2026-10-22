@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ Token, TokenKind, reserved_builtin_binding_message } :: import("../../token.yo");
+{ Token, TokenKind, reserved_builtin_binding_message, empty_token_text } :: import("../../token.yo");
 { set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
@@ -2698,7 +2698,7 @@ parse_where_clause_constraints :: (
       .Some(e) => e,
       .None => {
         ci = constraint_exprs.len();
-        AstExpr.Atom(usize(0), Token(kind : TokenKind.Identifier, value : String.from(""), row : u32(0), column : u32(0), character : u32(0), module_path : String.from(""), input : String.from("")))
+        AstExpr.Atom(usize(0), Token(kind : TokenKind.Identifier, value : String.from(""), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()))
       }
     );
     ci = (ci + usize(1));

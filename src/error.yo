@@ -87,13 +87,13 @@ _span_of_token :: (fn(token : &Token) -> Span)(
 /// (issues/derive-clone-costs-17-ms-per-type.md).
 _source_line_of_token :: (fn(token : &Token) -> String)({
   input := token.input;
-  n := input.len();
+  n := input.*.len();
   (target : usize) = usize(token.row);
   (row : usize) = usize(0);
   (i : usize) = usize(0);
   (start : usize) = usize(0);
   while((row < target) && (i < n), {
-    if(input.byte_at(i) == u8(10), {
+    if(input.*.byte_at(i) == u8(10), {
       row = (row + usize(1));
       start = (i + usize(1));
     });
@@ -103,10 +103,10 @@ _source_line_of_token :: (fn(token : &Token) -> String)({
     (row < target) => String.new(),
     true => {
       (end : usize) = start;
-      while((end < n) && (input.byte_at(end) != u8(10)), {
+      while((end < n) && (input.*.byte_at(end) != u8(10)), {
         end = (end + usize(1));
       });
-      input.substring(start, end)
+      input.*.substring(start, end)
     }
   )
 });
@@ -792,7 +792,7 @@ note_diagnostic_of_token :: (fn(token : &Token, message : &String) -> Diagnostic
 /// Get the source line at the token's position with a caret indicator
 /// (the legacy pre-P1 block, still used by the warnings path).
 get_line_at_token :: (fn(token : &Token) -> String)({
-  lines := token.input.split(String.from("\n"));
+  lines := token.input.*.split(String.from("\n"));
   row_line := match(
     lines.get(usize(token.row)),
     .Some(line) => line,

@@ -744,18 +744,18 @@ _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &St
   r_start := usize(recv_tok.byte_offset);
   n_start := usize(name_tok.byte_offset);
   n_end := (n_start + name_tok.value.len());
-  if((n_end >= src.len()) || (r_start >= n_start), {
+  if((n_end >= src.*.len()) || (r_start >= n_start), {
     return(Option(Repair).None);
   });
   written := `${recv_tok.value}.${name_tok.value}(`;
-  if(src.substring(r_start, n_end + usize(1)) != written, {
+  if(src.*.substring(r_start, n_end + usize(1)) != written, {
     return(Option(Repair).None);
   });
   sep := cond((arg_count > usize(0)) => `, `, true => ``);
   replacement := `${ctor}.${name_tok.value}(${recv_tok.value}${sep}`;
   Option(Repair).Some(
     Repair(
-      span : Span(path : recv_tok.module_path, row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
+      span : Span(path : recv_tok.module_path.*, row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
       replacement : replacement,
       description : `call the ${ctor}'s own ${name_tok.value}: ${ctor}.${name_tok.value}(${recv_tok.value}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
     )

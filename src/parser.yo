@@ -7,8 +7,8 @@ pragma(Pragma.AllowUnsafe);
 { StringBuilder } :: import("std/fmt");
 { Exception } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
-{ TokenKind, Token, find_matching_bracket, intern_token_str } :: import("./token.yo");
-{ tokenize, tokenize_span } :: import("./lexer.yo");
+{ TokenKind, Token, find_matching_bracket, intern_token_str, empty_token_text } :: import("./token.yo");
+{ tokenize_shared, tokenize_span } :: import("./lexer.yo");
 { interpolation_body_end } :: import("./utils.yo");
 { YoError, format_error_message, format_raw_error, format_error_message_with_repair_at } :: import("./error.yo");
 { Span } :: import("./diagnostics.yo");
@@ -198,14 +198,13 @@ _advance_body_origin :: (fn(pos : _TemplateBodyOrigin, b : u8) -> _TemplateBodyO
 /// the caller lexes the body text on its own.
 _template_body_origins :: (fn(tok : &Token) -> ArrayList(_TemplateBodyOrigin))({
   out := ArrayList(_TemplateBodyOrigin).new();
-  bytes := tok.input;
-  n := bytes.len();
-  if((usize(tok.byte_offset) < n) && (bytes.byte_at(usize(tok.byte_offset)) == u8(0x60)), {
+  n := tok.input.*.len();
+  if((usize(tok.byte_offset) < n) && (tok.input.*.byte_at(usize(tok.byte_offset)) == u8(0x60)), {
     (pos : _TemplateBodyOrigin) = _TemplateBodyOrigin(byte : (usize(tok.byte_offset) + usize(1)), row : usize(tok.row), col : (usize(tok.column) + usize(1)), ch : (usize(tok.character) + usize(1)));
     (done : bool) = false;
     while((pos.byte < n) && !done, {
-      b := bytes.byte_at(pos.byte);
-      nb := cond(((pos.byte + usize(1)) < n) => bytes.byte_at(pos.byte + usize(1)), true => u8(0));
+      b := tok.input.*.byte_at(pos.byte);
+      nb := cond(((pos.byte + usize(1)) < n) => tok.input.*.byte_at(pos.byte + usize(1)), true => u8(0));
       cond(
         (b == u8(0x60)) => {
           done = true;
@@ -219,12 +218,12 @@ _template_body_origins :: (fn(tok : &Token) -> ArrayList(_TemplateBodyOrigin))({
         ((b == u8(0x24)) && (nb == u8(0x7B))) => {
           pos = _advance_body_origin(_advance_body_origin(pos, b), nb);
           out.push(pos);
-          body_end := interpolation_body_end(&bytes, pos.byte);
+          body_end := interpolation_body_end(&tok.input.*, pos.byte);
           while(pos.byte < body_end, {
-            pos = _advance_body_origin(pos, bytes.byte_at(pos.byte));
+            pos = _advance_body_origin(pos, tok.input.*.byte_at(pos.byte));
           });
           if(pos.byte < n, {
-            pos = _advance_body_origin(pos, bytes.byte_at(pos.byte));
+            pos = _advance_body_origin(pos, tok.input.*.byte_at(pos.byte));
           });
         },
         true => {
@@ -236,8 +235,10 @@ _template_body_origins :: (fn(tok : &Token) -> ArrayList(_TemplateBodyOrigin))({
   out
 });
 Parser :: struct(
-  input_string : String,
-  module_path : String,
+  /// The module's source and path cells, shared with every token it lexes
+  /// and every token it synthesizes (`Token.input`).
+  input_string : Rc(String),
+  module_path : Rc(String),
   tokens : ArrayList(Token),
   program : ArrayList(AstExpr),
   has_template_string : bool,
@@ -249,14 +250,16 @@ Parser :: struct(
 );
 impl(
   Parser,
-  new : (
+  /// `Parser.new` over cells the caller already holds (a template interpolation's
+  /// sub-parser shares the enclosing module's path cell).
+  new_shared : (
     fn(
-      input_string : &String,
-      module_path : &String,
+      input_string : Rc(String),
+      module_path : Rc(String),
       exn : Exception
     ) -> Self
   )({
-    toks := tokenize(input_string, module_path, exn);
+    toks := tokenize_shared(input_string, module_path, exn);
     Parser(
       input_string : input_string,
       module_path : module_path,
@@ -267,13 +270,20 @@ impl(
       next_expr_id : usize(0)
     )
   }),
+  new : (
+    fn(
+      input_string : &String,
+      module_path : &String,
+      exn : Exception
+    ) -> Self
+  )(Parser.new_shared(rc(input_string), rc(module_path), exn)),
   /// A parser over the byte range `[start_byte, end_byte)` of `input`, its
   /// tokens positioned in the whole file (`tokenize_span`). Template
   /// interpolation bodies are parsed through this.
   new_span : (
     fn(
-      input_string : &String,
-      module_path : &String,
+      input_string : Rc(String),
+      module_path : Rc(String),
       start_byte : usize,
       end_byte : usize,
       base_row : usize,
@@ -693,9 +703,9 @@ impl(
           sub_parser := match(
             body_origins.get(expr_ordinal),
             .Some(o) => cond(
-              (((o.byte + sp.expr_text.len()) <= tok.input.len()) && (tok.input.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
-                &tok.input,
-                &self.module_path,
+              (((o.byte + sp.expr_text.len()) <= tok.input.*.len()) && (tok.input.*.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
+                tok.input,
+                self.module_path,
                 o.byte,
                 o.byte + sp.expr_text.len(),
                 o.row,
@@ -703,9 +713,9 @@ impl(
                 o.ch,
                 exn
               ),
-              true => Parser.new(&sp.expr_text, &self.module_path, exn)
+              true => Parser.new_shared(rc(sp.expr_text), self.module_path, exn)
             ),
-            .None => Parser.new(&sp.expr_text, &self.module_path, exn)
+            .None => Parser.new_shared(rc(sp.expr_text), self.module_path, exn)
           );
           expr_ordinal = (expr_ordinal + usize(1));
           (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);
@@ -876,7 +886,7 @@ impl(
   parse_paren_expr : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LParen, {
@@ -998,7 +1008,7 @@ impl(
   parse_array_expr : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LBracket, {
@@ -1119,7 +1129,7 @@ impl(
   parse_curly_bracket_expr : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LCurlyBracket, {
@@ -1184,8 +1194,8 @@ impl(
             row : u32(0),
             column : u32(0),
             character : u32(0),
-            module_path : String.from(""),
-            input : String.from("")
+            module_path : empty_token_text(),
+            input : empty_token_text()
           )
         );
         is_semi := match(separator_is_comma, .None => false, .Some(__sb) => (__sb == false));
@@ -1240,7 +1250,7 @@ impl(
                         &tok,
                         &block_msg,
                         Option(String).None,
-                        Span(path : close_tok.module_path, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
+                        Span(path : close_tok.module_path.*, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
                         String.from(";"),
                         String.from("insert `;` before `}` so the braces form a block")
                       )
@@ -1405,18 +1415,18 @@ impl(
         .FnCall(_, _, rargs, _, _) => match(
           rargs.get(usize(0)),
           .Some(a) => a,
-          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: missing left arg in rhs`)))
+          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: missing left arg in rhs`)))
         ),
-        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: rhs is atom`)))
+        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`)))
       );
       (right_operand : AstExpr) = match(
         rhs,
         .FnCall(_, _, rargs, _, _) => match(
           rargs.get(usize(1)),
           .Some(a) => a,
-          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: missing right arg in rhs`)))
+          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: missing right arg in rhs`)))
         ),
-        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: rhs is atom`)))
+        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `internal: rhs is atom`)))
       );
       rhs_func_tok := match(
         rhs,
@@ -1531,7 +1541,7 @@ impl(
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
-      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path.*, `unexpected end of input`))),
       .Some(t) => t
     );
     cond(
@@ -1617,8 +1627,8 @@ impl(
             row : u32(0),
             column : u32(0),
             character : u32(0),
-            module_path : String.from(""),
-            input : String.from("")
+            module_path : empty_token_text(),
+            input : empty_token_text()
           )
         );
         rhs_start := cond(primary_is_dot => idx, true => (idx + usize(1)));
