@@ -863,38 +863,40 @@ test("Reject adjacent different operators without parentheses", {
 // ─── E0003's canonical-grouping hint ────────────────────────────────────────
 // The pair table these follow is in
 // issues/retired/2026-10-22-should-the-structural-operators-carry-precedence.md.
-// Parse `src`, expecting E0003. A non-empty `want` is the exact hint sentence
-// the message must carry; an empty one means the pair has no canonical
-// grouping, so the message must carry no hint at all.
-_expect_e0003 :: (fn(src : &String, want : &String) -> unit)({
+/// Parse `src` and return the thrown diagnostic's text, "" when it parses
+/// (a handler is capture-free, so the text travels as the fn's value).
+_parse_error_text :: (fn(src : &String) -> String)({
   exn := Exception(
     throw : (
       err -> {
         match(
           downcast(err, YoError),
-          .Some(ye) => {
-            s := ye.to_string();
-            assert(s.contains(`Adjacent different operators need parentheses`), "expected E0003");
-            if(want.len() > usize(0), {
-              if(!s.contains(want), {
-                println(`E0003 hint mismatch: expected "${want}" in: ${s}`);
-                assert(false, "missing canonical grouping hint");
-              });
-            }, {
-              if(s.contains(`Wrap the right-hand side`) || s.contains(`Parenthesize`), {
-                println(`E0003 claims a grouping for a hint-free pair: ${s}`);
-                assert(false, "this mix has no canonical grouping");
-              });
-            });
-          },
-          .None => assert(false, "expected a YoError diagnostic")
+          .Some(ye) => unwind(ye.to_string()),
+          .None => unwind(String.from("<not a YoError>"))
         );
-        unwind(());
       }
     )
   );
   parse(src, `test.yo`, exn);
-  assert(false, "expected an adjacent-different-operator parse error");
+  String.new()
+});
+/// Parse `src`, expecting E0003. A non-empty `want` is the exact hint sentence
+/// the message must carry; an empty one means the pair has no canonical
+/// grouping, so the message must carry no hint at all.
+_expect_e0003 :: (fn(src : &String, want : &String) -> unit)({
+  s := _parse_error_text(src);
+  assert(s.contains(`Adjacent different operators need parentheses`), "expected E0003");
+  if(want.len() > usize(0), {
+    if(!s.contains(want), {
+      println(`E0003 hint mismatch: expected "${want}" in: ${s}`);
+      assert(false, "missing canonical grouping hint");
+    });
+  }, {
+    if(s.contains(`Wrap the right-hand side`) || s.contains(`Parenthesize`), {
+      println(`E0003 claims a grouping for a hint-free pair: ${s}`);
+      assert(false, "this mix has no canonical grouping");
+    });
+  });
 });
 test("E0003 names the wrap-the-right-side grouping for a binding operator", {
   _expect_e0003(`x := 1 + 2;`, `Wrap the right-hand side in parentheses: name := (1 + 2).`);
