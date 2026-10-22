@@ -324,6 +324,7 @@ ClassEntry :: struct(
   /// empty class matches every rune.
   negated : bool
 );
+derive(ClassEntry, Clone);
 /// A compiled pattern: everything the VM needs and nothing about a particular
 /// input. A `Regex` holds one and runs it against many haystacks, so it must
 /// stay immutable during execution — the VM only reads it.
@@ -387,7 +388,7 @@ impl(
     // `ranges` cannot alias the receiver's container chain.
     prog := self._program;
     idx := prog.classes.len();
-    prog.classes.push(ClassEntry(ranges : ranges, negated : negated));
+    prog.classes.push(ClassEntry(ranges : ranges.clone(), negated : negated));
     idx
   })
 );
@@ -555,7 +556,7 @@ impl(
   _extract_literal_prefix : (fn(self : &Self) -> unit)({
     prefix := ArrayList(u8).new();
     pc := usize(0);
-    instrs := self._program.instructions;
+    instrs := self._program.instructions.clone();
     (done : bool) = false;
     while((pc < instrs.len()) && !done, {
       instr := instrs(pc);
@@ -603,7 +604,7 @@ impl(
   /// only read.
   compile : (fn(self : &Self, root : &RegexNode, n_groups : usize, group_names : &ArrayList(GroupNameEntry)) -> NfaProgram)({
     self._program.n_groups = n_groups;
-    self._program.group_names = group_names;
+    self._program.group_names = group_names.clone();
     self._emit(Instr.save_instr(usize(0)));
     self._compile_node(root);
     self._emit(Instr.save_instr(usize(1)));

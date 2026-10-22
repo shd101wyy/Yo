@@ -100,7 +100,7 @@ impl(
         ),
         .Err(ferr) => Result(HttpRequest, HttpResponse).Err(
           match(
-            ferr,
+            &ferr,
             .ResponseTooLarge => HttpResponse.with_status(StatusCode.CONTENT_TOO_LARGE()).with_body(`request larger than ${self.max_request_bytes} bytes`),
             _ => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(ferr.to_string())
           )

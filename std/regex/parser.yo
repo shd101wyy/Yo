@@ -69,6 +69,7 @@ ParseFrame :: struct(
   /// both lookaround flags are false.
   is_positive : bool
 );
+derive(ParseFrame, Clone);
 /// A parser over one pattern: the byte cursor plus the capture-numbering
 /// state that outlives the parse.
 ///
@@ -91,7 +92,7 @@ impl(
   /// A parser positioned at the start of `pattern`, with no groups seen yet.
   new : (fn(pattern : &String) -> Self)(
     Self(
-      _source : pattern,
+      _source : pattern.clone(),
       _bytes : pattern.to_bytes(),
       _pos : usize(0),
       _group_count : usize(0),
@@ -146,12 +147,12 @@ impl(
   /// program and out to `RegexMatch.named_group`, and nobody mutates it after
   /// the parse.
   group_names : (fn(self : &Self) -> ArrayList(GroupNameEntry))(
-    self._group_names
+    self._group_names.clone()
   ),
   _lookup_group_name : (fn(self : &Self, name : &String) -> Option(usize))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
-      entry := self._group_names(i);
+      entry :=( self._group_names(i)).clone();
       cond(
         (entry.name == name) => {
           return(.Some(entry.index));
@@ -751,7 +752,7 @@ impl(
       },
       true => ()
     );
-    alts.push(seq);
+    alts.push(seq.clone());
     result := self._make_sequence(&alts(usize(0)));
     i := usize(1);
     while(i < alts.len(), i = (i + usize(1)), {
@@ -952,10 +953,10 @@ impl(
             cur_non_cap => RegexNode.non_capturing_group(&inner),
             true => RegexNode.group(&inner, cur_group_idx)
           );
-          parent := stack(stack.len() - usize(1));
+          parent :=( stack(stack.len() - usize(1))).clone();
           stack.pop();
-          cur_alts = parent.alternatives;
-          cur_seq = parent.current;
+          cur_alts = parent.alternatives.clone();
+          cur_seq = parent.current.clone();
           cur_non_cap = parent.is_non_capturing;
           cur_group_idx = parent.group_index;
           cur_is_la = parent.is_lookahead;

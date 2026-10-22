@@ -102,6 +102,7 @@ GroupNameEntry :: struct(
   /// `named_group(n)` and `group(index)` answer identically.
   index : usize
 );
+derive(GroupNameEntry, Clone);
 /// One node of the pattern AST.
 ///
 /// Reference-counted (`ref(struct(...))`) so `children : ArrayList(Self)` can
@@ -144,6 +145,7 @@ RegexNode :: ref(
     anchor : AnchorKind
   )
 );
+impl(RegexNode, Clone(clone : (fn(self : &Self) -> Self)(self)));
 impl(
   RegexNode,
   /// A node matching exactly the code point `cp`.
@@ -186,7 +188,7 @@ impl(
       kind : .CharClass,
       children : ArrayList(RegexNode).new(),
       codepoint : u32(0),
-      ranges : ranges,
+      ranges : ranges.clone(),
       negated : negated,
       q_min : usize(0),
       q_max : usize(0),
@@ -217,7 +219,7 @@ impl(
   sequence : (fn(nodes : &ArrayList(RegexNode)) -> Self)(
     Self(
       kind : .Sequence,
-      children : nodes,
+      children : nodes.clone(),
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
       negated : false,

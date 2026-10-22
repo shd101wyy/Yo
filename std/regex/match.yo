@@ -50,19 +50,19 @@ impl(
   /// VM already computed, so nothing here validates or re-derives anything.
   new : (fn(value : &String, index : usize, end : usize, input : &String, groups : &ArrayList(Option(String)), group_spans : &ArrayList(Option(Range(usize))), group_names : &ArrayList(GroupNameEntry)) -> Self)(
     Self(
-      _value : value,
+      _value : value.clone(),
       _index : index,
       _end : end,
-      _input : input,
-      _groups : groups,
-      _group_spans : group_spans,
-      _group_names : group_names
+      _input : input.clone(),
+      _groups : groups.clone(),
+      _group_spans : group_spans.clone(),
+      _group_names : group_names.clone()
     )
   ),
   /// The matched text itself — the same bytes as
   /// `input().substring(index(), end())`, captured at match time.
   value : (fn(self : &Self) -> String)(
-    self._value
+    self._value.clone()
   ),
   /// Start position of the match as a **byte** offset into the input.
   ///
@@ -91,7 +91,7 @@ impl(
   /// match holds a reference to it, so the offsets `index()` / `end()` /
   /// `span()` / `group_span()` stay meaningful for as long as the match does.
   input : (fn(self : &Self) -> String)(
-    self._input
+    self._input.clone()
   ),
   /// The text of capture group `idx`, 1-based, with `0` meaning the whole
   /// match — the same numbering `$1` and `\1` use in patterns.
@@ -102,11 +102,11 @@ impl(
   /// against `group_count()` first if that matters.
   group : (fn(self : &Self, idx : usize) -> Option(String))(
     cond(
-      (idx == usize(0)) => .Some(self._value),
+      (idx == usize(0)) => .Some(self._value.clone()),
       true => {
         actual_idx := (idx - usize(1));
         cond(
-          (actual_idx < self._groups.len()) => self._groups(actual_idx),
+          (actual_idx < self._groups.len()) =>( self._groups(actual_idx)).clone(),
           true => .None
         )
       }
@@ -139,7 +139,7 @@ impl(
   named_group : (fn(self : &Self, name : &String) -> Option(String))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
-      entry := self._group_names(i);
+      entry :=( self._group_names(i)).clone();
       cond(
         (entry.name == name) => {
           return(self.group(entry.index));

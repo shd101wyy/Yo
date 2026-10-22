@@ -81,6 +81,7 @@ FsEvent :: struct(
   /// which of the three.
   kind : FsEventKind
 );
+derive(FsEvent, Clone);
 /// Watch settings.
 WatchOptions :: struct(
   /// Watch the whole tree below a directory. Native on macOS/Windows; on
@@ -115,7 +116,7 @@ Watcher :: ref(
 /// Resume every task suspended in `next`: an event arrived, or the watch
 /// closed. Each re-checks the queue, so waking all of them is safe.
 _wake_waiters :: (fn(w : &Watcher) -> unit)({
-  pending := w._waiters;
+  pending := w._waiters.clone();
   w._waiters = ArrayList(Waker).new();
   (i : usize) = usize(0);
   while(i < pending.len(), i = (i + usize(1)), {
@@ -183,7 +184,7 @@ impl(
   poll : (fn(self : &mut Self) -> Option(FsEvent))(
     cond(
       (self._head < self._queue.len()) => {
-        ev := self._queue(self._head);
+        ev :=( self._queue(self._head)).clone();
         self._head = (self._head + usize(1));
         if(self._head == self._queue.len(), {
           self._queue = ArrayList(FsEvent).new();

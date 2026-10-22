@@ -78,7 +78,7 @@ impl(
   HttpHeader,
   /// Create a new header with the given name and value.
   new : (fn(name : &String, value : &String) -> Self)(
-    Self(name : name, value : value)
+    Self(name : name.clone(), value : value.clone())
   )
 );
 /// A header section — Rust's `http::HeaderMap`.
@@ -118,7 +118,7 @@ impl(
       h := self._entries(i);
       cond(
         (h.name.to_lowercase() == lower) => {
-          return(.Some(h.value));
+          return(.Some(h.value.clone()));
         },
         true => ()
       );
@@ -135,7 +135,7 @@ impl(
       h := self._entries(i);
       cond(
         (h.name.to_lowercase() == lower) => {
-          out.push(h.value);
+          out.push(h.value.clone());
         },
         true => ()
       );
@@ -221,7 +221,7 @@ impl(
   HttpRequest,
   /// Create a new request with the given method and path.
   new : (fn(method : HttpMethod, path : &String) -> Self)(
-    Self(method : method, path : path, headers : HeaderMap.new(), body : ``)
+    Self(method : method, path : path.clone(), headers : HeaderMap.new(), body : ``)
   ),
   /// Add a header and return the request (builder pattern). APPENDS, so a
   /// repeatable field can be built up by chaining.
@@ -231,7 +231,7 @@ impl(
   }),
   /// Set the request body and return the request (builder pattern).
   with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body;
+    self.body = body.clone();
     self
   }),
   /// Set the Host header, REPLACING any existing one — there is exactly one
@@ -247,7 +247,7 @@ impl(
   }),
   /// Set the request body.
   set_body : (fn(self : &Self, body : &String) -> unit)({
-    self.body = body;
+    self.body = body.clone();
   }),
   /// Look up a header value by name (case-insensitive). The first value, when
   /// the field repeats — `self.headers.get_all(name)` for all of them.
@@ -466,7 +466,7 @@ impl(
   HttpResponse,
   /// Create a response with the given status and reason phrase.
   new : (fn(status : StatusCode, status_text : &String) -> Self)(
-    Self(status : status, status_text : status_text, version : `HTTP/1.1`, headers : HeaderMap.new(), body : ``)
+    Self(status : status, status_text : status_text.clone(), version : `HTTP/1.1`, headers : HeaderMap.new(), body : ``)
   ),
   /// Look up a header value by name (case-insensitive). The first value, when
   /// the field repeats — `self.headers.get_all(name)` for all of them, which
@@ -502,7 +502,7 @@ impl(
   }),
   /// Set the body and return the response (builder pattern).
   with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body;
+    self.body = body.clone();
     self
   })
 );
@@ -572,7 +572,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   head := raw.substring(usize(0), header_end);
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := raw;
+      raw_b := raw.clone();
       body_b := ArrayList(u8).new();
       bi := (header_end + usize(4));
       while(runtime(bi < raw_b.len()), {
@@ -590,7 +590,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
     },
     true => ()
   );
-  status_line := lines(usize(0));
+  status_line := (lines(usize(0))).clone();
   cond(
     !status_line.starts_with(`HTTP/`) => {
       return(.Err(HttpParseError.InvalidStatusLine(status_line)));
@@ -601,7 +601,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
     status_line.index_of(` `),
     .Some(p) => p,
     .None => {
-      return(.Err(HttpParseError.InvalidStatusLine(status_line)));
+      return(.Err(HttpParseError.InvalidStatusLine(status_line.clone())));
     }
   );
   version := status_line.substring(usize(0), sp1);
@@ -619,7 +619,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
     code_str.parse_i32(),
     .Some(c) => c,
     .None => {
-      return(.Err(HttpParseError.InvalidStatusCode(code_str)));
+      return(.Err(HttpParseError.InvalidStatusCode(code_str.clone())));
     }
   );
   // A code outside 100-599 is not a status. It used to be accepted, so a
@@ -636,7 +636,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   resp.version = version;
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines(j);
+    hline := lines(j).clone();
     cond(
       hline.is_empty() => (),
       true => {
@@ -669,7 +669,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   // binary-bodies row; pinned by tests/http/server.test.yo).
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := raw;
+      raw_b := raw.clone();
       body_b := ArrayList(u8).new();
       bi := (header_end + usize(4));
       while(runtime(bi < raw_b.len()), {
@@ -687,7 +687,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     },
     true => ()
   );
-  request_line := lines(usize(0));
+  request_line := (lines(usize(0))).clone();
   parts := request_line.split(` `);
   cond(
     (parts.len() != usize(3)) => {
@@ -699,10 +699,10 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     HttpMethod.from_string(&parts(usize(0))),
     .Some(m) => m,
     .None => {
-      return(.Err(HttpParseError.UnknownMethod(parts(usize(0)))));
+      return(.Err(HttpParseError.UnknownMethod((parts(usize(0))).clone())));
     }
   );
-  version := parts(usize(2));
+  version := (parts(usize(2))).clone();
   cond(
     ((version != `HTTP/1.1`) && (version != `HTTP/1.0`)) => {
       return(.Err(HttpParseError.UnsupportedVersion(version)));
@@ -712,7 +712,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   req := HttpRequest.new(method, &parts(usize(1)));
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines(j);
+    hline := lines(j).clone();
     match(
       hline.index_of(`:`),
       .Some(colon) => {
@@ -762,6 +762,7 @@ HttpError :: enum(
   /// An unclassified HTTP error.
   Other(msg : String)
 );
+derive(HttpError, Clone);
 derive(
   HttpError,
   Error(

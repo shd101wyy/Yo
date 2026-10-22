@@ -77,6 +77,7 @@ WalkEntry :: struct(
   /// once as `.Symlink` and its contents appear beneath it.
   file_type : FileType
 );
+derive(WalkEntry, Clone);
 
 export(WalkEntry);
 /// Options controlling directory walk behavior.
@@ -103,6 +104,7 @@ WalkOptions :: struct(
   /// files even though intermediate dirs do not match.
   pattern : Option(String)
 );
+derive(WalkOptions, Clone);
 impl(
   WalkOptions,
   /// Unlimited depth, symlinks reported but not followed, directories
@@ -131,19 +133,20 @@ _join_path :: (fn(base : &String, name : &String) -> String)(
 // async fn so the walker's loops keep a SINGLE top-level await per body —
 // awaits nested in cond arms inside its while-in-while trip
 // issues/fixed/async-nested-cond-await-duplicate-while-labels.md.
-_canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))(
+_canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))({
+  __probe_lp := lp.clone();
   io.async(e => {
-    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
+    is_d := e.io.await(_file.is_dir(Path.new(&__probe_lp), e.io), e.io);
     cond(
       is_d => {
-        canon := e.io.await(_file.canonicalize(Path.new(lp), e.io), e);
+        canon := e.io.await(_file.canonicalize(Path.new(&__probe_lp), e.io), e);
         return(canon.to_string());
       },
       true => ()
     );
     return(String.new());
   })
-);
+});
 // ============================================================================
 // Walk functions
 // ============================================================================
@@ -153,16 +156,16 @@ _canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))(
 _filter_by_pattern :: (fn(results : &ArrayList(WalkEntry), root_s : &String, pattern : &Option(String)) -> ArrayList(WalkEntry))({
   pat := match(
     pattern,
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
-      return(results);
+      return(results.clone());
     }
   );
   kept := ArrayList(WalkEntry).new();
   prefix_len := (root_s.len() + usize(1));
   (fi : usize) = usize(0);
   while(fi < results.len(), fi = (fi + usize(1)), {
-    wentry := results(fi);
+    wentry := results(fi).clone();
     full := wentry.path.to_string();
     rel := cond(
       (full.len() > prefix_len) => full.substring(prefix_len, full.len()),
@@ -194,6 +197,7 @@ _filter_by_pattern :: (fn(results : &ArrayList(WalkEntry), root_s : &String, pat
 /// (issues/fixed/async-nested-cond-await-duplicate-while-labels.md).
 walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
+  __probe_options := options.clone();
   io.async(e => {
     results := ArrayList(WalkEntry).new();
     // Canonical paths of directories entered VIA a followed symlink — the
@@ -205,14 +209,14 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
     pending_links := ArrayList(String).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path : String, depth : u32)).new();
-    stack.push({ path : root_s, depth : u32(0) });
+    stack.push({ path : root_s.clone(), depth : u32(0) });
     while(runtime(stack.len() > usize(0)), {
       item := stack.pop().unwrap();
-      cur_path := item.path;
+      cur_path := item.path.clone();
       cur_depth := item.depth;
       // Check max depth
       should_continue := match(
-        options.max_depth,
+        __probe_options.max_depth,
         .Some(max) => (cur_depth <= max),
         .None => true
       );
@@ -221,17 +225,17 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
           entries := e.io.await(_dir.read_dir(Path.new(&cur_path), e.io), e);
           i := usize(0);
           while(runtime(i < entries.len()), {
-            entry := entries(i);
+            entry := entries(i).clone();
             entry_path := _join_path(&cur_path, &entry.name);
             match(
               entry.file_type,
               .Directory => {
                 cond(
-                  options.include_dirs => {
+                  __probe_options.include_dirs => {
                     results.push(
                       WalkEntry(
                         path : Path.new(&entry_path),
-                        name : entry.name,
+                        name : entry.name.clone(),
                         depth : cur_depth,
                         file_type : .Directory
                       )
@@ -251,13 +255,13 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                 results.push(
                   WalkEntry(
                     path : Path.new(&entry_path),
-                    name : entry.name,
+                    name : entry.name.clone(),
                     depth : cur_depth,
                     file_type : .Symlink
                   )
                 );
                 cond(
-                  (options.follow_symlinks && _FOLLOW_SUPPORTED) => {
+                  (__probe_options.follow_symlinks && _FOLLOW_SUPPORTED) => {
                     pending_links.push(entry_path);
                   },
                   true => ()
@@ -267,7 +271,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                 results.push(
                   WalkEntry(
                     path : Path.new(&entry_path),
-                    name : entry.name,
+                    name : entry.name.clone(),
                     depth : cur_depth,
                     file_type : entry.file_type
                   )
@@ -281,7 +285,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
           // and descend when it is a directory not already entered.
           j := usize(0);
           while(runtime(j < pending_links.len()), {
-            lp := pending_links(j);
+            lp := pending_links(j).clone();
             canon_s := e.io.await(_canon_dir_target(&lp, e.io), e);
             cond(
               (!canon_s.is_empty() && !followed.contains(&canon_s)) => {
@@ -298,7 +302,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
       );
     });
     // The pattern post-filter is a sync helper over the drained results.
-    _filter_by_pattern(&results, &root_s, &options.pattern)
+    _filter_by_pattern(&results, &root_s, &__probe_options.pattern)
   })
 });
 /// `walk_with` taking a NUL-terminated C string as the root, for callers
@@ -318,7 +322,7 @@ walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn
 /// is everything up to the last `/` BEFORE the first metacharacter
 /// (`*`, `?`, `[`), or `.` when the pattern is relative with no static dir.
 _glob_split :: (fn(pattern : &String) -> struct(base : String, rest : String))({
-  bs := pattern;
+  bs := pattern.clone();
   n := bs.len();
   // First metacharacter position (n = none).
   (meta : usize) = n;
@@ -370,13 +374,13 @@ glob :: (fn(pattern : &String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))
       max_depth : .None,
       follow_symlinks : false,
       include_dirs : true,
-      pattern : Option(String).Some(parts.rest)
+      pattern : Option(String).Some(parts.rest.clone())
     );
     entries := e.io.await(walk_with(Path.new(&parts.base), &opts, e.io), e);
     out := ArrayList(Path).new();
     (i : usize) = usize(0);
     while(runtime(i < entries.len()), {
-      wentry := entries(i);
+      wentry := entries(i).clone();
       out.push(wentry.path);
       i = (i + usize(1));
     });

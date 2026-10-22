@@ -94,6 +94,7 @@ DirEntry :: struct(
   /// reason. It is the path as GIVEN to `read_dir`, not a canonical one.
   parent : Path
 );
+derive(DirEntry, Clone);
 impl(
   DirEntry,
   /// The full path of this entry: the scanned directory joined with the
@@ -139,7 +140,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
           // ENOENT - try to create parents
           (errno == i32(ENOENT)) => {
             // Walk the path and create each component
-            bytes := path_s;
+            bytes := path_s.clone();
             i := usize(1);
             // On Windows, skip past drive letter root (e.g., "C:\")
             // to avoid trying to mkdir "C:" which fails with EACCES
@@ -433,7 +434,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     entries := ArrayList(DirEntry).new();
     (i : usize) = usize(0);
     while(runtime(i < raw.len()), {
-      r := raw(i);
+      r := { name : raw(i).name.clone(), dt : raw(i).dt, ino : raw(i).ino };
       (ft : FileType) = cond(
         (r.dt == DT_REG) => FileType.File,
         (r.dt == DT_DIR) => FileType.Directory,
@@ -466,7 +467,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
       );
       entries.push(
         DirEntry(
-          name : r.name,
+          name : r.name.clone(),
           file_type : ft,
           ino : r.ino,
           parent : path.clone()

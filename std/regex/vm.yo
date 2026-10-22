@@ -172,7 +172,7 @@ impl(
     Self(
       _program : program,
       _flags : flags,
-      _input : input,
+      _input : input.clone(),
       _bytes : input.to_bytes(),
       _n_slots : n_slots,
       _seen : seen,
@@ -340,7 +340,7 @@ impl(
           },
           true => ()
         );
-        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots);
+        new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots.clone());
         recur(self, list, &new_t, byte_pos, seen);
       },
       .AssertStart => {
@@ -539,8 +539,8 @@ impl(
     // Reuse pre-allocated seen buffers from the VM
     current := ArrayList(NfaThread).new();
     next := ArrayList(NfaThread).new();
-    seen := self._seen;
-    next_seen := self._next_seen;
+    seen := self._seen.clone();
+    next_seen := self._next_seen.clone();
     deferred := ArrayList(DeferredThread).new();
     // Clear for this execution
     seen.fill_with_byte(int(0));
@@ -795,7 +795,7 @@ impl(
           },
           .Match => {
             // Record match and kill lower-priority threads
-            best_match = VmMatch(matched : true, slots : thread.slots);
+            best_match = VmMatch(matched : true, slots : thread.slots.clone());
             found_match_in_gen = true;
           },
           _ => ()

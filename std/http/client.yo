@@ -114,7 +114,7 @@ impl(
   }),
   /// Set the request body.
   with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body;
+    self.body = body.clone();
     self
   }),
   /// Give the whole request (redirects included) a deadline.
@@ -159,21 +159,22 @@ impl(
       n
     })
   ),
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
+    __probe_data := data.clone();
     io.async(e => {
       (n : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
-          n = e.io.await(stream.write_string(data, e.io), e);
+          n = e.io.await(stream.write_string(&__probe_data, e.io), e);
         },
         .Secure(stream) => {
-          n = e.io.await(stream.write_string(data, e.io), e);
+          n = e.io.await(stream.write_string(&__probe_data, e.io), e);
         }
       );
       n
     })
-  ),
+  }),
   /// Graceful close: a TLS transport also gets its `close_notify` flushed.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
@@ -371,7 +372,7 @@ impl(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
-        self._idle.push(_Idle(key : key, transport : transport, carry : carry, since : Instant.now()));
+        self._idle.push(_Idle(key : key.clone(), transport : transport, carry : carry, since : Instant.now()));
         true
       }
     )
@@ -396,7 +397,7 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while(runtime(i < parts.len()), {
-    part := parts(i);
+    part := parts(i).clone();
     trimmed := part.trim();
     cond(
       (trimmed.to_lowercase() == token) => {
@@ -510,6 +511,7 @@ _Prepared :: struct(
   sent_close : bool,
   kind : MessageKind
 );
+derive(_Prepared, Clone);
 // `keep_alive` false is the one-shot path: it adds the `Connection: close`
 // that makes a close-delimited response terminate. A pooled request says
 // nothing — HTTP/1.1 is persistent by default, and saying `keep-alive`
@@ -526,7 +528,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   cond(
     (is_http || is_https) => (),
     true => {
-      exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
+      exn.throw(dyn(HttpError.UnsupportedScheme(scheme.clone())));
     }
   );
   host := match(
@@ -603,30 +605,31 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   )
 });
 // Open a new connection to the prepared target.
-_connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
+_connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))({
+  __probe_prep := prep.clone();
   io.async(e => {
     (out : Option(_Transport)) = Option(_Transport).None;
     cond(
-      prep.is_tls => {
-        tls := e.io.await(TlsStream.connect(prep.host.clone(), prep.port, e.io), e);
+      __probe_prep.is_tls => {
+        tls := e.io.await(TlsStream.connect(__probe_prep.host.clone(), __probe_prep.port, e.io), e);
         out = Option(_Transport).Some(_Transport.Secure(tls));
       },
       true => {
-        addrs := e.io.await(lookup_host(&prep.host, e.io), e);
+        addrs := e.io.await(lookup_host(&__probe_prep.host, e.io), e);
         cond(
           (addrs.len() == usize(0)) => {
-            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${prep.host}`)));
+            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${__probe_prep.host}`)));
           },
           true => ()
         );
-        addr := SocketAddr.new(addrs(usize(0)), prep.port);
+        addr := SocketAddr.new(addrs(usize(0)), __probe_prep.port);
         stream := e.io.await(TcpStream.connect(addr, e.io), e);
         out = Option(_Transport).Some(_Transport.Plain(stream));
       }
     );
     out.unwrap()
   })
-);
+});
 /// One request, one response — no redirects and no deadline.
 ///
 /// `pool` is what separates the two clients: with `.None` this is the
@@ -657,9 +660,10 @@ _connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
 _fetch_once :: (
   fn(url_str : &String, opts : &FetchOptions, pool : &Option(HttpClient), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
-)(
+)({
+  __probe_url_str := url_str.clone();
   io.async(e => {
-    prep := _prepare(url_str, opts, pool.is_some(), e.exn);
+    prep := _prepare(&__probe_url_str, opts, pool.is_some(), e.exn);
     idempotent := _is_idempotent(opts.method);
     (out : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
@@ -796,7 +800,7 @@ _fetch_once :: (
     });
     match(out, .Some(r) => r, .None => HttpResponse.new(StatusCode.OK(), ``))
   })
-);
+});
 // ============================================================================
 // Internal: redirects
 // ============================================================================
@@ -820,7 +824,7 @@ _resolve_location :: (fn(base_str : &String, location : &String, exn : Exception
     .Ok(u) => u.to_string(),
     // An unresolvable `Location` is the server's problem, not ours; pass it
     // on so the next hop's own parse reports it with its own error.
-    .Err(_) => location
+    .Err(_) => location.clone()
   )
 });
 /// The options for the next hop. 303 always becomes a GET, and so do 301/302
@@ -833,7 +837,7 @@ _redirect_options :: (fn(opts : &FetchOptions, status : StatusCode) -> FetchOpti
   FetchOptions(
     method : cond(to_get => HttpMethod.GET, true => opts.method),
     headers : opts.headers,
-    body : cond(to_get => ``, true => opts.body),
+    body : cond(to_get => ``, true => opts.body.clone()),
     timeout : opts.timeout,
     max_redirects : opts.max_redirects,
     max_response_bytes : opts.max_response_bytes
@@ -848,9 +852,10 @@ _redirect_options :: (fn(opts : &FetchOptions, status : StatusCode) -> FetchOpti
 _fetch_follow :: (
   fn(url_str : &String, opts : &FetchOptions, pool : &Option(HttpClient), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
-)(
+)({
+  __probe_url_str := url_str.clone();
   io.async(e => {
-    current := url_str.clone();
+    current := __probe_url_str.clone();
     hop_opts := opts;
     hops := usize(0);
     (result : Option(HttpResponse)) = Option(HttpResponse).None;
@@ -884,7 +889,7 @@ _fetch_follow :: (
     });
     match(result, .Some(r) => r, .None => HttpResponse.new(StatusCode.OK(), ``))
   })
-);
+});
 // ============================================================================
 // Internal: the deadline race
 // ============================================================================
@@ -934,13 +939,14 @@ _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -
 _fetch_deadline :: (
   fn(url_str : &String, opts : &FetchOptions, pool : &Option(HttpClient), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
-)(
+)({
+  __probe_url_str := url_str.clone();
   io.async(e => {
     (result : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
     match(
       opts.timeout,
       .None => {
-        result = e.io.await(_fetch_follow(url_str, opts, pool, e.io), e);
+        result = e.io.await(_fetch_follow(&__probe_url_str, opts, pool, e.io), e);
       },
       .Some(limit) => {
         // Run the whole exchange as a spawned TASK raced against the
@@ -955,7 +961,7 @@ _fetch_deadline :: (
         //
         // A connection cut off here is owned by the aborted state machine, so
         // its `Drop` closes it — it never reaches the pool.
-        h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
+        h := e.io.spawn(_fetch_follow(&__probe_url_str, opts, pool, e.io), e);
         match(
           e.io.await(_deadline_join(h, limit, e.io), e.io),
           .Done(resp) => {
@@ -972,7 +978,7 @@ _fetch_deadline :: (
     );
     result
   })
-);
+});
 // ============================================================================
 // fetch — High-level async HTTP request (like JavaScript's fetch)
 // ============================================================================
@@ -995,14 +1001,15 @@ _fetch_deadline :: (
 fetch_with :: (
   fn(url_str : &String, opts : &FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
-)(
+)({
+  __probe_url_str := url_str.clone();
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(_fetch_deadline(url_str, opts, Option(HttpClient).None, e.io), e);
+    resp := e.io.await(_fetch_deadline(&__probe_url_str, opts, Option(HttpClient).None, e.io), e);
     return(resp);
   })
-);
+});
 export(fetch_with);
 /// Perform a one-shot HTTP GET request to the given URL string.
 /// Returns the `HttpResponse` on success.
@@ -1016,14 +1023,15 @@ export(fetch_with);
 fetch :: (
   fn(url_str : &String, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
-)(
+)({
+  __probe_url_str := url_str.clone();
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e);
+    resp := e.io.await(fetch_with(&__probe_url_str, FetchOptions.new(), e.io), e);
     return(resp);
   })
-);
+});
 export(fetch);
 // The pooling entry points live in their own `impl` block, registered after
 // `_fetch_deadline` exists as a binding: an `io.async` body is evaluated
@@ -1033,23 +1041,25 @@ impl(
   HttpClient,
   /// GET `url_str`, reusing an idle connection to the same scheme/host/port
   /// when the pool has one and returning it to the pool afterwards.
-  fetch : (fn(self : &Self, url_str : &String, io : Io) -> Impl(Future(HttpResponse, IoExn)))(
+  fetch : (fn(self : &Self, url_str : &String, io : Io) -> Impl(Future(HttpResponse, IoExn)))({
+    __probe_url_str := url_str.clone();
     io.async(e => {
       resp := e.io.await(
-        _fetch_deadline(url_str, FetchOptions.new(), Option(HttpClient).Some(self), e.io),
+        _fetch_deadline(&__probe_url_str, FetchOptions.new(), Option(HttpClient).Some(self), e.io),
         e
       );
       return(resp);
     })
-  ),
+  }),
   /// `fetch_with`'s options, over this client's connection pool.
   fetch_with : (
     fn(self : &Self, url_str : &String, opts : &FetchOptions, io : Io) ->
       Impl(Future(HttpResponse, IoExn))
-  )(
+  )({
+    __probe_url_str := url_str.clone();
     io.async(e => {
-      resp := e.io.await(_fetch_deadline(url_str, opts, Option(HttpClient).Some(self), e.io), e);
+      resp := e.io.await(_fetch_deadline(&__probe_url_str, opts, Option(HttpClient).Some(self), e.io), e);
       return(resp);
     })
-  )
+  })
 );

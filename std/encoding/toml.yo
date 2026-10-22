@@ -1287,10 +1287,10 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
     _clean_decimal(&b, i, n),
     .Some(d) => d,
     .None => {
-      return(bad);
+      return(bad.clone());
     }
   );
-  signed_text := cond(neg => `-${dec.text}`, true => dec.text);
+  signed_text := cond(neg => `-${dec.text}`, true => dec.text.clone());
   cond(
     dec.is_float => match(
       signed_text.parse_f64(),
@@ -1352,7 +1352,7 @@ _read_date :: (fn(p : &_Parser, start : usize) -> Result(_DateParts, TomlError))
     _read_digits(p, usize(4)),
     .Some(v) => v,
     .None => {
-      return(bad);
+      return(bad.clone());
     }
   );
   cond(
@@ -1366,7 +1366,7 @@ _read_date :: (fn(p : &_Parser, start : usize) -> Result(_DateParts, TomlError))
     _read_digits(p, usize(2)),
     .Some(v) => v,
     .None => {
-      return(bad);
+      return(bad.clone());
     }
   );
   cond(
@@ -1394,7 +1394,7 @@ _read_time :: (fn(p : &_Parser, start : usize) -> Result(_TimeParts, TomlError))
     _read_digits(p, usize(2)),
     .Some(v) => v,
     .None => {
-      return(bad);
+      return(bad.clone());
     }
   );
   cond(
@@ -1408,7 +1408,7 @@ _read_time :: (fn(p : &_Parser, start : usize) -> Result(_TimeParts, TomlError))
     _read_digits(p, usize(2)),
     .Some(v) => v,
     .None => {
-      return(bad);
+      return(bad.clone());
     }
   );
   cond(
@@ -1422,7 +1422,7 @@ _read_time :: (fn(p : &_Parser, start : usize) -> Result(_TimeParts, TomlError))
     _read_digits(p, usize(2)),
     .Some(v) => v,
     .None => {
-      return(bad);
+      return(bad.clone());
     }
   );
   (nanos : i64) = i64(0);
@@ -1530,7 +1530,7 @@ _parse_datetime :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
                 _read_digits(p, usize(2)),
                 .Some(v) => v,
                 .None => {
-                  return(bad);
+                  return(bad.clone());
                 }
               );
               cond(
@@ -1544,7 +1544,7 @@ _parse_datetime :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
                 _read_digits(p, usize(2)),
                 .Some(v) => v,
                 .None => {
-                  return(bad);
+                  return(bad.clone());
                 }
               );
               cond(
@@ -1618,20 +1618,20 @@ _insert_inline :: (
     pos : usize
   ) -> Result(unit, TomlError)
 )({
-  (cur : TomlValue) = table;
+  (cur : TomlValue) = table.clone();
   (path : String) = String.new();
   last := (keys.len() - usize(1));
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
-    k := keys(i);
+    k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_tbl : TomlValue) = cur;
+    (next_tbl : TomlValue) = cur.clone();
     match(
       cur.get(&k),
       .None => {
         t := TomlValue.new_table();
-        _old := cur.insert(k, t);
-        dotted.push(child_path);
+        _old := cur.insert(k, t.clone());
+        dotted.push(child_path.clone());
         next_tbl = t;
       },
       .Some(v) => {
@@ -1665,14 +1665,14 @@ _insert_inline :: (
     cur = next_tbl;
     path = child_path;
   });
-  final_key := keys(last);
+  final_key := keys(last).clone();
   cond(
     cur.has_key(&final_key) => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
     },
     true => ()
   );
-  _prev := cur.insert(final_key, value);
+  _prev := cur.insert(final_key, value.clone());
   Result(unit, TomlError).Ok(())
 });
 /// One value. Arrays and inline tables are scanned INLINE here rather than in
@@ -1870,19 +1870,19 @@ _Cursor :: struct(
 _walk_header_path :: (
   fn(p : &_Parser, keys : &ArrayList(String), upto : usize, pos : usize) -> Result(_Cursor, TomlError)
 )({
-  (cur : TomlValue) = p.root;
+  (cur : TomlValue) = p.root.clone();
   (path : String) = String.new();
   i := usize(0);
   while(i < upto, i = (i + usize(1)), {
-    k := keys(i);
+    k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_tbl : TomlValue) = cur;
-    (next_path : String) = child_path;
+    (next_tbl : TomlValue) = cur.clone();
+    (next_path : String) = child_path.clone();
     match(
       cur.get(&k),
       .None => {
         t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+        _old := cur.insert(k, t.clone());
         p.set_kind(&child_path, _TableKind.Implicit);
         next_tbl = t;
       },
@@ -1919,7 +1919,7 @@ _walk_header_path :: (
               is_aot => {
                 items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
                 idx := (items.len() - usize(1));
-                next_tbl = items(idx);
+                next_tbl = items(idx).clone();
                 next_path = _path_index(&child_path, idx);
               },
               true => {
@@ -1984,7 +1984,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
       return(Result(unit, TomlError).Err(e));
     }
   );
-  k := keys(last);
+  k := keys(last).clone();
   child_path := _path_key(&cursor.path, &k);
   existing := cursor.table.get(&k);
   cond(
@@ -1993,7 +1993,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
       .None => {
         items := ArrayList(TomlValue).new();
         elem := TomlValue.new_table();
-        items.push(elem);
+        items.push(elem.clone());
         _old := cursor.table.insert(k, TomlValue.Array(items));
         p.set_kind(&child_path, _TableKind.ArrayOfTables);
         elem_path := _path_index(&child_path, usize(0));
@@ -2011,7 +2011,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
           is_aot => {
             items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
             elem := TomlValue.new_table();
-            items.push(elem);
+            items.push(elem.clone());
             elem_path := _path_index(&child_path, items.len() - usize(1));
             p.set_kind(&elem_path, _TableKind.ArrayElem);
             p.cur = elem;
@@ -2027,7 +2027,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
       existing,
       .None => {
         t := TomlValue.new_table();
-        _old := cursor.table.insert(k, t);
+        _old := cursor.table.insert(k, t.clone());
         p.set_kind(&child_path, _TableKind.Explicit);
         p.cur = t;
         p.cur_path = child_path;
@@ -2069,19 +2069,19 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
 _insert_keyval :: (
   fn(p : &_Parser, keys : &ArrayList(String), value : &TomlValue, pos : usize) -> Result(unit, TomlError)
 )({
-  (cur : TomlValue) = p.cur;
-  (path : String) = p.cur_path;
+  (cur : TomlValue) = p.cur.clone();
+  (path : String) = p.cur_path.clone();
   last := (keys.len() - usize(1));
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
-    k := keys(i);
+    k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_tbl : TomlValue) = cur;
+    (next_tbl : TomlValue) = cur.clone();
     match(
       cur.get(&k),
       .None => {
         t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+        _old := cur.insert(k, t.clone());
         p.set_kind(&child_path, _TableKind.Dotted);
         next_tbl = t;
       },
@@ -2111,14 +2111,14 @@ _insert_keyval :: (
     cur = next_tbl;
     path = child_path;
   });
-  final_key := keys(last);
+  final_key := keys(last).clone();
   cond(
     cur.has_key(&final_key) => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
     },
     true => ()
   );
-  _prev := cur.insert(final_key, value);
+  _prev := cur.insert(final_key, value.clone());
   Result(unit, TomlError).Ok(())
 });
 _parse_keyval :: (fn(p : &_Parser) -> Result(unit, TomlError))({
@@ -2202,7 +2202,7 @@ _parse_document :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       }
     );
   });
-  Result(TomlValue, TomlError).Ok(p.root)
+  Result(TomlValue, TomlError).Ok(p.root.clone())
 });
 /// Parse a TOML document into a `TomlValue` tree (D13 — a pure transform
 /// returns a `Result`). The root is always a `.Table`; `.Err` carries the
@@ -2215,7 +2215,7 @@ export(parse);
 // Serialization
 // ============================================================================
 _push_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
-  b := s;
+  b := s.clone();
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     out.push(b.byte_at(i));
@@ -2246,7 +2246,7 @@ _write_u_escape :: (fn(b : u8, out : &mut ArrayList(u8)) -> unit)({
 /// the output prettier, never more correct.
 _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(_QUOTE);
-  b := s;
+  b := s.clone();
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
     c := b.byte_at(i);
@@ -2287,7 +2287,7 @@ _write_basic_string :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
 });
 /// May `key` be written bare?
 _is_bare_key :: (fn(key : &String) -> bool)({
-  b := key;
+  b := key.clone();
   cond(
     (b.len() == usize(0)) => {
       return(false);
@@ -2359,7 +2359,7 @@ _write_f64 :: (fn(v : f64, out : &mut ArrayList(u8)) -> unit)({
       .None => ()
     );
   });
-  b := text;
+  b := text.clone();
   (needs_point : bool) = true;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
@@ -2541,7 +2541,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
     .Table(keys, values) => {
       i := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
-        v := values(i);
+        v := values(i).clone();
         cond(
           (v.is_table() || _is_array_of_tables(&v)) => (),
           true => {
@@ -2554,7 +2554,7 @@ _write_table_body :: (fn(table : &TomlValue, prefix : &String, out : &mut ArrayL
       });
       j := usize(0);
       while(j < keys.len(), j = (j + usize(1)), {
-        v2 := values(j);
+        v2 := values(j).clone();
         key_text := _key_string(&keys(j));
         child_prefix := cond(
           prefix.is_empty() => key_text,
@@ -2703,7 +2703,7 @@ _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
         (same : bool) = true;
         i := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          key := a_keys(i);
+          key := a_keys(i).clone();
           (found : bool) = false;
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {

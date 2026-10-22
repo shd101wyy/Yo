@@ -1,0 +1,16 @@
+// issues/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md
+// Expected: prints 0 twice. `Buf(T)` owns its buffer outright (a `?*T` field
+// and a `Drop` impl), so the safe-code raw-view gate lets `Buf(i32)` through,
+// and should let the generic `Buf(T)` through too.
+// Actual: "Raw-pointer-carrying types ('Buf(T)') are not available in safe code."
+// at `count`'s parameter; `count_i32` alone compiles and prints 0.
+{ println } :: import("std/fmt");
+{ Buf } :: import("./buf.yo");
+count :: (fn(generic(T : Type), b : &Buf(T)) -> usize)(b.len());
+count_i32 :: (fn(b : &Buf(i32)) -> usize)(b.len());
+main :: (fn() -> unit)({
+  b := Buf(i32).new();
+  println(&count_i32(&b));
+  println(&count(&b));
+});
+export(main);

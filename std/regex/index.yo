@@ -105,7 +105,7 @@ impl(
               Self(
                 _program : program,
                 _flags : flags,
-                _pattern : pattern,
+                _pattern : pattern.clone(),
                 _n_groups : n_groups,
                 _group_names : gnames
               )
@@ -120,7 +120,7 @@ impl(
   /// SOURCE, not a canonical form, so it round-trips through `Regex.new` but
   /// says nothing about the compiled program.
   source : (fn(self : &Self) -> String)(
-    self._pattern
+    self._pattern.clone()
   ),
   /// Compile `pattern` with no flags — Rust's `Regex::new`, and the
   /// constructor to reach for. `new_with_flags` is the two-argument form.
@@ -155,7 +155,7 @@ impl(
     metas.push(u8(123));
     metas.push(u8(125));
     out := ArrayList(u8).new();
-    b := s;
+    b := s.clone();
     (i : usize) = usize(0);
     while(i < b.len(), {
       c := b.byte_at(i);
@@ -178,7 +178,7 @@ impl(
   // Fast-scan: find the next byte position where the literal prefix matches.
   // Returns the byte position or input_len if not found.
   _find_prefix_pos : (fn(self : &Self, input_bytes : &String, from_byte : usize) -> usize)({
-    prefix := self._program.literal_prefix;
+    prefix := self._program.literal_prefix.clone();
     prefix_len := prefix.len();
     input_len := input_bytes.len();
     cond(
@@ -228,7 +228,7 @@ impl(
 impl(
   Regex,
   _build_match : (fn(self : &Self, slots : &ArrayList(usize), input : &String) -> RegexMatch)({
-    bytes := input;
+    bytes := input.clone();
     unset := usize.MAX;
     match_start_byte := slots(usize(0));
     match_end_byte := slots(usize(1));
@@ -272,7 +272,7 @@ impl(
   /// anchored attempt at `from_byte`. Otherwise every rune boundary from
   /// `from_byte` on, with the same literal-prefix jump `exec` uses.
   _find_from : (fn(self : &Self, input : &String, from_byte : usize) -> Option(RegexMatch))({
-    bytes := input;
+    bytes := input.clone();
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
     cond(
@@ -329,7 +329,7 @@ impl(
   /// `find_iter` is the lazy form and is what a `for` loop should use.
   find_all : (fn(self : &Self, input : &String) -> ArrayList(RegexMatch))({
     matches := ArrayList(RegexMatch).new();
-    bytes := input;
+    bytes := input.clone();
     input_len := bytes.len();
     vm := NfaVm.new(&self._program, self._flags, input);
     cond(
@@ -453,7 +453,7 @@ impl(
     Item : RegexMatch,
     next : (fn(self : &mut Self) -> Option(RegexMatch))({
       re := self._regex;
-      bytes := self._input;
+      bytes := self._input.clone();
       input_len := bytes.len();
       while(self._byte_pos <= input_len, {
         result := self._vm.exec_at(self._byte_pos);
@@ -537,7 +537,7 @@ impl(
     RegexMatchIter(
       _regex : self,
       _vm : vm,
-      _input : input,
+      _input : input.clone(),
       _byte_pos : byte_pos,
       _has_prefix : has_prefix
     )
@@ -563,7 +563,7 @@ impl(
   // Process replacement patterns: $& (full match), $1-$9 (groups),
   // ${name} (named groups), $` (pre-match), $' (post-match), $$ (literal $)
   _apply_replacement : (fn(self : &Self, replacement : &String, m : &RegexMatch) -> String)({
-    rep_bytes := replacement;
+    rep_bytes := replacement.clone();
     rep_len := rep_bytes.len();
     result := ArrayList(u8).new();
     i := usize(0);
@@ -719,9 +719,9 @@ impl(
     result := self.find(input);
     match(
       result,
-      .None => input,
+      .None => input.clone(),
       .Some(m) => {
-        input_bytes := input;
+        input_bytes := input.clone();
         // m.index() is the match's start BYTE offset
         match_start_byte := m.index();
         match_end_byte := (match_start_byte + m.value().len());
@@ -760,9 +760,9 @@ impl(
   replace_all : (fn(self : &Self, input : &String, replacement : &String) -> String)({
     all_matches := self.find_all(input);
     cond(
-      (all_matches.len() == usize(0)) => input,
+      (all_matches.len() == usize(0)) => input.clone(),
       true => {
-        input_bytes := input;
+        input_bytes := input.clone();
         out := ArrayList(u8).new();
         (last_end_byte : usize) = usize(0);
         mi := usize(0);
@@ -803,9 +803,9 @@ impl(
     result := self.find(input);
     match(
       result,
-      .None => input,
+      .None => input.clone(),
       .Some(m) => {
-        input_bytes := input;
+        input_bytes := input.clone();
         out := ArrayList(u8).new();
         pi := usize(0);
         while(pi < m.index(), pi = (pi + usize(1)), {
@@ -831,9 +831,9 @@ impl(
   replace_all_with : (fn(self : &Self, input : &String, f : &Impl(Fn(m : &RegexMatch) -> String)) -> String)({
     all_matches := self.find_all(input);
     cond(
-      (all_matches.len() == usize(0)) => input,
+      (all_matches.len() == usize(0)) => input.clone(),
       true => {
-        input_bytes := input;
+        input_bytes := input.clone();
         out := ArrayList(u8).new();
         (last_end_byte : usize) = usize(0);
         mi := usize(0);
@@ -889,10 +889,10 @@ impl(
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => {
-        parts.push(input);
+        parts.push(input.clone());
       },
       true => {
-        input_bytes := input;
+        input_bytes := input.clone();
         (last_end_byte : usize) = usize(0);
         mi := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {

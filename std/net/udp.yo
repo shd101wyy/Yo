@@ -132,9 +132,10 @@ impl(
   /// Returns the number of bytes sent.
   send_to : (fn(self : &Self, data : &ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
+    __probe_data := data.clone();
     io.async(e => {
       saddr := make_sockaddr(addr);
-      r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
+      r := e.io.await(IO_udp.sendto(fd, __probe_data.ptr().unwrap(), __probe_data.len(), i32(0), saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       usize(NetError.check(r, e.exn))
     })
@@ -224,8 +225,9 @@ impl(
   /// Send data to the peer set by `connect`. Returns the number of bytes sent.
   send : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
+    __probe_data := data.clone();
     io.async(e => {
-      r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
+      r := e.io.await(IO_udp.send(fd, __probe_data.ptr().unwrap(), __probe_data.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
