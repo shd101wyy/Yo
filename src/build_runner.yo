@@ -728,6 +728,7 @@ _evaluate_dependency_builds :: (
             optimize : art.optimize.clone(),
             allocator : art.allocator.clone(),
             heap_size : art.heap_size,
+            cycle_collector : art.cycle_collector.clone(),
             sanitize : art.sanitize.clone(),
             emit_c_to : art.emit_c_to.clone(),
             emit_chunks : art.emit_chunks,
@@ -2011,6 +2012,13 @@ compile_artifact :: (
     if(artifact.allocator == "fixed", {
       cmd.arg(String.from("--heap-size"));
       cmd.arg(artifact.heap_size.to_string());
+    });
+    // `cycle_collector : CycleCollector.Off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md
+    // §1). The default `auto` adds nothing, so an unset field leaves the child
+    // argv — and the artifact stamp hashed from it — unchanged.
+    if(artifact.cycle_collector != "auto", {
+      cmd.arg(String.from("--cycle-collector"));
+      cmd.arg(artifact.cycle_collector.clone());
     });
     // `emit_c_to` redirects the generated C file. "" means unset (comptime_str
     // has no None). Resolved against the project dir, matching how `root` is

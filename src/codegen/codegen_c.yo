@@ -193,8 +193,16 @@ _struct_has_generic_field :: (fn(ty : &TypeValue) -> bool)(
 /// Sets needs_cycle_gc when any reference-struct type can form an RC cycle
 /// (`can_type_form_rc_cycle`), which selects the FULL cyclic-GC runtime
 /// (`generate_full_gc_runtime_functions`) over the lightweight RC path.
+///
+/// Under `--cycle-collector off` (plans/backlog/WEAK_AND_UNCOLLECTED_RC.md §1)
+/// it stays false whatever the types: the lightweight runtime is selected, no
+/// constructor registers, no `traverse_fn` or `trace` is emitted, `Gc.collect()`
+/// is the runtime's no-op and `Gc.tracked_count()` is 0. A cycle then leaks.
 compute_needs_cycle_gc :: (fn(context : &CodeGenContext) -> unit)({
   context.needs_cycle_gc = false;
+  if(context.cycle_collector_off, {
+    return(());
+  });
   vals := context.types.values();
   (go : bool) = true;
   while(go, {
@@ -375,7 +383,7 @@ static inline void __yo_sm_pools_drain(void) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String) -> ArrayList(String))({
+compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, cycle_collector_off : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -397,6 +405,9 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
   register_fused_await_emitter(emit_fused_await);
   emitter := Emitter.new();
   base := CodeGenContext.new(&emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // `--cycle-collector off`: read by compute_needs_cycle_gc and by the
+  // `__yo_cycle_collector_off` hook in the runtime declarations.
+  base.cycle_collector_off = cycle_collector_off;
   // The entry module's path decides which top-level exports get plain,
   // externally-linked C names (functions/collection.yo).
   base.current_module_path = Option(String).Some(module_env.module_path.*.clone());
