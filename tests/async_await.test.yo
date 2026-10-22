@@ -7990,3 +7990,53 @@ test("a local whose address a method call lends lives in the task across a suspe
   assert(ra.unwrap() == i32(0), "task A reads back its own 64 bytes and cell through the lent pointers");
   assert(rb.unwrap() == i32(0), "task B reads back its own 64 bytes and cell through the lent pointers");
 });
+// An argument lent both `&mut` and `&` to one call inside an `io.async` body
+// takes the same caller-owned +1 as outside one: `xs` lives in a task slot, and
+// the state-machine call path emitted only a by-value parameter's share, so a
+// callee replacing `xs` read the freed first list through its `&` argument
+// (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
+(mut(g_alias_disposed) : i32) = i32(0);
+(mut(g_alias_seen) : usize) = usize(0);
+_AliasBox :: ref(struct(tag : i32));
+impl(
+  _AliasBox,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_alias_disposed = (g_alias_disposed + i32(1));
+    })
+  )
+);
+_alias_clobber :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox)) -> usize)({
+  (mut(i) : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    a = ArrayList(_AliasBox).new();
+    a.push(_AliasBox(tag : i));
+    i = (i + i32(1));
+  });
+  b.len()
+});
+_alias_clobber_unit :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox)) -> unit)({
+  g_alias_seen = _alias_clobber(a, b);
+});
+_alias_clobber_in_task :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    mut(xs) := ArrayList(_AliasBox).new();
+    xs.push(_AliasBox(tag : i32(7)));
+    xs.push(_AliasBox(tag : i32(8)));
+    io.await(yield(io), io);
+    _alias_clobber_unit(&mut xs, &xs);
+    io.await(yield(io), io);
+    xs.push(_AliasBox(tag : i32(9)));
+    n := _alias_clobber(&mut xs, &xs);
+    io.await(yield(io), io);
+    (n + xs.len())
+  })
+);
+test("an argument lent both &mut and & to one call in an io.async body keeps its share", {
+  before := g_alias_disposed;
+  n := io.await(_alias_clobber_in_task(io), io);
+  seen := g_alias_seen;
+  assert(seen == usize(2), `the statement call's borrowed list survived the writes, len ${seen.to_string()}`);
+  assert(n == usize(3), `the bound call's borrowed list survived the writes, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(9)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+});
