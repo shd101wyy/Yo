@@ -50,7 +50,7 @@ evaluate_drop :: (
   // runs the place's drop glue without moving it out. It is the std-internal
   // primitive behind `drop_in_place`, Rust's unsafe `ptr::drop_in_place`.
   drop_tok := ast_expr_token(expr);
-  if(!is_destroying_builtin_call_capable(Option(String).Some(drop_tok.module_path.clone())), {
+  if(!is_destroying_builtin_call_capable(Option(String).Some(drop_tok.module_path.*.clone())), {
     drop_name := String.from(BF_DROP);
     drop_place := ast_expr_to_string(&arg_expr);
     exn.throw(dyn(format_error_message(&drop_tok, destroying_builtin_error_message(&drop_name, &drop_place))));
