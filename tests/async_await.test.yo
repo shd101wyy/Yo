@@ -7990,3 +7990,126 @@ test("a local whose address a method call lends lives in the task across a suspe
   assert(ra.unwrap() == i32(0), "task A reads back its own 64 bytes and cell through the lent pointers");
   assert(rb.unwrap() == i32(0), "task B reads back its own 64 bytes and cell through the lent pointers");
 });
+// An argument lent both `&mut` and `&` to one call inside an `io.async` body
+// takes the same caller-owned +1 as outside one: `xs` lives in a task slot, and
+// the state-machine call path emitted only a by-value parameter's share, so a
+// callee replacing `xs` read the freed first list through its `&` argument
+// (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
+(mut(g_alias_disposed) : i32) = i32(0);
+(mut(g_alias_seen) : usize) = usize(0);
+_AliasBox :: ref(struct(tag : i32));
+impl(
+  _AliasBox,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_alias_disposed = (g_alias_disposed + i32(1));
+    })
+  )
+);
+_alias_clobber :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox)) -> usize)({
+  (mut(i) : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    a = ArrayList(_AliasBox).new();
+    a.push(_AliasBox(tag : i));
+    i = (i + i32(1));
+  });
+  b.len()
+});
+_alias_clobber_unit :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox)) -> unit)({
+  g_alias_seen = _alias_clobber(a, b);
+});
+/// The call whose future the task awaits: its arguments are lent for the
+/// synchronous part only (a `&mut` parameter keeps the await unfused).
+_alias_clobber_then :: (fn(a : &mut ArrayList(_AliasBox), b : &ArrayList(_AliasBox), io : Io) -> Impl(Future(usize, Io)))({
+  n := _alias_clobber(a, b);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    n
+  })
+});
+_alias_clobber_in_task :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    mut(xs) := ArrayList(_AliasBox).new();
+    xs.push(_AliasBox(tag : i32(7)));
+    xs.push(_AliasBox(tag : i32(8)));
+    io.await(yield(io), io);
+    _alias_clobber_unit(&mut xs, &xs);
+    io.await(yield(io), io);
+    xs.push(_AliasBox(tag : i32(9)));
+    n := _alias_clobber(&mut xs, &xs);
+    io.await(yield(io), io);
+    xs.push(_AliasBox(tag : i32(10)));
+    m := io.await(_alias_clobber_then(&mut xs, &xs, io), io);
+    ((n + m) + xs.len())
+  })
+);
+test("an argument lent both &mut and & to one call in an io.async body keeps its share", {
+  before := g_alias_disposed;
+  n := io.await(_alias_clobber_in_task(io), io);
+  seen := g_alias_seen;
+  assert(seen == usize(2), `the statement call's borrowed list survived the writes, len ${seen.to_string()}`);
+  assert(n == usize(5), `the bound and the awaited calls' borrowed lists survived the writes, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(13)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+});
+// The share a borrowed projection takes for one call is declared at every
+// fused site of its wrapper: awaiting one wrapper twice in a task emits the
+// wrapper's block twice in one C function, and the second copy of the dup
+// passed its result temp undeclared (the first copy's C block had closed)
+// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
+_AliasLock :: ref(struct(file : ArrayList(_AliasBox)));
+_alias_peek :: (fn(b : &ArrayList(_AliasBox), io : Io) -> Impl(Future(usize, Io)))({
+  n := b.len();
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    n
+  })
+});
+_alias_release :: (fn(lock : _AliasLock, io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io : Io) => {
+    n := io.await(_alias_peek(&lock.file, io), io);
+    n
+  })
+);
+test("a borrowed projection's share is declared at each fused site of one wrapper", {
+  before := g_alias_disposed;
+  n := io.await(
+    io.async((io : Io) => {
+      xs := ArrayList(_AliasBox).new();
+      xs.push(_AliasBox(tag : i32(1)));
+      lock := _AliasLock(file : xs);
+      a := io.await(_alias_release(lock, io), io);
+      b := io.await(_alias_release(lock, io), io);
+      (a + b)
+    }),
+    io
+  );
+  assert(n == usize(2), `both sites read the borrowed list, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(1)), `the box is released once, got ${(g_alias_disposed - before).to_string()}`);
+});
+// The same declaration gate on develop since the synchronous share landed
+// (#1528): a fused wrapper's synchronous prologue runs on the plain call path,
+// so its own aliased call takes the +1, and awaiting that wrapper twice in one
+// task passed the second site's dup temp undeclared
+// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
+_alias_prologue :: (fn(io : Io) -> Impl(Future(usize, Io)))({
+  mut(ys) := ArrayList(_AliasBox).new();
+  ys.push(_AliasBox(tag : i32(3)));
+  n := _alias_clobber(&mut ys, &ys);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    n
+  })
+});
+test("an aliased call in a wrapper's prologue compiles at each fused site of one task", {
+  before := g_alias_disposed;
+  n := io.await(
+    io.async((io : Io) => {
+      a := io.await(_alias_prologue(io), io);
+      b := io.await(_alias_prologue(io), io);
+      (a + b)
+    }),
+    io
+  );
+  assert(n == usize(2), `each prologue's borrowed list survived the writes, got ${n.to_string()}`);
+  assert(g_alias_disposed == (before + i32(8)), `every box released once, got ${(g_alias_disposed - before).to_string()}`);
+});

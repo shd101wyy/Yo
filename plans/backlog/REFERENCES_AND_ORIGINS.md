@@ -1006,8 +1006,9 @@ rows that pin it.
     collection leaked, and a callee replacing `a` read freed memory
     through `b`. Fixed on this branch:
     `issues/fixed/2026-10-21-an-argument-lent-both-mut-and-shared-to-one-call-loses-its-caller-owned-share.md`.
-    Inside an `io.async` body the `+1` is still never emitted:
-    `issues/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md`.
+    Inside an `io.async` body the state-machine call path did not emit
+    the `+1` either; fixed in
+    `issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md`.
 
   Position: O3 step 2's overlap check and decision 28's value-root rule
   are one rule reached from two plans, E0910 at the call. Whichever of V2b

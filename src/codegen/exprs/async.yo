@@ -49,7 +49,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function_value.yo");
-{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup } :: import("../../expr_info.yo");
+{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -2267,17 +2267,20 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
   });
   tail
 });
-/// Does `arg` carry the share a by-value parameter takes of it
-/// (`is_by_value_param_share_dup`)? Its other deferred dups (the caller-owned
-/// +1 of a borrowed projection) are not emitted in a state machine.
-_fused_arg_carries_param_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)({
+/// Does `arg` carry a share taken for this call: the one a by-value parameter
+/// takes of it (`is_by_value_param_share_dup`), or Aliasing Stage 0's
+/// caller-owned +1 of a borrowed projection or of an argument a `&mut`
+/// argument of the same call aliases (`is_call_scoped_share_dup`; its
+/// post-call drop is the call's)? Its other deferred dups are not emitted in
+/// a state machine: the slot moves with the task.
+_fused_arg_carries_call_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)({
   ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(false));
   dl := match(expr_info_deferred_dup_expressions(&ei), .Some(d) => d, .None => return(false));
   (i : usize) = usize(0);
   while(i < dl.len(), i = (i + usize(1)), {
     match(
       dl.get(i),
-      .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)), {
+      .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)) || is_call_scoped_share_dup(ast_expr_id(&d)), {
         return(true);
       }),
       .None => ()
@@ -2336,7 +2339,10 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // by-value parameter is the wrapper's to drop, so an argument carrying
   // that parameter's share takes it here, on its own spelling, as a call in
   // a state machine does (`_materialize_arg`, other_fn_call.yo)
-  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md).
+  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md);
+  // so does an argument carrying a call-scoped share, which the call's own
+  // drops below release
+  // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
   rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
   (ai : usize) = usize(0);
@@ -2345,7 +2351,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
       rargs.get(ai),
       .Some(a) => {
         code := _call_generate_expr(&a, indent.clone(), context);
-        arg_codes.push(if(_fused_arg_carries_param_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code));
+        arg_codes.push(if(_fused_arg_carries_call_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code));
       },
       .None => ()
     );

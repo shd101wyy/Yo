@@ -77,10 +77,10 @@ skips a marked dup the way it skips a by-value parameter's share. `main` now
 takes the `+1` before the call, releases it after, and drops `xs` at its
 scope end.
 
-The same call inside an `io.async` body is still unsound for a different
-reason, the state-machine call path never emits this `+1`:
-`issues/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md`
-(open, S1).
+The same call inside an `io.async` body was unsound for a different
+reason: the state-machine call path never emitted this `+1`. That is fixed
+separately in
+`issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md`.
 
 ## Test
 

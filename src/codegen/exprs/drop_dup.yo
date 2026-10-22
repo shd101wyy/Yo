@@ -31,7 +31,7 @@
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Emitter } :: import("../../emitter.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at, scope_stack_contains } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
@@ -1130,13 +1130,20 @@ generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, cont
                   // sites pass. Declare-assign the result temp via the
                   // get_variable_type_string choke-point; evaluated dups
                   // already render AS their temp name and skip this.
+                  // "Already declared" is the open block-scope stack, not
+                  // the function's monotonic `declared_c_var_names`: a
+                  // fused await site emits its wrapper's block once per
+                  // site, so a second site of one wrapper in a task
+                  // re-emits the same dup after the first site's C block
+                  // closed, and a set-only gate passed an undeclared temp
+                  // (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
                   dup_result_decl := match(
                     context.base.get_expr_info(&dup_expr),
                     .Some(ddei) => match(
                       ddei.variable_name,
                       .Some(ddvn) => {
                         ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
-                        if(!(ddtn == code) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(ddtn.clone())), Option(String).Some(get_variable_type_string(&ddei.ty, &ddvn, &context.base)), Option(String).None)
+                        if(!(ddtn == code) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &ddtn)), Option(String).Some(get_variable_type_string(&ddei.ty, &ddvn, &context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
