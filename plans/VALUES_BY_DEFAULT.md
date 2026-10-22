@@ -7270,25 +7270,50 @@ heavy run, the command is given in item 2.
      question 1).
      - **Status 2026-10-22 (as built, `feat/v2b-b5-refcell-globals`): the
        `src/` sweep is done; `tests/` is not.**
-       - N6 on the tip found 348 column-0 `ArrayList`/`HashMap`/`HashSet`
-         globals in `src/` with 1,500 uses in 64 files (the 353 above
-         predates some deletions). 343 have a `recv-mut` lend or a write in
-         the census. Two more, `g_range_ty_cache` and
-         `g_range_incl_ty_cache` (`evaluator/calls/index_trait.yo`), had no
-         census line because they were written through a local alias. All
-         345 are now unmarked `RefCell` globals used through `with` and
-         `with_mut`.
-       - Three stay plain bindings because nothing writes them after the
+       - `src/` holds 379 unmarked module-level `ArrayList`/`HashMap`/
+         `HashSet` globals: 374 declared `(g : T) = T.new();` (26 of them
+         wrapped onto two lines by `yo fmt`), `g_token_intern := ...`
+         (`token.yo`), `g_empty_path_collection`, typed through its alias
+         `PathCollection`, and three sets built once by a function
+         (`BuiltinYoInlineFunctions` and `PrimitiveTypeTags` in
+         `codegen/constants.yo`, `_c_reserved_words` in
+         `codegen/utils/index.yo`). 373 are now unmarked `RefCell` globals
+         used through `with` and `with_mut`; six stay plain bindings
+         (below). The first pass missed the 26 two-line declarations,
+         because its candidate list came from a one-line text grep; review
+         caught them. The authoritative check is the compiler's own audit:
+         on the finished tree, `YO_AUDIT_GLOBAL_LEND=1 yo check ./src`
+         lends five plain collection globals, all immutably (`.contains`,
+         `.get`, `.len`, and `g_empty_path_collection` as the `arg-imm`
+         operand of `__yo_ptr_eq`), and writes none.
+       - N6 on the original tip saw a `recv-mut` lend or a write for all but
+         two of the converted globals. Those two, `g_range_ty_cache` and
+         `g_range_incl_ty_cache` (`evaluator/calls/index_trait.yo`), are
+         written through a local alias. `g_skipped_test_bodies`
+         (`evaluator/exprs/test.yo`) and `g_copy_pointers`
+         (`evaluator/utils.yo`), which #1537 added during the sweep, are
+         converted too.
+       - Six stay plain bindings because nothing writes them after the
          initializer: `g_empty_value_cell` (`env.yo`) and
          `g_empty_path_collection` (`expr_info.yo`), the shared empty
-         sentinels, and `g_scope_names` (`expr_info.yo`), which is only
-         read.
+         sentinels; `g_scope_names` (`expr_info.yo`), which is only read;
+         and the three built-once sets above.
+       - Four `mut(...)` globals hold a collection and are outside B5:
+         `g_lb_lookahead_stmts : ArrayList(AstExpr)` (`evaluator/utils.yo`)
+         and the `Option(ArrayList(...))` globals `g_last_error_diagnostics`,
+         `g_swallowed_diagnostics` (`error.yo`) and `g_module_begin_exprs`
+         (`evaluator/context.yo`). Each is written only by reassignment and
+         read by value (copied out or matched on), never lent (a lend of a `mut` global is
+         already E0916), so decision 47 covers them as they are.
        - A runtime global cannot be exported, so every use was in the
          declaring file. The rewrite was mechanical: `G.m(args)` became
-         `G.with_mut(x => x.m(args))` when the census called the receiver
-         `recv-mut`, and `G.with(x => x.m(args))` otherwise.
+         `G.with_mut(x => x.m(args))` for a writing method (`insert`,
+         `remove`, `push`, `pop`, `clear`, `split_off`, ...), and
+         `G.with(x => x.m(args))` otherwise.
        - The hand edits:
-         - the indexed stores (`G(i) = v`) became `with_mut` blocks;
+         - the indexed stores (`G(i) = v`) became `with_mut` blocks, and
+           the take-out/store-back of `values/impl.yo`'s bucket lists reads
+           the slot with `with(xs => xs(i))` and writes it with `with_mut`;
          - `type_identity_slot(&G, ty)` became
            `G.with(xs => type_identity_slot(xs, ty))`;
          - `_note_fid_in(&mut G, …)` moved inside `with_mut`;
@@ -7302,8 +7327,8 @@ heavy run, the command is given in item 2.
          spawns none, and `build_runner`'s `io.spawn` tasks share one event
          loop.
        - Left as they are, for B7–B9:
-         - twelve `keys()`/`values()`/`into_iter()` iterators still leave the
-           closure holding the map's handle;
+         - sixteen `keys()`/`values()`/`into_iter()` iterators still leave
+           the closure holding the map's handle;
          - three accessors (`env_reads`, `codegen_read_keys`,
            `get_module_level_init_exprs`) return the global's handle through
            `with(xs => xs)`, which keeps today's sharing; the flip turns
@@ -7314,6 +7339,10 @@ heavy run, the command is given in item 2.
          cli fixtures) or ownership traces (`rc`, `move_only`,
          `algebraic_effects`, `async/sm_ownership`). B8, which changes those
          rules, rewrites them with their expectations.
+       - Not run: N5 (below). The v0.2.69 release window forbids RSS and
+         timing measurements, so the "a mark is a flag check" claim is
+         unmeasured. Each `RefCell` global also allocates one `Box` slot
+         at module initialization (`std/sync/refcell.yo`).
      - Scope: the 353 `src/` globals (~1,570 uses, 66 files; N6 gives the
        written ones) and the 24 in `tests/`. A global nothing writes after
        its initializer stays as it is.
