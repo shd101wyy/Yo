@@ -9746,13 +9746,39 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 /// an ordinary function, not the count: the count is the `ref_count(x)`
 /// builtin (plans/VALUES_BY_DEFAULT.md decision 11).
 ///
+/// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places it
+/// in the current `with_allocator` scope, else the global allocator. The last
+/// handle's drop frees the cell through that allocator. Panics when the
+/// allocator is out of memory. As with `arc`, and unlike `box`, `a` is the
+/// current scope for the construction, so `a`'s callbacks must not allocate
+/// through the scope (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own
+/// allocator").
+///
 /// ```yo
 /// a := rc(i32(42));
 /// assert(ref_count(a) == usize(1), "a fresh cell has one owner");
 /// b := a;
 /// assert(b.* == i32(42), "a copy shares the cell");
 /// ```
-rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
+rc :: (fn(generic(V : Type), sink(value) : V, (alloc : Option(Allocator)) ?= .None) -> Rc(V))(
+  match(
+    alloc,
+    // The cell constructor allocates from the thread's current scope, so an
+    // explicit allocator is that scope for the one construction, as in
+    // `arc` (plans/VALUES_BY_DEFAULT.md §3.2: until V5's `__yo_cell`, the
+    // explicit path goes through the scope). Nothing between the two sets
+    // can unwind: an allocation failure aborts.
+    .Some(a) => {
+      saved_ctx := __yo_scope_ctx();
+      saved_vtable := __yo_scope_vtable();
+      __yo_scope_set(a.ctx, .Some((*void)(a.vtable)));
+      cell := Rc(V)(value);
+      __yo_scope_set(saved_ctx, saved_vtable);
+      cell
+    },
+    .None => Rc(V)(value)
+  )
+);
 impl(
   generic(T : Type),
   where(T <: Hash),
@@ -9902,7 +9928,7 @@ extern(
   __yo_scope_vtable :
     (fn() -> ?*void),
   // Sets the thread's allocation scope: `std/allocator.yo`'s
-  // `with_allocator`, and `arc`'s explicit `alloc`.
+  // `with_allocator`, and the explicit `alloc` of `rc` and `arc`.
   __yo_scope_set :
     (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );

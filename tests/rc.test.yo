@@ -2722,3 +2722,52 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   n := match(Rc.try_unwrap(rc(i32(4))), .Ok(v) => v, .Err(_) => i32(0));
   assert(n == i32(4), "try_unwrap moves the payload out of the only handle");
 });
+// --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2; `arc`'s twin in tests/arc.test.yo) ---
+test("rc alloc : .Some(a) places the cell in a, and the default does not", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    a := rc(i32(5), alloc : .Some(arena.allocator()));
+    assert(arena.live_blocks() == usize(1), `the cell is in the arena: ${arena.live_blocks()}`);
+    assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
+    g := rc(i32(6));
+    assert(arena.live_blocks() == usize(1), "the scope was restored: a default rc is on the global allocator");
+    assert((a.* + g.*) == i32(11), "the payloads");
+  };
+  assert(arena.live_blocks() == usize(0), "the last drop released the cell into the arena");
+  arena.deinit();
+});
+test("rc alloc : .Some(a) inside another scope wins, and the outer scope survives", {
+  inner := Arena.new(usize(1) << usize(16));
+  outer := Arena.new(usize(1) << usize(16));
+  {
+    x := with_allocator(outer.allocator(), () => {
+      placed := rc(i32(7), alloc : .Some(inner.allocator()));
+      scoped := rc(i32(8));
+      assert(outer.live_blocks() == usize(1), `the default rc after it still follows the scope: ${outer.live_blocks()}`);
+      assert(scoped.* == i32(8), "the scoped payload");
+      placed
+    });
+    assert(inner.live_blocks() == usize(1), "the explicit allocator placed the cell");
+    assert(outer.live_blocks() == usize(0), "the scoped rc died with the closure");
+    assert(x.* == i32(7), "the placed payload");
+  };
+  assert(inner.live_blocks() == usize(0), "released into the explicit allocator");
+  inner.deinit();
+  outer.deinit();
+});
+test("rc alloc : .Some(a) shared by several handles is released into a once, and try_unwrap frees it there", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    shared := rc(i32(42), alloc : .Some(arena.allocator()));
+    holder := ArrayList(Rc(i32)).new();
+    holder.push(shared);
+    assert(ref_count(shared) == usize(2), "two handles, one cell");
+    assert(arena.live_blocks() == usize(1), "one cell, two handles");
+    assert(holder.get(usize(0)).unwrap().* == i32(42), "the held handle reads the placed cell");
+  };
+  assert(arena.live_blocks() == usize(0), "the last handle released the cell into the arena");
+  n := match(Rc.try_unwrap(rc(i32(4), alloc : .Some(arena.allocator()))), .Ok(v) => v, .Err(_) => i32(0));
+  assert(n == i32(4), "try_unwrap moves the payload out of a placed cell");
+  assert(arena.live_blocks() == usize(0), "and frees the cell into the arena");
+  arena.deinit();
+});

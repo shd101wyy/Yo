@@ -75,6 +75,25 @@ test("A cycle built in the scope is collected into the arena", {
   Gc.collect();
   assert(arena.live_blocks() == usize(0), `the collector freed them into the arena: ${arena.live_blocks()}`);
 });
+// An `Rc` cell placed by `rc`'s explicit `alloc` closes the cycle: the
+// collector, not a drop, releases it, and it goes back to the arena.
+_RcCons :: ref(
+  enum(
+    Nil,
+    Cons(head : i32, tail : Rc(Self))
+  )
+);
+_make_rc_cycle :: (fn(a : Allocator) -> unit)({
+  c := _RcCons.Cons(i32(1), rc(_RcCons.Nil, alloc : .Some(a)));
+  c.tail = rc(c, alloc : .Some(a));
+});
+test("A cycle closed through an Rc that rc's alloc placed is collected into the arena", {
+  arena := _arena();
+  _make_rc_cycle(arena.allocator());
+  assert(arena.live_blocks() == usize(1), `the cycle keeps its Rc cell; the replaced tail went back: ${arena.live_blocks()}`);
+  Gc.collect();
+  assert(arena.live_blocks() == usize(0), `the collector freed it into the arena: ${arena.live_blocks()}`);
+});
 test("Nested scopes restore the outer allocator", {
   outer := _arena();
   inner := _arena();
