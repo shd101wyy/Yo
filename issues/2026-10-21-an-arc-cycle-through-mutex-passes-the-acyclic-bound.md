@@ -23,7 +23,8 @@ the `tests/send_sync.test.yo` cycle test close the cycle through an ATOMIC
 node, which derives no `Acyclic` and which `Arc` rejected before W2 (E0602):
 the value-struct `Node` below was accepted even before W2, through this bug,
 so it cannot show what W2 changed. The send_sync test also asserts the one
-verdict the derivation gets right today (`BoxNode`'s shape is `Acyclic`).
+verdicts the derivation gets right today (the atomic node is not `Acyclic`,
+`BoxNode`'s shape is).
 What stays wrong
 is the derivation: `Acyclic` remains a derived structural marker (plan
 verdict 5) that user bounds will read, and it answers `true` for `Node`. The
@@ -40,23 +41,39 @@ W5 turns into a `tests/send_sync.test.yo` row.
 // Each type reaches itself through an atomic cell, so none is Acyclic.
 Node :: struct(id : i32, peer : Option(Arc(Mutex(Self))));
 NodeDirect :: struct(id : i32, peer : Arc(Self));
+// The same shapes with an atomic node: the node itself answers right.
+Peer :: atomic(ref(struct(id : i32, peer : Option(Arc(Mutex(Self))))));
+PeerDirect :: atomic(ref(struct(id : i32, peer : Option(Arc(Self)))));
 // Recursion with no cell on the back edge stays Acyclic.
 BoxNode :: struct(id : i32, next : Option(Box(Self)));
 NODE_ACYCLIC :: Type.impls(Node, Acyclic);
 ARC_NODE_ACYCLIC :: Type.impls(Arc(Mutex(Node)), Acyclic);
 NODE_DIRECT_ACYCLIC :: Type.impls(NodeDirect, Acyclic);
+PEER_ACYCLIC :: Type.impls(Peer, Acyclic);
+ARC_PEER_ACYCLIC :: Type.impls(Arc(Mutex(Peer)), Acyclic);
+MUTEX_PEER_ACYCLIC :: Type.impls(Mutex(Peer), Acyclic);
+ARC_PEER_DIRECT_ACYCLIC :: Type.impls(Arc(PeerDirect), Acyclic);
 BOX_NODE_ACYCLIC :: Type.impls(BoxNode, Acyclic);
 main :: (fn() -> unit)({
   println(`Node <: Acyclic: ${NODE_ACYCLIC} (expected false)`);
   println(`Arc(Mutex(Node)) <: Acyclic: ${ARC_NODE_ACYCLIC} (expected false)`);
   println(`NodeDirect <: Acyclic: ${NODE_DIRECT_ACYCLIC} (expected false)`);
+  println(`Peer <: Acyclic: ${PEER_ACYCLIC} (expected false)`);
+  println(`Arc(Mutex(Peer)) <: Acyclic: ${ARC_PEER_ACYCLIC} (expected false)`);
+  println(`Mutex(Peer) <: Acyclic: ${MUTEX_PEER_ACYCLIC} (expected false)`);
+  println(`Arc(PeerDirect) <: Acyclic: ${ARC_PEER_DIRECT_ACYCLIC} (expected false)`);
   println(`BoxNode <: Acyclic: ${BOX_NODE_ACYCLIC} (expected true)`);
 });
 export(main);
 ```
 
 With the tree at `feat/arc-without-acyclic` (2026-10-22) the first three
-lines print `true`; the fourth prints `true`, as it should.
+lines print `true`. `Peer` prints `false`, as it should, but the three
+containers of an atomic node that reaches them back (`Arc(Mutex(Peer))`,
+`Mutex(Peer)`, `Arc(PeerDirect)`) print `true`: the containers' own answer
+re-enters the in-progress obligation the same way (found at W2, review
+round 2; before W2 these types could not be formed, since `Arc` and `Mutex`
+required `Acyclic` of their payload). `BoxNode` prints `true`, as it should.
 
 Before W2 the original reproducer formed the cycle: `yo check` accepted
 `arc(Mutex(Node).new(...))` with `Node.peer` set under the lock, and with
@@ -99,9 +116,10 @@ reference root. A recursive value type with no cell on the back edge
 
 ## Test
 
-At W5: the reproducer's four verdicts as `comptime_assert` rows in
-`tests/send_sync.test.yo` (the `Acyclic` marker's home), `BoxNode` the
-positive control. A `comptime_expect_error` on a bound no longer applies:
+At W5: the reproducer's verdicts as `comptime_assert` rows in
+`tests/send_sync.test.yo` (the `Acyclic` marker's home). The rows the
+derivation answers right today are there already: `SsPeer` (the atomic
+`Peer`) is not `Acyclic` and `SsBoxNode` (`BoxNode`) is. A `comptime_expect_error` on a bound no longer applies:
 std carries no `Acyclic` bound after W2.
 
 A related shape with a different cause, an object that holds a cyclic cell
