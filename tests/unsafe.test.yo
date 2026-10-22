@@ -1,5 +1,7 @@
 pragma(Pragma.AllowUnsafe);
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 import("std/libc/stdio.yo");
 
 /// Tests for the `unsafe(...)` builtin (Phase A of plans/reference/MEMORY_SAFETY.md).
@@ -84,4 +86,54 @@ test("unsafe(match(...)) wraps a match", {
     )
   );
   assert(v == i32(77), "match inside unsafe");
+});
+
+// `___drop(place)` and `drop_in_place(p)` run a destructor in place, without
+// moving the value out. Both need an unsafe-capable context: in safe code
+// `___drop(h.xs)` left a field readable after its buffer was freed
+// (issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md;
+// the rejection is pinned in tests/safe_code_structural_gates.test.yo).
+{ malloc, free } :: import("std/libc/stdlib.yo");
+mut(DROPPED_IDS) := i32(0);
+Tracked :: struct(id : i32);
+impl(
+  Tracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      DROPPED_IDS = (DROPPED_IDS + self.id);
+    })
+  )
+);
+TrackedHolder :: struct(t : Tracked);
+
+test("unsafe(___drop(h.t)) runs a field's destructor in place", {
+  DROPPED_IDS = i32(0);
+  mut(h) := TrackedHolder(t : Tracked(id : i32(5)));
+  unsafe(___drop(h.t));
+  assert(DROPPED_IDS == i32(5), "the field's destructor ran once");
+  // The slot is dead now: initialize it again without dropping it, so the
+  // holder's own drop at scope end destroys the new value.
+  slot := addr_of(h.t);
+  unsafe(consume(slot.* = Tracked(id : i32(100))));
+});
+
+test("drop_in_place(p) destroys the value a raw pointer owns", {
+  DROPPED_IDS = i32(0);
+  raw := unsafe(malloc(size_of(Tracked)));
+  slot := match(raw, .Some(r) => (*Tracked)(r), .None => panic("malloc failed"));
+  unsafe(consume(slot.* = Tracked(id : i32(7))));
+  unsafe(drop_in_place(slot));
+  assert(DROPPED_IDS == i32(7), "drop_in_place ran the destructor once");
+  unsafe(free(.Some((*void)(slot))));
+  assert(DROPPED_IDS == i32(7), "freeing the dead slot runs nothing");
+});
+
+test("drop_in_place releases what the pointee owns", {
+  raw := unsafe(malloc(size_of(ArrayList(String))));
+  slot := match(raw, .Some(r) => (*ArrayList(String))(r), .None => panic("malloc failed"));
+  unsafe(consume(slot.* = ArrayList(String).new()));
+  unsafe(slot.*.push(String.from("owned by the slot")));
+  assert(unsafe(slot.*.len()) == usize(1), "the slot holds one string");
+  unsafe(drop_in_place(slot));
+  unsafe(free(.Some((*void)(slot))));
 });

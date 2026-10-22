@@ -181,3 +181,23 @@ comptime_expect_error({
   xs.push(i32(1));
   xs.index_unchecked_mut(usize(5))
 });
+// `___drop(place)` runs a place's destructor without moving it out. On a
+// field nothing marks the place dead, so the read below was a heap
+// use-after-free that `yo check` accepted. The builtin now needs an
+// unsafe-capable context, as Rust's `ptr::drop_in_place` is an `unsafe fn`;
+// tests/unsafe.test.yo covers the accepted direction.
+// issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md
+DropGateHolder :: struct(xs : ArrayList(i32));
+comptime_expect_error({
+  mut(h) := DropGateHolder(xs : ArrayList(i32).new());
+  h.xs.push(i32(1));
+  ___drop(h.xs);
+  h.xs.len()
+});
+// On a named local `___drop(xs)` moved `xs`, so the hole did not open there,
+// but the builtin is gated whatever its argument: safe code ends a value with
+// `drop(xs)`.
+comptime_expect_error({
+  xs := ArrayList(i32).new();
+  ___drop(xs);
+});

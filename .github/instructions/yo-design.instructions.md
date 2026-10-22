@@ -162,7 +162,7 @@ The `unsafe` module in `prelude.yo` provides one low-level escape hatch:
 
 - `unsafe.cast(value, TargetType)` — reinterpret cast (alias for the internal `__yo_as` builtin).
 
-To end a value before its scope does, call the prelude function `drop(x)` (it moves `x` in). Collection code that must run a destructor on a slot it owns through a raw pointer calls the `___drop` builtin on the place directly: `___drop(element_ptr.*)`. `___drop` is dispatched by the callee's spelling, so it is not a bindable value. `unsafe.drop` was a macro forwarding to it and is deleted (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` B4).
+To end a value before its scope does, call the prelude function `drop(x)` (it moves `x` in). Collection code that must run a destructor on a slot it owns through a raw pointer calls the prelude's `drop_in_place(element_ptr)` (Rust's `ptr::drop_in_place`, maintainer decision 2026-10-21): it takes a `*(T)`, so only pragma'd code can call it. Its body is the std-internal `___drop` builtin on the place, `___drop(p.*)`. `___drop` is dispatched by the callee's spelling, so it is not a bindable value, and like a raw-pointer dereference it is rejected outside an unsafe-capable context (`unsafe(...)` or a `pragma(Pragma.AllowUnsafe)` file; the drops the compiler synthesizes are `auto-generated://` and pass): `___drop(h.xs)` on a field in safe code was a heap use-after-free (`issues/fixed/2026-10-21-the-drop-builtin-is-callable-outside-unsafe.md`). `unsafe.drop` was a macro forwarding to it and is deleted (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` B4).
 
 ```yo
 // Cast between types (use sparingly)

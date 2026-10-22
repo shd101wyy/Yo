@@ -63,6 +63,7 @@ main :: (fn() -> unit)({
 | `extern(...)` / `c_include(...)` 声明               | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                                                               |
 | 指针算术（`.add(n)`、`.sub(n)`、`.offset_from(q)`） | "pointer arithmetic requires raw pointers, which are not available in safe code" | 在 `ArrayList(T)` / `Array(T, N)` 上使用索引                                                                           |
 | 在指针上 `consume(p.* = v)`                         | "`consume` on a pointer deref requires raw pointers"                             | 对安全类型使用 `:=` 进行所有权转移                                                                                     |
+| `___drop(place)`，原地析构内建函数                  | "`___drop(...)` requires `unsafe(...)`"                                          | 用 `drop(x)` 提前结束一个值：它把 `x` 移入，之后再使用就是错误。通过裸指针拥有的槽位，在 pragma 下用 `drop_in_place(p)` 销毁 |
 | 读取 `union(...)` 成员（`u.x`、`{ x } := u`）                | "Reading union member `x` of `U` requires `pragma(Pragma.AllowUnsafe);` in this file" | 使用 `enum` 加 `match`：union 不记录最后写入的是哪个成员，把其他成员的字节当作 `bool`、枚举或引用读取是未定义行为。构造 union 和写入成员仍然合法 |
 
 原则：**任何可能让用户写出 UB 的构造都被门控。** 用户既然无法构造原始指针，就无法解引用 —— 就这样。
@@ -189,6 +190,7 @@ copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
 | 指针解引用（读）    | `unsafe(p.*)`                                                      |
 | 指针解引用（写）    | `unsafe(p.* = v)`                                                  |
 | `consume(p.* = v)`  | `unsafe(consume(p.* = v))`                                         |
+| 原地销毁一个值      | `unsafe(drop_in_place(p))`                                         |
 | 指针算术            | `unsafe(p.add(n))`、`unsafe(p.sub(n))`、`unsafe(p.offset_from(q))` |
 | extern "c" 函数调用 | `unsafe(strlen(cstr))`、`unsafe(memcpy(dst, src, n))`              |
 
@@ -204,6 +206,23 @@ copy_bytes :: (fn(dst : *u8, src : *u8, n : usize) -> unit)({
 - 指针类型转换：`(*u8)(p)`
 - `asm(...)` 块（`asm` 关键字本身就是标记）
 - `extern(...)` / `c_include(...)` _声明_（只有*调用处*需要包装）
+
+### 原地销毁一个值：`drop_in_place`
+
+`drop_in_place(p : *(T))` 是 prelude 提供的原地析构函数，对应 Rust 的 `ptr::drop_in_place`：它运行 `p` 所指向的值的 `Drop` 实现，并释放该值拥有的一切，但不把值移出。之后这个槽位里是已失效的字节：不要再读它，也不要再次销毁它；用 `unsafe(consume(p.* = v))` 重新初始化，或者释放它。集合用它销毁自己通过裸缓冲区拥有的元素：
+
+```yo
+pragma(Pragma.AllowUnsafe);
+{ free } :: import("std/libc/stdlib.yo");
+
+destroy_one :: (fn(slot : *String) -> unit)({
+  // SAFETY: `slot` holds a live String this function owns.
+  unsafe(drop_in_place(slot));
+  unsafe(free(.Some((*void)(slot))));
+});
+```
+
+它的函数体就是 `___drop(place)` 内建函数，std 把它保留为内部原语。和解引用一样，在没有 pragma 的文件里 `___drop` 是编译错误：作用在字段上（`___drop(h.xs)`）时，字段的缓冲区被释放后它仍然可读。
 
 ## `// SAFETY:` 注释
 

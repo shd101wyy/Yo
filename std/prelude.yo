@@ -320,7 +320,7 @@ export(drop);
 /// it (`consume(p.* = v)`) or free it. This is how a collection destroys an
 /// element it owns through a raw pointer. Like every raw-pointer operation it
 /// needs `pragma(Pragma.AllowUnsafe)`; safe code ends a value with `drop(x)`.
-drop_in_place :: (fn(generic(T : Type), p : *(T)) -> unit)(
+drop_in_place :: (fn(generic(T : Type), p : *T) -> unit)(
   // SAFETY: the caller owns the live value at `p` and gives it up here.
   unsafe(___drop(p.*))
 );

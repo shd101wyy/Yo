@@ -633,6 +633,7 @@ Inside an unsafe-capable file, the following operations require an explicit `uns
 - Pointer dereference: `p.*` (read), `p.* = v` (write). `.*` on a BORROW (`v.*` with `v : &T`/`&mut T`, `y.*` with `y := &x`) is E0920: a borrow is a mode, not a type, and already reads as its value (`.*` on a borrow arrives with decision 43); the only borrowed receiver keeping `.*` is a type's own field named `*` (std's atomics: `self.*` on `self : &Self`)
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
+- Destroying a value in place: `drop_in_place(p)` (prelude, `p : *(T)`; Rust's `ptr::drop_in_place`). The slot is dead afterwards: re-initialize it with `consume(p.* = v)` or free it. Its body, the std-internal `___drop(place)` builtin, is a compile error outside an unsafe-capable context
 
 Operations that stay safe (no wrap needed): `addr_of(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`(*u8)(p)`).
 
