@@ -7145,8 +7145,9 @@ heavy run, the command is given in item 2.
             removes the population cost, and the fix is not a hand edit
             of the 11 sites.
          2. Fix the two tool defects, each with its cli-case. Done
-            2026-10-22 (branch `fix/explicit-copy-s1-tool-defects`; the two
-            issue docs carry the mechanism):
+            2026-10-22 (branch `fix/explicit-copy-s1-tool-defects`; the
+            issue docs carry the mechanism), with a third defect from the
+            branch's review fixed 2026-10-23 (below):
             - A copy inside a member of a `Clone` impl is listed: the impl
               defines its type's copy depth. The trait is told by identity,
               and the member's span is matched by position.
@@ -7173,7 +7174,33 @@ heavy run, the command is given in item 2.
               site listed as returned from a borrowed binding.
             - Insertions by kind: field-store 316, binding 113, return 84,
               param 78, assign 29.
-            - Each dry run took 5:49–6:23 wall at 1.3 GB max RSS.
+            - Wall time per dry run, all at 1.30–1.32 GB max RSS: the
+              pre-fix A/B run took 10:59, the fixed `src/evaluator`-only run
+              5:49, the fixed three-hot-path run 6:23, and the rebased one
+              6:56.
+            - A third defect turned up in review, 2026-10-23
+              (`issues/fixed/2026-10-23-explicit-copy-migration-misses-a-write-through-a-local-the-copy-was-moved-into.md`).
+              The written-after guard did not follow a copy into a local it
+              was later stored or moved in (`x := e.no; t := x;
+              t.push(v)`, or an arm `{ x := e.no; x }`). Each store now
+              records a flow from the root of the stored place into the
+              destination, and the guard follows the flows recorded after
+              the site, transitively. Case:
+              `fix-migrate-explicit-copy-moved-into-local`.
+              `-clone-impl` gained a generic `impl(generic(T), Bag(T),
+              Clone(...))`.
+            - Dry run with item 3's flags on develop d09011d8b: 618
+              inserted and 1,991 listed. Develop's parser change adds two
+              sites, both listed (2,609 against 2,607). The flow guard
+              moves exactly two from inserted to listed:
+              `src/codegen/exprs/downcast.yo:273` and
+              `src/codegen/functions/constructors.yo:325`. Both are copies out of a
+              `&String` parameter that nothing writes. They are listed
+              only because every parameter of a module shares one
+              declaration key
+              (`issues/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md`,
+              S3, open). The run took 11:19 wall at 1.38 GB max RSS, on a
+              loaded box: several other agents' heavy jobs ran beside it.
          3. Regenerate on the tip with the hot path widened to the files
             item 4 measured, `--hot-path src/evaluator --hot-path
             src/lexer.yo --hot-path src/env.yo` (a file path works:

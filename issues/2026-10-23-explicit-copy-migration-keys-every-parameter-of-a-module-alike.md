@@ -52,6 +52,34 @@ All of these collisions make the guard list more sites, never fewer, so no
 rewrite is wrong. But the B1 listing over-reports parameter-rooted sites, and
 it gives them a reason that sends the reviewer to the wrong hand edit.
 
+The flow-following guard
+(`issues/fixed/2026-10-23-explicit-copy-migration-misses-a-write-through-a-local-the-copy-was-moved-into.md`)
+widens the effect. Two `src/` sites that it used to insert are now listed as
+"its source is written afterwards". Both are copies out of a `&String`
+parameter that nothing writes: `bytes := s` in `_is_plain_c_identifier`
+(`src/codegen/exprs/downcast.yo:273`) and `g_traverse_visit_expr = expr`
+(`src/codegen/functions/constructors.yo:325`). A minimal form:
+
+```yo
+{ String } :: import("std/string");
+peek :: (fn(s : &String) -> usize)({
+  bytes := s;
+  bytes.len()
+});
+grow :: (fn(p : &String) -> String)({
+  mut(local) := p;
+  local.push_str("x");
+  local
+});
+main :: (fn() -> unit)(());
+export(main);
+```
+
+Before the flow guard, `bytes := s` was inserted. With it, the site is listed
+as "its source is written afterwards". The store of `p` into `local`, which
+is written later, is recorded as a flow from the shared key, and `s` has that
+key too.
+
 ## Direction
 
 Key a parameter by its declaration in the signature, not by its synthetic
