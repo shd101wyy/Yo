@@ -164,9 +164,8 @@ safety holes instead of accepting them for two more releases: the `Send`
 hole above
 (`issues/retired/2026-10-20-an-iso-graph-holding-a-non-send-handle-crosses-threads.md`)
 and the collector-handoff use-after-free S1
-(`2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`, filed
-on the branch `docs/cycle-walk-holder-asymmetry`; it moves to `issues/retired/`
-when that branch lands after Part A). The accepted cost:
+(`issues/retired/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`;
+both docs retire with Part A). The accepted cost:
 from v0.2.68 until V2b's B8 flip (v0.2.70) no `String` or collection can be
 moved to another thread. The substitutes in that window are an `Arc` of
 `Send` data, a value rebuilt on the receiving side, or serialization; the

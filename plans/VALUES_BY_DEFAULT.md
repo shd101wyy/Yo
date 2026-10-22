@@ -7995,7 +7995,8 @@ release placement is the VBD session's call in
    Any time; it is the measurement instrument.
 2. **W2 — `Arc`, `Mutex`, `RwLock`, `Channel` and the thread APIs
    without `Acyclic`** (std and docs; the S2 issue retired). Any time
-   after Part A deletes `Iso`, so no `Acyclic` user is left behind it.
+   after Part A (landed 2026-10-21; the isolated-transfer type is gone),
+   so no `Acyclic` user is left behind it.
 3. **W3 — `Weak(T)`** (the weak count in decision 46's freed header bits,
    the dead flag, the two free paths, `traverse_fn`/`Trace` skip `Weak`),
    **W4 — `ArcWeak(T)`.** Generation A; W3 needs V2c's explicit handle

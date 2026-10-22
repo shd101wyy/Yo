@@ -12,7 +12,7 @@ defect.
 **Status:** FIXED 2026-10-20 on `docs/cycle-walk-holder-asymmetry` (`d31c21c57`, see "Fix"). **Found:** 2026-10-20, while checking the cycle walk's
 holder asymmetry reported by the `Acyclic` work on
 `perf/acyclic-compiler-containers`. The holder side of the same walk is
-`issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
+`issues/retired/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
 Measured with the v0.2.66 seed, and the cons-list rows with the v0.2.67 seed.
 The walk in `src/types/utils.yo` is unchanged between `v0.2.66` and develop
 `d18b3a274` (v0.2.67; the only diff in that file is `resolve_cell_chain`).
@@ -181,7 +181,7 @@ Measured with the tree binary built from `d31c21c57` (the fix on develop
 
 The holder rows do not change. The fix touches only an enum ROOT that the
 walk meets again after a re-root. A holder's answer is the other defect,
-`issues/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
+`issues/retired/2026-10-20-iso-sends-collector-tracked-objects-to-another-thread.md`.
 
 The compiler's own C should not change (argued, not measured: no emitted-C diff or
 stage-2 RSS was run). The only reference enums in `src/` and
