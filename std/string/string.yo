@@ -97,20 +97,20 @@ _release_bytes :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
 ///
 /// Empty strings use zero allocation (represented as `Option.None` internally).
 String :: newtype(
-  _bytes : Option(ArrayList(u8))
+  _bytes : ArrayList(u8)
 );
 impl(
   String,
   /// Create a new empty string (zero allocation)
   new : (fn() -> Self)(
-    Self(_bytes : .None)
+    Self(_bytes : ArrayList(u8).new())
   ),
   /// Create a new empty string with pre-allocated capacity for the given number of bytes.
   /// The string starts empty but can hold `capacity` bytes without reallocating.
   with_capacity : (fn(capacity : usize) -> Self)(
     cond(
-      (capacity == usize(0)) => Self(_bytes : .None),
-      true => Self(_bytes : .Some(ArrayList(u8).with_capacity(capacity)))
+      (capacity == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+      true => Self(_bytes : ArrayList(u8).with_capacity(capacity))
     )
   ),
   /// Create a string from raw bytes WITHOUT checking that they are UTF-8.
@@ -125,10 +125,7 @@ impl(
   /// The list is moved in (`own`): the string takes the buffer over, so the
   /// caller keeps no handle that could write the string's bytes.
   from_bytes : (fn(sink(bytes) : ArrayList(u8)) -> Self)(
-    cond(
-      (bytes.len() == usize(0)) => Self(_bytes : .None),
-      true => Self(_bytes : .Some(bytes))
-    )
+    Self(_bytes : bytes)
   ),
   /// Create a string from raw bytes, checking that they are valid UTF-8.
   ///
@@ -151,11 +148,11 @@ impl(
   from : (fn(slice : str) -> Self)({
     slen := slice.len();
     if(slen == usize(0), {
-      return(Self(_bytes : .None));
+      return(Self(_bytes : ArrayList(u8).new()));
     });
     bytes := ArrayList(u8).with_capacity(slen);
     bytes.extend_from_ptr(slice.ptr(), slen);
-    return(Self(_bytes : .Some(bytes)));
+    return(Self(_bytes : bytes));
   }),
   /// Create a string from a C null-terminated string *(u8)
   /// Copies bytes until it finds a null byte (0)
@@ -170,11 +167,11 @@ impl(
     // this is the same trust boundary as `<string.h>`'s `strlen`.
     len := unsafe(strlen((*char)(cstr)));
     if(len == usize(0), {
-      return(.Ok(Self(_bytes : .None)));
+      return(.Ok(Self(_bytes : ArrayList(u8).new())));
     });
     bytes := ArrayList(u8).with_capacity(len);
     bytes.extend_from_ptr(cstr, len);
-    return(.Ok(Self(_bytes : .Some(bytes))));
+    return(.Ok(Self(_bytes : bytes)));
   }),
   /// Convert the string to a C string, rejecting an interior NUL.
   ///
@@ -201,19 +198,11 @@ impl(
   /// An interior NUL is copied as is, so C sees only the prefix before it.
   /// At a C boundary that names something, use `to_cstr_checked`.
   to_cstr : (fn(self : &Self) -> ArrayList(u8))({
-    (bytes_len : usize) = match(
-      self._bytes,
-      .Some(b) => b.len(),
-      .None => usize(0)
-    );
+    (bytes_len : usize) = self._bytes.len();
     bytes_with_null := ArrayList(u8).with_capacity(bytes_len + usize(1));
     match(
-      self._bytes,
-      .Some(b) => match(
-        b.ptr(),
-        .Some(src) => bytes_with_null.extend_from_ptr(src, bytes_len),
-        .None => ()
-      ),
+      self._bytes.ptr(),
+      .Some(src) => bytes_with_null.extend_from_ptr(src, bytes_len),
       .None => ()
     );
     bytes_with_null.push(u8(0));
@@ -233,24 +222,16 @@ impl(
   /// (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this returned a RUNE count
   /// before that flip.)
   len : (fn(self : &Self) -> usize)(
-    match(self._bytes, .Some(b) => b.len(), .None => usize(0))
+    self._bytes.len()
   ),
   /// Check if the string is empty
   is_empty : (fn(self : &Self) -> bool)(
-    match(
-      self._bytes,
-      .None => true,
-      .Some(al) => (al.len() == usize(0))
-    )
+    self._bytes.len() == usize(0)
   ),
   /// The byte at BYTE index `index`, or `.None` past the end — Rust's
   /// `s.as_bytes().get(i)`. Reads the string in place; nothing is copied.
   get_byte : (fn(self : &Self, index : usize) -> Option(u8))(
-    match(
-      self._bytes,
-      .Some(b) => b.get(index),
-      .None => Option(u8).None
-    )
+    self._bytes.get(index)
   ),
   /// The UTF-8 bytes as a new, independent list — O(n), the `to_` of
   /// `as_`/`to_`/`into_`. Writing the list never changes the string. For
@@ -259,11 +240,7 @@ impl(
   /// `into_bytes()`, which copies nothing when the buffer is unique. The copy
   /// is placed where the string's buffer lives (`ArrayList.clone`).
   to_bytes : (fn(self : &Self) -> ArrayList(u8))(
-    match(
-      self._bytes,
-      .None => ArrayList(u8).new(),
-      .Some(al) => al.clone()
-    )
+    self._bytes.clone()
   ),
   /// Consume the string and return its bytes — Rust's `into_bytes`. When no
   /// other copy shares the buffer it is moved out with no copy; otherwise
@@ -271,24 +248,7 @@ impl(
   /// else can write them (until VALUES_BY_DEFAULT V2b makes the buffer
   /// unique, a plain `t := s` still shares it).
   into_bytes : (fn(sink(self) : Self) -> ArrayList(u8))(
-    match(
-      self._bytes,
-      .None => ArrayList(u8).new(),
-      .Some(al) => cond(
-        (ref_count(al) > usize(1)) => al.clone(),
-        true => al
-      )
-    )
-  ),
-  /// The shared byte buffer itself, for READ-ONLY use inside `std/string/`
-  /// (private: member visibility keeps it in this directory, so no code
-  /// outside can write a string's bytes through it). Every caller only reads.
-  _byte_list : (fn(self : &Self) -> ArrayList(u8))(
-    match(
-      self._bytes,
-      .None => ArrayList(u8).new(),
-      .Some(al) => al
-    )
+    self._bytes
   ),
   /// Get a str view into the string's UTF-8 bytes
   /// PRIVILEGED raw pointer to the heap buffer for C interop and pragma'd
@@ -303,24 +263,15 @@ impl(
   /// let it escape the borrow site; pair it with `.len()` at the same
   /// single-threaded instant.
   ptr : (fn(self : &Self) -> ?*u8)(
-    match(
-      self._bytes,
-      .None => Option(*u8).None,
-      .Some(al) => al.ptr()
-    )
+    self._bytes.ptr()
   ),
   /// Decode a UTF-8 encoded rune starting at the given byte index
   /// Internal helper method
   _decode_rune_at : (fn(self : &Self, byte_index : usize) -> Option(rune))(
     match(
-      self._bytes,
-      .None => .None,
-      .Some(bytes) =>
-        match(
-          utf8.decode(&bytes, byte_index),
-          .Ok(d) => .Some(d.code),
-          .Err(_) => .None
-        )
+      utf8.decode(&self._bytes, byte_index),
+      .Ok(d) => .Some(d.code),
+      .Err(_) => .None
     )
   ),
   /// True when byte offset `index` sits on a rune boundary.
@@ -329,25 +280,19 @@ impl(
   /// Mirrors Rust's `str::is_char_boundary`. (Defined here, beside `at` and
   /// `substring`, because an `impl` block cannot call forward into a later
   /// one and both of those need it.)
-  is_char_boundary : (fn(self : &Self, index : usize) -> bool)(
-    match(
-      self._bytes,
-      .None => (index == usize(0)),
-      .Some(al) => {
-        n := al.len();
-        cond(
-          (index == usize(0)) => true,
-          (index == n) => true,
-          (index > n) => false,
-          true => match(
-            al.get(index),
-            .Some(b) => utf8.is_boundary(b),
-            .None => false
-          )
-        )
-      }
+  is_char_boundary : (fn(self : &Self, index : usize) -> bool)({
+    n := self._bytes.len();
+    cond(
+      (index == usize(0)) => true,
+      (index == n) => true,
+      (index > n) => false,
+      true => match(
+        self._bytes.get(index),
+        .Some(b) => utf8.is_boundary(b),
+        .None => false
+      )
     )
-  ),
+  }),
   /// Decode the rune that STARTS at byte offset `index`.
   ///
   /// **BYTE basis** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this took a
@@ -363,53 +308,35 @@ impl(
   ),
   /// Concatenate two strings (like JavaScript +)
   concat : (fn(self : &Self, other : &Self) -> Self)({
-    (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
-    (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
+    (self_len : usize) = self._bytes.len();
+    (other_len : usize) = other._bytes.len();
     if((self_len == usize(0)) && (other_len == usize(0)), {
-      return(Self(_bytes : .None));
+      return(Self(_bytes : ArrayList(u8).new()));
     });
     new_bytes := ArrayList(u8).with_capacity(self_len + other_len);
     match(
-      self._bytes,
-      .Some(b) => match(
-        b.ptr(),
-        .Some(p) => new_bytes.extend_from_ptr(p, self_len),
-        .None => ()
-      ),
+      self._bytes.ptr(),
+      .Some(p) => new_bytes.extend_from_ptr(p, self_len),
       .None => ()
     );
     match(
-      other._bytes,
-      .Some(b) => match(
-        b.ptr(),
-        .Some(p) => new_bytes.extend_from_ptr(p, other_len),
-        .None => ()
-      ),
+      other._bytes.ptr(),
+      .Some(p) => new_bytes.extend_from_ptr(p, other_len),
       .None => ()
     );
-    return(Self(_bytes : .Some(new_bytes)));
+    return(Self(_bytes : new_bytes));
   }),
   /// Append another `String` to this string in-place (mutates `self`).
   push_string : (fn(self : &mut Self, other : &Self) -> unit)({
-    (olen : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
+    (olen : usize) = other._bytes.len();
     if(olen > usize(0), {
       // Grow first, then read `other`'s pointer: `other` may share this very
       // buffer (`s.push_string(s)`), and a pointer taken before the growth
       // would dangle (issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md).
-      match(self._bytes, .Some(al) => al.ensure_total_capacity(al.len() + olen), .None => ());
+      self._bytes.ensure_total_capacity(self._bytes.len() + olen);
       match(
-        other._bytes,
-        .Some(ob) => match(
-          ob.ptr(),
-          .Some(p) => {
-            // Taken out and stored back, never written through a `match`
-            // binding (a copy once collections are values).
-            al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(olen));
-            al.extend_from_ptr(p, olen);
-            self._bytes = .Some(al);
-          },
-          .None => ()
-        ),
+        other._bytes.ptr(),
+        .Some(p) => self._bytes.extend_from_ptr(p, olen),
         .None => ()
       );
     });
@@ -418,17 +345,13 @@ impl(
   push_str : (fn(self : &mut Self, s : str) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
-      al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(slen));
-      al.extend_from_ptr(s.ptr(), slen);
-      self._bytes = .Some(al);
+      self._bytes.extend_from_ptr(s.ptr(), slen);
     });
   }),
   /// Append a single byte to this string in-place (mutates `self`).
   /// The caller must ensure the byte maintains valid UTF-8.
   push_byte : (fn(self : &mut Self, b : u8) -> unit)({
-    al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
-    al.push(b);
-    self._bytes = .Some(al);
+    self._bytes.push(b);
   }),
   /// Append one rune, UTF-8 encoded — Rust's `String::push`.
   ///
@@ -436,29 +359,17 @@ impl(
   /// this is the rune-level counterpart, so it is what you want for anything
   /// outside ASCII.
   push_rune : (fn(self : &mut Self, r : rune) -> unit)({
-    al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
-    utf8.encode_into(r, &mut al);
-    self._bytes = .Some(al);
+    utf8.encode_into(r, &mut self._bytes);
   }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
   reserve : (fn(self : &mut Self, additional : usize) -> unit)({
-    al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(additional));
-    (current_len : usize) = al.len();
-    al.ensure_total_capacity(current_len + additional);
-    self._bytes = .Some(al);
+    (current_len : usize) = self._bytes.len();
+    self._bytes.ensure_total_capacity(current_len + additional);
   }),
   /// Clear the string content but keep the allocated buffer for reuse.
   clear : (fn(self : &mut Self) -> unit)(
-    match(
-      self._bytes.take(),
-      .Some(found) => {
-        al := found;
-        al.clear();
-        self._bytes = .Some(al);
-      },
-      .None => ()
-    )
+    self._bytes.clear()
   ),
   // (Inherent `clone` removed; the Clone trait impl below provides
   // the same semantics via `self : &mut Self` after the Phase D
@@ -466,17 +377,14 @@ impl(
   /// Get the byte at the given index. Panics if the index is out of
   /// bounds (mirrors `str`'s byte indexing). Use `len()` for the
   /// valid range and `bytes()` for sequential iteration.
-  byte_at : (fn(self : &Self, index : usize) -> u8)(
+  byte_at : (fn(self : &Self, index : usize) -> u8)({
+    b := &self._bytes;
     match(
-      self._bytes,
-      .Some(b) => match(
-        b.get(index),
-        .Some(v) => v,
-        .None => __yo_panic("String.byte_at: index out of bounds")
-      ),
+      b.get(index),
+      .Some(v) => v,
       .None => __yo_panic("String.byte_at: index out of bounds")
     )
-  ),
+  }),
   /// Owned copy of the BYTES in `[r.start, r.end)` — `s(a..b)` lowers to this.
   ///
   /// Same contract as `substring`, including the boundary policy: an endpoint
@@ -510,42 +418,35 @@ impl(
   ///   onto a boundary first, for callers doing byte arithmetic.
   /// - Rune-indexed slicing has no method form — walk `char_indices()`
   ///   for byte offsets and slice with those.
-  substring : (fn(self : &Self, start : usize, end : usize) -> Self)(
+  substring : (fn(self : &Self, start : usize, end : usize) -> Self)({
+    al := &self._bytes;
+    (total_bytes : usize) = al.len();
+    (start_byte : usize) = cond(
+      (start > total_bytes) => total_bytes,
+      true => start
+    );
+    (end_byte : usize) = cond(
+      (end > total_bytes) => total_bytes,
+      true => end
+    );
+    if(!self.is_char_boundary(start_byte), {
+      __yo_panic("String.substring: start is not on a UTF-8 character boundary");
+    });
+    if(!self.is_char_boundary(end_byte), {
+      __yo_panic("String.substring: end is not on a UTF-8 character boundary");
+    });
+    if(start_byte >= end_byte, {
+      return(Self(_bytes : ArrayList(u8).new()));
+    });
+    (count : usize) = (end_byte - start_byte);
+    new_bytes := ArrayList(u8).with_capacity(count);
     match(
-      self._bytes,
-      .None => {
-        return(Self(_bytes : .None));
-      },
-      .Some(al) => {
-        (total_bytes : usize) = al.len();
-        (start_byte : usize) = cond(
-          (start > total_bytes) => total_bytes,
-          true => start
-        );
-        (end_byte : usize) = cond(
-          (end > total_bytes) => total_bytes,
-          true => end
-        );
-        if(!self.is_char_boundary(start_byte), {
-          __yo_panic("String.substring: start is not on a UTF-8 character boundary");
-        });
-        if(!self.is_char_boundary(end_byte), {
-          __yo_panic("String.substring: end is not on a UTF-8 character boundary");
-        });
-        if(start_byte >= end_byte, {
-          return(Self(_bytes : .None));
-        });
-        (count : usize) = (end_byte - start_byte);
-        new_bytes := ArrayList(u8).with_capacity(count);
-        match(
-          al.ptr(),
-          .Some(src_p) => new_bytes.extend_from_ptr(src_p.add(start_byte), count),
-          .None => ()
-        );
-        Self(_bytes : .Some(new_bytes))
-      }
-    )
-  ),
+      al.ptr(),
+      .Some(src_p) => new_bytes.extend_from_ptr(src_p.add(start_byte), count),
+      .None => ()
+    );
+    Self(_bytes : new_bytes)
+  }),
   /// Byte offset of the first occurrence of `substr` at or after `from_index`.
   ///
   /// **BYTE basis, in AND out** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
@@ -573,62 +474,59 @@ impl(
     cond(
       substr.is_empty() => .Some(from_index),
       true => {
-        (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
-        (sub_bytes : usize) = match(substr._bytes, .Some(b) => b.len(), .None => usize(0));
+        (self_bytes : usize) = self._bytes.len();
+        (sub_bytes : usize) = substr._bytes.len();
         cond(
           (sub_bytes > self_bytes) => .None,
           (from_index > (self_bytes - sub_bytes)) => .None,
-          true => match(
-            self._bytes,
-            .None => .None,
-            .Some(self_al) => match(
-              substr._bytes,
-              .None => .None,
-              .Some(sub_al) => {
-                (last_start : usize) = (self_bytes - sub_bytes);
-                byte_index := from_index;
-                while(byte_index <= last_start, byte_index = (byte_index + usize(1)), {
-                  matches := true;
-                  j := usize(0);
-                  while(j < sub_bytes, j = (j + usize(1)), {
-                    self_byte_opt := self_al.get(byte_index + j);
-                    sub_byte_opt := sub_al.get(j);
-                    match(
-                      self_byte_opt,
-                      .Some(self_byte) =>
-                        match(
-                          sub_byte_opt,
-                          .Some(sub_byte) => {
-                            cond(
-                              (self_byte != sub_byte) => {
-                                matches = false;
-                                break;
-                              },
-                              true => ()
-                            );
-                          },
-                          .None => {
-                            matches = false;
-                            break;
-                          }
-                        ),
-                      .None => {
-                        matches = false;
-                        break;
-                      }
-                    );
-                  });
-                  cond(
-                    matches => {
-                      return(.Some(byte_index));
-                    },
-                    true => ()
+          true => {
+            self_al := &self._bytes;
+            {
+              sub_al := &substr._bytes;
+              (last_start : usize) = (self_bytes - sub_bytes);
+              byte_index := from_index;
+              while(byte_index <= last_start, byte_index = (byte_index + usize(1)), {
+                matches := true;
+                j := usize(0);
+                while(j < sub_bytes, j = (j + usize(1)), {
+                  self_byte_opt := self_al.get(byte_index + j);
+                  sub_byte_opt := sub_al.get(j);
+                  match(
+                    self_byte_opt,
+                    .Some(self_byte) =>
+                      match(
+                        sub_byte_opt,
+                        .Some(sub_byte) => {
+                          cond(
+                            (self_byte != sub_byte) => {
+                              matches = false;
+                              break;
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => {
+                          matches = false;
+                          break;
+                        }
+                      ),
+                    .None => {
+                      matches = false;
+                      break;
+                    }
                   );
                 });
-                return(.None);
-              }
-            )
-          )
+                cond(
+                  matches => {
+                    return(.Some(byte_index));
+                  },
+                  true => ()
+                );
+              });
+              return(.None);
+
+            }
+          }
         )
       }
     )
@@ -660,111 +558,98 @@ impl(
         // rune-slice loop re-walked from the start each time (O(n^2)).
         // Inlined rather than `char_indices()` because that iterator lives in
         // a LATER impl block, and impl blocks cannot call forward.
-        match(
-          self._bytes,
-          .None => {
-            return(result);
-          },
-          .Some(al) => {
-            total := al.len();
-            (pos : usize) = usize(0);
-            while(pos < total, {
-              (w : usize) = utf8.step_len(al(pos));
-              result.push(self.substring(pos, pos + w));
-              pos = (pos + w);
-            });
-            return(result);
-          }
-        );
+        {
+          al := &self._bytes;
+          total := al.len();
+          (pos : usize) = usize(0);
+          while(pos < total, {
+            (w : usize) = utf8.step_len(al(pos));
+            result.push(self.substring(pos, pos + w));
+            pos = (pos + w);
+          });
+          return(result);
+
+        };
       },
       self.is_empty() => {
         result.push(new());
         return(result);
       },
-      true => match(
-        self._bytes,
-        .None => {
-          result.push(new());
-          return(result);
-        },
-        .Some(self_al) => match(
-          separator._bytes,
-          .None => {
-            result.push(self);
-            return(result);
-          },
-          .Some(sep_al) => {
-            self_bytes := self_al.len();
-            sep_bytes := sep_al.len();
-            current_bytes := ArrayList(u8).new();
-            byte_index := usize(0);
-            while(byte_index < self_bytes, byte_index = (byte_index + usize(1)), {
-              matches := true;
-              cond(
-                ((byte_index + sep_bytes) <= self_bytes) => {
-                  j := usize(0);
-                  while(j < sep_bytes, j = (j + usize(1)), {
-                    self_byte_opt := self_al.get(byte_index + j);
-                    sep_byte_opt := sep_al.get(j);
-                    match(
-                      self_byte_opt,
-                      .Some(self_byte) =>
-                        match(
-                          sep_byte_opt,
-                          .Some(sep_byte) => {
-                            cond(
-                              (self_byte != sep_byte) => {
-                                matches = false;
-                                break;
-                              },
-                              true => ()
-                            );
-                          },
-                          .None => {
-                            matches = false;
-                            break;
-                          }
-                        ),
-                      .None => {
-                        matches = false;
-                        break;
-                      }
-                    );
-                  });
-                },
-                true => {
-                  matches = false;
-                }
-              );
-              cond(
-                matches => {
-                  cond(
-                    (current_bytes.len() == usize(0)) => result.push(Self(_bytes : .None)),
-                    true => result.push(Self(_bytes : .Some(current_bytes)))
-                  );
-                  current_bytes = ArrayList(u8).new();
-                  byte_index = ((byte_index + sep_bytes) - usize(1));
-                },
-                true => {
-                  byte_opt := self_al.get(byte_index);
-                  match(
-                    byte_opt,
-                    .Some(byte) => {
-                      current_bytes.push(byte);
-                    },
-                    .None => ()
-                  );
-                }
-              );
-            });
+      true => {
+        self_al := &self._bytes;
+        {
+          sep_al := &separator._bytes;
+          self_bytes := self_al.len();
+          sep_bytes := sep_al.len();
+          current_bytes := ArrayList(u8).new();
+          byte_index := usize(0);
+          while(byte_index < self_bytes, byte_index = (byte_index + usize(1)), {
+            matches := true;
             cond(
-              (current_bytes.len() == usize(0)) => result.push(Self(_bytes : .None)),
-              true => result.push(Self(_bytes : .Some(current_bytes)))
+              ((byte_index + sep_bytes) <= self_bytes) => {
+                j := usize(0);
+                while(j < sep_bytes, j = (j + usize(1)), {
+                  self_byte_opt := self_al.get(byte_index + j);
+                  sep_byte_opt := sep_al.get(j);
+                  match(
+                    self_byte_opt,
+                    .Some(self_byte) =>
+                      match(
+                        sep_byte_opt,
+                        .Some(sep_byte) => {
+                          cond(
+                            (self_byte != sep_byte) => {
+                              matches = false;
+                              break;
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => {
+                          matches = false;
+                          break;
+                        }
+                      ),
+                    .None => {
+                      matches = false;
+                      break;
+                    }
+                  );
+                });
+              },
+              true => {
+                matches = false;
+              }
             );
-            return(result);
-          }
-        )
-      )
+            cond(
+              matches => {
+                cond(
+                  (current_bytes.len() == usize(0)) => result.push(Self(_bytes : ArrayList(u8).new())),
+                  true => result.push(Self(_bytes : current_bytes))
+                );
+                current_bytes = ArrayList(u8).new();
+                byte_index = ((byte_index + sep_bytes) - usize(1));
+              },
+              true => {
+                byte_opt := self_al.get(byte_index);
+                match(
+                  byte_opt,
+                  .Some(byte) => {
+                    current_bytes.push(byte);
+                  },
+                  .None => ()
+                );
+              }
+            );
+          });
+          cond(
+            (current_bytes.len() == usize(0)) => result.push(Self(_bytes : ArrayList(u8).new())),
+            true => result.push(Self(_bytes : current_bytes))
+          );
+          return(result);
+
+        }
+      }
     )
   }),
   /// Byte offset of the LAST occurrence of `substr` starting at or before
@@ -784,72 +669,68 @@ impl(
   _last_index_of_impl : (fn(self : &Self, substr : &Self, (from_index : usize) ?= usize.MAX) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
-      true => match(
-        self._bytes,
-        .None => .None,
-        .Some(self_al) => match(
-          substr._bytes,
-          .None => .None,
-          .Some(sub_al) => {
-            self_bytes := self_al.len();
-            sub_bytes := sub_al.len();
-            cond(
-              (sub_bytes > self_bytes) => .None,
-              true => {
-                (last_start : usize) = (self_bytes - sub_bytes);
-                (highest : usize) = cond(
-                  (from_index > last_start) => last_start,
-                  true => from_index
-                );
-                // Walk DOWN from the highest allowed start, so the first hit is
-                // the last occurrence. `cursor` is one past the candidate so
-                // that candidate 0 is still examined without underflowing.
-                cursor := (highest + usize(1));
-                while(cursor > usize(0), {
-                  cursor = (cursor - usize(1));
-                  matches := true;
-                  j := usize(0);
-                  while(j < sub_bytes, j = (j + usize(1)), {
-                    self_byte_opt := self_al.get(cursor + j);
-                    sub_byte_opt := sub_al.get(j);
-                    match(
-                      self_byte_opt,
-                      .Some(self_byte) =>
-                        match(
-                          sub_byte_opt,
-                          .Some(sub_byte) => {
-                            cond(
-                              (self_byte != sub_byte) => {
-                                matches = false;
-                                break;
-                              },
-                              true => ()
-                            );
-                          },
-                          .None => {
-                            matches = false;
-                            break;
-                          }
-                        ),
-                      .None => {
-                        matches = false;
-                        break;
-                      }
-                    );
-                  });
-                  cond(
-                    matches => {
-                      return(.Some(cursor));
-                    },
-                    true => ()
+      true => {
+        self_al := &self._bytes;
+        {
+          sub_al := &substr._bytes;
+          self_bytes := self_al.len();
+          sub_bytes := sub_al.len();
+          cond(
+            (sub_bytes > self_bytes) => .None,
+            true => {
+              (last_start : usize) = (self_bytes - sub_bytes);
+              (highest : usize) = cond(
+                (from_index > last_start) => last_start,
+                true => from_index
+              );
+              // Walk DOWN from the highest allowed start, so the first hit is
+              // the last occurrence. `cursor` is one past the candidate so
+              // that candidate 0 is still examined without underflowing.
+              cursor := (highest + usize(1));
+              while(cursor > usize(0), {
+                cursor = (cursor - usize(1));
+                matches := true;
+                j := usize(0);
+                while(j < sub_bytes, j = (j + usize(1)), {
+                  self_byte_opt := self_al.get(cursor + j);
+                  sub_byte_opt := sub_al.get(j);
+                  match(
+                    self_byte_opt,
+                    .Some(self_byte) =>
+                      match(
+                        sub_byte_opt,
+                        .Some(sub_byte) => {
+                          cond(
+                            (self_byte != sub_byte) => {
+                              matches = false;
+                              break;
+                            },
+                            true => ()
+                          );
+                        },
+                        .None => {
+                          matches = false;
+                          break;
+                        }
+                      ),
+                    .None => {
+                      matches = false;
+                      break;
+                    }
                   );
                 });
-                return(.None);
-              }
-            )
-          }
-        )
-      )
+                cond(
+                  matches => {
+                    return(.Some(cursor));
+                  },
+                  true => ()
+                );
+              });
+              return(.None);
+            }
+          )
+        }
+      }
     )
   ),
   /// Private: does this string have `prefix` starting at BYTE offset
@@ -871,55 +752,52 @@ impl(
   /// plans/backlog/OVERLOADING_REDESIGN.md §4). Not called directly — go
   /// through `starts_with`.
   _has_prefix : (fn(self : &Self, prefix : &Self, (position : usize) ?= 0) -> bool)({
-    (prefix_bytes : usize) = match(prefix._bytes, .Some(b) => b.len(), .None => usize(0));
-    (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (prefix_bytes : usize) = prefix._bytes.len();
+    (self_bytes : usize) = self._bytes.len();
     cond(
       (prefix_bytes == usize(0)) => true,
       // Ordered so `position + prefix_bytes` cannot overflow: the first arm
       // has already rejected every `position` beyond the byte length.
       (position > self_bytes) => false,
       ((position + prefix_bytes) > self_bytes) => false,
-      true => match(
-        self._bytes,
-        .None => false,
-        .Some(self_al) => match(
-          prefix._bytes,
-          .None => true,
-          .Some(prefix_al) => {
-            i := usize(0);
-            matches := true;
-            while(i < prefix_bytes, i = (i + usize(1)), {
-              self_byte_opt := self_al.get(position + i);
-              prefix_byte_opt := prefix_al.get(i);
-              match(
-                self_byte_opt,
-                .Some(self_byte) =>
-                  match(
-                    prefix_byte_opt,
-                    .Some(prefix_byte) => {
-                      cond(
-                        (self_byte != prefix_byte) => {
-                          matches = false;
-                          break;
-                        },
-                        true => ()
-                      );
-                    },
-                    .None => {
-                      matches = false;
-                      break;
-                    }
-                  ),
-                .None => {
-                  matches = false;
-                  break;
-                }
-              );
-            });
-            return(matches);
-          }
-        )
-      )
+      true => {
+        self_al := &self._bytes;
+        {
+          prefix_al := &prefix._bytes;
+          i := usize(0);
+          matches := true;
+          while(i < prefix_bytes, i = (i + usize(1)), {
+            self_byte_opt := self_al.get(position + i);
+            prefix_byte_opt := prefix_al.get(i);
+            match(
+              self_byte_opt,
+              .Some(self_byte) =>
+                match(
+                  prefix_byte_opt,
+                  .Some(prefix_byte) => {
+                    cond(
+                      (self_byte != prefix_byte) => {
+                        matches = false;
+                        break;
+                      },
+                      true => ()
+                    );
+                  },
+                  .None => {
+                    matches = false;
+                    break;
+                  }
+                ),
+              .None => {
+                matches = false;
+                break;
+              }
+            );
+          });
+          return(matches);
+
+        }
+      }
     )
   }),
   /// Private: does the first `end_position` BYTES of this string end with
@@ -933,8 +811,8 @@ impl(
   ///
   /// Not called directly — go through `ends_with`.
   _ends_with_impl : (fn(self : &Self, suffix : &Self, (end_position : usize) ?= usize.MAX) -> bool)({
-    (suffix_bytes : usize) = match(suffix._bytes, .Some(b) => b.len(), .None => usize(0));
-    (self_bytes : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (suffix_bytes : usize) = suffix._bytes.len();
+    (self_bytes : usize) = self._bytes.len();
     (effective_end : usize) = cond(
       (end_position > self_bytes) => self_bytes,
       true => end_position
@@ -942,48 +820,45 @@ impl(
     cond(
       (suffix_bytes == usize(0)) => true,
       (suffix_bytes > effective_end) => false,
-      true => match(
-        self._bytes,
-        .None => false,
-        .Some(self_al) => match(
-          suffix._bytes,
-          .None => true,
-          .Some(suffix_al) => {
-            offset := (effective_end - suffix_bytes);
-            i := usize(0);
-            matches := true;
-            while(i < suffix_bytes, i = (i + usize(1)), {
-              self_byte_opt := self_al.get(offset + i);
-              suffix_byte_opt := suffix_al.get(i);
-              match(
-                self_byte_opt,
-                .Some(self_byte) =>
-                  match(
-                    suffix_byte_opt,
-                    .Some(suffix_byte) => {
-                      cond(
-                        (self_byte != suffix_byte) => {
-                          matches = false;
-                          break;
-                        },
-                        true => ()
-                      );
-                    },
-                    .None => {
-                      matches = false;
-                      break;
-                    }
-                  ),
-                .None => {
-                  matches = false;
-                  break;
-                }
-              );
-            });
-            return(matches);
-          }
-        )
-      )
+      true => {
+        self_al := &self._bytes;
+        {
+          suffix_al := &suffix._bytes;
+          offset := (effective_end - suffix_bytes);
+          i := usize(0);
+          matches := true;
+          while(i < suffix_bytes, i = (i + usize(1)), {
+            self_byte_opt := self_al.get(offset + i);
+            suffix_byte_opt := suffix_al.get(i);
+            match(
+              self_byte_opt,
+              .Some(self_byte) =>
+                match(
+                  suffix_byte_opt,
+                  .Some(suffix_byte) => {
+                    cond(
+                      (self_byte != suffix_byte) => {
+                        matches = false;
+                        break;
+                      },
+                      true => ()
+                    );
+                  },
+                  .None => {
+                    matches = false;
+                    break;
+                  }
+                ),
+              .None => {
+                matches = false;
+                break;
+              }
+            );
+          });
+          return(matches);
+
+        }
+      }
     )
   }),
   /// Uppercase using the full Unicode 15.1 case mapping (all scripts, plus the
@@ -992,209 +867,176 @@ impl(
   /// Turkish dotted i) are not applied — the mapping is per code point, like
   /// Go's `strings.ToUpper`. ASCII input keeps a byte-wise fast path.
   to_uppercase : (fn(self : &Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(_) => String.from_bytes(unicode_case.to_uppercase_bytes(self._byte_list()))
-    )
+    String.from_bytes(unicode_case.to_uppercase_bytes(&self._bytes))
   ),
   /// Lowercase using the full Unicode 15.1 case mapping (all scripts, plus the
   /// `İ` → `i̇` expansion). Locale-independent. ASCII input keeps a byte-wise
   /// fast path.
   to_lowercase : (fn(self : &Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(_) => String.from_bytes(unicode_case.to_lowercase_bytes(self._byte_list()))
-    )
+    String.from_bytes(unicode_case.to_lowercase_bytes(&self._bytes))
   ),
   /// Uppercase ASCII letters A-Z only (byte-wise); all other bytes pass through
   /// unchanged. The explicitly-ASCII counterpart to `to_uppercase` for when the
   /// Unicode mapping must not apply (identifiers, protocol tokens, …).
-  to_ascii_uppercase : (fn(self : &Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(al) => {
-        (total : usize) = al.len();
-        new_bytes := ArrayList(u8).with_capacity(total);
-        i := usize(0);
-        while(i < total, i = (i + usize(1)), {
-          byte_opt := al.get(i);
-          match(
-            byte_opt,
-            .Some(byte) => {
-              new_byte := cond(
-                ((byte >= u8(0x61)) && (byte <= u8(0x7A))) => (byte - u8(0x20)),
-                true => byte
-              );
-              new_bytes.push(new_byte);
-            },
-            .None => ()
+  to_ascii_uppercase : (fn(self : &Self) -> Self)({
+    al := &self._bytes;
+    (total : usize) = al.len();
+    new_bytes := ArrayList(u8).with_capacity(total);
+    i := usize(0);
+    while(i < total, i = (i + usize(1)), {
+      byte_opt := al.get(i);
+      match(
+        byte_opt,
+        .Some(byte) => {
+          new_byte := cond(
+            ((byte >= u8(0x61)) && (byte <= u8(0x7A))) => (byte - u8(0x20)),
+            true => byte
           );
-        });
-        Self(_bytes : .Some(new_bytes))
-      }
-    )
-  ),
+          new_bytes.push(new_byte);
+        },
+        .None => ()
+      );
+    });
+    Self(_bytes : new_bytes)
+  }),
   /// Lowercase ASCII letters A-Z only (byte-wise); all other bytes pass through
   /// unchanged. The explicitly-ASCII counterpart to `to_lowercase`.
-  to_ascii_lowercase : (fn(self : &Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(al) => {
-        (total : usize) = al.len();
-        new_bytes := ArrayList(u8).with_capacity(total);
-        i := usize(0);
-        while(i < total, i = (i + usize(1)), {
-          byte_opt := al.get(i);
-          match(
-            byte_opt,
-            .Some(byte) => {
-              new_byte := cond(
-                ((byte >= u8(0x41)) && (byte <= u8(0x5A))) => (byte + u8(0x20)),
-                true => byte
-              );
-              new_bytes.push(new_byte);
-            },
-            .None => ()
+  to_ascii_lowercase : (fn(self : &Self) -> Self)({
+    al := &self._bytes;
+    (total : usize) = al.len();
+    new_bytes := ArrayList(u8).with_capacity(total);
+    i := usize(0);
+    while(i < total, i = (i + usize(1)), {
+      byte_opt := al.get(i);
+      match(
+        byte_opt,
+        .Some(byte) => {
+          new_byte := cond(
+            ((byte >= u8(0x41)) && (byte <= u8(0x5A))) => (byte + u8(0x20)),
+            true => byte
           );
-        });
-        Self(_bytes : .Some(new_bytes))
-      }
-    )
-  ),
+          new_bytes.push(new_byte);
+        },
+        .None => ()
+      );
+    });
+    Self(_bytes : new_bytes)
+  }),
   /// Helper to check if a byte is ASCII whitespace
   /// Space (0x20), Tab (0x09), Newline (0x0A), Carriage Return (0x0D), Form Feed (0x0C), Vertical Tab (0x0B)
   _is_whitespace_byte : (fn(byte : u8) -> bool)(
     (byte == u8(0x20)) || (byte == u8(0x09)) || (byte == u8(0x0A)) || (byte == u8(0x0D)) || (byte == u8(0x0C)) || (byte == u8(0x0B))
   ),
   /// Remove whitespace from both ends of the string (like JavaScript trim)
-  trim : (fn(self : &Self) -> Self)(
+  trim : (fn(self : &Self) -> Self)({
+    al := &self._bytes;
+    total_bytes := al.len();
+    if(total_bytes == usize(0), {
+      return(Self(_bytes : ArrayList(u8).new()));
+    });
+    (start_idx : usize) = usize(0);
+    while(start_idx < total_bytes, {
+      (b : u8) = al(start_idx);
+      if(!Self._is_whitespace_byte(b), {
+        break;
+      });
+      start_idx = (start_idx + usize(1));
+    });
+    (end_idx : usize) = total_bytes;
+    while(end_idx > start_idx, {
+      (b : u8) = al(end_idx - usize(1));
+      if(!Self._is_whitespace_byte(b), {
+        break;
+      });
+      end_idx = (end_idx - usize(1));
+    });
+    if(start_idx >= end_idx, {
+      return(Self(_bytes : ArrayList(u8).new()));
+    });
+    (count : usize) = (end_idx - start_idx);
+    new_bytes := ArrayList(u8).with_capacity(count);
     match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(al) => {
-        total_bytes := al.len();
-        if(total_bytes == usize(0), {
-          return(Self(_bytes : .None));
-        });
-        (start_idx : usize) = usize(0);
-        while(start_idx < total_bytes, {
-          (b : u8) = al(start_idx);
-          if(!Self._is_whitespace_byte(b), {
-            break;
-          });
-          start_idx = (start_idx + usize(1));
-        });
-        (end_idx : usize) = total_bytes;
-        while(end_idx > start_idx, {
-          (b : u8) = al(end_idx - usize(1));
-          if(!Self._is_whitespace_byte(b), {
-            break;
-          });
-          end_idx = (end_idx - usize(1));
-        });
-        if(start_idx >= end_idx, {
-          return(Self(_bytes : .None));
-        });
-        (count : usize) = (end_idx - start_idx);
-        new_bytes := ArrayList(u8).with_capacity(count);
-        match(
-          al.ptr(),
-          .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
-          .None => ()
-        );
-        Self(_bytes : .Some(new_bytes))
-      }
-    )
-  ),
+      al.ptr(),
+      .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
+      .None => ()
+    );
+    Self(_bytes : new_bytes)
+  }),
   /// Remove whitespace from the start of the string (like JavaScript trimStart)
-  trim_start : (fn(self : &Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(al) => {
-        total_bytes := al.len();
-        cond(
-          (total_bytes == usize(0)) => Self(_bytes : .None),
-          true => {
-            start_idx := usize(0);
-            while(start_idx < total_bytes, start_idx = (start_idx + usize(1)), {
-              byte_opt := al.get(start_idx);
-              match(
-                byte_opt,
-                .Some(byte) => {
-                  is_ws := Self._is_whitespace_byte(byte);
-                  cond(
-                    !is_ws => break,
-                    true => ()
-                  );
-                },
-                .None => break
+  trim_start : (fn(self : &Self) -> Self)({
+    al := &self._bytes;
+    total_bytes := al.len();
+    cond(
+      (total_bytes == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+      true => {
+        start_idx := usize(0);
+        while(start_idx < total_bytes, start_idx = (start_idx + usize(1)), {
+          byte_opt := al.get(start_idx);
+          match(
+            byte_opt,
+            .Some(byte) => {
+              is_ws := Self._is_whitespace_byte(byte);
+              cond(
+                !is_ws => break,
+                true => ()
               );
-            });
-            cond(
-              (start_idx >= total_bytes) => Self(_bytes : .None),
-              true => {
-                (count : usize) = (total_bytes - start_idx);
-                new_bytes := ArrayList(u8).with_capacity(count);
-                match(
-                  al.ptr(),
-                  .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
-                  .None => ()
-                );
-                Self(_bytes : .Some(new_bytes))
-              }
-            )
+            },
+            .None => break
+          );
+        });
+        cond(
+          (start_idx >= total_bytes) => Self(_bytes : ArrayList(u8).new()),
+          true => {
+            (count : usize) = (total_bytes - start_idx);
+            new_bytes := ArrayList(u8).with_capacity(count);
+            match(
+              al.ptr(),
+              .Some(p) => new_bytes.extend_from_ptr(p.add(start_idx), count),
+              .None => ()
+            );
+            Self(_bytes : new_bytes)
           }
         )
       }
     )
-  ),
+  }),
   /// Remove whitespace from the end of the string (like JavaScript trimEnd)
-  trim_end : (fn(self : &Self) -> Self)(
-    match(
-      self._bytes,
-      .None => Self(_bytes : .None),
-      .Some(al) => {
-        total_bytes := al.len();
-        cond(
-          (total_bytes == usize(0)) => Self(_bytes : .None),
-          true => {
-            end_idx := total_bytes;
-            while(end_idx > usize(0), end_idx = (end_idx - usize(1)), {
-              byte_opt := al.get(end_idx - usize(1));
-              match(
-                byte_opt,
-                .Some(byte) => {
-                  is_ws := Self._is_whitespace_byte(byte);
-                  cond(
-                    !is_ws => break,
-                    true => ()
-                  );
-                },
-                .None => break
+  trim_end : (fn(self : &Self) -> Self)({
+    al := &self._bytes;
+    total_bytes := al.len();
+    cond(
+      (total_bytes == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+      true => {
+        end_idx := total_bytes;
+        while(end_idx > usize(0), end_idx = (end_idx - usize(1)), {
+          byte_opt := al.get(end_idx - usize(1));
+          match(
+            byte_opt,
+            .Some(byte) => {
+              is_ws := Self._is_whitespace_byte(byte);
+              cond(
+                !is_ws => break,
+                true => ()
               );
-            });
-            cond(
-              (end_idx == usize(0)) => Self(_bytes : .None),
-              true => {
-                new_bytes := ArrayList(u8).with_capacity(end_idx);
-                match(
-                  al.ptr(),
-                  .Some(p) => new_bytes.extend_from_ptr(p, end_idx),
-                  .None => ()
-                );
-                Self(_bytes : .Some(new_bytes))
-              }
-            )
+            },
+            .None => break
+          );
+        });
+        cond(
+          (end_idx == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+          true => {
+            new_bytes := ArrayList(u8).with_capacity(end_idx);
+            match(
+              al.ptr(),
+              .Some(p) => new_bytes.extend_from_ptr(p, end_idx),
+              .None => ()
+            );
+            Self(_bytes : new_bytes)
           }
         )
       }
     )
-  )
+  })
 );
 /// Add trait implementation — concatenate two strings with `+`.
 impl(
@@ -1217,42 +1059,38 @@ impl(
       // calls before the memcmp (issues/
       // yo-self-compile-performance-rc-string-eq.md, lever 1). Same
       // semantics — `len()` returns `_length`, `ptr()` returns `_ptr`.
-      (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
-      (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
+      (self_len : usize) = self._bytes.len();
+      (other_len : usize) = other._bytes.len();
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
         true =>
-          match(
-            self._bytes,
-            .Some(self_al) =>
+          {
+            self_al := &self._bytes;
+            {
+              other_al := &other._bytes;
               match(
-                other._bytes,
-                .Some(other_al) =>
+                self_al.ptr(),
+                .Some(self_ptr) =>
                   match(
-                    self_al.ptr(),
-                    .Some(self_ptr) =>
-                      match(
-                        other_al.ptr(),
-                        // SAFETY: self_len equals other_len (checked
-                        // above) and both equal each ArrayList's
-                        // ._length (the inner Option's _ptr is Some only
-                        // when len > 0); memcmp reads exactly that many
-                        // bytes from each Rc-managed buffer.
-                        // Interned fast path: the SAME buffer with the
-                        // same length is trivially equal — hit constantly
-                        // once identifier tokens are interned (yo-self
-                        // lexer intern table).
-                        .Some(other_ptr) =>
-                          (unsafe(__yo_ptr_eq(&self_ptr, &other_ptr)) || (unsafe(memcmp((*void)(self_ptr), (*void)(other_ptr), self_len)) == int(0))),
-                        .None => false
-                      ),
+                    other_al.ptr(),
+                    // SAFETY: self_len equals other_len (checked
+                    // above) and both equal each ArrayList's
+                    // ._length (the inner Option's _ptr is Some only
+                    // when len > 0); memcmp reads exactly that many
+                    // bytes from each Rc-managed buffer.
+                    // Interned fast path: the SAME buffer with the
+                    // same length is trivially equal — hit constantly
+                    // once identifier tokens are interned (yo-self
+                    // lexer intern table).
+                    .Some(other_ptr) =>
+                      (unsafe(__yo_ptr_eq(&self_ptr, &other_ptr)) || (unsafe(memcmp((*void)(self_ptr), (*void)(other_ptr), self_len)) == int(0))),
                     .None => false
                   ),
                 .None => false
-              ),
-            .None => false
-          )
+              )
+            }
+          }
       )
     }),
     (!=) : (fn(self : &Self, other : &Self) -> bool)({
@@ -1269,27 +1107,25 @@ impl(
   String,
   Eq(str)(
     (==) : (fn(self : &Self, other : &str) -> bool)({
-      (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+      (self_len : usize) = self._bytes.len();
       other_len := other.len();
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
         true =>
-          match(
-            self._bytes,
-            .Some(self_al) =>
-              match(
-                self_al.ptr(),
-                // SAFETY: self_len equals other_len (checked above) and both
-                // equal the respective byte counts; the str's backing is
-                // static storage and the String's buffer is Rc-managed —
-                // memcmp reads exactly self_len bytes from each.
-                .Some(self_ptr) =>
-                  (unsafe(memcmp((*void)(self_ptr), (*void)(other.ptr()), self_len)) == int(0)),
-                .None => false
-              ),
-            .None => false
-          )
+          {
+            self_al := &self._bytes;
+            match(
+              self_al.ptr(),
+              // SAFETY: self_len equals other_len (checked above) and both
+              // equal the respective byte counts; the str's backing is
+              // static storage and the String's buffer is Rc-managed —
+              // memcmp reads exactly self_len bytes from each.
+              .Some(self_ptr) =>
+                (unsafe(memcmp((*void)(self_ptr), (*void)(other.ptr()), self_len)) == int(0)),
+              .None => false
+            )
+          }
       )
     }),
     (!=) : (fn(self : &Self, other : &str) -> bool)({
@@ -1305,23 +1141,21 @@ impl(
   Eq(String)(
     (==) : (fn(self : &Self, other : &String) -> bool)({
       self_len := self.len();
-      (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
+      (other_len : usize) = other._bytes.len();
       cond(
         (self_len != other_len) => false,
         (self_len == usize(0)) => true,
         true =>
-          match(
-            other._bytes,
-            .Some(other_al) =>
-              match(
-                other_al.ptr(),
-                // SAFETY: lengths equal & nonzero; str backing is static.
-                .Some(other_ptr) =>
-                  (unsafe(memcmp((*void)(self.ptr()), (*void)(other_ptr), self_len)) == int(0)),
-                .None => false
-              ),
-            .None => false
-          )
+          {
+            other_al := &other._bytes;
+            match(
+              other_al.ptr(),
+              // SAFETY: lengths equal & nonzero; str backing is static.
+              .Some(other_ptr) =>
+                (unsafe(memcmp((*void)(self.ptr()), (*void)(other_ptr), self_len)) == int(0)),
+              .None => false
+            )
+          }
       )
     }),
     (!=) : (fn(self : &Self, other : &String) -> bool)({
@@ -1478,7 +1312,7 @@ impl(
     is_suffix_of : (fn(self : Self, haystack : &String, end_position : usize) -> bool)({
       (n : usize) = haystack.len();
       (eff : usize) = if(end_position > n, n, end_position);
-      bytes := haystack._byte_list();
+      bytes := &haystack._bytes;
       pos := usize(0);
       while(pos < eff, {
         d := utf8.decode_lossy(&bytes, pos);
@@ -1493,7 +1327,7 @@ impl(
       false
     }),
     index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))({
-      bytes := haystack._byte_list();
+      bytes := &haystack._bytes;
       n := bytes.len();
       pos := from_index;
       // A mid-rune `from_index` answers .None, not a bogus hit: skip to the
@@ -1519,7 +1353,7 @@ impl(
       )
     ),
     last_index_in : (fn(self : Self, haystack : &String, from_index : usize) -> Option(usize))({
-      bytes := haystack._byte_list();
+      bytes := &haystack._bytes;
       n := bytes.len();
       lim := if(from_index > n, n, from_index);
       pos := usize(0);
@@ -1537,7 +1371,7 @@ impl(
       last
     }),
     length_in : (fn(self : Self, haystack : &String, at : usize) -> usize)({
-      bytes := haystack._byte_list();
+      bytes := &haystack._bytes;
       cond(
         (at < bytes.len()) =>
           match(
@@ -1553,7 +1387,7 @@ impl(
     }),
     split_of : (fn(self : Self, haystack : &String) -> ArrayList(String))({
       parts := ArrayList(String).new();
-      bytes := haystack._byte_list();
+      bytes := &haystack._bytes;
       n := bytes.len();
       seg_start := usize(0);
       pos := usize(0);
@@ -1718,15 +1552,7 @@ impl(
         });
         // In place, like `clear`: no copy of the kept prefix (the compiler
         // truncates its ~110 MB code buffer this way).
-        match(
-          self._bytes.take(),
-          .Some(found) => {
-            al := found;
-            al.truncate(new_len);
-            self._bytes = .Some(al);
-          },
-          .None => ()
-        );
+        self._bytes.truncate(new_len);
       }
     );
   }),
@@ -1949,10 +1775,10 @@ impl(
       where(P <: Pattern)
     ) -> Self
   )({
-    self_bytes := self._byte_list();
+    self_bytes := &self._bytes;
     (n : usize) = self_bytes.len();
     out := ArrayList(u8).new();
-    nv_bytes := new_value._byte_list();
+    nv_bytes := &new_value._bytes;
     (cut : usize) = usize(0);
     (done : usize) = usize(0);
     pos := usize(0);
@@ -2074,20 +1900,18 @@ impl(
   String,
   Hash(
     hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
-      match(
-        self._bytes,
-        .None => (),
-        .Some(al) => {
-          len := al.len();
-          match(
-            al.ptr(),
-            // SAFETY: `ptr()` is Some only for a live buffer of exactly
-            // `len` bytes; the hasher reads [0, len).
-            .Some(p) => hasher.write(p, len),
-            .None => ()
-          );
-        }
-      );
+      {
+        al := &self._bytes;
+        len := al.len();
+        match(
+          al.ptr(),
+          // SAFETY: `ptr()` is Some only for a live buffer of exactly
+          // `len` bytes; the hasher reads [0, len).
+          .Some(p) => hasher.write(p, len),
+          .None => ()
+        );
+
+      };
       // Terminator, so adjacent strings stay prefix-free (Rust does the same).
       hasher.write_u8(u8(255));
     })
@@ -2125,28 +1949,25 @@ impl(
   StringChars,
   Iterator(
     Item : rune,
-    next : (fn(self : &mut Self) -> Option(rune))(
-      match(
-        self._string._bytes,
-        .None => .None,
-        .Some(al) => cond(
-          (self._byte_index >= self._end) => .None,
-          true => {
-            first_byte_opt := al.get(self._byte_index);
-            match(
-              first_byte_opt,
-              .Some(first_byte) => {
-                (byte_len : usize) = utf8.step_len(first_byte);
-                r := self._string._decode_rune_at(self._byte_index);
-                self._byte_index = (self._byte_index + byte_len);
-                r
-              },
-              .None => .None
-            )
-          }
-        )
+    next : (fn(self : &mut Self) -> Option(rune))({
+      al := &self._string._bytes;
+      cond(
+        (self._byte_index >= self._end) => .None,
+        true => {
+          first_byte_opt := al.get(self._byte_index);
+          match(
+            first_byte_opt,
+            .Some(first_byte) => {
+              (byte_len : usize) = utf8.step_len(first_byte);
+              r := self._string._decode_rune_at(self._byte_index);
+              self._byte_index = (self._byte_index + byte_len);
+              r
+            },
+            .None => .None
+          )
+        }
       )
-    )
+    })
   )
 );
 /// `chars()` from the back — this is what makes `s.chars().rev()` work, via
@@ -2180,20 +2001,17 @@ impl(
   StringBytes,
   Iterator(
     Item : u8,
-    next : (fn(self : &mut Self) -> Option(u8))(
-      match(
-        self._string._bytes,
-        .None => .None,
-        .Some(al) => cond(
-          (self._index >= self._end) => .None,
-          true => {
-            byte_opt := al.get(self._index);
-            self._index = (self._index + usize(1));
-            byte_opt
-          }
-        )
+    next : (fn(self : &mut Self) -> Option(u8))({
+      al := &self._string._bytes;
+      cond(
+        (self._index >= self._end) => .None,
+        true => {
+          byte_opt := al.get(self._index);
+          self._index = (self._index + usize(1));
+          byte_opt
+        }
       )
-    )
+    })
   )
 );
 impl(
@@ -2205,11 +2023,10 @@ impl(
         (self._end <= self._index) => Option(u8).None,
         true => {
           self._end = (self._end - usize(1));
-          match(
-            self._string._bytes,
-            .None => Option(u8).None,
-            .Some(al) => al.get(self._end)
-          )
+          {
+            al := &self._string._bytes;
+            al.get(self._end)
+          }
         }
       )
     )
@@ -2231,32 +2048,29 @@ impl(
   StringCharIndices,
   Iterator(
     Item : IterPair(usize, rune),
-    next : (fn(self : &mut Self) -> Option(IterPair(usize, rune)))(
-      match(
-        self._string._bytes,
-        .None => .None,
-        .Some(al) => cond(
-          (self._byte_index >= self._end) => .None,
-          true => {
-            offset := self._byte_index;
-            first_byte_opt := al.get(offset);
-            match(
-              first_byte_opt,
-              .Some(first_byte) => {
-                (byte_len : usize) = utf8.step_len(first_byte);
-                self._byte_index = (offset + byte_len);
-                match(
-                  self._string._decode_rune_at(offset),
-                  .Some(r) => .Some(IterPair(usize, rune)(_0 : offset, _1 : r)),
-                  .None => .None
-                )
-              },
-              .None => .None
-            )
-          }
-        )
+    next : (fn(self : &mut Self) -> Option(IterPair(usize, rune)))({
+      al := &self._string._bytes;
+      cond(
+        (self._byte_index >= self._end) => .None,
+        true => {
+          offset := self._byte_index;
+          first_byte_opt := al.get(offset);
+          match(
+            first_byte_opt,
+            .Some(first_byte) => {
+              (byte_len : usize) = utf8.step_len(first_byte);
+              self._byte_index = (offset + byte_len);
+              match(
+                self._string._decode_rune_at(offset),
+                .Some(r) => .Some(IterPair(usize, rune)(_0 : offset, _1 : r)),
+                .None => .None
+              )
+            },
+            .None => .None
+          )
+        }
       )
-    )
+    })
   )
 );
 impl(
@@ -2329,56 +2143,46 @@ impl(
   /// `index` is clamped to `len()` first, so the answer is always a
   /// boundary of THIS string. Pair it with `ceil_char_boundary` to widen or
   /// narrow a byte range onto boundaries before slicing.
-  floor_char_boundary : (fn(self : &Self, index : usize) -> usize)(
-    match(
-      self._bytes,
-      .None => usize(0),
-      .Some(al) => {
-        n := al.len();
-        cond(
-          (index >= n) => n,
-          true => {
-            i := index;
-            while(i > usize(0), {
-              b := al(i);
-              if(utf8.is_boundary(b), {
-                break;
-              });
-              i = (i - usize(1));
-            });
-            i
-          }
-        )
+  floor_char_boundary : (fn(self : &Self, index : usize) -> usize)({
+    al := &self._bytes;
+    n := al.len();
+    cond(
+      (index >= n) => n,
+      true => {
+        i := index;
+        while(i > usize(0), {
+          b := al(i);
+          if(utf8.is_boundary(b), {
+            break;
+          });
+          i = (i - usize(1));
+        });
+        i
       }
     )
-  ),
+  }),
   /// The smallest byte offset `>= index` that sits on a rune boundary.
   ///
   /// `index` at or past `len()` clamps to `len()`, which is a boundary, so
   /// this always terminates on a valid one.
-  ceil_char_boundary : (fn(self : &Self, index : usize) -> usize)(
-    match(
-      self._bytes,
-      .None => usize(0),
-      .Some(al) => {
-        n := al.len();
-        cond(
-          (index >= n) => n,
-          true => {
-            i := index;
-            while(i < n, {
-              b := al(i);
-              if(utf8.is_boundary(b), {
-                break;
-              });
-              i = (i + usize(1));
-            });
-            i
-          }
-        )
+  ceil_char_boundary : (fn(self : &Self, index : usize) -> usize)({
+    al := &self._bytes;
+    n := al.len();
+    cond(
+      (index >= n) => n,
+      true => {
+        i := index;
+        while(i < n, {
+          b := al(i);
+          if(utf8.is_boundary(b), {
+            break;
+          });
+          i = (i + usize(1));
+        });
+        i
       }
     )
-  ),
+  }),
   /// Byte-range slice that REFUSES a bad range instead of guessing —
   /// Rust's `s.get(start..end)`.
   ///
@@ -2388,7 +2192,7 @@ impl(
   /// a rune (which would produce invalid UTF-8). An empty but valid range
   /// yields `.Some` of the empty string.
   try_substring : (fn(self : &Self, start : usize, end : usize) -> Option(Self))({
-    (n : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
+    (n : usize) = self._bytes.len();
     if(start > end, {
       return(.None);
     });
@@ -2402,20 +2206,19 @@ impl(
       return(.None);
     });
     if(start == end, {
-      return(.Some(Self(_bytes : .None)));
+      return(.Some(Self(_bytes : ArrayList(u8).new())));
     });
     (count : usize) = (end - start);
     new_bytes := ArrayList(u8).with_capacity(count);
-    match(
-      self._bytes,
-      .Some(al) => match(
+    {
+      al := &self._bytes;
+      match(
         al.ptr(),
         .Some(src_p) => new_bytes.extend_from_ptr(src_p.add(start), count),
         .None => ()
-      ),
-      .None => ()
-    );
-    .Some(Self(_bytes : .Some(new_bytes)))
+      )
+    };
+    .Some(Self(_bytes : new_bytes))
   })
 );
 // === String utility methods ===
@@ -2450,7 +2253,7 @@ _line_slice :: (fn(al : &ArrayList(u8), start : usize, stop : usize) -> String)(
     true => ()
   );
   cond(
-    (cut <= start) => String(_bytes : .None),
+    (cut <= start) => String(_bytes : ArrayList(u8).new()),
     true => {
       buf := ArrayList(u8).with_capacity(cut - start);
       (j : usize) = start;
@@ -2463,7 +2266,7 @@ _line_slice :: (fn(al : &ArrayList(u8), start : usize, stop : usize) -> String)(
           .None => ()
         );
       });
-      String(_bytes : .Some(buf))
+      String(_bytes : buf)
     }
   )
 });
@@ -2471,42 +2274,37 @@ impl(
   StringLines,
   Iterator(
     Item : String,
-    next : (fn(self : &mut Self) -> Option(String))(
-      match(
-        self._string._bytes,
-        .None => .None,
-        .Some(al) => {
-          stop := self._end;
-          cond(
-            (self._byte_index >= stop) => .None,
-            true => {
-              start := self._byte_index;
-              i := start;
-              while(i < stop, i = (i + usize(1)), {
-                byte_opt := al.get(i);
-                match(
-                  byte_opt,
-                  .Some(b) => {
-                    cond(
-                      (b == u8(10)) => {
-                        break;
-                      },
-                      true => ()
-                    );
+    next : (fn(self : &mut Self) -> Option(String))({
+      al := &self._string._bytes;
+      stop := self._end;
+      cond(
+        (self._byte_index >= stop) => .None,
+        true => {
+          start := self._byte_index;
+          i := start;
+          while(i < stop, i = (i + usize(1)), {
+            byte_opt := al.get(i);
+            match(
+              byte_opt,
+              .Some(b) => {
+                cond(
+                  (b == u8(10)) => {
+                    break;
                   },
-                  .None => ()
+                  true => ()
                 );
-              });
-              self._byte_index = cond(
-                (i < stop) => (i + usize(1)),
-                true => stop
-              );
-              .Some(_line_slice(&al, start, i))
-            }
-          )
+              },
+              .None => ()
+            );
+          });
+          self._byte_index = cond(
+            (i < stop) => (i + usize(1)),
+            true => stop
+          );
+          .Some(_line_slice(&al, start, i))
         }
       )
-    )
+    })
   )
 );
 /// `lines()` from the back.
@@ -2518,43 +2316,40 @@ impl(
   StringLines,
   DoubleEndedIterator(
     Item : String,
-    next_back : (fn(self : &mut Self) -> Option(String))(
-      match(
-        self._string._bytes,
-        .None => .None,
-        .Some(al) => cond(
-          (self._end <= self._byte_index) => Option(String).None,
-          true => {
-            (stop : usize) = self._end;
+    next_back : (fn(self : &mut Self) -> Option(String))({
+      al := &self._string._bytes;
+      cond(
+        (self._end <= self._byte_index) => Option(String).None,
+        true => {
+          (stop : usize) = self._end;
+          cond(
+            match(al.get(stop - usize(1)), .Some(b) => (b == u8(10)), .None => false) => {
+              stop = (stop - usize(1));
+            },
+            true => ()
+          );
+          // Scan back for the newline that ends the PREVIOUS line; the line
+          // we are yielding starts just after it.
+          (line_start : usize) = self._byte_index;
+          (k : usize) = stop;
+          while(k > self._byte_index, {
+            k = (k - usize(1));
             cond(
-              match(al.get(stop - usize(1)), .Some(b) => (b == u8(10)), .None => false) => {
-                stop = (stop - usize(1));
+              match(al.get(k), .Some(b) => (b == u8(10)), .None => false) => {
+                line_start = (k + usize(1));
+                break;
               },
               true => ()
             );
-            // Scan back for the newline that ends the PREVIOUS line; the line
-            // we are yielding starts just after it.
-            (line_start : usize) = self._byte_index;
-            (k : usize) = stop;
-            while(k > self._byte_index, {
-              k = (k - usize(1));
-              cond(
-                match(al.get(k), .Some(b) => (b == u8(10)), .None => false) => {
-                  line_start = (k + usize(1));
-                  break;
-                },
-                true => ()
-              );
-            });
-            self._end = cond(
-              (line_start > self._byte_index) => (line_start - usize(1)),
-              true => self._byte_index
-            );
-            Option(String).Some(_line_slice(&al, line_start, stop))
-          }
-        )
+          });
+          self._end = cond(
+            (line_start > self._byte_index) => (line_start - usize(1)),
+            true => self._byte_index
+          );
+          Option(String).Some(_line_slice(&al, line_start, stop))
+        }
       )
-    )
+    })
   )
 );
 impl(
@@ -2583,33 +2378,31 @@ impl(
   /// ```
   repeat : (fn(self : &Self, n : usize) -> Self)(
     cond(
-      (n == usize(0)) => Self(_bytes : .None),
-      self.is_empty() => Self(_bytes : .None),
+      (n == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+      self.is_empty() => Self(_bytes : ArrayList(u8).new()),
       true => {
         self_byte_len := self.len();
         total := (self_byte_len * n);
         buf := ArrayList(u8).with_capacity(total);
         i := usize(0);
         while(i < n, i = (i + usize(1)), {
-          match(
-            self._bytes,
-            .Some(al) => {
-              j := usize(0);
-              while(j < self_byte_len, j = (j + usize(1)), {
-                byte_opt := al.get(j);
-                match(
-                  byte_opt,
-                  .Some(b) => {
-                    buf.push(b);
-                  },
-                  .None => ()
-                );
-              });
-            },
-            .None => ()
-          );
+          {
+            al := &self._bytes;
+            j := usize(0);
+            while(j < self_byte_len, j = (j + usize(1)), {
+              byte_opt := al.get(j);
+              match(
+                byte_opt,
+                .Some(b) => {
+                  buf.push(b);
+                },
+                .None => ()
+              );
+            });
+
+          };
         });
-        Self(_bytes : .Some(buf))
+        Self(_bytes : buf)
       }
     )
   ),
@@ -2628,7 +2421,7 @@ impl(
   join : (fn(self : &Self, items : &ArrayList(Self)) -> Self)({
     count := items.len();
     cond(
-      (count == usize(0)) => Self(_bytes : .None),
+      (count == usize(0)) => Self(_bytes : ArrayList(u8).new()),
       true => {
         sep_byte_len := self.len();
         total_bytes := usize(0);
@@ -2656,42 +2449,38 @@ impl(
           match(
             item_opt,
             .Some(item) => {
-              match(
-                item._bytes,
-                .Some(al) => {
-                  p := usize(0);
-                  while(p < al.len(), p = (p + usize(1)), {
-                    byte_opt := al.get(p);
-                    match(
-                      byte_opt,
-                      .Some(b) => {
-                        buf.push(b);
-                      },
-                      .None => ()
-                    );
-                  });
-                },
-                .None => ()
-              );
-              cond(
-                (m < (count - usize(1))) => {
+              {
+                al := &item._bytes;
+                p := usize(0);
+                while(p < al.len(), p = (p + usize(1)), {
+                  byte_opt := al.get(p);
                   match(
-                    self._bytes,
-                    .Some(sep_al) => {
-                      q := usize(0);
-                      while(q < sep_byte_len, q = (q + usize(1)), {
-                        byte_opt := sep_al.get(q);
-                        match(
-                          byte_opt,
-                          .Some(b) => {
-                            buf.push(b);
-                          },
-                          .None => ()
-                        );
-                      });
+                    byte_opt,
+                    .Some(b) => {
+                      buf.push(b);
                     },
                     .None => ()
                   );
+                });
+
+              };
+              cond(
+                (m < (count - usize(1))) => {
+                  {
+                    sep_al := &self._bytes;
+                    q := usize(0);
+                    while(q < sep_byte_len, q = (q + usize(1)), {
+                      byte_opt := sep_al.get(q);
+                      match(
+                        byte_opt,
+                        .Some(b) => {
+                          buf.push(b);
+                        },
+                        .None => ()
+                      );
+                    });
+
+                  };
                 },
                 true => ()
               );
@@ -2700,8 +2489,8 @@ impl(
           );
         });
         cond(
-          (buf.len() == usize(0)) => Self(_bytes : .None),
-          true => Self(_bytes : .Some(buf))
+          (buf.len() == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+          true => Self(_bytes : buf)
         )
       }
     )
@@ -2715,41 +2504,36 @@ impl(
   ///
   /// DEPRECATED (D12), kept for one release: use `s.parse(bool)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
-  parse_bool : (fn(self : &Self) -> Option(bool))(
-    match(
-      self._bytes,
-      .None => .None,
-      .Some(al) => {
-        total_bytes := al.len();
+  parse_bool : (fn(self : &Self) -> Option(bool))({
+    al := &self._bytes;
+    total_bytes := al.len();
+    cond(
+      (total_bytes == usize(4)) => {
+        b0 := al.get(usize(0)).unwrap_or(u8(0));
+        b1 := al.get(usize(1)).unwrap_or(u8(0));
+        b2 := al.get(usize(2)).unwrap_or(u8(0));
+        b3 := al.get(usize(3)).unwrap_or(u8(0));
         cond(
-          (total_bytes == usize(4)) => {
-            b0 := al.get(usize(0)).unwrap_or(u8(0));
-            b1 := al.get(usize(1)).unwrap_or(u8(0));
-            b2 := al.get(usize(2)).unwrap_or(u8(0));
-            b3 := al.get(usize(3)).unwrap_or(u8(0));
-            cond(
-              ((b0 == u8(116)) && (b1 == u8(114)) && (b2 == u8(117)) && (b3 == u8(101))) =>
-                .Some(true),
-              true => .None
-            )
-          },
-          (total_bytes == usize(5)) => {
-            b0 := al.get(usize(0)).unwrap_or(u8(0));
-            b1 := al.get(usize(1)).unwrap_or(u8(0));
-            b2 := al.get(usize(2)).unwrap_or(u8(0));
-            b3 := al.get(usize(3)).unwrap_or(u8(0));
-            b4 := al.get(usize(4)).unwrap_or(u8(0));
-            cond(
-              ((b0 == u8(102)) && (b1 == u8(97)) && (b2 == u8(108)) && (b3 == u8(115)) && (b4 == u8(101))) =>
-                .Some(false),
-              true => .None
-            )
-          },
+          ((b0 == u8(116)) && (b1 == u8(114)) && (b2 == u8(117)) && (b3 == u8(101))) =>
+            .Some(true),
           true => .None
         )
-      }
+      },
+      (total_bytes == usize(5)) => {
+        b0 := al.get(usize(0)).unwrap_or(u8(0));
+        b1 := al.get(usize(1)).unwrap_or(u8(0));
+        b2 := al.get(usize(2)).unwrap_or(u8(0));
+        b3 := al.get(usize(3)).unwrap_or(u8(0));
+        b4 := al.get(usize(4)).unwrap_or(u8(0));
+        cond(
+          ((b0 == u8(102)) && (b1 == u8(97)) && (b2 == u8(108)) && (b3 == u8(115)) && (b4 == u8(101))) =>
+            .Some(false),
+          true => .None
+        )
+      },
+      true => .None
     )
-  )
+  })
 );
 // ============================================================================
 // Float + radix parsing
@@ -2969,7 +2753,7 @@ _radix_magnitude_res :: (
     },
     true => ()
   );
-  bytes := s._byte_list();
+  bytes := &s._bytes;
   (n : usize) = bytes.len();
   if(start >= n, {
     return(.Err(ParseIntError.Empty));
@@ -3004,7 +2788,7 @@ _parse_i64_radix_res :: (
     },
     true => ()
   );
-  bytes := s._byte_list();
+  bytes := &s._bytes;
   (n : usize) = bytes.len();
   if(n == usize(0), {
     return(.Err(ParseIntError.Empty));
@@ -3052,7 +2836,7 @@ _parse_u64_radix_res :: (
     },
     true => ()
   );
-  bytes := s._byte_list();
+  bytes := &s._bytes;
   (n : usize) = bytes.len();
   if(n == usize(0), {
     return(.Err(ParseIntError.Empty));
@@ -3074,7 +2858,7 @@ impl(
   /// DEPRECATED (D12), kept for one release: use `s.parse(f64)`, which reports
   /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_f64 : (fn(self : &Self) -> Option(f64))({
-    (ok : bool) = _f64_grammar_ok(self._byte_list());
+    (ok : bool) = _f64_grammar_ok(&self._bytes);
     cond(
       ok => {
         // to_cstr() gives a NUL-terminated buffer — exactly what atof reads
@@ -3384,22 +3168,17 @@ impl(
   String,
   Index(usize)(
     Output : u8,
-    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
-      match(
-        self._bytes,
-        .Some(b) => {
-          if(idx >= b.len(), {
-            __yo_panic("String: byte index out of bounds");
-          });
-          // SAFETY: `idx` is in bounds, so the buffer is allocated, and the
-          // list `b` shares it with `self._bytes`, which the `&Self` receiver
-          // keeps alive. (A raw step: a match binding is not yet a projection
-          // root, plans/VALUES_BY_DEFAULT.md V2b.)
-          unsafe(b.ptr().unwrap().add(idx))
-        },
-        .None => __yo_panic("String: byte index out of bounds")
-      )
-    )
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      b := &self._bytes;
+      if(idx >= b.len(), {
+        __yo_panic("String: byte index out of bounds");
+      });
+      // SAFETY: `idx` is in bounds, so the buffer is allocated, and the
+      // list `b` shares it with `self._bytes`, which the `&Self` receiver
+      // keeps alive. (A raw step: a match binding is not yet a projection
+      // root, plans/VALUES_BY_DEFAULT.md V2b.)
+      unsafe(b.ptr().unwrap().add(idx))
+    })
   )
 );
 /// Default implementation — the empty string.
@@ -3407,7 +3186,7 @@ impl(
   String,
   Default(
     default : (fn() -> Self)(
-      Self(_bytes : .None)
+      Self(_bytes : ArrayList(u8).new())
     )
   )
 );
@@ -3416,33 +3195,28 @@ impl(
 impl(
   String,
   Clone(
-    clone : (fn(self : &Self) -> Self)(
-      match(
-        self._bytes,
-        .None => Self(_bytes : .None),
-        .Some(al) => {
-          n := al.len();
-          cond(
-            (n == usize(0)) => Self(_bytes : .None),
-            true => {
-              // The copy lives where the source's buffer lives, as
-              // `ArrayList.clone` and `to_bytes` place theirs (decision 12).
-              buf := match(
-                al.allocator(),
-                .Some(a) => ArrayList(u8).with_capacity_in(a, n),
-                .None => ArrayList(u8).with_capacity(n)
-              );
-              match(
-                al.ptr(),
-                .Some(ptr) => buf.extend_from_ptr(ptr, n),
-                .None => ()
-              );
-              Self(_bytes : .Some(buf))
-            }
-          )
+    clone : (fn(self : &Self) -> Self)({
+      al := &self._bytes;
+      n := al.len();
+      cond(
+        (n == usize(0)) => Self(_bytes : ArrayList(u8).new()),
+        true => {
+          // The copy lives where the source's buffer lives, as
+          // `ArrayList.clone` and `to_bytes` place theirs (decision 12).
+          buf := match(
+            al.allocator(),
+            .Some(a) => ArrayList(u8).with_capacity_in(a, n),
+            .None => ArrayList(u8).with_capacity(n)
+          );
+          match(
+            al.ptr(),
+            .Some(ptr) => buf.extend_from_ptr(ptr, n),
+            .None => ()
+          );
+          Self(_bytes : buf)
         }
       )
-    )
+    })
   )
 );
 impl(
