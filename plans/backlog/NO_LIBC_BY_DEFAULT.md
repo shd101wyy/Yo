@@ -60,34 +60,36 @@ RC/GC. What they still take from libc:
 
 | Dependency | Sites | Notes |
 | --- | --- | --- |
-| The syscall trampoline | 6 `syscall(...)` calls in `async/runtime_io_linux.yo`, 2 in `async/runtime_io_common.yo` | The io_uring layer already speaks raw `__NR_*` numbers (`__NR_io_uring_setup` 425 etc. with `#ifndef` fallbacks); only the variadic libc `syscall()` function and the TLS `errno` it reports through are libc. |
+| The syscall trampoline | 5 `syscall(...)` calls in `async/runtime_io_linux.yo`, 2 in `async/runtime_io_common.yo` | The io_uring layer already speaks raw `__NR_*` numbers (`__NR_io_uring_setup` 425 etc. with `#ifndef` fallbacks); only the variadic libc `syscall()` function and the TLS `errno` it reports through are libc. |
 | `errno` | 10 files under `src/codegen/` | A TLS variable libc owns. |
-| Synchronous metadata ops | `async/runtime_io_common.yo`, `runtime_io_linux.yo`: `openat`/`open`, `read`, `write`, `pread`/`pwrite`, `fstat`/`stat`/`lstat`, `unlink`, `mkdir`, `rename`, `fsync`, `ftruncate`, `getdents` via `dirent.h`, `fcntl`, `ioctl`, `isatty`, `termios`, `umask`, `chmod`, `symlink`/`readlink`, `statvfs`, `inotify`, `eventfd`, `signalfd` | ~40 call sites; every one has a direct syscall (`statx`, `getdents64`, …). These are the ops the io_uring plan deliberately runs as plain syscalls. |
+| Synchronous metadata ops | `async/runtime_io_common.yo`, `runtime_io_linux.yo`: `openat`/`open`, `read`, `write`, `pread`/`pwrite`, `fstat`/`statx`, `unlinkat`, `mkdirat`, `renameat`, `fsync`, `ftruncate`, `getdents` (a `readdir`/`DIR*` path via `dirent.h`, beside an already-raw `SYS_getdents64` trampoline call), `fcntl`, `ioctl`, `isatty`, `termios`, `umask`, `symlinkat`/`readlinkat`, `statvfs`, `inotify`, `eventfd` | ~55 call sites; every one has a direct syscall (`statx`, `getdents64`, …). These are the ops the io_uring plan deliberately runs as plain syscalls. |
 | Threads & startup | `functions/generation.yo:1691` — the main wrapper's big-stack thread is `pthread_attr_setstacksize` + `pthread_create` + `pthread_join`; `parallelism/runtime.yo` (workers); `async/runtime_core.yo`, `types/generation.yo` (TLS keys, cleanup) | libc pthreads are on the startup path of **every** program, including single-threaded ones. |
 | `getaddrinfo` | `async/runtime_io_common.yo` (2), `async/runtime_io_windows.yo` (2) | DNS; the one dependency that is a *service*, not a syscall (§1.2, D6). |
-| Panic/trap printing | `fflush(stdout); fprintf(stderr, …)` woven through every guard in `c/collection.yo`, `__yo_abort`, `async/runtime_core.yo` | ~25 files reference `abort`. All replaceable with a raw `write(2)` and a mini formatter. |
-| `snprintf` | `c/collection.yo`, `async/runtime_io_*`, `exprs/ptr_fns.yo`, `c/allocator_fixed.yo` | Runtime-internal formatting (error strings, sizes). |
+| Panic/trap printing | `fflush(stdout); fprintf(stderr, …)` woven through every guard in `c/collection.yo`, `__yo_abort`, `async/runtime_core.yo` | ~30 files reference `abort`. All replaceable with a raw `write(2)` and a mini formatter. |
+| `snprintf` | `async/runtime_io_common.yo`, `async/runtime_io_windows.yo`, `exprs/ptr_fns.yo`, `c/allocator_fixed.yo` | Runtime-internal formatting (error strings, sizes). |
 | Time | `clock_gettime`, `nanosleep` in the three native I/O runtimes + `types/generation.yo` | Direct syscalls exist (`clock_gettime` vDSO-less form, `clock_nanosleep`). |
-| Allocator | `--allocator system` (the default) binds `__yo_malloc` to libc `malloc`/`free` via `stdlib.h` | The default allocator IS libc. `--allocator fixed` already needs none; mimalloc needs `mmap` and threads *(verify: its prim layer's exact surface)*. |
+| Allocator | `--allocator system` (the default) binds `__yo_malloc` to libc `malloc`/`free` via `stdlib.h` | The default allocator IS libc. `--allocator fixed` already needs none; mimalloc's unix prim layer is `mmap`/`munmap`/`mprotect`/`madvise` + `sysconf`, plus `pthread_self` in its direct-TLS mode (`vendor/mimalloc/src/prim/unix/prim.c`, `include/mimalloc/prim-tls.h`). |
 | Atomics/compiler-rt | The RC runtime uses C11/`__atomic_`/`__sync_` intrinsics (`functions/declarations.yo:913` special-cases their names) | On x86_64/aarch64 the sizes Yo emits are lock-free inline ops; whether any corpus site still links `libatomic`/compiler-rt symbols under `-nostdlib` is a P0 audit item. The C compiler also emits `memcpy`/`memset` calls it is always free to emit — freestanding C must provide them. |
 
 Header inventory across `src/codegen/**` (site counts): `unistd.h` 7,
 `fcntl.h` 7, `time.h` 6, `sys/socket.h` 6, `arpa/inet.h` 6, `errno.h` 5,
-`sys/stat.h` 5, `string.h` 4, `sys/syscall.h` 3, plus singles (`stdio.h`,
-`stdlib.h`, `signal.h`, `poll.h`, `termios.h`, `dirent.h`, `sys/mman.h`,
-`netdb.h`, …). Windows templates include Win32 headers (not CRT) plus the
-CRT for printf-family/malloc; wasm templates assume wasi-libc / Emscripten.
+`sys/stat.h` 5, `string.h` 4, `sys/mman.h` 4, `sys/syscall.h` 3, plus a
+tail of twos and singles (`stdlib.h`, `signal.h`, `poll.h`, `stdio.h`,
+`termios.h`, `dirent.h`, `netdb.h`, …). Windows templates include Win32
+headers (not CRT) plus the CRT for printf-family/malloc; wasm templates
+assume wasi-libc / Emscripten.
 
 ### 1.2 Layer B — std/ (`std/libc/**` and its importers)
 
 `std/libc/` is 21 modules of `c_include` bindings (`stdio`, `stdlib`,
 `string`, `math`, `time`, `errno`, `fcntl`, `unistd`, `signal`, `dirent`,
-`ctype`, `float`, `limits`, `stdint`, `stdatomic`, `wctype`, `sys/…`,
-`windows`, `darwin`, `dyld`). **~20 std modules import them** — this is the
-widest layer, and the one that makes "just delete libc" impossible today:
-`fmt`, `string`, `log`, `math`, `time/datetime`, `env`, `fs/file`,
-`fs/dir`, `fs/temp`, `process`, `sync/once`, `sync/atomic`, `arena`,
-`testing/bench`, `sys/errors`, and the collections' test files.
+`assert`, `ctype`, `float`, `limits`, `stdint`, `stdatomic`, `wctype`,
+`sys/…`, `windows`, `darwin`, `dyld`). **18 top-level std modules (34
+files) import them** — this is the widest layer, and the one that makes
+"just delete libc" impossible today: `fmt`, `string`, `log`, `math`,
+`time/datetime`, `env`, `fs/file`, `fs/dir`, `fs/temp`, `process`,
+`sync/once`, `sync/atomic`, `arena`, `testing/bench`, `sys/errors`, `net`,
+`encoding/json`, `io/stdio`, and the collections' test files.
 
 The load-bearing members:
 
@@ -105,12 +107,15 @@ The load-bearing members:
 - **DNS is `getaddrinfo`** (Layer A's sites back it).
 - **The calendar is libc's** — `std/time/datetime.yo` via `std/libc/time`
   (`gmtime`-family; timezone data is a libc/NSS service).
-- Already syscall-shaped: `std/crypto/random.yo` binds Linux `getrandom`
-  (syscall 318 — no libc needed), `arc4random_buf` on macOS, `BCryptGenRandom` on Windows.
+- Already syscall-shaped: `std/crypto/random.yo`'s Linux arm calls
+  `getrandom` — today glibc's wrapper function (the `__yo_getrandom`
+  builtin lowers to a plain C call), but a 1:1 raw syscall (318 on
+  x86_64, 278 on aarch64) with no libc *service* behind it —
+  `arc4random_buf` on macOS, `BCryptGenRandom` on Windows.
 
 ### 1.3 Layer C — the driver and the link line
 
-`-lm -pthread` on every POSIX link (`src/main.yo:7749`, `:7880`); the
+`-lm -pthread` on every POSIX link (`src/main.yo:7880`–`7881`); the
 system allocator default; sanitizer runtimes (ASan/LSan/TSan intercept
 libc and need it to exist); static-musl release bundles (libc statically
 included). Cross-emission is host-independent, so none of this constrains
@@ -155,7 +160,7 @@ Three properties the tree already has make this true:
    it came from libc; none of it leaves.
 3. **The libc seam is narrow and enumerable** — §1.1's table is the whole
    of it under the async runtime: the `syscall()` trampoline, `errno`, the
-   ~40 synchronous metadata-op call sites, `clock_gettime`/`nanosleep`,
+   ~55 synchronous metadata-op call sites, `clock_gettime`/`nanosleep`,
    pthreads, and panic printing. Each has a direct replacement through an
    emitted `__yo_os` layer (P0) — this is Zig's `std.os` shape: the async
    engine sits on an OS seam, and the seam has two implementations, raw
@@ -228,7 +233,7 @@ the no-libc mode's memory-safety instrument, which is an argument for
 landing Z11 before P9.
 
 **D4 — Own float print and parse, now.** Shortest-round-trip printing:
-ryu `d2s`/`f2s` (MIT, ~small, the industry answer) plus an owned
+ryu `d2s`/`f2s` (Apache-2.0, ~small, the industry answer) plus an owned
 fixed-precision exp/dec formatter for `{:.N}`-style output; parsing:
 eisel-lemire-style fast path with a slow-path fallback (or vendored musl
 `strtod`, MIT — one license, one supplier). This deletes the `%g`
@@ -238,9 +243,10 @@ ryu + own formatter, musl `strtod` vendored for parsing (correctness
 first; eisel-lemire later as an optimization with differential gates).
 
 **D5 — Vendor a musl libm subset.** `std/math.yo`'s `f64` surface binds
-libm; musl's libm is MIT, already the reference implementation Zig derived
+libm; musl is MIT (libm's Sun/FreeBSD-derived files keep their upstream
+BSD notices), already the reference implementation Zig derived
 from, and drops into the emitted runtime the way mimalloc and the io_uring
-layer did. libc mode keeps `-lm`. *Recommendation:* vendor the ~40
+layer did. libc mode keeps `-lm`. *Recommendation:* vendor the ~55
 functions std/math actually re-exports, not all of libm.
 
 **D6 — DNS becomes std's own, asynchronously.** `getaddrinfo` is the one
@@ -297,7 +303,7 @@ first-cut estimates for sequencing only.
 | P1 | The allocator: mimalloc's page allocation over `__yo_os` (`mmap`/`munmap`/`mprotect` syscalls) in no-libc mode. | The RC/GC corpus subset under `--no-libc --allocator mimalloc` green and leak-clean (`--allocator debug` oracle); `--allocator fixed` needs no change (already libc-free). | S |
 | P2 | Traps and panic output: `__yo_os` `write` + an owned mini formatter replace every `fflush`/`fprintf`/`abort` in `c/collection.yo`, `__yo_abort`, `runtime_core.yo`; `__yo_os_exit`. | A trap corpus (index OOB, div-by-zero, overflow, panic, async abort) prints **byte-identical** stderr/stdout ordering in both modes. | S |
 | P3 | Formatting and parsing: owned integer `to_string`; ryu float print + owned fixed-precision formatter; vendored musl `strtod` for parse; `std/fmt/to_string.yo` and `std/string` parse rewritten off `std/libc/stdio`/`stdlib`. | Differential corpus vs libc (`print → parse` round-trips, ±0 ULP for shortest form); goldens updated; output byte-identical across linux-x64/linux-arm64 hosts (the `%g` wart's fix is proven here); `yo test ./std` green. | M–L |
-| P4 | The syscall swap: every libc call site in `runtime_io_common.yo` and `runtime_io_linux.yo`'s non-uring path moves to `__yo_os` (`openat`, `statx`, `getdents64`, `fcntl`, `ioctl`, `termios`, `signalfd`, `inotify`, socket family, `epoll_pwait2`, `send`/`recv`, …); `clock_gettime`/`clock_nanosleep`. | The fast language suite (fs/net/process-heavy files first) green under `--no-libc`; stdout byte-identical to the libc build on the same corpus; `tests/internal/uring_runtime.test.yo` extended with no-libc spellings. | M–L |
+| P4 | The syscall swap: every libc call site in `runtime_io_common.yo` and `runtime_io_linux.yo`'s non-uring path moves to `__yo_os` (`openat`, `statx`, `getdents64`, `fcntl`, `ioctl`, `termios`, `inotify`, socket family, `epoll_pwait2`, `send`/`recv`, …); `clock_gettime`/`clock_nanosleep`. | The fast language suite (fs/net/process-heavy files first) green under `--no-libc`; stdout byte-identical to the libc build on the same corpus; `tests/internal/uring_runtime.test.yo` extended with no-libc spellings. | M–L |
 | P5 | Startup and TLS: own crt0 (`_start`: stack/auxv parse — `AT_PAGESZ`, `AT_RANDOM`, `AT_HWCAP` — TLS block init + TP register, then the existing main wrapper); the big-stack main thread via `clone` with a sized stack; futex join; thread-exit hooks. | The async suite green no-libc; `YO_MAIN_STACK_MB` honored (a deep-recursion probe passes); no `pthread_*` symbol in `nm`. | L |
 | P6 | Parallelism: `clone`/`futex` mutex+cond replacing pthreads in `parallelism/runtime.yo`; CPU count via `sched_getaffinity`; the GC/sync primitives of `types/generation.yo` off pthread TLS keys. | Parallelism tests green no-libc; TSan legs run in libc mode only (D3), documented. | M |
 | P7 | DNS: `std/net/dns` — the async resolver of D6; `std/net`'s no-libc arm uses it; `--libc` keeps `getaddrinfo`. | `std/net` + `std/http` tests against a local server green in both modes; a resolv.conf fixture corpus; the NSS caveat documented in both `docs/` languages. | M–L |

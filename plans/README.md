@@ -261,9 +261,10 @@ clone/futex threads), formatting (ryu print, vendored musl `strtod` —
 also fixing `%g`'s documented non-portability), math (vendored musl libm
 subset), DNS (an async std resolver replacing `getaddrinfo`) and the
 default allocator (mimalloc over the seam); decisions D1–D10 with
-recommendations, phases P0–P10 each gated on byte-identical output
-against the libc build, starting only after VALUES_BY_DEFAULT so decision
-48's collector deletion is not ported onto the seam twice.
+recommendations, phases P0–P10 whose differential gates (traps, fmt/parse,
+syscalls, math) demand byte-identical output against the libc build,
+starting only after VALUES_BY_DEFAULT so the cycle collector that
+decision 48 deletes is never ported onto the seam at all.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
