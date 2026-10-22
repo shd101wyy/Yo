@@ -320,8 +320,7 @@ is_effect_record_member :: (fn(func_id : &String) -> bool)(
 /// definition site. Only the return-type portion is stored, since that is
 /// the only portion `evaluate_ctl_function_body_inline`
 /// (`evaluator/calls/helper.yo`) reads.
-(g_definition_site_return_registry : HashMap(String, TypeValue)) =
-  HashMap(String, TypeValue).new();
+(g_definition_site_return_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 /// Global map from `func_id` → the function's own resolved `Func` TypeValue
 /// (the full signature: generic/param/implicit/where types + result + flags).
 /// Codegen needs this to emit a function's C prototype, but the registered
@@ -330,21 +329,20 @@ is_effect_record_member :: (fn(func_id : &String) -> bool)(
 /// function-definition time, where it is known. Resolves Gap 10
 /// (issues/retired/codegen-port-type-model-gaps.md): the function-emission driver
 /// reads `get_func_type(func_id)` to build the prototype.
-(g_func_type_registry : HashMap(String, TypeValue)) =
-  HashMap(String, TypeValue).new();
+(g_func_type_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 /// Register the enclosing function's return type at a function's definition site.
 ///
 /// Called when creating a FuncVal (in `evaluator/values/anonymous_function.yo`)
 /// if the function is defined inside another function body.
 register_definition_site_return :: (fn(func_id : &String, return_ty : &TypeValue) -> unit)({
-  g_definition_site_return_registry.insert(func_id, return_ty);
+  g_definition_site_return_registry.with_mut(m => m.insert(func_id, return_ty));
 });
 /// Get the enclosing function's return type at a function's definition site.
 /// Returns `t_unit()` if the function was not defined inside another function
 /// body (e.g., top-level definitions, handlers defined in test blocks).
 get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
   match(
-    g_definition_site_return_registry.get(func_id.clone()),
+    g_definition_site_return_registry.with(m => m.get(func_id.clone())),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -362,13 +360,12 @@ get_definition_site_return :: (fn(func_id : &String) -> TypeValue)(
 /// issues/retired/yo-self-hollow-test-batch-main.md, fourth round). Substituting
 /// this body type as the given return lets `U` bind concretely through the
 /// SAME env channel the spec body eval reads.
-(g_closure_body_type_registry : HashMap(String, TypeValue)) =
-  HashMap(String, TypeValue).new();
+(g_closure_body_type_registry : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 register_closure_body_type :: (fn(func_id : &String, body_ty : &TypeValue) -> unit)({
-  g_closure_body_type_registry.insert(func_id, body_ty);
+  g_closure_body_type_registry.with_mut(m => m.insert(func_id, body_ty));
 });
 get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
-  g_closure_body_type_registry.get(func_id.clone())
+  g_closure_body_type_registry.with(m => m.get(func_id.clone()))
 );
 /// Record a function's own resolved `Func` type by func_id (called when the
 /// FuncVal is created). Resolves Gap 10 for the codegen function-emission driver.
@@ -378,7 +375,7 @@ get_closure_body_type :: (fn(func_id : &String) -> Option(TypeValue))(
 /// Function ids are never mutated in place once minted.
 register_func_type :: (fn(func_id : &String, func_ty : &TypeValue) -> unit)({
   record_owned_func_id(func_id);
-  g_func_type_registry.insert(func_id, func_ty);
+  g_func_type_registry.with_mut(m => m.insert(func_id, func_ty));
 });
 // ---------------------------------------------------------------------------
 // Unemittable-fn side-table
@@ -431,10 +428,10 @@ fn_has_specializations :: (fn(func_id : &String) -> bool)(
 /// The recorded `Func` type for `func_id`, or `t_unit()` if none was registered.
 /// Every function the evaluator registered a type for (std included) — the
 /// denominator of plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9's number.
-registered_func_type_count :: (fn() -> usize)(g_func_type_registry.len());
+registered_func_type_count :: (fn() -> usize)(g_func_type_registry.with(m => m.len()));
 get_func_type :: (fn(func_id : &String) -> TypeValue)(
   match(
-    g_func_type_registry.get(func_id.clone()),
+    g_func_type_registry.with(m => m.get(func_id.clone())),
     .Some(ty) => ty,
     .None => t_unit()
   )
@@ -477,7 +474,7 @@ purge_function_value_tables :: (fn(ids : &ArrayList(String)) -> unit)({
     match(
       ids.get(i),
       .Some(id) => {
-        _r0 := g_func_type_registry.remove(id.clone());
+        _r0 := g_func_type_registry.with_mut(m => m.remove(id.clone()));
         _r1 := g_func_parameters_frame.with_mut(m => m.remove(id.clone()));
       },
       .None => ()

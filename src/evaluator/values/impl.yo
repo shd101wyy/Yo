@@ -259,8 +259,7 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 (g_concrete_trait_impl_owners : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 // Registry storage (two parallel ArrayLists — avoids HashMap dependency).
 (g_impl_registry_keys : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
-(g_impl_registry_entry_lists : ArrayList(ArrayList(GenericImplEntry))) =
-  ArrayList(ArrayList(GenericImplEntry)).new();
+(g_impl_registry_entry_lists : RefCell(ArrayList(ArrayList(GenericImplEntry)))) = RefCell(ArrayList(ArrayList(GenericImplEntry))).new(ArrayList(ArrayList(GenericImplEntry)).new());
 // Owner tags, bucket-parallel to `g_impl_registry_entry_lists` (same outer
 // AND inner index): the `file://` module path whose evaluation registered
 // each entry, from `registration_owner()` (type_trait_methods.yo). `""` =
@@ -269,8 +268,7 @@ ConcreteTraitImpl :: struct(base_key : String, receiver_ty : TypeValue, trait_ty
 // generation per edit (plans/reference/INCREMENTAL_COMPILATION.md Phase B2), and
 // stale entries here are a PER-KEYSTROKE cost: every candidate scan in
 // `find_methods_from_generic_impls` walks them.
-(g_impl_registry_entry_owners : ArrayList(ArrayList(String))) =
-  ArrayList(ArrayList(String)).new();
+(g_impl_registry_entry_owners : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
 /// ENV-THREADING variant of the hook. `TraitCheckResult` lives in
 /// trait_checking.yo (importing it here would be circular), so the adapter
 /// writes the post-constraint bindings into the caller's env IN PLACE and
@@ -386,8 +384,7 @@ set_receiver_kind_trait_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
 /// where `Rc(TreeNode)` Clone-impl validation needs to see
 /// `TreeNode <: Clone` even though the impl hasn't been formally
 /// registered yet.
-(_currently_registering_concrete_impls : HashMap(String, bool)) =
-  HashMap(String, bool).new();
+(_currently_registering_concrete_impls : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 _concrete_impl_key :: (fn(type_id : &String, trait_id : &String) -> String)(
   type_id.clone() + String.from(":") + trait_id
 );
@@ -395,7 +392,7 @@ _concrete_impl_key :: (fn(type_id : &String, trait_id : &String) -> String)(
 is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> bool)({
   k := _concrete_impl_key(type_id, trait_id);
   match(
-    _currently_registering_concrete_impls.get(&k),
+    _currently_registering_concrete_impls.with(m => m.get(&k)),
     .Some(_) => true,
     .None => false
   )
@@ -403,12 +400,12 @@ is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) 
 /// Mark a type+trait pair as currently being registered.
 mark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _currently_registering_concrete_impls.insert(k, true);
+  _currently_registering_concrete_impls.with_mut(m => m.insert(k, true));
 });
 /// Unmark a type+trait pair after registration completes.
 unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _currently_registering_concrete_impls.remove(&k);
+  _currently_registering_concrete_impls.with_mut(m => m.remove(&k));
 });
 /// Extract the registry key from a trait TypeValue.
 /// Uses the `id` field of TraitT (the stable nominal ID).
@@ -463,17 +460,25 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       // is taken out of its slot, grown, and stored back: a `get` copy is not
       // the stored list once collections are values, and emptying the slot
       // first leaves the taken list the only holder of its buffer.
-      if(idx < g_impl_registry_entry_lists.len(), {
-        list := g_impl_registry_entry_lists(idx);
-        g_impl_registry_entry_lists(idx) = ArrayList(GenericImplEntry).new();
+      if(idx < g_impl_registry_entry_lists.with(xs => xs.len()), {
+        list := g_impl_registry_entry_lists.with(xs => xs(idx));
+        g_impl_registry_entry_lists.with_mut(xs => {
+          xs(idx) = ArrayList(GenericImplEntry).new();
+        });
         list.push(entry);
-        g_impl_registry_entry_lists(idx) = list;
+        g_impl_registry_entry_lists.with_mut(xs => {
+          xs(idx) = list;
+        });
       });
-      if(idx < g_impl_registry_entry_owners.len(), {
-        olist := g_impl_registry_entry_owners(idx);
-        g_impl_registry_entry_owners(idx) = ArrayList(String).new();
+      if(idx < g_impl_registry_entry_owners.with(xs => xs.len()), {
+        olist := g_impl_registry_entry_owners.with(xs => xs(idx));
+        g_impl_registry_entry_owners.with_mut(xs => {
+          xs(idx) = ArrayList(String).new();
+        });
         olist.push(owner);
-        g_impl_registry_entry_owners(idx) = olist;
+        g_impl_registry_entry_owners.with_mut(xs => {
+          xs(idx) = olist;
+        });
       });
     },
     .None => {
@@ -483,8 +488,8 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
       new_owners := ArrayList(String).new();
       new_owners.push(owner);
       g_impl_registry_keys.with_mut(xs => xs.push(key));
-      g_impl_registry_entry_lists.push(new_list);
-      g_impl_registry_entry_owners.push(new_owners);
+      g_impl_registry_entry_lists.with_mut(xs => xs.push(new_list));
+      g_impl_registry_entry_owners.with_mut(xs => xs.push(new_owners));
     }
   );
 });
@@ -517,11 +522,15 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
   match(
     key_idx,
     .Some(idx) => {
-      if((idx < g_impl_registry_entry_lists.len()) && (idx < g_impl_registry_entry_owners.len()), {
-        list := g_impl_registry_entry_lists(idx);
-        g_impl_registry_entry_lists(idx) = ArrayList(GenericImplEntry).new();
-        olist := g_impl_registry_entry_owners(idx);
-        g_impl_registry_entry_owners(idx) = ArrayList(String).new();
+      if((idx < g_impl_registry_entry_lists.with(xs => xs.len())) && (idx < g_impl_registry_entry_owners.with(xs => xs.len())), {
+        list := g_impl_registry_entry_lists.with(xs => xs(idx));
+        g_impl_registry_entry_lists.with_mut(xs => {
+          xs(idx) = ArrayList(GenericImplEntry).new();
+        });
+        olist := g_impl_registry_entry_owners.with(xs => xs(idx));
+        g_impl_registry_entry_owners.with_mut(xs => {
+          xs(idx) = ArrayList(String).new();
+        });
         (ri : usize) = list.len();
         while(ri > usize(0), {
           ri = (ri - usize(1));
@@ -534,8 +543,12 @@ _undo_generic_impl_registration :: (fn(entry : &GenericImplEntry) -> unit)({
             ri = usize(0); // break
           });
         });
-        g_impl_registry_entry_lists(idx) = list;
-        g_impl_registry_entry_owners(idx) = olist;
+        g_impl_registry_entry_lists.with_mut(xs => {
+          xs(idx) = list;
+        });
+        g_impl_registry_entry_owners.with_mut(xs => {
+          xs(idx) = olist;
+        });
       });
     },
     .None => ()
@@ -581,14 +594,18 @@ purge_generic_impls_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   (ki : usize) = usize(0);
-  while(ki < g_impl_registry_entry_lists.len(), {
-    if(ki < g_impl_registry_entry_owners.len(), {
+  while(ki < g_impl_registry_entry_lists.with(xs => xs.len()), {
+    if(ki < g_impl_registry_entry_owners.with(xs => xs.len()), {
       // Taken out of their slots, filtered, and stored back (see
       // `register_generic_impl`).
-      list := g_impl_registry_entry_lists(ki);
-      olist := g_impl_registry_entry_owners(ki);
-      g_impl_registry_entry_lists(ki) = ArrayList(GenericImplEntry).new();
-      g_impl_registry_entry_owners(ki) = ArrayList(String).new();
+      list := g_impl_registry_entry_lists.with(xs => xs(ki));
+      olist := g_impl_registry_entry_owners.with(xs => xs(ki));
+      g_impl_registry_entry_lists.with_mut(xs => {
+        xs(ki) = ArrayList(GenericImplEntry).new();
+      });
+      g_impl_registry_entry_owners.with_mut(xs => {
+        xs(ki) = ArrayList(String).new();
+      });
       (i : usize) = olist.len();
       while(i > usize(0), {
         i = (i - usize(1));
@@ -598,8 +615,12 @@ purge_generic_impls_owned_by :: (fn(owner : &String) -> unit)({
           olist.drain(i .. (i + usize(1)));
         });
       });
-      g_impl_registry_entry_lists(ki) = list;
-      g_impl_registry_entry_owners(ki) = olist;
+      g_impl_registry_entry_lists.with_mut(xs => {
+        xs(ki) = list;
+      });
+      g_impl_registry_entry_owners.with_mut(xs => {
+        xs(ki) = olist;
+      });
     });
     ki = (ki + usize(1));
   });
@@ -644,9 +665,9 @@ purge_move_only_decls_owned_by :: (fn(owner : &String) -> unit)({
 generic_impl_entry_count :: (fn() -> usize)({
   (total : usize) = usize(0);
   (ki : usize) = usize(0);
-  while(ki < g_impl_registry_entry_lists.len(), {
+  while(ki < g_impl_registry_entry_lists.with(xs => xs.len()), {
     match(
-      g_impl_registry_entry_lists.get(ki),
+      g_impl_registry_entry_lists.with(xs => xs.get(ki)),
       .Some(list) => {
         total = (total + list.len());
       },
@@ -664,9 +685,9 @@ generic_impl_entry_count :: (fn() -> usize)({
 generic_impl_binder_bound_counts :: (fn(binder_name : &String) -> ArrayList(usize))({
   out := ArrayList(usize).new();
   (ki : usize) = usize(0);
-  while(ki < g_impl_registry_entry_lists.len(), {
+  while(ki < g_impl_registry_entry_lists.with(xs => xs.len()), {
     match(
-      g_impl_registry_entry_lists.get(ki),
+      g_impl_registry_entry_lists.with(xs => xs.get(ki)),
       .Some(list) => {
         (ei : usize) = usize(0);
         while(ei < list.len(), {
@@ -1901,7 +1922,7 @@ find_matching_generic_impl :: (
   while(ki < n_keys, {
     k := match(g_impl_registry_keys.with(xs => xs.get(ki)), .Some(k) => k, .None => String.from(""));
     if(k == key, {
-      entry_list_opt = g_impl_registry_entry_lists.get(ki);
+      entry_list_opt = g_impl_registry_entry_lists.with(xs => xs.get(ki));
       ki = n_keys; // break
     });
     ki = (ki + usize(1));
@@ -2023,7 +2044,7 @@ _generic_impl_bucket :: (fn(key : &String) -> ArrayList(GenericImplEntry))({
   (ki : usize) = usize(0);
   while(ki < g_impl_registry_keys.with(xs => xs.len()), {
     if(match(g_impl_registry_keys.with(xs => xs.get(ki)), .Some(k) => (k == key), .None => false), {
-      return(match(g_impl_registry_entry_lists.get(ki), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
+      return(match(g_impl_registry_entry_lists.with(xs => xs.get(ki)), .Some(l) => l, .None => ArrayList(GenericImplEntry).new()));
     });
     ki = (ki + usize(1));
   });
@@ -2303,10 +2324,9 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
 /// methods). Checked as step 0 of `type_implements_trait` so a matching negative
 /// generic impl overrides auto-derive (e.g. `impl(generic(T), Container(T),
 /// !(Send))` makes `Container(i32)` NOT `Send`).
-(g_negative_generic_impl_entries : ArrayList(GenericImplEntry)) =
-  ArrayList(GenericImplEntry).new();
+(g_negative_generic_impl_entries : RefCell(ArrayList(GenericImplEntry))) = RefCell(ArrayList(GenericImplEntry)).new(ArrayList(GenericImplEntry).new());
 register_negative_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
-  g_negative_generic_impl_entries.push(entry);
+  g_negative_generic_impl_entries.with_mut(xs => xs.push(entry));
 });
 /// Returns true if some registered negative generic impl for `trait_type`
 /// matches `concrete_type`: filter by trait key, then `try_match_generic_impl`.
@@ -2317,12 +2337,12 @@ find_matching_negative_generic_impl :: (
   if(key.is_empty(), {
     return(false);
   });
-  (n : usize) = g_negative_generic_impl_entries.len();
+  (n : usize) = g_negative_generic_impl_entries.with(xs => xs.len());
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < n) && !found, {
     entry := match(
-      g_negative_generic_impl_entries.get(i),
+      g_negative_generic_impl_entries.with(xs => xs.get(i)),
       .Some(e) => e,
       .None => {
         i = (i + usize(1));
@@ -2618,7 +2638,7 @@ find_methods_from_generic_impls :: (
     // No `continue` in these registry loops — see
     // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
-      g_impl_registry_entry_lists.get(ki),
+      g_impl_registry_entry_lists.with(xs => xs.get(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -2634,7 +2654,7 @@ find_methods_from_generic_impls :: (
         }
       );
       fmg_owner := match(
-        g_impl_registry_entry_owners.get(ki),
+        g_impl_registry_entry_owners.with(xs => xs.get(ki)),
         .Some(fmg_ol) => match(fmg_ol.get(ei), .Some(o) => o.clone(), .None => String.new()),
         .None => String.new()
       );
@@ -2876,7 +2896,7 @@ find_associated_type_from_generic_impls :: (
     // No `continue` in these registry loops — see
     // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
-      g_impl_registry_entry_lists.get(ki),
+      g_impl_registry_entry_lists.with(xs => xs.get(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -3073,7 +3093,7 @@ find_generic_impl_method_value :: (
   (ki : usize) = usize(0);
   while(ki < n_keys, {
     entry_list := match(
-      g_impl_registry_entry_lists.get(ki),
+      g_impl_registry_entry_lists.with(xs => xs.get(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );
@@ -3148,7 +3168,7 @@ get_generic_impl_doc_entries :: (
     // No `continue` in these registry loops — see
     // issues/fixed/codegen-continue-in-while-heap-corruption.md.
     entry_list := match(
-      g_impl_registry_entry_lists.get(ki),
+      g_impl_registry_entry_lists.with(xs => xs.get(ki)),
       .Some(l) => l,
       .None => ArrayList(GenericImplEntry).new()
     );

@@ -1432,8 +1432,7 @@ walk_context_retained_for :: (fn(module_path : &String) -> bool)(
 /// imports, module globals): importer module → target module → field names
 /// read. Not attributable to a definition, so a hit invalidates the importer
 /// at file granularity (the conservative fallback of §6 step 5).
-(g_module_ordered_reads : HashMap(String, HashMap(String, HashSet(String)))) =
-  HashMap(String, HashMap(String, HashSet(String))).new();
+(g_module_ordered_reads : RefCell(HashMap(String, HashMap(String, HashSet(String))))) = RefCell(HashMap(String, HashMap(String, HashSet(String)))).new(HashMap(String, HashMap(String, HashSet(String))).new());
 /// source-namespace struct id → module path. Populated at every module
 /// value construction (each load mints its own id), consumed by the
 /// member-read hooks to attribute a field access to a module.
@@ -1503,7 +1502,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
     eprintln(`[p3ord] ${importer.clone()} reads ${field.clone()} of ${target_module.clone()}`);
   });
   by_target := match(
-    g_module_ordered_reads.get(importer),
+    g_module_ordered_reads.with(m => m.get(importer)),
     .Some(existing) => existing,
     .None => HashMap(String, HashSet(String)).new()
   );
@@ -1514,7 +1513,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
   );
   fields.insert(field);
   _ := by_target.insert(target_module, fields);
-  _ := g_module_ordered_reads.insert(importer, by_target);
+  _ := g_module_ordered_reads.with_mut(m => m.insert(importer, by_target));
 });
 /// Module-member read hook shared by the property-access path: the
 /// enclosing def (forcing top) records a def-level edge when the field
@@ -1744,13 +1743,13 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
 /// the invalidator drops each returned importer at file granularity.
 ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iit := g_module_ordered_reads.keys();
+  iit := g_module_ordered_reads.with(m => m.keys());
   iopt := iit.next();
   while(iopt.is_some(), {
     match(
       iopt,
       .Some(importer) => match(
-        g_module_ordered_reads.get(importer.clone()),
+        g_module_ordered_reads.with(m => m.get(importer.clone())),
         .Some(by_target) => match(
           by_target.get(target_module.clone()),
           .Some(fields) => {

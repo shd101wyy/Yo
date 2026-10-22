@@ -427,15 +427,14 @@ ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
 /// refine(refine(refine(T, p0), p1), p2) registers p2 → [p1, p0]).
 /// Written only by evaluate_refine (below — its edges each match a real
 /// refine() evaluation); read by the verifier's assume/prove walks.
-(g_refine_pred_chains : HashMap(String, ArrayList(String))) =
-  HashMap(String, ArrayList(String)).new();
+(g_refine_pred_chains : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String)) -> unit)({
-  g_refine_pred_chains.insert(outer_fid.clone(), chain);
+  g_refine_pred_chains.with_mut(m => m.insert(outer_fid.clone(), chain));
   ()
 });
 refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
-    g_refine_pred_chains.get(outer_fid.clone()),
+    g_refine_pred_chains.with(m => m.get(outer_fid.clone())),
     .Some(chain) => chain,
     .None => ArrayList(String).new()
   )

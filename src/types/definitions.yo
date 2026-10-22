@@ -703,13 +703,12 @@ impl(SharedList(String), SharedListElem(no_list : no_label_lists));
 /// with no entry (e.g. reconstructed from runtime values, id == "") are
 /// treated as all-runtime by the consumer. See
 /// issues/retired/codegen-port-type-model-gaps.md Gap 1.
-(g_struct_field_comptime_flags : HashMap(String, ArrayList(bool))) =
-  HashMap(String, ArrayList(bool)).new();
+(g_struct_field_comptime_flags : RefCell(HashMap(String, ArrayList(bool)))) = RefCell(HashMap(String, ArrayList(bool))).new(HashMap(String, ArrayList(bool)).new());
 /// Register the per-field compile-time-only flags for a struct id.
 register_struct_field_comptime_flags :: (
   fn(struct_id : &String, flags : &ArrayList(bool)) -> unit
 )({
-  g_struct_field_comptime_flags.insert(struct_id.clone(), flags);
+  g_struct_field_comptime_flags.with_mut(m => m.insert(struct_id.clone(), flags));
   ()
 });
 /// Get the per-field compile-time-only flags for a struct id (`.None` if the
@@ -717,6 +716,6 @@ register_struct_field_comptime_flags :: (
 get_struct_field_comptime_flags :: (
   fn(struct_id : &String) -> Option(ArrayList(bool))
 )(
-  g_struct_field_comptime_flags.get(struct_id.clone())
+  g_struct_field_comptime_flags.with(m => m.get(struct_id.clone()))
 );
 export(TypeValue, TypeValueNode, FuncMeta, SharedList, shared_list, no_types, no_labels, no_flags, no_levels, no_discriminants, no_type_lists, no_label_lists, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

@@ -120,8 +120,7 @@ pragma(Pragma.AllowUnsafe);
 /// TypeValue can't carry the field without a definitions↔env-style coupling)
 /// and step 4 matches by trait id. This supersedes the earlier name-keyed
 /// registry, which was unqueryable because trait values are nameless.
-(g_type_trait_registry : HashMap(String, ArrayList(TypeValue))) =
-  HashMap(String, ArrayList(TypeValue)).new();
+(g_type_trait_registry : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
 // Decision 36's flip state (`type_lacks_copy_for_flip` below): the prelude
 // environment its `Copy` question is asked in, and the memo the trait-impl
 // epoch (`types/utils.yo`) invalidates.
@@ -168,9 +167,9 @@ register_type_trait :: (fn(type_id : &String, trait_name : str, env : &Environme
 register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit)({
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
+  list := match(g_type_trait_registry.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(trait_ty);
-  g_type_trait_registry.insert(type_id, list);
+  g_type_trait_registry.with_mut(m => m.insert(type_id, list));
   bump_trait_impl_epoch();
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
@@ -195,7 +194,7 @@ _trait_type_id :: (fn(ty : &TypeValue) -> String)(
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
 is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
-    g_type_trait_registry.get(type_id),
+    g_type_trait_registry.with(m => m.get(type_id)),
     .None => false,
     .Some(list) => {
       n := list.len();
