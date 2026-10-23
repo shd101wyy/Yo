@@ -7228,20 +7228,23 @@ heavy run, the command is given in item 2.
               1.2 MB more (+0.11 %). User time is not comparable: two of
               the six `src/main.yo` runs took 14–15 minutes on the
               overloaded box, against 6 for the others.
-            - The `src/main.yo` gap is not stable across bases. On develop
-              `265faa941` the same comparison gave +5.7 MB (four runs each:
-              develop 1,055,652–1,057,244 kB, branch 1,061,308–1,063,608
-              kB). On that input, though, develop's `e30c0d8ed` binary and
-              the branch's build on it measured 1,063,644 and 1,063,712 kB,
-              and a develop build at `95162303d` measured 1,060,600–
-              1,061,276 kB. So the branch stayed at about the earlier
-              develop level while develop `265faa941` dropped about 6 MB.
-              That gap closed again on `4b96ec5e9`. No per-token or
-              per-parse cost explains a gap that comes and goes with the
-              base. The branch adds two `Rc` cells per lexing and one per
-              synthetic-token module, and it removes the
-              `String.from("")` pairs of `make_err_expr` and of the
-              parser's separator tokens. The gap was not attributed
+            - The `src/main.yo` gap depends on the input and on the base.
+              On develop `265faa941`'s tree, four runs each gave +5.7 MB
+              (develop 1,055,652–1,057,244 kB, branch 1,061,308–1,063,608
+              kB). The `4b96ec5e9` pair, one run each, gave +7.6 MB on
+              that same tree (1,059,412 against 1,067,064 kB). The older
+              binaries on that tree did not split this way. Develop's
+              `e30c0d8ed` binary measured 1,063,644 kB and the branch's
+              build on it 1,063,712 kB. A develop build at `95162303d`
+              (another agent's, build flags not recorded) measured 1,060,600
+              and 1,061,276 kB. So on that input the
+              branch binaries stay near the older develop level, while
+              develop's binaries from `265faa941` on use about 6 MB less.
+              No per-token or per-parse cost explains a gap that comes and
+              goes with the input and the base. The branch adds two `Rc`
+              cells per lexing and one per synthetic-token module. It
+              removes the `String.from("")` pairs of `make_err_expr` and of
+              the parser's separator tokens. The gap was not attributed
               further. The emitted C confirms what the change does: with
               the same input, the two stage-1 binaries emit identical C
               (`yo compile src/main.yo --emit-c --skip-c-compiler
