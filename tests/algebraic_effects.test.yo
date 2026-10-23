@@ -2436,3 +2436,155 @@ test("an unwind raised by a temporary's own destructor after the call propagates
   assert(run() == i32(-9), "the destructor's unwind exits the frame");
   assert(g_esc_continued == i32(0), "the frame did not continue after the destructor unwound");
 });
+// issues/fixed/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md:
+// a handler installed in a frame and passed to a TYPE-QUALIFIED method call
+// (`Q.make(k, raise)`) must be caught by that frame, as for a plain call.
+_UmRaise :: (ctl() -> unit);
+_UmQ :: struct(n : i32);
+_UmMake :: trait(make : (fn(k : i32, raise : _UmRaise) -> Self));
+impl(
+  _UmQ,
+  _UmMake(
+    make : (fn(k : i32, raise : _UmRaise) -> Self)({
+      raise();
+      _UmQ(n : k)
+    })
+  )
+);
+impl(
+  _UmQ,
+  make2 : (fn(k : i32, raise : _UmRaise) -> Self)({
+    raise();
+    _UmQ(n : k)
+  }),
+  poke : (fn(raise : _UmRaise) -> unit)({
+    raise();
+  }),
+  parse : (fn(k : i32, exn : Exception) -> Self)({
+    exn.throw(dyn(`boom`));
+    _UmQ(n : k)
+  }),
+  run : (fn(self : Self, raise : _UmRaise) -> i32)({
+    raise();
+    self.n
+  }),
+  // `raise` is a parameter here: the inner `Self.make2` call propagates.
+  via_self : (fn(raise : _UmRaise) -> i32)({
+    q := Self.make2(i32(0), raise);
+    q.n
+  })
+);
+_UmG :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(v : T)
+);
+impl(
+  generic(T : Type),
+  _UmG(T),
+  gmake : (fn(raise : _UmRaise) -> i32)({
+    raise();
+    i32(0)
+  })
+);
+_um_plain_make :: (fn(k : i32, raise : _UmRaise) -> _UmQ)({
+  raise();
+  _UmQ(n : k)
+});
+_um_via_trait :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(1));
+    }
+  );
+  q := _UmQ.make(i32(0), raise);
+  q.n
+});
+_um_via_inherent :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(2));
+    }
+  );
+  q := _UmQ.make2(i32(0), raise);
+  q.n
+});
+_um_via_unit :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(3));
+    }
+  );
+  _UmQ.poke(raise);
+  i32(0)
+});
+_um_via_inline :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(4));
+    }
+  );
+  _UmQ.make2(i32(0), raise).n
+});
+_um_via_exn :: (fn() -> i32)({
+  exn := Exception(throw : (_e -> unwind(i32(5))));
+  q := _UmQ.parse(i32(0), exn);
+  q.n
+});
+_um_via_self :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(6));
+    }
+  );
+  _UmQ.via_self(raise)
+});
+_um_via_receiver :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(7));
+    }
+  );
+  q := _UmQ(n : i32(0));
+  q.run(raise)
+});
+_um_via_generic :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(8));
+    }
+  );
+  _UmG(i32).gmake(raise)
+});
+_um_via_plain :: (fn() -> i32)({
+  (raise : _UmRaise) = (
+    () -> {
+      unwind(i32(9));
+    }
+  );
+  q := _um_plain_make(i32(0), raise);
+  q.n
+});
+// `yo test` clears an escaped unwind at the batch boundary, so a test body
+// cannot observe the escape directly. `_um_check` is itself an installation
+// point (a locally bound handler passed to a ctl parameter): an escape the
+// callee leaked is caught THERE, so `_um_probe`'s `+ 100` never runs and the
+// result is -1.
+_um_probe :: (fn(f : (fn() -> i32), outer : _UmRaise) -> i32)(f() + i32(100));
+_um_check :: (fn(f : (fn() -> i32)) -> i32)({
+  (outer : _UmRaise) = (
+    () -> {
+      unwind(i32(-1));
+    }
+  );
+  _um_probe(f, outer)
+});
+test("an unwind through a type-qualified method call is caught by the installing frame", {
+  assert(_um_check(_um_via_trait) == i32(101), "trait method");
+  assert(_um_check(_um_via_inherent) == i32(102), "inherent method");
+  assert(_um_check(_um_via_unit) == i32(103), "unit-returning method");
+  assert(_um_check(_um_via_inline) == i32(104), "method call as an inline expression");
+  assert(_um_check(_um_via_exn) == i32(105), "Exception parameter");
+  assert(_um_check(_um_via_self) == i32(106), "a method forwarding the handler through Self");
+  assert(_um_check(_um_via_receiver) == i32(107), "receiver call (control)");
+  assert(_um_check(_um_via_generic) == i32(108), "generic type-qualified call (control)");
+  assert(_um_check(_um_via_plain) == i32(109), "plain function call (control)");
+});
