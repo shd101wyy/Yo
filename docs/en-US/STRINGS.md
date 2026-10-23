@@ -175,6 +175,17 @@ moved, never lent:
 To read bytes, use `len()`, `byte_at(i)`, `get_byte(i)` or the `bytes()`
 iterator, which copy nothing.
 
+std getters that expose a string a value stores return a borrow of it (a
+projection, `-> &String` or `-> &Option(String)`), not a copy:
+`Url.scheme`, `path`, `host`, `query`, `fragment` and `userinfo`;
+`Regex.source`; `RegexMatch.value` and `input`; `ParsedArgs.get_subcommand`;
+and `UnixListener.local_path`. Reading the result (comparing it, interpolating
+it, passing it to a `&String` parameter) copies nothing. To keep or change it,
+copy it: `mut(p) := url.path().clone();`. The borrow lives inside the receiver,
+so calling one of these getters on a temporary and binding the result is an
+error ("… a temporary that ends with this statement"): bind the receiver to a
+local first, or `.clone()` the result.
+
 A string that names something at a C boundary (a path, a host name, an
 environment variable, a program argument) goes through `to_cstr_checked()`. C
 ends a string at its first NUL, so `"/tmp/a\0/etc"` would otherwise act on
