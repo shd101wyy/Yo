@@ -1027,6 +1027,14 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   booted, is reclaimed by the next waiter's scan (a reboot used to leave every
   slot held and deadlock the queue,
   `issues/fixed/2026-10-16-the-heavy-lock-never-reclaims-a-slot-whose-owner-died.md`).
+- **Stop a `yo build` by its process group, not its pid.** `kill <yo build pid>`
+  ends the build runner but not its `yo compile` child. The child runs to the
+  end, outside the slot your script just dropped, and writes the same output as
+  a build you restart in that worktree
+  (`issues/2026-10-23-killing-yo-build-leaves-its-compile-children-running.md`).
+  A wrapper started with `setsid` is its own group: `kill -- -<pgid>`. Before
+  restarting a build, check `pgrep -af "yo compile"` for a compile still
+  writing the same `yo-out`.
 - On a large machine (64 GB) the in-process `tests/internal` run (~12 GB) takes
   a normal slot: `exclusive` would hold every slot for its ~95 minutes.
 

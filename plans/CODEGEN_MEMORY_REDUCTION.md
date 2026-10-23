@@ -434,8 +434,12 @@ WSL2 box:
 
 Function bodies no longer accumulate in memory.
 - **`Emitter.start_code_spill(path)`:** `compile_module` opens
-  `<output>.yo-code-spill` unless in chunk mode, whose units are cut from
-  byte ranges into the buffer.
+  `<output>.<pid>.yo-code-spill` unless in chunk mode, whose units are cut from
+  byte ranges into the buffer. Until 2026-10-23 the name had no pid, and two
+  compiles of one output deleted each other's spill
+  (`issues/fixed/2026-10-23-concurrent-compiles-of-one-output-share-the-code-spill-file.md`).
+  Before emission, `run_compile` removes the spills of compiles of that
+  output whose process is gone (`_remove_dead_code_spills`).
 - **`spill_code_if_large()`:** after every emitted function, once `code`
   holds `code_spill_threshold` bytes (8 MiB), it is written to the file
   (`write_sync`) and cleared, keeping its capacity.
@@ -445,12 +449,14 @@ Function bodies no longer accumulate in memory.
 - **`_insert_attr_before_first_decl`:** also searches the spilled part and
   rewrites it on a hit (`rewrite_code_spill`, rare).
 - **`main.yo`:** writes headers, declarations, the spill copied in 4 MiB
-  pieces (`_copy_file_into`), then the in-memory tail. `--emit-c` reads the
-  spill whole.
+  pieces (`_copy_code_spill_into`), then the in-memory tail. `--emit-c` reads the
+  spill whole. Whether to splice is `compile_module`'s spilled byte count, not
+  the path's existence, and a spill file of any other size fails the compile.
 
 Tests: `tests/internal/chunk_assembly.test.yo`, "a code spill spliced before
 the code tail is the unspilled C" and "rewrite_code_spill replaces the
-spilled code and its length".
+spilled code and its length". `tests/internal/compile.test.yo` covers the
+pid path, the size checks, the count-decided splice and the dead-spill sweep.
 
 Mimalloc stage-2s, same tree, no `--emit-c`, C byte-identical:
 
