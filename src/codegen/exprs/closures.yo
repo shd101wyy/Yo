@@ -7,7 +7,7 @@
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
-{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, c_field_name } :: import("../utils/index.yo");
+{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, element_wise_dup_target, element_wise_dup_elements, sanitize_for_c_identifier, scope_stack_contains, c_field_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -282,11 +282,19 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
         },
         .None => ()
       );
+      // An element-wise dup (a captured tuple or array,
+      // `element_wise_dup_target`) retains the elements of the captured
+      // variable in place and its result is one element: emit its element
+      // dups as statements (`element_wise_dup_elements`), and the field
+      // reads the variable itself below. Matching only the atom form left a
+      // captured tuple without its +1, so dropping the closure freed what
+      // the variable still owned.
+      (ew_dup_emitted : bool) = false;
       match(
         expr_info_deferred_dup_expressions(&ei),
         .Some(dups) => {
           (di : usize) = usize(0);
-          while((di < dups.len()) && field_code.is_none(), {
+          while((di < dups.len()) && field_code.is_none() && !ew_dup_emitted, {
             match(
               dups.get(di),
               .Some(de) => match(
@@ -294,7 +302,29 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
                 .Some(tn) => if(tn == label, {
                   field_code = Option(String).Some(_call_generate_expr(&de, indent.clone(), context));
                 }),
-                .None => ()
+                .None => match(
+                  element_wise_dup_target(&de),
+                  .Some(etn) => if(etn == label, {
+                    ew_elems := element_wise_dup_elements(&de);
+                    (ew_i : usize) = usize(0);
+                    while(ew_i < ew_elems.len(), {
+                      match(
+                        ew_elems.get(ew_i),
+                        .Some(ew_e) => {
+                          ew_code := _call_generate_expr(&ew_e, indent.clone(), context);
+                          if(ew_code.len() > usize(0), {
+                            ew_em := context.base.emitter;
+                            ew_em.emit_string_line(`${indent.clone()}${ew_code};`);
+                          });
+                        },
+                        .None => ()
+                      );
+                      ew_i = (ew_i + usize(1));
+                    });
+                    ew_dup_emitted = true;
+                  }),
+                  .None => ()
+                )
               ),
               .None => ()
             );

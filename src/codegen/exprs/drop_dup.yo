@@ -31,7 +31,7 @@
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { Emitter } :: import("../../emitter.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at, scope_stack_contains } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at, scope_stack_contains, element_wise_dup_target } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
@@ -1468,10 +1468,12 @@ generate_arg_code_with_deferred_dups :: (
       expr_info_deferred_dup_expressions(&ix_ei),
       .Some(ix_dups) => if(ix_dups.len() > usize(0), {
         generate_deferred_dup_expressions(arg, indent.clone(), context);
+        // An element-wise dup's temp is one element of the argument
+        // (`element_wise_dup_target`): pass the argument, retained in place.
         match(
           ix_dups.get(usize(0)),
           .Some(ix_dup) => if(
-            ast_expr_is_fn_call(&ix_dup),
+            ast_expr_is_fn_call(&ix_dup) && element_wise_dup_target(&ix_dup).is_none(),
             match(
               context.base.get_expr_info(&ix_dup),
               .Some(ix_dei) => match(

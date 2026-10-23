@@ -83,6 +83,8 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   BF_DOT,
   BK_BEGIN,
   BF_YO_AS,
+  BF_YO_DUP_TUPLE_ELEMENT,
+  BF_YO_DUP_ARRAY_ELEMENT,
   ExprId,
   ast_expr_id,
   ast_expr_is_atom,
@@ -1924,6 +1926,67 @@ get_variable_name_for_codegen_at :: (fn(key : ExprId, variable_name : &String, e
     .Some(e) => _codegen_name_of_variables(variable_name, scope_variables(key, &e, variable_name.clone()))
   )
 );
+/// The variable a one-element dup (`__yo_dup_tuple_element(v, i)` /
+/// `__yo_dup_array_element(v, i)`) retains, when `e` is one.
+_element_dup_target :: (fn(e : &AstExpr) -> Option(String))(
+  match(
+    e,
+    .FnCall(_, _, args, _, _) => if(
+      ast_expr_is_fn_call_of(e, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None),
+      match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(String).Some(ast_expr_token(&a0).value), Option(String).None), .None => Option(String).None),
+      Option(String).None
+    ),
+    .Atom(_, _) => Option(String).None
+  )
+);
+/// The variable an ELEMENT-WISE dup retains, when `dup_expr` is one.
+///
+/// `evaluate_dup` lowers `___dup(v)` of a tuple or an `Array(T, N)` holding
+/// counted fields to `begin(__yo_dup_tuple_element(v, 0), …)`: it retains
+/// the elements of `v` IN PLACE, and its result temp is the LAST ELEMENT's,
+/// never a copy of `v`. A site that stores or passes the copy emits the dup
+/// and then reads `v` itself. Adopting the temp stored one element where the
+/// whole value belongs; inside a tuple literal C's brace elision even
+/// compiled it, leaving the other fields zero
+/// (issues/fixed/2026-10-23-a-tuple-copied-into-an-aggregate-keeps-only-its-last-counted-field.md).
+/// The type-agreement guard of `emit_deferred_dup_or_code` and the return
+/// and inline-call sites is the same rule.
+element_wise_dup_target :: (fn(dup_expr : &AstExpr) -> Option(String))(
+  cond(
+    ast_expr_is_fn_call_of(dup_expr, BK_BEGIN, Option(usize).None) => match(
+      dup_expr,
+      .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a0) => _element_dup_target(&a0), .None => Option(String).None),
+      .Atom(_, _) => Option(String).None
+    ),
+    true => _element_dup_target(dup_expr)
+  )
+);
+/// The one-element dups an ELEMENT-WISE dup is made of; empty when
+/// `dup_expr` is not one (`element_wise_dup_target`). Each retains its
+/// element in place and is a statement of its own. Emitting the whole
+/// `begin` instead declares its tail temp, which owns the last element's
+/// share and is released at scope end, where nothing took that share.
+element_wise_dup_elements :: (fn(dup_expr : &AstExpr) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  if(element_wise_dup_target(dup_expr).is_none(), {
+    return(out);
+  });
+  match(
+    dup_expr,
+    .FnCall(_, _, args, _, _) => if(ast_expr_is_fn_call_of(dup_expr, BK_BEGIN, Option(usize).None), {
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(args.get(i), .Some(a) => out.push(a), .None => ());
+        i = (i + usize(1));
+      });
+    }, {
+      (whole : AstExpr) = dup_expr;
+      out.push(whole);
+    }),
+    .Atom(_, _) => ()
+  );
+  out
+});
 /// Extract the target atom name from a deferred dup expression.
 ///   Form 1: `___dup(varName)` — pre-evaluation form (first arg atom).
 ///   Form 2: `(varName.___dup)()` — post-evaluation method-style form.
@@ -2365,6 +2428,8 @@ export(
   get_variable_name_for_codegen,
   get_variable_name_for_codegen_at,
   get_deferred_dup_target_atom_name,
+  element_wise_dup_target,
+  element_wise_dup_elements,
   get_deferred_drop_target_atom_name,
   is_deferred_drop_for_closure_capture,
   find_returned_async_block,

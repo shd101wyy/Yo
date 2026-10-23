@@ -761,10 +761,6 @@ is_drop_method_name :: (fn(name : &String) -> bool)(name == "drop");
 is_destructor_trait_member :: (fn(trait_ty : &TypeValue, label : &String) -> bool)(
   is_drop_method_name(label) && match(trait_ty, Rc(.TraitT({ name })) => is_drop_trait_name(&name), _ => false)
 );
-/// Depth-limited walk for `type_is_move_only`, the shape of
-/// `_type_contains_rc_inner`. A reference type (and `Dyn`, which is a cell
-/// too) stops the walk: it shares its payload, so it is copyable
-/// whatever it holds.
 /// A `Dyn(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37): its call
 /// consumes it, so it is move-only although a `Dyn` is reference counted —
 /// two handles to one payload would run a call-once body twice.
@@ -804,10 +800,99 @@ is_future_value_type :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
-_type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
+/// The walk state of one top-level type predicate (`type_contains_rc_type`
+/// and its pre-flip sibling, `type_is_move_only`,
+/// `type_reaches_non_atomic_cell`, `type_is_control_bound`). There is no
+/// depth cap on an answer: a `false` past some depth would say "nothing to
+/// drop" of an ordinary value nested that deep, and its teardown would never
+/// be emitted (issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md).
+/// Instead, from `_TYPE_WALK_TRACK_DEPTH` on, every aggregate walked is
+/// tracked by object identity, as `_type_repr_contains_raw_ptr` does:
+///
+/// - `path`: the aggregates on the current path. The same object reached
+///   again is a cycle (a type reached through itself), answered `false`
+///   there, which is what a cycle contributes to an "any component" walk.
+/// - `memo`: the answers of the aggregates walked so far, so a sub-graph
+///   reached through several fields is walked once, not once per path.
+/// - `cut`: set when the current sub-walk met a cycle or the stack backstop.
+///   A `false` computed under a cut depends on the path, so it is not
+///   memoized; a `true` is exact either way.
+///
+/// By identity, not by id: substituted generic instantiations share ids
+/// (`types/intern.yo`), so an id-keyed set would cut `Option(Option(T))`.
+/// Below `_TYPE_WALK_TRACK_DEPTH` nothing is tracked and nothing allocated:
+/// the common shallow walk costs what it did, and a cycle is still caught
+/// one turn after the walk crosses that depth.
+_TypeWalk :: struct(path : ArrayList(_TypeWalkFrame), memo : ArrayList(_ReprMemoEntry), cut : bool);
+/// One aggregate on a `_TypeWalk` path, with the walk's `cut` flag from
+/// before it was entered (restored, or-ed with its own, when it is left).
+_TypeWalkFrame :: struct(ty : TypeValue, outer_cut : bool);
+_TYPE_WALK_TRACK_DEPTH :: u32(8);
+/// A stack backstop, not an answer cap: no well-formed type nests this deep
+/// without a cycle, which `_TypeWalk.path` catches first.
+_TYPE_WALK_MAX_DEPTH :: u32(1024);
+_type_walk_new :: (fn() -> _TypeWalk)(
+  _TypeWalk(path : ArrayList(_TypeWalkFrame).new(), memo : ArrayList(_ReprMemoEntry).new(), cut : false)
+);
+/// Enter the aggregate `ty` reached at `depth`. `.Some(answer)` when the walk
+/// does not descend: `ty` was answered already, or it is on the path (a
+/// cycle: `false`, and the walk is cut). `.None` when the caller walks `ty`'s
+/// components and hands their answer to `_type_walk_leave`.
+_type_walk_enter :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32) -> Option(bool))({
+  if(depth < _TYPE_WALK_TRACK_DEPTH, {
+    return(Option(bool).None);
+  });
+  (i : usize) = usize(0);
+  while(i < w.memo.len(), {
+    match(
+      w.memo.get(i),
+      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
+        return(Option(bool).Some(e.answer));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (pi : usize) = usize(0);
+  while(pi < w.path.len(), {
+    match(
+      w.path.get(pi),
+      .Some(f) => if(__yo_ptr_eq(&f.ty, ty), {
+        w.cut = true;
+        return(Option(bool).Some(false));
+      }),
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  w.path.push(_TypeWalkFrame(ty : ty, outer_cut : w.cut));
+  w.cut = false;
+  Option(bool).None
+});
+/// Leave the aggregate `ty` entered at `depth`, whose components answered
+/// `answer`: memoize it unless it is a `false` computed under a cut.
+_type_walk_leave :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32, answer : bool) -> bool)({
+  if(depth < _TYPE_WALK_TRACK_DEPTH, {
+    return(answer);
+  });
+  outer_cut := match(w.path.pop(), .Some(f) => f.outer_cut, .None => false);
+  if(answer || !w.cut, {
+    w.memo.push(_ReprMemoEntry(ty : ty, answer : answer));
+  });
+  w.cut = (w.cut || outer_cut);
+  answer
+});
+/// The walk behind `type_is_move_only`, the shape of
+/// `_type_contains_rc_inner` (`_TypeWalk` included). A reference type (and
+/// `Dyn`, which is a cell too) stops the walk: it shares its payload, so it
+/// is copyable whatever it holds.
+_type_is_move_only_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
-    (depth > u32(8)) => false,
+    (depth > _TYPE_WALK_MAX_DEPTH) => {
+      w.cut = true;
+      false
+    },
     _is_dyn_fnonce(&ty) => true,
     is_future_value_type(&ty) => true,
     is_rc_type(&ty) => false,
@@ -817,45 +902,72 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
     _capture_struct_declares_mut(&ty) => true,
     true => match(
       ty,
-      Rc(.Array(element : elem, length : _)) => recur(&elem, depth + u32(1)),
-      Rc(.Tuple(field_labels : _, field_types : fields)) => {
-        (i : usize) = usize(0);
-        while(i < fields.len(), {
-          if(match(fields.get(i), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
-            return(true);
+      Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
+      Rc(.Tuple(field_labels : _, field_types : fields)) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1));
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
           });
-          i = (i + usize(1));
-        });
-        false
-      },
-      Rc(.Struct({ field_types : fields })) => {
-        (i : usize) = usize(0);
-        while(i < fields.len(), {
-          if(match(fields.get(i), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
-            return(true);
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
+      Rc(.Struct({ field_types : fields })) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1));
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
           });
-          i = (i + usize(1));
-        });
-        false
-      },
-      Rc(.EnumT({ variant_fields : all_fields })) => {
-        (vi : usize) = usize(0);
-        while(vi < all_fields.len(), {
-          vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
-          (fi : usize) = usize(0);
-          while(fi < vf.len(), {
-            if(match(vf.get(fi), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
-              return(true);
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
+      Rc(.EnumT({ variant_fields : all_fields })) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (vi : usize) = usize(0);
+          while((vi < all_fields.len()) && !found, {
+            vf := match(all_fields.get(vi), .Some(f) => f, .None => no_types());
+            (fi : usize) = usize(0);
+            while((fi < vf.len()) && !found, {
+              match(
+                vf.get(fi),
+                .Some(ft) => {
+                  found = recur(&ft, w, depth + u32(1));
+                },
+                .None => ()
+              );
+              fi = (fi + usize(1));
             });
-            fi = (fi + usize(1));
+            vi = (vi + usize(1));
           });
-          vi = (vi + usize(1));
-        });
-        false
-      },
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
       // A generic parameter is judged where it is bound: a generic body is
       // re-evaluated per instantiation (§3.4 "checked per instantiation").
-      Rc(.SomeT({ resolution : rc })) => match(rc, .Some(concrete) => recur(&concrete, depth + u32(1)), .None => false),
+      Rc(.SomeT({ resolution : rc })) => match(rc, .Some(concrete) => recur(&concrete, w, depth + u32(1)), .None => false),
       _ => false
     )
   )
@@ -867,9 +979,13 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
 /// for every move-only type, so the ownership machinery (temps, drops,
 /// moves, joins) tracks these values like RC values; this predicate is what
 /// turns their copies into moves or errors.
-type_is_move_only :: (fn(ty : &TypeValue) -> bool)(
-  g_move_only_possible && _type_is_move_only_inner(ty, u32(0))
-);
+type_is_move_only :: (fn(ty : &TypeValue) -> bool)({
+  if(!g_move_only_possible, {
+    return(false);
+  });
+  w := _type_walk_new();
+  _type_is_move_only_inner(ty, &mut w, u32(0))
+});
 /// True if a value of `ty` is not implicitly copyable: an implicit copy of it
 /// is a compile error and every copy point MOVES it (plans/VALUES_BY_DEFAULT.md
 /// §3.4 and the three kinds of type: implicitly copyable, explicit-copy,
@@ -974,7 +1090,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   if(_is_dyn_fnonce(&ty), {
     return(Option(String).Some(`\`${type_to_string(&ty)}\` is a call-once closure: its call consumes it, so a copy could call it twice`));
   });
-  if((depth > u32(8)) || is_rc_type(&ty), {
+  if((depth > _TYPE_WALK_MAX_DEPTH) || is_rc_type(&ty), {
     return(Option(String).None);
   });
   tn := _nominal_move_only_trait(&ty);
@@ -985,6 +1101,10 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     return(Option(String).Some(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias")));
   });
   // The first move-only component, as `<label> : <type>` and its own reason.
+  // Only a component `type_is_move_only` accepts is descended into, so the
+  // walk follows one path to the declaring type at any depth instead of
+  // searching every component (a shared sub-graph would make that
+  // exponential once no depth cap bounds it).
   labels := ArrayList(String).new();
   comps := ArrayList(TypeValue).new();
   match(
@@ -1037,7 +1157,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   while(ci < comps.len(), {
     c := match(comps.get(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     match(
-      recur(&c, depth + u32(1)),
+      cond(type_is_move_only(&c) => recur(&c, depth + u32(1)), true => Option(String).None),
       .Some(inner) => {
         lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
         return(Option(String).Some(`\`${type_to_string(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string(&c)}\`): ${inner}`));
@@ -1048,23 +1168,25 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
   });
   Option(String).None
 });
-/// Private depth-limited recursive helper for type_contains_rc_type.
-///
-/// Uses a depth limit instead of a checkedTypes set to prevent infinite
-/// recursion on self-referential types (e.g. recursive enums).
-_type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> bool)({
+/// The walk behind `type_contains_rc_type` (`flip`) and
+/// `type_contains_rc_cell_or_move_only`. `_TypeWalk` ends it on a cycle (a
+/// recursive type reached through itself) and walks a shared sub-graph once;
+/// no nesting depth answers for it.
+_type_contains_rc_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u32, flip : bool) -> bool)({
   // Resolve recursive-type SHELLS to their registered finals first — same
   // reasoning as get_size_of_type (fifth shell-consumption site). An empty
   // shell walks to `false`, and a specialization whose T binding is the
   // recursive-Self shell (e.g. ArrayList(JsonValue).push's `value` param)
   // then SKIPS set_expr_as_needs_to_call_dup's element retain — the pushed
   // element's payload is freed when the caller's Result temp drops (the
-  // json `["abc"]` / `{"k": "v"}` value-loss). The depth cap already guards
-  // the recursive descent the resolution re-opens.
+  // json `["abc"]` / `{"k": "v"}` value-loss). `_TypeWalk`'s path guards the
+  // recursive descent the resolution re-opens.
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
-    // Depth limit — conservative: return false at max depth
-    (depth > u32(8)) => false,
+    (depth > _TYPE_WALK_MAX_DEPTH) => {
+      w.cut = true;
+      false
+    },
     // Direct RC type
     is_rc_type(&ty) => true,
     // A move-only value (§3.4) has a drop to run (its `drop`) and an
@@ -1082,89 +1204,97 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
       ty,
       // Array — recurse on element type
       Rc(.Array(element : elem, length : _)) =>
-        recur(&elem, depth + u32(1), flip),
+        recur(&elem, w, depth + u32(1), flip),
       // Tuple — check all field types
-      Rc(.Tuple(field_labels : _, field_types : fields)) => {
-        (found : bool) = false;
-        (i : usize) = usize(0);
-        while((i < fields.len()) && !found, {
-          match(
-            fields.get(i),
-            .Some(ft) => {
-              if(recur(&ft, depth + u32(1), flip), {
-                found = true;
-              });
-            },
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        found
-      },
+      Rc(.Tuple(field_labels : _, field_types : fields)) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1), flip);
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
       // Union — check all field types
-      Rc(.Union(name : _, field_labels : _, field_types : fields)) => {
-        (found : bool) = false;
-        (i : usize) = usize(0);
-        while((i < fields.len()) && !found, {
-          match(
-            fields.get(i),
-            .Some(ft) => {
-              if(recur(&ft, depth + u32(1), flip), {
-                found = true;
-              });
-            },
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        found
-      },
+      Rc(.Union(name : _, field_labels : _, field_types : fields)) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1), flip);
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
       // Struct — check all field types
-      Rc(.Struct({ field_types : fields })) => {
-        (found : bool) = false;
-        (i : usize) = usize(0);
-        while((i < fields.len()) && !found, {
-          match(
-            fields.get(i),
-            .Some(ft) => {
-              if(recur(&ft, depth + u32(1), flip), {
-                found = true;
-              });
-            },
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        found
-      },
+      Rc(.Struct({ field_types : fields })) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1), flip);
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
       // EnumT — check all variant fields
-      Rc(.EnumT({ variant_fields : all_fields })) => {
-        (found : bool) = false;
-        (vi : usize) = usize(0);
-        while((vi < all_fields.len()) && !found, {
-          match(
-            all_fields.get(vi),
-            .Some(v_fields) => {
-              (fi : usize) = usize(0);
-              while((fi < v_fields.len()) && !found, {
-                match(
-                  v_fields.get(fi),
-                  .Some(ft) => {
-                    if(recur(&ft, depth + u32(1), flip), {
-                      found = true;
-                    });
-                  },
-                  .None => ()
-                );
-                fi = (fi + usize(1));
-              });
-            },
-            .None => ()
-          );
-          vi = (vi + usize(1));
-        });
-        found
-      },
+      Rc(.EnumT({ variant_fields : all_fields })) => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (vi : usize) = usize(0);
+          while((vi < all_fields.len()) && !found, {
+            match(
+              all_fields.get(vi),
+              .Some(v_fields) => {
+                (fi : usize) = usize(0);
+                while((fi < v_fields.len()) && !found, {
+                  match(
+                    v_fields.get(fi),
+                    .Some(ft) => {
+                      found = recur(&ft, w, depth + u32(1), flip);
+                    },
+                    .None => ()
+                  );
+                  fi = (fi + usize(1));
+                });
+              },
+              .None => ()
+            );
+            vi = (vi + usize(1));
+          });
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      ),
       // SomeT — follow the resolved concrete type if present; an unresolved
       // SomeType is treated as RC. The Future carve-out is already handled
       // by `is_rc_type(ty)` above (line ~307). Without this follow-through a
@@ -1174,7 +1304,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
       // over-release (issues/retired/yo-self-stage2-unwind-check-coverage.md).
       Rc(.SomeT({ required_trait_types : _, resolution : resolved })) => match(
         resolved,
-        .Some(concrete) => recur(&concrete, depth + u32(1), flip),
+        .Some(concrete) => recur(&concrete, w, depth + u32(1), flip),
         .None => true
       ),
       // Function — false (functions are not reference types)
@@ -1212,18 +1342,20 @@ type_has_no_open_some :: (fn(t : &TypeValue) -> bool)({
 /// which is what makes a container drop (and so dispose) its move-only
 /// elements.
 ///
-/// Recursively checks compound types (Array, Tuple, Union, Struct, Enum).
-/// Uses a depth limit to handle self-referential types safely.
-type_contains_rc_type :: (fn(ty : &TypeValue) -> bool)(
-  _type_contains_rc_inner(ty, u32(0), true)
-);
+/// Recursively checks compound types (Array, Tuple, Union, Struct, Enum)
+/// at any depth; `_TypeWalk` ends the walk on a self-referential type.
+type_contains_rc_type :: (fn(ty : &TypeValue) -> bool)({
+  w := _type_walk_new();
+  _type_contains_rc_inner(ty, &mut w, u32(0), true)
+});
 /// `type_contains_rc_type` before decision 36's flip: an RC cell, `Dyn` or
 /// a move-only value, but not a plain-data value merely lacking
 /// `Copy`. What the flip's own predicate and the compile-time value of a temp
 /// are decided on.
-type_contains_rc_cell_or_move_only :: (fn(ty : &TypeValue) -> bool)(
-  _type_contains_rc_inner(ty, u32(0), false)
-);
+type_contains_rc_cell_or_move_only :: (fn(ty : &TypeValue) -> bool)({
+  w := _type_walk_new();
+  _type_contains_rc_inner(ty, &mut w, u32(0), false)
+});
 /// Does a value of `ty` reach a NON-ATOMIC cell — a `ref(struct)`/`ref(enum)`
 /// that is not atomic (`Rc`, today's `Box`, `ArrayList`'s buffer cell, a user
 /// `ref(struct)`), or a `Dyn`'s shared box? The walk goes through value
@@ -1234,13 +1366,16 @@ type_contains_rc_cell_or_move_only :: (fn(ty : &TypeValue) -> bool)(
 /// It is what `Send` refuses: a value is `Send` only if it reaches none
 /// (plans/VALUES_BY_DEFAULT.md §3.8), which the marker derivation states field
 /// by field. Box tracing and the `Acyclic` derivation read it too.
-type_reaches_non_atomic_cell :: (fn(ty : &TypeValue) -> bool)(_reaches_non_atomic_cell_inner(ty, u32(0)));
-_any_reaches_non_atomic_cell :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
+type_reaches_non_atomic_cell :: (fn(ty : &TypeValue) -> bool)({
+  w := _type_walk_new();
+  _reaches_non_atomic_cell_inner(ty, &mut w, u32(0))
+});
+_any_reaches_non_atomic_cell :: (fn(fields : &ArrayList(TypeValue), w : &mut _TypeWalk, depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
       fields.get(i),
-      .Some(ft) => if(_reaches_non_atomic_cell_inner(&ft, depth), {
+      .Some(ft) => if(_reaches_non_atomic_cell_inner(&ft, w, depth), {
         return(true);
       }),
       .None => ()
@@ -1249,9 +1384,10 @@ _any_reaches_non_atomic_cell :: (fn(fields : &ArrayList(TypeValue), depth : u32)
   });
   false
 });
-_reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
+_reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, w : &mut _TypeWalk, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
-  if(depth > u32(8), {
+  if(depth > _TYPE_WALK_MAX_DEPTH, {
+    w.cut = true;
     return(false);
   });
   // The unique `Box` owns its payload inline (V1 step 2): it reaches what
@@ -1259,7 +1395,7 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
   match(
     unique_box_payload_type(&ty),
     .Some(payload) => {
-      return(recur(&payload, depth + u32(1)));
+      return(recur(&payload, w, depth + u32(1)));
     },
     .None => ()
   );
@@ -1270,45 +1406,74 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
       is_ref => false,
       // A value reaches what its `?(*(E))` buffer's elements reach (V2b's
       // unique buffers: the elements are part of the value).
-      true => (_any_reaches_non_atomic_cell(&fields.items, depth + u32(1)) || _any_reaches_non_atomic_cell(&buffer_element_types(&fields.items), depth + u32(1)))
+      true => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          found := (_any_reaches_non_atomic_cell(&fields.items, w, depth + u32(1)) || _any_reaches_non_atomic_cell(&buffer_element_types(&fields.items), w, depth + u32(1)));
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      )
     ),
     Rc(.EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref, is_atomic_rc : e_is_atomic })) => cond(
       (e_is_ref && !e_is_atomic) => true,
       e_is_ref => false,
-      true => {
-        (vi : usize) = usize(0);
-        while(vi < all_fields.len(), {
-          match(
-            all_fields.get(vi),
-            .Some(v_fields) => if(_any_reaches_non_atomic_cell(&v_fields.items, depth + u32(1)), {
-              return(true);
-            }),
-            .None => ()
-          );
-          vi = (vi + usize(1));
-        });
-        false
+      true => match(
+        _type_walk_enter(w, &ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (vi : usize) = usize(0);
+          while((vi < all_fields.len()) && !found, {
+            match(
+              all_fields.get(vi),
+              .Some(v_fields) => {
+                found = _any_reaches_non_atomic_cell(&v_fields.items, w, depth + u32(1));
+              },
+              .None => ()
+            );
+            vi = (vi + usize(1));
+          });
+          _type_walk_leave(w, &ty, depth, found)
+        }
+      )
+    ),
+    Rc(.Tuple(field_labels : _, field_types : fields)) => match(
+      _type_walk_enter(w, &ty, depth),
+      .Some(seen) => seen,
+      .None => {
+        found := _any_reaches_non_atomic_cell(&fields.items, w, depth + u32(1));
+        _type_walk_leave(w, &ty, depth, found)
       }
     ),
-    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_reaches_non_atomic_cell(&fields.items, depth + u32(1)),
-    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_reaches_non_atomic_cell(&fields.items, depth + u32(1)),
-    Rc(.Array(element : elem, length : _)) => _reaches_non_atomic_cell_inner(&elem, depth + u32(1)),
+    Rc(.Union(name : _, field_labels : _, field_types : fields)) => match(
+      _type_walk_enter(w, &ty, depth),
+      .Some(seen) => seen,
+      .None => {
+        found := _any_reaches_non_atomic_cell(&fields.items, w, depth + u32(1));
+        _type_walk_leave(w, &ty, depth, found)
+      }
+    ),
+    Rc(.Array(element : elem, length : _)) => recur(&elem, w, depth + u32(1)),
     Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
       resolved,
-      .Some(concrete) => _reaches_non_atomic_cell_inner(&concrete, depth + u32(1)),
+      .Some(concrete) => recur(&concrete, w, depth + u32(1)),
       .None => false
     ),
     _ => false
   )
 });
-/// Depth-limited inner walk for `type_is_control_bound`. A depth cap (not an
-/// object-identity visited set, which the value-semantic `TypeValue` can't do
-/// cheaply) guards self-referential types — same approach as
-/// `_type_contains_rc_inner`.
-_type_is_control_bound_inner :: (fn(ty : &TypeValue, depth : u32) -> bool)(
+/// The walk behind `type_is_control_bound`. It goes through pointers and
+/// reference objects too (a `*(Node)` field of `Node`), so self-reference is
+/// common here: `_TypeWalk`'s path ends each cycle where it closes, and its
+/// memo walks a shared sub-graph once.
+_type_is_control_bound_inner :: (fn(ty : &TypeValue, w : &mut _TypeWalk, depth : u32) -> bool)(
   cond(
-    (depth > u32(8)) => false,
+    (depth > _TYPE_WALK_MAX_DEPTH) => {
+      w.cut = true;
+      false
+    },
     true => match(
       ty,
       // Only a `ctl(...) -> ret` function value is itself control-bound. A
@@ -1317,80 +1482,96 @@ _type_is_control_bound_inner :: (fn(ty : &TypeValue, depth : u32) -> bool)(
       // the caller provides).
       Rc(.Func({ meta : __fm1 })) => __fm1.*.is_control,
       // Aggregates — control-bound iff any field is.
-      Rc(.Struct({ field_types : fields })) => {
-        (found : bool) = false;
-        (i : usize) = usize(0);
-        while((i < fields.len()) && !found, {
-          match(
-            fields.get(i),
-            .Some(ft) => if(recur(&ft, depth + u32(1)), {
-              found = true;
-            }),
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        found
-      },
-      Rc(.Tuple(field_labels : _, field_types : fields)) => {
-        (found : bool) = false;
-        (i : usize) = usize(0);
-        while((i < fields.len()) && !found, {
-          match(
-            fields.get(i),
-            .Some(ft) => if(recur(&ft, depth + u32(1)), {
-              found = true;
-            }),
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        found
-      },
-      Rc(.Union(name : _, field_labels : _, field_types : fields)) => {
-        (found : bool) = false;
-        (i : usize) = usize(0);
-        while((i < fields.len()) && !found, {
-          match(
-            fields.get(i),
-            .Some(ft) => if(recur(&ft, depth + u32(1)), {
-              found = true;
-            }),
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-        found
-      },
-      Rc(.EnumT({ variant_fields : all_fields })) => {
-        (found : bool) = false;
-        (vi : usize) = usize(0);
-        while((vi < all_fields.len()) && !found, {
-          match(
-            all_fields.get(vi),
-            .Some(v_fields) => {
-              (fi : usize) = usize(0);
-              while((fi < v_fields.len()) && !found, {
-                match(
-                  v_fields.get(fi),
-                  .Some(ft) => if(recur(&ft, depth + u32(1)), {
-                    found = true;
-                  }),
-                  .None => ()
-                );
-                fi = (fi + usize(1));
-              });
-            },
-            .None => ()
-          );
-          vi = (vi + usize(1));
-        });
-        found
-      },
+      Rc(.Struct({ field_types : fields })) => match(
+        _type_walk_enter(w, ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1));
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          _type_walk_leave(w, ty, depth, found)
+        }
+      ),
+      Rc(.Tuple(field_labels : _, field_types : fields)) => match(
+        _type_walk_enter(w, ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1));
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          _type_walk_leave(w, ty, depth, found)
+        }
+      ),
+      Rc(.Union(name : _, field_labels : _, field_types : fields)) => match(
+        _type_walk_enter(w, ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (i : usize) = usize(0);
+          while((i < fields.len()) && !found, {
+            match(
+              fields.get(i),
+              .Some(ft) => {
+                found = recur(&ft, w, depth + u32(1));
+              },
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          _type_walk_leave(w, ty, depth, found)
+        }
+      ),
+      Rc(.EnumT({ variant_fields : all_fields })) => match(
+        _type_walk_enter(w, ty, depth),
+        .Some(seen) => seen,
+        .None => {
+          (found : bool) = false;
+          (vi : usize) = usize(0);
+          while((vi < all_fields.len()) && !found, {
+            match(
+              all_fields.get(vi),
+              .Some(v_fields) => {
+                (fi : usize) = usize(0);
+                while((fi < v_fields.len()) && !found, {
+                  match(
+                    v_fields.get(fi),
+                    .Some(ft) => {
+                      found = recur(&ft, w, depth + u32(1));
+                    },
+                    .None => ()
+                  );
+                  fi = (fi + usize(1));
+                });
+              },
+              .None => ()
+            );
+            vi = (vi + usize(1));
+          });
+          _type_walk_leave(w, ty, depth, found)
+        }
+      ),
       // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
       // control-bound — `*(Raise)` must be rejected).
-      Rc(.Array(element : elem, length : _, length_var : _)) => recur(&elem, depth + u32(1)),
-      Rc(.Pointer(pointee : p)) => recur(&p, depth + u32(1)),
+      Rc(.Array(element : elem, length : _, length_var : _)) => recur(&elem, w, depth + u32(1)),
+      Rc(.Pointer(pointee : p)) => recur(&p, w, depth + u32(1)),
       // SomeT — conservatively false (no resolved concrete type to follow
       // on this path).
       _ => false
@@ -1403,9 +1584,10 @@ _type_is_control_bound_inner :: (fn(ty : &TypeValue, depth : u32) -> bool)(
 /// not escape: be bound at module level, captured by a closure, or have a
 /// pointer formed to it (the §4 escape-boundary / ctl rules in the algebraic
 /// effects analysis).
-type_is_control_bound :: (fn(ty : &TypeValue) -> bool)(
-  _type_is_control_bound_inner(ty, u32(0))
-);
+type_is_control_bound :: (fn(ty : &TypeValue) -> bool)({
+  w := _type_walk_new();
+  _type_is_control_bound_inner(ty, &mut w, u32(0))
+});
 /// The error for a control-bound field of a reference or atomic type.
 control_bound_field_message :: (fn(label : &String, ty : &TypeValue) -> String)(
   `Field "${label}" of a reference type cannot hold ${type_to_string(ty)}: it is (or contains) a \`ctl\` handler, which unwinds into the frame that installed it. A reference object outlives that frame, so a later call through the object would unwind into a frame that no longer exists. Pass the handler as an argument instead, or keep it in a value struct.`

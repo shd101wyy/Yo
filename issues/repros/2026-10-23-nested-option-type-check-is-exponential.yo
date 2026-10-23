@@ -1,0 +1,40 @@
+// Reproducer for issues/2026-10-23-nested-option-type-check-is-exponential.md
+//
+// `yo check` time roughly doubles per `Option` level: about 11 s at 14 levels,
+// 20 s at 16 and 56 s at 18 (2026-10-23, std check alone is about 7 s). A user
+// generic enum or struct nested 18 deep checks in the std baseline time.
+{ println } :: import("std/fmt");
+Tracked :: ref(struct(v : i32));
+impl(
+  Tracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`disposed=${self.v}`);
+    })
+  )
+);
+O1 :: Option(Tracked);
+O2 :: Option(O1);
+O3 :: Option(O2);
+O4 :: Option(O3);
+O5 :: Option(O4);
+O6 :: Option(O5);
+O7 :: Option(O6);
+O8 :: Option(O7);
+O9 :: Option(O8);
+O10 :: Option(O9);
+O11 :: Option(O10);
+O12 :: Option(O11);
+O13 :: Option(O12);
+O14 :: Option(O13);
+O15 :: Option(O14);
+O16 :: Option(O15);
+O17 :: Option(O16);
+O18 :: Option(O17);
+main :: (fn() -> unit)({
+  {
+    deep := O18.Some(O17.Some(O16.Some(O15.Some(O14.Some(O13.Some(O12.Some(O11.Some(O10.Some(O9.Some(O8.Some(O7.Some(O6.Some(O5.Some(O4.Some(O3.Some(O2.Some(O1.Some(Tracked(v : i32(42))))))))))))))))))));
+  };
+  println(`left`);
+});
+export(main);

@@ -12,7 +12,7 @@
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, fresh_local_name } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
@@ -48,7 +48,9 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   generate_deferred_dup_expressions(&arg, indent.clone(), context);
                   match(
                     arg_dups.get(usize(0)),
-                    .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), {
+                    // An element-wise dup's temp is one element of the
+                    // source (`element_wise_dup_target`): read the source.
+                    .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr) && element_wise_dup_target(&dup_expr).is_none(), {
                       match(
                         context.base.get_expr_info(&dup_expr),
                         .Some(dup_ei) => match(

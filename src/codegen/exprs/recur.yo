@@ -7,7 +7,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name } :: import("../utils/index.yo");
+{ get_variable_name_for_codegen_at, get_type_string, get_variable_type_string, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, expr_info_deferred_dup_expressions, scope_variables } :: import("../../expr_info.yo");
@@ -103,11 +103,14 @@ generate_recur :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
                     .None => ()
                   );
                   generate_deferred_dup_expressions(&arg, indent.clone(), context);
-                  // Pass the dup RESULT temp instead of the original.
+                  // Pass the dup RESULT temp instead of the original, unless
+                  // the dup is element-wise: its temp is one element, and the
+                  // argument itself was retained in place
+                  // (`element_wise_dup_target`).
                   match(
                     dups.get(usize(0)),
                     .Some(de) => if(
-                      ast_expr_is_fn_call(&de),
+                      ast_expr_is_fn_call(&de) && element_wise_dup_target(&de).is_none(),
                       match(
                         context.base.get_expr_info(&de),
                         .Some(dei) => match(
