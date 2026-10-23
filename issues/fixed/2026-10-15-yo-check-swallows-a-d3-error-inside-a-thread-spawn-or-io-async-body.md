@@ -103,7 +103,7 @@ C compiler's error-attribute stub). `compile-io-async-body-swallowed-error` was 
 the same E0601 and span, now raised by the evaluator before main's
 unused-variable warning is printed.
 
-Still open, recorded in `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
+Still open at the time (closed 2026-10-23), recorded in `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
 an unannotated `(e) =>` `io.async` closure whose row is not yet resolved when
 the closure is evaluated keeps the swallow.
 
