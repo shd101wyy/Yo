@@ -1,0 +1,27 @@
+// issues/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md
+// `yo verify --strict tests/spec/fixtures/negative/frame_interior_mutation.yo`
+// reports `ok` for probe's `ensures(r == usize(0))`. This verify-mode entry
+// carries the same probe: `yo compile` proves it, erases the runtime assert,
+// and the binary prints 1 (expected after a fix: verification fails).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+{ remember, poke } :: import("../../tests/spec/fixtures/negative/frame_interior_mutation_stash.yo");
+
+probe :: (
+  fn(
+    xs : ArrayList(i32),
+    requires(xs.len() == usize(0)),
+    ensures(r == usize(0))
+  ) -> (r : usize)
+)({
+  poke();
+  xs.len()
+});
+
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  remember(xs);
+  println(probe(xs));
+});
+export(main);

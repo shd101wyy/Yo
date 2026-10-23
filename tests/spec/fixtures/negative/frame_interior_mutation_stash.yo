@@ -1,0 +1,30 @@
+// The runtime-mode callee `frame_interior_mutation.yo` imports
+// (issues/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md).
+// `remember` keeps a second handle to a list in a RefCell global (ArrayList is
+// a reference type); `poke` grows that list. `poke`'s contract is true — it
+// has no parameter, so no `old(...)` clause could name what it changes.
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+
+(STASH : RefCell(ArrayList(ArrayList(i32)))) = RefCell(ArrayList(ArrayList(i32))).new(ArrayList(ArrayList(i32)).new());
+
+/// Keeps a second handle to `xs`.
+remember :: (fn(xs : ArrayList(i32)) -> unit)({
+  STASH.with_mut(s => {
+    s.push(xs);
+  });
+});
+
+/// Pushes onto the first remembered list.
+poke :: (fn(ensures(true)) -> unit)({
+  STASH.with_mut(s => {
+    match(
+      s.get(usize(0)),
+      .Some(l) => {
+        l.push(i32(7));
+      },
+      .None => ()
+    );
+  });
+});
+export(remember, poke);
