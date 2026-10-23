@@ -502,6 +502,17 @@ Rules for codegen code and for the evaluator analyses codegen calls late
   walker, multi-threaded hammer); keep that harness in sync when touching the
   algorithm. `--heap-size <n>[K|M|G]` (fixed only, 64K..4G) sizes the region;
   `--debug-heap` (fixed only) prints peak/live-at-exit at process exit.
+- **`--allocator debug`** is a tracking allocator over the system heap
+  (`plans/backlog/ZIG_ADOPTION_CANDIDATES.md` Z11), emitted by
+  `src/codegen/c/allocator_debug.yo` with the same header/code split and one
+  family (`__yo_aligned_free` IS `__yo_debug_free`). Each block carries a
+  header (system pointer, size, allocation number, address-keyed canary) and
+  sits on a live list; freed blocks are poisoned 0xDD and quarantined (64 MiB
+  FIFO). `main` calls `__yo_debug_alloc_init()` first so its atexit report
+  runs LAST, after the runtime's own cleanup handlers; the body marks a
+  normal return with `__yo_debug_alloc_main_returned()`, and only then does a
+  live block exit with status 23 (`yo test` names it a leak). The program
+  reads the mode through `__yo_debug_alloc_on()` (extern "Yo").
 
 ### Out-of-memory policy (all allocators)
 

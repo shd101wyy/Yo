@@ -1,0 +1,169 @@
+//! `--allocator debug` (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11,
+//! src/codegen/c/allocator_debug.yo): the tracking allocator's aborts and its
+//! exit verdict.
+//!
+//! Each fault runs in a CHILD: the test binary runs itself again with
+//! `YO_DEBUG_ALLOC_CHILD=<mode>`, so the same test index sees the mode, does
+//! the faulty thing, and the parent reads the child's status and stderr. The
+//! faults are undefined behavior under the other allocators, so those checks
+//! run only when the program reads its allocator as `debug` through the
+//! runtime's `__yo_debug_alloc_on` hook. The language suite runs this file
+//! under its default allocator, where only the clean round trip runs; the
+//! cli-case `test-allocator-debug-suite` runs it under `--allocator debug`,
+//! where every test runs and every parent must itself end with no live block.
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
+pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
+{ assert } :: import("std/assert");
+{ Command, Output } :: import("std/process/command");
+{ Exception, IoExn } :: import("std/error");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ env, args } :: import("std/env");
+{ GlobalAllocator } :: import("std/allocator");
+{ exit } :: import("std/libc/stdlib");
+extern(
+  "Yo",
+  __yo_debug_alloc_on :
+    (fn() -> bool)
+);
+_debug_on :: (fn() -> bool)(unsafe(__yo_debug_alloc_on()));
+/// The fault this process should commit, when it is a child.
+_child_mode :: (fn() -> Option(String))(env.get(`YO_DEBUG_ALLOC_CHILD`));
+/// Run this test binary again as a child in `mode`, and return its output.
+_run_child :: (fn(mode : str, io : Io) -> Output)({
+  exn := Exception(
+    throw : (
+      err -> {
+        __yo_panic("debug_allocator test: running the child failed");
+      }
+    )
+  );
+  _s := env.set(String.from("YO_DEBUG_ALLOC_CHILD"), String.from(mode));
+  argv := args();
+  cmd := Command.new(&argv(usize(0)));
+  io.await(cmd.output(io), IoExn(io : io, exn : exn))
+});
+/// `malloc` that cannot fail in these tests.
+_alloc :: (fn(size : usize) -> *void)(
+  match(
+    unsafe(GlobalAllocator.malloc(size)),
+    .Some(p) => p,
+    .None => __yo_panic("debug_allocator test: out of memory")
+  )
+);
+test("a block freed through every entry point leaves nothing live", {
+  // Valid under every allocator; under `debug` the exit check of this very
+  // process is the assertion.
+  p := _alloc(usize(24));
+  unsafe(GlobalAllocator.free(.Some(p)));
+  z := match(unsafe(GlobalAllocator.calloc(usize(4), usize(8))), .Some(b) => b, .None => __yo_panic("calloc"));
+  (mut(zi) : usize) = usize(0);
+  while(zi < usize(32), {
+    assert(unsafe((*u8)(z).add(zi).*) == u8(0), "calloc zero-fills");
+    zi = (zi + usize(1));
+  });
+  unsafe(consume((*u8)(z).* = u8(7)));
+  grown := match(unsafe(GlobalAllocator.realloc(.Some(z), usize(4096))), .Some(b) => b, .None => __yo_panic("realloc"));
+  assert(unsafe((*u8)(grown).*) == u8(7), "realloc keeps the contents");
+  unsafe(GlobalAllocator.free(.Some(grown)));
+  a := match(GlobalAllocator.aligned_alloc(usize(256), usize(100)), .Some(b) => b, .None => __yo_panic("aligned_alloc"));
+  assert((unsafe.cast(&a, usize) % usize(256)) == usize(0), "aligned_alloc honours the alignment");
+  unsafe(GlobalAllocator.aligned_free(.Some(a)));
+  xs := ArrayList(String).new();
+  (mut(i) : usize) = usize(0);
+  while(i < usize(100), {
+    xs.push(i.to_string());
+    i = (i + usize(1));
+  });
+  assert(xs.len() == usize(100), "the list holds every string");
+});
+test("a fresh block is filled with 0xAA under --allocator debug", {
+  if(_debug_on(), {
+    p := _alloc(usize(16));
+    assert(unsafe((*u8)(p).*) == u8(170), "the first byte is 0xAA");
+    assert(unsafe((*u8)(p).add(usize(15)).*) == u8(170), "the last byte is 0xAA");
+    unsafe(GlobalAllocator.free(.Some(p)));
+  });
+});
+test("a double free aborts and names the block", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      p := _alloc(usize(32));
+      unsafe(GlobalAllocator.free(.Some(p)));
+      unsafe(GlobalAllocator.free(.Some(p)));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("double-free", io);
+      err := String.from_bytes(out.stderr);
+      assert(!out.status.success(), "the child must not succeed");
+      assert(err.contains("debug allocator: double free: free of block #"), `the abort names the double free, got: ${err}`);
+      assert(err.contains("(32 bytes), already freed"), `the abort names the size, got: ${err}`);
+    })
+  );
+});
+test("a free of a pointer it never handed out aborts", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      // An interior pointer: its would-be header lies inside the real block's
+      // header, so the canary check reads memory the allocator owns.
+      p := _alloc(usize(64));
+      unsafe(GlobalAllocator.free(.Some((*void)((*u8)(p).add(usize(16))))));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("foreign-free", io);
+      err := String.from_bytes(out.stderr);
+      assert(!out.status.success(), "the child must not succeed");
+      assert(err.contains("which this allocator did not hand out"), `the abort names a foreign pointer, got: ${err}`);
+    })
+  );
+});
+test("a write after free is reported at exit", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      p := _alloc(usize(40));
+      unsafe(GlobalAllocator.free(.Some(p)));
+      unsafe(consume((*u8)(p).add(usize(3)).* = u8(1)));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("write-after-free", io);
+      err := String.from_bytes(out.stderr);
+      assert(!out.status.success(), "the child must not succeed");
+      assert(err.contains("(40 bytes) was written after it was freed (first changed byte at offset 3)"), `the report names the write, got: ${err}`);
+    })
+  );
+});
+test("a block still live when main returns fails the run with status 23", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      _p := _alloc(usize(48));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("leak", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.code().unwrap_or(i32(-1)) == i32(23), `the leak check exits with 23, got: ${err}`);
+      assert(err.contains("live at exit: 1 blocks / 48 bytes"), `the report counts the block, got: ${err}`);
+      assert(err.contains("debug allocator: leak check failed"), `the report states the verdict, got: ${err}`);
+    })
+  );
+});
+test("an exit before main returns lists its live blocks without judging them", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      _p := _alloc(usize(56));
+      unsafe(exit(int(0)));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("exit-early", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.success(), `exit(0) keeps its status, got: ${err}`);
+      assert(err.contains("56 bytes"), `the report lists the block, got: ${err}`);
+      assert(err.contains("so its live blocks are not judged"), `the report says why, got: ${err}`);
+    })
+  );
+});

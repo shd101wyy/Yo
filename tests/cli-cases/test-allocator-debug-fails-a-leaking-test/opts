@@ -1,0 +1,8 @@
+# `yo test --allocator debug` (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11):
+# a test whose body returns with a block still live fails as a leak, named by
+# the runner; a test that frees everything passes, its report counting 0
+# blocks. The last two commands pin the flag's validation. The test binary's
+# stderr rides the runner's `-v` output with its build chatter, so stdout
+# keeps only the verdict lines, the leak counts and the errors.
+stdout_keep_match=(✓ .*|✗ .*|Memory leak detected:|live at exit: [0-9]+ blocks / [0-9]+ bytes|live block #[0-9]+: [0-9]+ bytes|invalid --allocator .*|--debug-heap requires --allocator fixed|[0-9]+ passed|[0-9]+ failed)
+timeout=600

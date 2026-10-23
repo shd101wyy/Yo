@@ -286,6 +286,18 @@ Findings (file:line:col):
 
 - `yo public-safe-report [path]` —— 标记签名中泄漏 `*(T)` 的公共标准库 API。在标准库演化时用来保持安全表面的清洁。
 
+### `--allocator debug`：运行时的泄漏与堆误用
+
+unsafe 表面仍可能把一个块释放两次、释放一个从未分配过的指针、通过悬垂指针写入，或者忘记释放一个块。`--allocator debug`（`yo compile`、`yo test`，或 `build.yo` 中的 `allocator : AllocatorKind.Debug`）让程序运行在一个建立于系统堆之上的跟踪分配器上，在所有平台上都能发现这些问题，包括 AddressSanitizer 不可用的平台：
+
+- **重复释放，或释放一个它从未分配出去的指针，会中止程序**，报告 `debug allocator: double free: free of block #N (S bytes), already freed`，或者指出那个指针。
+- **被释放的块会被投毒并隔离**，而不是被重用（最多保留 64 MiB 已释放的负载）。通过悬垂指针的写入会在该块离开隔离区时或在退出时被报告：`block #N (S bytes) was written after it was freed (first changed byte at offset K)`。
+- **新分配的块填充为 `0xAA`**，因此读取没人初始化过的内存会看到一个可辨认的模式，而不是碰巧为零。
+- **退出报告列出每个仍然存活的块。** 它总会打印 `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`，然后按分配编号列出最多 32 个存活块。当 `main` 正常返回而仍有块存活时，进程以状态码 23 退出并打印 `leak check failed`。程序内部调用 `exit()` 会跳过所有 drop，因此它的存活块会被列出，但不作判定。
+- **`yo test --allocator debug` 让泄漏的测试失败。** 每个测试运行在独立的进程中，因此测试体返回时仍有块存活的测试会以 `Memory leak detected` 失败。
+
+块以分配编号命名；设置 `YO_DEBUG_ALLOC_TRAP=<n>` 后，程序会在第 `n` 次分配时中止，调试器即可显示它来自哪里（单线程程序的分配编号是确定的）。该分配器目前还不检查释放时给出的大小是否与块一致（这需要分配器接口下一版本中带大小的 `free`），也不记录分配位置。
+
 ## FFI
 
 用户代码不能声明 `extern(...)` 或 `c_include(...)`。要调用 C 函数：

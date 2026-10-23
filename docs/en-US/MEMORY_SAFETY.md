@@ -287,6 +287,18 @@ Useful flags:
 
 - `yo public-safe-report [path]` — flags public stdlib APIs that leak `*(T)` in their signatures. Used to keep the safe surface clean as the stdlib evolves.
 
+### `--allocator debug`: leaks and heap misuse at run time
+
+The unsafe surface can still free a block twice, free a pointer it never allocated, write through a dangling pointer or forget a block. `--allocator debug` (`yo compile`, `yo test`, or `allocator : AllocatorKind.Debug` in `build.yo`) runs the program on a tracking allocator over the system heap that catches these on every platform, including the ones where AddressSanitizer is unavailable:
+
+- **A double free, or a free of a pointer it never handed out, aborts** with `debug allocator: double free: free of block #N (S bytes), already freed`, or with the pointer named.
+- **A freed block is poisoned and quarantined** instead of reused (up to 64 MiB of freed payload). A write through a dangling pointer is reported when the block leaves the quarantine or at exit: `block #N (S bytes) was written after it was freed (first changed byte at offset K)`.
+- **Fresh blocks are filled with `0xAA`**, so a read of memory nobody initialized shows a recognizable pattern rather than a lucky zero.
+- **The exit report lists every block still live.** It always prints `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`, then up to 32 live blocks by allocation number. When `main` returned normally and a block is still live, the process exits with status 23 and `leak check failed`. An `exit()` from inside the program skips every drop, so its live blocks are listed but not judged.
+- **`yo test --allocator debug` fails a test that leaks.** Each test runs in its own process, so a test whose body returns with a block still live fails as `Memory leak detected`.
+
+A block is named by its allocation number; set `YO_DEBUG_ALLOC_TRAP=<n>` and the program aborts at allocation `n`, so a debugger shows where it came from (single-threaded programs number their allocations deterministically). The allocator does not yet check that a free names the block's size (that needs the sized `free` of the allocator interface's next version), and it does not record allocation sites.
+
 ## FFI
 
 User code cannot declare `extern(...)` or `c_include(...)`. To call a C function:

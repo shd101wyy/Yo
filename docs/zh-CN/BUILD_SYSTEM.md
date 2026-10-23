@@ -168,6 +168,7 @@ test_step.depend_on(tests);
 | `AllocatorKind.Mimalloc` | 高性能分配器（mimalloc）      |
 | `AllocatorKind.System`   | 平台系统分配器（默认）        |
 | `AllocatorKind.Fixed`    | 作用于单个静态区域的通用 TLSF 分配器（见下文） |
+| `AllocatorKind.Debug`    | 建立在系统分配器之上的跟踪分配器：重复释放时中止，泄漏的运行失败（见下文） |
 
 `AllocatorKind.Fixed` 让所有分配都来自 `.bss` 中一个静态定长的区域 —— 不依赖
 libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执行产物的 `heap_size`
@@ -177,6 +178,13 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 测试输入，而不是永远触发不了的 overcommit。该分配器是线程安全的（并行运行
 时会从工作线程分配），`yo compile --debug-heap` 会在进程退出时报告存活块数，
 构成一个可移植的泄漏检查工具。
+
+`AllocatorKind.Debug` 即 `yo compile --allocator debug`，用于查找内存 bug 的
+分配器：重复释放或释放一个它从未分配出去的指针会中止程序，被释放的块会被投毒并
+隔离，因此释放后写入会被报告，退出报告会列出每个仍然存活的块。`main` 返回时仍有
+存活块的运行以状态码 23 退出，因此 `yo build run` 和 `yo test --allocator debug`
+会在泄漏时失败。参见
+[内存安全](MEMORY_SAFETY.md#--allocator-debug运行时的泄漏与堆误用)。
 
 ### 循环回收器
 

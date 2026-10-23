@@ -254,6 +254,28 @@ that ends with live blocks. It works on every platform including the
 ones where ASan is hollow, and it is deterministic. CODEGEN_PERFORMANCE
 CP0's event counters can ride the same header.
 
+**As built (2026-10-23, `feat/z11-debug-allocator`).** `--allocator debug`
+for `yo compile` and `yo test`, and `AllocatorKind.Debug` on an
+`Executable` (the allocator string reaches `__yo_build_executable`
+unchanged, so no new builtin and no seed gate). The runtime is
+`src/codegen/c/allocator_debug.yo`: a header per block (system pointer,
+size, allocation number, address-keyed canary), a live list, fresh blocks
+filled 0xAA, freed blocks poisoned 0xDD and kept in a 64 MiB FIFO
+quarantine (checked on eviction and at exit, so a write after free is
+reported), double-free and foreign-pointer aborts, and an exit report:
+`debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`
+plus up to 32 live blocks by allocation number. When `main` returned
+normally a live block exits 23 (`leak check failed`), which `yo test`
+names `Memory leak detected`; an `exit()` mid-program is listed, not
+judged. Two parts are deferred: the **size-mismatch abort** needs allocator
+interface v2's sized `free` (v0.2.71 Generation A), and **allocation sites**
+need Z4, which has not landed; until then a block is named by its
+allocation number and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`
+for a debugger stack. The `DebugAllocator` VALUE (a tracking wrapper over
+any `Allocator`) is A2's other face and waits for version 2 with the rest of
+`std/heap`. The tree's hand-written `Dispose`-counter leak gates are not
+switched over here.
+
 ### Z12. Fixed-capacity inline list — `std.BoundedArray`
 
 **Yo today.** `Array(T, N)` (no length) and `ArrayList(T)` (heap) only
