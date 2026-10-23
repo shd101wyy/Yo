@@ -147,8 +147,8 @@ test("a block still live when main returns fails the run with status 23", {
       out := _run_child("leak", io);
       err := String.from_bytes(out.stderr);
       assert(out.status.code().unwrap_or(i32(-1)) == i32(23), `the leak check exits with 23, got: ${err}`);
-      assert(err.contains("live at exit: 1 blocks / 48 bytes"), `the report counts the block, got: ${err}`);
-      assert(err.contains("debug allocator: leak check failed"), `the report states the verdict, got: ${err}`);
+      // `g_kept` below is a module global, reachable and not counted.
+      assert(err.contains("debug allocator: leak check failed: 1 blocks / 48 bytes leaked"), `the report counts the block, got: ${err}`);
     })
   );
 });
