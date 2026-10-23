@@ -7350,8 +7350,9 @@ heavy run, the command is given in item 2.
          src/env.yo --std-path ./std`. The dry run took 6:37 at 1.51 GB.
          Result: 632 insertions in 80 files, 1,959 sites listed, 0 files
          that failed to evaluate. The output is committed as generated, with
-         no hand edits. The listing is
-         `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-23.md`.
+         no hand edits. Its listing was committed as
+         `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-23.md`; the
+         final regeneration (below) replaced it at that path.
 
          | | #1539 (2026-10-22) | #1549's dry run (d09011d8b) | this run |
          | --- | --- | --- | --- |
@@ -7466,6 +7467,33 @@ heavy run, the command is given in item 2.
          and the `fix-migrate-explicit-copy-*` cli cases plus any failing
          case. Run the fixpoint if time allows. Develop's battery does the
          full check.
+       - **Final regeneration, 2026-10-23.** Done as above, except that
+         the base was a merge rather than the develop tip:
+         `perf/share-token-input` (`b8463d4d5`) merged into develop
+         `617cfc052` as `e094cc8bc`, so the run could start before #1561
+         landed. #1561 then squash-merged as `54e94f11e`, whose tree is
+         identical to `e094cc8bc`, and the regeneration commit was rebased
+         onto develop `c45d099b4`. That rebase also brought in #1562 (the
+         compile-time-collapsed `cond` fix), which edits
+         `src/codegen/exprs/cond.yo` (4 of the regeneration's insertions)
+         and `src/evaluator/exprs/cond.yo`. It applied cleanly. The
+         idempotence dry run below covers it.
+         - `regen.sh` built the tool from `e094cc8bc` with the v0.2.68
+           seed. Every step returned 0. The dry run took 17:20 at 1.52 GB
+           and the apply 15:00 at 1.54 GB. Both ran on a box at load 12 to
+           17, against 6:37 for the re-run.
+         - Result: 632 insertions in 80 files, 1,963 sites listed, 0 files
+           that failed to evaluate. The `+`/`-` lines of the diff are
+           identical to the re-run's commit `f08b97e7e`: 590 lines changed
+           in 80 files, with the same insertions by kind and by directory
+           as in the table above. The 4 new listed sites are hot-path sites
+           in `src/evaluator/utils.yo` (3 `field-store`, 1 `param`):
+           `src` and `at_module` stored into `g_copy_flows` and
+           `g_clone_impl_bodies` entries, and `key` inserted into
+           `g_clone_impl_body_keys`, from the recorder globals #1551
+           converted after the re-run (hot path 490 → 494). The listing is
+           `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-23.md`.
+         - `check ./src` with the tool: 275/275, 13:07 at 1.25 GB.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
