@@ -456,6 +456,10 @@ c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
 
 - **`T` is inferred** from the argument, which the ~1,300 tree-node
   constructions of V4 rely on.
+- **Amended 2026-10-23:** `Box.new`/`Rc.new`/`Arc.new` replace `box`/`rc`/`arc`
+  at Generation B of `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` (the
+  migration at v0.2.73, the builtins deleted at v0.2.74); until then V4's
+  constructions use `rc(…)`.
 - **`alloc`.** `alloc : .None`, the default, means the current
   `with_allocator` scope, else the global allocator. `.Some(a)` places the
   cell in `a`.
@@ -4627,8 +4631,11 @@ and in git, not a silent edit.
     `IntPair(u8).first(q)` work. A labeled receiver
     (`Pair.first(self : p)`) is the first argument too, since labels are
     positional.
-  - **Static methods.** A method with no `self` has nothing to infer from,
-    so `Pair.make(a, b)` is E0613; the type arguments are written,
+  - **Static methods.** (Amended 2026-10-23: A1 of
+    `plans/backlog/STATIC_ARGUMENT_INFERENCE.md` replaces this bullet when it
+    lands; a static method then infers from every argument whose declared
+    type mentions the constructor's binders.) A method with no `self` has
+    nothing to infer from, so `Pair.make(a, b)` is E0613; the type arguments are written,
     `Pair(A, B).make(a, b)`. The type a binding expects of the result does
     not supply them either: "whenever we could be explicit, do explicit".
     A first argument of another type (`Box.clone(a)` for an `Arc`) is
