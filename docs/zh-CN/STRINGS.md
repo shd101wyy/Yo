@@ -162,6 +162,15 @@ s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 
 读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 或 `bytes()` 迭代器，它们都不复制。
 
+std 中暴露值内部所存字符串的 getter 返回它的借用（投影，`-> &String` 或
+`-> &Option(String)`），而不是副本：`Url.scheme`、`path`、`host`、`query`、
+`fragment` 和 `userinfo`；`Regex.source`；`RegexMatch.value` 和 `input`；
+`ParsedArgs.get_subcommand`；以及 `UnixListener.local_path`。读取结果（比较、插值、
+传给 `&String` 参数）不复制任何东西。要保留或修改它，就复制一份：
+`mut(p) := url.path().clone();`。借用位于接收者内部，所以在临时值上调用这些 getter
+并绑定结果是错误（“…… a temporary that ends with this statement”）：先把接收者绑定到
+局部变量，或对结果调用 `.clone()`。
+
 在 C 边界上用来指名的字符串（路径、主机名、环境变量、程序参数）要经过
 `to_cstr_checked()`。C 在第一个 NUL 处结束字符串，所以 `"/tmp/a\0/etc"`
 否则会作用于 `/tmp/a`。std 的文件系统、网络、环境变量和进程 API 都这样做：这样的

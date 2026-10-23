@@ -71,7 +71,7 @@ impl(
   /// `Ipv4Addr::from_str` does — octal ambiguity), no empty octet (`1..2.3`,
   /// `1.2.3.`, `...` used to parse as 0-filled addresses).
   parse_v4 : (fn(s : &String, exn : Exception) -> IpAddr)({
-    bytes := s;
+    bytes := &s;
     parts := Array(u8, usize(4)).fill(u8(0));
     part_idx := usize(0);
     val := u32(0);
@@ -151,7 +151,7 @@ impl(
   /// at the end. A zone id (`%eth0`) is NOT accepted — it identifies an
   /// interface, not an address, and `IpAddr` has nowhere to put it.
   parse_v6 : (fn(s : &String, exn : Exception) -> IpAddr)({
-    bytes := s;
+    bytes := &s;
     n := bytes.len();
     cond(
       (n == usize(0)) => {
@@ -792,7 +792,7 @@ _parse_port :: (fn(s : &String, exn : Exception) -> u16)({
     },
     true => ()
   );
-  bytes := s;
+  bytes := &s;
   (v : u32) = u32(0);
   (i : usize) = usize(0);
   while(runtime(i < bytes.len()), {

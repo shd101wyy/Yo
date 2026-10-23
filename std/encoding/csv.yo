@@ -111,7 +111,7 @@ _LF :: u8(10);
 parse_with :: (
   fn(input : &String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )({
-  bytes := input;
+  bytes := &input;
   n := bytes.len();
   records := ArrayList(ArrayList(String)).new();
   record := ArrayList(String).new();
@@ -231,7 +231,7 @@ parse_strict :: (
 /// Whether `field` must be quoted under `opts`: it contains the delimiter,
 /// a quote, CR or LF (an empty field is written bare).
 _needs_quotes :: (fn(field : &String, delimiter : u8) -> bool)({
-  bytes := field;
+  bytes := &field;
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes.byte_at(i);
@@ -246,7 +246,7 @@ _write_field :: (fn(out : &mut String, field : &String, delimiter : u8) -> unit)
   cond(
     _needs_quotes(field, delimiter) => {
       out.push_byte(_QUOTE);
-      bytes := field;
+      bytes := &field;
       i := usize(0);
       while(i < bytes.len(), i = (i + usize(1)), {
         b := bytes.byte_at(i);
@@ -267,13 +267,12 @@ write_with :: (fn(records : &ArrayList(ArrayList(String)), opts : CsvOptions) ->
   out := String.new();
   r := usize(0);
   while(r < records.len(), r = (r + usize(1)), {
-    fields := records(r);
     f := usize(0);
-    while(f < fields.len(), f = (f + usize(1)), {
+    while(f < records(r).len(), f = (f + usize(1)), {
       if(f > usize(0), {
         out.push_byte(opts.delimiter);
       });
-      _write_field(&mut out, &fields(f), opts.delimiter);
+      _write_field(&mut out, &records(r)(f), opts.delimiter);
     });
     match(
       opts.line_ending,

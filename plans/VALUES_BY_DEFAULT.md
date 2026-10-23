@@ -7241,6 +7241,251 @@ heavy run, the command is given in item 2.
      - Needs: B1. Flips nothing. Not seed-gated.
      - Tier 1: the test files of each touched std module, one per call;
        cli-diff; `compile.test.yo`.
+     - **As-built 2026-10-22** (branch `feat/v2b-b3-std-explicit-copies`,
+       on develop `e30c0d8ed`).
+       - The std half of B1 is applied here. `yo fix ./std --migrate
+         explicit-copy --std-path ./std`, run by develop's tree binary
+         (which carries #1537), took 0:34 at 279 MB. Its listing is identical
+         to `plans/handover/VBD_B3_STD_EXPLICIT_COPY_LISTING_2026-10-22.md`.
+         None of the 52 insertions is one of B1's two S1 shapes: none is
+         inside a `Clone` impl, and none clones a conditional arm whose
+         binding is written later.
+       - The rule for a tool insertion: it is kept when the copy reaches an
+         owned use (a field or list store, a return, a write, a by-value
+         argument). A copy that is only read is not kept. 36 are kept and
+         16 are replaced:
+         - 6 read-only aliases became borrows: `percent.yo` ×2,
+           `regex/flags.yo`, `toml.yo`'s `_write_f64`, `path.yo`'s
+           `to_string` (which had copied the segment list on every call),
+           and `fs/dir.yo`'s `create_dir_all` (`bytes := &path_s`).
+         - 10 element copies are read in place instead. `key := &xs(i)` is
+           rejected ("A local borrow needs a place"), so these read
+           `xs(i)` where it lives rather than binding a borrow:
+           `fs/dir.yo`'s `read_dir` (2 insertions: the entry and its name,
+           now one copy of the name per entry), the key in `_json_eq` and
+           `_toml_eq` (a copy per outer key inside an O(n²) loop), the JSON
+           pointer token, `http/client.yo`'s `_value_has_token`,
+           `url/index.yo`'s `query_pairs`, the two header-line loops of
+           `http/http.yo` (the request parser copies the line only for its
+           `InvalidHeaderLine` error), and `fs/walker.yo`'s popped path.
+         - Kept on purpose: `regex/vm.yo:798`, the `Match` step's
+           `thread.slots.clone()`. It runs once per generation that finds a
+           match, and its size is the number of capture slots. That is
+           unlike `vm.yo:343` (deferred to B8 below), which would copy on
+           every `Save` step of every thread.
+       - The 162 listed sites were decided by hand:
+
+         | decision | sites |
+         | --- | --- |
+         | `.clone()`: the copy must be independent after B8 | 68 |
+         | borrow: a read-only alias becomes `y := &x` | 38 |
+         | projection (`-> &T`) | 11 |
+         | move | 8 |
+         | restructure | 7 |
+         | deferred, with a reason | 30 |
+
+         - **Clones.** Most are a `&String`/`&ArrayList` parameter stored
+           in a field or pushed into a list (constructors, builders,
+           setters), or an owned result built from a parameter
+           (`return(input)` in `html.decode`, `Regex.replace` and the
+           like). `JsonValue`'s `ToJson`/`FromJson` and
+           `RegexMatch.group` also return a clone now.
+         - **Borrows.** 36 are `bytes := s`-style aliases of a `&`
+           parameter, now `bytes := &s`, three of them inside an
+           `io.async` body (`fs/file.yo`, `io/bufio.yo`,
+           `process/command.yo`). The other two are
+           `&self._program.literal_prefix` and
+           `&self._program.instructions` in the regex engine.
+         - **Projections.** These field getters now return a place, not a
+           copy: `Url.scheme`/`path` (`-> &String`) and
+           `host`/`query`/`fragment`/`userinfo` (`-> &Option(String)`),
+           `Regex.source`, `RegexMatch.value`/`input`,
+           `ParsedArgs.get_subcommand`, and `UnixListener.local_path`. A
+           caller that rewrites the result copies it, as
+           `std/http/client.yo` now does with
+           `req_path := url.path().clone()`. Without the copy,
+           `req_path` binds a `&` borrow and the rewrite is E0908.
+         - **This breaks one user-visible pattern**: binding a getter
+           called on a temporary. `s := Regex.new(p).unwrap().source();`
+           and `p := Url.parse(x).unwrap().path();` used to bind an owned
+           copy; now they fail to compile ("the projection's result is a
+           place inside …, which is a temporary that ends with this
+           statement"). Bind the receiver first
+           (`re := Regex.new(p).unwrap(); s := re.source();`), or copy the
+           result (`(s : String) = Regex.new(p).unwrap().source().clone();`).
+           Nothing in the tree uses the pattern. The release notes must say
+           so. `yo check` does not report it on a `.test.yo` file; the
+           test batch's compile does.
+         - **Moves.** Six parameters became by-value, because every caller
+           passes a temporary or a dead local: `_format_int`'s `decimal`,
+           `_apply_width`'s `text`, `RegexMatch.new`'s `value`, `groups`
+           and `group_spans`, and `RegexNode.char_class`'s `ranges`. Two
+           sites (`csv.yo:181`, `string.yo:743`) are already a last use
+           followed by a reassignment, so they need no edit.
+         - **Restructures.** `JsonValue.insert`/`remove` and
+           `TomlValue.insert` match the `&mut` receiver and write its
+           payload lists in place (decision 26). They used to copy the
+           lists out and store them back. `csv.write_with` reads
+           `records(r)` in place. `FormatSpec.pad` builds its owned text as
+           either the cut prefix or one copy of the body.
+           `RegexMatchIter.next` reads `self._input` in place: a `&` borrow
+           of it is E0911, because `next` writes `self._byte_pos` in the
+           same `ref` cell. `NfaVm._input` was never read, so the field and
+           its copy are deleted.
+       - Deferred, by the phase that reshapes each site:
+         - **B6 (decision 20's accessors), 9 sites:** `ArrayList.get`,
+           `HashMap.get`, `ArrayList.extend` (an element copy in a generic
+           body that needs the `T <: Clone` bound B6 decides),
+           `Option.unwrap`/`unwrap_or` (3 sites), and
+           `Result.unwrap`/`unwrap_or` (3 sites).
+         - **B7 (decision 39's iteration), 10 sites:** the iterators that
+           hold their source. These are `ArrayList.chunks`/`windows`, the
+           `HashMap` key iterator, `PriorityQueue.into_iter`/`iter`, and
+           `String.chars`/`bytes`/`into_iter`/`char_indices`/`lines`.
+         - **B8, 11 sites.** These must keep sharing until the flip:
+           - `fmt/to_string.yo:349`, `String.to_string`. String
+             interpolation lowers every part, literal or `String`, to
+             `part.to_string()` and joins the parts with `+`
+             (`src/parser.yo`), so a clone here allocates one throwaway
+             copy per part of every template while `String` is a `ref`
+             type. It was a clone in the first round of this branch; review
+             found that the cost lands on every interpolation in every
+             program and in the compiler, unmeasured. At B8 this becomes the
+             `.clone()` an owned result needs, so B8 must also stop routing
+             a `String` part through `to_string` (append it by borrow).
+           - `json.yo:561` and `toml.yo:463`: the parsers hold their input
+             bytes by sharing so that they never copy the input. B8
+             chooses between a by-value input and one copy per parse.
+           - `fs/watch.yo:118` and `string_builder.yo:187`: both already
+             have the take shape (copy the field, then reset it). They
+             need decision 19's `replace(&mut …)`, which has no prelude
+             form yet.
+           - `regex/match.yo:56`: every match of one search shares the
+             haystack, and a copy per match would cost O(input) each time.
+             B8 decides on an `Rc(String)` instead.
+           - `regex/vm.yo:343`: the Save step hands the slot list to the
+             thread that follows it, because the thread before it is dead.
+             A clone would copy the slots in the matcher's hot loop.
+           - `regex/vm.yo:542`/`543`: the VM's preallocated scratch
+             buffers. `&mut self._seen` is E0911, because `NfaVm` is a
+             `ref` cell and `self` is in use while the borrow is live.
+           - `string.yo:279`/`290`: `String`'s copy-on-write byte-list
+             helpers, which B8's newtype rewrites.
+       - **The listing undercounts.** A copy of a collection whose element
+         type has no `Clone` is neither rewritten nor listed
+         (`issues/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`,
+         S3). Two such sites were found next to listed ones:
+         - `fs/walker.yo`'s `return(results)`. `_filter_by_pattern` now
+           takes `results` by value, and its one caller passes a dead
+           local.
+         - `NfaCompiler.compile`'s `group_names` field store. It is left
+           as it is, for B8's probe.
+       - **The dry run after B3** (the tree binary built at `cdc55602d`,
+         develop `b14840077` plus this branch) inserts nothing and lists 33
+         sites:
+         - 30 are the deferred sites above, and 2 are the no-edit moves.
+         - The 33rd is new: `ArrayList.push`'s `value`, "copied in a generic
+           body". It appeared with develop's compiler changes (#1542/#1543),
+           not with a std edit. Its only later mention is the proof-only
+           `ensures` clause, so at run time the copy is a move. B8's probe
+           shows whether E0901 agrees.
+         - The first round's dry run also proposed 2 insertions that came
+           from the projections: `match(url.host(), …)` and
+           `match(url.query(), …)` in `std/http/client.yo` copy the
+           borrowed `Option` they match. The tool's `.clone()` is applied
+           there.
+       - Seed constraint: every form used here (projections, local
+         borrows, borrows inside `io.async` bodies, in-place element reads)
+         is accepted by the v0.2.68 seed. `yo check ./std` and
+         `yo check ./src` with the seed and `--std-path ./std` pass.
+       - Cost today: `String` and `ArrayList` are still `ref` types, so
+         every `.clone()` above is a real copy now.
+         - `String.to_string` is deferred (above), so string interpolation
+           copies nothing new. The two cli goldens that the first round
+           re-recorded (`compile-profile`, 91 → 94 std functions;
+           `test-debug-heap-sees-an-arc-mutex-cycle`, 400 → 384 live bytes)
+           both came from that one clone. They are back to develop's
+           values, unchanged by this branch.
+         - Measured: `tests/internal/compile.test.yo`, which compiles the
+           compiler with the given std, run with one binary (built at
+           `cdc55602d`) on develop `b14840077`'s tree and on this branch's
+           tree, back to back, under `YO_TEST_LEAK_VERDICT=0` at a load
+           average of about 10. Develop: 1720 s wall, 1689 s user,
+           3.00 GB peak. Branch: 1728 s wall, 1696 s user, 3.01 GB. The
+           difference (+0.4% user time) is inside run-to-run noise. Both
+           runs need far more than the default 600 s compile deadline on
+           this loaded box, so the first round's two deadline failures were
+           not caused by B3.
+         - Not measured: the compiler's own `check`/`compile` time and RSS
+           with this std against develop's. `yo check ./src` with the tree
+           binary built from this std peaked at 1.12 GB (9:09 wall, under
+           load); no develop baseline was taken in the same conditions.
+       - Tier 1, at `cdc55602d` (develop `b14840077` plus this branch; the
+         later rebase onto develop `56dd8253f` touched no file this branch
+         changes: #1541 is `src/parser.yo` with its tests and docs, and
+         #1548 is plans and issue repros):
+         - `yo build --std-path ./std` with the v0.2.68 seed passes.
+         - `check ./std` passes under both the seed and the tree binary.
+           `check ./src --std-path ./std` passes under both, run under a
+           12 GB cap.
+         - The 72 test files that exercise the touched APIs were run one per
+           call: `tests/collections/*`, `tests/string/*`,
+           `tests/encoding/*`, `tests/io/*`, `tests/http/*`, `fs`, `net`,
+           `url`, `regex`, `cli`, `process`, `fmt`/`format_specs`, `path`,
+           `log`, `glob`, the `error*` files, and the files that name a
+           changed API. 69 pass. The 3 failures are LeakSanitizer verdicts,
+           which CI does not enforce, and each fails the same way with
+           develop's own std:
+           - `tests/net/tcp.test.yo`:
+             `issues/2026-10-17-the-non-routable-connect-test-leaks-its-pending-task-at-exit-where-test-net-stays-pending.md`.
+           - `tests/net/unix.test.yo`:
+             `issues/2026-10-22-an-aborted-accept-leaks-its-peer-address-buffers.md`.
+           - `tests/http/http_limits.test.yo`, which fails only some of the
+             time:
+             `issues/2026-10-23-a-fetch-cut-off-by-a-1ms-timeout-sometimes-leaks-16-bytes.md`.
+         - `tests/internal/compile.test.yo` passes 4/4 (the timing runs
+           above), and `tests/internal/lsp_protocol.test.yo` and
+           `error.test.yo`, which import `std/encoding/json`, pass, all
+           under CI's `YO_TEST_LEAK_VERDICT=0`.
+         - cli-diff with the in-tree binary: 425 pass, 1 skip (network),
+           0 golden diffs. A copy of the binary staged outside the checkout
+           fails `init*`, `skills-install*` and `build-stamp-dotted-dir`,
+           because it cannot walk up to `.github/skills`; that is the
+           staging, not the branch.
+         - The explicit-copy dry run is the one above.
+       - Tier 1 again after the rebase onto develop `265faa941` (#1549,
+         the explicit-copy migration's S1 fixes in `src/`), at `11ee5cb9e`:
+         - `yo build --std-path ./std` with the v0.2.68 seed passes;
+           `check ./std` passes under the seed and the tree binary, and
+           `check ./src --std-path ./std` under the tree binary.
+         - The 133 language test files that import a touched std module
+           (the earlier 72 plus every file importing `std/fmt` or
+           `std/error`) were run one per call. 131 pass. The two failures
+           are the LeakSanitizer verdicts already listed above
+           (`tests/net/tcp.test.yo`, `tests/net/unix.test.yo`).
+           `tests/http/http_limits.test.yo` passed this time.
+         - `tests/internal` in-process under `YO_TEST_LEAK_VERDICT=0`: the
+           first 49 files alphabetically (through `lsp_protocol`, which
+           covers `compile`, `error`, `build_runner`, `check_watch`,
+           `concurrent_test_runs` and the other importers of the touched
+           `fs`/`path`/`json`/`process` modules) pass, and the run hit its
+           two-hour cap inside `macro_expansion`. The remaining importers
+           of those modules ran one per call and pass:
+           `memory_safety_paths`, `module_invalidation`, `parser`,
+           `resolver`, `type_trait_methods` and `version`.
+         - Full cli-diff: 421 pass, 1 skip (network), 7 golden diffs. All 7
+           are the staging diffs above (the binary was copied out of the
+           checkout). The 7 re-run with the in-tree binary pass, and so
+           do the 23 `context-*` cases after the `STRINGS.md` edit.
+         - `docs/en-US/STRINGS.md` and `docs/zh-CN/STRINGS.md` now name the
+           eleven getters, the `.clone()` a caller writes to own the
+           result, and the temporary-receiver error.
+         - Rebased once more onto develop `6dee22187` (#1550, #1551's B5
+           `src/` globals; only this plan overlaps), and re-gated at
+           `74e0d2e48`: the build, `check ./std`, `check ./src`,
+           `tests/internal/compile.test.yo` and the cli-cases
+           `compile-splices-only-its-own-code-spill`, `compile-profile` and
+           `test-debug-heap-sees-an-arc-mutex-cycle` all pass.
    - **B4 (b). Hand edits in `src/`, by directory.** Split by N1's counts
      into PRs of at most ~250 sites (likely `src/evaluator/`, then
      `src/codegen/`, then the rest).

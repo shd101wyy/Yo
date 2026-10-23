@@ -75,14 +75,14 @@ _dns_error_of :: (fn(code : i32) -> DnsError)(
 );
 lookup_host :: (fn(host : &String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
   io.async(e => {
-    host_cstr_bytes := match(host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(NetError.DNSFailed(host : host, reason : DnsError.NotFound))));
+    host_cstr_bytes := match(host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(NetError.DNSFailed(host : host.clone(), reason : DnsError.NotFound))));
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
     ret := e.io.await(IO_dns.getaddrinfo(host_cstr, .None, .None, result_ptr), e.io);
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);
-        e.exn.throw(dyn(NetError.DNSFailed(host : host, reason : _dns_error_of(ret))));
+        e.exn.throw(dyn(NetError.DNSFailed(host : host.clone(), reason : _dns_error_of(ret))));
       },
       true => ()
     );

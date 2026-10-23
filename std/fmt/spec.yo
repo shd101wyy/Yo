@@ -87,7 +87,7 @@ _pad_runes :: (fn(sb : &mut StringBuilder, r : rune, count : usize) -> unit)({
 /// truncate: `precision` means decimal places for numbers and a truncation
 /// length for text, so only the text path may apply it.
 _apply_width :: (
-  fn(fill : rune, align : Option(Alignment), width : usize, text : &String, dflt : Alignment) -> String
+  fn(fill : rune, align : Option(Alignment), width : usize, text : String, dflt : Alignment) -> String
 )({
   // `width` is a CHARACTER count (the field doc says so, and Rust counts
   // chars here too), so the measurement is a rune count — otherwise
@@ -102,17 +102,17 @@ _apply_width :: (
       match(
         al,
         .Left => {
-          sb.write_string(text);
+          sb.write_string(&text);
           _pad_runes(&mut sb, fill, padding);
         },
         .Right => {
           _pad_runes(&mut sb, fill, padding);
-          sb.write_string(text);
+          sb.write_string(&text);
         },
         .Center => {
           left := (padding / usize(2));
           _pad_runes(&mut sb, fill, left);
-          sb.write_string(text);
+          sb.write_string(&text);
           _pad_runes(&mut sb, fill, padding - left);
         }
       );
@@ -225,26 +225,24 @@ impl(
   /// body. `dflt` is the alignment used when the spec did not give one —
   /// `Left` for text, `Right` for numbers, as in Rust.
   pad : (fn(self : Self, body : &String, dflt : Alignment) -> String)({
-    (text : String) = body;
-    match(
+    // The result is a new `String`, so the text to pad is either the cut
+    // prefix or one copy of `body`.
+    text := match(
       self.precision,
-      .Some(p) => {
-        // `.N` on text is a truncation length in CHARACTERS. `nth(p)` hands
-        // back the byte offset rune `p` starts at — a rune boundary by
-        // construction, so the cut can never split a rune and emit invalid
-        // UTF-8; `.None` means the text has at most `p` runes and stays
-        // whole (STD_API_AUDIT_D4_PLAN §5.2 S2).
+      // `.N` on text is a truncation length in CHARACTERS. `nth(p)` hands
+      // back the byte offset rune `p` starts at — a rune boundary by
+      // construction, so the cut can never split a rune and emit invalid
+      // UTF-8; `.None` means the text has at most `p` runes and stays
+      // whole (STD_API_AUDIT_D4_PLAN §5.2 S2).
+      .Some(p) =>
         match(
-          text.char_indices().nth(p),
-          .Some(pair) => {
-            text = text.substring(usize(0), pair._0);
-          },
-          .None => ()
-        );
-      },
-      .None => ()
+          body.char_indices().nth(p),
+          .Some(pair) => body.substring(usize(0), pair._0),
+          .None => body.clone()
+        ),
+      .None => body.clone()
     );
-    _apply_width(self.fill, self.align, self.width, &text, dflt)
+    _apply_width(self.fill, self.align, self.width, text, dflt)
   }),
   /// Number-aware padding: with `0` set and no explicit alignment, the zero
   /// fill goes BETWEEN the sign/prefix and the digits, so `-0042` and
@@ -270,7 +268,7 @@ impl(
         whole.push_string(sign);
         whole.push_string(prefix);
         whole.push_string(digits);
-        _apply_width(self.fill, self.align, self.width, &whole, Alignment.Right)
+        _apply_width(self.fill, self.align, self.width, whole, Alignment.Right)
       }
     )
   })

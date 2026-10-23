@@ -114,7 +114,7 @@ impl(
   }),
   /// Set the request body.
   with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body;
+    self.body = body.clone();
     self
   }),
   /// Give the whole request (redirects included) a deadline.
@@ -371,7 +371,7 @@ impl(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
-        self._idle.push(_Idle(key : key, transport : transport, carry : carry, since : Instant.now()));
+        self._idle.push(_Idle(key : key.clone(), transport : transport, carry : carry, since : Instant.now()));
         true
       }
     )
@@ -396,8 +396,7 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while(runtime(i < parts.len()), {
-    part := parts(i);
-    trimmed := part.trim();
+    trimmed := parts(i).trim();
     cond(
       (trimmed.to_lowercase() == token) => {
         found = true;
@@ -526,11 +525,11 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   cond(
     (is_http || is_https) => (),
     true => {
-      exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
+      exn.throw(dyn(HttpError.UnsupportedScheme(scheme.clone())));
     }
   );
   host := match(
-    url.host(),
+    url.host().clone(),
     .Some(h) => h,
     .None => {
       exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
@@ -541,7 +540,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   default_port := cond(is_https => u16(443), true => u16(80));
   port := match(url.port(), .Some(p) => p, .None => default_port);
   // Build the request path (include query string if present)
-  req_path := url.path();
+  req_path := url.path().clone();
   cond(
     req_path.is_empty() => {
       req_path = `/`;
@@ -549,7 +548,7 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
     true => ()
   );
   match(
-    url.query(),
+    url.query().clone(),
     .Some(q) => {
       req_path = `${req_path}?${q}`;
     },
@@ -820,7 +819,7 @@ _resolve_location :: (fn(base_str : &String, location : &String, exn : Exception
     .Ok(u) => u.to_string(),
     // An unresolvable `Location` is the server's problem, not ours; pass it
     // on so the next hop's own parse reports it with its own error.
-    .Err(_) => location
+    .Err(_) => location.clone()
   )
 });
 /// The options for the next hop. 303 always becomes a GET, and so do 301/302
@@ -833,7 +832,7 @@ _redirect_options :: (fn(opts : &FetchOptions, status : StatusCode) -> FetchOpti
   FetchOptions(
     method : cond(to_get => HttpMethod.GET, true => opts.method),
     headers : opts.headers,
-    body : cond(to_get => ``, true => opts.body),
+    body : cond(to_get => ``, true => opts.body.clone()),
     timeout : opts.timeout,
     max_redirects : opts.max_redirects,
     max_response_bytes : opts.max_response_bytes

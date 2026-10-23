@@ -95,7 +95,7 @@ _ascii_lower :: (fn(b : u8) -> u8)(
 //   - trailing OWS is stripped too.
 _header_values :: (fn(data : &ArrayList(u8), header_end : usize, name : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
-  key := name;
+  key := &name;
   klen := key.len();
   line_start := usize(0);
   on_start_line := true;
@@ -181,7 +181,7 @@ _MAX_CONTENT_LENGTH :: (usize.MAX >> usize(4));
 // collapses every other rejection into the same `.None`, so the digits are
 // walked here instead.
 _parse_content_length :: (fn(value : &String) -> Option(usize))({
-  bytes := value;
+  bytes := &value;
   cond(
     (bytes.len() == usize(0)) => {
       return(Option(usize).None);

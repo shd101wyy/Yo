@@ -91,7 +91,7 @@ impl(
   /// A parser positioned at the start of `pattern`, with no groups seen yet.
   new : (fn(pattern : &String) -> Self)(
     Self(
-      _source : pattern,
+      _source : pattern.clone(),
       _bytes : pattern.to_bytes(),
       _pos : usize(0),
       _group_count : usize(0),
@@ -450,7 +450,7 @@ impl(
       cond(
         found_end => {
           self._pos = (self._pos + usize(1));
-          return(.Ok(RegexNode.char_class(&ranges, negated)));
+          return(.Ok(RegexNode.char_class(ranges, negated)));
         },
         true => ()
       );
@@ -501,7 +501,7 @@ impl(
           return(
             match(
               lookup,
-              .Some(ranges) => .Ok(RegexNode.char_class(&ranges, negated)),
+              .Some(ranges) => .Ok(RegexNode.char_class(ranges, negated)),
               .None => .Err(RegexError.UnknownUnicodeProperty(name_str, self._pos))
             )
           );

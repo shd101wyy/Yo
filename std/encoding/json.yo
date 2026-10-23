@@ -196,7 +196,7 @@ impl(
   as_string : (fn(self : &Self) -> Option(String))(
     match(
       self,
-      .Str(s) => .Some(s),
+      .Str(s) => .Some(s.clone()),
       _ => .None
     )
   ),
@@ -216,7 +216,7 @@ impl(
         result := ArrayList(JsonKV).new();
         i := usize(0);
         while(i < keys.len(), i = (i + usize(1)), {
-          result.push(JsonKV(key : keys(i), value : values(i)));
+          result.push(JsonKV(key : keys(i).clone(), value : values(i)));
         });
         .Some(result)
       },
@@ -228,7 +228,7 @@ impl(
 /// zero? The RFC is explicit that `"01"` is not an index, so it must not
 /// silently resolve to element 1.
 _is_rfc6901_index :: (fn(token : &String) -> bool)({
-  b := token;
+  b := &token;
   if(b.len() == usize(0), {
     return(false);
   });
@@ -333,43 +333,49 @@ impl(
   /// and a replacement keeps the key's original position.
   ///
   /// Panics when `self` is not an object.
-  insert : (fn(self : &mut Self, key : String, value : JsonValue) -> Option(JsonValue))({
-    // The payload lists are taken into locals, written, and stored back: a
-    // `match` binding is a copy of them once collections are values.
-    keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
-    values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.insert: requires the .Object variant"));
-    i := usize(0);
-    while(i < keys.len(), i = (i + usize(1)), {
-      if(keys(i) == key, {
-        old := values(i);
-        values(i) = value;
-        self = Self.Object(keys, values);
-        return(Option(JsonValue).Some(old));
-      });
-    });
-    keys.push(key);
-    values.push(value);
-    self = Self.Object(keys, values);
-    Option(JsonValue).None
-  }),
+  insert : (fn(self : &mut Self, key : String, value : JsonValue) -> Option(JsonValue))(
+    // A `match` on the `&mut` receiver binds the payload lists as `&mut`
+    // places (decision 26), so they are written where they live: no copy of
+    // either list is taken out and stored back.
+    match(
+      self,
+      .Object(keys, values) => {
+        i := usize(0);
+        while(i < keys.len(), i = (i + usize(1)), {
+          if(keys(i) == key, {
+            old := values(i);
+            values(i) = value;
+            return(Option(JsonValue).Some(old));
+          });
+        });
+        keys.push(key);
+        values.push(value);
+        Option(JsonValue).None
+      },
+      _ => __yo_panic("JsonValue.insert: requires the .Object variant")
+    )
+  ),
   /// Remove `key`, returning its value (`.None` when absent) —
   /// `serde_json`'s `Map::remove`. The remaining keys keep their order.
   ///
   /// Panics when `self` is not an object.
-  remove : (fn(self : &mut Self, key : &String) -> Option(JsonValue))({
-    keys := match(self, .Object(k, _) => k, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
-    values := match(self, .Object(_, v) => v, _ => __yo_panic("JsonValue.remove: requires the .Object variant"));
-    i := usize(0);
-    while(i < keys.len(), i = (i + usize(1)), {
-      if(keys(i) == key, {
-        keys.remove(i);
-        removed := values.remove(i);
-        self = Self.Object(keys, values);
-        return(Option(JsonValue).Some(removed));
-      });
-    });
-    Option(JsonValue).None
-  }),
+  remove : (fn(self : &mut Self, key : &String) -> Option(JsonValue))(
+    match(
+      self,
+      .Object(keys, values) => {
+        i := usize(0);
+        while(i < keys.len(), i = (i + usize(1)), {
+          if(keys(i) == key, {
+            keys.remove(i);
+            removed := values.remove(i);
+            return(Option(JsonValue).Some(removed));
+          });
+        });
+        Option(JsonValue).None
+      },
+      _ => __yo_panic("JsonValue.remove: requires the .Object variant")
+    )
+  ),
   /// Append `value` to an array.
   ///
   /// Panics when `self` is not an array.
@@ -397,8 +403,7 @@ impl(
     (current : JsonValue) = self;
     ti := usize(1);
     while(ti < tokens.len(), ti = (ti + usize(1)), {
-      raw := tokens(ti);
-      token := raw.replace(`~1`, `/`).replace(`~0`, `~`);
+      token := tokens(ti).replace(`~1`, `/`).replace(`~0`, `~`);
       step := match(
         current,
         .Object(_, _) => current.get(&token),
@@ -1225,7 +1230,7 @@ export(
 // ============================================================================
 _write_str_escaped :: (fn(s : &String, out : &mut ArrayList(u8)) -> unit)({
   out.push(u8(34)); // '"'
-  bytes := s;
+  bytes := &s;
   i := usize(0);
   while(i < bytes.len(), i = (i + usize(1)), {
     b := bytes.byte_at(i);
@@ -1557,11 +1562,10 @@ _json_eq :: (fn(lhs : &JsonValue, rhs : &JsonValue) -> bool)(
         });
         i := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          key := a_keys(i);
           (found : bool) = false;
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {
-            if(b_keys(j) == key, {
+            if(b_keys(j) == a_keys(i), {
               if(!_json_eq(&a_values(i), &b_values(j)), {
                 return(false);
               });
@@ -1770,8 +1774,8 @@ impl(
 // JsonValue round-trips through itself, so generic code can hold raw JSON.
 impl(
   JsonValue,
-  ToJson(to_json : (fn(self : &Self) -> JsonValue)(self)),
-  FromJson(from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(.Ok(v)))
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(self.clone())),
+  FromJson(from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(.Ok(v.clone())))
 );
 impl(
   generic(T : Type),
