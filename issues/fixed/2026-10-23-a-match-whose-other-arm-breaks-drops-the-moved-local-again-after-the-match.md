@@ -197,6 +197,7 @@ breaks, continues or returns" (move then `break`/`continue`/`return`;
 arms; a `for` body; the no-loop `Option`/`return` shapes as a statement and as
 a match value; a comptime scrutinee with and without a loop). Every case
 counts the `Drop` runs and the sum of the dropped values, so a double drop and
-a leak both fail it. The test fails on develop `54e94f11e` and passes with the
-fix.
+a leak both fail it; and "a move in a match arm that breaks is moved on some
+ways out of the loop" (E0907, not E0901). Both fail on develop `54e94f11e` and
+pass with the fix.
 

@@ -2220,3 +2220,28 @@ test("move-only: a nested branch's move does not cover the exits in its other ar
   d12 := _mo_counts_reset();
   assert(_mo_shape(_mo_nb_scrutinee_move(), i32(-5), d12, i32(2), i32(3)), "a move in a nested scrutinee");
 });
+// A value declared outside the loop and moved only in a match arm that
+// `break`s is moved on some ways out of the loop: E0907, as for `if`. (The
+// match join used to read the arm's move back as a move on every iteration
+// and report E0901.)
+test("move-only: a move in a match arm that breaks is moved on some ways out of the loop", {
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  g := _MoFd(n : i32(7));
+  comptime_expect_error(
+    while(i < i32(3), {
+      i = (i + i32(1));
+      match(
+        i == i32(2),
+        false => {
+          total = (total + i32(100));
+        },
+        true => {
+          total = (total + _mo_take(g));
+          break;
+        }
+      );
+    }),
+    "moved on some ways out of the loop"
+  );
+});
