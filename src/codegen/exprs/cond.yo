@@ -26,7 +26,7 @@ import("std/fmt");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at, push_declared_scope, scope_stack_contains } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -243,10 +243,14 @@ _emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
   context.pending_deferred_drops = prev_pending;
   context.consumed_var_pending_drops = prev_consumed;
 });
-/// Whether the cond's result temp is a C variable already declared in the
-/// current function.
+/// Whether the cond's result temp is a C variable declared in a C block that
+/// is still open (`scope_stack_contains`). The function-wide
+/// `declared_c_var_names` set is monotonic: a fused await site of a wrapper
+/// awaited twice re-emits the wrapper's body in a second block, where the
+/// first block's declaration of the same name no longer counts
+/// (issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md).
 _temp_is_declared :: (fn(temp_var_opt : &Option(String), context : &FunctionGenerationContext) -> bool)(
-  match(temp_var_opt, .Some(tv) => context.base.declared_c_var_names.with(dn_s => dn_s.contains(&tv)), .None => false)
+  match(temp_var_opt, .Some(tv) => context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &tv)), .None => false)
 );
 /// Whether an arm value carries deferred `___dup`s: it returns a borrowed or
 /// shared value out of the arm (`true => methods`, `true => q` with `q : &R`),
@@ -819,6 +823,9 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   if(!_temp_is_declared(&temp_var_opt, context) && !(tv_c_type == "void"), {
                     em.emit_string_line(`${indent.clone()}${tv_c_type} ${tv.clone()};`);
                     declare_c_var_name(&context.base, tv.clone());
+                    // The emitter's scope tracker records only initialized
+                    // declarations (`T x = ...;`).
+                    push_declared_scope(&context.base, tv.clone());
                   });
                 }));
               }),
