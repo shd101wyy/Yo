@@ -7421,8 +7421,9 @@ heavy run, the command is given in item 2.
            binary built from this std peaked at 1.12 GB (9:09 wall, under
            load); no develop baseline was taken in the same conditions.
        - Tier 1, at `cdc55602d` (develop `b14840077` plus this branch; the
-         later rebase onto develop `d09011d8b` touched no file this branch
-         changes, only `src/parser.yo` and its tests and docs):
+         later rebase onto develop `56dd8253f` touched no file this branch
+         changes: #1541 is `src/parser.yo` with its tests and docs, and
+         #1548 is plans and issue repros):
          - `yo build --std-path ./std` with the v0.2.68 seed passes.
          - `check ./std` passes under both the seed and the tree binary.
            `check ./src --std-path ./std` passes under both, run under a
