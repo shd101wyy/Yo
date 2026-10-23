@@ -17,7 +17,7 @@ fixed.
 RI :: ref(struct(v : i32));
 main :: (fn() -> unit)({
   mut(j) := i32(0);
-  while((RI(v : j).v < i32(3)), {
+  while(RI(v : j).v < i32(3), {
     j = (j + i32(1));
   });
   println(`${j}`);
