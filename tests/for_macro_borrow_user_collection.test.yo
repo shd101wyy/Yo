@@ -20,6 +20,7 @@ pragma(Pragma.AllowUnsafe);
 /// through such a handle) is pinned by
 /// tests/cli-cases/inout-self-method-under-borrow-panics.
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
@@ -389,6 +390,11 @@ impl(
     t
   })
 );
+// Handing the object to a callee that only stores it is not a mutation either.
+// `RefCell.new` boxes its slot with `box(slot)`, omitting `box`'s
+// `alloc ?= .None`: the analysis matches the given arguments to the leading
+// parameters instead of giving up on the call.
+keep_in_cell :: (fn(b : VBag) -> RefCell(VBag))(RefCell(VBag).new(b));
 test("borrowed for: read-only methods iterating a value field by value, through an alias, do not trip the flag", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
@@ -412,9 +418,11 @@ test("borrowed for: read-only methods iterating a value field by value, through 
     seen = (seen + other.sum_chain());
     seen = (seen + other.sum_hand());
     seen = (seen + other.sum_copy());
+    cell := keep_in_cell(other);
+    seen = (seen + cell.with(v => v.items.len()));
     x = (x * i32(10));
   });
-  // Each method sums 0 + 1 + 2 = 3; six methods, two elements.
-  assert(seen == usize(36), "every by-value iteration of a value field runs without the entry assert");
+  // Each method sums 0 + 1 + 2 = 3; six methods plus the two-element list, two elements.
+  assert(seen == usize(40), "every by-value iteration of a value field runs without the entry assert");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });

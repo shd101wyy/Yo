@@ -1399,6 +1399,29 @@ impl(
         .Atom(_, _) => ()
       );
     });
+    // A plain call omitting trailing `?=` parameters (`box(v)` for
+    // `box(value, alloc ?= .None)`): the given arguments bind the leading
+    // parameters in order. A default is the callee's own value — it cannot
+    // name the caller's storage — so the omitted positions stay absent, and a
+    // caller that needs one (a mask hit, a returned root) stays conservative.
+    // Named arguments may skip a leading default: no positional reading.
+    if((args.len() < labels_len) && !ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+      (i3 : usize) = usize(0);
+      while(i3 < args.len(), {
+        match(
+          args.get(i3),
+          .Some(a) => {
+            if(ast_expr_is_fn_call_of(&a, ":", Option(usize).Some(usize(2))), {
+              return(Option(ArrayList(AstExpr)).None);
+            });
+            out.push(_msp_unmarked_arg(&a));
+          },
+          .None => ()
+        );
+        i3 = (i3 + usize(1));
+      });
+      return(Option(ArrayList(AstExpr)).Some(out));
+    });
     Option(ArrayList(AstExpr)).None
   }),
   /// Analyse `fid`: mask + returned root. Memoized with the same cycle
@@ -2530,6 +2553,16 @@ impl(
                   .None => ()
                 );
                 j = (j + usize(1));
+              });
+              // An omitted `?=` argument the callee mutates is storage this
+              // body cannot see (a default may name a global): unknown.
+              (jd : usize) = av.len();
+              while(jd < labels.len(), {
+                if(param_mutation_mask_hits(&an.mask, jd), {
+                  rooted_target = true;
+                  target_root = _msp_join(target_root, _msp_root(MSP_ROOTED));
+                });
+                jd = (jd + usize(1));
               });
               if(rooted_target, {
                 // The callee may store any argument into the mutated
