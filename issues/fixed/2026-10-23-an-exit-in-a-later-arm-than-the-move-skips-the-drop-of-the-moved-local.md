@@ -69,10 +69,56 @@ in source, though the move is not on the exit's path.
 The exit-drop walks (`_m3_attach_to_returns`, `_m3_attach_to_loop_exits`)
 carry the move an exit is ordered against down the tree. Entering arm `i` of a
 `cond`/`match`, `_m3_consumed_for_arm` drops it (`.None`: no move ahead on
-this path) when it lies in the body of an earlier arm. A move in a `cond`
-condition stays, since it runs on every later arm's path. A move inside the
-exit's own arm before the exit is still covered by the flow log's undone moves
-(`variable_moved_at_cleanup_point`).
+this path) when it lies in the body of an earlier arm and the flow log kept
+it for that arm (an `UndoneMove` at that token, recorded when the next arm
+started). A move in a `cond` condition stays, since it runs on every later
+arm's path. A move inside the exit's own arm before the exit is still covered
+by the flow log's undone moves (`variable_moved_at_cleanup_point`).
+
+The flow-log condition is load-bearing. A first version used the token alone,
+and the compiler's own C gained ~1000 drops of minted temps at exits in later
+arms (`parse_target` in `src/target.yo`, under ASan a heap-use-after-free):
+a temp is not flow-logged, and its `consumed_at_token` is rewritten by each
+later use that re-consumes it, so it can sit in an earlier arm although the
+temp's count went to `parts := <temp>` long before the branch. The shape
+needs a template literal in the earlier arm (its desugaring re-consumes the
+temp); `yo test` serializes a batch with templates already desugared, so a
+`tests/` case does not reach it, and the gate for it is the dup/drop emit
+diff of `src/main.yo` (zero temp drops added) plus this probe under
+`--sanitize address --allocator system`:
+
+```yo
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+pt :: (fn(triple : &String) -> Result(i32, String))({
+  parts := triple.split(String.from("-"));
+  n := parts.len();
+  os_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
+  r := cond(
+    (n == usize(4)) => {
+      env_str := match(parts.get(usize(3)), .None => String.new(), .Some(p) => p);
+      if(env_str.len() == usize(0), {
+        return(.Err(`no environment for ${os_str}`));
+      });
+      i32(env_str.len())
+    },
+    true => {
+      if(n == usize(1), {
+        return(.Err(String.from("one")));
+      });
+      i32(0)
+    }
+  );
+  .Ok(r)
+});
+main :: (fn() -> unit)({
+  a := pt(&String.from("x"));
+  b := pt(&String.from("a-b-c-dd"));
+  c := pt(&String.from("a-b"));
+  println(`${a.is_err()} ${b.is_ok()} ${c.is_ok()}`);
+});
+export(main);
+```
 
 **Regression tests:** `tests/move_only.test.yo`, "move-only: an exit in a
 later arm than the move drops the local once" (`if`/`else` with `break`, a

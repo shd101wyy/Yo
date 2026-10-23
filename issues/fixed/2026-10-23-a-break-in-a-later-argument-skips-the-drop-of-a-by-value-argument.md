@@ -54,8 +54,9 @@ evaluated.
 
 Walking a plain call's arguments, `_m3_consumed_for_call_arg`
 (`src/evaluator/exprs/begin.yo`) treats the variable as not yet moved inside
-any argument after the one that names it directly. A block's statements are
-not arguments and keep their order.
+any argument after the one that names it directly (an atom spelling the
+variable's own name at its move token). A block's statements are not
+arguments and keep their order.
 
 **Regression test:** `tests/move_only.test.yo`, "move-only: a `break` in a
 later argument than a by-value argument drops it once".
