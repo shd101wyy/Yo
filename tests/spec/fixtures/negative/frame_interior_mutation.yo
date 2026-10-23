@@ -1,0 +1,21 @@
+// issues/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md:
+// the call-site frame keeps `xs` unchanged across `poke()` because `poke`
+// takes no argument, but `poke` grows `xs` through a handle that
+// `remember(xs)` stashed in a RefCell global. `probe(xs)` returns 1 at
+// runtime, so this ensures is false; the verifier proves it today (S1). It
+// must not report `ok` (refuted, or a subset error naming the call).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ poke } :: import("./frame_interior_mutation_stash.yo");
+
+probe :: (
+  fn(
+    xs : ArrayList(i32),
+    requires(xs.len() == usize(0)),
+    ensures(r == usize(0))
+  ) -> (r : usize)
+)({
+  poke();
+  xs.len()
+});
+export(probe);
