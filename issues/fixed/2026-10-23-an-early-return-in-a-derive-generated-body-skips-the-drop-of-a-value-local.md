@@ -101,7 +101,7 @@ branch:
 
 And one, filed and not fixed here: an `unwind` through a type-qualified
 method call is not caught by the frame that installed the handler
-(`issues/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md`).
+(`issues/fixed/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md`).
 
 **Regression tests:** `tests/derive.test.yo`, "an early return from a
 derive-generated body drops a live value local" and "an effect unwind out of a

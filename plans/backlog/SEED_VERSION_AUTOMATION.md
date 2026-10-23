@@ -382,6 +382,24 @@ Generation B"; the repair keeps a migration-only `Dispose` for user code):
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-24): a cli-case for the borrow-spelling migration over a lexer error
+
+`_raw_parse_or_none` (`src/main.yo`) calls `Parser.new(src, file, local_exn)`,
+a type-qualified method call. Until the fix in
+`issues/fixed/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md`,
+codegen did not catch a lexer error's throw there, so `yo fix <dir>
+--migrate borrow-spelling` exited rc=0 with no output and skipped every later
+file. The fix reaches the compiler's own C one generation later: CI's
+`gates_fast.sh` scores the cli-cases with the seed-built stage-1, which still
+shows the no-op. Measured 2026-10-24 with v0.2.68.
+
+**Generation B (once `SEED_VERSION` carries the fix, v0.2.69 or later):** add
+`tests/cli-cases/fix-migrate-borrow-spelling-lexer-error`: a fixture
+directory with one well-formed file and one holding `x := "abc;`, and the cmd
+`fix . --migrate borrow-spelling --dry-run`. The golden is rc=1,
+`fix: <file> does not parse; skipped` and the summary line ending in
+`1 file(s) did not parse`.
+
 ## Seed-gated follow-up (2026-10-22): `drop_in_place` at std's raw-slot sites
 
 `drop_in_place(p : *(T))` (`std/prelude.yo`, Rust's `ptr::drop_in_place`;
