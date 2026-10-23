@@ -620,7 +620,7 @@ test("TcpListener.incoming is a Stream of accepted connections", {
   // Both connects happen while the server task's accept is pending.
   client1 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
-  accepted := match(
+  mut(accepted) := match(
     io.await(timeout(server.join(io), Duration.from_millis(i64(5000)), io), io),
     .Ok(.Some(list)) => list,
     _ => {
@@ -629,12 +629,16 @@ test("TcpListener.incoming is a Stream of accepted connections", {
     }
   );
   assert(accepted.len() == usize(2), "take(2) ends the stream after two connections");
+  // The items are move-only (`TcpStream`), so they are popped out of the list
+  // rather than copied out by index.
+  second := accepted.pop();
+  first := accepted.pop();
   assert(
-    match(accepted(usize(0)), .Ok(st) => (st.fd() >= i32(0)), .Err(_) => false),
+    match(first, .Some(.Ok(st)) => (st.fd() >= i32(0)), _ => false),
     "the first item is an Ok TcpStream"
   );
   assert(
-    match(accepted(usize(1)), .Ok(st) => (st.fd() >= i32(0)), .Err(_) => false),
+    match(second, .Some(.Ok(st)) => (st.fd() >= i32(0)), _ => false),
     "so is the second — the failure lives IN the item, so one bad accept would not end the stream"
   );
   io.await(client1.close(io), ioe);

@@ -5,8 +5,8 @@
 //! state-machine fixes) and the unit-tail-await substitution fix
 //! (issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md).
 //! The generic `BufReader(R)`/`BufWriter(W)` wrappers are covered in
-//! `bufio.test.yo`; the `Dyn(Reader)` spelling (unblocked by C17) is pinned
-//! at the end of this file.
+//! `bufio.test.yo`; that V3 retired the `Dyn(Reader)` spelling is pinned at
+//! the end of this file.
 pragma(Pragma.SkipWasm32Wasi); // File I/O — the async open/read/write path is host-only; standalone WASI lacks it (same skip as tests/fs)
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
@@ -288,16 +288,13 @@ test("TcpStream carries the Reader and Writer impls", {
   assert(true, "TcpStream trait registration type-checks");
 });
 // ---------------------------------------------------------------------------
-// D5 remnant: the `Dyn(Reader)` spelling. A reader erased behind the trait
-// object dispatches its Future-returning `read` through the vtable (C17,
-// fixed 2026-08-29), reaches the `read_to_end` DEFAULT through it, and can
-// sit inside `BufReader(Dyn(Reader))` — "BufReader wraps ANY Reader" without
-// naming the concrete type.
-//
-// The reader is an in-memory `ref` object, not a `File`: a `File` is
-// move-only and its `read` future borrows it, and a vtable's future type
-// carries no borrow, so `dyn(file)` is E0909 (plans/VALUES_BY_DEFAULT.md
-// §3.13 A2). A `ref` reader's future holds the object itself.
+// D5 remnant: the `Dyn(Reader)` spelling, which V3 retired. The `Reader`
+// defaults (`read_to_end`, `read_to_string`) return futures that BORROW the
+// reader, since a move-only `File` cannot be copied into them, and a vtable's
+// future type carries no borrow (plans/VALUES_BY_DEFAULT.md §3.13 A2). So no
+// reader can be erased, not even a `ref` one whose own `read` owns what it
+// uses (issues/questions/2026-10-23-a-move-only-file-cannot-be-a-dyn-reader.md).
+// "BufReader wraps ANY Reader" is still true through the generic parameter.
 // ---------------------------------------------------------------------------
 MemSource :: ref(struct(data : ArrayList(u8), pos : usize));
 mem_source :: (fn(text : &String) -> MemSource)(
@@ -320,25 +317,13 @@ impl(
     )
   )
 );
-DynSource :: ref(struct(inner : Dyn(Reader)));
-impl(
-  DynSource,
-  read_four : (fn(self : &Self, io : Io) -> Impl(Future(String, IoExn)))(
-    io.async(e => {
-      buf := ArrayList(u8).new();
-      buf.resize_with_byte(usize(4), int(0));
-      n := e.io.await(self.inner.read(buf.ptr().unwrap(), usize(4), e.io), e);
-      String.from_bytes(buf.slice_copy(usize(0) .. n))
-    })
-  ),
-  rest : (fn(self : &Self, io : Io) -> Impl(Future(String, IoExn)))(
-    io.async(e => {
-      bytes := e.io.await(self.inner.read_to_end(e.io), e);
-      String.from_bytes(bytes)
-    })
-  )
-);
-test("Dyn(Reader): vtable read, the read_to_end default through it, and BufReader(Dyn(Reader))", {
+_take_dyn_reader :: (fn(r : Dyn(Reader)) -> bool)(true);
+test("no reader is a Dyn(Reader): the Reader defaults borrow it", {
+  text := `dyn-reader-ok\nline two\n`.to_string();
+  m := mem_source(&text);
+  comptime_expect_error(_take_dyn_reader(dyn(m)), "cannot be made a");
+});
+test("BufReader wraps a user Reader through its generic parameter", {
   t_exn := Exception(
     throw : (
       err -> {
@@ -349,16 +334,14 @@ test("Dyn(Reader): vtable read, the read_to_end default through it, and BufReade
   );
   t_e := IoExn(io : io, exn : t_exn);
   text := `dyn-reader-ok\nline two\n`.to_string();
-  src := DynSource(inner : dyn(mem_source(&text)));
-  head := io.await(src.read_four(io), t_e);
-  assert(head == `dyn-`, `first four bytes through Dyn(Reader).read, got: ${head}`);
-  tail := io.await(src.rest(io), t_e);
-  assert(tail == `reader-ok\nline two\n`, `read_to_end default through the vtable continues at the reader's position, got: ${tail}`);
-  br := BufReader(Dyn(Reader)).new(dyn(mem_source(&text)));
+  m := mem_source(&text);
+  rest := io.await(m.read_to_string(io), t_e);
+  assert(rest == text, `read_to_string default over a ref reader, got: ${rest}`);
+  br := BufReader(MemSource).new(mem_source(&text));
   l1 := io.await(br.read_line(io), t_e);
-  assert(match(l1, .Some(s) => (s == `dyn-reader-ok`), .None => false), "BufReader(Dyn(Reader)) line 1");
+  assert(match(l1, .Some(s) => (s == `dyn-reader-ok`), .None => false), "BufReader(MemSource) line 1");
   l2 := io.await(br.read_line(io), t_e);
-  assert(match(l2, .Some(s) => (s == `line two`), .None => false), "BufReader(Dyn(Reader)) line 2");
+  assert(match(l2, .Some(s) => (s == `line two`), .None => false), "BufReader(MemSource) line 2");
   l3 := io.await(br.read_line(io), t_e);
-  assert(l3.is_none(), "BufReader(Dyn(Reader)) reports EOF");
+  assert(l3.is_none(), "BufReader(MemSource) reports EOF");
 });

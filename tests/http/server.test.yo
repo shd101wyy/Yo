@@ -28,7 +28,7 @@ _echo :: (fn(req : &HttpRequest) -> HttpResponse)({
 });
 // Read one full response off a raw stream (until the server closes).
 _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async(e => {
+  io.async({ &stream }(e : IoExn) => {
     out := ArrayList(u8).new();
     buf := (*u8)(malloc(usize(4096)).unwrap());
     mut(done) := false;
