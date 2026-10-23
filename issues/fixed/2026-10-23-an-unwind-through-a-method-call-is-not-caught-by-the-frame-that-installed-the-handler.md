@@ -1,8 +1,12 @@
 # An unwind through a method call is not caught by the frame that installed the handler
 
-**Severity:** S1 — a miscompilation of effect control flow: the process
-aborts with `unhandled effect unwind escaped to top level` instead of
-returning the unwound value from the frame that installed the `ctl` handler.
+**Severity:** S1 — a miscompilation of effect control flow: the frame that
+installed the `ctl` handler does not catch its unwind. The leaked escape is
+caught by the next installing frame further up the stack, even one for an
+unrelated handler, which reads `__yo_unwind_value` as its own result type:
+a wrong value, memory corruption, or a silent early exit. Only when no frame
+above installs one does the process abort with `unhandled effect unwind
+escaped to top level` (see "What a leaked escape does").
 
 **Status:** fixed (2026-10-23, branch `fix/s1-unwind-through-method-call`). **Found:** 2026-10-23 while writing the regression test for
 `issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md`.
@@ -71,6 +75,36 @@ already builds the probe from the callee's ExprInfo. With
 counted the read as `hard-released/install-param`. `yo check` never shows the
 bug: it does not run codegen.
 
+## What a leaked escape does
+
+The transitive check leaves `__yo_effect_escaped` set and returns a zero
+value, so every caller up the stack propagates the escape until one of them
+is an installation point for SOME handler. That frame takes the escape as
+its own: it clears the flag and `memcpy`s `__yo_unwind_value` into its own
+result type. The abort above happens only when no such frame exists.
+
+- **Wrong value.** `check` installs a handler `outer` (unwinding `i32(-1)`)
+  and calls `probe(f, outer)`, which returns `f() + 100`; `f` is
+  `via_inherent`, whose own handler unwinds `i32(2)` through
+  `Q.make2(i32(0), raise)`. Before the fix `check` returned `2` (the leaked
+  value: neither `outer` nor the `+ 100` ran); after it, `102`.
+- **Memory corruption.** The same leak under a `check` whose handler unwinds
+  a `String`: built with `--sanitize address --allocator system`, the base
+  compiler's program dies with `AddressSanitizer: SEGV on unknown address
+  0x000000000002 ... WRITE memory access` (the `i32` 2 read as a `String`);
+  the fixed one prints `normal`.
+- **A silent no-op in the compiler itself.** `_raw_parse_or_none`
+  (`src/main.yo`, the borrow-spelling migration) installs `local_exn` and
+  calls `Parser.new(src, file, local_exn)`, which throws on a lexer error
+  (`tokenize_shared`). That throw leaked out of the migration loop to an
+  outer installing frame, so `yo fix <dir> --migrate borrow-spelling` exited
+  rc=0 when any file had a lexer error: no "does not parse" line, no summary,
+  and every file after it skipped. A parse error thrown from `p.get_program(local_exn)`, a
+  receiver call, was already caught. The fixed `yo` carries the fix only once
+  it is compiled by a compiler that has it (a stage-2 binary; the released
+  bundle is one), so a stage-1 built by the v0.2.68 seed still shows the
+  no-op.
+
 Shapes that failed: a trait method `Q.make(k, raise)`; an inherent
 `Q.make2(k, raise)`; a unit-returning `Q.poke(raise)`; the inline
 expression `Q.make2(k, raise).n`; an `Exception` parameter
@@ -105,7 +139,9 @@ call is caught by the installing frame". It covers the six failing shapes
 and three controls: receiver, generic and plain. `yo test` clears an escaped
 unwind at the batch boundary, so a test body cannot see the escape directly.
 Each case therefore runs under `_um_check`, which installs an outer handler
-and returns `f() + 100`. A leaked escape is caught there and yields -1. The
-test fails with the v0.2.68 seed (exit 6) and passes with the fix. The
+and returns `f() + 100`. A leaked escape is caught there as `_um_check`'s own
+result, so a failing shape yields its leaked value (1..9) instead of
+101..109. The test fails with the v0.2.68 seed (exit 6) and passes with the
+fix. The
 batch-boundary clearing is raised in
 `issues/questions/2026-10-23-should-a-test-whose-unwind-escaped-the-body-fail.md`.

@@ -2566,8 +2566,9 @@ _um_via_plain :: (fn() -> i32)({
 // `yo test` clears an escaped unwind at the batch boundary, so a test body
 // cannot observe the escape directly. `_um_check` is itself an installation
 // point (a locally bound handler passed to a ctl parameter): an escape the
-// callee leaked is caught THERE, so `_um_probe`'s `+ 100` never runs and the
-// result is -1.
+// callee leaked is caught THERE, as `_um_check`'s own result. `outer` never
+// runs and `_um_probe`'s `+ 100` is skipped, so a leak yields the leaked
+// value (1..9) instead of 101..109.
 _um_probe :: (fn(f : (fn() -> i32), outer : _UmRaise) -> i32)(f() + i32(100));
 _um_check :: (fn(f : (fn() -> i32)) -> i32)({
   (outer : _UmRaise) = (
