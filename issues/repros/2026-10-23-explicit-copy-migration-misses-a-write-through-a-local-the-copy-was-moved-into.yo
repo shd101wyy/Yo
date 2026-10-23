@@ -1,0 +1,76 @@
+//! `yo fix --migrate explicit-copy` follows a copy through the locals it is
+//! stored in. `x := entry.no; target := x; target.push(v)` copies the entry's
+//! list into `x` and writes it through `target`, which shares `x`'s buffer on
+//! purpose, so the push lands in the entry: those copies are listed, not
+//! cloned, and the run prints `3 2 2 2`. `peek` never writes the local its
+//! copy is moved into, so that copy is still cloned.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Entry :: ref(
+  struct(
+    yes : ArrayList(i32),
+    no : ArrayList(i32)
+  )
+);
+first :: (fn(entries : &ArrayList(Entry)) -> Entry)(
+  match(
+    entries.get(usize(0)),
+    .Some(existing) => existing,
+    .None => Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new())
+  )
+);
+straight :: (fn(entries : &ArrayList(Entry), v : i32) -> unit)({
+  entry := first(entries);
+  x := entry.no;
+  mut(target) := x;
+  target.push(v);
+});
+block_tail :: (fn(entries : &ArrayList(Entry), v : i32) -> unit)({
+  entry := first(entries);
+  mut(target) := {
+    x := entry.yes;
+    x
+  };
+  target.push(v);
+});
+arm_tail :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)({
+  entry := first(entries);
+  mut(target) := if(negated, {
+    x := entry.no;
+    x
+  }, entry.yes);
+  target.push(v);
+});
+assigned :: (fn(entries : &ArrayList(Entry), v : i32) -> unit)({
+  entry := first(entries);
+  x := entry.yes;
+  mut(target) := ArrayList(i32).new();
+  target = x;
+  target.push(v);
+});
+source_moved :: (fn(v : i32) -> usize)({
+  mut(list) := ArrayList(i32).new();
+  list.push(v);
+  snapshot := list;
+  mut(target) := list;
+  target.push(v);
+  snapshot.len()
+});
+peek :: (fn(entries : &ArrayList(Entry)) -> usize)({
+  entry := first(entries);
+  x := entry.no;
+  seen := x;
+  seen.len()
+});
+main :: (fn() -> unit)({
+  mut(entries) := ArrayList(Entry).new();
+  entries.push(Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new()));
+  straight(&entries, i32(1));
+  block_tail(&entries, i32(2));
+  arm_tail(&entries, true, i32(3));
+  arm_tail(&entries, false, i32(4));
+  assigned(&entries, i32(5));
+  e := first(&entries);
+  println(`${e.yes.len().to_string()} ${e.no.len().to_string()} ${source_moved(i32(6)).to_string()} ${peek(&entries).to_string()}`);
+});
+export(main);

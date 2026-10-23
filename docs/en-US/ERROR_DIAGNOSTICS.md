@@ -276,8 +276,14 @@ store into a field or element, a `&mut` argument or receiver the callee may
 write, a `&mut` borrow) is listed with its position and left for a hand edit:
 `&mut` where the write was meant to reach the source, `.clone()` where it was
 not. A capture list's entry counts as such a copy, and a write to the capture
-in the closure body (`{ seen }() => seen.push(x)`) as a write of it. A write
-the migration cannot see is the residual: one made through the copy after it
+in the closure body (`{ seen }() => seen.push(x)`) as a write of it. A copy
+made at a result position of a block, `if`, `cond` or `match` (an arm's tail,
+nested) flows into the variable the result is bound or assigned to, so
+`t := if(c, e.no, e.yes); t.push(x)` lists both arm copies. The migration
+also follows the copy, and its source, into every local they are stored in
+afterwards, moves included: `x := e.no; t := x; t.push(v)` lists the copy
+into `x`, since `t` writes the buffer `x` shares with `e.no`. A write the
+migration cannot see is the residual: one made through the copy after it
 left the function, stored in a field, passed by value or returned.
 `--dry-run` prints every insertion with how the copy is made (`binding`,
 `return`, `field-store`, …) so those can be reviewed.
@@ -287,6 +293,12 @@ together, so its copy is spelled `{ s : s.clone() }`.
 
 These sites are also left as written:
 
+- a copy inside the member of a `Clone` impl (`impl(T, Clone(clone : ...))`):
+  there the impl decides how deep a copy of `T` goes. A field it shares on
+  purpose (a tree whose clone shares its children) must not become a deep
+  copy, and the write that makes the difference observable is in a caller
+  of `clone`, out of the migration's sight. Spell `.clone()` for a deep copy,
+  or share the field for a sharing one;
 - a copy made by an implicit closure capture;
 - a binding a macro wrote;
 - a position copied at two types (a generic body);

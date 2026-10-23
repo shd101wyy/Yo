@@ -1,0 +1,28 @@
+//! A copy chosen by `if` and written afterwards: `target` aliases one of the
+//! entry's lists on purpose, so the push lands in the entry.
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Entry :: ref(
+  struct(
+    yes : ArrayList(i32),
+    no : ArrayList(i32)
+  )
+);
+add :: (fn(entries : &ArrayList(Entry), negated : bool, v : i32) -> unit)({
+  entry := match(
+    entries.get(usize(0)),
+    .Some(existing) => existing,
+    .None => Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new())
+  );
+  mut(target) := if(negated, entry.no, entry.yes);
+  target.push(v);
+});
+main :: (fn() -> unit)({
+  mut(entries) := ArrayList(Entry).new();
+  entries.push(Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new()));
+  add(&entries, false, i32(1));
+  add(&entries, true, i32(2));
+  e := match(entries.get(usize(0)), .Some(x) => x, .None => Entry(yes : ArrayList(i32).new(), no : ArrayList(i32).new()));
+  println(`${e.yes.len().to_string()} ${e.no.len().to_string()}`);
+});
+export(main);

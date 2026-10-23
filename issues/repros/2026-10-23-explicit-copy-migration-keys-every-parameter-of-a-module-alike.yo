@@ -1,0 +1,14 @@
+//! Every parameter of a module shares one `_ic_decl_key`: the write to
+//! `bump`'s `other` lists the copy out of `plain`'s `entry` as "its source is
+//! written afterwards". Expected: `x := entry.yes` is cloned (inserted 1).
+{ ArrayList } :: import("std/collections/array_list");
+VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+plain :: (fn(entry : VEntry) -> usize)({
+  x := entry.yes;
+  x.len()
+});
+bump :: (fn(other : &mut ArrayList(i32)) -> unit)({
+  other.push(i32(1));
+});
+main :: (fn() -> unit)(());
+export(main);

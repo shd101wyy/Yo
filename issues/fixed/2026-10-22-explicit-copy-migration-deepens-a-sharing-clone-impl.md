@@ -22,7 +22,7 @@ The migration rewrote the impl's own body:
 +        .FnCall(fid, ffunc, fargs, finfix, ftok) => AstExpr.FnCall(fid, ffunc, fargs.clone(), finfix, ftok.clone())
 ```
 
-listed as `fix: src/expr.yo:440:80: field-store: \`fargs\` would become \`fargs.clone()\``.
+listed as `fix: src/expr.yo:440:80: field-store: `fargs` would become `fargs.clone()``.
 `ArrayList(AstExpr).clone` clones each element through this same impl, so
 every `AstExpr.clone` became a deep copy of the whole subtree, and the marker
 strip ran on a copy. The stage-1 compiler built from the regenerated tree then
@@ -78,7 +78,7 @@ export(main);
 
 Compiled as written it prints `1`. `yo fix main.yo --migrate explicit-copy`
 (the `fix/explicit-copy-migration-defects` tree binary, 3cb59050d) reports
-`inserted 1 \`.clone()\` call(s); 0 site(s) left as written` and rewrites
+`inserted 1 `.clone()` call(s); 0 site(s) left as written` and rewrites
 `Tree.Node(kids)` to `Tree.Node(kids.clone())`; the rewritten program prints
 `0`.
 
@@ -94,14 +94,51 @@ of `self` is not an implicit copy the program happens to make. It is the
 impl's chosen depth: `Pattern`'s impl (`src/pattern.yo:89`, "A deep copy")
 wants the clone, `AstExpr`'s wants the share.
 
-## Fix (proposed, not on this branch)
+## Fix
 
-List, never rewrite, a copy inside the body of a `Clone` impl's `clone`
-method: the hand edit picks the depth (an explicit `.clone()` for a deep
-impl, an `Rc` share for a sharing one once the collections are values). The
-test is the reproducer above as a
-`tests/cli-cases/fix-migrate-explicit-copy-clone-impl` case: today it inserts
-`kids.clone()`; fixed, it lists the site and the trailing run prints `1`.
+Fixed 2026-10-22 on `fix/explicit-copy-s1-tool-defects`. A copy inside a
+member of a `Clone` impl is listed, never rewritten. The rule comes from the
+plan, not from a name: plans/VALUES_BY_DEFAULT.md's "Unique buffers" makes
+`clone()` "deep and goes through the source's owner" (§3.11). The `Clone`
+impl is that owner's definition of a copy, and A2 already says the guard
+cannot see "writes that escape the function (a stored, passed or returned
+copy)". A clone's result always escapes to its caller. So the copy's depth
+is the impl's choice, and the migration must not pick it.
+
+- `_c3_eval_colon_pair` and `_c2_eval_inner_field`
+  (`src/evaluator/values/impl.yo`) are the plain and the generic impl's
+  member paths. While the migration runs, both call
+  `_note_clone_impl_member`. It recognizes the prelude `Clone` by trait
+  identity (`get_trait_key` against the key `Clone` resolves to,
+  `_named_trait_key_is`, the same test the `Drop` receiver check uses), not
+  by the member's or the type's name. It then records the member's source
+  span with `record_clone_impl_body` (`src/evaluator/utils.yo`): the
+  smallest and largest byte offsets of the member's tokens in its own
+  module, deduplicated per span.
+- `_run_migrate_explicit_copy` (`src/main.yo`) checks every site against
+  the spans first (`_clone_impl_body_at`). The span is matched by position,
+  so a later evaluation of the body, such as a generic impl's
+  specialization, is covered too. A site inside a span is printed as
+  "`kids` is copied inside the `Clone` impl of `Tree`, which
+  defines how deep its copy goes; left as written (spell `.clone()` for a
+  deep copy, or share the field, through an `Rc` once it is a value, for
+  a sharing one)".
+
+Repro (`issues/repros/2026-10-22-explicit-copy-migration-deepens-a-sharing-clone-impl.yo`):
+
+| | output of `yo fix main.yo --migrate explicit-copy` | migrated program prints |
+| --- | --- | --- |
+| before (3cb59050d) | `inserted 1`, `Tree.Node(kids.clone())` | `0` |
+| after | `inserted 0`, 1 site listed, file unchanged | `1` |
+
+## Test
+
+`tests/cli-cases/fix-migrate-explicit-copy-clone-impl` runs the reproducer
+with one more copy, `tags.push(label)` outside the impl while `label` is
+read again, and then `build run`. Its goldens expect the `kids` site listed,
+the outside copy cloned (`inserted 1`), and the migrated program printing
+`1 n 1`. With the pre-fix binary the case is GOLDEN-DIFF: it inserts 2 and
+prints `0 n 1`.
 
 ## Measured effect on B1
 
