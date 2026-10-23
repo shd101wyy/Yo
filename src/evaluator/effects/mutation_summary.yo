@@ -55,7 +55,7 @@
   scope_variables
 } :: import("../../expr_info.yo");
 { EvalContext } :: import("../context.yo");
-{ EvalValue, is_unknown_val, is_type_value } :: import("../../value.yo");
+{ EvalValue, value_contains_unknown, is_type_value } :: import("../../value.yo");
 { TypeValue, no_labels, SharedList, no_types } :: import("../../types/definitions.yo");
 { get_func_type, is_control_fn, is_closure_fn } :: import("../../function_value.yo");
 { is_function_type, is_pointer_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type } :: import("../../types/guards.yo");
@@ -487,7 +487,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(&v), {
+        .Some(v) => if(!value_contains_unknown(&v), {
           return(false);
         }),
         .None => ()
@@ -1059,7 +1059,7 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
   // A compile-time-known value is inlined by codegen: no shared storage.
   match(
     info.value,
-    .Some(v) => if(!is_unknown_val(&v), {
+    .Some(v) => if(!value_contains_unknown(&v), {
       return(_msp_root(MSP_NONE));
     }),
     .None => ()
@@ -1086,8 +1086,13 @@ _msp_atom_root :: (fn(ctx : &_MspCtx, atom : &AstExpr) -> _MspRoot)({
     return(_msp_root(MSP_ROOTED));
   });
   // A local never defined in this body (a closure capture, an uncollected
-  // binding) may alias anything.
-  match(mapped, .Some(m) => m, .None => _msp_root(MSP_ROOTED))
+  // binding) may alias anything. A pointer whose definition roots nothing was
+  // fabricated from integers: unknown storage (as in `ctor_root`).
+  match(
+    mapped,
+    .Some(m) => if((m.kind == MSP_NONE) && _msp_type_contains_pointer_inner(&info.ty, u32(0)), _msp_root(MSP_ROOTED), m),
+    .None => _msp_root(MSP_ROOTED)
+  )
 });
 /// Is this atom a LOCAL variable (not a parameter, global, or compile-time
 /// value) whose type can root storage? Such locals are what taint tracks.
@@ -1648,7 +1653,7 @@ impl(
         });
         match(
           info.value,
-          .Some(v) => if(!is_unknown_val(&v), {
+          .Some(v) => if(!value_contains_unknown(&v), {
             return(_msp_root(MSP_NONE));
           }),
           .None => ()
@@ -1886,7 +1891,7 @@ impl(
         });
         match(
           info.value,
-          .Some(v) => if(!is_unknown_val(&v), {
+          .Some(v) => if(!value_contains_unknown(&v), {
             return(());
           }),
           .None => ()
@@ -2171,6 +2176,15 @@ impl(
   /// `y` too. A root the definition itself supplies (`t := it.next()` is
   /// unknown storage by classification) is not an escape of `rhs`.
   define_from : (fn(ctx : &_MspCtx, name : &String, r : _MspRoot, rhs : &AstExpr) -> unit)({
+    // Record the local even when its root is NONE (a constant, a callee whose
+    // result aliases nothing): a local missing from `roots` reads back as
+    // "never defined in this body" — ROOTED — so `it := VLIter(src : VL(n :
+    // 3), i : 0)` then `it.next()` would count as a write to unknown storage.
+    if(ctx.roots.get(name.clone()).is_none(), {
+      ctx.names.push(name.clone());
+      ctx.roots.insert(name.clone(), _msp_root(MSP_NONE));
+      ctx.changed = true;
+    });
     _msp_def(ctx, name.clone(), r);
     cur := match(ctx.roots.get(name.clone()), .Some(c) => c, .None => _msp_root(MSP_NONE));
     cond(
@@ -2442,7 +2456,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(&v), {
+        .Some(v) => if(!value_contains_unknown(&v), {
           return(());
         }),
         .None => ()
@@ -2710,7 +2724,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(&v), {
+        .Some(v) => if(!value_contains_unknown(&v), {
           return(());
         }),
         .None => ()
@@ -3125,7 +3139,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(&v), {
+        .Some(v) => if(!value_contains_unknown(&v), {
           return(m);
         }),
         .None => ()
