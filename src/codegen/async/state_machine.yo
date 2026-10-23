@@ -37,6 +37,7 @@
 { _call_emit_fused_await } :: import("./_fsm.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
 { generate_drop_code_for_value, arm_value_with_dups } :: import("../exprs/drop_dup.yo");
+{ RefCell } :: import("std/sync/refcell");
 CLEANUP_SEGMENT :: usize.MAX;
 CrossBoundaryResult :: ref(
   struct(
@@ -62,7 +63,7 @@ _LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end 
 /// and its use, so it is a C local (phase 6). Filled by
 /// `compute_cross_boundary_variables`, read by the struct emitter
 /// (`inline_await_result_fields`) and `emit_inline_await`.
-(g_local_await_results : HashSet(String)) = HashSet(String).new();
+(g_local_await_results : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 _site_of :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
 /// State of the live-range walk over one `io.async` body.
 _LiveWalk :: ref(
@@ -634,7 +635,7 @@ compute_cross_boundary_variables :: (
         match(
           w.await_sites.get(wi),
           .Some(site) => {
-            g_local_await_results.insert(site);
+            g_local_await_results.with_mut(s => s.insert(site));
           },
           .None => ()
         );
@@ -1597,7 +1598,7 @@ _append_exprs :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -
     i = (i + usize(1));
   });
 });
-(g_inline_suspensions : HashMap(String, ArrayList(InlineSuspension))) = HashMap(String, ArrayList(InlineSuspension)).new();
+(g_inline_suspensions : RefCell(HashMap(String, ArrayList(InlineSuspension)))) = RefCell(HashMap(String, ArrayList(InlineSuspension))).new(HashMap(String, ArrayList(InlineSuspension)).new());
 
 /// The await's result type: the await point's (the analysis resolves it), else
 /// the await expression's own recorded type.
@@ -1639,7 +1640,7 @@ inline_await_result_fields :: (fn(analysis : &AwaitAnalysisResult, context : &Fu
   out := ArrayList(InlineAwaitResultField).new();
   seen := HashSet(usize).new();
   add := (fn(e : &AstExpr, t : &TypeValue, out : &mut ArrayList(InlineAwaitResultField), seen : &mut HashSet(usize), prefix : &String) -> unit)({
-    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.contains(_site_of(ast_expr_token(e.clone()))), {
+    if(!seen.contains(ast_expr_id(e)) && !_inline_result_is_unit(t) && !g_local_await_results.with(s => s.contains(_site_of(ast_expr_token(e.clone())))), {
       seen.insert(ast_expr_id(e));
       out.push(InlineAwaitResultField(name : `${prefix}__yo_await_result_${out.len().to_string()}`, ty : t, expr : e));
     });
@@ -1673,7 +1674,7 @@ inline_await_local_result_type :: (fn(expr : &AstExpr, analysis : &AwaitAnalysis
   rty := _inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(analysis), context);
   cond(
     _inline_result_is_unit(&rty) => Option(TypeValue).None,
-    g_local_await_results.contains(_site_of(ast_expr_token(expr.clone()))) => Option(TypeValue).Some(rty),
+    g_local_await_results.with(s => s.contains(_site_of(ast_expr_token(expr.clone())))) => Option(TypeValue).Some(rty),
     true => Option(TypeValue).None
   )
 });
@@ -2016,7 +2017,7 @@ generate_async_block_resume_function_inline :: (
   em.emit_string_line(`}`);
   em.emit_string_line(resume_scope_wrapper(resume_function_name.clone()));
   em.emit_string_line(String.from(""));
-  g_inline_suspensions.insert(async_block_id.clone(), low.suspensions);
+  g_inline_suspensions.with_mut(m => m.insert(async_block_id.clone(), low.suspensions));
   local_var_drop_codes
 });
 
@@ -2046,7 +2047,7 @@ generate_async_block_cancel_pending_function_inline :: (
   fn(async_block_id : &String, struct_name : &String, context : &FunctionGenerationContext) -> Option(String)
 )({
   em := context.base.emitter;
-  sps := match(g_inline_suspensions.get(async_block_id.clone()), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
+  sps := match(g_inline_suspensions.with(m => m.get(async_block_id.clone())), .Some(l) => l, .None => ArrayList(InlineSuspension).new());
   fn_name := `${async_block_id.clone()}_cancel_pending`;
   em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr, int prev_state);  // Abort hook: cancel what the task is suspended on`);
   em.emit_declaration_line("");

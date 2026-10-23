@@ -502,7 +502,7 @@ AsyncBlockStructInfo :: ref(
 /// sites agree without a sibling closure that shares the `Future(T)` trait
 /// seeing it. Codegen-local: it used to borrow the SomeT resolution registry
 /// with the same composite key (Phase 3 step 7 part 2).
-(g_async_block_result_types : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
+(g_async_block_result_types : RefCell(HashMap(String, TypeValue))) = RefCell(HashMap(String, TypeValue)).new(HashMap(String, TypeValue).new());
 /// Find the C name of the capture struct for `capture_type`: the registered
 /// type-entry c_name if present, else `async_capture_<id>`.
 _find_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> String)({
@@ -2848,7 +2848,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   _per_clone_rsid.push_string(async_block_id.clone());
   if(is_some_type(&result_type), {
     match(
-      g_async_block_result_types.get(_per_clone_rsid.clone()),
+      g_async_block_result_types.with(m => m.get(_per_clone_rsid.clone())),
       .Some(rct) => {
         result_type = rct;
       },
@@ -2902,7 +2902,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // Register under the per-closure key so future lookups (by the same closure
   // or await site) resolve to this concrete type without clobbering siblings.
   if(!is_some_type(&result_type), {
-    g_async_block_result_types.insert(_per_clone_rsid.clone(), result_type.clone());
+    g_async_block_result_types.with_mut(m => m.insert(_per_clone_rsid.clone(), result_type.clone()));
   });
   result_type_c_name := get_type_string(&result_type, &context.base);
   em := context.base.emitter;
@@ -3613,7 +3613,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   per_clone_key.push_string(ab_id.clone());
   if(is_some_type(&result_type), {
     match(
-      g_async_block_result_types.get(per_clone_key.clone()),
+      g_async_block_result_types.with(m => m.get(per_clone_key.clone())),
       .Some(rct) => {
         result_type = rct;
       },
@@ -3673,7 +3673,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // resolve the awaited value's type. The await site matches because it shares
   // the same async_block_id (it awaits the same io.async expression).
   if(!is_some_type(&result_type) && !per_clone_key.is_empty(), {
-    g_async_block_result_types.insert(per_clone_key.clone(), result_type.clone());
+    g_async_block_result_types.with_mut(m => m.insert(per_clone_key.clone(), result_type.clone()));
   });
   result_type_c_name := get_type_string(&result_type, &context.base);
   struct_name := match(expr_info_async_state_machine_struct_name(&ei), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("Missing sync future struct name"))));

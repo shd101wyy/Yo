@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { lookup_macro_expansion } :: import("./expr_info.yo");
 { codegen_tables_enabled } :: import("./utils.yo");
 { is_io_await_call, is_io_async_call } :: import("./evaluator/async/await_analysis.yo");
+{ RefCell } :: import("std/sync/refcell");
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
 ///
@@ -736,38 +737,36 @@ async_wrapper_fusion_verdict :: (fn(body : &AstExpr) -> Option(String))({
 FusionCandidate :: struct(func_id : String, callee_at : String, verdict : String);
 // Call expression id -> callee func_id, and func_id -> candidate (`.None`:
 // the callee is no `io.async` wrapper), computed once per function.
-(g_fusion_callee_of_call : HashMap(String, String)) = HashMap(String, String).new();
-(g_fusion_candidate_of_fn : HashMap(String, Option(FusionCandidate))) = HashMap(String, Option(FusionCandidate)).new();
+(g_fusion_callee_of_call : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(g_fusion_candidate_of_fn : RefCell(HashMap(String, Option(FusionCandidate)))) = RefCell(HashMap(String, Option(FusionCandidate))).new(HashMap(String, Option(FusionCandidate)).new());
 /// Record that `call` invokes the function `func_id` with body `body`, when
 /// that body is an `io.async` wrapper. Called by the evaluator at the call.
 record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : &AstExpr) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
   });
-  if(!g_fusion_candidate_of_fn.contains_key(func_id.clone()), {
+  if(!g_fusion_candidate_of_fn.with(m => m.contains_key(func_id.clone())), {
     tok := ast_expr_token(body);
-    g_fusion_candidate_of_fn.insert(
-      func_id.clone(),
-      match(
-        async_wrapper_fusion_verdict(body),
-        .Some(v) => Option(FusionCandidate).Some(
-          FusionCandidate(func_id : func_id.clone(), callee_at : `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`, verdict : v)
-        ),
-        .None => Option(FusionCandidate).None
-      )
+    candidate := match(
+      async_wrapper_fusion_verdict(body),
+      .Some(v) => Option(FusionCandidate).Some(
+        FusionCandidate(func_id : func_id.clone(), callee_at : `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`, verdict : v)
+      ),
+      .None => Option(FusionCandidate).None
     );
+    g_fusion_candidate_of_fn.with_mut(m => m.insert(func_id.clone(), candidate));
   });
   // Only a wrapper's calls are recorded: every other call would grow the
   // table for nothing.
-  if(match(g_fusion_candidate_of_fn.get(func_id.clone()), .Some(c) => c.is_some(), .None => false), {
-    g_fusion_callee_of_call.insert(ast_expr_id(call).to_string(), func_id);
+  if(match(g_fusion_candidate_of_fn.with(m => m.get(func_id.clone())), .Some(c) => c.is_some(), .None => false), {
+    g_fusion_callee_of_call.with_mut(m => m.insert(ast_expr_id(call).to_string(), func_id));
   });
 });
 /// The recorded candidate for `call`, if its callee is an `io.async` wrapper.
 await_fusion_candidate :: (fn(call : &AstExpr) -> Option(FusionCandidate))(
   match(
-    g_fusion_callee_of_call.get(ast_expr_id(call).to_string()),
-    .Some(fid) => match(g_fusion_candidate_of_fn.get(&fid), .Some(c) => c, .None => Option(FusionCandidate).None),
+    g_fusion_callee_of_call.with(m => m.get(ast_expr_id(call).to_string())),
+    .Some(fid) => match(g_fusion_candidate_of_fn.with(m => m.get(&fid)), .Some(c) => c, .None => Option(FusionCandidate).None),
     .None => Option(FusionCandidate).None
   )
 );

@@ -3,6 +3,7 @@
 { ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ RefCell } :: import("std/sync/refcell");
 TokenKind :: enum(
   Operator,
   Dot,
@@ -291,13 +292,13 @@ is_valid_identifier :: (fn(s : &String) -> bool)({
 // token value Strings are never mutated in place (audited 2026-07-27);
 // clones fall back to memcmp. The hash+lookup is paid once per TOKEN,
 // the savings on every later compare.
-g_token_intern := HashMap(String, String).new();
+g_token_intern := RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 intern_token_str :: (fn(s : &String) -> String)(
   match(
-    g_token_intern.get(s),
+    g_token_intern.with(m => m.get(s)),
     .Some(canonical) => canonical,
     .None => {
-      g_token_intern.insert(s, s);
+      g_token_intern.with_mut(m => m.insert(s, s));
       s
     }
   )

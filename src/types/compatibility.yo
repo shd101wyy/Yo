@@ -16,6 +16,7 @@ pragma(Pragma.AllowUnsafe);
 { is_int_type, is_float_type, is_some_type, is_dyn_type, is_never_type, is_numeric_type, is_bool_type, is_prelude_io_struct } :: import("./guards.yo");
 { type_contains_some_type, get_all_some_types, resolve_cell_chain, is_bound_closure_identity } :: import("./utils.yo");
 { TypeTag } :: import("./tags.yo");
+{ RefCell } :: import("std/sync/refcell");
 {
   is_comptime_int_type,
   is_comptime_float_type,
@@ -186,13 +187,13 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
 /// consulted only at a SomeT leaf, so SomeT identity is never relaxed
 /// anywhere else (the cache-identity collisions the file's comments record).
 AlphaPair :: struct(a_name : String, a_level : usize, e_name : String, e_level : usize);
-(g_alpha_pairs : ArrayList(AlphaPair)) = ArrayList(AlphaPair).new();
+(g_alpha_pairs : RefCell(ArrayList(AlphaPair))) = RefCell(ArrayList(AlphaPair)).new(ArrayList(AlphaPair).new());
 _alpha_pair_active :: (fn(a_name : &String, a_level : usize, e_name : &String, e_level : usize) -> bool)({
-  (i : usize) = g_alpha_pairs.len();
+  (i : usize) = g_alpha_pairs.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
     match(
-      g_alpha_pairs.get(i),
+      g_alpha_pairs.with(xs => xs.get(i)),
       .Some(p) => if((p.a_name == a_name) && (p.a_level == a_level) && (p.e_name == e_name) && (p.e_level == e_level), {
         return(true);
       }),
@@ -240,7 +241,7 @@ _push_alpha_pairs :: (fn(a_labels : &ArrayList(String), a_types : &ArrayList(Typ
       .Some(al) => match(
         _binder_level(e_types, en.clone()),
         .Some(el) => {
-          g_alpha_pairs.push(AlphaPair(a_name : an, a_level : al, e_name : en, e_level : el));
+          g_alpha_pairs.with_mut(xs => xs.push(AlphaPair(a_name : an, a_level : al, e_name : en, e_level : el)));
           pushed = (pushed + usize(1));
         },
         .None => ()
@@ -253,7 +254,7 @@ _push_alpha_pairs :: (fn(a_labels : &ArrayList(String), a_types : &ArrayList(Typ
 });
 _pop_alpha_pairs :: (fn(n : usize) -> unit)({
   if(n > usize(0), {
-    _d := g_alpha_pairs.drain((g_alpha_pairs.len() - n) .. g_alpha_pairs.len());
+    _d := g_alpha_pairs.with_mut(xs => xs.drain((xs.len() - n) .. xs.len()));
   });
 });
 /// `t` was an empty-field struct shell and `resolved` is its populated final.

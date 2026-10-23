@@ -105,6 +105,7 @@ env_mod :: import("std/env");
 { is_unit_type } :: import("./types/guards.yo");
 { t_unit, clear_type_binding_names } :: import("./types/creators.yo");
 { emit_rendered_text, emit_chatter } :: import("./diagnostics.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -492,14 +493,14 @@ mm_resolve_import_abs :: (fn(input_path : &String, base_dir : &String, std_path 
 // buffers than the disk does. `_load_module_at_abs` consults this AFTER its
 // disk read, so an importing document's analysis sees the editor's version
 // of an imported file, saved or not. Parallel arrays, keyed by FS path.
-(g_open_doc_paths : ArrayList(String)) = ArrayList(String).new();
-(g_open_doc_texts : ArrayList(String)) = ArrayList(String).new();
+(g_open_doc_paths : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_open_doc_texts : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _open_doc_index :: (fn(fs_path : &String) -> Option(usize))({
   (i : usize) = usize(0);
-  n := g_open_doc_paths.len();
+  n := g_open_doc_paths.with(xs => xs.len());
   while(i < n, {
     match(
-      g_open_doc_paths.get(i),
+      g_open_doc_paths.with(xs => xs.get(i)),
       .Some(p) => if(p == fs_path, {
         return(Option(usize).Some(i));
       }),
@@ -517,11 +518,13 @@ mm_set_open_document :: (fn(fs_path : &String, text : &String) -> unit)({
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
-      g_open_doc_texts(i) = text;
+      g_open_doc_texts.with_mut(xs => {
+        xs(i) = text;
+      });
     },
     .None => {
-      g_open_doc_paths.push(fs_path);
-      g_open_doc_texts.push(text);
+      g_open_doc_paths.with_mut(xs => xs.push(fs_path));
+      g_open_doc_texts.with_mut(xs => xs.push(text));
     }
   );
 });
@@ -531,8 +534,8 @@ mm_forget_open_document :: (fn(fs_path : &String) -> unit)({
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
-      g_open_doc_paths.drain(i .. (i + usize(1)));
-      g_open_doc_texts.drain(i .. (i + usize(1)));
+      g_open_doc_paths.with_mut(xs => xs.drain(i .. (i + usize(1))));
+      g_open_doc_texts.with_mut(xs => xs.drain(i .. (i + usize(1))));
     },
     .None => ()
   );
@@ -540,7 +543,7 @@ mm_forget_open_document :: (fn(fs_path : &String) -> unit)({
 _open_doc_text :: (fn(fs_path : &String) -> Option(String))(
   match(
     _open_doc_index(fs_path.clone()),
-    .Some(i) => g_open_doc_texts.get(i),
+    .Some(i) => g_open_doc_texts.with(xs => xs.get(i)),
     .None => Option(String).None
   )
 );

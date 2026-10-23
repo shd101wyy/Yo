@@ -53,6 +53,7 @@
 // runtime-set global, so it does not reference find_function_calls_in_expr at
 // import time). The circular-import loader resolves the top-level exports.
 { _call_find_function_calls_in_expr, set_collect_type_fn } :: import("../functions/collection.yo");
+{ RefCell } :: import("std/sync/refcell");
 /// Intern map for generated C type names. `TypeValue` has no numeric `.id` to
 /// derive a short stable `context.types[id].cName` from, so the codegen C name
 /// was historically the
@@ -66,11 +67,11 @@
 /// the same type always maps to the same short name and distinct types to
 /// distinct names — enum tags / variant names derive from the registered c_name
 /// (get_enum_variant_c_name), so they shrink consistently too.
-(_g_type_c_name_intern : HashMap(String, String)) = HashMap(String, String).new();
+(_g_type_c_name_intern : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Reverse map (id → key) for the hash-collision check: a 64-bit FNV over
 /// ~10k keys is safe, but the check costs nothing and a silent collision
 /// would merge two types in the emitted C.
-(_g_type_c_name_intern_r : HashMap(String, String)) = HashMap(String, String).new();
+(_g_type_c_name_intern_r : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Mint the short name for a not-yet-interned key (Phase 2): the hash of the
 /// type's CONTENT with an ordinal fallback on collision.
 _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
@@ -81,7 +82,7 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
   while(collided, {
     collided = false;
     match(
-      _g_type_c_name_intern_r.get(&id),
+      _g_type_c_name_intern_r.with(m => m.get(&id)),
       .Some(owner) => {
         if(!(owner == key), {
           ord = (ord + usize(1));
@@ -92,8 +93,8 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
       .None => ()
     );
   });
-  _g_type_c_name_intern.insert(key.clone(), id.clone());
-  _g_type_c_name_intern_r.insert(id.clone(), key.clone());
+  _g_type_c_name_intern.with_mut(m => m.insert(key.clone(), id.clone()));
+  _g_type_c_name_intern_r.with_mut(m => m.insert(id.clone(), key.clone()));
   if((ord > usize(0)) && profile_enabled(), {
     eprintln(`profile: type-name hash collision: ${key} -> ${id}`);
   });
@@ -101,7 +102,7 @@ _intern_type_c_name_fresh :: (fn(key : &String) -> String)({
 });
 _intern_type_c_name :: (fn(key : &String) -> String)(
   match(
-    _g_type_c_name_intern.get(key),
+    _g_type_c_name_intern.with(m => m.get(key)),
     .Some(existing) => existing,
     .None => _intern_type_c_name_fresh(key)
   )
@@ -189,7 +190,7 @@ _enum_some_type_is_only_in_function_fields :: (
 // declarations (enumerator/typeid redefinitions) and splits value sites
 // across two C types (passing/initializing mismatches). The stable render
 // never changes, so a second arrival is detected and ALIASED instead.
-(g_stable_to_key : HashMap(String, String)) = HashMap(String, String).new();
+(g_stable_to_key : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
   // recursion descends into the FINAL's variant fields (the shell has none) and
@@ -253,7 +254,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     stable := stable_type_identity(&type);
     (aliased : bool) = false;
     match(
-      g_stable_to_key.get(stable.clone()),
+      g_stable_to_key.with(m => m.get(stable.clone())),
       .Some(prev_key) => if(!(prev_key == tk), {
         // Same type, EVOLVED key render: alias to the first registration
         // instead of adding (and later emitting) a second entry. Do NOT skip
@@ -267,7 +268,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
         aliased = true;
       }),
       .None => {
-        g_stable_to_key.insert(stable.clone(), tk.clone());
+        g_stable_to_key.with_mut(m => m.insert(stable.clone(), tk.clone()));
       }
     );
     if(!aliased, {

@@ -101,6 +101,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { analyze_ctfe_capability } :: import("../ctfe/ctfe_analysis.yo");
 { panic, assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 
 /// The diagnostic evaluation of a `decreases` measure. A lexicographic
 /// measure is the `decreases(M1, M2, ...)` call itself (see the signature
@@ -137,7 +138,7 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &E
 /// derive-heavy check (issues/derive-clone-costs-17-ms-per-type.md). Keyed by
 /// the site, the function type and the printed body, since a macro expansion
 /// reuses its template's tokens with different bodies.
-(g_deferred_trial_clean : HashSet(String)) = HashSet(String).new();
+(g_deferred_trial_clean : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 
 _reset_pred_eval_failed :: (fn() -> unit)({
   g_pred_eval_failed = false;
@@ -217,7 +218,7 @@ PendingDefEval :: ref(
     fwd_vars : ArrayList(Variable)
   )
 );
-(g_pending_def_evals : ArrayList(PendingDefEval)) = ArrayList(PendingDefEval).new();
+(g_pending_def_evals : RefCell(ArrayList(PendingDefEval))) = RefCell(ArrayList(PendingDefEval)).new(ArrayList(PendingDefEval).new());
 (mut(g_rerunning_def_evals) : bool) = false;
 /// Trial-evaluates a definition-time body, non-fatally. On success the
 /// evaluated body is
@@ -242,7 +243,7 @@ PendingDefEval :: ref(
 // cell instead: the handler flags the formatted message, the flow site checks
 // it after the trial returns (same pattern as flowability.yo's
 // flag_flow_violation). The dg and pending-re-run sites clear it and move on.
-(g_trial_swallow_msg : ArrayList(String)) = ArrayList(String).new();
+(g_trial_swallow_msg : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// The swallowed error's STRUCTURED diagnostics, written and cleared in
 /// lockstep with the text above. The trial handler renders the error to text
 /// (`_err.to_string()`), and the re-raise below used to throw that string —
@@ -257,22 +258,22 @@ PendingDefEval :: ref(
 /// Kept in lockstep deliberately: a SEPARATE channel read independently is
 /// how a re-raise inherits an unrelated earlier failure's diagnostics, which
 /// is the staleness class §3's attempt counter exists to prevent.
-(g_trial_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
+(g_trial_swallow_diags : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
 _flag_trial_swallow :: (fn(msg : &String) -> unit)({
-  g_trial_swallow_msg.clear();
-  g_trial_swallow_msg.push(msg);
+  g_trial_swallow_msg.with_mut(xs => xs.clear());
+  g_trial_swallow_msg.with_mut(xs => xs.push(msg));
 });
 /// Record the swallowed error's diagnostics. A non-`YoError` (a plain string
 /// thrown by some other layer) carries none, and then every site below
 /// behaves exactly as it did before.
 _flag_trial_swallow_diags :: (fn(err : &AnyError) -> unit)({
-  g_trial_swallow_diags.clear();
+  g_trial_swallow_diags.with_mut(xs => xs.clear());
   match(
     downcast(err, YoError),
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.push(d), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_trial_swallow_diags.with_mut(xs => xs.push(d)), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -280,33 +281,33 @@ _flag_trial_swallow_diags :: (fn(err : &AnyError) -> unit)({
   );
 });
 _clear_trial_swallow :: (fn() -> unit)({
-  g_trial_swallow_msg.clear();
-  g_trial_swallow_diags.clear();
+  g_trial_swallow_msg.with_mut(xs => xs.clear());
+  g_trial_swallow_diags.with_mut(xs => xs.clear());
 });
-_trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
+_trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.with(xs => xs.len()) > usize(0));
 /// The swallowed error's code, carried onto a re-raise built from its text.
 _trial_swallow_code :: (fn() -> Option(String))(
-  match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.code, .None => Option(String).None)
+  match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.code, .None => Option(String).None)
 );
 /// The code as census text (`-` for an uncoded error).
 _trial_swallow_code_text :: (fn() -> String)(
   match(_trial_swallow_code(), .Some(c) => c, .None => String.from("-"))
 );
 _trial_swallow_message :: (fn() -> String)(
-  match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
+  match(g_trial_swallow_msg.with(xs => xs.get(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
 );
 /// The swallowed diagnostics, or `.None` when the swallowed error carried
 /// none. Read BEFORE `_clear_trial_swallow()`, like `_trial_swallow_message`.
 _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
   cond(
-    (g_trial_swallow_diags.len() == usize(0)) => Option(ArrayList(Diagnostic)).None,
+    (g_trial_swallow_diags.with(xs => xs.len()) == usize(0)) => Option(ArrayList(Diagnostic)).None,
     // Copied element-wise: `Diagnostic` is not `Clone`, so the list cannot be
     // cloned wholesale.
     true => {
       tsd_out := ArrayList(Diagnostic).new();
       (tsd_i : usize) = usize(0);
-      while(tsd_i < g_trial_swallow_diags.len(), {
-        match(g_trial_swallow_diags.get(tsd_i), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
+      while(tsd_i < g_trial_swallow_diags.with(xs => xs.len()), {
+        match(g_trial_swallow_diags.with(xs => xs.get(tsd_i)), .Some(tsd_d) => tsd_out.push(tsd_d), .None => ());
         tsd_i = (tsd_i + usize(1));
       });
       Option(ArrayList(Diagnostic)).Some(tsd_out)
@@ -321,7 +322,7 @@ _trial_swallow_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
 /// whether one was pending before it). Everything else stays swallowed: a
 /// call may still resolve it.
 generic_trial_independent_error :: (fn(fv_was : bool) -> Option(YoError))({
-  if(match(g_trial_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
+  if(match(g_trial_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.generic_independent, .None => false), {
     return(Option(YoError).Some(yo_error_from_diagnostics(match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()))));
   });
   if(!fv_was, {
@@ -989,16 +990,16 @@ _build_def_time_body_env :: (
 /// CURRENT caller env (fills visible) and refreshes the original body nodes'
 /// ExprInfos via the id-preserving clone.
 _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -> Option(YoError))({
-  if(g_rerunning_def_evals || (g_pending_def_evals.len() == usize(0)), {
+  if(g_rerunning_def_evals || (g_pending_def_evals.with(xs => xs.len()) == usize(0)), {
     return(Option(YoError).None);
   });
   (rp_failure : Option(YoError)) = Option(YoError).None;
   g_rerunning_def_evals = true;
   kept := ArrayList(PendingDefEval).new();
   (rp_i : usize) = usize(0);
-  while(rp_i < g_pending_def_evals.len(), {
+  while(rp_i < g_pending_def_evals.with(xs => xs.len()), {
     match(
-      g_pending_def_evals.get(rp_i),
+      g_pending_def_evals.with(xs => xs.get(rp_i)),
       .Some(pd) => {
         rp_env := _build_def_time_body_env(
           caller_env,
@@ -1080,8 +1081,8 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
     );
     rp_i = (rp_i + usize(1));
   });
-  g_pending_def_evals.clear();
-  g_pending_def_evals.append(&mut kept);
+  g_pending_def_evals.with_mut(xs => xs.clear());
+  g_pending_def_evals.with_mut(xs => xs.append(&mut kept));
   g_rerunning_def_evals = false;
   rp_failure
 });
@@ -1881,20 +1882,22 @@ Result type: ${type_to_string(&result_box)}`
           // re-run refreshes the ORIGINAL nodes codegen reads (fn arm 14's
           // mutual recursion).
           if(has_fwd_comptime_fn_cap, {
-            g_pending_def_evals.push(
-              PendingDefEval(
-                body : body_expr.clone(),
-                param_labels : param_labels.items,
-                param_types : param_types.items,
-                param_is_ref : param_is_ref.items,
-                param_is_owning : param_is_owning.items,
-                param_is_comptime : def_ct_flags,
-                result_ty : result_box,
-                where_entries : def_where_entries,
-                function_type : function_type,
-                strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
-                attempts : usize(3),
-                fwd_vars : fwd_cap_vars
+            g_pending_def_evals.with_mut(
+              xs => xs.push(
+                PendingDefEval(
+                  body : body_expr.clone(),
+                  param_labels : param_labels.items,
+                  param_types : param_types.items,
+                  param_is_ref : param_is_ref.items,
+                  param_is_owning : param_is_owning.items,
+                  param_is_comptime : def_ct_flags,
+                  result_ty : result_box,
+                  where_entries : def_where_entries,
+                  function_type : function_type,
+                  strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
+                  attempts : usize(3),
+                  fwd_vars : fwd_cap_vars
+                )
               )
             );
           });
@@ -2206,7 +2209,7 @@ Result type: ${type_to_string(&result_box)}`
           // is not re-run.
           dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box));
           dg_memo_key := if(dg_memo_eligible, `${tok.module_path}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
-          if(!(dg_memo_eligible && g_deferred_trial_clean.contains(&dg_memo_key)), {
+          if(!(dg_memo_eligible && g_deferred_trial_clean.with(s => s.contains(&dg_memo_key))), {
             dg_where := match(
               expr,
               .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box).to_string()),
@@ -2370,7 +2373,7 @@ Result type: ${type_to_string(&result_box)}`
             }, {
               clear_generic_trial_error(&dg_site);
               if(dg_memo_eligible, {
-                _ := g_deferred_trial_clean.insert(dg_memo_key.clone());
+                _ := g_deferred_trial_clean.with_mut(s => s.insert(dg_memo_key.clone()));
               });
             });
             // A violation flagged by THIS trial must not leak into a later

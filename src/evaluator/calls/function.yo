@@ -178,8 +178,9 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 // Calls whose `FnOnce` callee is released after the call (`_consume_fnonce_callee`).
-(g_fnonce_release_after_call : HashMap(usize, AstExpr)) = HashMap(usize, AstExpr).new();
+(g_fnonce_release_after_call : RefCell(HashMap(usize, AstExpr))) = RefCell(HashMap(usize, AstExpr)).new(HashMap(usize, AstExpr).new());
 // ---------------------------------------------------------------------------
 // ReceiverMethodResult — carries the resolved method info when a property-
 // access callee (`.`) is matched to a registered impl method.
@@ -2360,7 +2361,7 @@ _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
 /// The ids of the calls whose borrowing future `_note_future_producing_call`
 /// checked where it was made (§3.13 A2). `io.await` requires its operand to
 /// come from one of them.
-(g_checked_future_calls : HashSet(usize)) = HashSet(usize).new();
+(g_checked_future_calls : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// §3.13 A2: an `io.async` body whose capture list borrows makes its future
 /// second-class. The body's borrows are registered under the future's
 /// per-call wrapper id (`fut_ty`, fresh from `_freshen_io_async_result`), so
@@ -2584,7 +2585,7 @@ _check_awaited_future :: (fn(args : &ArrayList(AstExpr), env : &Environment, ctx
       );
     });
     leaf_id := ast_expr_id(&leaf);
-    leaf_checked := g_checked_future_calls.contains(&leaf_id);
+    leaf_checked := g_checked_future_calls.with(s => s.contains(&leaf_id));
     if((leaf_bs.len() > usize(0)) && !is_io_async_call(&leaf) && !leaf_checked, {
       lb0 := match(leaf_bs.get(usize(0)), .Some(x) => x, .None => return(()));
       raise_flow_violation(
@@ -2729,8 +2730,8 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
   if(bs.len() == usize(0), {
     return(());
   });
-  g_checked_future_calls.insert(call_id);
-  g_checked_future_calls.insert(ast_expr_id(expr));
+  g_checked_future_calls.with_mut(s => s.insert(call_id));
+  g_checked_future_calls.with_mut(s => s.insert(ast_expr_id(expr)));
   _check_future_call_lends(expr, &op_callee, &op_args, &bs, ctx, exn);
   // Operands first: two operands reaching one place is decision 38 B's
   // overlap, which the general later-argument rule would otherwise report as
@@ -7144,14 +7145,14 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
   // the return points) or a capture of the enclosing closure (whose drops a
   // closure body otherwise skips).
   mark_fnonce_post_call_release(ast_expr_id(&evaluated));
-  g_fnonce_release_after_call.insert(ast_expr_id(call), evaluated);
+  g_fnonce_release_after_call.with_mut(m => m.insert(ast_expr_id(call), evaluated));
 });
 /// Append the post-call release `_consume_fnonce_callee` recorded for `call`
 /// to the deferred drops of `result`, the node its evaluation returned (it may
 /// be a rewrite of `call`), which codegen flushes right after the call.
 _attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &EvalContext) -> unit)({
   match(
-    g_fnonce_release_after_call.remove(ast_expr_id(call)),
+    g_fnonce_release_after_call.with_mut(m => m.remove(ast_expr_id(call))),
     .Some(callee) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(result)),
       .Some(ci) => {

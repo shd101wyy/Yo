@@ -12,6 +12,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { Path } :: import("std/path");
 { cwd, env } :: import("std/env");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Unicode escape scanning — shared by the lexer (template strings, and
@@ -234,14 +235,14 @@ _stable_id_module_stem :: (fn(module_path : &String) -> String)({
 /// what the closure fid-source registry already does. A DIFFERENT source
 /// position colliding on the same stem+row+col (two `…/x/index.yo` files)
 /// takes the `_x2`, `_x3`… suffixes.
-(g_stable_id_owner : HashMap(String, String)) = HashMap(String, String).new();
+(g_stable_id_owner : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Occurrence counters (Phase 2 companion to `stable_position_id`): how many
 /// times each source position has minted a SAME-SITE-DISTINCT name in this
 /// process. For constructs that legitimately mint several names from one
 /// site — an `_` binding evaluated per inlined call, a loop label re-emitted
 /// per enclosing function — the k-th mint gets suffix `_n<k-1>`, so the names
 /// stay a function of WHAT is at that position, not of the global mint order.
-(g_stable_occurrence : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_stable_occurrence : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
 /// The next 0-based occurrence index for `key`. Keys are caller-composed:
 /// `<module>:<row>:<column>` where a source position exists, a semantic key
 /// (`<module>:dup:<var>`) where one does not.
@@ -254,7 +255,7 @@ _stable_id_module_stem :: (fn(module_path : &String) -> String)({
 /// (issues/warm-compile-selfcheck.md). Byte-identical warm emission needs
 /// those registries purged per compile instead.
 stable_occurrence_reset :: (fn() -> unit)({
-  g_stable_occurrence.clear();
+  g_stable_occurrence.with_mut(m => m.clear());
   ()
 });
 /// Emission-name occurrence counters — a SEPARATE namespace from
@@ -274,32 +275,32 @@ stable_occurrence_reset :: (fn() -> unit)({
 /// sites' counters, which only renumbers them: the names built from these
 /// ordinals also carry the hash (temps) or the position (labels), so a shared
 /// counter still hands out distinct names.
-(g_emission_occurrence : HashMap(u64, usize)) = HashMap(u64, usize).new();
+(g_emission_occurrence : RefCell(HashMap(u64, usize))) = RefCell(HashMap(u64, usize)).new(HashMap(u64, usize).new());
 emission_occurrence_key :: (fn(key : &String) -> usize)(
   emission_occurrence_hashed(fnv1a64(key))
 );
 /// `emission_occurrence_key` for a caller that already hashed its key.
 emission_occurrence_hashed :: (fn(h : u64) -> usize)({
   next := match(
-    g_emission_occurrence.get(&h),
+    g_emission_occurrence.with(m => m.get(&h)),
     .Some(n) => n,
     .None => usize(0)
   );
-  g_emission_occurrence.insert(h, next + usize(1));
+  g_emission_occurrence.with_mut(m => m.insert(h, next + usize(1)));
   next
 });
 /// Reset the emission-name counters. Called at the start of every compile.
 emission_occurrence_reset :: (fn() -> unit)({
-  g_emission_occurrence.clear();
+  g_emission_occurrence.with_mut(m => m.clear());
   ()
 });
 stable_occurrence_key :: (fn(key : &String) -> usize)({
   next := match(
-    g_stable_occurrence.get(key),
+    g_stable_occurrence.with(m => m.get(key)),
     .Some(n) => n,
     .None => usize(0)
   );
-  g_stable_occurrence.insert(key.clone(), next + usize(1));
+  g_stable_occurrence.with_mut(m => m.insert(key.clone(), next + usize(1)));
   next
 });
 /// Memo of `canonical_module_path` for type-id owners and identity anchors: a
@@ -307,7 +308,7 @@ stable_occurrence_key :: (fn(key : &String) -> usize)({
 /// The value is an `Rc(String)` so a hit shares the path instead of copying
 /// it: once `String` is a value (VALUES_BY_DEFAULT V2b) a copy out of the map
 /// is a byte copy per mint (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
-(g_stable_type_id_owner_memo : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
+(g_stable_type_id_owner_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 /// A top-level statement of a module, as an anchor for identity mints
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.3): where it starts, and a label
 /// that does not depend on where it is — the bound name (`P` for
@@ -319,10 +320,10 @@ TopLevelAnchor :: struct(row : usize, column : usize, label : String);
 /// (`register_top_level_anchors`); a re-walk of the same module (an LSP edit,
 /// `--watch`) replaces its entry. Each list is an `Rc`, so every mint's
 /// lookup shares it rather than copying it.
-(g_top_level_anchors : HashMap(String, Rc(ArrayList(TopLevelAnchor)))) = HashMap(String, Rc(ArrayList(TopLevelAnchor))).new();
+(g_top_level_anchors : RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor))))) = RefCell(HashMap(String, Rc(ArrayList(TopLevelAnchor)))).new(HashMap(String, Rc(ArrayList(TopLevelAnchor))).new());
 register_top_level_anchors :: (fn(module_path : &String, anchors : &ArrayList(TopLevelAnchor)) -> unit)({
   owner := _stable_type_id_owner_key(module_path);
-  g_top_level_anchors.insert(owner.*, rc(anchors));
+  g_top_level_anchors.with_mut(m => m.insert(owner.*, rc(anchors)));
   ()
 });
 /// The position part of an identity mint: `(key, spelling)`. Relative to the
@@ -339,7 +340,7 @@ _anchored_position :: (fn(module_path : &String, row : usize, column : usize) ->
   // may pass the other (AGENTS.md), and both must find the same anchors.
   owner := _stable_type_id_owner_key(module_path);
   match(
-    g_top_level_anchors.get(&owner.*),
+    g_top_level_anchors.with(m => m.get(&owner.*)),
     .Some(list) => {
       (lo : usize) = usize(0);
       (hi : usize) = list.len();
@@ -386,7 +387,7 @@ stable_label_id :: (
 /// Type-id mint registry: id → the canonical path of the module that minted
 /// it (`stable_type_id`), shared with `g_stable_type_id_owner_memo`. A
 /// module's two path spellings (AGENTS.md) share one owner.
-(g_stable_type_id_owner : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
+(g_stable_type_id_owner : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 /// A TYPE identity mint at a source position:
 /// `<prefix><module_stem>_<anchor>_r<row offset>c<col>_n<k>`, the position
 /// relative to the enclosing top-level statement (`_anchored_position`), so a
@@ -424,7 +425,7 @@ stable_type_id :: (
   (suffix : usize) = usize(1);
   while(runtime(true), {
     match(
-      g_stable_type_id_owner.get(&candidate),
+      g_stable_type_id_owner.with(m => m.get(&candidate)),
       .Some(prev) => {
         if(prev.* == owner.*, {
           return(candidate);
@@ -433,7 +434,7 @@ stable_type_id :: (
         candidate = `${base}_x${suffix.to_string()}`;
       },
       .None => {
-        g_stable_type_id_owner.insert(candidate.clone(), owner);
+        g_stable_type_id_owner.with_mut(m => m.insert(candidate.clone(), owner));
         return(candidate);
       }
     );
@@ -442,11 +443,11 @@ stable_type_id :: (
 });
 _stable_type_id_owner_key :: (fn(module_path : &String) -> Rc(String))(
   match(
-    g_stable_type_id_owner_memo.get(module_path),
+    g_stable_type_id_owner_memo.with(m => m.get(module_path)),
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(module_path));
-      g_stable_type_id_owner_memo.insert(module_path, c);
+      g_stable_type_id_owner_memo.with_mut(m => m.insert(module_path, c));
       c
     }
   )
@@ -467,7 +468,7 @@ stable_position_id :: (
   (suffix : usize) = usize(1);
   while(runtime(true), {
     match(
-      g_stable_id_owner.get(&candidate),
+      g_stable_id_owner.with(m => m.get(&candidate)),
       .Some(owner) => {
         if(owner == src_key, {
           return(candidate);
@@ -476,7 +477,7 @@ stable_position_id :: (
         candidate = `${base}_x${suffix.to_string()}`;
       },
       .None => {
-        g_stable_id_owner.insert(candidate.clone(), src_key.clone());
+        g_stable_id_owner.with_mut(m => m.insert(candidate.clone(), src_key.clone()));
         return(candidate);
       }
     );
@@ -617,14 +618,14 @@ profile_set_enabled :: (fn(on : bool) -> unit)({
 profile_enabled :: (fn() -> bool)(g_prof_enabled);
 /// Phase wall-times, name → accumulated nanos. A phase entered twice in one
 /// process SUMS (the shape watch rounds will need); first record inserts.
-(g_prof_phase_names : ArrayList(String)) = ArrayList(String).new();
-(g_prof_phase_nanos : ArrayList(i64)) = ArrayList(i64).new();
+(g_prof_phase_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_prof_phase_nanos : RefCell(ArrayList(i64))) = RefCell(ArrayList(i64)).new(ArrayList(i64).new());
 /// Memory at the END of each phase (plans/CODEGEN_MEMORY_REDUCTION.md Phase 0
 /// step 1): resident set in MB and the shared codegen ExprInfoTable's entry
 /// count, sampled by the probes `main.yo` registers (this module cannot import
 /// either source). A phase entered twice keeps its last sample.
-(g_prof_phase_rss_mb : ArrayList(usize)) = ArrayList(usize).new();
-(g_prof_phase_table_entries : ArrayList(usize)) = ArrayList(usize).new();
+(g_prof_phase_rss_mb : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
+(g_prof_phase_table_entries : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
 (mut(g_prof_rss_probe) : Option((fn() -> usize))) = Option((fn() -> usize)).None;
 (mut(g_prof_table_probe) : Option((fn() -> usize))) = Option((fn() -> usize)).None;
 (mut(g_prof_peak_probe) : Option((fn() -> usize))) = Option((fn() -> usize)).None;
@@ -637,20 +638,20 @@ profile_set_memory_probes :: (fn(rss_mb : (fn() -> usize), table_entries : (fn()
 /// step 4): the resident set and the process's peak so far at a named point,
 /// so a transient between two marks shows as a peak jump without a phase
 /// boundary. `--profile` prints them as `profile: mark` lines.
-(g_prof_mark_labels : ArrayList(String)) = ArrayList(String).new();
-(g_prof_mark_rss_mb : ArrayList(usize)) = ArrayList(usize).new();
-(g_prof_mark_peak_mb : ArrayList(usize)) = ArrayList(usize).new();
+(g_prof_mark_labels : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_prof_mark_rss_mb : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
+(g_prof_mark_peak_mb : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
 profile_memory_mark :: (fn(label : str) -> unit)({
   if(!g_prof_enabled, {
     return(());
   });
-  g_prof_mark_labels.push(String.from(label));
-  g_prof_mark_rss_mb.push(_prof_sample(g_prof_rss_probe));
-  g_prof_mark_peak_mb.push(_prof_sample(g_prof_peak_probe));
+  g_prof_mark_labels.with_mut(xs => xs.push(String.from(label)));
+  g_prof_mark_rss_mb.with_mut(xs => xs.push(_prof_sample(g_prof_rss_probe)));
+  g_prof_mark_peak_mb.with_mut(xs => xs.push(_prof_sample(g_prof_peak_probe)));
 });
-profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.len());
+profile_mark_count :: (fn() -> usize)(g_prof_mark_labels.with(xs => xs.len()));
 profile_mark_line_at :: (fn(i : usize) -> String)(
-  `profile: mark ${match(g_prof_mark_labels.get(i), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.get(i), .Some(n) => n, .None => usize(0)).to_string()}MB`
+  `profile: mark ${match(g_prof_mark_labels.with(xs => xs.get(i)), .Some(l) => l, .None => String.new())} rss=${match(g_prof_mark_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB peak=${match(g_prof_mark_peak_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0)).to_string()}MB`
 );
 _prof_sample :: (fn(probe : Option((fn() -> usize))) -> usize)(
   match(probe, .Some(f) => f(), .None => usize(0))
@@ -662,87 +663,97 @@ profile_record_phase :: (fn(name : &String, nanos : i64) -> unit)({
   rss := _prof_sample(g_prof_rss_probe);
   entries := _prof_sample(g_prof_table_probe);
   (i : usize) = usize(0);
-  while(i < g_prof_phase_names.len(), {
+  while(i < g_prof_phase_names.with(xs => xs.len()), {
     // A copy: an element of a handle global that is pushed to elsewhere is
     // not lent to a call (rule A, decision 47).
-    phase := g_prof_phase_names(i);
+    phase := g_prof_phase_names.with(xs => xs(i));
     if(phase == name, {
-      g_prof_phase_nanos(i) = (g_prof_phase_nanos(i) + nanos);
-      g_prof_phase_rss_mb(i) = rss;
-      g_prof_phase_table_entries(i) = entries;
+      g_prof_phase_nanos.with_mut(xs => {
+        xs(i) = (xs(i) + nanos);
+      });
+      g_prof_phase_rss_mb.with_mut(xs => {
+        xs(i) = rss;
+      });
+      g_prof_phase_table_entries.with_mut(xs => {
+        xs(i) = entries;
+      });
       return(());
     });
     i = (i + usize(1));
   });
-  g_prof_phase_names.push(name.clone());
-  g_prof_phase_nanos.push(nanos);
-  g_prof_phase_rss_mb.push(rss);
-  g_prof_phase_table_entries.push(entries);
+  g_prof_phase_names.with_mut(xs => xs.push(name.clone()));
+  g_prof_phase_nanos.with_mut(xs => xs.push(nanos));
+  g_prof_phase_rss_mb.with_mut(xs => xs.push(rss));
+  g_prof_phase_table_entries.with_mut(xs => xs.push(entries));
 });
-profile_phase_count :: (fn() -> usize)(g_prof_phase_names.len());
+profile_phase_count :: (fn() -> usize)(g_prof_phase_names.with(xs => xs.len()));
 profile_phase_name_at :: (fn(i : usize) -> String)(
   match(
-    g_prof_phase_names.get(i),
+    g_prof_phase_names.with(xs => xs.get(i)),
     .Some(n) => n.clone(),
     .None => String.new()
   )
 );
 profile_phase_nanos_at :: (fn(i : usize) -> i64)(
   match(
-    g_prof_phase_nanos.get(i),
+    g_prof_phase_nanos.with(xs => xs.get(i)),
     .Some(n) => n,
     .None => i64(0)
   )
 );
 profile_phase_rss_mb_at :: (fn(i : usize) -> usize)(
-  match(g_prof_phase_rss_mb.get(i), .Some(n) => n, .None => usize(0))
+  match(g_prof_phase_rss_mb.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0))
 );
 profile_phase_table_entries_at :: (fn(i : usize) -> usize)(
-  match(g_prof_phase_table_entries.get(i), .Some(n) => n, .None => usize(0))
+  match(g_prof_phase_table_entries.with(xs => xs.get(i)), .Some(n) => n, .None => usize(0))
 );
 /// Per-module read+parse and evaluation times, keyed by ABSOLUTE module path.
 /// Rows are EXCLUSIVE — the wall a module's evaluation spends demand-loading
 /// OTHER modules is subtracted out by the loader's nesting accumulator — so
 /// the rows decompose total evaluation time without double-counting.
-(g_prof_mod_paths : ArrayList(String)) = ArrayList(String).new();
-(g_prof_mod_parse_ns : ArrayList(i64)) = ArrayList(i64).new();
-(g_prof_mod_eval_ns : ArrayList(i64)) = ArrayList(i64).new();
+(g_prof_mod_paths : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_prof_mod_parse_ns : RefCell(ArrayList(i64))) = RefCell(ArrayList(i64)).new(ArrayList(i64).new());
+(g_prof_mod_eval_ns : RefCell(ArrayList(i64))) = RefCell(ArrayList(i64)).new(ArrayList(i64).new());
 profile_record_module :: (fn(path : &String, parse_ns : i64, eval_ns : i64) -> unit)({
   if(!g_prof_enabled, {
     return(());
   });
   (i : usize) = usize(0);
-  while(i < g_prof_mod_paths.len(), {
-    mod_path := g_prof_mod_paths(i);
+  while(i < g_prof_mod_paths.with(xs => xs.len()), {
+    mod_path := g_prof_mod_paths.with(xs => xs(i));
     if(mod_path == path, {
-      g_prof_mod_parse_ns(i) = (g_prof_mod_parse_ns(i) + parse_ns);
-      g_prof_mod_eval_ns(i) = (g_prof_mod_eval_ns(i) + eval_ns);
+      g_prof_mod_parse_ns.with_mut(xs => {
+        xs(i) = (xs(i) + parse_ns);
+      });
+      g_prof_mod_eval_ns.with_mut(xs => {
+        xs(i) = (xs(i) + eval_ns);
+      });
       return(());
     });
     i = (i + usize(1));
   });
-  g_prof_mod_paths.push(path.clone());
-  g_prof_mod_parse_ns.push(parse_ns);
-  g_prof_mod_eval_ns.push(eval_ns);
+  g_prof_mod_paths.with_mut(xs => xs.push(path.clone()));
+  g_prof_mod_parse_ns.with_mut(xs => xs.push(parse_ns));
+  g_prof_mod_eval_ns.with_mut(xs => xs.push(eval_ns));
 });
-profile_module_count :: (fn() -> usize)(g_prof_mod_paths.len());
+profile_module_count :: (fn() -> usize)(g_prof_mod_paths.with(xs => xs.len()));
 profile_module_path_at :: (fn(i : usize) -> String)(
   match(
-    g_prof_mod_paths.get(i),
+    g_prof_mod_paths.with(xs => xs.get(i)),
     .Some(p) => p.clone(),
     .None => String.new()
   )
 );
 profile_module_parse_ns_at :: (fn(i : usize) -> i64)(
   match(
-    g_prof_mod_parse_ns.get(i),
+    g_prof_mod_parse_ns.with(xs => xs.get(i)),
     .Some(n) => n,
     .None => i64(0)
   )
 );
 profile_module_eval_ns_at :: (fn(i : usize) -> i64)(
   match(
-    g_prof_mod_eval_ns.get(i),
+    g_prof_mod_eval_ns.with(xs => xs.get(i)),
     .Some(n) => n,
     .None => i64(0)
   )
@@ -768,11 +779,11 @@ profile_fn_std :: (fn() -> usize)(g_prof_fn_std);
 /// so each compile's report is that compile alone.
 profile_reset :: (fn() -> unit)({
   g_prof_enabled = false;
-  g_prof_phase_names.clear();
-  g_prof_phase_nanos.clear();
-  g_prof_mod_paths.clear();
-  g_prof_mod_parse_ns.clear();
-  g_prof_mod_eval_ns.clear();
+  g_prof_phase_names.with_mut(xs => xs.clear());
+  g_prof_phase_nanos.with_mut(xs => xs.clear());
+  g_prof_mod_paths.with_mut(xs => xs.clear());
+  g_prof_mod_parse_ns.with_mut(xs => xs.clear());
+  g_prof_mod_eval_ns.with_mut(xs => xs.clear());
   g_prof_fn_total = usize(0);
   g_prof_fn_at_collect = usize(0);
   g_prof_fn_std = usize(0);
@@ -944,15 +955,15 @@ export(str_lit_unquote_bytes);
 // (issues/fixed/check-self-time-is-two-linear-scans-was-self-bound-and-lookup-enum-cfid.md).
 // The process environment does not change while the compiler runs, so the
 // first read is the only one that has to touch libc.
-(g_debug_knobs : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+(g_debug_knobs : RefCell(HashMap(String, Option(String)))) = RefCell(HashMap(String, Option(String))).new(HashMap(String, Option(String)).new());
 /// The value of the `YO_DEBUG_*` knob `name`, read from the environment once.
 debug_knob :: (fn(name : &String) -> Option(String))(
   match(
-    g_debug_knobs.get(name),
+    g_debug_knobs.with(m => m.get(name)),
     .Some(cached) => cached,
     .None => {
       fresh := env.get(name);
-      _prev := g_debug_knobs.insert(name, fresh);
+      _prev := g_debug_knobs.with_mut(m => m.insert(name, fresh));
       fresh
     }
   )

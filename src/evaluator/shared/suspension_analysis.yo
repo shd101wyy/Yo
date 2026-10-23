@@ -42,6 +42,7 @@ pragma(Pragma.AllowUnsafe);
 { t_ptr } :: import("../../types/creators.yo");
 { type_requires_comptime_modifier } :: import("../../types/utils.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
+{ RefCell } :: import("std/sync/refcell");
 {
   SuspensionPoint,
   SuspensionCapturedVariable,
@@ -406,9 +407,9 @@ _capture_pattern_bindings :: (
 /// through its task slot where the call reads it (`_sm_arg_temp_read`,
 /// codegen/exprs/generation.yo), since a later argument suspended after its
 /// C local was set. Names are unique in a program.
-(g_arg_temps_across_suspension : HashSet(String)) = HashSet(String).new();
+(g_arg_temps_across_suspension : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 is_arg_temp_across_suspension :: (fn(name : &String) -> bool)(
-  g_arg_temps_across_suspension.contains(name)
+  g_arg_temps_across_suspension.with(s => s.contains(name))
 );
 /// Capture the temp an argument's value is held in (a labeled argument
 /// `name : v` holds `v`'s): it is read when the call runs, after the later
@@ -437,7 +438,7 @@ _capture_argument_temp :: (
       vinfo.variable_name,
       .Some(tn) => {
         // The temp is bound in the env the call was evaluated in.
-        g_arg_temps_across_suspension.insert(tn.clone());
+        g_arg_temps_across_suspension.with_mut(s => s.insert(tn.clone()));
         tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
         _capture_env_variable(ast_expr_id(&value), tn.clone(), &tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
         _capture_env_variable(ast_expr_id(&value), &tn, &vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);

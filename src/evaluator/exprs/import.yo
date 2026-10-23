@@ -36,6 +36,7 @@ pragma(Pragma.AllowUnsafe);
 { stat } :: import("std/libc/sys/stat");
 { GlobalAllocator } :: import("std/allocator");
 { evaluate_expression_raw } :: import("./expr.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // _file_exists_sync
 // ---------------------------------------------------------------------------
@@ -65,39 +66,39 @@ _file_exists_sync :: (fn(absolute_path : &String) -> bool)({
 /// §4.5.1). Empty for a file outside any project, where only `std/`,
 /// relative and CWD-relative imports exist. Rule 0 of `resolve_module_path`.
 /// Parallel arrays — the table is a handful of entries.
-(g_import_root_names : ArrayList(String)) = ArrayList(String).new();
-(g_import_root_paths : ArrayList(String)) = ArrayList(String).new();
+(g_import_root_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_import_root_paths : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Declared-but-unavailable names (a git dependency `yo install` has not
 /// fetched, a dependency without a module root) and why — so importing one
 /// reports the cause instead of "module not found".
-(g_import_unavailable_names : ArrayList(String)) = ArrayList(String).new();
-(g_import_unavailable_reasons : ArrayList(String)) = ArrayList(String).new();
+(g_import_unavailable_names : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_import_unavailable_reasons : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Map an import name (`dep`, or `dep/sub` for a named module) to its module
 /// root file (absolute path). A name mapped twice resolves to the FIRST
 /// mapping — the resolver rejects duplicate import names before this point.
 set_import_root :: (fn(name : &String, root_file : &String) -> unit)({
-  g_import_root_names.push(name);
-  g_import_root_paths.push(root_file);
+  g_import_root_names.with_mut(xs => xs.push(name));
+  g_import_root_paths.with_mut(xs => xs.push(root_file));
 });
 /// Record that `name` is declared by the manifest but cannot be imported,
 /// with the reason the diagnostic will carry.
 set_import_unavailable :: (fn(name : &String, reason : &String) -> unit)({
-  g_import_unavailable_names.push(name);
-  g_import_unavailable_reasons.push(reason);
+  g_import_unavailable_names.with_mut(xs => xs.push(name));
+  g_import_unavailable_reasons.with_mut(xs => xs.push(reason));
 });
 clear_import_roots :: (fn() -> unit)({
-  g_import_root_names.clear();
-  g_import_root_paths.clear();
-  g_import_unavailable_names.clear();
-  g_import_unavailable_reasons.clear();
+  g_import_root_names.with_mut(xs => xs.clear());
+  g_import_root_paths.with_mut(xs => xs.clear());
+  g_import_unavailable_names.with_mut(xs => xs.clear());
+  g_import_unavailable_reasons.with_mut(xs => xs.clear());
 });
 lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
-  while(i < g_import_unavailable_names.len(), {
-    matches := match(g_import_unavailable_names.get(i), .Some(n) => (n == name), .None => false);
+  while(i < g_import_unavailable_names.with(xs => xs.len()), {
+    matches := match(g_import_unavailable_names.with(xs => xs.get(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
-        g_import_unavailable_reasons.get(i),
+        g_import_unavailable_reasons.with(xs => xs.get(i)),
         .Some(r) => {
           return(Option(String).Some(r));
         },
@@ -110,13 +111,13 @@ lookup_import_unavailable :: (fn(name : &String) -> Option(String))({
 });
 lookup_import_root :: (fn(name : &String) -> Option(String))({
   (i : usize) = usize(0);
-  while(i < g_import_root_names.len(), {
+  while(i < g_import_root_names.with(xs => xs.len()), {
     // `.get(i)` copies the element out: indexing a module-level container
     // for a `ref` argument is rejected (a callee could reallocate it).
-    matches := match(g_import_root_names.get(i), .Some(n) => (n == name), .None => false);
+    matches := match(g_import_root_names.with(xs => xs.get(i)), .Some(n) => (n == name), .None => false);
     if(matches, {
       match(
-        g_import_root_paths.get(i),
+        g_import_root_paths.with(xs => xs.get(i)),
         .Some(p) => {
           return(Option(String).Some(p));
         },

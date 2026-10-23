@@ -10,6 +10,7 @@ import("std/string");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { panic, assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 /// Function type for the main expression evaluator.
 EvaluateExprFn :: (
   fn(
@@ -63,7 +64,7 @@ evaluate_expression :: (
 );
 /// The error the most recent `evaluate_expression_guarded` caught (its
 /// handler is capture-free, so a module-level channel).
-(g_guarded_eval_err : ArrayList(AnyError)) = ArrayList(AnyError).new();
+(g_guarded_eval_err : RefCell(ArrayList(AnyError))) = RefCell(ArrayList(AnyError)).new(ArrayList(AnyError).new());
 /// Evaluate `expr` so that its error reaches the caller instead of being
 /// swallowed (unlike the 3-argument `evaluate_expression`), but RETURNED
 /// rather than thrown: a caller that set ctx state for the evaluation
@@ -78,14 +79,14 @@ evaluate_expression_guarded :: (
     out : &mut ArrayList(AstExpr)
   ) -> Option(AnyError)
 )({
-  g_guarded_eval_err.clear();
+  g_guarded_eval_err.with_mut(xs => xs.clear());
   _evaluate_expression_guarded_inner(expr, env, ctx, out);
   if(out.len() > usize(0), {
     return(Option(AnyError).None);
   });
   cond(
-    (g_guarded_eval_err.len() == usize(0)) => Option(AnyError).None,
-    true => g_guarded_eval_err.last()
+    (g_guarded_eval_err.with(xs => xs.len()) == usize(0)) => Option(AnyError).None,
+    true => g_guarded_eval_err.with(xs => xs.last())
   )
 });
 _evaluate_expression_guarded_inner :: (
@@ -99,7 +100,7 @@ _evaluate_expression_guarded_inner :: (
   guard_exn := Exception(
     throw : (
       _g_err -> {
-        g_guarded_eval_err.push(_g_err);
+        g_guarded_eval_err.with_mut(xs => xs.push(_g_err));
         unwind(())
       }
     )

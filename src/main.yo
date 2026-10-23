@@ -182,6 +182,7 @@ json :: import("std/encoding/json");
 { ref_spill_counter_reset } :: import("./codegen/exprs/other_fn_call.yo");
 { closure_capture_counter_reset } :: import("./codegen/exprs/closures.yo");
 { panic, assert } :: import("std/assert");
+{ RefCell } :: import("std/sync/refcell");
 // Temporary C source path used during compilation.
 C_TMP :: "/tmp/yo_self_out.c";
 extract_bare_import_path :: (fn(e : &AstExpr) -> Option(String))(
@@ -5225,8 +5226,8 @@ _remove_batch_artifact :: (fn(path : &String, io : Io) -> unit)({
 /// `ok` empty and only tls users fail (at their own link) — everything
 /// else is unaffected. Result cached process-wide.
 (mut(g_openssl_probe) : Option(bool)) = Option(bool).None;
-(g_openssl_includes : ArrayList(String)) = ArrayList(String).new();
-(g_openssl_libdirs : ArrayList(String)) = ArrayList(String).new();
+(g_openssl_includes : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_openssl_libdirs : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _probe_openssl :: (fn(io : Io) -> bool)({
   match(
     g_openssl_probe,
@@ -5289,10 +5290,10 @@ _probe_openssl :: (fn(io : Io) -> bool)({
         t := toks(ti);
         cond(
           (t.starts_with("-I") && (t.len() > usize(2))) => {
-            g_openssl_includes.push(t.substring(usize(2), t.len()));
+            g_openssl_includes.with_mut(xs => xs.push(t.substring(usize(2), t.len())));
           },
           (t.starts_with("-L") && (t.len() > usize(2))) => {
-            g_openssl_libdirs.push(t.substring(usize(2), t.len()));
+            g_openssl_libdirs.with_mut(xs => xs.push(t.substring(usize(2), t.len())));
           },
           true => ()
         );
@@ -7955,8 +7956,8 @@ run_compile :: (
   openssl_ok := (!is_target_windows(&target) && !is_target_wasm(&target) && _probe_openssl(io));
   if(openssl_ok, {
     (oii : usize) = usize(0);
-    while(oii < g_openssl_includes.len(), {
-      oinc0 := match(g_openssl_includes.get(oii), .Some(x) => x, .None => String.new());
+    while(oii < g_openssl_includes.with(xs => xs.len()), {
+      oinc0 := match(g_openssl_includes.with(xs => xs.get(oii)), .Some(x) => x, .None => String.new());
       _arg_c := cmd.arg(`-I${oinc0}`);
       oii = (oii + usize(1));
     });
@@ -8030,8 +8031,8 @@ run_compile :: (
   // build, with the linker naming the missing library.
   if(openssl_ok, {
     (ol : usize) = usize(0);
-    while(ol < g_openssl_libdirs.len(), {
-      olib := match(g_openssl_libdirs.get(ol), .Some(x) => x, .None => String.new());
+    while(ol < g_openssl_libdirs.with(xs => xs.len()), {
+      olib := match(g_openssl_libdirs.with(xs => xs.get(ol)), .Some(x) => x, .None => String.new());
       _arg_c := cmd.arg(`-L${olib}`);
       ol = (ol + usize(1));
     });

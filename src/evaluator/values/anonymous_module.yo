@@ -9,6 +9,7 @@
 //! `allow_partial_module` is supported via the inner exception handler.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
 { scope_release_depth, scope_release_set_depth } :: import("../../expr_info.yo");
 { ArrayList } :: import("std/collections/array_list");
 {
@@ -38,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
 /// (a per-variable "module-level" flag would be unreliable for imported
 /// modules under loader-frame evaluation, so detection goes by recorded name).
-(g_module_level_static_names : HashSet(String)) = HashSet(String).new();
+(g_module_level_static_names : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 { TypeValue, TypeValueNode, shared_list, no_types } :: import("../../types/definitions.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -794,7 +795,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     lhs_info_opt,
                     .Some(li) => if(li.value.is_none(), {
                       record_module_level_init_expr(&evaluated);
-                      g_module_level_static_names.insert(ast_expr_token(&init_lhs).value);
+                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_token(&init_lhs).value));
                     }),
                     .None => ()
                   );
@@ -810,12 +811,12 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                     if(ast_expr_is_atom(&binding_lhs), {
                       record_module_level_init_expr(&evaluated);
-                      g_module_level_static_names.insert(ast_expr_token(&binding_lhs).value);
+                      g_module_level_static_names.with_mut(s => s.insert(ast_expr_token(&binding_lhs).value));
                     });
                   }, {
                     // Bare-atom reassignment of a previously recorded static.
                     if(ast_expr_is_atom(&assign_lhs), {
-                      if(g_module_level_static_names.contains(ast_expr_token(&assign_lhs).value), {
+                      if(g_module_level_static_names.with(s => s.contains(ast_expr_token(&assign_lhs).value)), {
                         record_module_level_init_expr(&evaluated);
                       });
                     });

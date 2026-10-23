@@ -239,6 +239,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { debug_knob } :: import("../../utils.yo");
 { registration_owner } :: import("../values/type_trait_methods.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // extract_function_value
 // ---------------------------------------------------------------------------
@@ -1827,8 +1828,8 @@ sanitize_for_sig :: (fn(s : &String) -> String)({
 /// The identity cache of `_type_signature_string` (see `type_identity_slot`,
 /// types/type_key.yo): handles sorted by address, their signature strings,
 /// and the type-key epoch they were rendered in.
-(g_type_sig_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-(g_type_sig_fast_strings : ArrayList(String)) = ArrayList(String).new();
+(g_type_sig_fast : RefCell(ArrayList(TypeValue))) = RefCell(ArrayList(TypeValue)).new(ArrayList(TypeValue).new());
+(g_type_sig_fast_strings : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (mut(g_type_sig_fast_epoch) : u64) = u64(0);
 /// Convert a value to a deterministic string for use in specialization cache keys.
 ///
@@ -1861,13 +1862,13 @@ value_to_signature_string :: (fn(value : &EvalValue) -> String)(
 /// type-key epoch, so the string is cached per handle within one epoch.
 _type_signature_string :: (fn(t : &TypeValue) -> String)({
   if(g_type_sig_fast_epoch != type_key_epoch(), {
-    g_type_sig_fast.clear();
-    g_type_sig_fast_strings.clear();
+    g_type_sig_fast.with_mut(xs => xs.clear());
+    g_type_sig_fast_strings.with_mut(xs => xs.clear());
     g_type_sig_fast_epoch = type_key_epoch();
   });
-  (slot : usize) = type_identity_slot(&g_type_sig_fast, t);
-  if(type_identity_slot_holds(&g_type_sig_fast, slot, t), {
-    fast := match(g_type_sig_fast_strings.get(slot), .Some(s) => s, .None => String.new());
+  (slot : usize) = g_type_sig_fast.with(xs => type_identity_slot(xs, t));
+  if(g_type_sig_fast.with(xs => type_identity_slot_holds(xs, slot, t)), {
+    fast := match(g_type_sig_fast_strings.with(xs => xs.get(slot)), .Some(s) => s, .None => String.new());
     if(type_key_memo_check_enabled(), {
       slow := `${type_to_string(t)}_id_${type_key(t)}`;
       if(slow != fast, {
@@ -1879,13 +1880,13 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
   key_epoch := type_key_epoch();
   sig := `${type_to_string(t)}_id_${type_key(t)}`;
   if((key_epoch == type_key_epoch()) && type_identity_cacheable(t), {
-    if(g_type_sig_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
-      g_type_sig_fast.clear();
-      g_type_sig_fast_strings.clear();
+    if(g_type_sig_fast.with(xs => xs.len()) >= TYPE_IDENTITY_CACHE_CAP, {
+      g_type_sig_fast.with_mut(xs => xs.clear());
+      g_type_sig_fast_strings.with_mut(xs => xs.clear());
     });
-    (at : usize) = type_identity_slot(&g_type_sig_fast, t);
-    g_type_sig_fast.insert(at, t);
-    g_type_sig_fast_strings.insert(at, sig.clone());
+    (at : usize) = g_type_sig_fast.with(xs => type_identity_slot(xs, t));
+    g_type_sig_fast.with_mut(xs => xs.insert(at, t));
+    g_type_sig_fast_strings.with_mut(xs => xs.insert(at, sig.clone()));
   });
   sig
 });
@@ -2072,7 +2073,7 @@ compute_compile_time_signature :: (
 /// does not implement required trait Eq(String)"). Module-global storage keyed
 /// by the stable func_id shares one cache across every caller for the whole
 /// process lifetime.
-(g_specialized_fn_caches : ArrayList(SpecializedFunctionCacheEntry)) = ArrayList(SpecializedFunctionCacheEntry).new();
+(g_specialized_fn_caches : RefCell(ArrayList(SpecializedFunctionCacheEntry))) = RefCell(ArrayList(SpecializedFunctionCacheEntry)).new(ArrayList(SpecializedFunctionCacheEntry).new());
 /// Look up a cached specialization by `func_id` and compile-time args.
 ///
 /// Returns `Some(specialized_func_val)` if a matching cache entry is found,
@@ -2134,11 +2135,11 @@ _find_specialization_cache :: (
     runtime_parameter_types : &ArrayList(TypeValue)
   ) -> Option(EvalValue)
 )({
-  n_entries := g_specialized_fn_caches.len();
+  n_entries := g_specialized_fn_caches.with(xs => xs.len());
   (ei : usize) = usize(0);
   (result : Option(EvalValue)) = Option(EvalValue).None;
   while((ei < n_entries) && result.is_none(), {
-    entry_opt := g_specialized_fn_caches.get(ei);
+    entry_opt := g_specialized_fn_caches.with(xs => xs.get(ei));
     match(
       entry_opt,
       .Some(entry) => {
@@ -2302,11 +2303,11 @@ _store_specialization_cache :: (
     owner : registration_owner()
   );
   // Find existing entry for this func_id
-  n_entries := g_specialized_fn_caches.len();
+  n_entries := g_specialized_fn_caches.with(xs => xs.len());
   (ei : usize) = usize(0);
   (found : bool) = false;
   while((ei < n_entries) && !found, {
-    entry_opt := g_specialized_fn_caches.get(ei);
+    entry_opt := g_specialized_fn_caches.with(xs => xs.get(ei));
     match(
       entry_opt,
       .Some(entry) => {
@@ -2324,10 +2325,12 @@ _store_specialization_cache :: (
     // Create new entry
     new_caches := ArrayList(SpecializedFunctionCache).new();
     new_caches.push(new_cache);
-    g_specialized_fn_caches.push(
-      SpecializedFunctionCacheEntry(
-        func_id : func_id,
-        caches : new_caches
+    g_specialized_fn_caches.with_mut(
+      xs => xs.push(
+        SpecializedFunctionCacheEntry(
+          func_id : func_id,
+          caches : new_caches
+        )
       )
     );
   });
@@ -2341,23 +2344,23 @@ _store_specialization_cache :: (
 /// issues/fixed/check-cannot-see-function-bodies-from-other-modules.md).
 /// Recordings nest like module loads: each one takes only what was minted
 /// since it began.
-(g_minted_specializations : ArrayList(EvalValue)) = ArrayList(EvalValue).new();
+(g_minted_specializations : RefCell(ArrayList(EvalValue))) = RefCell(ArrayList(EvalValue)).new(ArrayList(EvalValue).new());
 (mut(g_mint_recordings_open) : usize) = usize(0);
 /// Open a recording; returns its start mark for `specialization_recording_take`.
 specialization_recording_begin :: (fn() -> usize)({
   g_mint_recordings_open = (g_mint_recordings_open + usize(1));
-  g_minted_specializations.len()
+  g_minted_specializations.with(xs => xs.len())
 });
 /// Close the recording opened at `start`: the specializations minted since.
 specialization_recording_take :: (fn(start : usize) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   (i : usize) = start;
-  while(i < g_minted_specializations.len(), {
-    match(g_minted_specializations.get(i), .Some(v) => out.push(v), .None => ());
+  while(i < g_minted_specializations.with(xs => xs.len()), {
+    match(g_minted_specializations.with(xs => xs.get(i)), .Some(v) => out.push(v), .None => ());
     i = (i + usize(1));
   });
-  while(g_minted_specializations.len() > start, {
-    _p := g_minted_specializations.pop();
+  while(g_minted_specializations.with(xs => xs.len()) > start, {
+    _p := g_minted_specializations.with_mut(xs => xs.pop());
   });
   if(g_mint_recordings_open > usize(0), {
     g_mint_recordings_open = (g_mint_recordings_open - usize(1));
@@ -2380,9 +2383,9 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.len(), {
+  while(ei < g_specialized_fn_caches.with(xs => xs.len()), {
     match(
-      g_specialized_fn_caches.get(ei),
+      g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
         (ci : usize) = entry.caches.len();
         while(ci > usize(0), {
@@ -2403,9 +2406,9 @@ purge_specialization_caches_owned_by :: (fn(owner : &String) -> unit)({
 specialization_cache_count :: (fn() -> usize)({
   (n : usize) = usize(0);
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.len(), {
+  while(ei < g_specialized_fn_caches.with(xs => xs.len()), {
     match(
-      g_specialized_fn_caches.get(ei),
+      g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
         n = (n + entry.caches.len());
       },
@@ -2422,9 +2425,9 @@ specialization_cache_count :: (fn() -> usize)({
 specialization_capture_value_count :: (fn() -> usize)({
   (n : usize) = usize(0);
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.len(), {
+  while(ei < g_specialized_fn_caches.with(xs => xs.len()), {
     match(
-      g_specialized_fn_caches.get(ei),
+      g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
         (ci : usize) = usize(0);
         while(ci < entry.caches.len(), {
@@ -2454,9 +2457,9 @@ specialization_capture_value_count :: (fn() -> usize)({
 specialization_flat_capture_count :: (fn() -> usize)({
   (n : usize) = usize(0);
   (ei : usize) = usize(0);
-  while(ei < g_specialized_fn_caches.len(), {
+  while(ei < g_specialized_fn_caches.with(xs => xs.len()), {
     match(
-      g_specialized_fn_caches.get(ei),
+      g_specialized_fn_caches.with(xs => xs.get(ei)),
       .Some(entry) => {
         (ci : usize) = usize(0);
         while(ci < entry.caches.len(), {
@@ -2696,11 +2699,11 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
 /// function_type.yo's `_trial_eval_fn_body`.
 /// The error `_reeval_closure_body_swallow` ate (capture-free handler, so a
 /// module-level channel), for its caller's re-raise.
-(g_reeval_closure_err : ArrayList(YoError)) = ArrayList(YoError).new();
+(g_reeval_closure_err : RefCell(ArrayList(YoError))) = RefCell(ArrayList(YoError)).new(ArrayList(YoError).new());
 _reeval_closure_body_swallow :: (
   fn(body : &AstExpr, benv : &Environment, ctx : &EvalContext) -> unit
 )({
-  g_reeval_closure_err.clear();
+  g_reeval_closure_err.with_mut(xs => xs.clear());
   // YO_DEBUG_SWALLOW=1 prints `[reeval-swallow] <err>` (Phase 6 census: this
   // swallow runs with the closure's parameter types already substituted).
   rcb_exn := Exception(
@@ -2709,7 +2712,7 @@ _reeval_closure_body_swallow :: (
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[reeval-swallow] ${_rcb_e.to_string()}`);
         });
-        match(downcast(_rcb_e, YoError), .Some(ye) => g_reeval_closure_err.push(ye), .None => ());
+        match(downcast(_rcb_e, YoError), .Some(ye) => g_reeval_closure_err.with_mut(xs => xs.push(ye)), .None => ());
         unwind(())
       }
     )
@@ -4639,7 +4642,7 @@ create_specialized_function_inline :: (
             new_cap_vals
           );
           if(g_mint_recordings_open > usize(0), {
-            g_minted_specializations.push(specialized_func_val);
+            g_minted_specializations.with_mut(xs => xs.push(specialized_func_val));
           });
           // V6 task 2 (FORMAL_VERIFICATION.md): re-key the ORIGINAL
           // FuncVal's contract tables onto the specialized id — the
@@ -4964,9 +4967,9 @@ create_specialized_function_inline :: (
                                   // between two variable-free types in the
                                   // closure body is the program's error.
                                   match(
-                                    g_reeval_closure_err.get(usize(0)),
+                                    g_reeval_closure_err.with(xs => xs.get(usize(0))),
                                     .Some(rc_err) => if(!propagate_def_time_errors() && match(rc_err.diagnostics.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
-                                      g_reeval_closure_err.clear();
+                                      g_reeval_closure_err.with_mut(xs => xs.clear());
                                       exn.throw(dyn(rc_err));
                                     }),
                                     .None => ()
@@ -4975,7 +4978,7 @@ create_specialized_function_inline :: (
                                   // kept, by whether the parameters were concrete.
                                   if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                                     match(
-                                      g_reeval_closure_err.get(usize(0)),
+                                      g_reeval_closure_err.with(xs => xs.get(usize(0))),
                                       .Some(rk_err) => {
                                         (rk_some : usize) = usize(0);
                                         (rk_i : usize) = usize(0);

@@ -10,6 +10,7 @@
 //!     explicit capture struct type deferred to Phase 4.
 //!   - `autoDeriveTraitsAndAddRcFunctions…`     → calls auto_derive_traits_for_struct_type
 { String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
 { function_reaches_non_send_global, d1_reach_memo, d1_note_thread_reach } :: import("../effects/mutation_summary.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { eprintln } :: import("std/fmt");
@@ -62,10 +63,10 @@
 // impl_closure_call_map lookup that links a capture struct to its closure impl fn
 // (Thread.spawn). The key is unique per closure source AND per capture-type
 // instantiation, so distinct closures never collide.
-(g_capture_struct_ids : HashMap(String, String)) = HashMap(String, String).new();
+(g_capture_struct_ids : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Reverse map (id → cap_key) for the hash-collision backstop below — a
 /// silent 64-bit collision would merge two capture structs in the emitted C.
-(g_capture_struct_ids_r : HashMap(String, String)) = HashMap(String, String).new();
+(g_capture_struct_ids_r : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 {
   EvalValue
 } :: import("../../value.yo");
@@ -258,21 +259,21 @@ _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> boo
 /// The closures created against each closure-typed SomeT, by the SomeT's id —
 /// the only handle a type-level judgement (`Channel(typeof(k))`, a generic
 /// binder bound to `k`'s type) has on the closure behind the type.
-(g_closure_fids_by_some : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+(g_closure_fids_by_some : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 /// The closures behind each capture struct, by the struct's id. Identity
 /// treats a closure identity as its capture struct
 /// (plans/reference/TYPE_IDENTITY.md), so a type argument can hold the bare
 /// struct (`ArrayList(T)` with `T` bound through the wrapper's resolution),
 /// and a capture-free closure's struct has no fields at all: judged as a
 /// struct, it would be `Send` whatever its code reaches.
-(g_closure_fids_by_capture : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+(g_closure_fids_by_capture : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 _some_id_of :: (fn(ty : &TypeValue) -> String)(
   match(ty, Rc(.SomeT(sid, _, _, _, _, _, _, _, _, _)) => sid, _ => String.new())
 );
 _capture_id_of :: (fn(ty : &TypeValue) -> String)(
   if(is_closure_capture_struct(ty), match(ty, Rc(.Struct({ id : cid })) => cid, _ => String.new()), String.new())
 );
-_note_fid_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(_note_fid_in(&mut g_closure_fids_by_some, sid, fid));
+_note_fid_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(g_closure_fids_by_some.with_mut(m => _note_fid_in(m, sid, fid)));
 _note_fid_in :: (fn(registry : &mut HashMap(String, ArrayList(String)), sid : &String, fid : &String) -> unit)({
   if(sid.is_empty(), {
     return(());
@@ -309,7 +310,7 @@ note_closure_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(_note_fid
 /// fresh binder for a closure argument) names the same closures.
 alias_closure_some_id :: (fn(new_id : &String, of_id : &String) -> unit)({
   match(
-    g_closure_fids_by_some.get(of_id),
+    g_closure_fids_by_some.with(m => m.get(of_id)),
     .Some(fids) => {
       (ai : usize) = usize(0);
       while(ai < fids.len(), {
@@ -328,7 +329,7 @@ _is_function_like :: (fn(ty : &TypeValue) -> bool)(
 /// a captured function or closure is judged by its value and not by the field
 /// type of the capture struct (a `fn` field is not `Send` as a type).
 /// Keyed `fid|marker`; `.Some(reason)` names the first offending capture.
-(g_closure_capture_offense : HashMap(String, Option(String))) = HashMap(String, Option(String)).new();
+(g_closure_capture_offense : RefCell(HashMap(String, Option(String)))) = RefCell(HashMap(String, Option(String))).new(HashMap(String, Option(String)).new());
 _captures_offense :: (
   fn(cvwv : &HashMap(String, FuncCapturedVarInfo), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(String)
 )({
@@ -387,7 +388,10 @@ record_closure_capture_verdicts :: (
   // The capture struct names this closure too (`g_closure_fids_by_capture`).
   match(
     capture_ty,
-    .Some(rcv_ct) => _note_fid_in(&mut g_closure_fids_by_capture, _capture_id_of(&rcv_ct), fid.clone()),
+    .Some(rcv_ct) => {
+      cid := _capture_id_of(&rcv_ct);
+      g_closure_fids_by_capture.with_mut(m => _note_fid_in(m, &cid, fid));
+    },
     .None => ()
   );
   match(
@@ -404,7 +408,7 @@ record_closure_capture_verdicts :: (
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
             verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv, &mt, env, ctx));
-            g_closure_capture_offense.insert(`${fid}|${mn}`, verdict);
+            g_closure_capture_offense.with_mut(m => m.insert(`${fid}|${mn}`, verdict));
           },
           .None => ()
         );
@@ -451,7 +455,7 @@ _function_value_offense :: (
   // variable; without one, the capture struct as a type.
   cap_hint := "a closure has a marker trait only when every value it captures does; capture an atomic object (Arc(T), Mutex(T), Atomic*) instead";
   match(
-    g_closure_capture_offense.get(`${fid}|${mname}`),
+    g_closure_capture_offense.with(m => m.get(`${fid}|${mname}`)),
     .Some(.Some(co)) => {
       return(Option(String).Some(`${co} — ${cap_hint}`));
     },
@@ -622,7 +626,7 @@ function_value_marker :: (
   want_cap := _capture_id_of(if(is_bound_closure_identity(ty), resolve_cell_chain(ty), ty));
   if(!want_cap.is_empty(), {
     match(
-      g_closure_fids_by_capture.get(&want_cap),
+      g_closure_fids_by_capture.with(m => m.get(&want_cap)),
       .Some(cfids) => {
         (cci : usize) = usize(0);
         while(cci < cfids.len(), {
@@ -648,7 +652,7 @@ function_value_marker :: (
   });
   if(!want_id.is_empty(), {
     match(
-      g_closure_fids_by_some.get(&want_id),
+      g_closure_fids_by_some.with(m => m.get(&want_id)),
       .Some(fids) => {
         (ci : usize) = usize(0);
         while(ci < fids.len(), {
@@ -683,7 +687,7 @@ closure_capture_struct_marker :: (fn(capture_ty : &TypeValue, marker : &String) 
     return(Option(bool).None);
   });
   match(
-    g_closure_fids_by_capture.get(&cap_id),
+    g_closure_fids_by_capture.with(m => m.get(&cap_id)),
     .Some(ccm_fids) => {
       (judged : bool) = false;
       (ci : usize) = usize(0);
@@ -691,7 +695,7 @@ closure_capture_struct_marker :: (fn(capture_ty : &TypeValue, marker : &String) 
         match(
           ccm_fids.get(ci),
           .Some(ccm_fid) => match(
-            g_closure_capture_offense.get(`${ccm_fid}|${marker}`),
+            g_closure_capture_offense.with(m => m.get(`${ccm_fid}|${marker}`)),
             .Some(.Some(_)) => {
               return(Option(bool).Some(false));
             },
@@ -1169,7 +1173,7 @@ create_capture_type_and_value :: (
         csi = (csi + usize(1));
       });
       struct_id := match(
-        g_capture_struct_ids.get(cap_key.clone()),
+        g_capture_struct_ids.with(m => m.get(cap_key.clone())),
         .Some(existing) => existing,
         .None => {
           // Phase 2: content-addressed (hash of the cap_key, which is itself
@@ -1181,7 +1185,7 @@ create_capture_type_and_value :: (
           loop_ok := runtime(true);
           while(loop_ok, {
             match(
-              g_capture_struct_ids_r.get(fresh.clone()),
+              g_capture_struct_ids_r.with(m => m.get(fresh.clone())),
               .Some(owner) => {
                 if(owner == cap_key, {
                   loop_ok = false;
@@ -1195,8 +1199,8 @@ create_capture_type_and_value :: (
               }
             );
           });
-          g_capture_struct_ids.insert(cap_key.clone(), fresh.clone());
-          g_capture_struct_ids_r.insert(fresh.clone(), cap_key.clone());
+          g_capture_struct_ids.with_mut(m => m.insert(cap_key.clone(), fresh.clone()));
+          g_capture_struct_ids_r.with_mut(m => m.insert(fresh.clone(), cap_key.clone()));
           fresh
         }
       );

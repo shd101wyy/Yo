@@ -47,6 +47,7 @@
 { AstExpr } :: import("../../expr.yo");
 { canonical_module_path, debug_knob, set_current_owner, owner_logs_enabled, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
 /// Extract the unique `id` string from a `TypeValue` variant that
 /// carries one (Struct / EnumT / TraitT / SomeT). Returns
 /// the empty string for variants that don't — method lookup is
@@ -189,15 +190,13 @@ MethodEntry :: ref(
   )
 );
 /// Module-level storage: `type id` → list of method entries.
-(_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
-  HashMap(String, ArrayList(MethodEntry)).new();
+(_type_trait_methods : RefCell(HashMap(String, ArrayList(MethodEntry)))) = RefCell(HashMap(String, ArrayList(MethodEntry))).new(HashMap(String, ArrayList(MethodEntry)).new());
 /// Owner tags, parallel to `_type_trait_methods` (same key, same index):
 /// the `file://` abs path of the module whose evaluation registered the
 /// entry (`""` outside any module load — never purged). Enables
 /// `purge_type_trait_methods_owned_by` so LSP re-analysis stops leaking a
 /// registry generation per edit (plans/reference/INCREMENTAL_COMPILATION.md Phase B2).
-(_type_trait_method_owners : HashMap(String, ArrayList(String))) =
-  HashMap(String, ArrayList(String)).new();
+(_type_trait_method_owners : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 /// The module currently being evaluated, as far as registration ownership
 /// is concerned. MAINTAINED BY module_loader's register_loading /
 /// unregister_loading (the loading-stack top) — the state lives HERE, and
@@ -216,7 +215,7 @@ set_registration_owner :: (fn(owner : &String) -> unit)({
 /// modules. `mm_invalidate_document` takes each removed module's ids and
 /// purges them from every such table (plans/EVALUATOR_MEMORY_REDUCTION.md
 /// Phase 1 step 5).
-(g_owned_func_ids : HashMap(String, HashMap(String, bool))) = HashMap(String, HashMap(String, bool)).new();
+(g_owned_func_ids : RefCell(HashMap(String, HashMap(String, bool)))) = RefCell(HashMap(String, HashMap(String, bool))).new(HashMap(String, HashMap(String, bool)).new());
 /// The current owner tag ("" outside any module evaluation). Read by this
 /// module's own registration and by impl.yo's generic-impl registry.
 registration_owner :: (fn() -> String)(_registration_owner);
@@ -227,7 +226,7 @@ registration_owner :: (fn() -> String)(_registration_owner);
 /// the tables are keyed by that module's AST nodes or their evaluation-time
 /// clones, which die with the module (plans/EVALUATOR_MEMORY_REDUCTION.md
 /// Phase 1 step 5).
-(g_owned_expr_ids : HashMap(String, ArrayList(usize))) = HashMap(String, ArrayList(usize)).new();
+(g_owned_expr_ids : RefCell(HashMap(String, ArrayList(usize)))) = RefCell(HashMap(String, ArrayList(usize))).new(HashMap(String, ArrayList(usize)).new());
 /// Record expression id `id` under the current owner (no-op outside a module load).
 record_owned_expr_id :: (fn(id : usize) -> unit)({
   cur_owner := _registration_owner;
@@ -236,14 +235,14 @@ record_owned_expr_id :: (fn(id : usize) -> unit)({
   });
   // Taken out of the map and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  ids := match(g_owned_expr_ids.remove(cur_owner.clone()), .Some(l) => l, .None => ArrayList(usize).new());
+  ids := match(g_owned_expr_ids.with_mut(m => m.remove(cur_owner.clone())), .Some(l) => l, .None => ArrayList(usize).new());
   ids.push(id);
-  g_owned_expr_ids.insert(cur_owner.clone(), ids);
+  g_owned_expr_ids.with_mut(m => m.insert(cur_owner.clone(), ids));
 });
 /// Entries across the owned expr-id and func-id logs (the owner-log test's probe).
 owned_id_log_entry_count :: (fn() -> usize)({
   (n : usize) = usize(0);
-  eit := g_owned_expr_ids.values();
+  eit := g_owned_expr_ids.with(m => m.values());
   enx := eit.next();
   while(enx.is_some(), {
     match(
@@ -255,7 +254,7 @@ owned_id_log_entry_count :: (fn() -> usize)({
     );
     enx = eit.next();
   });
-  fit := g_owned_func_ids.values();
+  fit := g_owned_func_ids.with(m => m.values());
   fnx := fit.next();
   while(fnx.is_some(), {
     match(
@@ -271,7 +270,7 @@ owned_id_log_entry_count :: (fn() -> usize)({
 });
 /// Remove and return the expression ids `owner`'s evaluation recorded.
 take_owned_expr_ids :: (fn(owner : &String) -> ArrayList(usize))(
-  match(g_owned_expr_ids.remove(owner), .Some(ids) => ids, .None => ArrayList(usize).new())
+  match(g_owned_expr_ids.with_mut(m => m.remove(owner)), .Some(ids) => ids, .None => ArrayList(usize).new())
 );
 /// Record `func_id` under the current owner (no-op outside a module load).
 record_owned_func_id :: (fn(func_id : &String) -> unit)({
@@ -279,15 +278,15 @@ record_owned_func_id :: (fn(func_id : &String) -> unit)({
   if((cur_owner.len() == usize(0)) || !owner_logs_enabled(), {
     return(());
   });
-  ids := match(g_owned_func_ids.remove(cur_owner.clone()), .Some(m) => m, .None => HashMap(String, bool).new());
+  ids := match(g_owned_func_ids.with_mut(m => m.remove(cur_owner.clone())), .Some(m) => m, .None => HashMap(String, bool).new());
   _old := ids.insert(func_id, true);
-  g_owned_func_ids.insert(cur_owner.clone(), ids);
+  g_owned_func_ids.with_mut(m => m.insert(cur_owner.clone(), ids));
 });
 /// Remove and return the function ids `owner`'s evaluation registered.
 take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   match(
-    g_owned_func_ids.remove(owner),
+    g_owned_func_ids.with_mut(m => m.remove(owner)),
     .Some(ids) => {
       it := ids.keys();
       nx := it.next();
@@ -314,14 +313,14 @@ set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
 /// comparisons go through their canonical spelling, memoized because this
 /// sits on the method-resolution path. A hit shares the stored `Rc` rather
 /// than copying the path (plans/handover/VBD_HANDOVER_2026-10-19.md §3.1).
-(_canonical_owner_memo : HashMap(String, Rc(String))) = HashMap(String, Rc(String)).new();
+(_canonical_owner_memo : RefCell(HashMap(String, Rc(String)))) = RefCell(HashMap(String, Rc(String))).new(HashMap(String, Rc(String)).new());
 _canonical_owner :: (fn(owner : &String) -> Rc(String))(
   match(
-    _canonical_owner_memo.get(owner),
+    _canonical_owner_memo.with(m => m.get(owner)),
     .Some(c) => c,
     .None => {
       c := rc(canonical_module_path(owner));
-      _canonical_owner_memo.insert(owner, c);
+      _canonical_owner_memo.with_mut(m => m.insert(owner, c));
       c
     }
   )
@@ -375,12 +374,12 @@ register_type_trait_method :: (
   });
   // Taken out of the maps and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
-  list := match(_type_trait_methods.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  list := match(_type_trait_methods.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(entry);
-  _type_trait_methods.insert(type_id.clone(), list);
-  olist := match(_type_trait_method_owners.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(String).new());
+  _type_trait_methods.with_mut(m => m.insert(type_id.clone(), list));
+  olist := match(_type_trait_method_owners.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(String).new());
   olist.push(owner);
-  _type_trait_method_owners.insert(type_id, olist);
+  _type_trait_method_owners.with_mut(m => m.insert(type_id, olist));
 });
 /// Drop every method entry registered by `owner` (a `file://` abs module
 /// path). Called with each module the LSP invalidates, right before its
@@ -398,15 +397,15 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   upd_keys := ArrayList(String).new();
   upd_lists := ArrayList(ArrayList(MethodEntry)).new();
   upd_owners := ArrayList(ArrayList(String)).new();
-  it := _type_trait_methods.keys();
+  it := _type_trait_methods.with(m => m.keys());
   (go : bool) = true;
   while(go, {
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.get(key.clone()),
+        _type_trait_methods.with(m => m.get(key.clone())),
         .Some(found_list) => match(
-          _type_trait_method_owners.get(key.clone()),
+          _type_trait_method_owners.with(m => m.get(key.clone())),
           .Some(found_olist) => {
             list := found_list;
             olist := found_olist;
@@ -439,8 +438,8 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
   (ui : usize) = usize(0);
   while(ui < upd_keys.len(), {
     k := upd_keys(ui);
-    _ml := _type_trait_methods.insert(k.clone(), upd_lists(ui));
-    _ol := _type_trait_method_owners.insert(k, upd_owners(ui));
+    _ml := _type_trait_methods.with_mut(m => m.insert(k.clone(), upd_lists(ui)));
+    _ol := _type_trait_method_owners.with_mut(m => m.insert(k, upd_owners(ui)));
     ui = (ui + usize(1));
   });
 });
@@ -450,15 +449,15 @@ purge_type_trait_methods_owned_by :: (fn(owner : &String) -> unit)({
 /// one caller that collects them.
 type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  it := _type_trait_methods.keys();
+  it := _type_trait_methods.with(m => m.keys());
   (go : bool) = true;
   while(go, {
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.get(key.clone()),
+        _type_trait_methods.with(m => m.get(key.clone())),
         .Some(list) => match(
-          _type_trait_method_owners.get(key.clone()),
+          _type_trait_method_owners.with(m => m.get(key.clone())),
           .Some(olist) => {
             (i : usize) = usize(0);
             while((i < olist.len()) && (i < list.len()), {
@@ -482,13 +481,13 @@ type_trait_method_values_owned_by :: (fn(owner : &String) -> ArrayList(EvalValue
 /// Total registered method entries across all type ids (LSP leak gate).
 type_trait_methods_entry_count :: (fn() -> usize)({
   (total : usize) = usize(0);
-  it := _type_trait_methods.keys();
+  it := _type_trait_methods.with(m => m.keys());
   (go : bool) = true;
   while(go, {
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.get(&key),
+        _type_trait_methods.with(m => m.get(&key)),
         .Some(list) => {
           total = (total + list.len());
         },
@@ -507,7 +506,7 @@ get_type_trait_methods_for_type :: (
   fn(type_id : &String) -> ArrayList(MethodEntry)
 )(
   match(
-    _type_trait_methods.get(type_id),
+    _type_trait_methods.with(m => m.get(type_id)),
     .Some(list) => list,
     .None => ArrayList(MethodEntry).new()
   )
@@ -529,21 +528,20 @@ get_type_trait_methods_for_type :: (
 /// registration (`register_type_trait_method`, with the concrete `FuncVal`)
 /// happens after `try_to_implement_trait_with_arguments_by_trait_type`
 /// returns, so provisional and final entries never coexist.
-(_provisional_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
-  HashMap(String, ArrayList(MethodEntry)).new();
+(_provisional_trait_methods : RefCell(HashMap(String, ArrayList(MethodEntry)))) = RefCell(HashMap(String, ArrayList(MethodEntry))).new(HashMap(String, ArrayList(MethodEntry)).new());
 register_provisional_trait_method :: (
   fn(type_id : &String, entry : &MethodEntry) -> unit
 )({
-  list := match(_provisional_trait_methods.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(MethodEntry).new());
+  list := match(_provisional_trait_methods.with_mut(m => m.remove(type_id.clone())), .Some(l) => l, .None => ArrayList(MethodEntry).new());
   list.push(entry);
-  _provisional_trait_methods.insert(type_id, list);
+  _provisional_trait_methods.with_mut(m => m.insert(type_id, list));
 });
 get_provisional_trait_methods_by_name :: (
   fn(type_id : &String, method_name : &String) -> ArrayList(MethodEntry)
 )({
   result := ArrayList(MethodEntry).new();
   match(
-    _provisional_trait_methods.get(type_id),
+    _provisional_trait_methods.with(m => m.get(type_id)),
     .Some(all) => {
       n := all.len();
       (i : usize) = usize(0);
@@ -565,7 +563,7 @@ get_provisional_trait_methods_by_name :: (
   result
 });
 clear_provisional_trait_methods :: (fn(type_id : &String) -> unit)({
-  _provisional_trait_methods.remove(type_id);
+  _provisional_trait_methods.with_mut(m => m.remove(type_id));
 });
 /// Return only the method entries whose `label` matches `method_name`.
 get_type_trait_methods_by_name :: (
@@ -644,20 +642,20 @@ get_visible_type_trait_methods_by_name :: (
 /// (both replay the SAME site). Keyed separately from `_type_trait_methods`
 /// so codegen-time synthetic registrations (codegen/functions/collection.yo)
 /// never participate.
-(_inherent_method_sites : HashMap(String, String)) = HashMap(String, String).new();
+(_inherent_method_sites : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Trait-impl sites (plans/reference/TRAIT_COHERENCE.md) — see
 /// `note_trait_impl_site` below; declared here because runtime module-level
 /// bindings are evaluated in order and `clear_type_trait_methods` resets them.
-(_trait_impl_sites : HashMap(String, String)) = HashMap(String, String).new();
-(_trait_impl_site_owners : HashMap(String, String)) = HashMap(String, String).new();
+(_trait_impl_sites : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
+(_trait_impl_site_owners : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 /// Drop all registered methods. Used by test harnesses to reset
 /// global state between runs. Same pattern as the cleanup helpers in
 /// `evaluator/values/impl.yo` for the generic-impl registry.
 clear_type_trait_methods :: (fn() -> unit)({
-  _type_trait_methods.clear();
-  _inherent_method_sites.clear();
-  _trait_impl_sites.clear();
-  _trait_impl_site_owners.clear();
+  _type_trait_methods.with_mut(m => m.clear());
+  _inherent_method_sites.with_mut(m => m.clear());
+  _trait_impl_sites.with_mut(m => m.clear());
+  _trait_impl_site_owners.with_mut(m => m.clear());
 });
 /// Record `site` as the defining site of inherent method `label` on
 /// `type_id`. Returns `.Some(previous_site)` when the pair was already
@@ -668,13 +666,13 @@ note_inherent_method_site :: (
 )({
   key := `${type_id}\n${label}`;
   match(
-    _inherent_method_sites.get(key.clone()),
+    _inherent_method_sites.with(m => m.get(key.clone())),
     .Some(prev) => cond(
       (prev == site) => Option(String).None,
       true => Option(String).Some(prev)
     ),
     .None => {
-      _inherent_method_sites.insert(key, site);
+      _inherent_method_sites.with_mut(m => m.insert(key, site));
       Option(String).None
     }
   )
@@ -692,14 +690,14 @@ note_inherent_method_site :: (
 note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &String) -> Option(String))({
   key := `${type_id}\n${trait_key}`;
   match(
-    _trait_impl_sites.get(key.clone()),
+    _trait_impl_sites.with(m => m.get(key.clone())),
     .Some(prev) => cond(
       (prev == site) => Option(String).None,
       true => Option(String).Some(prev)
     ),
     .None => {
-      _trait_impl_sites.insert(key.clone(), site);
-      _trait_impl_site_owners.insert(key, registration_owner());
+      _trait_impl_sites.with_mut(m => m.insert(key.clone(), site));
+      _trait_impl_site_owners.with_mut(m => m.insert(key, registration_owner()));
       Option(String).None
     }
   )
@@ -707,7 +705,7 @@ note_trait_impl_site :: (fn(type_id : &String, trait_key : &String, site : &Stri
 /// The site of the impl of trait `trait_key` for the type `type_id`, if one
 /// is registered (`note_trait_impl_site`), without recording anything.
 trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(String))(
-  _trait_impl_sites.get(`${type_id}\n${trait_key}`)
+  _trait_impl_sites.with(m => m.get(`${type_id}\n${trait_key}`))
 );
 /// Drop the trait-impl site recorded for (`type_id`, `trait_key`) when it was
 /// recorded FROM `site` — the undo of `note_trait_impl_site` for an impl whose
@@ -717,10 +715,10 @@ trait_impl_site_of :: (fn(type_id : &String, trait_key : &String) -> Option(Stri
 forget_trait_impl_site_if_from :: (fn(type_id : &String, trait_key : &String, site : &String) -> unit)({
   key := `${type_id}\n${trait_key}`;
   match(
-    _trait_impl_sites.get(key.clone()),
+    _trait_impl_sites.with(m => m.get(key.clone())),
     .Some(prev) => if(prev == site, {
-      _trait_impl_sites.remove(key.clone());
-      _trait_impl_site_owners.remove(&key);
+      _trait_impl_sites.with_mut(m => m.remove(key.clone()));
+      _trait_impl_site_owners.with_mut(m => m.remove(&key));
     }),
     .None => ()
   );
@@ -732,12 +730,12 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
     return(());
   });
   stale := ArrayList(String).new();
-  it := _trait_impl_site_owners.keys();
+  it := _trait_impl_site_owners.with(m => m.keys());
   (go : bool) = true;
   while(go, {
     match(
       it.next(),
-      .Some(k) => if(match(_trait_impl_site_owners.get(k.clone()), .Some(o) => (o == owner), .None => false), {
+      .Some(k) => if(match(_trait_impl_site_owners.with(m => m.get(k.clone())), .Some(o) => (o == owner), .None => false), {
         stale.push(k.clone());
       }),
       .None => {
@@ -748,8 +746,8 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
   (si : usize) = usize(0);
   while(si < stale.len(), {
     sk := match(stale.get(si), .Some(k) => k, .None => String.new());
-    _trait_impl_sites.remove(sk.clone());
-    _trait_impl_site_owners.remove(&sk);
+    _trait_impl_sites.with_mut(m => m.remove(sk.clone()));
+    _trait_impl_site_owners.with_mut(m => m.remove(&sk));
     si = (si + usize(1));
   });
 });
@@ -759,16 +757,16 @@ purge_trait_impl_sites_owned_by :: (fn(owner : &String) -> unit)({
 /// `${trait_id}::${label}`. Consumers (`_resolve_dyn_trait_values`, method
 /// dispatch) fall back to this when a concrete type implements the trait WITHOUT
 /// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
-(_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
+(_trait_method_defaults : RefCell(HashMap(String, EvalValue))) = RefCell(HashMap(String, EvalValue)).new(HashMap(String, EvalValue).new());
 /// `_trait_method_defaults` keys by owner (the trait's module).
 (_trait_default_owned : OwnedKeys) = owned_keys_new();
 register_trait_default :: (fn(trait_id : &String, label : &String, value : &EvalValue) -> unit)({
   key := (trait_id + String.from("::") + label);
   owned_keys_record(&_trait_default_owned, key.clone());
-  _trait_method_defaults.insert(key, value);
+  _trait_method_defaults.with_mut(m => m.insert(key, value));
 });
 /// Registered trait defaults (the B2 plateau test's probe).
-trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.len());
+trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.with(m => m.len()));
 /// Drop the trait defaults `owner`'s evaluation registered (its traits are
 /// re-minted under fresh ids when it is re-evaluated).
 purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
@@ -778,7 +776,7 @@ purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
     match(
       keys.get(i),
       .Some(k) => {
-        _r := _trait_method_defaults.remove(&k);
+        _r := _trait_method_defaults.with_mut(m => m.remove(&k));
       },
       .None => ()
     );
@@ -786,7 +784,7 @@ purge_trait_defaults_owned_by :: (fn(owner : &String) -> unit)({
   });
 });
 get_trait_default :: (fn(trait_id : &String, label : &String) -> Option(EvalValue))(
-  _trait_method_defaults.get(trait_id + String.from("::") + label)
+  _trait_method_defaults.with(m => m.get(trait_id + String.from("::") + label))
 );
 /// Trait-method CONTRACT clauses (V6 task 1, FORMAL_VERIFICATION.md):
 /// each trait-field fn-type's `requires(...)`/`ensures(...)` ASTs plus its
@@ -798,40 +796,40 @@ get_trait_default :: (fn(trait_id : &String, label : &String) -> Option(EvalValu
 /// variance obligations (trait.requires ⇒ impl.requires,
 /// impl.ensures ⇒ trait.ensures) and for contract inheritance onto impl
 /// methods that declare none of their own.
-(_trait_method_requires : HashMap(String, ArrayList(AstExpr))) = HashMap(String, ArrayList(AstExpr)).new();
-(_trait_method_ensures : HashMap(String, ArrayList(AstExpr))) = HashMap(String, ArrayList(AstExpr)).new();
-(_trait_method_return_labels : HashMap(String, String)) = HashMap(String, String).new();
+(_trait_method_requires : RefCell(HashMap(String, ArrayList(AstExpr)))) = RefCell(HashMap(String, ArrayList(AstExpr))).new(HashMap(String, ArrayList(AstExpr)).new());
+(_trait_method_ensures : RefCell(HashMap(String, ArrayList(AstExpr)))) = RefCell(HashMap(String, ArrayList(AstExpr))).new(HashMap(String, ArrayList(AstExpr)).new());
+(_trait_method_return_labels : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_trait_method_contracts :: (
   fn(trait_id : &String, label : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
 )({
   key := (trait_id + String.from("::") + label);
-  _trait_method_requires.insert(key.clone(), reqs);
-  _trait_method_ensures.insert(key.clone(), enss);
+  _trait_method_requires.with_mut(m => m.insert(key.clone(), reqs));
+  _trait_method_ensures.with_mut(m => m.insert(key.clone(), enss));
   match(
     ret,
     .Some(r) => {
-      _trait_method_return_labels.insert(key, r);
+      _trait_method_return_labels.with_mut(m => m.insert(key, r));
     },
     .None => ()
   );
 });
 trait_method_requires :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
-    _trait_method_requires.get(trait_id + String.from("::") + label),
+    _trait_method_requires.with(m => m.get(trait_id + String.from("::") + label)),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
 trait_method_ensures :: (fn(trait_id : &String, label : &String) -> ArrayList(AstExpr))(
   match(
-    _trait_method_ensures.get(trait_id + String.from("::") + label),
+    _trait_method_ensures.with(m => m.get(trait_id + String.from("::") + label)),
     .Some(xs) => xs.clone(),
     .None => ArrayList(AstExpr).new()
   )
 );
 trait_method_return_label :: (fn(trait_id : &String, label : &String) -> Option(String))(
   match(
-    _trait_method_return_labels.get(trait_id + String.from("::") + label),
+    _trait_method_return_labels.with(m => m.get(trait_id + String.from("::") + label)),
     .Some(r) => Option(String).Some(r.clone()),
     .None => Option(String).None
   )

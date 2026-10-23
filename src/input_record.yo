@@ -31,7 +31,8 @@
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { cwd } :: import("std/env");
-(g_input_files : ArrayList(String)) = ArrayList(String).new();
+{ RefCell } :: import("std/sync/refcell");
+(g_input_files : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Parallel to `g_input_files`: the sha256 of each input's bytes AS READ.
 ///
 /// This is the whole point of recording a hash here rather than re-reading the
@@ -44,7 +45,7 @@
 /// knows what it read, so the reader records it.
 ///
 /// Empty string when hashing is off — see `set_input_hashing`.
-(g_input_hashes : ArrayList(String)) = ArrayList(String).new();
+(g_input_hashes : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Hashing is OFF unless a consumer of the depfile turns it on. `yo build`'s
 /// child compiles pass `--emit-deps` and enable it; `yo check`, `yo test` and
 /// the LSP never pay for it.
@@ -52,11 +53,11 @@
 // The module touch log (see "What a cached module's load read" below).
 /// Every record and every module hit this compile, in call order, WITHOUT
 /// dedup: one module's load is a slice of it.
-(g_touches : ArrayList(String)) = ArrayList(String).new();
+(g_touches : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Module key -> what its last load touched (persists across compiles).
-(g_module_touches : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+(g_module_touches : RefCell(HashMap(String, ArrayList(String)))) = RefCell(HashMap(String, ArrayList(String))).new(HashMap(String, ArrayList(String)).new());
 /// The modules already replayed into this compile's record.
-(g_replayed_modules : HashSet(String)) = HashSet(String).new();
+(g_replayed_modules : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// True while a hit is being replayed.
 (mut(g_replaying) : bool) = false;
 set_input_hashing :: (fn(enabled : bool) -> unit)({
@@ -94,12 +95,12 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
   // A replay's records are already named by the `@<key>` entry that
   // triggered it.
   if(g_input_hashing && !g_replaying, {
-    g_touches.push(`${_hash_marker(content_sha256)} ${fs}`);
+    g_touches.with_mut(xs => xs.push(`${_hash_marker(content_sha256)} ${fs}`));
   });
   (i : usize) = usize(0);
-  while(i < g_input_files.len(), {
+  while(i < g_input_files.with(xs => xs.len()), {
     match(
-      g_input_files.get(i),
+      g_input_files.with(xs => xs.get(i)),
       .Some(seen) => if(seen == fs, {
         return(());
       }),
@@ -107,16 +108,16 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_input_files.push(fs);
-  g_input_hashes.push(content_sha256);
+  g_input_files.with_mut(xs => xs.push(fs));
+  g_input_hashes.with_mut(xs => xs.push(content_sha256));
 });
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
 reset_input_files :: (fn() -> unit)({
-  g_input_files.clear();
-  g_input_hashes.clear();
-  g_touches.clear();
-  g_replayed_modules.clear();
+  g_input_files.with_mut(xs => xs.clear());
+  g_input_hashes.with_mut(xs => xs.clear());
+  g_touches.with_mut(xs => xs.clear());
+  g_replayed_modules.with_mut(s => s.clear());
 });
 // ── What a cached module's load read
 //
@@ -141,7 +142,7 @@ _hash_marker :: (fn(h : &String) -> String)(
   )
 );
 /// Start observing a module load; pass the result to `module_load_end`.
-module_load_begin :: (fn() -> usize)(g_touches.len());
+module_load_begin :: (fn() -> usize)(g_touches.with(xs => xs.len()));
 /// Remember what the load of `key` touched since `mark`.
 module_load_end :: (fn(key : &String, mark : usize) -> unit)({
   // Only a compile that writes a depfile (hashing on) needs the log; `check`,
@@ -151,15 +152,15 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
   });
   out := ArrayList(String).new();
   (i : usize) = mark;
-  while(i < g_touches.len(), {
+  while(i < g_touches.with(xs => xs.len()), {
     match(
-      g_touches.get(i),
+      g_touches.with(xs => xs.get(i)),
       .Some(t) => out.push(t),
       .None => ()
     );
     i = (i + usize(1));
   });
-  g_module_touches.insert(key.clone(), out);
+  g_module_touches.with_mut(m => m.insert(key.clone(), out));
 });
 /// Module `key` was found in the module cache: note it in the touch log (so an
 /// enclosing load's slice names it) and replay its inputs into this compile's
@@ -168,18 +169,18 @@ module_cache_hit :: (fn(key : &String) -> unit)({
   if(!g_input_hashing, {
     return(());
   });
-  g_touches.push(`@${key}`);
+  g_touches.with_mut(xs => xs.push(`@${key}`));
   g_replaying = true;
   _replay_module(key);
   g_replaying = false;
 });
 _replay_module :: (fn(key : &String) -> unit)({
-  if(g_replayed_modules.contains(key), {
+  if(g_replayed_modules.with(s => s.contains(key)), {
     return(());
   });
-  g_replayed_modules.insert(key.clone());
+  g_replayed_modules.with_mut(s => s.insert(key.clone()));
   match(
-    g_module_touches.get(key),
+    g_module_touches.with(m => m.get(key)),
     .Some(list) => {
       (i : usize) = usize(0);
       while(i < list.len(), {
@@ -213,7 +214,7 @@ _replay_touch :: (fn(t : &String) -> unit)({
   );
 });
 /// The files read so far, in first-open order.
-input_files :: (fn() -> ArrayList(String))(g_input_files.clone());
+input_files :: (fn() -> ArrayList(String))(g_input_files.with(xs => xs.clone()));
 /// The inputs as `<sha256> <absolute path>` lines, in first-open order — the
 /// depfile's format. The hash comes FIRST so a path containing spaces still
 /// parses by splitting at the first space.
@@ -223,9 +224,9 @@ input_files :: (fn() -> ArrayList(String))(g_input_files.clone());
 input_file_entries :: (fn() -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
-  while(i < g_input_files.len(), {
-    path := match(g_input_files.get(i), .Some(p) => p, .None => String.new());
-    h := match(g_input_hashes.get(i), .Some(x) => x, .None => String.new());
+  while(i < g_input_files.with(xs => xs.len()), {
+    path := match(g_input_files.with(xs => xs.get(i)), .Some(p) => p, .None => String.new());
+    h := match(g_input_hashes.with(xs => xs.get(i)), .Some(x) => x, .None => String.new());
     marker := cond(
       (h.len() > usize(0)) => h,
       true => String.from("-")
@@ -245,14 +246,14 @@ input_file_entries :: (fn() -> ArrayList(String))({
 // Recorded in first-read order, deduplicated by NAME AND VALUE: one name read
 // twice is one entry, and a name whose value somehow differed between reads
 // keeps both, because both influenced the build.
-(g_env_reads : ArrayList(String)) = ArrayList(String).new();
+(g_env_reads : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// Record that the build read `name`, seeing `rendered` (`<unset>` when absent).
 record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
   entry := `${name}=${rendered}`;
   (i : usize) = usize(0);
-  while(i < g_env_reads.len(), {
+  while(i < g_env_reads.with(xs => xs.len()), {
     match(
-      g_env_reads.get(i),
+      g_env_reads.with(xs => xs.get(i)),
       .Some(seen) => if(seen == entry, {
         return(());
       }),
@@ -260,10 +261,10 @@ record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_env_reads.push(entry);
+  g_env_reads.with_mut(xs => xs.push(entry));
 });
 /// The environment reads so far, as `name=value` lines in first-read order.
-env_reads :: (fn() -> ArrayList(String))(g_env_reads);
+env_reads :: (fn() -> ArrayList(String))(g_env_reads.with(xs => xs));
 export(
   record_input_file,
   reset_input_files,

@@ -56,6 +56,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 { migrate_explicit_copy_on } :: import("../utils.yo");
 { Exception } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // _trial_eval_test_body
 // ---------------------------------------------------------------------------
@@ -100,9 +101,9 @@ strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
 /// `test_tok` is the `test` keyword, `name` the name as written, `error` the
 /// first line of the trial's error.
 SkippedTestBody :: struct(test_tok : Token, name : String, error : String);
-(g_skipped_test_bodies : ArrayList(SkippedTestBody)) = ArrayList(SkippedTestBody).new();
+(g_skipped_test_bodies : RefCell(ArrayList(SkippedTestBody))) = RefCell(ArrayList(SkippedTestBody)).new(ArrayList(SkippedTestBody).new());
 take_skipped_test_bodies :: (fn() -> ArrayList(SkippedTestBody))({
-  out := g_skipped_test_bodies.split_off(usize(0));
+  out := g_skipped_test_bodies.with_mut(xs => xs.split_off(usize(0)));
   out
 });
 _trial_eval_test_body :: (
@@ -134,7 +135,7 @@ _trial_eval_test_body :: (
           if(migrate_explicit_copy_on(), {
             message := match(trial_err, .Some(te) => render_any_error(&te), .None => String.from("the trial evaluation failed"));
             first_line := match(message.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.new());
-            g_skipped_test_bodies.push(SkippedTestBody(test_tok : test_tok.clone(), name : test_name.clone(), error : first_line));
+            g_skipped_test_bodies.with_mut(xs => xs.push(SkippedTestBody(test_tok : test_tok.clone(), name : test_name.clone(), error : first_line)));
           });
           return(());
         }

@@ -45,14 +45,15 @@ pragma(Pragma.AllowUnsafe);
 { type_display_name } :: import("../types/string.yo");
 { is_unit_type } :: import("../types/guards.yo");
 { is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
+{ RefCell } :: import("std/sync/refcell");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
 /// `_ghost_fn_inline_term`). Declared at module top so it is initialized
 /// before any lazy `::` definition can be forced by an importer.
-(g_ghost_inline_stack : ArrayList(String)) = ArrayList(String).new();
+(g_ghost_inline_stack : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// A3: the transparent callees whose definitions are being walked, and why
 /// the last attempt failed (read by the caller's subset message).
-(g_transparent_defining : ArrayList(String)) = ArrayList(String).new();
+(g_transparent_defining : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 (mut(g_transparent_reason) : String) = String.new();
 {
   get_func_requires_exprs,
@@ -70,14 +71,14 @@ pragma(Pragma.AllowUnsafe);
 /// call edges; a clique of one is self-recursion and is not stored. The
 /// walk consults this for the clique-edge decrease obligation
 /// (`_same_recursion_clique`).
-(g_recursion_cliques : ArrayList(ArrayList(String))) = ArrayList(ArrayList(String)).new();
+(g_recursion_cliques : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
 /// True when `a` and `b` sit in the same mutual-recursion clique.
 _same_recursion_clique :: (fn(a : &String, b : &String) -> bool)({
   (found : bool) = false;
   (ci : usize) = usize(0);
-  while((ci < g_recursion_cliques.len()) && !found, {
+  while((ci < g_recursion_cliques.with(xs => xs.len())) && !found, {
     match(
-      g_recursion_cliques.get(ci),
+      g_recursion_cliques.with(xs => xs.get(ci)),
       .Some(clique) => {
         if(clique.contains(a.clone()) && clique.contains(b.clone()), {
           found = true;
@@ -162,7 +163,7 @@ _scan_call_edges :: (
 /// mutual-recursion cliques (mutually reachable groups with more than
 /// one member). Must run before the first `verify_function_body`.
 register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
-  g_recursion_cliques.clear();
+  g_recursion_cliques.with_mut(xs => xs.clear());
   (from : ArrayList(String)) = ArrayList(String).new();
   (to : ArrayList(String)) = ArrayList(String).new();
   (nodes : ArrayList(String)) = ArrayList(String).new();
@@ -246,7 +247,7 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
           mj = (mj + usize(1));
         });
         if(clique.len() > usize(1), {
-          g_recursion_cliques.push(clique);
+          g_recursion_cliques.with_mut(xs => xs.push(clique));
         });
       }),
       .None => ()
@@ -317,7 +318,7 @@ _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
     .Atom(_, _) => ArrayList(AstExpr).new()
   )
 );
-(g_uninterpreted_sorts : ArrayList(String)) = ArrayList(String).new();
+(g_uninterpreted_sorts : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 // ---------------------------------------------------------------------------
 // ArrayList(T) as a ghost pair — R1 slice 1 of
 // plans/backlog/ATS_STYLE_INDEXED_TYPES.md. An `ArrayList(T)` whose `T` is in
@@ -333,8 +334,8 @@ _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 // The datatype rides the same side channel as the uninterpreted sorts
 // because `_type_sort` has no ctx; the query build appends every entry.
 // ---------------------------------------------------------------------------
-(g_list_datatypes : ArrayList(String)) = ArrayList(String).new();
-(g_list_elem_sorts : ArrayList(VcSort)) = ArrayList(VcSort).new();
+(g_list_datatypes : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(g_list_elem_sorts : RefCell(ArrayList(VcSort))) = RefCell(ArrayList(VcSort)).new(ArrayList(VcSort).new());
 /// The element type of an `ArrayList(T)` (the prelude's ref struct named
 /// `ArrayList` with one type argument), or `.None`.
 _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
@@ -387,9 +388,9 @@ _list_sort_elem :: (fn(s : &VcSort) -> Option(VcSort))(
     .DataS(ds_name) => {
       (found : Option(VcSort)) = Option(VcSort).None;
       (li : usize) = usize(0);
-      while((li < g_list_elem_sorts.len()) && found.is_none(), {
+      while((li < g_list_elem_sorts.with(xs => xs.len())) && found.is_none(), {
         match(
-          g_list_elem_sorts.get(li),
+          g_list_elem_sorts.with(xs => xs.get(li)),
           .Some(es) => if(_list_dt_name(&es) == ds_name, {
             found = Option(VcSort).Some(es);
           }),
@@ -408,9 +409,9 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
   dt := _list_dt_name(elem);
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_list_datatypes.len()) && !found, {
+  while((i < g_list_datatypes.with(xs => xs.len())) && !found, {
     match(
-      g_list_datatypes.get(i),
+      g_list_datatypes.with(xs => xs.get(i)),
       .Some(entry) => {
         bar := entry.index_of(String.from("|"));
         nm := match(
@@ -430,10 +431,9 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
     ctor := _list_ctor_name(elem);
     // One balanced FIELD group after the ctor, as `_note_enum_datatype`
     // writes it: the encoder's segment scanner consumes exactly one group.
-    g_list_datatypes.push(
-      `${dt}|${ctor} ((${_list_contents_acc(elem)} (Array (_ BitVec 64) ${encode_sort(elem)})) (${_list_len_acc(elem)} (_ BitVec 64)))`
-    );
-    g_list_elem_sorts.push(elem);
+    decl := `${dt}|${ctor} ((${_list_contents_acc(elem)} (Array (_ BitVec 64) ${encode_sort(elem)})) (${_list_len_acc(elem)} (_ BitVec 64)))`;
+    g_list_datatypes.with_mut(xs => xs.push(decl));
+    g_list_elem_sorts.with_mut(xs => xs.push(elem));
   });
   ()
 });
@@ -442,9 +442,9 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
 _is_list_len_acc :: (fn(acc : &String) -> bool)({
   (found : bool) = false;
   (li : usize) = usize(0);
-  while((li < g_list_elem_sorts.len()) && !found, {
+  while((li < g_list_elem_sorts.with(xs => xs.len())) && !found, {
     match(
-      g_list_elem_sorts.get(li),
+      g_list_elem_sorts.with(xs => xs.get(li)),
       .Some(es) => if(_list_len_acc(&es) == acc, {
         found = true;
       }),
@@ -458,9 +458,9 @@ _is_list_len_acc :: (fn(acc : &String) -> bool)({
 _list_elem_of_contents_acc :: (fn(acc : &String) -> Option(VcSort))({
   (found : Option(VcSort)) = Option(VcSort).None;
   (li : usize) = usize(0);
-  while((li < g_list_elem_sorts.len()) && found.is_none(), {
+  while((li < g_list_elem_sorts.with(xs => xs.len())) && found.is_none(), {
     match(
-      g_list_elem_sorts.get(li),
+      g_list_elem_sorts.with(xs => xs.get(li)),
       .Some(es) => if(_list_contents_acc(&es) == acc, {
         found = Option(VcSort).Some(es);
       }),
@@ -474,9 +474,9 @@ _list_elem_of_contents_acc :: (fn(acc : &String) -> Option(VcSort))({
 _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
   (found : Option(VcSort)) = Option(VcSort).None;
   (li : usize) = usize(0);
-  while((li < g_list_elem_sorts.len()) && found.is_none(), {
+  while((li < g_list_elem_sorts.with(xs => xs.len())) && found.is_none(), {
     match(
-      g_list_elem_sorts.get(li),
+      g_list_elem_sorts.with(xs => xs.get(li)),
       .Some(es) => if(_list_ctor_name(&es) == name, {
         found = Option(VcSort).Some(VcSort.DataS(name : _list_dt_name(&es)));
       }),
@@ -560,9 +560,9 @@ _enum_dt_name :: (fn(enum_id : &String) -> String)(
 _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
   (found : bool) = false;
   (i : usize) = usize(0);
-  while((i < g_uninterpreted_sorts.len()) && !found, {
+  while((i < g_uninterpreted_sorts.with(xs => xs.len())) && !found, {
     match(
-      g_uninterpreted_sorts.get(i),
+      g_uninterpreted_sorts.with(xs => xs.get(i)),
       .Some(n) => {
         if(n == name, {
           found = true;
@@ -573,7 +573,7 @@ _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
     i = (i + usize(1));
   });
   if(!found, {
-    g_uninterpreted_sorts.push(name);
+    g_uninterpreted_sorts.with_mut(xs => xs.push(name));
   });
   ()
 });
@@ -1392,9 +1392,9 @@ _emit :: (
     dti = (dti + usize(1));
   });
   (ldi : usize) = usize(0);
-  while(ldi < g_list_datatypes.len(), {
+  while(ldi < g_list_datatypes.with(xs => xs.len()), {
     match(
-      g_list_datatypes.get(ldi),
+      g_list_datatypes.with(xs => xs.get(ldi)),
       .Some(entry) => {
         q.datatypes.push(entry.clone());
       },
@@ -1403,9 +1403,9 @@ _emit :: (
     ldi = (ldi + usize(1));
   });
   (usi : usize) = usize(0);
-  while(usi < g_uninterpreted_sorts.len(), {
+  while(usi < g_uninterpreted_sorts.with(xs => xs.len()), {
     match(
-      g_uninterpreted_sorts.get(usi),
+      g_uninterpreted_sorts.with(xs => xs.get(usi)),
       .Some(name) => {
         q.sorts.push(name.clone());
       },
@@ -5701,7 +5701,7 @@ _sorts_copy :: (fn(src : &ArrayList(VcSort)) -> ArrayList(VcSort))({
 _transparent_call_term :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr), fid : &String) -> Option(VcTerm)
 )({
-  if(g_transparent_defining.contains(fid.clone()) && get_func_decreases_expr(fid.clone()).is_none(), {
+  if(g_transparent_defining.with(xs => xs.contains(fid.clone())) && get_func_decreases_expr(fid.clone()).is_none(), {
     g_transparent_reason = String.from("it calls itself without decreases(...), so its definition need not terminate");
     return(Option(VcTerm).None);
   });
@@ -5711,9 +5711,9 @@ _transparent_call_term :: (
   saved_keys := ctx.gfn_keys.len();
   saved_decls := ctx.fun_decls.len();
   g_transparent_reason = String.new();
-  g_transparent_defining.push(fid.clone());
+  g_transparent_defining.with_mut(xs => xs.push(fid.clone()));
   t := _ghost_fn_app_term(ctx, e, args, fid);
-  _ := g_transparent_defining.pop();
+  _ := g_transparent_defining.with_mut(xs => xs.pop());
   failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none()) || (ctx.mutated_names.len() > saved_mut));
   if(failed, {
     // The innermost reason wins (a nested callee's recursion); else name
@@ -5911,8 +5911,8 @@ _ghost_fn_inline_term :: (
     return(_ghost_fn_app_term(ctx, at, args, fid));
   });
   (si : usize) = usize(0);
-  while(si < g_ghost_inline_stack.len(), {
-    if(g_ghost_inline_stack.get(si).unwrap() == fid, {
+  while(si < g_ghost_inline_stack.with(xs => xs.len()), {
+    if(g_ghost_inline_stack.with(xs => xs.get(si)).unwrap() == fid, {
       _fail_subset(ctx, String.from("recursive ghost_fn inlining (a spec function must not reach itself)"), at);
       return(Option(VcTerm).None);
     });
@@ -5994,9 +5994,9 @@ _ghost_fn_inline_term :: (
     );
     bi = (bi + usize(1));
   });
-  g_ghost_inline_stack.push(fid.clone());
+  g_ghost_inline_stack.with_mut(xs => xs.push(fid.clone()));
   out := _expr_term(ctx, &body);
-  _ := g_ghost_inline_stack.pop();
+  _ := g_ghost_inline_stack.with_mut(xs => xs.pop());
   (ri : usize) = saved_names.len();
   while(ri > usize(0), {
     ri = (ri - usize(1));

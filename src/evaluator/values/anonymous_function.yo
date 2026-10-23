@@ -149,6 +149,7 @@ pragma(Pragma.AllowUnsafe);
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
+{ RefCell } :: import("std/sync/refcell");
 {
   clear_flow_violation,
   flow_violation_pending,
@@ -446,28 +447,28 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
 // `g_trial_swallow_msg`. The handler below is a capture-free `->` and cannot
 // propagate, so the P0 forward-reference check at the CALLER reads the
 // message from here (flag/clear/pending/message, same shape).
-(g_anon_swallow_msg : ArrayList(String)) = ArrayList(String).new();
+(g_anon_swallow_msg : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 /// The swallowed error's code (a re-raise built from its text carries it).
-(g_anon_swallow_code : ArrayList(String)) = ArrayList(String).new();
+(g_anon_swallow_code : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
 _flag_anon_swallow :: (fn(msg : &String, code : &Option(String)) -> unit)({
-  g_anon_swallow_msg.clear();
-  g_anon_swallow_msg.push(msg);
-  g_anon_swallow_code.clear();
-  match(code, .Some(c) => g_anon_swallow_code.push(c), .None => ());
+  g_anon_swallow_msg.with_mut(xs => xs.clear());
+  g_anon_swallow_msg.with_mut(xs => xs.push(msg));
+  g_anon_swallow_code.with_mut(xs => xs.clear());
+  match(code, .Some(c) => g_anon_swallow_code.with_mut(xs => xs.push(c)), .None => ());
 });
 /// The swallowed error's STRUCTURED diagnostics, written and cleared in
 /// lockstep with the text, as calls/function_type.yo's
 /// `g_trial_swallow_diags` is: a re-raise then carries the code, span and
 /// repair to the typed stash instead of a flattened string.
-(g_anon_swallow_diags : ArrayList(Diagnostic)) = ArrayList(Diagnostic).new();
+(g_anon_swallow_diags : RefCell(ArrayList(Diagnostic))) = RefCell(ArrayList(Diagnostic)).new(ArrayList(Diagnostic).new());
 _flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
-  g_anon_swallow_diags.clear();
+  g_anon_swallow_diags.with_mut(xs => xs.clear());
   match(
     downcast(err, YoError),
     .Some(ye) => {
       (dgi : usize) = usize(0);
       while(dgi < ye.diagnostics.len(), {
-        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.push(d), .None => ());
+        match(ye.diagnostics.get(dgi), .Some(d) => g_anon_swallow_diags.with_mut(xs => xs.push(d)), .None => ());
         dgi = (dgi + usize(1));
       });
     },
@@ -475,14 +476,14 @@ _flag_anon_swallow_diags :: (fn(err : &AnyError) -> unit)({
   );
 });
 _clear_anon_swallow :: (fn() -> unit)({
-  g_anon_swallow_msg.clear();
-  g_anon_swallow_code.clear();
-  g_anon_swallow_diags.clear();
+  g_anon_swallow_msg.with_mut(xs => xs.clear());
+  g_anon_swallow_code.with_mut(xs => xs.clear());
+  g_anon_swallow_diags.with_mut(xs => xs.clear());
 });
-_anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.len() > usize(0));
-_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.get(usize(0)));
+_anon_swallow_pending :: (fn() -> bool)(g_anon_swallow_msg.with(xs => xs.len()) > usize(0));
+_anon_swallow_code :: (fn() -> Option(String))(g_anon_swallow_code.with(xs => xs.get(usize(0))));
 _anon_swallow_message :: (fn() -> String)(
-  match(g_anon_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
+  match(g_anon_swallow_msg.with(xs => xs.get(usize(0))), .Some(m) => m.clone(), .None => String.from(""))
 );
 /// Trial-evaluate an anonymous-function body at definition time, swallowing
 /// any eval error. Replicates `_trial_eval_fn_body` (calls/function_type.yo)
@@ -2250,7 +2251,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     hb_tok := ast_expr_token(&body_for_def_eval);
     hb_site := `${hb_tok.module_path}:${hb_tok.row.to_string()}:${hb_tok.column.to_string()}`;
     if(_anon_swallow_pending() && (anon_body_out.len() == usize(0)), {
-      record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.clone());
+      record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(xs => xs.clone()));
     }, {
       clear_hollow_body_error(&hb_site);
     });
@@ -2294,7 +2295,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // swallow: they are typed again where their parameters resolve.
     if(body_params_concrete && !propagate_def_time_errors() && (_anon_swallow_pending() && (anon_body_out.len() == usize(0))), {
       c3_msg := _anon_swallow_message();
-      c3_diags := g_anon_swallow_diags.clone();
+      c3_diags := g_anon_swallow_diags.with(xs => xs.clone());
       _clear_anon_swallow();
       if(c3_diags.len() > usize(0), {
         exn.throw(dyn(yo_error_from_diagnostics(&c3_diags)));
@@ -2315,7 +2316,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // match its text (a capture-list rule raised inside the body).
       if(_anon_swallow_pending(), {
         c2_msg := _anon_swallow_message();
-        c2_diags := g_anon_swallow_diags.clone();
+        c2_diags := g_anon_swallow_diags.with(xs => xs.clone());
         _clear_anon_swallow();
         if(c2_diags.len() > usize(0), {
           exn.throw(dyn(yo_error_from_diagnostics(&c2_diags)));
@@ -2770,8 +2771,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // as for concrete-parameter closures above (`body_has_ct_param`).
       if(!propagate_def_time_errors() && !body_has_ct_param, {
         (dgc_indep : Option(YoError)) = Option(YoError).None;
-        if(match(g_anon_swallow_diags.get(usize(0)), .Some(d) => d.generic_independent, .None => false), {
-          dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.clone()));
+        if(match(g_anon_swallow_diags.with(xs => xs.get(usize(0))), .Some(d) => d.generic_independent, .None => false), {
+          dgc_indep = Option(YoError).Some(yo_error_from_diagnostics(g_anon_swallow_diags.with(xs => xs.clone())));
         });
         if(dgc_indep.is_none() && !dgc_fv_was, {
           match(
@@ -2799,7 +2800,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       // that reaches codegen hollow.
       dgc_site := trial_body_site(&body_for_def_eval);
       if(_anon_swallow_pending() && (dgc_out.len() == usize(0)), {
-        record_generic_trial_error(&dgc_site, _anon_swallow_message(), g_anon_swallow_diags.clone());
+        record_generic_trial_error(&dgc_site, _anon_swallow_message(), g_anon_swallow_diags.with(xs => xs.clone()));
         if(_g_anon_dbg_swallow, {
           eprintln(`[kept] site=dgc code=${match(_anon_swallow_code(), .Some(c) => c, .None => String.from("-"))} owner=${dgc_site}`);
         });

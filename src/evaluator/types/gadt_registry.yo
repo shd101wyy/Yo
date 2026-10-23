@@ -19,6 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Per-definition variant args
 // ---------------------------------------------------------------------------
@@ -31,24 +32,24 @@ GadtEntry :: ref(
     variant_args : ArrayList(ArrayList(TypeValue))
   )
 );
-(g_gadt_entries : ArrayList(GadtEntry)) = ArrayList(GadtEntry).new();
+(g_gadt_entries : RefCell(ArrayList(GadtEntry))) = RefCell(ArrayList(GadtEntry)).new(ArrayList(GadtEntry).new());
 /// Record a GADT enum's per-variant return-type args; registering `enum_id`
 /// marks the enum as a GADT. Mutated via `push`, never reassigned.
 register_gadt_enum :: (
   fn(enum_id : &String, variant_args : &ArrayList(ArrayList(TypeValue))) -> unit
 )({
-  g_gadt_entries.push(GadtEntry(enum_id : enum_id.clone(), variant_args : variant_args));
+  g_gadt_entries.with_mut(xs => xs.push(GadtEntry(enum_id : enum_id.clone(), variant_args : variant_args)));
 });
 /// Look up a GADT enum's per-variant args by id, if registered.
 get_gadt_variant_args :: (
   fn(enum_id : &String) -> Option(ArrayList(ArrayList(TypeValue)))
 )({
   (i : usize) = usize(0);
-  n := g_gadt_entries.len();
+  n := g_gadt_entries.with(xs => xs.len());
   (found : Option(ArrayList(ArrayList(TypeValue)))) = Option(ArrayList(ArrayList(TypeValue))).None;
   while((i < n) && match(found, .None => true, .Some(_) => false), {
     match(
-      g_gadt_entries.get(i),
+      g_gadt_entries.with(xs => xs.get(i)),
       .Some(e) => if(e.enum_id == enum_id, {
         found = Option(ArrayList(ArrayList(TypeValue))).Some(e.variant_args);
       }),
@@ -71,23 +72,23 @@ GadtTcaEntry :: ref(
     type_constructor_args : ArrayList(TypeValue)
   )
 );
-(g_gadt_tca_entries : ArrayList(GadtTcaEntry)) = ArrayList(GadtTcaEntry).new();
+(g_gadt_tca_entries : RefCell(ArrayList(GadtTcaEntry))) = RefCell(ArrayList(GadtTcaEntry)).new(ArrayList(GadtTcaEntry).new());
 /// Record the type-constructor args for an instantiated GADT enum.
 register_gadt_type_constructor_args :: (
   fn(enum_id : &String, tca : &ArrayList(TypeValue)) -> unit
 )({
-  g_gadt_tca_entries.push(GadtTcaEntry(enum_id : enum_id.clone(), type_constructor_args : tca));
+  g_gadt_tca_entries.with_mut(xs => xs.push(GadtTcaEntry(enum_id : enum_id.clone(), type_constructor_args : tca)));
 });
 /// Look up the type-constructor args for an instantiated GADT enum, if any.
 get_gadt_type_constructor_args :: (
   fn(enum_id : &String) -> Option(ArrayList(TypeValue))
 )({
   (i : usize) = usize(0);
-  n := g_gadt_tca_entries.len();
+  n := g_gadt_tca_entries.with(xs => xs.len());
   (found : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
   while((i < n) && match(found, .None => true, .Some(_) => false), {
     match(
-      g_gadt_tca_entries.get(i),
+      g_gadt_tca_entries.with(xs => xs.get(i)),
       .Some(e) => if(e.enum_id == enum_id, {
         found = Option(ArrayList(TypeValue)).Some(e.type_constructor_args);
       }),

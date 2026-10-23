@@ -47,6 +47,7 @@
 { YoError } :: import("../error.yo");
 { Exception } :: import("std/error");
 { fnv1a64, debug_knob, canonical_module_path, TopLevelAnchor, register_top_level_anchors } :: import("../utils.yo");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
 // ---------------------------------------------------------------------------
@@ -57,16 +58,16 @@
 /// ordinary `Variable "x" not found.` error can append the label-the-return
 /// hint (decision D3: no magic `result` identifier). With a LABELED return an
 /// unbound name is an ordinary typo and nothing registers here.
-(g_unlabeled_ensures_atom_ids : HashSet(ExprId)) = HashSet(ExprId).new();
+(g_unlabeled_ensures_atom_ids : RefCell(HashSet(ExprId))) = RefCell(HashSet(ExprId)).new(HashSet(ExprId).new());
 /// Record one identifier-atom node id for the label-the-return hint.
 note_unlabeled_ensures_atom :: (fn(id : ExprId) -> unit)({
-  g_unlabeled_ensures_atom_ids.insert(id);
+  g_unlabeled_ensures_atom_ids.with_mut(s => s.insert(id));
   ()
 });
 /// Whether `id` belongs to an `ensures(...)` predicate of an unlabeled-return
 /// function (the label-the-return hint applies).
 is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
-  g_unlabeled_ensures_atom_ids.contains(&id)
+  g_unlabeled_ensures_atom_ids.with(s => s.contains(&id))
 );
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
@@ -1277,17 +1278,17 @@ ModuleWalk :: ref(
     by_index : HashMap(usize, PendingDef)
   )
 );
-(g_module_walks : ArrayList(ModuleWalk)) = ArrayList(ModuleWalk).new();
+(g_module_walks : RefCell(ArrayList(ModuleWalk))) = RefCell(ArrayList(ModuleWalk)).new(ArrayList(ModuleWalk).new());
 /// Entries currently being forced, outermost first — the cycle chain
 /// (`a → b → a`) and the phase-A publication target.
-(g_forcing_stack : ArrayList(PendingDef)) = ArrayList(PendingDef).new();
+(g_forcing_stack : RefCell(ArrayList(PendingDef))) = RefCell(ArrayList(PendingDef)).new(ArrayList(PendingDef).new());
 /// Finished walks' definitions by module path. A generic fn body is
 /// re-evaluated at SPECIALIZATION time from its definition-time capture
 /// snapshot (a frozen frame copy); a definition forced after that snapshot was
 /// taken is not in it, so the miss hook resolves the name from here once the
 /// walk is over. Only names this mechanism bound are ever served — never a
 /// runtime module global, which a stripped fn env must keep hiding.
-(g_finished_walks : HashMap(String, ModuleWalk)) = HashMap(String, ModuleWalk).new();
+(g_finished_walks : RefCell(HashMap(String, ModuleWalk))) = RefCell(HashMap(String, ModuleWalk)).new(HashMap(String, ModuleWalk).new());
 /// Whether EVERY finished walk keeps its evaluation context (see
 /// `ModuleWalk.ctx`). Off by default; `yo check --watch` / `--watch-once` turn
 /// it on before their first evaluation (a watched edit can land in any file).
@@ -1303,18 +1304,18 @@ set_retain_walk_contexts :: (fn(v : bool) -> unit)({
 /// file-level reload (`mm_revalidate_plan`). Retaining every walk kept each
 /// imported module's whole `ExprInfoTable` alive for the life of the server
 /// (plans/EVALUATOR_MEMORY_REDUCTION.md Phase 1 step 3).
-(g_retained_walk_paths : HashSet(String)) = HashSet(String).new();
+(g_retained_walk_paths : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Start (`keep`) or stop keeping the walk context of the module at `path`.
 /// Stopping also releases the context of its already-finished walk.
 set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
   canon := canonical_module_path(path);
   if(keep, {
-    g_retained_walk_paths.insert(canon);
+    g_retained_walk_paths.with_mut(s => s.insert(canon));
   }, {
-    _removed := g_retained_walk_paths.remove(canon.clone());
+    _removed := g_retained_walk_paths.with_mut(s => s.remove(canon.clone()));
     // `ModuleWalk` is a ref struct: releasing through the value handle
     // releases the table's walk.
-    walk_values := g_finished_walks.values();
+    walk_values := g_finished_walks.with(m => m.values());
     wopt := walk_values.next();
     while(wopt.is_some(), {
       match(
@@ -1336,11 +1337,11 @@ set_walk_context_retained :: (fn(path : &String, keep : bool) -> unit)({
 /// syntactically from the pending definition instead.
 is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
   canon := canonical_module_path(path);
-  (wi : usize) = g_module_walks.len();
+  (wi : usize) = g_module_walks.with(xs => xs.len());
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.get(wi),
+      g_module_walks.with(xs => xs.get(wi)),
       .Some(w) => if(canonical_module_path(&w.module_path) == canon, {
         match(
           _find_def_by_name(&w.defs, name.clone(), false),
@@ -1369,7 +1370,7 @@ is_module_ghost_fn_def :: (fn(path : &String, name : &String) -> bool)({
 /// holds its evaluation context; `.None` when that module has no finished walk.
 finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.values();
+  walk_values := g_finished_walks.with(m => m.values());
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1388,7 +1389,7 @@ finished_walk_has_context :: (fn(path : &String) -> Option(bool))({
 /// context. The CTFE-clone purge test's probe.
 finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
   canon := canonical_module_path(path);
-  walk_values := g_finished_walks.values();
+  walk_values := g_finished_walks.with(m => m.values());
   wopt := walk_values.next();
   while(wopt.is_some(), {
     match(
@@ -1404,7 +1405,7 @@ finished_walk_expr_info_count :: (fn(path : &String) -> Option(usize))({
 });
 /// Whether a walk of the module at `module_path` keeps its context when it finishes.
 walk_context_retained_for :: (fn(module_path : &String) -> bool)(
-  g_retain_walk_contexts || ((g_retained_walk_paths.len() > usize(0)) && g_retained_walk_paths.contains(canonical_module_path(module_path)))
+  g_retain_walk_contexts || ((g_retained_walk_paths.with(s => s.len()) > usize(0)) && g_retained_walk_paths.with(s => s.contains(canonical_module_path(module_path))))
 );
 /// Phase 3 (§6) — per-definition dependency tracking.
 ///
@@ -1415,46 +1416,45 @@ walk_context_retained_for :: (fn(module_path : &String) -> bool)(
 /// `g_def_hash` holds each definition's `src_hash` AS OF ITS LAST WALK; the
 /// invalidator re-parses a changed file, hashes its definitions, and diffs
 /// against this table before any walk re-runs.
-(g_def_hash : HashMap(String, u64)) = HashMap(String, u64).new();
+(g_def_hash : RefCell(HashMap(String, u64))) = RefCell(HashMap(String, u64)).new(HashMap(String, u64).new());
 /// Ordered-statement sequence hash per module (see `begin_module_walk`).
-(g_module_stmt_hash : HashMap(String, u64)) = HashMap(String, u64).new();
+(g_module_stmt_hash : RefCell(HashMap(String, u64))) = RefCell(HashMap(String, u64)).new(HashMap(String, u64).new());
 /// Definition count per module as of its last walk (removal detection for
 /// the parse-only differ — def indices are dense, so count equality plus
 /// per-key hash equality means no removals).
-(g_module_def_count : HashMap(String, usize)) = HashMap(String, usize).new();
+(g_module_def_count : RefCell(HashMap(String, usize))) = RefCell(HashMap(String, usize)).new(HashMap(String, usize).new());
 /// Dependent def key → the set of def keys it needed. Fed at every FORCE and
 /// at every finished-walk SERVE (the miss only fires once — a Done def served
 /// later still records the edge) and at module-member reads
 /// (`record_module_member_read`).
-(g_def_deps : HashMap(String, HashSet(String))) = HashMap(String, HashSet(String)).new();
+(g_def_deps : RefCell(HashMap(String, HashSet(String)))) = RefCell(HashMap(String, HashSet(String))).new(HashMap(String, HashSet(String)).new());
 /// ORDERED-statement reads (made with an EMPTY forcing stack — destructured
 /// imports, module globals): importer module → target module → field names
 /// read. Not attributable to a definition, so a hit invalidates the importer
 /// at file granularity (the conservative fallback of §6 step 5).
-(g_module_ordered_reads : HashMap(String, HashMap(String, HashSet(String)))) =
-  HashMap(String, HashMap(String, HashSet(String))).new();
+(g_module_ordered_reads : RefCell(HashMap(String, HashMap(String, HashSet(String))))) = RefCell(HashMap(String, HashMap(String, HashSet(String)))).new(HashMap(String, HashMap(String, HashSet(String))).new());
 /// source-namespace struct id → module path. Populated at every module
 /// value construction (each load mints its own id), consumed by the
 /// member-read hooks to attribute a field access to a module.
-(g_sns_module : HashMap(String, String)) = HashMap(String, String).new();
+(g_sns_module : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
 register_sns_module :: (fn(struct_id : &String, module_path : &String) -> unit)({
-  _ := g_sns_module.insert(struct_id, module_path);
+  _ := g_sns_module.with_mut(m => m.insert(struct_id, module_path));
 });
 /// The module behind a source-namespace struct id, if known.
 sns_module_of :: (fn(struct_id : &String) -> Option(String))(
-  g_sns_module.get(struct_id)
+  g_sns_module.with(m => m.get(struct_id))
 );
 /// The stored source hash of one definition, for the parse-only differ.
 stored_def_hash :: (fn(module_path : &String, index : usize, name : &String) -> Option(u64))(
-  g_def_hash.get(def_key(module_path, index, name))
+  g_def_hash.with(m => m.get(def_key(module_path, index, name)))
 );
 /// The stored ordered-statement sequence hash of a module.
 stored_stmt_hash :: (fn(module_path : &String) -> Option(u64))(
-  g_module_stmt_hash.get(module_path)
+  g_module_stmt_hash.with(m => m.get(module_path))
 );
 /// The stored definition count of a module's last walk.
 stored_def_count :: (fn(module_path : &String) -> Option(usize))(
-  g_module_def_count.get(module_path)
+  g_module_def_count.with(m => m.get(module_path))
 );
 /// def key helper. `index` (the statement's position in the walk's
 /// begin_exprs) + name — deliberately ROW-FREE: inserting a comment or a
@@ -1476,18 +1476,18 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
     current_forcing_def(),
     .Some(_) => {
       (top : PendingDef) = match(
-        g_forcing_stack.last(),
+        g_forcing_stack.with(xs => xs.last()),
         .Some(d) => d,
         .None => return(())
       );
       dk := def_key(ast_expr_token(&top.expr).module_path, top.index, &top.name);
       deps := match(
-        g_def_deps.get(&dk),
+        g_def_deps.with(m => m.get(&dk)),
         .Some(existing) => existing,
         .None => HashSet(String).new()
       );
       deps.insert(dependee);
-      _ := g_def_deps.insert(dk, deps);
+      _ := g_def_deps.with_mut(m => m.insert(dk, deps));
       if(debug_knob(`YO_DEBUG_P3DIFF`).is_some(), {
         eprintln(`[p3edge] ${top.name} -> ${dependee}`);
       });
@@ -1502,7 +1502,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
     eprintln(`[p3ord] ${importer.clone()} reads ${field.clone()} of ${target_module.clone()}`);
   });
   by_target := match(
-    g_module_ordered_reads.get(importer),
+    g_module_ordered_reads.with(m => m.get(importer)),
     .Some(existing) => existing,
     .None => HashMap(String, HashSet(String)).new()
   );
@@ -1513,7 +1513,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
   );
   fields.insert(field);
   _ := by_target.insert(target_module, fields);
-  _ := g_module_ordered_reads.insert(importer, by_target);
+  _ := g_module_ordered_reads.with_mut(m => m.insert(importer, by_target));
 });
 /// Module-member read hook shared by the property-access path: the
 /// enclosing def (forcing top) records a def-level edge when the field
@@ -1521,7 +1521,7 @@ record_module_ordered_read :: (fn(importer : &String, target_module : &String, f
 /// stack) it degrades to the ordered-read table.
 record_module_member_read :: (fn(importer : &String, target_module : &String, field : &String) -> unit)({
   target_def := match(
-    g_finished_walks.get(target_module),
+    g_finished_walks.with(m => m.get(target_module)),
     .Some(fwalk) => _find_def_by_name(&fwalk.defs, field, false),
     .None => Option(PendingDef).None
   );
@@ -1585,7 +1585,7 @@ def_key_index :: (fn(key : &String) -> Option(usize))(
 );
 /// The walk a module was finished under, by the def keys' own module segment.
 finished_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))(
-  g_finished_walks.get(module_path)
+  g_finished_walks.with(m => m.get(module_path))
 );
 /// Reset one definition for re-evaluation: clear the lazy-binding state and
 /// drop its bindings from the walk's module frame (so a lookup MISSES again
@@ -1682,7 +1682,7 @@ graft_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef, fresh : &Pending
   def.row = fresh.row;
   def.src_hash = fresh.src_hash;
   walk.begin_exprs(def.index) = fresh.expr;
-  _ := g_def_hash.insert(def_key(&walk.module_path, def.index, &def.name), fresh.src_hash);
+  _ := g_def_hash.with_mut(m => m.insert(def_key(&walk.module_path, def.index, &def.name), fresh.src_hash));
   ()
 });
 /// Every def key that transitively DEPENDS on a seed (reverse edges over
@@ -1714,14 +1714,14 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
       .Some(s) => s.clone(),
       .None => String.new()
     );
-    kit := g_def_deps.keys();
+    kit := g_def_deps.with(m => m.keys());
     kopt := kit.next();
     while(kopt.is_some(), {
       match(
         kopt,
         .Some(dep) => if(!reached.contains(dep.clone()), {
           match(
-            g_def_deps.get(dep.clone()),
+            g_def_deps.with(m => m.get(dep.clone())),
             .Some(deps) => if(deps.contains(seed.clone()), {
               _ := reached.insert(dep.clone());
               work.push(dep.clone());
@@ -1743,13 +1743,13 @@ def_dependents_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))(
 /// the invalidator drops each returned importer at file granularity.
 ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
-  iit := g_module_ordered_reads.keys();
+  iit := g_module_ordered_reads.with(m => m.keys());
   iopt := iit.next();
   while(iopt.is_some(), {
     match(
       iopt,
       .Some(importer) => match(
-        g_module_ordered_reads.get(importer.clone()),
+        g_module_ordered_reads.with(m => m.get(importer.clone())),
         .Some(by_target) => match(
           by_target.get(target_module.clone()),
           .Some(fields) => {
@@ -1782,7 +1782,7 @@ ordered_readers_of :: (fn(target_module : &String, names : &ArrayList(String)) -
 /// The dependees recorded for one def key (the forward edges of
 /// `g_def_deps`), for the invalidator's cross-module ordering.
 def_key_dependees :: (fn(key : &String) -> Option(HashSet(String)))(
-  g_def_deps.get(key)
+  g_def_deps.with(m => m.get(key))
 );
 /// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
 ForcePendingDefFn :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String));
@@ -1945,17 +1945,17 @@ impl_receiver_head_name :: (fn(recv : &AstExpr) -> String)(
 /// outlive the call, so it borrows its captures instead of owning them
 /// (plans/VALUES_BY_DEFAULT.md decision 22; V3 applies it to a closure that
 /// captures a value that is not implicitly copyable).
-(g_borrowing_closure_args : HashMap(usize, bool)) = HashMap(usize, bool).new();
+(g_borrowing_closure_args : RefCell(HashMap(usize, bool))) = RefCell(HashMap(usize, bool)).new(HashMap(usize, bool).new());
 /// Record that `arg` (an argument expression, label stripped) is passed to a
 /// borrowing parameter.
 note_borrowing_argument :: (fn(arg : &AstExpr) -> unit)({
   if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
-    g_borrowing_closure_args.insert(ast_expr_id(arg), true);
+    g_borrowing_closure_args.with_mut(m => m.insert(ast_expr_id(arg), true));
   });
 });
 /// True when the closure literal `e` is the direct argument of a borrowing
 /// parameter (`note_borrowing_argument`).
-closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.contains_key(ast_expr_id(e)));
+closure_literal_is_borrowed :: (fn(e : &AstExpr) -> bool)(g_borrowing_closure_args.with(m => m.contains_key(ast_expr_id(e))));
 /// `YO_AUDIT_COPY_TRAIT`'s question, answered by trait_checking.yo (installed
 /// at init, which this module cannot import): the named types `ty` is not
 /// `Copy` through, the types decision 36's sweep must give `Copy` before a
@@ -1971,7 +1971,7 @@ copy_trait_blockers_via_hook :: (fn(ty : &TypeValue, env : &Environment) -> Arra
 /// Receiver head names of pending (unforced) impls that declare `Drop`
 /// (`""` for an un-nameable head): `force_pending_move_only_impls`
 /// forces them the first time a type's move-only status is asked.
-(g_pending_move_only_heads : HashMap(String, bool)) = HashMap(String, bool).new();
+(g_pending_move_only_heads : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 /// An `impl(...)` statement with a `Drop(...)` entry,
 /// read off the syntax (the trait is resolved when the impl is forced).
 _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
@@ -2003,20 +2003,20 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
 /// decides how every use of it is evaluated, so its impl cannot wait for a
 /// method miss or the module end. True when an impl was forced.
 force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
-  if(g_pending_move_only_heads.len() == usize(0), {
+  if(g_pending_move_only_heads.with(m => m.len()) == usize(0), {
     return(false);
   });
-  if(!(g_pending_move_only_heads.contains_key(type_name.clone()) || g_pending_move_only_heads.contains_key(String.new())), {
+  if(!(g_pending_move_only_heads.with(m => m.contains_key(type_name.clone())) || g_pending_move_only_heads.with(m => m.contains_key(String.new()))), {
     return(false);
   });
-  g_pending_move_only_heads.remove(type_name.clone());
-  g_pending_move_only_heads.remove(String.new());
+  g_pending_move_only_heads.with_mut(m => m.remove(type_name.clone()));
+  g_pending_move_only_heads.with_mut(m => m.remove(String.new()));
   (forced : bool) = false;
-  (wi : usize) = g_module_walks.len();
+  (wi : usize) = g_module_walks.with(xs => xs.len());
   while(wi > usize(0), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.get(wi),
+      g_module_walks.with(xs => xs.get(wi)),
       .Some(walk) => {
         (di : usize) = usize(0);
         while(di < walk.defs.len(), {
@@ -2046,7 +2046,7 @@ force_pending_move_only_impls :: (fn(type_name : &String) -> bool)({
 });
 _make_pending_def :: (fn(name : &String, e : &AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))({
   if(is_impl && _impl_expr_declares_move_only(e), {
-    g_pending_move_only_heads.insert(name.clone(), true);
+    g_pending_move_only_heads.with_mut(m => m.insert(name.clone(), true));
     note_move_only_possible();
   });
   Option(PendingDef).Some(
@@ -2370,18 +2370,18 @@ register_module_anchors :: (fn(begin_exprs : &ArrayList(AstExpr)) -> unit)({
 /// (`p.m` in `p.m(x)`), by AST id. `evaluate_function_call` marks its callee
 /// around the callee's evaluation; a field miss on a marked access is a
 /// method call, anywhere else it is an error (`_unknown_field_message`).
-(g_dot_callee_ids : ArrayList(usize)) = ArrayList(usize).new();
+(g_dot_callee_ids : RefCell(ArrayList(usize))) = RefCell(ArrayList(usize)).new(ArrayList(usize).new());
 mark_dot_callee :: (fn(id : usize) -> unit)({
-  g_dot_callee_ids.push(id);
+  g_dot_callee_ids.with_mut(xs => xs.push(id));
 });
 unmark_dot_callee :: (fn() -> unit)({
-  _ := g_dot_callee_ids.pop();
+  _ := g_dot_callee_ids.with_mut(xs => xs.pop());
 });
 is_dot_callee :: (fn(id : usize) -> bool)({
-  (i : usize) = g_dot_callee_ids.len();
+  (i : usize) = g_dot_callee_ids.with(xs => xs.len());
   while(i > usize(0), {
     i = (i - usize(1));
-    if(match(g_dot_callee_ids.get(i), .Some(v) => (v == id), .None => false), {
+    if(match(g_dot_callee_ids.with(xs => xs.get(i)), .Some(v) => (v == id), .None => false), {
       return(true);
     });
   });
@@ -2398,7 +2398,7 @@ begin_module_walk :: (
     .Some(first) => ast_expr_token(&first).module_path.clone(),
     .None => env.module_path.*.clone()
   );
-  g_finished_walks.remove(module_path.clone());
+  g_finished_walks.with_mut(m => m.remove(module_path.clone()));
   defs := ArrayList(PendingDef).new();
   by_index := HashMap(usize, PendingDef).new();
   (i : usize) = usize(0);
@@ -2457,32 +2457,32 @@ begin_module_walk :: (
       );
       si = (si + usize(1));
     });
-    _ := g_module_stmt_hash.insert(module_path, fnv1a64(&stmt_hash_state));
+    _ := g_module_stmt_hash.with_mut(m => m.insert(module_path, fnv1a64(&stmt_hash_state)));
   });
   (hi : usize) = usize(0);
   while(hi < defs.len(), {
     match(
       defs.get(hi),
       .Some(d) => {
-        _ := g_def_hash.insert(def_key(&module_path, d.index, &d.name), d.src_hash);
+        _ := g_def_hash.with_mut(m => m.insert(def_key(&module_path, d.index, &d.name), d.src_hash));
       },
       .None => ()
     );
     hi = (hi + usize(1));
   });
-  _ := g_module_def_count.insert(module_path, defs.len());
-  g_module_walks.push(walk);
+  _ := g_module_def_count.with_mut(m => m.insert(module_path, defs.len()));
+  g_module_walks.with_mut(xs => xs.push(walk));
   walk
 });
 /// Finish a walk: pop it and keep its definitions for the post-walk miss
 /// fallback. Pops the TOP entry — walks nest strictly (an import evaluates
 /// inside its importer's walk and returns before it continues).
 end_module_walk :: (fn(walk : &ModuleWalk) -> unit)({
-  g_module_walks.pop();
+  g_module_walks.with_mut(xs => xs.pop());
   if(!walk_context_retained_for(&walk.module_path), {
     walk.ctx = Option(EvalContext).None;
   });
-  g_finished_walks.insert(walk.module_path.clone(), walk);
+  g_finished_walks.with_mut(m => m.insert(walk.module_path.clone(), walk));
   ()
 });
 walk_pending_def_at :: (fn(walk : &ModuleWalk, index : usize) -> Option(PendingDef))(
@@ -2526,11 +2526,11 @@ _def_variable_for :: (fn(walk : &ModuleWalk, def : &PendingDef, name : &String) 
 /// The innermost active walk for `module_path`.
 _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
   (found : Option(ModuleWalk)) = Option(ModuleWalk).None;
-  (i : usize) = g_module_walks.len();
+  (i : usize) = g_module_walks.with(xs => xs.len());
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(
-      g_module_walks.get(i),
+      g_module_walks.with(xs => xs.get(i)),
       .Some(w) => if(w.module_path == module_path, {
         found = Option(ModuleWalk).Some(w);
       }),
@@ -2543,16 +2543,16 @@ _active_walk_for :: (fn(module_path : &String) -> Option(ModuleWalk))({
 /// stack), if any.
 current_forcing_def :: (fn() -> Option(PendingDef))(
   cond(
-    (g_forcing_stack.len() > usize(0)) => g_forcing_stack.last(),
+    (g_forcing_stack.with(xs => xs.len()) > usize(0)) => g_forcing_stack.with(xs => xs.last()),
     true => Option(PendingDef).None
   )
 );
 push_forcing_def :: (fn(def : &PendingDef) -> unit)({
   def.state = PendingDefState.Forcing;
-  g_forcing_stack.push(def);
+  g_forcing_stack.with_mut(xs => xs.push(def));
 });
 pop_forcing_def :: (fn() -> unit)({
-  g_forcing_stack.pop();
+  g_forcing_stack.with_mut(xs => xs.pop());
   ()
 });
 /// Token rows are 0-based; diagnostics print 1-based lines (error.yo).
@@ -2568,9 +2568,9 @@ cyclic_definition_message :: (fn(def : &PendingDef) -> String)({
   out := String.from("cyclic definition: ");
   (started : bool) = false;
   (i : usize) = usize(0);
-  while(i < g_forcing_stack.len(), {
+  while(i < g_forcing_stack.with(xs => xs.len()), {
     match(
-      g_forcing_stack.get(i),
+      g_forcing_stack.with(xs => xs.get(i)),
       .Some(d) => {
         if(((!(started) && (d.name == def.name)) && (d.is_impl == def.is_impl)), {
           started = true;
@@ -2754,14 +2754,14 @@ module_frame_variable :: (fn(walk : &ModuleWalk, name : &String) -> Option(Varia
 /// Drop walks above `depth` — the walker's abort edge (an error unwound
 /// through it) resets the stacks to what they were when it started.
 truncate_module_walks :: (fn(depth : usize) -> unit)({
-  while(g_module_walks.len() > depth, {
-    g_module_walks.pop();
+  while(g_module_walks.with(xs => xs.len()) > depth, {
+    g_module_walks.with_mut(xs => xs.pop());
   });
 });
 truncate_forcing_stack :: (fn(depth : usize) -> unit)({
-  while(g_forcing_stack.len() > depth, {
+  while(g_forcing_stack.with(xs => xs.len()) > depth, {
     match(
-      g_forcing_stack.pop(),
+      g_forcing_stack.with_mut(xs => xs.pop()),
       // An entry abandoned mid-force: leave it re-forceable rather than
       // permanently "Forcing" (a later reference would misreport a cycle).
       .Some(d) => if(match(d.state, .Forcing => true, _ => false), {
@@ -2778,7 +2778,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
   // read when a program's evaluation order (and so its emitted C) differs
   // from the in-order baseline.
   if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
-    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.len().to_string()})`);
+    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.with(xs => xs.len()).to_string()})`);
   });
   // Phase 3b: the watch tests' oracle — only the changed definition (+ its
   // dependents) may re-evaluate in a per-def round.
@@ -2817,7 +2817,7 @@ force_pending_def :: (fn(walk : &ModuleWalk, def : &PendingDef) -> Option(String
 /// force order.
 revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -> ArrayList(String))({
   failures := ArrayList(String).new();
-  g_module_walks.push(walk);
+  g_module_walks.with_mut(xs => xs.push(walk));
   (i : usize) = usize(0);
   while(i < defs.len(), {
     match(
@@ -2833,7 +2833,7 @@ revalidate_walk_defs :: (fn(walk : &ModuleWalk, defs : &ArrayList(PendingDef)) -
     );
     i = (i + usize(1));
   });
-  _ := g_module_walks.pop();
+  _ := g_module_walks.with_mut(xs => xs.pop());
   failures
 });
 /// Outcome of a lookup-miss resolution. `Resolved` carries the defining
@@ -2956,7 +2956,7 @@ resolve_pending_definition :: (fn(name : &String, module_path : &String) -> Pend
       )
     ),
     .None => match(
-      g_finished_walks.get(module_path),
+      g_finished_walks.with(m => m.get(module_path)),
       .Some(fwalk) => match(
         _find_def_by_name(&fwalk.defs, name.clone(), false),
         .Some(def) => match(
@@ -3038,8 +3038,8 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
     (m : String) = match(missed, .Some(s) => s.clone(), .None => String.from("<bound>"));
     (stack : String) = String.new();
     (si : usize) = usize(0);
-    while(si < g_forcing_stack.len(), {
-      match(g_forcing_stack.get(si), .Some(fd) => stack.push_string(cond(fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
+    while(si < g_forcing_stack.with(xs => xs.len()), {
+      match(g_forcing_stack.with(xs => xs.get(si)), .Some(fd) => stack.push_string(cond(fd.is_impl => ` impl(${fd.name})`, true => ` ${fd.name}`)), .None => ());
       si = (si + usize(1));
     });
     eprintln(`[force-miss] ${type_name}.${m} (forcing stack:${stack})`);
@@ -3058,9 +3058,9 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
   // A trait-satisfaction check names no member and keeps the guard.
   (in_own_impl : bool) = false;
   (fi : usize) = usize(0);
-  while(fi < g_forcing_stack.len(), {
+  while(fi < g_forcing_stack.with(xs => xs.len()), {
     match(
-      g_forcing_stack.get(fi),
+      g_forcing_stack.with(xs => xs.get(fi)),
       .Some(fd) => if(fd.is_impl && (fd.name == type_name), {
         if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr, &m), .None => true), {
           return(PendingImplOutcome.NoneForced);
@@ -3106,12 +3106,12 @@ force_pending_impls_for_type_name :: (fn(type_name : &String, missed : &Option(S
 _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String)) -> PendingImplOutcome)({
   (forced : bool) = false;
   (err : Option(String)) = Option(String).None;
-  (wi : usize) = g_module_walks.len();
+  (wi : usize) = g_module_walks.with(xs => xs.len());
   (innermost : usize) = wi;
   while((wi > usize(0)) && err.is_none(), {
     wi = (wi - usize(1));
     match(
-      g_module_walks.get(wi),
+      g_module_walks.with(xs => xs.get(wi)),
       .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(&walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {
@@ -3236,17 +3236,17 @@ ImplInFlight :: ref(
     forall_names : ArrayList(String)
   )
 );
-(g_impls_in_flight : ArrayList(ImplInFlight)) = ArrayList(ImplInFlight).new();
+(g_impls_in_flight : RefCell(ArrayList(ImplInFlight))) = RefCell(ArrayList(ImplInFlight)).new(ArrayList(ImplInFlight).new());
 push_impl_in_flight :: (fn(rec : &ImplInFlight) -> unit)({
-  g_impls_in_flight.push(rec);
+  g_impls_in_flight.with_mut(xs => xs.push(rec));
 });
 pop_impl_in_flight :: (fn() -> unit)({
-  g_impls_in_flight.pop();
+  g_impls_in_flight.with_mut(xs => xs.pop());
   ()
 });
 truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
-  while(g_impls_in_flight.len() > depth, {
-    g_impls_in_flight.pop();
+  while(g_impls_in_flight.with(xs => xs.len()) > depth, {
+    g_impls_in_flight.with_mut(xs => xs.pop());
   });
 });
 /// Snapshot of the three forcing stacks (module walks, forcing defs, impls in
@@ -3262,7 +3262,7 @@ truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
 ForcingDepths :: struct(walks : usize, forcing : usize, impls : usize);
 derive(ForcingDepths, Copy, Clone);
 forcing_depths :: (fn() -> ForcingDepths)(
-  ForcingDepths(walks : g_module_walks.len(), forcing : g_forcing_stack.len(), impls : g_impls_in_flight.len())
+  ForcingDepths(walks : g_module_walks.with(xs => xs.len()), forcing : g_forcing_stack.with(xs => xs.len()), impls : g_impls_in_flight.with(xs => xs.len()))
 );
 truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
   truncate_module_walks(d.walks);
@@ -3272,11 +3272,11 @@ truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
 /// The newest in-flight impl on `recv_id`, if any.
 newest_impl_in_flight_for :: (fn(recv_id : &String) -> Option(ImplInFlight))({
   (found : Option(ImplInFlight)) = Option(ImplInFlight).None;
-  (i : usize) = g_impls_in_flight.len();
+  (i : usize) = g_impls_in_flight.with(xs => xs.len());
   while((i > usize(0)) && found.is_none(), {
     i = (i - usize(1));
     match(
-      g_impls_in_flight.get(i),
+      g_impls_in_flight.with(xs => xs.get(i)),
       .Some(r) => if(r.recv_id == recv_id, {
         found = Option(ImplInFlight).Some(r);
       }),
