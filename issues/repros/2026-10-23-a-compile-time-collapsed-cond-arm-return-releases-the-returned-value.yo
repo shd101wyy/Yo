@@ -1,0 +1,16 @@
+// issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md
+// Expected: prints 5 twice. Actual (v0.2.68, develop 265faa941):
+// heap-use-after-free under `--sanitize address --allocator system`.
+{ println } :: import("std/fmt");
+R :: ref(struct(n : i32));
+rd :: (fn(q : &R) -> R)({
+  cond(true => return(q));
+  q
+});
+main :: (fn() -> unit)({
+  r := R(n : i32(5));
+  x := rd(&r);
+  println(&x.n);
+  println(&r.n);
+});
+export(main);

@@ -1,0 +1,13 @@
+// issues/2026-10-23-a-string-literal-argument-to-a-raw-u8-pointer-parameter-emits-invalid-c.md
+// Expected: prints abc (or a type error). Actual: the C compiler rejects the
+// emitted call, "operand of type '__yo_str' where arithmetic or pointer type
+// is required".
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio");
+show :: (fn(name : *(u8)) -> unit)({
+  unsafe(printf("%s\n", name));
+});
+main :: (fn() -> unit)({
+  show("abc");
+});
+export(main);

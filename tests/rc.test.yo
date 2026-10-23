@@ -2850,3 +2850,86 @@ test("a compile-time-collapsed cond in a binding dups the local it names", {
   assert(ref_count(r) == usize(2), "x and r each hold a count");
   assert((x.n + r.n) == i32(12), "both read the object");
 });
+// More collapsed shapes: a nested collapse (in a runtime arm too), the `if`
+// spelling, a borrowed struct's field, a call argument, and an async body.
+_CondCtHolder :: struct(r : _CondCtBox, k : i32);
+_cond_ct_nested :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => cond(true => q)));
+_cond_ct_nested_in_runtime :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)(
+  cond(
+    k => cond(true => q),
+    true => q
+  )
+);
+_cond_ct_if :: (fn(q : &_CondCtBox) -> _CondCtBox)(if(true, q, q));
+_cond_ct_field :: (fn(h : &_CondCtHolder) -> _CondCtBox)(cond(true => h.r));
+_cond_ct_take :: (fn(b : _CondCtBox) -> i32)(b.n);
+_cond_ct_async :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    cond(
+      false => q,
+      true => q
+    )
+  })
+);
+test("a compile-time-collapsed cond dups through nesting, if, fields, arguments and async", {
+  r := _CondCtBox(n : i32(2));
+  {
+    a := _cond_ct_nested(&r);
+    assert(ref_count(r) == usize(2), "cond(true => cond(true => q))");
+    b := _cond_ct_nested_in_runtime(true, &r);
+    assert(ref_count(r) == usize(3), "a collapsed cond inside a runtime arm");
+    c := _cond_ct_if(&r);
+    assert(ref_count(r) == usize(4), "if(true, q, q)");
+    h := _CondCtHolder(r : r, k : i32(1));
+    assert(ref_count(r) == usize(5), "the holder's copy");
+    d := _cond_ct_field(&h);
+    assert(ref_count(r) == usize(6), "a borrowed struct's field");
+    t := _cond_ct_take(cond(true => r));
+    assert(ref_count(r) == usize(6), "a call argument: the callee released its own count");
+    e := io.await(_cond_ct_async(&r, io), io);
+    assert(ref_count(r) == usize(7), "an async body after an await");
+    assert((a.n + b.n + (c.n + d.n) + (e.n + t)) == i32(12), "every copy reads the shared object");
+  };
+  assert(ref_count(r) == usize(1), "each copy released its own count");
+});
+// A collapsed cond whose arm is `return(x)` moves the returned value out
+// (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
+_cond_ct_return_then_tail :: (fn(q : &_CondCtBox) -> _CondCtBox)({
+  cond(true => return(q));
+  q
+});
+_cond_ct_return_before_runtime_arm :: (fn(k : bool, q : &_CondCtBox) -> _CondCtBox)({
+  cond(
+    true => return(q),
+    k => ()
+  );
+  q
+});
+_cond_ct_return_owned :: (fn(q : &_CondCtBox) -> _CondCtBox)({
+  cond(true => return(_CondCtBox(n : (q.n + i32(1)))));
+  q
+});
+_cond_ct_return_body :: (fn(q : &_CondCtBox) -> _CondCtBox)(cond(true => return(q)));
+_cond_ct_return_after_local :: (fn(q : &_CondCtBox) -> _CondCtBox)({
+  x := _CondCtBox(n : i32(0));
+  cond(true => return(q));
+  x
+});
+test("a compile-time-collapsed cond's return arm keeps the returned value alive", {
+  r := _CondCtBox(n : i32(3));
+  {
+    a := _cond_ct_return_then_tail(&r);
+    assert(ref_count(r) == usize(2), "cond(true => return(q)); q");
+    b := _cond_ct_return_before_runtime_arm(false, &r);
+    assert(ref_count(r) == usize(3), "true => return(q), k => ()");
+    c := _cond_ct_return_body(&r);
+    assert(ref_count(r) == usize(4), "the whole body is the collapsed cond");
+    d := _cond_ct_return_after_local(&r);
+    assert(ref_count(r) == usize(5), "a local released before the return");
+    o := _cond_ct_return_owned(&r);
+    assert(ref_count(o) == usize(1), "an owned return value is the caller's");
+    assert((a.n + b.n + (c.n + d.n) + o.n) == i32(19), "every result reads its object");
+  };
+  assert(ref_count(r) == usize(1), "each copy released its own count");
+});
