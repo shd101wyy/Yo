@@ -108,7 +108,7 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_input_files.with_mut(xs => xs.push(fs));
+  g_input_files.with_mut(xs => xs.push(fs.clone()));
   g_input_hashes.with_mut(xs => xs.push(content_sha256));
 });
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
@@ -160,7 +160,7 @@ module_load_end :: (fn(key : &String, mark : usize) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_module_touches.with_mut(m => m.insert(key.clone(), out));
+  g_module_touches.with_mut(m => m.insert(key.clone(), out.clone()));
 });
 /// Module `key` was found in the module cache: note it in the touch log (so an
 /// enclosing load's slice names it) and replay its inputs into this compile's
@@ -261,7 +261,7 @@ record_env_read :: (fn(name : &String, rendered : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_env_reads.with_mut(xs => xs.push(entry));
+  g_env_reads.with_mut(xs => xs.push(entry.clone()));
 });
 /// The environment reads so far, as `name=value` lines in first-read order.
 env_reads :: (fn() -> ArrayList(String))(g_env_reads.with(xs => xs));

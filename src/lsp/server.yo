@@ -220,7 +220,7 @@ _analyze_and_publish :: (
       );
       docs.insert(
         uri.clone(),
-        DocState(text : text.clone(), lines : lines, entry_abs : fs_path.clone(), outcome : retained, diags : diags.clone())
+        DocState(text : text.clone(), lines : lines.clone(), entry_abs : fs_path.clone(), outcome : retained, diags : diags.clone())
       );
     },
     .None => ()
@@ -877,8 +877,8 @@ _handle_message :: (
             ws_docs.push(
               WorkspaceDoc(
                 uri : entry.key.clone(),
-                exprs : entry.value.outcome.exprs,
-                lines : entry.value.lines
+                exprs : entry.value.outcome.exprs.clone(),
+                lines : entry.value.lines.clone()
               )
             );
           });

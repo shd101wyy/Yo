@@ -84,7 +84,7 @@ resolve_effect_field_from_scope :: (fn(field_label : &String, context : &Functio
         match(
           it.next(),
           .Some(e) => if(e.value.field_label == field_label, {
-            return(Option(String).Some(e.value.c_param_name));
+            return(Option(String).Some(e.value.c_param_name.clone()));
           }),
           .None => {
             go = false;
@@ -158,7 +158,7 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
                     fv,
                     .FuncVal(__fvd1, _) => match(
                       context.base.get_function_entry(&__fvd1.*.func_id),
-                      .Some(e) => return(Option(String).Some(e.c_name)),
+                      .Some(e) => return(Option(String).Some(e.c_name.clone())),
                       .None => ()
                     ),
                     _ => ()
@@ -227,7 +227,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
               match(
                 it.next(),
                 .Some(e) => if(e.value.field_label == flbl, {
-                  member_code = Option(String).Some(e.value.c_param_name);
+                  member_code = Option(String).Some(e.value.c_param_name.clone());
                   go = false;
                 }),
                 .None => {
@@ -480,7 +480,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     match(
       saved_drops,
       .Some(drops) => {
-        result_var_to_skip := expr_ei.variable_name;
+        result_var_to_skip := expr_ei.variable_name.clone();
         filtered := ArrayList(AstExpr).new();
         (di : usize) = usize(0);
         while(di < drops.len(), {

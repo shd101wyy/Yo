@@ -586,7 +586,7 @@ compute_cross_boundary_variables :: (
               fi.variable_name,
               .Some(vn) => {
                 note_await_consumed_temp(vn.clone());
-                consumed.insert(vn);
+                consumed.insert(vn.clone());
               },
               .None => ()
             ),
@@ -635,7 +635,7 @@ compute_cross_boundary_variables :: (
         match(
           w.await_sites.get(wi),
           .Some(site) => {
-            g_local_await_results.with_mut(s => s.insert(site));
+            g_local_await_results.with_mut(s => s.insert(site.clone()));
           },
           .None => ()
         );
@@ -1083,7 +1083,7 @@ resolve_effect_field_from_sm_scope :: (
         match(
           it.next(),
           .Some(b) => if(b.value.field_label == field_label, {
-            return(Option(String).Some(b.value.c_param_name));
+            return(Option(String).Some(b.value.c_param_name.clone()));
           }),
           .None => {
             go = false;
@@ -1304,7 +1304,7 @@ emit_effect_record_injection_for_sm :: (
                         .FuncVal(__fvd1, _) => match(
                           context.base.functions.get(&__fvd1.*.func_id),
                           .Some(fe) => {
-                            member_code = Option(String).Some(fe.c_name);
+                            member_code = Option(String).Some(fe.c_name.clone());
                           },
                           .None => ()
                         ),
@@ -1334,7 +1334,7 @@ emit_effect_record_injection_for_sm :: (
               match(
                 it.next(),
                 .Some(b) => if(b.value.field_label == flabel, {
-                  member_code = Option(String).Some(b.value.c_param_name);
+                  member_code = Option(String).Some(b.value.c_param_name.clone());
                 }),
                 .None => {
                   go = false;
@@ -1374,7 +1374,7 @@ emit_effect_record_injection_for_sm :: (
                                 .FuncVal(__fvd2, _) => match(
                                   context.base.functions.get(&__fvd2.*.func_id),
                                   .Some(fe) => {
-                                    member_code = Option(String).Some(fe.c_name);
+                                    member_code = Option(String).Some(fe.c_name.clone());
                                   },
                                   .None => ()
                                 ),
@@ -1973,7 +1973,7 @@ generate_async_block_resume_function_inline :: (
   tail_returns := match(body_exprs.last(), .Some(le) => ast_expr_is_fn_call_of(&le, "return", Option(usize).None), .None => false);
   if(!tail_returns, {
     match(
-      match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
+      match(context.base.get_expr_info(body_expr), .Some(bei) => bei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None),
       .Some(drops) => {
         (di : usize) = usize(0);
         while(di < drops.len(), di = (di + usize(1)), {

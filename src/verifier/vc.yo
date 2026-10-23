@@ -247,7 +247,7 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
           mj = (mj + usize(1));
         });
         if(clique.len() > usize(1), {
-          g_recursion_cliques.with_mut(xs => xs.push(clique));
+          g_recursion_cliques.with_mut(xs => xs.push(clique.clone()));
         });
       }),
       .None => ()
@@ -432,7 +432,7 @@ _register_list_datatype :: (fn(elem : &VcSort) -> unit)({
     // One balanced FIELD group after the ctor, as `_note_enum_datatype`
     // writes it: the encoder's segment scanner consumes exactly one group.
     decl := `${dt}|${ctor} ((${_list_contents_acc(elem)} (Array (_ BitVec 64) ${encode_sort(elem)})) (${_list_len_acc(elem)} (_ BitVec 64)))`;
-    g_list_datatypes.with_mut(xs => xs.push(decl));
+    g_list_datatypes.with_mut(xs => xs.push(decl.clone()));
     g_list_elem_sorts.with_mut(xs => xs.push(elem));
   });
   ()
@@ -1524,7 +1524,7 @@ _sorted_strings :: (fn(xs : &ArrayList(String)) -> ArrayList(String))({
       key := unsafe((buf.add(j)).*).clone();
       (k : usize) = j;
       while(k > usize(0), {
-        prev := unsafe((buf.add(k - usize(1))).*);
+        prev := unsafe((buf.add(k - usize(1))).*).clone();
         if(prev <= key, {
           break;
         });
@@ -1728,7 +1728,7 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
       rc(
         VcTermNode.Quant(
           kind : kind,
-          names : names,
+          names : names.clone(),
           sorts : sorts,
           body : _rename_vars(&body, &inner_map),
           triggers : renamed_triggers
@@ -2890,7 +2890,7 @@ _mutated_receiver_name :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(St
   dot_args := match(
     callee,
     .FnCall(_, cf, da, _, _) => cond(
-      (ast_expr_token(&cf).value == ".") => da,
+      (ast_expr_token(&cf).value == ".") => da.clone(),
       true => {
         return(Option(String).None);
       }
@@ -3209,8 +3209,8 @@ _for_expansion_loop :: (fn(xp : &AstExpr) -> Option(LoopAnnotations))({
   match(
     _loop_annotations(&wbody),
     .Some(an) => {
-      invs = an.invariants;
-      stmts = an.body;
+      invs = an.invariants.clone();
+      stmts = an.body.clone();
     },
     .None => ()
   );
@@ -3634,7 +3634,7 @@ _quant_term :: (
     });
     ba := match(
       b,
-      .FnCall(_, _, a2, _, _) => a2,
+      .FnCall(_, _, a2, _, _) => a2.clone(),
       .Atom(_, _) => ArrayList(AstExpr).new()
     );
     nm_arg := match(
@@ -5494,7 +5494,7 @@ _begin_term :: (fn(ctx : &mut VcCtx, args : &ArrayList(AstExpr)) -> Option(VcTer
     if(is_bind || is_assign, {
       ba := match(
         stmt,
-        .FnCall(_, _, a2, _, _) => a2,
+        .FnCall(_, _, a2, _, _) => a2.clone(),
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       match(
@@ -5718,7 +5718,7 @@ _transparent_call_term :: (
   if(failed, {
     // The innermost reason wins (a nested callee's recursion); else name
     // what this attempt hit.
-    prior_reason := g_transparent_reason;
+    prior_reason := g_transparent_reason.clone();
     if(prior_reason.len() == usize(0), {
       g_transparent_reason = cond(
         (ctx.mutated_names.len() > saved_mut) => String.from("it changes an argument"),
@@ -5774,7 +5774,7 @@ _ghost_fn_app_term :: (
     .Some(ci) => match(
       ci.value,
       .Some(.FuncVal(gfvd, _)) => {
-        params = gfvd.*.params;
+        params = gfvd.*.params.clone();
         body = gfvd.*.body;
         found = true;
       },
@@ -5935,7 +5935,7 @@ _ghost_fn_inline_term :: (
           match(
             v,
             .FuncVal(gfvd, _) => {
-              params = gfvd.*.params;
+              params = gfvd.*.params.clone();
               body = gfvd.*.body;
               found = true;
             },
@@ -6053,7 +6053,7 @@ _callee_call_term :: (
   // (R1 slice 2).
   callee_id = match(
     callee_id,
-    .Some(cid) => Option(String).Some(cid),
+    .Some(cid) => Option(String).Some(cid.clone()),
     .None => match(
       lookup_method_callee_value(ast_expr_id(e)),
       .Some(mv) => match(
@@ -6103,7 +6103,7 @@ _callee_call_term :: (
   walk_base_fid := match(
     specialized_base_of(fid.clone()),
     .Some(b) => b,
-    .None => fid
+    .None => fid.clone()
   );
   is_clique_recursion := (!is_self_recursion && _same_recursion_clique(ctx.func_id.clone(), walk_base_fid.clone()));
   m_current := Option(VcTerm).None;
@@ -6146,7 +6146,7 @@ _callee_call_term :: (
         match(
           specialized_base_of(fid.clone()),
           .Some(b) => b,
-          .None => fid
+          .None => fid.clone()
         ).clone()
       );
       (hri : usize) = usize(0);
@@ -6179,7 +6179,7 @@ _callee_call_term :: (
       },
       .None => ()
     );
-    reason := g_transparent_reason;
+    reason := g_transparent_reason.clone();
     _fail_subset(ctx, `call to a callee without contracts (not spec-transparent: ${reason})`, e);
     return(Option(VcTerm).None);
   });
@@ -6205,7 +6205,7 @@ _callee_call_term :: (
       lookup_method_callee_value(ast_expr_id(e)),
       .Some(mv2) => match(
         mv2,
-        .FuncVal(mfvd2, _) => mfvd2.*.params,
+        .FuncVal(mfvd2, _) => mfvd2.*.params.clone(),
         _ => ArrayList(String).new()
       ),
       .None => ArrayList(String).new()
@@ -6227,7 +6227,7 @@ _callee_call_term :: (
     match(
       specialized_base_of(fid.clone()),
       .Some(b) => b,
-      .None => fid
+      .None => fid.clone()
     ).clone()
   );
   // Walk every actual in the caller's scope first, then bind the callee's

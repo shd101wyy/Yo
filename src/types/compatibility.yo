@@ -57,7 +57,7 @@ _is_in_used :: (fn(used : &ArrayList(usize), idx : usize) -> bool)({
 /// level)? Looks inside a trait's member types and an Fn trait's signature,
 /// which `get_all_some_types` does not enter.
 _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
-  (sv_n, sv_l) := match(self_var, Rc(.SomeT({ name : n, frame_level : l })) => (n, l), _ => (String.new(), usize(0)));
+  (sv_n, sv_l) := match(self_var, Rc(.SomeT({ name : n, frame_level : l })) => (n.clone(), l), _ => (String.new(), usize(0)));
   if(sv_n.len() == usize(0), {
     return(false);
   });
@@ -241,7 +241,7 @@ _push_alpha_pairs :: (fn(a_labels : &ArrayList(String), a_types : &ArrayList(Typ
       .Some(al) => match(
         _binder_level(e_types, en.clone()),
         .Some(el) => {
-          g_alpha_pairs.with_mut(xs => xs.push(AlphaPair(a_name : an, a_level : al, e_name : en, e_level : el)));
+          g_alpha_pairs.with_mut(xs => xs.push(AlphaPair(a_name : an.clone(), a_level : al, e_name : en.clone(), e_level : el)));
           pushed = (pushed + usize(1));
         },
         .None => ()
@@ -926,7 +926,7 @@ _compat_impl :: (
           // Cycle guard: a recursive instantiation (`Node(T)` holding
           // `Node(T)`) re-enters this comparison through its own type
           // arguments — an already-open pair is not a disagreement.
-          vkey_pay := (aid + String.from("=>pay") + eid);
+          vkey_pay := (aid.clone() + String.from("=>pay") + eid.clone());
           if((pa.len() > usize(0)) && (pa.len() == pe.len()) && !_visited_contains(visited, &vkey_pay), {
             visited.push(vkey_pay);
             (pi : usize) = usize(0);
@@ -993,7 +993,7 @@ _compat_impl :: (
         (!type_contains_some_type(actual) && !type_contains_some_type(expected) && ((aname != ename) && (aname.len() > usize(0)) && (ename.len() > usize(0)) && !((acfid.len() > usize(0)) && (acfid == ecfid)))) => false,
         (alabels.len() != elabels.len()) => false,
         true => {
-          vkey_ne := (aid + String.from("=>ne") + eid);
+          vkey_ne := (aid.clone() + String.from("=>ne") + eid.clone());
           cond(
             _visited_contains(visited, &vkey_ne) => true,
             true => {
@@ -1128,7 +1128,7 @@ _compat_impl :: (
       // Limited to non-generic declarations: an instantiation's unstamped
       // copy may legitimately be nameless.
       (((aname.len() == usize(0)) != (ename.len() == usize(0))) && (ata.len() == usize(0)) && (eta.len() == usize(0)) && (acfid.len() == usize(0)) && (ecfid.len() == usize(0)) && (!type_contains_some_type(actual) && !type_contains_some_type(expected))) => false, (alabels.len() != elabels.len()) => false, true => {
-        vkey := (aid + String.from("=>") + eid);
+        vkey := (aid.clone() + String.from("=>") + eid.clone());
         cond(
           _visited_contains(visited, &vkey) => true,
           true => {
@@ -1212,7 +1212,7 @@ _compat_impl :: (
         // remaining positions exactly.
         {
           (eta_differ : bool) = false;
-          vkey_eta := (aid + String.from("=>eta") + eid);
+          vkey_eta := (aid.clone() + String.from("=>eta") + eid.clone());
           if((aid != eid) && (a_eta.len() > usize(0)) && (a_eta.len() == e_eta.len()) && !_visited_contains(visited, &vkey_eta), {
             visited.push(vkey_eta);
             (etai : usize) = usize(0);
@@ -1230,7 +1230,7 @@ _compat_impl :: (
           eta_differ
         } => false, !require_exact => cond({
           (vp_differ : bool) = false;
-          vkey_vp := (aid + String.from("=>vp") + eid);
+          vkey_vp := (aid.clone() + String.from("=>vp") + eid.clone());
           if((avns.len() == evns.len()) && !_visited_contains(visited, &vkey_vp), {
             visited.push(vkey_vp);
             (vpi : usize) = usize(0);

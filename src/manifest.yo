@@ -301,7 +301,7 @@ _parse_dependency :: (
     .Table(keys, _) => {
       (ki : usize) = usize(0);
       while(ki < keys.len(), {
-        k := keys(ki);
+        k := keys(ki).clone();
         known := ((k == "git") || (k == "path") || (k == "version") || (k == "tag") || (k == "branch") || (k == "rev"));
         if(!known, {
           return(Result(ManifestDependency, String).Err(`${where_}: dependency "${name}" has an unknown key "${k}" (expected git, path, version, tag, branch, rev)`));
@@ -377,7 +377,7 @@ _parse_dependency_table :: (
         .Table(keys, values) => {
           (i : usize) = usize(0);
           while(i < keys.len(), {
-            name := keys(i);
+            name := keys(i).clone();
             (dup : usize) = usize(0);
             while(dup < out.len(), {
               if(out(dup).name == name, {
@@ -451,7 +451,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
         .Table(keys, values) => {
           (i : usize) = usize(0);
           while(i < keys.len(), {
-            mname := keys(i);
+            mname := keys(i).clone();
             mroot := match(
               values(i).as_string(),
               .Some(s) => s,

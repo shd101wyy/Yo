@@ -94,7 +94,7 @@ resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
   // fn-pointer-cast miss).
   (rsc_seen : ArrayList(String)) = ArrayList(String).new();
   while(go && is_some_type(&cur), {
-    sid := match(cur, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
+    sid := match(cur, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
     (rsc_revisit : bool) = false;
     (rsc_i : usize) = usize(0);
     while(rsc_i < rsc_seen.len(), {
@@ -209,8 +209,8 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   // as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(&ei.ty);
-  fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id, _ => String.from(""));
-  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name, .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
+  fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id.clone(), _ => String.from(""));
+  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name.clone(), .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
   if(is_dyn_type(&ei.ty), {
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
@@ -220,7 +220,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
-    struct_id := match(capture_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+    struct_id := match(capture_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
     // Look up by the FULL type_key, not the bare struct id: the registry is
     // keyed by type_key(t), and for a cfid-empty struct with field types the
     // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
@@ -404,7 +404,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
     // Impl closure WITHOUT captures — empty capture struct value; still static
     // dispatch (register by the resolved concrete capture/SomeT id).
     concrete := resolve_some_type_to_concrete(&ei.ty);
-    concrete_id := match(concrete, Rc(.Struct({ id : kid })) => kid, Rc(.SomeT({ id : sid })) => sid, _ => type_key(&ei.ty));
+    concrete_id := match(concrete, Rc(.Struct({ id : kid })) => kid.clone(), Rc(.SomeT({ id : sid })) => sid.clone(), _ => type_key(&ei.ty));
     // The compound literal's type must be the CAPTURE STRUCT — take it from
     // the closure's registered capture info (keyed by fid; always present,
     // an empty struct for capture-free closures). The ExprInfo ty here can be
@@ -495,7 +495,7 @@ register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext)
                     cg_base.impl_closure_call_map.insert(
                       key,
                       ImplClosureCallInfo(
-                        function_c_name : entry.c_name,
+                        function_c_name : entry.c_name.clone(),
                         call_type_id : String.from(""),
                         call_type : Option(TypeValue).None,
                         consumed_captures : Option(ArrayList(String)).None,

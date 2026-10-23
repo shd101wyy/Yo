@@ -319,7 +319,7 @@ _flatten_or_pattern :: (fn(expr : &AstExpr) -> ArrayList(AstExpr))(
 );
 /// A C literal for a compile-time value (number / bool).
 _c_literal_from_value :: (fn(value : &EvalValue) -> Option(String))(
-  match(value, .IntLit(r) => Option(String).Some(r), .FloatLit(r) => Option(String).Some(r), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
+  match(value, .IntLit(r) => Option(String).Some(r.clone()), .FloatLit(r) => Option(String).Some(r.clone()), .BoolVal(b) => Option(String).Some(if(b, String.from("true"), String.from("false"))), _ => Option(String).None)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -370,7 +370,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     em := context.base.emitter;
     begin_args := _args(body_expr);
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
@@ -460,7 +460,7 @@ generate_case_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
     // closed: an undeclared C identifier
     // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
     vei_opt := context.base.get_expr_info(body_expr);
-    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
+    cur_drops := match(vei_opt, .Some(vei) => vei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None);
     cur_consumed := match(vei_opt, .Some(vei) => expr_info_consumed_variable_drop_expressions(&vei), .None => Option(ArrayList(AstExpr)).None);
     prev_pending := context.pending_deferred_drops;
     prev_consumed := context.consumed_var_pending_drops;
@@ -2465,7 +2465,7 @@ generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &F
 });
 _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"match\" expression is not evaluated */")));
-  temp_var_opt := ei.variable_name;
+  temp_var_opt := ei.variable_name.clone();
   value_type := ei.ty;
   is_unit := is_unit_type(&value_type);
   em := context.base.emitter;

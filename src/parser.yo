@@ -487,7 +487,7 @@ impl(
     // Byte-wise: every delimiter here is ASCII, and a UTF-8 multi-byte
     // sequence never contains an ASCII byte, so literal runes pass through
     // byte by byte unchanged.
-    ts_bytes := template_value;
+    ts_bytes := template_value.clone();
     n := ts_bytes.len();
     // Parts: each part is either a literal string or an interpolated expression
     part_is_expr := ArrayList(bool).new();
@@ -713,9 +713,9 @@ impl(
                 o.ch,
                 exn
               ),
-              true => Parser.new_shared(rc(sp.expr_text), self.module_path, exn)
+              true => Parser.new_shared(rc(sp.expr_text.clone()), self.module_path, exn)
             ),
-            .None => Parser.new_shared(rc(sp.expr_text), self.module_path, exn)
+            .None => Parser.new_shared(rc(sp.expr_text.clone()), self.module_path, exn)
           );
           expr_ordinal = (expr_ordinal + usize(1));
           (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);
@@ -737,7 +737,7 @@ impl(
               self.has_template_spec = true;
               spec_tok := Token(
                 kind : TokenKind.StringLit,
-                value : (String.from("\"") + sp.spec + String.from("\"")),
+                value : (String.from("\"") + sp.spec.clone() + String.from("\"")),
                 row : tok.row,
                 column : tok.column,
                 character : tok.character,
@@ -879,7 +879,7 @@ impl(
     fn_tok := ast_expr_token(func);
     fa := self.parse_fn_args(index, has_whitespace, exn);
     ParseResult(
-      expr : .FnCall(self.alloc_id(), func, fa.args, false, fn_tok),
+      expr : .FnCall(self.alloc_id(), func, fa.args.clone(), false, fn_tok),
       index : fa.index
     )
   }),
@@ -1250,7 +1250,7 @@ impl(
                         &tok,
                         &block_msg,
                         Option(String).None,
-                        Span(path : close_tok.module_path.*, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
+                        Span(path : close_tok.module_path.*.clone(), row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
                         String.from(";"),
                         String.from("insert `;` before `}` so the braces form a block")
                       )
@@ -1705,7 +1705,7 @@ impl(
             rhs,
             .FnCall(_, rfb2, _, _, _) => match(
               rfb2,
-              .Atom(_, ft2) => ft2.value,
+              .Atom(_, ft2) => ft2.value.clone(),
               .FnCall(_, _, _, _, _) => String.from("")
             ),
             .Atom(_, _) => String.from("")

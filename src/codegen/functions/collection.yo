@@ -223,7 +223,7 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext,
           field_values.get(i),
           .Some(fv) => cond(
             (is_func_val(&fv) && !is_module_namespace) => {
-              func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
+              func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
               if(!context.has_function(func_id.clone()), {
                 mark_as_effect_record_member(func_id.clone());
                 context.register_function(func_id.clone(), &fv, function_c_name(&func_id));
@@ -745,7 +745,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       // gets a C name (the same collection the dyn path does for
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
-        cdot_args := match(callee, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
+        cdot_args := match(callee, .FnCall(_, _, da, _, _) => da.clone(), .Atom(_, _) => ArrayList(AstExpr).new());
         recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
         cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_token(&m).value, String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
@@ -1158,7 +1158,7 @@ _specialize_and_register_trace :: (
   match(
     spec,
     .FuncVal(__sfvd, _) => {
-      spec_fid := __sfvd.*.func_id;
+      spec_fid := __sfvd.*.func_id.clone();
       spec_body := __sfvd.*.body;
       if(!base.has_function(spec_fid.clone()), {
         base.register_function(spec_fid.clone(), &spec, function_c_name(&spec_fid));
@@ -1339,7 +1339,7 @@ _eval_and_register_rc_method :: (
       match(
         fv,
         .FuncVal(__dfvd, _) => {
-          fid := __dfvd.*.func_id;
+          fid := __dfvd.*.func_id.clone();
           fbody := __dfvd.*.body;
           if(!base.has_function(fid.clone()), {
             base.register_function(fid.clone(), &fv, function_c_name(&fid));
@@ -1464,7 +1464,7 @@ _synthesize_and_register_dispose :: (
             match(
               mfv,
               .FuncVal(__dfvd, _) => {
-                fid := __dfvd.*.func_id;
+                fid := __dfvd.*.func_id.clone();
                 fbody := __dfvd.*.body;
                 if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), &mfv, function_c_name(&fid));
@@ -1572,7 +1572,7 @@ _synthesize_and_register_enum_dispose :: (
             match(
               mfv,
               .FuncVal(__dfvd, _) => {
-                fid := __dfvd.*.func_id;
+                fid := __dfvd.*.func_id.clone();
                 fbody := __dfvd.*.body;
                 if(!base.has_function(fid.clone()), {
                   base.register_function(fid.clone(), &mfv, function_c_name(&fid));
@@ -1698,7 +1698,7 @@ _synthesize_and_register_value_dispose :: (
           .Some(mfv) => match(
             mfv,
             .FuncVal(__vdfvd, _) => {
-              fid := __vdfvd.*.func_id;
+              fid := __vdfvd.*.func_id.clone();
               if(!base.has_function(fid.clone()), {
                 base.register_function(fid.clone(), &mfv, function_c_name(&fid));
                 find_function_calls_in_expr(&__vdfvd.*.body, base, info);

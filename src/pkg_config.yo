@@ -223,8 +223,8 @@ query_pkg_config :: (
     if(!ldflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
     });
-    cflags_raw := String.from_bytes(cflags_out.stdout).trim();
-    ldflags_raw := String.from_bytes(ldflags_out.stdout).trim();
+    cflags_raw := String.from_bytes(cflags_out.stdout.clone()).trim();
+    ldflags_raw := String.from_bytes(ldflags_out.stdout.clone()).trim();
     result := parse_cflags(&cflags_raw);
     result_with_ld := parse_ldflags_into(&ldflags_raw, &result);
     Option(PkgConfigResult).Some(result_with_ld)

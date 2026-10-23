@@ -467,14 +467,14 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
     t,
     Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _)) => rc(
       TypeValueNode.SomeT(
-        wr_id,
-        wr_nm,
+        wr_id.clone(),
+        wr_nm.clone(),
         wr_fl,
         wr_pt,
-        wr_rtt,
-        wr_rtl,
-        wr_ntt,
-        wr_ntl,
+        wr_rtt.clone(),
+        wr_rtl.clone(),
+        wr_ntt.clone(),
+        wr_ntl.clone(),
         wr_kft,
         Option(TypeValue).Some(concrete)
       )
@@ -513,13 +513,13 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
     Rc(.SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _)) => rc(
       TypeValueNode.SomeT(
         generate_some_type_id(),
-        snm,
+        snm.clone(),
         sfl,
         spt,
-        sreq,
-        sreql,
-        sneg,
-        snegl,
+        sreq.clone(),
+        sreql.clone(),
+        sneg.clone(),
+        snegl.clone(),
         skind,
         Option(TypeValue).None
       )
@@ -771,11 +771,11 @@ _patch_self_shell_guarded :: (
           new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
-        rc(TypeValueNode.EnumT(id, name, variant_names, shared_list(new_vfs), selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, shared_list(new_etas)))
+        rc(TypeValueNode.EnumT(id.clone(), name.clone(), variant_names, shared_list(new_vfs), selected_variant_name.clone(), variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, shared_list(new_etas)))
       }
     ),
     Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
-    Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv)),
+    Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv.clone())),
     Rc(.ComptimeListT(el)) => rc(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
     Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
@@ -801,7 +801,7 @@ _patch_self_shell_guarded :: (
           new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
-        rc(TypeValueNode.Struct(id, name, field_labels, shared_list(new_fts), is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, shared_list(new_tas), is_source_namespace))
+        rc(TypeValueNode.Struct(id.clone(), name.clone(), field_labels, shared_list(new_fts), is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id.clone(), shared_list(new_tas), is_source_namespace))
       }
     ),
     _ => t
@@ -934,7 +934,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &SharedList(Typ
       final_ty,
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
-        _ := g_enum_finals.with_mut(m => m.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args))));
+        _ := g_enum_finals.with_mut(m => m.insert(shell_key.clone(), rc(TypeValueNode.EnumT(fid.clone(), fnm.clone(), fvns, fvfs, fsvn.clone(), fvfl, fdis, firs, fiar, args))));
         bump_type_key_epoch();
       }),
       _ => ()

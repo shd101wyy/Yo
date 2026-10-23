@@ -3744,8 +3744,8 @@ run_fix :: (
     (fdi : usize) = usize(0);
     while(fdi < found.len(), fdi = (fdi + usize(1)), {
       if(!seen_files.contains(&found(fdi)), {
-        seen_files.insert(found(fdi));
-        files.push(found(fdi));
+        seen_files.insert(found(fdi).clone());
+        files.push(found(fdi).clone());
       });
     });
   });
@@ -5120,7 +5120,7 @@ _find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))
   if(wout.status.raw != i32(0), {
     return(Option(String).None);
   });
-  wtxt := String.from_bytes(wout.stdout);
+  wtxt := String.from_bytes(wout.stdout.clone());
   first_line := match(wtxt.split("\n").get(usize(0)), .Some(l) => l.trim(), .None => String.from(""));
   if(first_line.len() == usize(0), {
     return(Option(String).None);
@@ -5256,7 +5256,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   out := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
   cond(
     (out.status.raw == i32(0)) => {
-      flags = Option(String).Some(String.from_bytes(out.stdout));
+      flags = Option(String).Some(String.from_bytes(out.stdout.clone()));
     },
     true => ()
   );
@@ -5266,7 +5266,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   kegs.push(String.from("/opt/homebrew/opt/openssl/lib/pkgconfig"));
   kegs.push(String.from("/usr/local/opt/openssl/lib/pkgconfig"));
   while((ki < kegs.len()) && flags.is_none(), {
-    keg := kegs(ki);
+    keg := kegs(ki).clone();
     kprobe := Command.new(String.from("pkg-config"));
     kprobe.env(String.from("PKG_CONFIG_PATH"), &keg);
     kprobe.arg(String.from("--cflags"));
@@ -5275,7 +5275,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
     kout := io.await(kprobe.output(io), IoExn(io : io, exn : probe_exn));
     cond(
       (kout.status.raw == i32(0)) => {
-        flags = Option(String).Some(String.from_bytes(kout.stdout));
+        flags = Option(String).Some(String.from_bytes(kout.stdout.clone()));
       },
       true => ()
     );
@@ -5287,7 +5287,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
       toks := fl.trim().split(String.from(" "));
       (ti : usize) = usize(0);
       while(ti < toks.len(), {
-        t := toks(ti);
+        t := toks(ti).clone();
         cond(
           (t.starts_with("-I") && (t.len() > usize(2))) => {
             g_openssl_includes.with_mut(xs => xs.push(t.substring(usize(2), t.len())));
@@ -8063,7 +8063,7 @@ run_compile :: (
     cmd.arg(String.from("-lcrypt32"));
   });
   plan := _new_cc_plan(if(chunk_c_files.len() > usize(0), _CC_PLAN_CHUNKED, _CC_PLAN_EXE), cc.clone(), c_path.clone(), output.clone());
-  plan.argv = cmd.recorded;
+  plan.argv = cmd.recorded.clone();
   plan.chunk_flags = chunk_compile_flags;
   plan.chunk_files = chunk_c_files;
   plan.chunk_hashes = chunk_text_hashes;
@@ -8116,7 +8116,7 @@ _collect_workspace_test_files :: (
     found := _collect_test_files(&members(i), excludes, io, exn);
     (j : usize) = usize(0);
     while(j < found.len(), {
-      out.push(found(j));
+      out.push(found(j).clone());
       j = (j + usize(1));
     });
     i = (i + usize(1));
@@ -9483,7 +9483,7 @@ run_test :: (
       e := match(prog.get(pi), .Some(x) => x, .None => make_err_expr());
       pi = (pi + usize(1));
       if(ast_expr_is_fn_call_of(&e, BK_TEST, .None), {
-        targs := match(e, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
+        targs := match(e, .FnCall(_, _, a2, _, _) => a2.clone(), _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
           // Go through extract_test_name, which strips the surrounding quotes a
           // StringLit token value carries ("name" -> name): it reads the
@@ -9951,8 +9951,8 @@ run_test :: (
           );
           test_t0 := Instant.now();
           tout := io.await(tcmd.output(io), IoExn(io : io, exn : exn));
-          (combined : String) = String.from_bytes(tout.stdout);
-          combined.push_string(String.from_bytes(tout.stderr));
+          (combined : String) = String.from_bytes(tout.stdout.clone());
+          combined.push_string(String.from_bytes(tout.stderr.clone()));
           (t_status : i32) = tout.status.raw;
           // Older ASan runtimes: "detect_leaks is not supported" → retry once
           // without leak detection.
@@ -9960,8 +9960,8 @@ run_test :: (
             _sv_asan2 := proc_env.set(String.from("ASAN_OPTIONS"), String.from("detect_leaks=0"));
             tcmd2 := Command.new(tmp_bin.clone());
             tout2 := io.await(tcmd2.output(io), IoExn(io : io, exn : exn));
-            combined = String.from_bytes(tout2.stdout);
-            combined.push_string(String.from_bytes(tout2.stderr));
+            combined = String.from_bytes(tout2.stdout.clone());
+            combined.push_string(String.from_bytes(tout2.stderr.clone()));
             t_status = tout2.status.raw;
             _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
           });
@@ -10669,7 +10669,7 @@ _cache_clean :: (
   dirs.push(get_index_dir(cache_dir.clone()));
   (i : usize) = usize(0);
   while(i < dirs.len(), {
-    d := dirs(i);
+    d := dirs(i).clone();
     i = (i + usize(1));
     d_present := io.await(exists(Path.new(d.clone()), io), io);
     if(d_present, {
@@ -10681,7 +10681,7 @@ _cache_clean :: (
   files.push(projects_registry_path(cache_dir.clone()));
   (j : usize) = usize(0);
   while(j < files.len(), {
-    f := files(j);
+    f := files(j).clone();
     j = (j + usize(1));
     f_present := io.await(exists(Path.new(f.clone()), io), io);
     if(f_present, {
@@ -13113,7 +13113,7 @@ main :: (fn(io : Io) -> unit)({
   argv0 := ArrayList(String).new();
   ai0 := usize(0);
   while(ai0 < raw_argv0.len(), {
-    a0 := raw_argv0(ai0);
+    a0 := raw_argv0(ai0).clone();
     if(a0 == "--error-format", {
       if((ai0 + usize(1)) < raw_argv0.len(), {
         err_format = raw_argv0(ai0 + usize(1)).clone();
@@ -13155,7 +13155,7 @@ main :: (fn(io : Io) -> unit)({
   argv1 := ArrayList(String).new();
   ci0 := usize(0);
   while(ci0 < argv0.len(), {
-    c0 := argv0(ci0);
+    c0 := argv0(ci0).clone();
     if(c0 == "--color", {
       if((ci0 + usize(1)) < argv0.len(), {
         color_mode = argv0(ci0 + usize(1)).clone();
@@ -13196,7 +13196,7 @@ main :: (fn(io : Io) -> unit)({
   argv := ArrayList(String).new();
   ai := usize(0);
   while(ai < raw_argv.len(), {
-    a := raw_argv(ai);
+    a := raw_argv(ai).clone();
     if(a == "--std-path", {
       if((ai + usize(1)) < raw_argv.len(), {
         set_std_path_override(raw_argv(ai + usize(1)).clone());
@@ -13256,7 +13256,7 @@ main :: (fn(io : Io) -> unit)({
     eprintln(_top_level_help_text());
     unsafe(exit(int(1)));
   });
-  subcmd := argv(usize(1));
+  subcmd := argv(usize(1)).clone();
   // Per-subcommand `--help` / `-h`: answered LOCALLY, before the .yo-version
   // pre-dispatch (help must not require a cached binary or a network). The
   // scan stops at `--` so pass-through arguments (e.g. a program's own
@@ -13265,7 +13265,7 @@ main :: (fn(io : Io) -> unit)({
   (help_wanted : bool) = false;
   (help_i : usize) = usize(2);
   while((help_i < argv.len()) && !help_wanted, {
-    help_a := argv(help_i);
+    help_a := argv(help_i).clone();
     if(help_a == "--", {
       help_i = argv.len();
     }, {
