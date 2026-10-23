@@ -1,0 +1,375 @@
+//! Debug allocator — the `--allocator debug` arm
+//! (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11,
+//! plans/backlog/ZIG_STYLE_ALLOCATORS.md §3.5 A2).
+//!
+//! A tracking allocator over the system one, Zig's `DebugAllocator` and
+//! `std.testing.allocator` in one runtime. Every block carries a header with
+//! its requested size and its allocation number, and sits on a live list.
+//! Fresh payloads are filled with 0xAA. A freed block is poisoned with 0xDD
+//! and kept in a quarantine instead of going back to the system heap, so a
+//! double free is caught and a write after free is found when the block
+//! leaves the quarantine or at exit. A pointer the allocator never handed out
+//! is rejected by its header canary. At exit the report names every block
+//! still live, and when `main` returned normally a live block fails the
+//! process with exit status 23 (`yo test --allocator debug` fails a test
+//! that leaks). It is decision 48's leak oracle (W6 precondition 2) and works
+//! on every platform, unlike LeakSanitizer.
+//!
+//! Emission split: the same as the fixed arm (`allocator_fixed.yo`). The
+//! `#define` family and the external prototypes go to the HEADER section, the
+//! implementation is defined ONCE in the CODE section, so chunked emission
+//! links every chunk against one copy.
+//!
+//! Not built yet: the size-mismatch abort needs the allocator interface's
+//! sized `free` (version 2), and allocation sites need Z4's
+//! `source_location`. Until then the report names a block by its allocation
+//! number, and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`, so a
+//! debugger shows its stack.
+{ String } :: import("std/string");
+{ Emitter } :: import("../../emitter.yo");
+{ CodeGenContext } :: import("../utils/index.yo");
+{ is_target_wasm } :: import("../../target.yo");
+{ emit_heap_format_size } :: import("./allocator_fixed.yo");
+/// Emit the `#define __yo_malloc __yo_debug_malloc` family and the external
+/// prototypes into the header section. The main wrapper calls the three
+/// `__yo_debug_alloc_*` hooks (`functions/generation.yo`).
+emit_debug_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
+  emitter.emit_header_string_line(
+    `
+// Debug allocator (--allocator debug): a tracking allocator over the system
+// heap. The implementation lives in the code section; ONE family only,
+// __yo_aligned_free IS __yo_debug_free.
+#define __yo_malloc __yo_debug_malloc
+#define __yo_calloc __yo_debug_calloc
+#define __yo_realloc __yo_debug_realloc
+#define __yo_free __yo_debug_free
+#define __yo_aligned_alloc __yo_debug_aligned_alloc
+#define __yo_aligned_free __yo_debug_free
+void* __yo_debug_malloc(size_t size);
+void* __yo_debug_calloc(size_t nmemb, size_t size);
+void* __yo_debug_realloc(void* ptr, size_t size);
+void __yo_debug_free(void* ptr);
+void* __yo_debug_aligned_alloc(size_t alignment, size_t size);
+void __yo_debug_alloc_init(void);
+void __yo_debug_alloc_main_returned(void);
+int __yo_debug_alloc_report(void);`
+  );
+});
+/// Emit the allocator implementation into the code section.
+emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
+  em := context.emitter;
+  // WASM keeps the direct-call main, which calls the report in person and
+  // returns its status; hosted targets register it with atexit.
+  atexit_line :=
+    if(
+      is_target_wasm(&context.target_info),
+      String.new(),
+      String.from("  atexit(__yo_dbg_atexit);\n")
+    );
+  em.emit_string_line(
+    `
+// ============================================================================
+// Debug allocator - plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11
+// ============================================================================
+// Layout of a block: [system padding][header][payload]. The header sits right
+// before the payload and records the system pointer, the requested size, the
+// allocation number and a canary (a state word XOR the header's address, so a
+// stray pointer cannot pass for a block). Live blocks are on a list in
+// allocation order; freed blocks are poisoned and kept on a FIFO quarantine
+// of at most __YO_DBG_QUARANTINE_BYTES payload bytes.
+#define __YO_DBG_GRAN (_Alignof(max_align_t))
+#define __YO_DBG_ROUNDUP(x) (((x) + (__YO_DBG_GRAN - 1)) & ~((size_t)(__YO_DBG_GRAN - 1)))
+#define __YO_DBG_LIVE ((uintptr_t)0x4C495645u)
+#define __YO_DBG_FREED ((uintptr_t)0x46524545u)
+#define __YO_DBG_FRESH_BYTE 0xAA
+#define __YO_DBG_FREED_BYTE 0xDD
+#define __YO_DBG_QUARANTINE_BYTES ((size_t)64 * 1024 * 1024)
+#define __YO_DBG_LEAK_EXIT 23
+#define __YO_DBG_LEAKS_LISTED 32
+
+typedef struct __yo_dbg_block {
+  struct __yo_dbg_block* prev;
+  struct __yo_dbg_block* next;
+  void* raw;
+  size_t size;
+  uint64_t seq;
+  uintptr_t canary;
+} __yo_dbg_block_t;
+
+#define __YO_DBG_HDR (__YO_DBG_ROUNDUP(sizeof(__yo_dbg_block_t)))
+
+typedef struct {
+  __yo_dbg_block_t* head;
+  __yo_dbg_block_t* tail;
+} __yo_dbg_list_t;
+
+static __yo_dbg_list_t __yo_dbg_live;
+static __yo_dbg_list_t __yo_dbg_quarantine;
+static size_t __yo_dbg_quarantine_bytes = 0;
+static size_t __yo_dbg_live_blocks = 0;
+static size_t __yo_dbg_live_bytes = 0;
+static size_t __yo_dbg_peak_bytes = 0;
+static uint64_t __yo_dbg_seq = 0;
+static uint64_t __yo_dbg_trap_seq = 0;
+static int __yo_dbg_ready = 0;
+static atomic_flag __yo_dbg_lock = ATOMIC_FLAG_INIT;
+static atomic_int __yo_dbg_main_done = 0;
+
+static void __yo_dbg_lock_acquire(void) {
+  while (atomic_flag_test_and_set_explicit(&__yo_dbg_lock, memory_order_acquire)) {
+    /* spin - uncontended cost is one CAS */
+  }
+}
+
+static void __yo_dbg_lock_release(void) {
+  atomic_flag_clear_explicit(&__yo_dbg_lock, memory_order_release);
+}
+
+static __yo_dbg_block_t* __yo_dbg_header(void* ptr) {
+  return (__yo_dbg_block_t*)(void*)((char*)ptr - __YO_DBG_HDR);
+}
+
+static void* __yo_dbg_payload(__yo_dbg_block_t* b) {
+  return (char*)b + __YO_DBG_HDR;
+}
+
+static void __yo_dbg_push(__yo_dbg_list_t* l, __yo_dbg_block_t* b) {
+  b->next = NULL;
+  b->prev = l->tail;
+  if (l->tail != NULL) l->tail->next = b; else l->head = b;
+  l->tail = b;
+}
+
+static void __yo_dbg_unlink(__yo_dbg_list_t* l, __yo_dbg_block_t* b) {
+  if (b->prev != NULL) b->prev->next = b->next; else l->head = b->next;
+  if (b->next != NULL) b->next->prev = b->prev; else l->tail = b->prev;
+  b->prev = NULL;
+  b->next = NULL;
+}
+
+static void __yo_dbg_atexit(void);
+
+// Called under the lock by the first allocation, and first thing in main so
+// the exit report is registered before any other atexit handler (handlers
+// run in reverse order, so the report runs after the runtime's own cleanup).
+static void __yo_dbg_ensure_init(void) {
+  const char* trap;
+  if (__yo_dbg_ready) return;
+  __yo_dbg_ready = 1;
+  trap = getenv("YO_DEBUG_ALLOC_TRAP");
+  if (trap != NULL) __yo_dbg_trap_seq = (uint64_t)strtoull(trap, NULL, 10);
+${atexit_line}}
+
+void __yo_debug_alloc_init(void) {
+  __yo_dbg_lock_acquire();
+  __yo_dbg_ensure_init();
+  __yo_dbg_lock_release();
+}
+
+void __yo_debug_alloc_main_returned(void) {
+  atomic_store_explicit(&__yo_dbg_main_done, 1, memory_order_release);
+}
+
+// Allocate a tracked block whose payload is aligned to \`alignment\` (a power
+// of two, at least the granule). Called with the lock held.
+static void* __yo_dbg_alloc_locked(size_t alignment, size_t size) {
+  size_t extra = (alignment > __YO_DBG_GRAN) ? alignment : 0;
+  char* raw;
+  uintptr_t payload;
+  __yo_dbg_block_t* b;
+  if (size == 0) size = 1;
+  if (size > (size_t)-1 - __YO_DBG_HDR - extra) return NULL;
+  raw = (char*)malloc(__YO_DBG_HDR + size + extra);
+  if (raw == NULL) return NULL;
+  payload = (uintptr_t)(raw + __YO_DBG_HDR);
+  if (extra != 0) payload = (payload + (uintptr_t)(alignment - 1)) & ~(uintptr_t)(alignment - 1);
+  b = __yo_dbg_header((void*)payload);
+  b->raw = raw;
+  b->size = size;
+  b->seq = ++__yo_dbg_seq;
+  b->canary = __YO_DBG_LIVE ^ (uintptr_t)b;
+  __yo_dbg_push(&__yo_dbg_live, b);
+  __yo_dbg_live_blocks += 1;
+  __yo_dbg_live_bytes += size;
+  if (__yo_dbg_live_bytes > __yo_dbg_peak_bytes) __yo_dbg_peak_bytes = __yo_dbg_live_bytes;
+  memset((void*)payload, __YO_DBG_FRESH_BYTE, size);
+  if (b->seq == __yo_dbg_trap_seq) {
+    fflush(stdout); fprintf(stderr, "debug allocator: YO_DEBUG_ALLOC_TRAP: allocation #%llu (%zu bytes)\\n",
+        (unsigned long long)b->seq, size);
+    __yo_abort();
+  }
+  return (void*)payload;
+}
+
+// A freed block must still hold its poison when it leaves the quarantine;
+// any other byte is a write after free.
+static void __yo_dbg_verify_freed(__yo_dbg_block_t* b) {
+  const unsigned char* p = (const unsigned char*)__yo_dbg_payload(b);
+  size_t i;
+  for (i = 0; i < b->size; i++) {
+    if (p[i] != __YO_DBG_FREED_BYTE) {
+      fflush(stdout); fprintf(stderr,
+          "debug allocator: block #%llu (%zu bytes) was written after it was freed (first changed byte at offset %zu)\\n",
+          (unsigned long long)b->seq, b->size, i);
+      __yo_abort();
+    }
+  }
+}
+
+// Classify a pointer that is not a live block, for the abort message.
+_Noreturn static void __yo_dbg_bad_pointer(const char* op, void* ptr) {
+  __yo_dbg_block_t* b = __yo_dbg_header(ptr);
+  if (b->canary == (__YO_DBG_FREED ^ (uintptr_t)b)) {
+    fflush(stdout); fprintf(stderr, "debug allocator: double free: %s of block #%llu (%zu bytes), already freed\\n",
+        op, (unsigned long long)b->seq, b->size);
+  } else {
+    fflush(stdout); fprintf(stderr,
+        "debug allocator: %s of %p, which this allocator did not hand out (or whose block already left the quarantine)\\n",
+        op, ptr);
+  }
+  __yo_abort();
+}
+
+static void __yo_dbg_free_locked(__yo_dbg_block_t* b) {
+  __yo_dbg_unlink(&__yo_dbg_live, b);
+  __yo_dbg_live_blocks -= 1;
+  __yo_dbg_live_bytes -= b->size;
+  memset(__yo_dbg_payload(b), __YO_DBG_FREED_BYTE, b->size);
+  b->canary = __YO_DBG_FREED ^ (uintptr_t)b;
+  __yo_dbg_push(&__yo_dbg_quarantine, b);
+  __yo_dbg_quarantine_bytes += b->size;
+  while (__yo_dbg_quarantine_bytes > __YO_DBG_QUARANTINE_BYTES) {
+    __yo_dbg_block_t* old = __yo_dbg_quarantine.head;
+    __yo_dbg_verify_freed(old);
+    __yo_dbg_unlink(&__yo_dbg_quarantine, old);
+    __yo_dbg_quarantine_bytes -= old->size;
+    old->canary = 0;
+    free(old->raw);
+  }
+}
+
+void* __yo_debug_malloc(size_t size) {
+  void* p;
+  __yo_dbg_lock_acquire();
+  __yo_dbg_ensure_init();
+  p = __yo_dbg_alloc_locked(__YO_DBG_GRAN, size);
+  __yo_dbg_lock_release();
+  return p;
+}
+
+void* __yo_debug_calloc(size_t nmemb, size_t size) {
+  size_t total;
+  void* p;
+  if (nmemb != 0 && size > (size_t)-1 / nmemb) return NULL;
+  total = nmemb * size;
+  p = __yo_debug_malloc(total);
+  if (p != NULL) memset(p, 0, total);
+  return p;
+}
+
+void* __yo_debug_aligned_alloc(size_t alignment, size_t size) {
+  void* p;
+  if (alignment == 0 || (alignment & (alignment - 1)) != 0) return NULL;
+  if (alignment < __YO_DBG_GRAN) alignment = __YO_DBG_GRAN;
+  __yo_dbg_lock_acquire();
+  __yo_dbg_ensure_init();
+  p = __yo_dbg_alloc_locked(alignment, size);
+  __yo_dbg_lock_release();
+  return p;
+}
+
+void __yo_debug_free(void* ptr) {
+  __yo_dbg_block_t* b;
+  if (ptr == NULL) return;
+  __yo_dbg_lock_acquire();
+  __yo_dbg_ensure_init();
+  b = __yo_dbg_header(ptr);
+  if (b->canary != (__YO_DBG_LIVE ^ (uintptr_t)b)) {
+    __yo_dbg_lock_release();
+    __yo_dbg_bad_pointer("free", ptr);
+  }
+  __yo_dbg_free_locked(b);
+  __yo_dbg_lock_release();
+}
+
+// Always moves: the old block goes to the quarantine, so a stale pointer to
+// it is caught like any other use after free.
+void* __yo_debug_realloc(void* ptr, size_t size) {
+  __yo_dbg_block_t* b;
+  void* np;
+  if (ptr == NULL) return __yo_debug_malloc(size);
+  if (size == 0) {
+    __yo_debug_free(ptr);
+    return NULL;
+  }
+  __yo_dbg_lock_acquire();
+  __yo_dbg_ensure_init();
+  b = __yo_dbg_header(ptr);
+  if (b->canary != (__YO_DBG_LIVE ^ (uintptr_t)b)) {
+    __yo_dbg_lock_release();
+    __yo_dbg_bad_pointer("realloc", ptr);
+  }
+  np = __yo_dbg_alloc_locked(__YO_DBG_GRAN, size);
+  if (np == NULL) {
+    __yo_dbg_lock_release();
+    return NULL; /* original block untouched (the documented contract) */
+  }
+  memcpy(np, ptr, b->size < size ? b->size : size);
+  __yo_dbg_free_locked(b);
+  __yo_dbg_lock_release();
+  return np;
+}
+`
+  );
+  em.emit_string_line(emit_heap_format_size("__yo_dbg_format_size"));
+  em.emit_string_line(
+    `
+// The exit report: the quarantine is checked for writes after free, then
+// every block still live is listed. Returns __YO_DBG_LEAK_EXIT when main
+// returned normally with blocks still live; an exit() from inside the
+// program skips every drop, so its live blocks are listed but not judged.
+int __yo_debug_alloc_report(void) {
+  __yo_dbg_block_t* b;
+  char peak[32];
+  size_t listed = 0;
+  int judged = atomic_load_explicit(&__yo_dbg_main_done, memory_order_acquire);
+  int rc = 0;
+  __yo_dbg_lock_acquire();
+  for (b = __yo_dbg_quarantine.head; b != NULL; b = b->next) __yo_dbg_verify_freed(b);
+  __yo_dbg_format_size(peak, sizeof(peak), __yo_dbg_peak_bytes);
+  fflush(stdout);
+  fprintf(stderr, "debug allocator: peak %s, %llu allocations, live at exit: %zu blocks / %zu bytes\\n",
+      peak, (unsigned long long)__yo_dbg_seq, __yo_dbg_live_blocks, __yo_dbg_live_bytes);
+  for (b = __yo_dbg_live.head; b != NULL && listed < __YO_DBG_LEAKS_LISTED; b = b->next) {
+    fprintf(stderr, "debug allocator:   live block #%llu: %zu bytes\\n", (unsigned long long)b->seq, b->size);
+    listed += 1;
+  }
+  if (__yo_dbg_live_blocks > listed) {
+    fprintf(stderr, "debug allocator:   ... and %zu more\\n", __yo_dbg_live_blocks - listed);
+  }
+  if (__yo_dbg_live_blocks > 0) {
+    if (judged) {
+      fprintf(stderr,
+          "debug allocator: leak check failed: %zu blocks / %zu bytes still live after main returned (exit status %d); YO_DEBUG_ALLOC_TRAP=<n> aborts at allocation #n\\n",
+          __yo_dbg_live_blocks, __yo_dbg_live_bytes, __YO_DBG_LEAK_EXIT);
+      rc = __YO_DBG_LEAK_EXIT;
+    } else {
+      fprintf(stderr, "debug allocator: the process exited before main returned, so its live blocks are not judged\\n");
+    }
+  }
+  fflush(stderr);
+  __yo_dbg_lock_release();
+  return rc;
+}
+
+static void __yo_dbg_atexit(void) {
+  int rc = __yo_debug_alloc_report();
+  if (rc != 0) {
+    fflush(NULL);
+    _Exit(rc);
+  }
+}
+`
+  );
+});
+export(emit_debug_allocator_defines, emit_debug_allocator_impl);

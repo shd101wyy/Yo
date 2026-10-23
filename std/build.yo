@@ -65,7 +65,14 @@ AllocatorKind :: enum(
   /// region is a panic with a diagnostic. The first building block of the
   /// embedded/freestanding story, and on desktop a deterministic OOM oracle
   /// (plans/reference/FIXED_REGION_ALLOCATOR.md).
-  Fixed
+  Fixed,
+  /// A tracking allocator over the system one, for finding memory bugs:
+  /// a double free or a free of a pointer it never handed out aborts, a
+  /// freed block is poisoned and quarantined, and the exit report lists
+  /// every block still live. A run whose `main` returns with live blocks
+  /// exits with status 23 (`yo compile --allocator debug`,
+  /// plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11).
+  Debug
 );
 derive(AllocatorKind, Copy, Clone);
 export(AllocatorKind);
@@ -327,7 +334,8 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     config.allocator,
     .Mimalloc => "mimalloc",
     .System => "system",
-    .Fixed => "fixed"
+    .Fixed => "fixed",
+    .Debug => "debug"
   );
   san_str :: match(
     config.sanitize,

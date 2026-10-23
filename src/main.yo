@@ -6993,8 +6993,8 @@ run_compile :: (
   if((cc != "") && (cc != "cc") && (cc != "gcc") && (cc != "clang") && (cc != "zig") && (cc != "emcc"), {
     exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`));
   });
-  if((allocator != "mimalloc") && (allocator != "system") && (allocator != "fixed"), {
-    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system, fixed`));
+  if((allocator != "mimalloc") && (allocator != "system") && (allocator != "fixed") && (allocator != "debug"), {
+    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system, fixed, debug`));
   });
   // --heap-size / --debug-heap belong to the fixed-region allocator only
   // (plans/reference/FIXED_REGION_ALLOCATOR.md §2.2/§2.4): a silent ignore would
@@ -7839,7 +7839,9 @@ run_compile :: (
       // joins the link line for this allocator.
       println(`Using fixed-region allocator (${_format_heap_size(heap_size)} heap)`);
     }, {
-      println(String.from("Using system allocator"));
+      // The debug arm (src/codegen/c/allocator_debug.yo) tracks blocks over
+      // the system heap: nothing joins the link line either.
+      println(if(allocator == "debug", String.from("Using debug allocator (leak check at exit)"), String.from("Using system allocator")));
     });
   });
   // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
@@ -9070,8 +9072,8 @@ run_test :: (
   // a bad value fails BEFORE any batch compiles.
   (test_heap_size : usize) = usize(16777216);
   if(test_allocator.len() > usize(0), {
-    if((test_allocator != "mimalloc") && (test_allocator != "system") && (test_allocator != "fixed"), {
-      exn.throw(dyn(`test: invalid --allocator "${test_allocator}". Choices: mimalloc, system, fixed`));
+    if((test_allocator != "mimalloc") && (test_allocator != "system") && (test_allocator != "fixed") && (test_allocator != "debug"), {
+      exn.throw(dyn(`test: invalid --allocator "${test_allocator}". Choices: mimalloc, system, fixed, debug`));
     });
   });
   if(test_heap_size_raw.len() > usize(0), {
@@ -9968,7 +9970,13 @@ run_test :: (
           // A leak is a FAILURE even at exit 0 —
           // unless staged off via YO_TEST_LEAK_VERDICT=0 (hoisted above,
           // where it also disables LSan's own exit-code).
-          has_leak := (leak_verdict && (test_cc != "emcc") && use_asan && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
+          has_asan_leak := (leak_verdict && (test_cc != "emcc") && use_asan && (combined.contains("LeakSanitizer") || combined.contains("detected memory leaks") || combined.contains("Direct leak") || combined.contains("Indirect leak")));
+          // `--allocator debug` (src/codegen/c/allocator_debug.yo): the test
+          // binary itself fails with status 23 and this line when the test
+          // body returned with blocks still live. Named as a leak, not as a
+          // bare exit status.
+          has_debug_alloc_leak := ((test_allocator == "debug") && (t_status == i32(23)) && combined.contains("debug allocator: leak check failed"));
+          has_leak := (has_asan_leak || has_debug_alloc_leak);
           test_ms := (test_t0.elapsed().as_nanos() / i64(1000000));
           if((t_status == i32(0)) && !has_leak, {
             passed = (passed + usize(1));
@@ -12009,7 +12017,8 @@ Options:
   --shared-library          Build a shared library (lib<name>.dylib/.so/.dll)
   --sanitize <kind>         Sanitizer (address|thread|undefined)
   --disable-sanitize        Drop sanitizer flags added by defaults
-  --allocator <name>        Allocator (system|mimalloc|fixed)
+  --allocator <name>        Allocator (system|mimalloc|fixed|debug); debug fails
+                            a run that ends with live blocks
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed; 64K..4G)
   --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
   --cycle-collector <mode>  Cycle collector (auto|off); off leaks reference cycles
@@ -12067,7 +12076,8 @@ Examples:
   --shared-library          构建动态库（lib<name>.dylib/.so/.dll）
   --sanitize <kind>         清理器（address|thread|undefined）
   --disable-sanitize        去掉默认追加的清理器标志
-  --allocator <name>        分配器（system|mimalloc|fixed）
+  --allocator <name>        分配器（system|mimalloc|fixed|debug）；debug 时
+                            退出仍有存活块的运行失败
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed；64K..4G）
   --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
   --cycle-collector <mode>  循环回收器（auto|off）；off 时引用环会泄漏
@@ -12192,7 +12202,8 @@ Options:
   --test-batch-size <n>     Tests per generated C batch (default 100)
   --cc, --c-compiler <cc>   C compiler for test binaries
   --target <triple>         Run tests for a cross target (e.g. wasm32-wasip1)
-  --allocator <name>        Allocator for test binaries (system|mimalloc|fixed)
+  --allocator <name>        Allocator for test binaries (system|mimalloc|fixed|debug);
+                            debug fails a test that ends with live blocks
   --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed)
   --debug-heap              Heap stats + live-at-exit oracle per test (fixed only)
   --cycle-collector <mode>  Cycle collector for test binaries (auto|off)
@@ -12239,7 +12250,8 @@ Examples:
   --test-batch-size <n>     每批生成的 C 批次包含的测试数（默认 100）
   --cc, --c-compiler <cc>   测试二进制使用的 C 编译器
   --target <triple>         为交叉目标运行测试（如 wasm32-wasip1）
-  --allocator <name>        测试二进制的分配器（system|mimalloc|fixed）
+  --allocator <name>        测试二进制的分配器（system|mimalloc|fixed|debug）；
+                            debug 时结束仍有存活块的测试失败
   --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed）
   --debug-heap              每个测试退出时打印堆统计与存活块检查（仅 fixed）
   --cycle-collector <mode>  测试二进制的循环回收器（auto|off）

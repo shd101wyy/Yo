@@ -9,6 +9,7 @@
 { CodeGenContext } :: import("../utils/index.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
 { emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
+{ emit_debug_allocator_defines, emit_debug_allocator_impl } :: import("./allocator_debug.yo");
 /// Collect C include headers from the collected types and extern functions.
 collect_c_includes :: (fn(context : &CodeGenContext) -> unit)({
   // Collect C includes from all collected types. (Loop via a flag, NOT
@@ -192,6 +193,11 @@ _Noreturn static inline void __yo_abort(void) {
       // allocator_fixed.yo for the chunked-emission reasoning).
       emit_fixed_allocator_defines(&context.emitter);
       emit_fixed_allocator_impl(context);
+    },
+    (context.allocator == "debug") => {
+      // The tracking arm (allocator_debug.yo): the same header/code split.
+      emit_debug_allocator_defines(&context.emitter);
+      emit_debug_allocator_impl(context);
     },
     (context.allocator == "mimalloc") => {
       context.emitter.emit_header_line("// Mimalloc compatibility layer - try mimalloc first, fallback to stdlib");
