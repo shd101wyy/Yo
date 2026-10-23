@@ -157,7 +157,7 @@ _transform_template :: (fn(template : &String) -> String)({
           // Positional (all digits) or named?
           (all_digits : bool) = (ref_str.len() > usize(0));
           {
-            rb := ref_str;
+            rb := ref_str.clone();
             (di : usize) = usize(0);
             while(di < rb.len(), {
               db := match(rb.get_byte(di), .Some(x) => x, .None => u8(0));
@@ -617,7 +617,7 @@ generate_asm :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenera
           // Replace {name}/{N} (with optional :modifier) with the bare value.
           // Byte-scan replace: rebuild the template.
           rebuilt := String.new();
-          b := processed_template;
+          b := processed_template.clone();
           n := b.len();
           (i : usize) = usize(0);
           while(i < n, {

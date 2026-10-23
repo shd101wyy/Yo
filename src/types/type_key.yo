@@ -98,7 +98,7 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
               }
             )
           );
-          g_enum_sig_keys.with_mut(m => m.insert(sig, canonical.clone()));
+          g_enum_sig_keys.with_mut(m => m.insert(sig.clone(), canonical.clone()));
           bump_type_key_epoch();
           canonical
         }
@@ -273,8 +273,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       st := resolve_struct_shell(t);
       (sid, scfid, stas, sfts, s_is_ref) := match(
         st,
-        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid, rcfid, rtas, rfts, rirs),
-        _ => (id, cfid, tas, fts, t_is_ref)
+        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), rcfid.clone(), rtas, rfts, rirs),
+        _ => (id.clone(), cfid.clone(), tas, fts, t_is_ref)
       );
       // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
       // field) and a value struct with the SAME fields have DIFFERENT C layouts
@@ -467,7 +467,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // Passthrough for any non-shell enum. See
       // issues/.../recursive-enum-self-shell.md.
       rs := resolve_enum_shell(t);
-      eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
+      eid := match(rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
       evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs);
       evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => no_labels());
       evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds, _ => no_discriminants());
@@ -488,7 +488,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         return(eid.clone());
       });
       if(eid.len() > usize(0), {
-        g_tk_visited.with_mut(xs => xs.push(e_node));
+        g_tk_visited.with_mut(xs => xs.push(e_node.clone()));
       });
       // An EMPTY-id enum must still be keyed STRUCTURALLY (via the sig path
       // below), not by `type_to_string` — the name alone drops the payload, so
@@ -898,7 +898,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       (sid, sfls, sfts, s_is_ref) := match(
         st,
         Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid, rfls, rfts, rirs),
-        _ => (id, fls, fts, t_is_ref)
+        _ => (id.clone(), fls, fts, t_is_ref)
       );
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
       if((sid.len() > usize(0)) && _sti_seen(&sid), {
@@ -925,7 +925,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     },
     Rc(.EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 })) => {
       rs := resolve_enum_shell(t);
-      eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
+      eid := match(rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
       evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => vns0);
       evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs0);
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => e_is_ref0);
@@ -943,7 +943,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
         return(out_cyc);
       });
       if(eid.len() > usize(0), {
-        g_sti_visited.with_mut(xs => xs.push(e_node));
+        g_sti_visited.with_mut(xs => xs.push(e_node.clone()));
       });
       out := pfx;
       out.push_string(&eid);

@@ -116,13 +116,13 @@ export(LspDiag, RelatedInfo);
 /// error here (the same pattern as module_manager's load-error stash).
 (mut(g_parse_error) : Option(String)) = Option(String).None;
 _stash_parse_error :: (fn(msg : &String) -> unit)({
-  prior := g_parse_error;
+  prior := g_parse_error.clone();
   if(prior.is_none(), {
     g_parse_error = Option(String).Some(msg);
   });
 });
 _take_parse_error :: (fn() -> Option(String))({
-  taken := g_parse_error;
+  taken := g_parse_error.clone();
   g_parse_error = Option(String).None;
   taken
 });
@@ -319,7 +319,7 @@ parse_error_text :: (
                 header := _strip_severity_prefix(
                   String.from("\n").join(&msg_parts).trim()
                 );
-                message := header.message;
+                message := header.message.clone();
                 if(message.len() > usize(0), {
                   same_file := ((a_path == doc_abs) || a_path.ends_with(doc_abs.clone()));
                   cond(
@@ -375,7 +375,7 @@ parse_error_text :: (
                           col : a_col,
                           end_col : end_col,
                           severity : header.severity,
-                          code : header.code,
+                          code : header.code.clone(),
                           message : message,
                           related : ArrayList(RelatedInfo).new()
                         )
@@ -388,7 +388,7 @@ parse_error_text :: (
                           col : usize(0),
                           end_col : usize(1),
                           severity : header.severity,
-                          code : header.code,
+                          code : header.code.clone(),
                           message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`,
                           related : ArrayList(RelatedInfo).new()
                         )
@@ -586,12 +586,12 @@ _typed_to_lsp :: (
                 col : d.span.col,
                 end_col : (d.span.col + d.span.len),
                 severity : lsp_severity_of(d.severity),
-                code : d.code,
-                message : d.message,
+                code : d.code.clone(),
+                message : d.message.clone(),
                 repair : match(
                   d.repair,
                   // A repair in ANOTHER file is not this document's quickfix.
-                  .Some(r) => if(r.span.path == d.span.path, Option(Repair).Some(r), Option(Repair).None),
+                  .Some(r) => if(r.span.path == d.span.path, Option(Repair).Some(r.clone()), Option(Repair).None),
                   .None => Option(Repair).None
                 ),
                 related : ArrayList(RelatedInfo).new()
@@ -607,7 +607,7 @@ _typed_to_lsp :: (
                 col : usize(0),
                 end_col : usize(1),
                 severity : lsp_severity_of(d.severity),
-                code : d.code,
+                code : d.code.clone(),
                 message : `${d.message} (in ${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))})`,
                 related : ArrayList(RelatedInfo).new()
               )

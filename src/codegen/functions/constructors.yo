@@ -326,7 +326,7 @@ set_traverse_visit_expr :: (fn(expr : &String) -> unit)({
 });
 _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  visit := g_traverse_visit_expr;
+  visit := g_traverse_visit_expr.clone();
   // Nothing reference-counted anywhere in this value → nothing to trace.
   if(!type_contains_rc_cell_or_move_only(ty), {
     return();

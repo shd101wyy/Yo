@@ -944,7 +944,7 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
     shown := type_to_string(&ty);
     if(g_flip_reported.with(m => m.get(shown.clone())).is_none(), {
       eprintln(`[flip] ${shown}`);
-      _ := g_flip_reported.with_mut(m => m.insert(shown, true));
+      _ := g_flip_reported.with_mut(m => m.insert(shown.clone(), true));
     });
     return(false);
   });
@@ -1619,7 +1619,7 @@ _type_refs_back_to_cyclic :: (
         _id_already_visited(visited, &sid) => false,
         true => {
           v2 := visited.clone();
-          v2.push(sid);
+          v2.push(sid.clone());
           match(unique_box_payload_type(&ty), .Some(payload) => recur(&payload, original_id, &v2), .None => false)
         }
       ),
@@ -1769,7 +1769,7 @@ can_type_form_rc_cycle :: (fn(ty : &TypeValue) -> bool)(
       ty,
       Rc(.Struct({ id : sid, field_types : fields })) => {
         visited := ArrayList(String).new();
-        visited.push(sid);
+        visited.push(sid.clone());
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !found, {
@@ -3884,13 +3884,13 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
       .Some(d) => entries.push(
         cond(
           (i == usize(0)) => Diagnostic(
-            code : d.code,
+            code : d.code.clone(),
             severity : d.severity,
-            message : d.message,
-            span : d.span,
-            source_line : d.source_line,
-            help : d.help,
-            repair : d.repair,
+            message : d.message.clone(),
+            span : d.span.clone(),
+            source_line : d.source_line.clone(),
+            help : d.help.clone(),
+            repair : d.repair.clone(),
             generic_independent : true
           ),
           true => d

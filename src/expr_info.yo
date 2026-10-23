@@ -457,7 +457,7 @@ new_expr_info :: (fn(env : &Environment, ty : &TypeValue) -> ExprInfo)(
     // recorded begin-local bindings. See issues/fixed/yo-self-recorded-env-aliasing.md.
     env : expr_info_env_snapshot(env),
     ty : ty,
-    path_collection : g_empty_path_collection,
+    path_collection : g_empty_path_collection.clone(),
     value : Option(EvalValue).None,
     variable_name : Option(String).None,
     is_accessing_property : Option(bool).None,
@@ -490,7 +490,7 @@ clone_expr_info_for_shared_begin_result :: (fn(src : &ExprInfo, env : &Environme
   ExprInfo(
     env : expr_info_env_snapshot(env),
     ty : ty,
-    path_collection : g_empty_path_collection,
+    path_collection : g_empty_path_collection.clone(),
     value : src.value,
     variable_name : src.variable_name,
     is_accessing_property : src.is_accessing_property,
@@ -513,19 +513,19 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
     .Some(x) => Option(ExprInfoRare).Some(
       ExprInfoRare(
         converted_runtime_type : x.converted_runtime_type,
-        runtime_destructurings : x.runtime_destructurings,
+        runtime_destructurings : x.runtime_destructurings.clone(),
         dyn_call_trait_values : x.dyn_call_trait_values,
         case_executed : x.case_executed,
         is_primitive_match : x.is_primitive_match,
         primitive_pattern_values : x.primitive_pattern_values,
-        consumed_variable_drop_expressions : x.consumed_variable_drop_expressions,
+        consumed_variable_drop_expressions : x.consumed_variable_drop_expressions.clone(),
         async_stack_size : x.async_stack_size,
-        async_state_machine_struct_name : x.async_state_machine_struct_name,
+        async_state_machine_struct_name : x.async_state_machine_struct_name.clone(),
         await_analysis : x.await_analysis,
         effect_analysis : x.effect_analysis,
         closure_function_value : x.closure_function_value,
-        doc_comment : x.doc_comment,
-        deferred_dup_expressions : x.deferred_dup_expressions,
+        doc_comment : x.doc_comment.clone(),
+        deferred_dup_expressions : x.deferred_dup_expressions.clone(),
         capture_type : x.capture_type,
         macro_expansion : x.macro_expansion,
         original_expr : x.original_expr,
@@ -536,8 +536,8 @@ _clone_expr_info_rare :: (fn(r : &Option(ExprInfoRare)) -> Option(ExprInfoRare))
         is_index_trait_address_of : x.is_index_trait_address_of,
         is_compile_time_only_assignment : x.is_compile_time_only_assignment,
         is_anonymous_function_definition : x.is_anonymous_function_definition,
-        comptime_unrolled_bodies : x.comptime_unrolled_bodies,
-        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions,
+        comptime_unrolled_bodies : x.comptime_unrolled_bodies.clone(),
+        early_return_only_deferred_drop_expressions : x.early_return_only_deferred_drop_expressions.clone(),
         capture_field_inits : x.capture_field_inits
       )
     )
@@ -1084,7 +1084,7 @@ scope_release_note_hard :: (fn(kind : &String, key : ExprId) -> unit)(
   if(g_scope_mode == usize(1), {
     k := if(g_scope_husks.with(m => m.contains_key(&key)), `hard-released/${kind}`, `hard-kept/${kind}`);
     mp := match(g_scope_mm_kinds.with(m => m.get(k.clone())), .Some(c) => c, .None => usize(0));
-    g_scope_mm_kinds.with_mut(m => m.insert(k, mp + usize(1)));
+    g_scope_mm_kinds.with_mut(m => m.insert(k.clone(), mp + usize(1)));
   })
 );
 /// Codegen looks a property atom's own token up through it (an extern C
@@ -1284,7 +1284,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         .None => ()
       );
       bound := g_scope_bound.with_mut(m => m.remove(&id));
-      bound_name := match(bound, .Some(br) => br.name, .None => String.new());
+      bound_name := match(bound, .Some(br) => br.name.clone(), .None => String.new());
       // The answer for a name is the lookup in the frames the env shares
       // with the husk, then its variables in the env's own frames past them:
       // record only the latter (and the shared length when it falls short).
@@ -1472,7 +1472,7 @@ _scope_shadow_lookup :: (fn(key : ExprId, env : &Environment, name : &String) ->
         tstr := type_to_string_short(&kinfo);
         mk := `${pk}/${tk}/cf=${has_cf.to_string()}/vn=${has_vn.to_string()}/pc=${has_pc.to_string()}/dd=${has_dd.to_string()}/ty=${tstr}`;
         mp := match(g_scope_mm_kinds.with(m => m.get(mk.clone())), .Some(c) => c, .None => usize(0));
-        g_scope_mm_kinds.with_mut(m => m.insert(mk, mp + usize(1)));
+        g_scope_mm_kinds.with_mut(m => m.insert(mk.clone(), mp + usize(1)));
         if((g_scope_samples.with(xs => xs.len()) < usize(80)) && ((g_scope_mismatch % usize(1000)) == usize(1)), {
           g_scope_samples.with_mut(xs => xs.push(`key=${key.to_string()} name=${name} truth=${truth.len().to_string()} rec=${rec.len().to_string()}`));
         });
@@ -1762,7 +1762,7 @@ _push_extern_c_global :: (fn(name : &String, ty : &TypeValue) -> unit)({
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   list := match(g_extern_c_globals.with_mut(m => m.remove(name.clone())), .Some(l) => l, .None => ArrayList(TypeValue).new());
   list.push(ty);
-  g_extern_c_globals.with_mut(m => m.insert(name, list));
+  g_extern_c_globals.with_mut(m => m.insert(name, list.clone()));
 });
 /// Yo binding name → C symbol name, for extern-C globals bound under a
 /// DIFFERENT name by a destructuring rename (`{ stdout : out } :: c_include(...)`,
@@ -1936,7 +1936,7 @@ register_module_level_global :: (fn(module_path : &String, name : &String) -> un
   if((g_mg_recording_depth > usize(0)) && g_module_level_globals.with(m => m.get(mg_key.clone())).is_none(), {
     g_mg_recorded_keys.with_mut(xs => xs.push(mg_key.clone()));
   });
-  g_module_level_globals.with_mut(m => m.insert(mg_key, true));
+  g_module_level_globals.with_mut(m => m.insert(mg_key.clone(), true));
   ()
 });
 /// True if module `module_path` declared the module-level runtime global
@@ -2095,7 +2095,7 @@ record_flow_event :: (
   );
   lst := match(g_branch_init_by_var.with_mut(m => m.remove(&var_id)), .Some(l) => l, .None => ArrayList(usize).new());
   lst.push(idx);
-  g_branch_init_by_var.with_mut(m => m.insert(var_id, lst));
+  g_branch_init_by_var.with_mut(m => m.insert(var_id, lst.clone()));
 });
 /// An assignment: the variable is initialized (its first initialization's
 /// token is kept) and no longer moved-from.
@@ -2161,7 +2161,7 @@ push_branch_group :: (fn() -> unit)({
   entry := ArrayList(usize).new();
   entry.push(g_branch_init_log.with(xs => xs.len()));
   entry.push(g_branch_init_log.with(xs => xs.len()));
-  g_branch_group_stack.with_mut(xs => xs.push(entry));
+  g_branch_group_stack.with_mut(xs => xs.push(entry.clone()));
 });
 /// Mark the start of the NEXT arm in the innermost group: records made so far
 /// (by earlier sibling arms) become invisible to dominating-init queries.
@@ -2172,7 +2172,7 @@ begin_branch_group_arm :: (fn() -> unit)({
       entry := ArrayList(usize).new();
       entry.push(match(old_entry.get(usize(0)), .Some(x) => x, .None => usize(0)));
       entry.push(g_branch_init_log.with(xs => xs.len()));
-      g_branch_group_stack.with_mut(xs => xs.push(entry));
+      g_branch_group_stack.with_mut(xs => xs.push(entry.clone()));
     },
     .None => ()
   );
@@ -3031,7 +3031,7 @@ record_migrate_edit :: (fn(tok : &Token, len : usize, replacement : &String, exp
   if(g_migrate_edit_keys.with(s => s.contains(&key)), {
     return(());
   });
-  g_migrate_edit_keys.with_mut(s => s.insert(key));
+  g_migrate_edit_keys.with_mut(s => s.insert(key.clone()));
   g_migrate_edits.with_mut(xs => xs.push(MigrateEdit(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), len : len, replacement : replacement, expect : expect)));
 });
 /// Whether `yo fix --migrate params` is recording.
@@ -3081,7 +3081,7 @@ record_addr_of_site :: (fn(amp_tok : &Token, expect : &String, lent : bool) -> u
   if(g_addr_of_site_keys.with(s => s.contains(&key)), {
     return(());
   });
-  g_addr_of_site_keys.with_mut(s => s.insert(key));
+  g_addr_of_site_keys.with_mut(s => s.insert(key.clone()));
   g_addr_of_sites.with_mut(xs => xs.push(AddrOfSite(path : amp_tok.module_path.*.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent)));
 });
 take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
@@ -3115,7 +3115,7 @@ record_destructor_site :: (fn(member_tok : &Token) -> unit)({
   if(g_destructor_site_keys.with(s => s.contains(&key)), {
     return(());
   });
-  g_destructor_site_keys.with_mut(s => s.insert(key));
+  g_destructor_site_keys.with_mut(s => s.insert(key.clone()));
   g_destructor_sites.with_mut(xs => xs.push(DestructorSite(path : member_tok.module_path.*.clone(), row : usize(member_tok.row), col : usize(member_tok.column))));
 });
 take_destructor_sites :: (fn() -> ArrayList(DestructorSite))({
@@ -3144,7 +3144,7 @@ migrate_markers_on :: (fn() -> bool)(g_migrate_markers);
 /// position and marker.
 record_marker_site :: (fn(tok : &Token, expect : &String, marker : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
-  if(!g_marker_site_keys.with_mut(s => s.insert(key)), {
+  if(!g_marker_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_marker_sites.with_mut(xs => xs.push(MarkerSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone())));
@@ -3175,7 +3175,7 @@ migrate_rc_pattern_on :: (fn() -> bool)(g_migrate_rc_pattern);
 /// position.
 record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(!g_rc_pattern_site_keys.with_mut(s => s.insert(key)), {
+  if(!g_rc_pattern_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_rc_pattern_sites.with_mut(xs => xs.push(RcPatternSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
@@ -3206,7 +3206,7 @@ migrate_dyn_spelling_on :: (fn() -> bool)(g_migrate_dyn_spelling);
 /// position.
 record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
   key := `${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`;
-  if(!g_dyn_spelling_site_keys.with_mut(s => s.insert(key)), {
+  if(!g_dyn_spelling_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_dyn_spelling_sites.with_mut(xs => xs.push(DynSpellingSite(path : tok.module_path.*.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone())));
@@ -3233,7 +3233,7 @@ migrate_mutable_globals_on :: (fn() -> bool)(g_migrate_mutable_globals);
 /// Record the declaration `decl` of the written global `name`, once.
 record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
   key := `${_mg_canon(&decl.module_path.*)}:${decl.row.to_string()}:${decl.column.to_string()}`;
-  if(!g_mutable_global_site_keys.with_mut(s => s.insert(key)), {
+  if(!g_mutable_global_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_mutable_global_sites.with_mut(xs => xs.push(MutableGlobalSite(path : decl.module_path.*.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone())));
@@ -3265,7 +3265,7 @@ record_mut_binding_site :: (fn(decl : &Token, name : &String) -> unit)({
 });
 _record_mut_binding_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
-  if(!g_mut_binding_site_keys.with_mut(s => s.insert(key)), {
+  if(!g_mut_binding_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_mut_binding_sites.with_mut(xs => xs.push(site));
@@ -3314,7 +3314,7 @@ record_mut_param_site :: (fn(at : &Token, name : &String) -> unit)({
 });
 _record_mut_param_site_at :: (fn(site : MutableGlobalSite) -> unit)({
   key := `${_mg_canon(&site.path)}:${site.row.to_string()}:${site.col.to_string()}`;
-  if(!g_mut_param_site_keys.with_mut(s => s.insert(key)), {
+  if(!g_mut_param_site_keys.with_mut(s => s.insert(key.clone())), {
     return(());
   });
   g_mut_param_sites.with_mut(xs => xs.push(site));

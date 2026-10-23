@@ -268,7 +268,7 @@ _find_bundle_var_field :: (
         sm_var := b.value;
         is_outer := match(sm_var.kind, .Outer => true, .Local => false);
         if(!is_outer && (type_key(&sm_var.base.ty) == target_key), {
-          vid := sm_var.base.id;
+          vid := sm_var.base.id.clone();
           alias_opt := match(
             state_machine_field_aliases,
             .Some(al) => al.get(vid.clone()),
@@ -976,8 +976,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : &FunctionGeneratio
             capture_type : b.capture_type,
             analysis : b.analysis,
             cross_boundary_ids : Option(HashSet(String)).Some(cbr.cross_boundary_ids),
-            await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases),
-            overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases),
+            await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases.clone()),
+            overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases.clone()),
             overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(osr.slots),
             closure_param_slots : b.closure_param_slots
           ),
@@ -1672,7 +1672,7 @@ _build_async_capture_struct_literal :: (
               if(in_special_context, Option(AstExpr).None, matched),
               .Some(dup_expr) => {
                 settled.insert(label.clone());
-                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name, .None => Option(String).None);
+                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name.clone(), .None => Option(String).None);
                 match(
                   dup_var,
                   .Some(vname) => {
@@ -1853,7 +1853,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     .Some(fe) => match(fe.value, .FuncVal(wfvd, _) => wfvd.*.body, _ => return(_fusion_not_lowered(await_expr, String.from("the wrapper has no body"), report))),
     .None => return(_fusion_not_lowered(await_expr, String.from("the wrapper is not emitted"), report))
   );
-  stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), match(wrapper_body, .FnCall(_, _, sa, _, _) => sa, _ => ArrayList(AstExpr).new()), {
+  stmts := if(ast_expr_is_fn_call_of(&wrapper_body, BK_BEGIN, Option(usize).None), match(wrapper_body, .FnCall(_, _, sa, _, _) => sa.clone(), _ => ArrayList(AstExpr).new()), {
     one := ArrayList(AstExpr).new();
     one.push(wrapper_body);
     one
@@ -1952,7 +1952,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
     FusedAwaitSite(
       prefix : `${context.fusion_field_prefix}__fz${own_segment}`,
       call : future_arg,
-      wrapper_fid : cand.func_id,
+      wrapper_fid : cand.func_id.clone(),
       wrapper_body : wrapper_body,
       prologue : prologue,
       io_async_call : io_call,
@@ -2300,7 +2300,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     tok := ast_expr_token(await_expr);
     // The callee's position, as the `fusable` line prints it: the block id is
     // a C name derived from the module path, so it differs between checkouts.
-    callee_at := match(await_fusion_candidate(&site.call), .Some(c) => c.callee_at, .None => String.from("?"));
+    callee_at := match(await_fusion_candidate(&site.call), .Some(c) => c.callee_at.clone(), .None => String.from("?"));
     eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} fused (callee ${callee_at})`);
   });
   // The await's own result field, under the caller's names.
@@ -2408,8 +2408,8 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // such as the future it does not build, is skipped there).
   generate_deferred_drop_expressions(&site.wrapper_body, inner.clone(), context);
   context.state_machine_variables = saved_smv;
-  context.state_machine_field_aliases = saved_aliases;
-  context.variable_id_remapping = saved_remap;
+  context.state_machine_field_aliases = saved_aliases.clone();
+  context.variable_id_remapping = saved_remap.clone();
   context.declared_temp_vars = saved_temps;
   context.emitted_deferred_drop_ids = saved_drop_ids;
   em.emit_string_line(`${indent}}`);
@@ -2435,7 +2435,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   saved_pdd := context.pending_deferred_drops;
   context.state_machine_variables = Option(HashMap(String, CapturedVariable)).Some(_fused_sm_variables(&site));
   context.state_machine_field_aliases = Option(HashMap(String, String)).Some(_fused_sm_aliases(&site));
-  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping);
+  context.variable_id_remapping = Option(HashMap(String, String)).Some(site.block.analysis.variable_id_remapping.clone());
   context.sm_capture_slot = `${site.prefix}capture`;
   context.fusion_field_prefix = site.prefix.clone();
   low.analysis = site.block.analysis;
@@ -2621,7 +2621,7 @@ _report_hollow_async_body :: (fn(body_expr : &AstExpr, via_fsm : bool) -> unit)(
       if(hb.diagnostics.len() > usize(0), {
         codegen_report_error(dyn(yo_error_from_diagnostics(&hb.diagnostics)));
       }, {
-        codegen_report_error(dyn(hb.message));
+        codegen_report_error(dyn(hb.message.clone()));
       });
     },
     .None => codegen_user_error(&tok, _hollow_async_body_message(body_expr, via_fsm))
@@ -2778,7 +2778,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   match(
     fsm_capture_type,
     .Some(ct) => {
-      (cap_id : String) = match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      (cap_id : String) = match(ct, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
       cap_labels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
       if((cap_labels.len() > usize(0)) && !capture_struct_has_decl_sites(cap_id.clone()), {
         codegen_fatal(`the capture struct ${cap_id} of an io.async block recorded no declaration sites, so its captures cannot be told from body bindings`);
@@ -2832,7 +2832,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
         await_points : analysis_kinded.await_points,
         captured_variables : remapped_cvs,
         has_awaits : analysis_kinded.has_awaits,
-        variable_id_remapping : analysis_kinded.variable_id_remapping
+        variable_id_remapping : analysis_kinded.variable_id_remapping.clone()
       );
     },
     .None => ()
@@ -2842,7 +2842,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // Per-closure composite key for some-resolved-concrete: append the unique
   // async_block_id so different closures sharing the same Future(T) trait
   // do NOT cross-contaminate each other's registered result type.
-  _rsid_base := match(result_type, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
+  _rsid_base := match(result_type, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
   _per_clone_rsid := _rsid_base.clone();
   _per_clone_rsid.push_str("@@");
   _per_clone_rsid.push_string(async_block_id.clone());
@@ -2982,7 +2982,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     result_type : result_type,
     result_type_c_name : result_type_c_name.clone(),
     capture_type : fsm_capture_type,
-    capture_dups : match(fsm_capture_dups, .Some(d) => d, .None => ArrayList(AstExpr).new()),
+    capture_dups : match(fsm_capture_dups, .Some(d) => d.clone(), .None => ArrayList(AstExpr).new()),
     analysis : analysis_kinded,
     closure_param_slots : closure_param_slots_opt,
     source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
@@ -3160,9 +3160,9 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   // Cross-boundary analysis (segment-locals become C locals).
   cbr := _block_cross_boundary(block, context);
   cross_boundary_ids := cbr.cross_boundary_ids;
-  await_future_temp_var_aliases := cbr.await_future_temp_var_aliases;
+  await_future_temp_var_aliases := cbr.await_future_temp_var_aliases.clone();
   osr := compute_overlapping_slots(&cross_boundary_ids, &cbr.variable_segments, &block.analysis.captured_variables, &await_future_temp_var_aliases, &cbr.pattern_binding_ids, context);
-  overlapping_slot_aliases := osr.slot_aliases;
+  overlapping_slot_aliases := osr.slot_aliases.clone();
   // Filter capturedVariables to those that need SM fields (or stay for drops).
   filtered := ArrayList(CapturedVariable).new();
   src_cvs := block.analysis.captured_variables;
@@ -3353,8 +3353,8 @@ generate_deferred_async_blocks :: (fn(context : &FunctionGenerationContext) -> u
                 capture_type : nb.capture_type,
                 analysis : nb.analysis,
                 cross_boundary_ids : Option(HashSet(String)).Some(ncbr.cross_boundary_ids),
-                await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases),
-                overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases),
+                await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases.clone()),
+                overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases.clone()),
                 overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(nosr.slots),
                 closure_param_slots : nb.closure_param_slots
               ),
@@ -3392,7 +3392,7 @@ _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext
     ft,
     Rc(.Func({ meta : __fm2 })) => match(
       __fm2.*.is_extern,
-      .Some(lang) => if(lang == "yo", __fm2.*.extern_name, Option(String).None),
+      .Some(lang) => if(lang == "yo", __fm2.*.extern_name.clone(), Option(String).None),
       .None => Option(String).None
     ),
     _ => Option(String).None
@@ -3593,7 +3593,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   // it to a concrete type below, we record it under this id (with the block id,
   // `g_async_block_result_types`) so this block's later emission agrees with it
   // instead of lowering the await binding to `void*`.
-  output_some_id := match(result_type, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
+  output_some_id := match(result_type, Rc(.SomeT({ id : i })) => i.clone(), _ => String.from(""));
   // Per-closure composite key: append the unique async_block_id to the
   // output_some_id so that different closures implementing the same Future(T)
   // do NOT share the same resolved-concrete-type registration. Without this,
@@ -3715,7 +3715,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   );
   closure_function_c_name := match(
     closure_fn_val,
-    .Some(fv) => match(fv, .FuncVal(__fvd6, _) => match(context.base.get_function_entry(&__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, .FuncVal(__fvd6, _) => match(context.base.get_function_entry(&__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name.clone()), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   );
   eff_capture_type := match(
@@ -3888,7 +3888,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     match(
       eff_capture_type,
       .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty), {
-        cap_struct_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+        cap_struct_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid.clone(), _ => String.from(""));
         cap_fields := match(get_struct_fields(&cap_struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
         (cfi : usize) = usize(0);
         while(cfi < cap_fields.len(), {

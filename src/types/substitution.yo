@@ -359,7 +359,7 @@ _is_self_pattern :: (fn(s : &Substitution, ty : &TypeValue) -> bool)({
   if(ty_id.is_empty(), {
     return(false);
   });
-  from_id := match(from, Rc(.Struct({ id : fid })) => fid, Rc(.EnumT(fe, _, _, _, _, _, _, _, _, _)) => fe, _ => String.new());
+  from_id := match(from, Rc(.Struct({ id : fid })) => fid.clone(), Rc(.EnumT(fe, _, _, _, _, _, _, _, _, _)) => fe.clone(), _ => String.new());
   if(from_id.is_empty() || !(ty_id == from_id), {
     return(false);
   });
@@ -480,7 +480,7 @@ _subst_list_changed :: (fn(s : &Substitution, xs : &SharedList(TypeValue)) -> Op
       out,
       .Some(o) => {
         o.push(new_elem);
-        .Some(o)
+        .Some(o.clone())
       },
       .None => cond(
         __yo_ptr_eq(&new_elem, &elem) => .None,
@@ -565,7 +565,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(.Array(inner, len, lvar)) => {
           new_inner := _substitute_at(s, &inner, false);
           cond(
-            (lvar.len() == usize(0)) => rc(TypeValueNode.Array(new_inner, len, lvar)),
+            (lvar.len() == usize(0)) => rc(TypeValueNode.Array(new_inner, len, lvar.clone())),
             true => match(
               subst_lookup_len_var(s, lvar.clone()),
               .Some(bound_len) => rc(TypeValueNode.Array(new_inner, bound_len, String.from(""))),
@@ -577,7 +577,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
               .None => match(
                 _subst_resolve_len_projection(s, lvar.clone()),
                 .Some(proj_len) => rc(TypeValueNode.Array(new_inner, proj_len, String.from(""))),
-                .None => rc(TypeValueNode.Array(new_inner, len, lvar))
+                .None => rc(TypeValueNode.Array(new_inner, len, lvar.clone()))
               )
             )
           )
@@ -625,7 +625,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             ((tid.len() > usize(0)) && _subst_trait_visited(s, &tid)) => ty,
             true => {
               if(tid.len() > usize(0), {
-                s.visited_trait_ids.push(tid);
+                s.visited_trait_ids.push(tid.clone());
               });
               // Nominal boundary — see _without_len_vars.
               s_nom_t := _without_len_vars(s);
@@ -636,7 +636,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
                 new_fts.push(_substitute_at(&s_nom_t, &elem, false));
                 i = (i + usize(1));
               });
-              rc(TypeValueNode.TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons, atcl, atct))
+              rc(TypeValueNode.TraitT(n.clone(), atns.clone(), fls.clone(), new_fts, tid.clone(), ic, scons.clone(), ncons.clone(), atcl, atct))
             }
           ),
         // SomeT — check substitution first; if not found, recurse into constraints.
@@ -691,7 +691,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
                 new_nts.push(_substitute_at(s, &elem, false));
                 i = (i + usize(1));
               });
-              rc(TypeValueNode.SomeT(orig_id, n, lvl, pt, new_rts, rlvls, new_nts, nlvls, Option(TypeValue).None, rcp))
+              rc(TypeValueNode.SomeT(orig_id.clone(), n.clone(), lvl, pt, new_rts, rlvls.clone(), new_nts, nlvls.clone(), Option(TypeValue).None, rcp))
             }
           )
         },
@@ -706,7 +706,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           new_tyargs := _subst_list(&s_nom, &tyargs);
           // Preserve constructor_func_id across substitution so the
           // type-constructor identity travels with specialized instantiations.
-          rc(TypeValueNode.Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns))
+          rc(TypeValueNode.Struct(id.clone(), name.clone(), labels, new_types, is_ref, is_atomic, is_nt, cfid.clone(), new_tyargs, is_sns))
         },
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
         Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
@@ -747,11 +747,11 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             ti = (ti + usize(1));
           });
           // A list no element of which changed is kept, not rebuilt.
-          rc(TypeValueNode.EnumT(id, name, variant_names, if(vf_changed, shared_list(new_variant_fields), variant_fields), svn, vfl, discs, eirs, eiar, if(etas_changed, shared_list(new_etas), etas)))
+          rc(TypeValueNode.EnumT(id.clone(), name.clone(), variant_names, if(vf_changed, shared_list(new_variant_fields), variant_fields), svn.clone(), vfl, discs, eirs, eiar, if(etas_changed, shared_list(new_etas), etas)))
         },
         Rc(.Union(name, labels, types)) => {
           new_types := _subst_list(s, &types);
-          rc(TypeValueNode.Union(name, labels, new_types))
+          rc(TypeValueNode.Union(name.clone(), labels, new_types))
         },
         // Phase 2f variants — recurse into child types
         Rc(.ComptimeListT(child)) => rc(TypeValueNode.ComptimeListT(_substitute_at(s, &child, false))),
@@ -777,11 +777,11 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf, call_param_is_owning : cpof)) => {
           new_cpts := _subst_list(s, &cpts);
           new_its := _subst_list(s, &its);
-          rc(TypeValueNode.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf, call_param_is_owning : cpof))
+          rc(TypeValueNode.FnTraitT(base_name : bn.clone(), call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf, call_param_is_owning : cpof))
         },
         Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets)) => {
           new_ets := _subst_list(s, &ets);
-          rc(TypeValueNode.FutureTraitT(base_name : bn, output : _substitute_at(s, &out, false), effect_labels : els, effect_types : new_ets))
+          rc(TypeValueNode.FutureTraitT(base_name : bn.clone(), output : _substitute_at(s, &out, false), effect_labels : els, effect_types : new_ets))
         },
         // Primitives and leaves — return unchanged.
         _ => ty

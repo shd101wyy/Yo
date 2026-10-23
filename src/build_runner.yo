@@ -233,7 +233,7 @@ _git_version :: (
     out_opt := e.io.await(t.join(e.io), e.io);
     out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
     if(!out.status.success(), return(Option(String).None));
-    v := String.from_bytes(out.stdout).trim();
+    v := String.from_bytes(out.stdout.clone()).trim();
     if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
   })
 );
@@ -251,7 +251,7 @@ _git_version :: (
 _self_exe :: (fn() -> String)({
   argv := proc_args();
   if(argv.len() == usize(0), return(String.from("yo-cli")));
-  a0 := argv(usize(0));
+  a0 := argv(usize(0)).clone();
   if(a0.len() == usize(0), String.from("yo-cli"), a0)
 });
 // ---------------------------------------------------------------------------
@@ -555,7 +555,7 @@ _package_import_lines :: (fn(package_dir : &String) -> ArrayList(String))({
       lines := g_dep_import_texts.with(xs => xs(i));
       (j : usize) = usize(0);
       while(j < lines.len(), {
-        out.push(lines(j));
+        out.push(lines(j).clone());
         j = (j + usize(1));
       });
       return(out);
@@ -733,16 +733,16 @@ _evaluate_dependency_builds :: (
             sanitize : art.sanitize.clone(),
             emit_c_to : art.emit_c_to.clone(),
             emit_chunks : art.emit_chunks,
-            link_libraries : art.link_libraries,
-            include_paths : art.include_paths,
-            library_paths : art.library_paths,
-            c_sources : art.c_sources,
-            c_flags : art.c_flags,
-            defines : art.defines,
+            link_libraries : art.link_libraries.clone(),
+            include_paths : art.include_paths.clone(),
+            library_paths : art.library_paths.clone(),
+            c_sources : art.c_sources.clone(),
+            c_flags : art.c_flags.clone(),
+            defines : art.defines.clone(),
             strip : art.strip,
             static_link : art.static_link,
             linked_artifacts : ArrayList(String).new(),
-            linked_system_libs : art.linked_system_libs,
+            linked_system_libs : art.linked_system_libs.clone(),
             package_dir : dir.clone(),
             package_name : r.dependency_name.clone()
           ),
@@ -965,8 +965,8 @@ _walk_dag :: (
         i := usize(0);
         n := artifact.linked_artifacts.len();
         while(i < n, {
-          linked := artifact.linked_artifacts(i);
-          deps.push(linked);
+          linked := artifact.linked_artifacts(i).clone();
+          deps.push(linked.clone());
           recur(registry, nodes, visited, &linked, missing);
           i = (i + usize(1));
         });
@@ -977,7 +977,7 @@ _walk_dag :: (
       },
       .Run(run_step) => {
         deps := ArrayList(String).new();
-        deps.push(run_step.artifact_name);
+        deps.push(run_step.artifact_name.clone());
         recur(registry, nodes, visited, &run_step.artifact_name, missing);
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
       },
@@ -992,8 +992,8 @@ _walk_dag :: (
         i := usize(0);
         n := step.dependency_names.len();
         while(i < n, {
-          dep_name := step.dependency_names(i);
-          deps.push(dep_name);
+          dep_name := step.dependency_names(i).clone();
+          deps.push(dep_name.clone());
           recur(registry, nodes, visited, &dep_name, missing);
           i = (i + usize(1));
         });
@@ -1062,7 +1062,7 @@ _dfs_cycle :: (
       i := usize(0);
       nd := node.depends_on.len();
       while(i < nd, {
-        dep := node.depends_on(i);
+        dep := node.depends_on(i).clone();
         // A dependency that is not a node (it resolved to nothing) is not a
         // cycle candidate — and the skip has to CONTINUE: bumping `i` and
         // falling through incremented it twice, so the next dependency was
@@ -1097,7 +1097,7 @@ detect_cycle :: (fn(dag : &ArrayList(DAGNode)) -> Option(String))({
   n := dag.len();
   while(i < n, {
     node := dag(i);
-    node_map.insert(node.name, node);
+    node_map.insert(node.name.clone(), node);
     i = (i + usize(1));
   });
   color := HashMap(String, i32).new();
@@ -1206,10 +1206,10 @@ expand_workspace_members :: (
     patterns := manifest.workspace_members;
     (pi : usize) = usize(0);
     while(pi < patterns.len(), {
-      pattern := patterns(pi);
+      pattern := patterns(pi).clone();
       split := _split_member_pattern(pattern.clone());
-      parent_rel := split.parent;
-      leaf := split.leaf;
+      parent_rel := split.parent.clone();
+      leaf := split.leaf.clone();
       if(parent_rel.contains("*"), {
         e.exn.throw(
           dyn(
@@ -1300,7 +1300,7 @@ _resolve_workspace_member :: (
     available := ArrayList(String).new();
     (mi : usize) = usize(0);
     while(mi < members.len(), {
-      dir := members(mi);
+      dir := members(mi).clone();
       mpath := Path.new(dir.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string();
       match(
         load_manifest(mpath.clone(), e.exn),
@@ -1371,7 +1371,7 @@ _cache_collect_yo_files :: (
       names.sort();
       (j : usize) = usize(0);
       while(j < names.len(), {
-        name := names(j);
+        name := names(j).clone();
         skip := (
           (name == "yo-out") ||
             (name == ".git") || (name == "node_modules") || name.starts_with(String.from("tmp"))
@@ -1594,10 +1594,10 @@ artifact_input_stamp :: (
       });
       (ri : usize) = usize(0);
       while(ri < recorded.len(), {
-        line := recorded(ri);
+        line := recorded(ri).clone();
         pair := _split_dep_entry(line.clone());
-        h := pair.hash;
-        pth := pair.path;
+        h := pair.hash.clone();
+        pth := pair.path.clone();
         if(h.len() == usize(0), {
           // Legacy or hash-less depfile: refuse to record a stamp we cannot
           // trust. One recompile follows and rewrites it in the new format.
@@ -1652,7 +1652,7 @@ artifact_input_stamp :: (
     });
     (fi : usize) = usize(0);
     while(fi < files.len(), {
-      fpath := files(fi);
+      fpath := files(fi).clone();
       bytes_opt := e.io.await(_cache_read_file(fpath.clone(), e.io), e);
       match(
         bytes_opt,
@@ -1969,7 +1969,7 @@ compile_artifact :: (
         // ABSOLUTE: the loader resolves an rpath at run time, from whatever
         // directory the program is started in, so a `./yo-out/...` rpath would
         // only work from the project root.
-        d := shared_dirs(i);
+        d := shared_dirs(i).clone();
         abs_d := if(Path.new(d.clone()).is_absolute(), d.clone(), {
           base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
           Path.new(&base).join(Path.new(d.clone())).normalize().to_string()
@@ -2197,11 +2197,11 @@ compile_artifact :: (
       // --lang) before dispatching to run_compile; in-process we must do
       // that here, or run_compile rejects them as unknown options.
       filtered := ArrayList(String).new();
-      filtered.push(argv(usize(0)));
-      filtered.push(argv(usize(1)));
+      filtered.push(argv(usize(0)).clone());
+      filtered.push(argv(usize(1)).clone());
       (ai : usize) = usize(2);
       while(ai < argv.len(), {
-        a := argv(ai);
+        a := argv(ai).clone();
         if(a == "--std-path", {
           set_std_path_override(argv(ai + usize(1)).clone());
           ai = (ai + usize(2));
@@ -2794,12 +2794,12 @@ execute_dag :: (
     while(i < n, {
       node := dag(i);
       if(!in_degree.contains_key(&node.name), {
-        in_degree.insert(node.name, i32(0));
+        in_degree.insert(node.name.clone(), i32(0));
       });
       j := usize(0);
       nd := node.depends_on.len();
       while(j < nd, {
-        dep := node.depends_on(j);
+        dep := node.depends_on(j).clone();
         // Only count if dep is in the dag
         k := usize(0);
         dep_in_dag := false;
@@ -2811,7 +2811,7 @@ execute_dag :: (
         });
         if(dep_in_dag, {
           cur := in_degree.get(&node.name).unwrap_or(i32(0));
-          in_degree.insert(node.name, cur + i32(1));
+          in_degree.insert(node.name.clone(), cur + i32(1));
         });
         j = (j + usize(1));
       });
@@ -2858,8 +2858,8 @@ execute_dag :: (
       // Mark complete and update in-degrees
       k = usize(0);
       while(k < rn, {
-        completed_name := ready(k).name;
-        completed.insert(completed_name, true);
+        completed_name := ready(k).name.clone();
+        completed.insert(completed_name.clone(), true);
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
         while(m < n, {
@@ -2868,10 +2868,10 @@ execute_dag :: (
             j := usize(0);
             nd := other.depends_on.len();
             while(j < nd, {
-              dep := other.depends_on(j);
+              dep := other.depends_on(j).clone();
               if(dep == completed_name, {
                 cur := in_degree.get(&other.name).unwrap_or(i32(1));
-                in_degree.insert(other.name, cur - i32(1));
+                in_degree.insert(other.name.clone(), cur - i32(1));
               });
               j = (j + usize(1));
             });
@@ -2905,7 +2905,7 @@ _print_summary_node :: (
   desc := match(
     results.get(&node.name),
     .None => node.name,
-    .Some(r) => r.description
+    .Some(r) => r.description.clone()
   );
   // The duration is part of what the summary promises; a node that never ran
   // (skipped) has none to show.
@@ -2976,7 +2976,7 @@ print_build_summary :: (
       j := usize(0);
       while(j < n, {
         nd := dag(j);
-        node_map.insert(nd.name, nd);
+        node_map.insert(nd.name.clone(), nd);
         j = (j + usize(1));
       });
       _print_summary_node(&dag(i), results, &node_map, String.new(), String.new(), true);
@@ -3138,7 +3138,7 @@ print_options :: (fn(registry : &BuildRegistry) -> unit)({
   println("Available options:");
   (i : usize) = usize(0);
   while(i < names.len(), {
-    name := names(i);
+    name := names(i).clone();
     i = (i + usize(1));
     match(
       registry.declared_options.get(name.clone()),

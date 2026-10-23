@@ -109,7 +109,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
   cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, .None) => {
       ei_opt := context.base.get_expr_info(body_expr);
-      current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions, .None => .None);
+      current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
       current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := context.pending_deferred_drops;
       prev_consumed := context.consumed_var_pending_drops;
@@ -219,7 +219,7 @@ generate_loop_body :: (fn(body_expr : &AstExpr, indent : &String, context : &Fun
       // operand inside the body drops its branch-scoped temps in the branch
       // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
       bei_opt := context.base.get_expr_info(body_expr);
-      body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions, .None => .None);
+      body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions.clone(), .None => .None);
       body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := context.pending_deferred_drops;
       prev_consumed := context.consumed_var_pending_drops;

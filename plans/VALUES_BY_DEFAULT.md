@@ -7335,6 +7335,212 @@ heavy run, the command is given in item 2.
 
          Tier 1, the fixpoint and the in-process `tests/internal` run were
          NOT run on this regeneration: they apply only after a GO.
+     - **As-built, re-run 2026-10-23: GO.** Branch
+       `feat/v2b-b1-regeneration-2`. Its base is develop `265faa941` with
+       `perf/share-token-input` (`0445fcffb`) and
+       `feat/v2b-b5-refcell-globals` (`220f86e06`, pre-rebase) merged in
+       (`412258a2a`). The regeneration is one commit on top (`f08b97e7e`).
+       Logs and scripts: `~/Workspace/Yo-wt/vbd-logs/b1-regen2/`
+       (machine-local).
+       - The run is scripted. `regen.sh <worktree> <outdir> [<tool>]` runs
+         the dry run, the apply, `fmt ./src` and `check ./src` with the
+         base's tree binary, each capped at 12 GB, and leaves the commit to
+         the caller. The command is `yo fix ./src --migrate explicit-copy
+         --hot-path src/evaluator --hot-path src/lexer.yo --hot-path
+         src/env.yo --std-path ./std`. The dry run took 6:37 at 1.51 GB.
+         Result: 632 insertions in 80 files, 1,959 sites listed, 0 files
+         that failed to evaluate. The output is committed as generated, with
+         no hand edits. Its listing was committed as
+         `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-23.md`; the
+         final regeneration (below) replaced it at that path.
+
+         | | #1539 (2026-10-22) | #1549's dry run (d09011d8b) | this run |
+         | --- | --- | --- | --- |
+         | insertions | 646 | 618 | 632 |
+         | field-store / binding / return / param / assign | 332 / 113 / 89 / 83 / 29 | 316 / 112 / 84 / 78 / 28 | 298 / 112 / 85 / 109 / 28 |
+         | by dir: root / doc / codegen / types / lsp / verifier | 254 / 143 / 121 / 73 / 33 / 22 | 228 / 143 / 119 / 73 / 33 / 22 | 227 / 143 / 122 / 83 / 33 / 24 |
+         | listed | 1,956 | 1,991 | 1,959 |
+         | source written afterwards | 552 | 559 | 521 |
+         | returned from a borrowed binding | 463 | 465 | 465 |
+         | hot path | 442 | 458 | 490 |
+         | raw pointer taken | 243 | 243 | 216 |
+         | returned from a `&`/`&mut` parameter | 118 | 118 | 127 |
+         | field of a dying temporary | 119 | 119 | 115 |
+         | other (module-level, copy written after, no print-back, `Clone` impl) | 19 | 29 | 25 |
+         | listed by dir: evaluator / root / codegen / types / verifier / doc / lsp | 1,082 / 425 / 286 / 74 / 50 / 29 / 10 | 1,087 / 453 / 288 / 74 / 50 / 29 / 10 | 1,111 / 399 / 286 / 74 / 50 / 29 / 10 |
+
+         - The three checks the re-run was for: no `.clone()` lands at the
+           11 `Token.input` field stores (or their `module_path` siblings),
+           because a token-cell copy is a count bump and exempt. The only
+           token insertion left is the parse-error payload
+           `Span(path : close_tok.module_path.*.clone())`
+           (`src/parser.yo:1253`). `fargs` at `src/expr.yo:441`
+           (`AstExpr`'s `Clone`) and `Pattern`'s three are listed as
+           `Clone`-impl copies. `src/env.yo:3369` and `:3588` (two arms
+           each) are listed as written afterwards.
+         - Against #1549's last dry run (618 on d09011d8b), 22 insertions
+           leave, all token-cell copies: the 11 `input` stores and their
+           11 `module_path` siblings (parser 16, formatter 4, `expr.yo` 2).
+           36 arrive, and 5 more are the same sites spelled through the
+           cell. 33 of the 36 are B5's. A value moved into a `with_mut(m =>
+           m.insert(k, v))` closure is a capture, and a capture used by
+           value in the body is a copy, so the old last-use move becomes
+           `k.clone()`. Of these, 28 are `param` sites (`src/expr_info.yo`
+           16, `src/types/` 5, `src/input_record.yo` 3, `src/verifier/vc.yo`
+           2, `src/codegen/` 2) and 5 are field stores (`src/types/`).
+           Together with the token branch's `rc(sp.expr_text)` ×2 and
+           `rc(mark.value)`, that is param 78 → 109. A few of them
+           deep-copy a list per call, for example `list.clone()` into
+           `g_extern_c_globals` and `lst.clone()` into
+           `g_branch_init_by_var` (`src/expr_info.yo`). The same pattern
+           adds 35 listed `param` hot-path sites in `src/evaluator/` (46 →
+           81). The tool is right: the closure may run more than once, so it
+           cannot move out of a capture. The cost belongs to B5's
+           spelling and is B4's to remove, for example by a `take` out of
+           the cell or a `with_mut` that consumes its argument. The
+           remaining 3 come from the token branch: the two `sp.expr_text`
+           copies and the module-path text returned at
+           `src/codegen/utils/index.yo:576`.
+       - Measured: `check std/rand.yo` and `check src/main.yo --std-path
+         ./std` of the base tree (`412258a2a`, extracted with its
+         `yo.lock`). (a) is the base's tree binary and (b) the regenerated
+         stage 1, both built by the v0.2.68 seed. Runs were back to back in
+         ABBA order under one heavy-lock ticket, each in a `systemd-run
+         --user --scope -p MemoryMax=12G -p MemorySwapMax=0` scope with
+         `timeout 1800`. Every run passed with identical output.
+
+         | input | binary | load at start | wall | user | max RSS |
+         | --- | --- | --- | --- | --- | --- |
+         | `std/rand.yo` | (a) | 7.5 | 0:07.24 | 7.12 s | 139,812 kB |
+         | `std/rand.yo` | (b) | 7.6 | 0:07.63 | 7.58 s | 141,848 kB |
+         | `std/rand.yo` | (b) | 7.8 | 0:07.07 | 7.01 s | 142,268 kB |
+         | `std/rand.yo` | (a) | 7.8 | 0:07.14 | 7.04 s | 140,396 kB |
+         | `src/main.yo` | (a) | 8.0 | 5:11.76 | 310.8 s | 1,166,036 kB |
+         | `src/main.yo` | (b) | 9.5 | 5:22.92 | 322.1 s | 1,164,068 kB |
+         | `src/main.yo` | (b) | 10.3 | 5:38.57 | 337.6 s | 1,164,108 kB |
+         | `src/main.yo` | (a) | 8.0 | 5:38.30 | 337.5 s | 1,166,176 kB |
+
+         (b)/(a), means of two: `src/main.yo` 1.02x user and 0.998x RSS;
+         `std/rand.yo` 1.03x user and 1.014x RSS. The bar was ≤ 1.10x RSS
+         and ≤ 1.25x user on `src/main.yo` and no failure on
+         `std/rand.yo`. Both are inside it with room, and the time ratios
+         are inside the box's ±0.1x noise. #1539's fixed cost on the small
+         input (diagnostic (d), 1.72x RSS on `std/rand.yo`) is gone: the
+         token cells removed the population cost, and the widened hot path
+         keeps the lexer's punctuation tokens and `_frame_index_refresh`'s
+         keys shared. (a)'s numbers are not comparable with #1539's (a):
+         both the input tree and the binary now carry B5 and the token
+         sharing. No profile was taken, since there is no residual to
+         attribute.
+       - Tier 1 on the regenerated tree, with (b):
+         - `check ./src` (by (a)): 275/275.
+         - `check ./std`: 172/172.
+         - `fmt --check ./src ./std ./tests`: rc 0.
+         - The fixpoint (`fixpoint_only.sh`): FIXPOINT_HOLDS, stage 2
+           hollow 0.
+         - A language sample, one file per call, all rc 0: `rc`,
+           `rc_binding_gives_way`, `rc_cell`, `tests/string/*` (8),
+           `string_multibyte_literal`, `collections/array_list`,
+           `array_list_convenience`, `hash_map`, `closure*` (7),
+           `async_await` and `type_soundness`.
+         - cli-diff: 428 pass, 1 network skip. The 7 skills/`init`
+           goldens differ only when the binary sits outside a checkout,
+           because it then finds no bundled skills. They pass with the same
+           binary (same sha256) run from the worktree's `yo-out/`.
+         - `tests/internal` in-process (`YO_TEST_IN_PROCESS=1`, capped
+           at 16 GB): 74 of the 108 files ran, 1,048 tests passed, and none
+           failed. The first run stopped at its 4 h timeout after 62 files
+           (920 tests). A resume over the other files was stopped by the
+           maintainer's no-full-`tests/internal` directive after 12 more
+           (128 tests). The 34 files that did not run, from
+           `type_trait_methods` on in that order, are left to develop's
+           battery.
+       - The regeneration is redone on the final develop, not rebased. B5
+         merged as #1551 after this run, with four more recorder globals
+         converted. `perf/share-token-input` was being rebased. Once both
+         are on develop, check out a clean develop tip in the worktree and
+         run `regen.sh` there without a tool argument, so that it builds the
+         tool from that tip. Commit the result as the one regeneration
+         commit. Then build stage 1, run `check ./src` and `./std` and
+         `fmt --check`, and gate fast. The fast gate is the copy-sensitive
+         language sample above, at most 8 targeted `tests/internal` files,
+         and the `fix-migrate-explicit-copy-*` cli cases plus any failing
+         case. Run the fixpoint if time allows. Develop's battery does the
+         full check.
+       - **Final regeneration, 2026-10-23.** Done as above, except that
+         the base was a merge rather than the develop tip:
+         `perf/share-token-input` (`b8463d4d5`) merged into develop
+         `617cfc052` as `e094cc8bc`, so the run could start before #1561
+         landed. #1561 then squash-merged as `54e94f11e`, whose tree is
+         identical to `e094cc8bc`, and the regeneration commit was rebased
+         onto develop `c45d099b4`. That rebase also brought in #1562 (the
+         compile-time-collapsed `cond` fix), which edits
+         `src/codegen/exprs/cond.yo` (4 of the regeneration's insertions)
+         and `src/evaluator/exprs/cond.yo`. It applied cleanly. The
+         idempotence dry run below covers it.
+         - `regen.sh` built the tool from `e094cc8bc` with the v0.2.68
+           seed. Every step returned 0. The dry run took 17:20 at 1.52 GB
+           and the apply 15:00 at 1.54 GB. Both ran on a box at load 12 to
+           17, against 6:37 for the re-run.
+         - Result: 632 insertions in 80 files, 1,963 sites listed, 0 files
+           that failed to evaluate. The `+`/`-` lines of the diff are
+           identical to the re-run's commit `f08b97e7e`: 590 lines changed
+           in 80 files, with the same insertions by kind and by directory
+           as in the table above. The 4 new listed sites are hot-path sites
+           in `src/evaluator/utils.yo` (3 `field-store`, 1 `param`):
+           `src` and `at_module` stored into `g_copy_flows` and
+           `g_clone_impl_bodies` entries, and `key` inserted into
+           `g_clone_impl_body_keys`, from the recorder globals #1551
+           converted after the re-run (hot path 490 → 494). The listing is
+           `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-23.md`.
+         - `check ./src` with the tool: 275/275, 13:07 at 1.25 GB.
+         - Gate with stage 1, built by the seed from the rebased tree
+           (`ef601ba2a`, develop `c45d099b4` plus the three commits), with
+           `YO_TEST_LEAK_VERDICT=0`. Every step returned 0 unless noted.
+           - `check ./src` 275/275 (15:00 at 1.24 GB), `check ./std`
+             172/172, `fmt --check ./src ./std ./tests`.
+           - Idempotence: the same `fix ./src --migrate explicit-copy`
+             dry run on the regenerated tree inserts 0 `.clone()` calls
+             and lists the same 1,963 sites (equal as a set, positions
+             aside). That covers #1562's new code in
+             `src/codegen/exprs/cond.yo`, which the tool never rewrote: it
+             needs no insertion and adds no listed site.
+           - The copy-sensitive language sample, one file per call:
+             `rc` 126, `rc_binding_gives_way` 5, `rc_cell` 9,
+             `string/string` 302, `string/string_builder` 23,
+             `string_multibyte_literal` 2, `collections/array_list` 130,
+             `collections/array_list_convenience` 30,
+             `collections/hash_map` 88, `closure` 46,
+             `closure_capture_list` 41, `closure_capture_rc_leak` 7,
+             `closure_capture_cond_arm` 5, `async_await` 284 and
+             `type_soundness` 74, all passing.
+           - `tests/internal`, one file per call: `parser` 87, `lexer` 68,
+             `binding` 7, `env` 14,
+             `evaluator_utils_is_valid_variable_name` 6,
+             `type_trait_methods` 18 and `module_invalidation` 12, all
+             passing. `compile` failed at first: its batch hit the runner's
+             default 600 s comptime deadline on a box at load 12 to 19,
+             so none of its 6 tests ran. It was re-run with
+             `--compile-timeout-ms 2400000` as an A/B, run concurrently:
+             the tool binary on the pre-regeneration tree `e094cc8bc` took
+             45:04 at 3.24 GB, and stage 1 on the regenerated tree took
+             46:16 at 3.33 GB. Both passed 6/6, so the regeneration costs
+             1.03x in both time and memory. The deadline miss came from the
+             load, not from the regeneration.
+           - cli-diff, run with the in-tree binary: the 13
+             `fix-migrate-explicit-copy*` cases and the 8 `init*`/`skills*`
+             cases, PASS 21, GOLDEN-DIFF 0. `check-issue-refs.sh` was
+             clean.
+           - Not run: the fixpoint, the full language suite, `yo test
+             ./std` and the other `tests/internal` files. Develop's battery
+             runs them.
+         - Restacked afterwards onto develop `54586f022`, which adds #1564
+           (a ratchet file) and #1565. #1565 edits
+           `src/codegen/exprs/other_fn_call.yo`, one of the regenerated
+           files. The rebase applied cleanly. Re-gated with the same stage
+           1: `fmt --check ./src` passed, `check ./src` 275/275, and the
+           idempotence dry run again inserts 0 and lists the same 1,963
+           sites.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including

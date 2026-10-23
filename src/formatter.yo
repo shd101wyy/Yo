@@ -2123,7 +2123,7 @@ normalize_multiline_block_comment :: (fn(raw : &String) -> ArrayList(String))({
           .Some(line) => {
             // Skip blank lines
             stripped_len := {
-              ll_bytes := line;
+              ll_bytes := line.clone();
               ll_n := ll_bytes.len();
               (lk : usize) = usize(0);
               (ll_done : bool) = false;
@@ -2284,7 +2284,7 @@ raw_token_value :: (fn(input : &String, tokens : &ArrayList(Token), index : usiz
     .None => String.new(),
     .Some(t) => cond(
       (t.kind == TokenKind.TemplateString) => read_raw_template_string(input, usize(t.byte_offset)),
-      true => t.value
+      true => t.value.clone()
     )
   )
 );
@@ -3463,7 +3463,7 @@ collect_yo_files :: (
             entries.get(ei),
             .None => (),
             .Some(entry) => {
-              entry_name := entry.name;
+              entry_name := entry.name.clone();
               skip := match(
                 entry.file_type,
                 .Directory => is_ignored_format_dir(entry_name.clone()),
@@ -3725,7 +3725,7 @@ format_yo_files :: (
           true => format_yo_fences(format_yo_source(&original, &file, exn), &file, true, exn)
         );
         if(formatted != original, {
-          changed.push(file);
+          changed.push(file.clone());
           if(!options.check, {
             io.await(write_string(Path.new(&file), &formatted, io), IoExn(io : io, exn : exn));
           });
