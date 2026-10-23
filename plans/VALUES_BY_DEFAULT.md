@@ -7494,6 +7494,53 @@ heavy run, the command is given in item 2.
            converted after the re-run (hot path 490 → 494). The listing is
            `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-23.md`.
          - `check ./src` with the tool: 275/275, 13:07 at 1.25 GB.
+         - Gate with stage 1, built by the seed from the rebased tree
+           (`ef601ba2a`, develop `c45d099b4` plus the three commits), with
+           `YO_TEST_LEAK_VERDICT=0`. Every step returned 0 unless noted.
+           - `check ./src` 275/275 (15:00 at 1.24 GB), `check ./std`
+             172/172, `fmt --check ./src ./std ./tests`.
+           - Idempotence: the same `fix ./src --migrate explicit-copy`
+             dry run on the regenerated tree inserts 0 `.clone()` calls
+             and lists the same 1,963 sites (equal as a set, positions
+             aside). That covers #1562's new code in
+             `src/codegen/exprs/cond.yo`, which the tool never rewrote: it
+             needs no insertion and adds no listed site.
+           - The copy-sensitive language sample, one file per call:
+             `rc` 126, `rc_binding_gives_way` 5, `rc_cell` 9,
+             `string/string` 302, `string/string_builder` 23,
+             `string_multibyte_literal` 2, `collections/array_list` 130,
+             `collections/array_list_convenience` 30,
+             `collections/hash_map` 88, `closure` 46,
+             `closure_capture_list` 41, `closure_capture_rc_leak` 7,
+             `closure_capture_cond_arm` 5, `async_await` 284 and
+             `type_soundness` 74, all passing.
+           - `tests/internal`, one file per call: `parser` 87, `lexer` 68,
+             `binding` 7, `env` 14,
+             `evaluator_utils_is_valid_variable_name` 6,
+             `type_trait_methods` 18 and `module_invalidation` 12, all
+             passing. `compile` failed at first: its batch hit the runner's
+             default 600 s comptime deadline on a box at load 12 to 19,
+             so none of its 6 tests ran. It was re-run with
+             `--compile-timeout-ms 2400000` as an A/B, run concurrently:
+             the tool binary on the pre-regeneration tree `e094cc8bc` took
+             45:04 at 3.24 GB, and stage 1 on the regenerated tree took
+             46:16 at 3.33 GB. Both passed 6/6, so the regeneration costs
+             1.03x in both time and memory. The deadline miss came from the
+             load, not from the regeneration.
+           - cli-diff, run with the in-tree binary: the 13
+             `fix-migrate-explicit-copy*` cases and the 8 `init*`/`skills*`
+             cases, PASS 21, GOLDEN-DIFF 0. `check-issue-refs.sh` was
+             clean.
+           - Not run: the fixpoint, the full language suite, `yo test
+             ./std` and the other `tests/internal` files. Develop's battery
+             runs them.
+         - Restacked afterwards onto develop `54586f022`, which adds #1564
+           (a ratchet file) and #1565. #1565 edits
+           `src/codegen/exprs/other_fn_call.yo`, one of the regenerated
+           files. The rebase applied cleanly. Re-gated with the same stage
+           1: `fmt --check ./src` passed, `check ./src` 275/275, and the
+           idempotence dry run again inserts 0 and lists the same 1,963
+           sites.
    - **B2 (a). The A2 sweep over `tests/`, the build scripts and
      `markdown_yo`.**
      - Scope: `tests/**/*.yo` one file per run (N2), including
