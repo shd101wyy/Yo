@@ -2817,13 +2817,13 @@ take_copy_pointers :: (fn() -> ArrayList(CopyWrite))({
 /// The destinations a block's or a conditional's result positions flow
 /// into, by position: `decl` is the destination variable's `_ic_decl_key`,
 /// `at_module`/`at_offset` the leftmost token of one result position.
-(g_copy_tail_dests : ArrayList(CopyWrite)) = ArrayList(CopyWrite).new();
+(g_copy_tail_dests : RefCell(ArrayList(CopyWrite))) = RefCell(ArrayList(CopyWrite)).new(ArrayList(CopyWrite).new());
 /// One flow of a variable's value into another variable, recorded while the
 /// migration runs: the value of `src` (an `_ic_decl_key`), or a place rooted
 /// in it, is stored in `dst` by a binding, an assignment or a capture at
 /// `at_module`/`at_offset` (the leftmost token of the stored expression).
 CopyFlow :: struct(src : String, dst : String, at_module : String, at_offset : u32);
-(g_copy_flows : ArrayList(CopyFlow)) = ArrayList(CopyFlow).new();
+(g_copy_flows : RefCell(ArrayList(CopyFlow))) = RefCell(ArrayList(CopyFlow)).new(ArrayList(CopyFlow).new());
 /// Record, while the migration runs, that the value of `rhs` is stored in
 /// the variable `dest_decl` (a binding, an assignment, a capture), for each
 /// result position of `rhs`: `rhs` itself, and when it is a block, a `cond`
@@ -2877,7 +2877,7 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
   at := _ic_leftmost_token(e);
   at_module := canonical_module_path(&at.module_path);
   if(nested, {
-    g_copy_tail_dests.push(CopyWrite(decl : dest_decl.clone(), at_module : at_module.clone(), at_offset : at.byte_offset));
+    g_copy_tail_dests.with_mut(xs => xs.push(CopyWrite(decl : dest_decl.clone(), at_module : at_module.clone(), at_offset : at.byte_offset)));
   });
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
@@ -2886,7 +2886,7 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
       .Some(v) => {
         src := _ic_decl_key(&v.token);
         if(src != dest_decl, {
-          g_copy_flows.push(CopyFlow(src : src, dst : dest_decl.clone(), at_module : at_module, at_offset : at.byte_offset));
+          g_copy_flows.with_mut(xs => xs.push(CopyFlow(src : src, dst : dest_decl.clone(), at_module : at_module, at_offset : at.byte_offset)));
         });
       },
       .None => ()
@@ -2895,19 +2895,19 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
   );
 });
 take_copy_flows :: (fn() -> ArrayList(CopyFlow))({
-  out := g_copy_flows.split_off(usize(0));
+  out := g_copy_flows.with_mut(xs => xs.split_off(usize(0)));
   out
 });
 take_copy_tail_dests :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_tail_dests.split_off(usize(0));
+  out := g_copy_tail_dests.with_mut(xs => xs.split_off(usize(0)));
   out
 });
 /// The source span of one `Clone` impl's member, by byte offset in its
 /// module (`start`..`end`, inclusive, over the member's tokens), and the
 /// impl's receiver type.
 CloneImplBody :: struct(at_module : String, start : u32, end : u32, receiver : String);
-(g_clone_impl_bodies : ArrayList(CloneImplBody)) = ArrayList(CloneImplBody).new();
-(g_clone_impl_body_keys : HashSet(String)) = HashSet(String).new();
+(g_clone_impl_bodies : RefCell(ArrayList(CloneImplBody))) = RefCell(ArrayList(CloneImplBody)).new(ArrayList(CloneImplBody).new());
+(g_clone_impl_body_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Record, while the migration runs, that `member` (the value of a member of
 /// an `impl(receiver, Clone(...))`) is where `receiver` defines its copy.
 /// A copy of a field of `self` there is the impl's chosen depth, not an
@@ -2952,13 +2952,14 @@ record_clone_impl_body :: (fn(member : &AstExpr, receiver : &String) -> unit)({
     );
   });
   at_module := canonical_module_path(&root.module_path);
-  if(g_clone_impl_body_keys.insert(`${at_module}:${lo.to_string()}:${hi.to_string()}`), {
-    g_clone_impl_bodies.push(CloneImplBody(at_module : at_module, start : lo, end : hi, receiver : receiver.clone()));
+  key := `${at_module}:${lo.to_string()}:${hi.to_string()}`;
+  if(g_clone_impl_body_keys.with_mut(s => s.insert(key)), {
+    g_clone_impl_bodies.with_mut(xs => xs.push(CloneImplBody(at_module : at_module, start : lo, end : hi, receiver : receiver.clone())));
   });
 });
 take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
-  out := g_clone_impl_bodies.split_off(usize(0));
-  g_clone_impl_body_keys.clear();
+  out := g_clone_impl_bodies.with_mut(xs => xs.split_off(usize(0)));
+  g_clone_impl_body_keys.with_mut(s => s.clear());
   out
 });
 export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
