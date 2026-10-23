@@ -1,6 +1,10 @@
 # Should `box`/`rc`/`arc` become `Box.new`/`Rc.new`/`Arc.new`, as in Rust?
 
-**Kind:** design question. **Decided 2026-10-23 (maintainer): keep `box()`, `rc()` and `arc()` for now.**
+**Kind:** design question. **Decided 2026-10-23 (maintainer): implement a general static-argument inference rule,
+then remove `box()`, `rc()` and `arc()` in favour of `Box.new`/`Rc.new`/`Arc.new`.** The builtins stay until that
+plan's B3 (v0.2.74 in `plans/handover/VBD_RELEASE_SCHEDULE.md`), one release after the migration ships (v0.2.73).
+The design, tests, cost budget and rollout: `plans/backlog/STATIC_ARGUMENT_INFERENCE.md`. The analysis below is
+the record the decision was made on.
 
 ## The question
 
@@ -13,11 +17,13 @@ handles the way Rust does, with `Box.new`, `Rc.new` and `Arc.new`.
 An independent review read develop `617cfc052` and probed with the v0.2.68 seed.
 
 - **Call sites:** about 2,038 lines call `box(`, `rc(` or `arc(` (src 1,045, std 27, tests 966). The docs in both
-  languages add 165 lines, and the skills and instructions 21 more. Only 11 sites pass `alloc :`, and none uses
-  `rc` as a function value.
-- **The compiler matches the names in three places:** `src/types/guards.yo:367` (`SharedCellNames("Rc", "rc")`),
-  `src/evaluator/values/dyn.yo:1148` and `:1235` (`dyn(...)` synthesizes a call to `"rc"`/`"arc"` by name), and
-  `src/evaluator/effects/mutation_summary.yo:3507`. Repointing them is cheap.
+  languages add 165 lines, and the skills, instructions and one workflow comment 22 more. Only 11 sites pass
+  `alloc :`, and none uses `rc` as a function value.
+- **The compiler matches the names in three places** (corrected in `plans/backlog/STATIC_ARGUMENT_INFERENCE.md`
+  §1: `mutation_summary.yo:3507` is the `YO_AUDIT_RC_WRITE` handle-kind label, not a name match, and a fourth
+  site, `dyn.yo:991`'s `dyn(rc(<closure>))` recognition, was missed): `src/types/guards.yo:367`
+  (`SharedCellNames("Rc", "rc")`), `src/evaluator/values/dyn.yo:1148` and `:1235` (`dyn(...)` synthesizes a call
+  to `"rc"`/`"arc"` by name), and `src/evaluator/effects/mutation_summary.yo:3507`. Repointing them is cheap.
 - **Inference is the obstacle.** A method called through an unapplied type constructor infers the type's arguments
   only from its receiver (decision 32), so `Pair.mk(i32(2))` on a generic struct is E0613. Bare `ArrayList.new()`
   fails the same way. In Yo today, Rust's `Rc::new(x)` would be spelled `Rc(T).new(x)`, with the payload type
@@ -38,8 +44,11 @@ An independent review read develop `617cfc052` and probed with the v0.2.68 seed.
 
 ## Recommendation
 
-Keep `box()`, `rc()` and `arc()`. That is the maintainer's decision of 2026-10-23, "keep for now". Revisit only
-when both of these hold:
+The review recommended keeping `box()`, `rc()` and `arc()` until both conditions below hold. The maintainer first
+agreed ("keep for now"), then the same day decided to meet the first condition and plan the removal
+(`plans/backlog/STATIC_ARGUMENT_INFERENCE.md`). The plan refines both conditions. The precedence is decided by the
+method's form, not by a fixed order: a method with no `self` consults every argument, so `Rc.new(some_rc)` is
+`Rc(Rc(X))`. The migration moves from v0.2.74 to v0.2.73; the builtins' deletion stays at v0.2.74. The conditions as the review wrote them:
 
 1. A general static-argument inference rule has landed as its own decision: an unapplied type constructor's
    arguments are inferred from any argument whose declared parameter type mentions them, ordered before

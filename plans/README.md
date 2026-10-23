@@ -161,6 +161,17 @@ count and no free, a dangling handle a compile error — as an `Origin`
 (`arena.alloc(v) -> &mut(T, arena)`), which reverses
 [`ARENA_ALLOCATOR_FEASIBILITY`](backlog/ARENA_ALLOCATOR_FEASIBILITY.md)'s
 "no lifetimes" premise and lands at origins N2.
+[`STATIC_ARGUMENT_INFERENCE`](backlog/STATIC_ARGUMENT_INFERENCE.md)
+(maintainer, 2026-10-23) has two parts. The first is the rule that a static
+method called through an unapplied type constructor (`Pair.mk(x)`,
+`Rc.new(x)`) infers the constructor's arguments from every argument whose
+declared parameter type mentions them. A method taking `Self` first keeps
+decision 32's receiver rule; any other consults every argument, so
+`Rc.new(some_rc)` is `Rc(Rc(X))`. Inferring from the expected type stays out
+of scope. The second part, on a seed carrying the rule, replaces the
+prelude's `box`/`rc`/`arc` with `Box.new`/`Rc.new`/`Arc.new` through one
+`yo fix --migrate handle-ctors` sweep, then deletes the builtins a release
+later.
 [`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md) is the
 2026-10-14 F\* audit, written when the maintainer asked whether Yo could
 support dependent types "like F\* does": the verdict (F\* pays the costs
