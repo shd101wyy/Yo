@@ -85,6 +85,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
+{ lookup_trait_type_args } :: import("../types/function.yo");
 { FuncMeta, TypeValue, TypeValueNode, no_types, no_flags, shared_list, SharedList } :: import("../../types/definitions.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
@@ -6282,8 +6283,11 @@ generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
 /// `generic_instantiation_declares_drop`'s per-impl test: `ge`'s receiver
 /// pattern is constructor `cfid` applied to distinct parameters of `ge`, and
 /// every `where(P <: Tr)` of `ge` constrains a pattern parameter whose
-/// argument in `args` is a `SomeT` declaring `Tr` itself (same trait key; `Tr`
-/// must be instantiation-independent, so its stored value is the trait).
+/// argument in `args` is a `SomeT` declaring `Tr` itself: the same trait key
+/// for a bound that names none of `ge`'s parameters (`Clone`, `Hash`), else
+/// the same instantiation of the same trait constructor once `ge`'s
+/// parameters are renamed to the arguments (`Eq(K)`, `HashMap`'s bound;
+/// `_same_trait_under_renaming`).
 _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : &SharedList(TypeValue)) -> bool)({
   (pc, pat_args) := match(
     ge.receiver_type_pattern,
@@ -6313,9 +6317,10 @@ _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : 
     w_some := match(ge.where_constraint_some_types.get(w), .Some(t) => t, .None => return(false));
     w_trait := match(ge.where_constraint_traits.get(w), .Some(t) => t, .None => return(false));
     w_key := get_trait_key(&w_trait);
-    if(w_key.is_empty() || !(_is_marker_trait(&w_trait) || _where_trait_mentions_no_forall(&w_trait, &ge.forall_some_types)), {
+    if(w_key.is_empty(), {
       return(false);
     });
+    w_plain := (_is_marker_trait(&w_trait) || _where_trait_mentions_no_forall(&w_trait, &ge.forall_some_types));
     (implied : bool) = false;
     (p : usize) = usize(0);
     while(p < pat_args.len(), p = (p + usize(1)), {
@@ -6326,7 +6331,11 @@ _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : 
             (found : bool) = false;
             (r : usize) = usize(0);
             while((r < rts.len()) && !found, r = (r + usize(1)), {
-              if(match(rts.get(r), .Some(rt) => (get_trait_key(&rt) == w_key), .None => false), {
+              if(match(
+                rts.get(r),
+                .Some(rt) => if(w_plain, get_trait_key(&rt) == w_key, _same_trait_under_renaming(&w_key, &get_trait_key(&rt), ge, &pat_args, args)),
+                .None => false
+              ), {
                 found = true;
               });
             });
@@ -6337,6 +6346,58 @@ _generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : 
       });
     });
     if(!implied, {
+      return(false);
+    });
+  });
+  true
+});
+/// Is the trait with id `r_id` (a bound the user's argument declares) the
+/// impl bound with id `w_id` once `ge`'s parameters are renamed to the
+/// arguments: the same trait constructor, and each recorded instantiation
+/// argument either a pattern parameter that maps (through `pat_args`) to the
+/// user's argument at that position, or a type naming none of `ge`'s
+/// parameters with the same `type_key`. Any other argument shape (`Eq(Rc(K))`)
+/// answers no, so the instantiation decides.
+_same_trait_under_renaming :: (fn(w_id : &String, r_id : &String, ge : &GenericImplEntry, pat_args : &SharedList(TypeValue), args : &SharedList(TypeValue)) -> bool)({
+  w_fid := match(lookup_trait_ctor_fid(w_id), .Some(f) => f, .None => return(false));
+  if(w_fid.is_empty() || (match(lookup_trait_ctor_fid(r_id), .Some(f) => f, .None => String.new()) != w_fid), {
+    return(false);
+  });
+  w_args := match(lookup_trait_type_args(w_id), .Some(l) => l, .None => return(false));
+  r_args := match(lookup_trait_type_args(r_id), .Some(l) => l, .None => return(false));
+  if(w_args.len() != r_args.len(), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < w_args.len(), i = (i + usize(1)), {
+    wa := match(w_args.get(i), .Some(t) => t, .None => return(false));
+    ra := match(r_args.get(i), .Some(t) => t, .None => return(false));
+    same := if(_is_forall_of(&ge.forall_some_types, &wa), {
+      (q : usize) = usize(0);
+      (mapped : Option(TypeValue)) = Option(TypeValue).None;
+      while((q < pat_args.len()) && mapped.is_none(), q = (q + usize(1)), {
+        if(match(pat_args.get(q), .Some(pq) => _same_type_var(&pq, &wa), .None => false), {
+          mapped = args.get(q);
+        });
+      });
+      match(
+        mapped,
+        .Some(m) => if(is_some_type(&m), _same_type_var(&m, &ra), type_key(&m) == type_key(&ra)),
+        .None => false
+      )
+    }, {
+      somes := get_all_some_types(&wa);
+      if(is_some_type(&wa), {
+        somes.push(wa);
+      });
+      (names_forall : bool) = false;
+      (k : usize) = usize(0);
+      while((k < somes.len()) && !names_forall, k = (k + usize(1)), {
+        names_forall = match(somes.get(k), .Some(st) => _is_forall_of(&ge.forall_some_types, &st), .None => false);
+      });
+      !names_forall && (type_key(&wa) == type_key(&ra))
+    });
+    if(!same, {
       return(false);
     });
   });
