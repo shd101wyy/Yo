@@ -1,0 +1,19 @@
+// issues/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md: `into_inner` of a
+// `RefCell` over a move-only payload is rejected with E0901 inside std.
+{ println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+Tok :: struct(n : i32);
+impl(
+  Tok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`drop ${self.n.to_string()}`);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  c := RefCell(Tok).new(Tok(n : i32(1)));
+  t := c.into_inner();
+  println(`got ${t.n.to_string()}`);
+});
+export(main);

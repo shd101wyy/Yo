@@ -1,0 +1,21 @@
+// issues/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md: ASan reports heap-use-after-free at `println(&self.s)`;
+// the call must either be rejected (E0910) or print `hello`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+W :: struct(s : String);
+impl(
+  W,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> unit)({
+    act();
+    println(&self.s);
+  })
+);
+main :: (fn() -> unit)({
+  hs := ArrayList(Rc(W)).new();
+  hs.push(rc(W(s : String.from("hello"))));
+  hs(usize(0)).peek(() => {
+    hs.clear();
+  });
+});
+export(main);

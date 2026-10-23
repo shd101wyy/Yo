@@ -1,0 +1,8 @@
+# Step 0 of issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md:
+# `RefCell.replace_with` holds the cell exclusively while its function runs,
+# so a `with` on the same cell from that function panics, as Rust's
+# `RefCell::replace_with` does when its closure borrows the cell. `build run`
+# propagates the panic as rc≠0; the panic line ends in a machine-specific
+# `(at file:///...)`, so only the diagnostic substring is kept.
+stdout_keep_match=computing from 1|RefCell\.with: the value is mutably borrowed \(a with_mut or replace_with body is running\)
+timeout=300

@@ -1,0 +1,16 @@
+// `replace_with` holds the cell as `with_mut` does while its function runs,
+// so a `with` on the same cell from inside that function (reached through
+// a second `Rc` handle) panics, as Rust's `RefCell::replace_with` does when
+// its closure borrows the cell.
+{ println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  a := rc(RefCell(i32).new(i32(1)));
+  b := a;
+  a.replace_with(v => {
+    println(`computing from ${v.to_string()}`);
+    v + b.with(w => w)
+  });
+  println("unreachable");
+});
+export(main);
