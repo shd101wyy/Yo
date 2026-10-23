@@ -1732,6 +1732,9 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   param_type_names := ArrayList(String).new();
   actual_param_labels := ArrayList(String).new();
+  // The type each regular parameter is BOUND to in the body env (`rp_ty`
+  // below): Channel 3's abstract test judges these, not the raw `param_types`.
+  bound_param_types := ArrayList(TypeValue).new();
   (rp_i : usize) = usize(0);
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
@@ -1775,6 +1778,7 @@ evaluate_anonymous_function_implementation :: (
     );
     param_type_names.push(ptn.clone());
     actual_param_labels.push(param_name.clone());
+    bound_param_types.push(rp_ty.clone());
     rp_tok := ast_expr_token(&rpe);
     rp_v_opt := add_variable_to_env(
       env,
@@ -2110,13 +2114,24 @@ evaluate_anonymous_function_implementation :: (
   // only as a hollow body
   // (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md).
   // A parameter typed by an unresolved `SomeT` (an `Impl(...)`) stays
-  // abstract; one the call resolved (io.async's `e : E`) is judged by its
-  // resolution, which the predicate follows.
+  // abstract; one the call resolved is judged by the type the body binds.
+  // On the expected-type path that is the SomeT's resolution, which the
+  // predicate follows. On io.async's no-expected-type path (Step 6b-nested,
+  // calls/helper.yo) the call binds `E := Io` in the callee env without
+  // resolving the SomeT, and the parameter loop above binds `e : Io` from
+  // that env (`rp_ty`): judge that bound type, or the trial's error on a
+  // concretely-checked body never reached Channel 3 and `yo check` passed
+  // an unannotated `io.async((e) => …)` body that `compile` rejected
+  // (issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md).
   (body_params_abstract : bool) = (forall_param_exprs.len() > usize(0));
   {
     (bpa_i : usize) = usize(0);
     while((bpa_i < param_types.len()) && !body_params_abstract, {
-      bpa_pt := match(param_types.get(bpa_i), .Some(t) => t, .None => t_unit());
+      bpa_pt := match(
+        bound_param_types.get(bpa_i),
+        .Some(t) => t,
+        .None => match(param_types.get(bpa_i), .Some(t) => t, .None => t_unit())
+      );
       bpa_unresolved := match(bpa_pt, Rc(.SomeT({ resolution : bpa_r })) => bpa_r.is_none(), _ => false);
       if(bpa_unresolved || type_contains_some_type_for_codegen_param(&bpa_pt, ArrayList(String).new()), {
         body_params_abstract = true;
