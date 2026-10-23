@@ -254,17 +254,21 @@ TS-era, archived).
 
 [`NO_LIBC_BY_DEFAULT`](backlog/NO_LIBC_BY_DEFAULT.md) (2026-10-22) is the
 audit + phased plan for Zig's default: emitted programs link **no libc**
-unless `--libc` — a per-arch `__yo_os` syscall seam under the existing
-async/RC/allocator runtime (which stays emitted in place; §2 answers the
-"does the runtime move out" question with no), owned startup (crt0, TLS,
-clone/futex threads), formatting (ryu print, vendored musl `strtod` —
-also fixing `%g`'s documented non-portability), math (vendored musl libm
-subset), DNS (an async std resolver replacing `getaddrinfo`) and the
-default allocator (mimalloc over the seam); decisions D1–D10 with
-recommendations, phases P0–P10 whose differential gates (traps, fmt/parse,
-syscalls, math) demand byte-identical output against the libc build,
-starting only after VALUES_BY_DEFAULT so the cycle collector that
-decision 48 deletes is never ported onto the seam at all.
+unless `--libc on` or a referenced libc symbol opts them in (`--libc
+auto|on|off`, modeled on `--cycle-collector`) — a per-arch `__yo_os`
+syscall seam under the existing async/RC/allocator runtime (which stays
+emitted in place; §2 answers the "does the runtime move out" question
+with no), owned startup (crt0, TLS, clone/futex threads), formatting
+(ryu print, vendored musl `strtod` — also fixing `%g`'s 6-digit
+lossiness, two open S2s), math (a vendored musl libm subset in both
+modes), DNS (an async resolver behind the existing `std/net/dns`, fixing
+its two open S2s in both modes) and the default allocator (mimalloc over
+the seam); decisions D1–D10 with recommendations, phases P0–P10 whose
+differential gates (traps, syscalls, math) demand byte-identical output
+against the libc build. The compiler and its release bundles stay hosted
+static musl. Every runtime phase starts only after VALUES_BY_DEFAULT so
+the cycle collector that decision 48 deletes is never ported onto the
+seam; the std-only P3 (formatting) and P7 (DNS) may start now.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
