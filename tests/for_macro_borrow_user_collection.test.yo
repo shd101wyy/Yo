@@ -190,3 +190,231 @@ test("borrowed for over a ref collection forwarding the inner projection: no ass
   bag.items.push(i32(3));
   assert(bag.items.len() == usize(3), "the guard released the flag at loop end: later container calls do not panic");
 });
+// A read-only method iterating a VALUE field by value, `for(self.c, …)`, runs
+// the field's `into_iter`, whose iterator owns a copy of the field, and then
+// advances that iterator's own cursor. Neither touches `self`, so the method
+// carries no entry assert. Two PARAM-STORAGE mistakes used to give it one
+// (issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md):
+// a runtime construction whose compile-time value is a struct SHELL with an
+// unknown leaf (`Counter(n : self.n)`, `CIter(src : self.clone(), …)`) read
+// as a folded constant that roots nothing, and a local defined with such an
+// inert root read back as "never defined", which is unknown storage, so the
+// cursor write `next(&mut it)` counted as a write to unknown storage. Each
+// shape below goes through a second handle inside a borrowed `for`.
+Counter :: struct(n : usize);
+derive(Counter, Clone);
+CIter :: struct(src : Counter, i : usize);
+impl(
+  CIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i < self.src.n) => {
+          r := self.i;
+          self.i = (self.i + usize(1));
+          .Some(r)
+        },
+        true => .None
+      )
+    )
+  )
+);
+// The iterator holds a derived clone of the source.
+impl(
+  Counter,
+  IntoIterator(
+    Item : usize,
+    IntoIter : CIter,
+    into_iter : (fn(self : &Self) -> CIter)(CIter(src : self.clone(), i : usize(0)))
+  )
+);
+// The iterator is bound to a local, then returned.
+CountLocal :: struct(c : Counter);
+impl(
+  CountLocal,
+  IntoIterator(
+    Item : usize,
+    IntoIter : CIter,
+    into_iter : (fn(self : &Self) -> CIter)({
+      it := CIter(src : self.c.clone(), i : usize(0));
+      it
+    })
+  )
+);
+// A fully constant iterator: its value is folded, it roots nothing.
+CountConst :: struct(c : Counter);
+impl(
+  CountConst,
+  IntoIterator(
+    Item : usize,
+    IntoIter : CIter,
+    into_iter : (fn(self : &Self) -> CIter)(CIter(src : Counter(n : usize(3)), i : usize(0)))
+  )
+);
+// The copy passes through a chain of locals.
+CountChain :: struct(c : Counter);
+impl(
+  CountChain,
+  IntoIterator(
+    Item : usize,
+    IntoIter : CIter,
+    into_iter : (fn(self : &Self) -> CIter)({
+      a := self.c.clone();
+      b := a;
+      CIter(src : b, i : usize(0))
+    })
+  )
+);
+// A hand-written `Clone` whose body is a bare constructor.
+HCounter :: struct(n : usize);
+impl(HCounter, Clone(clone : (fn(self : &Self) -> Self)(HCounter(n : self.n))));
+HIter :: struct(src : HCounter, i : usize);
+impl(
+  HIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i < self.src.n) => {
+          r := self.i;
+          self.i = (self.i + usize(1));
+          .Some(r)
+        },
+        true => .None
+      )
+    )
+  )
+);
+impl(
+  HCounter,
+  IntoIterator(
+    Item : usize,
+    IntoIter : HIter,
+    into_iter : (fn(self : &Self) -> HIter)(HIter(src : self.clone(), i : usize(0)))
+  )
+);
+// A `Copy` source.
+PCounter :: struct(n : usize);
+derive(PCounter, Copy, Clone);
+PIter :: struct(src : PCounter, i : usize);
+impl(
+  PIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i < self.src.n) => {
+          r := self.i;
+          self.i = (self.i + usize(1));
+          .Some(r)
+        },
+        true => .None
+      )
+    )
+  )
+);
+impl(
+  PCounter,
+  IntoIterator(
+    Item : usize,
+    IntoIter : PIter,
+    into_iter : (fn(self : &Self) -> PIter)(PIter(src : self.clone(), i : usize(0)))
+  )
+);
+VBag :: ref(
+  struct(
+    items : ArrayList(i32),
+    c : Counter,
+    local : CountLocal,
+    konst : CountConst,
+    chain : CountChain,
+    h : HCounter,
+    p : PCounter
+  )
+);
+impl(
+  VBag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  VBag,
+  sum_clone : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.c, x => {
+      t = (t + x);
+    });
+    t
+  }),
+  sum_local : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.local, x => {
+      t = (t + x);
+    });
+    t
+  }),
+  sum_const : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.konst, x => {
+      t = (t + x);
+    });
+    t
+  }),
+  sum_chain : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.chain, x => {
+      t = (t + x);
+    });
+    t
+  }),
+  sum_hand : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.h, x => {
+      t = (t + x);
+    });
+    t
+  }),
+  sum_copy : (fn(self : &Self) -> usize)({
+    mut(t) := usize(0);
+    for(self.p, x => {
+      t = (t + x);
+    });
+    t
+  })
+);
+test("borrowed for: read-only methods iterating a value field by value, through an alias, do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  c := Counter(n : usize(3));
+  bag := VBag(
+    items : xs,
+    c : c.clone(),
+    local : CountLocal(c : c.clone()),
+    konst : CountConst(c : c.clone()),
+    chain : CountChain(c : c.clone()),
+    h : HCounter(n : usize(3)),
+    p : PCounter(n : usize(3))
+  );
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    seen = (seen + other.sum_clone());
+    seen = (seen + other.sum_local());
+    seen = (seen + other.sum_const());
+    seen = (seen + other.sum_chain());
+    seen = (seen + other.sum_hand());
+    seen = (seen + other.sum_copy());
+    x = (x * i32(10));
+  });
+  // Each method sums 0 + 1 + 2 = 3; six methods, two elements.
+  assert(seen == usize(36), "every by-value iteration of a value field runs without the entry assert");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
+});
