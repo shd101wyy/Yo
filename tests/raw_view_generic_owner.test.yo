@@ -10,11 +10,18 @@
 _rv_count :: (fn(generic(T : Type), b : &Buf(T)) -> usize)(b.len());
 _rv_count_i32 :: (fn(b : &Buf(i32)) -> usize)(b.len());
 _rv_take :: (fn(generic(T : Type), b : Buf(T)) -> usize)(b.len());
+_rv_nested :: (fn(generic(K : Type, V : Type), a : &Buf(K), b : &Buf(Buf(V))) -> usize)(a.len() + b.len());
+// The `Drop` declared `where(T <: Clone)` covers a `T` that declares `Clone`.
+_rv_cloned :: (fn(generic(T : Type), b : &CBuf(T), where(T <: Clone)) -> usize)(b.len());
 test("raw view: a generic and a concrete buffer-owning parameter are both accepted", {
   b := Buf(i32).new();
   assert(_rv_count_i32(&b) == usize(0), "concrete Buf(i32)");
   assert(_rv_count(&b) == usize(0), "generic Buf(T)");
   assert(_rv_take(Buf(u8).new()) == usize(0), "generic Buf(T) by value");
+  n := Buf(Buf(u8)).new();
+  assert(_rv_nested(&b, &n) == usize(0), "two parameters, one nested");
+  c := CBuf(i32).new();
+  assert(_rv_cloned(&c) == usize(0), "a where-bounded Drop under the same bound");
 });
 // A raw pointer at a type variable stays a raw view.
 comptime_expect_error(
@@ -24,7 +31,11 @@ comptime_expect_error(
 comptime_expect_error(
   _rv_view :: (fn(generic(T : Type), v : &View(T)) -> usize)(v.len())
 );
-// A `Drop` declared only `where(T <: Clone)` does not cover an unbounded `T`.
+// A `Drop` declared only `where(T <: Clone)` covers neither an unbounded `T`
+// nor one bounded by an unrelated trait.
 comptime_expect_error(
   _rv_cbuf :: (fn(generic(T : Type), b : &CBuf(T)) -> usize)(b.len())
+);
+comptime_expect_error(
+  _rv_cbuf_send :: (fn(generic(T : Type), b : &CBuf(T), where(T <: Send)) -> usize)(b.len())
 );
