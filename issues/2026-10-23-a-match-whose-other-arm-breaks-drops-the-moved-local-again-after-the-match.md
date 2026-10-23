@@ -21,7 +21,7 @@ f :: (fn(k : i32) -> usize)({
     s := box(String.from("double-freed-on-the-move-path-xx"));
     i = (i + i32(1));
     match(
-      (i == k),
+      i == k,
       false => {
         acc = (acc + take(s));
       },

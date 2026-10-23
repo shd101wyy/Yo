@@ -12,19 +12,21 @@ Present on develop (`6dee22187`).
 ```yo
 { println } :: import("std/fmt");
 { String } :: import("std/string");
-g :: (fn(s : Box(String), m : usize) -> usize)((s.len() + m));
+g :: (fn(s : Box(String), m : usize) -> usize)(s.len() + m);
 f :: (fn(k : i32) -> usize)({
   (mut(i) : i32) = i32(0);
   (mut(acc) : usize) = usize(0);
   while(i < i32(3), {
     i = (i + i32(1));
     s := box(String.from("leaked on the break path"));
-    acc = (acc + g(s, {
-      if(i == k, {
-        break;
-      });
-      usize(0)
-    }));
+    acc = (
+      acc + g(s, {
+        if(i == k, {
+          break;
+        });
+        usize(0)
+      })
+    );
   });
   acc
 });

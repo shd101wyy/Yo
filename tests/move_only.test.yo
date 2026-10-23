@@ -1450,7 +1450,7 @@ _mo_return_between_move_and_reassign :: (fn(k : i32) -> i32)({
 _MoRaise :: (ctl(n : i32) -> i32);
 _mo_maybe_raise :: (fn(n : i32, raise : _MoRaise) -> i32)(cond((n == i32(2)) => raise(n), true => n));
 _mo_unwind_between_move_and_reassign :: (fn(k : i32) -> i32)({
-  (raise : _MoRaise) = ((n) -> unwind(i32(100)));
+  (raise : _MoRaise) = (n -> unwind(i32(100)));
   (mut(f) : _MoFd) = _MoFd(n : i32(1));
   (mut(total) : i32) = _mo_take(f);
   total = (total + _mo_maybe_raise(k, raise));
@@ -1639,19 +1639,21 @@ test("move-only: an exit in a later arm than the move drops the local once", {
 // A value passed by value moves when the call runs, after its later
 // arguments: a `break` inside one of them still owns it
 // (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
-_mo_take_plus :: (fn(sink(f) : _MoFd, m : i32) -> i32)((f.n + m));
+_mo_take_plus :: (fn(sink(f) : _MoFd, m : i32) -> i32)(f.n + m);
 _mo_break_in_later_argument :: (fn(k : i32) -> i32)({
   (mut(i) : i32) = i32(0);
   (mut(total) : i32) = i32(0);
   while(i < i32(3), {
     i = (i + i32(1));
     f := _MoFd(n : i);
-    total = (total + _mo_take_plus(f, {
-      if(i == k, {
-        break;
-      });
-      i32(0)
-    }));
+    total = (
+      total + _mo_take_plus(f, {
+        if(i == k, {
+          break;
+        });
+        i32(0)
+      })
+    );
   });
   total
 });
