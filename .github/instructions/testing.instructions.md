@@ -943,12 +943,15 @@ verified nothing.
     `check ./src --std-path ./std` and the build already prove the compiler
     accepts the new std. Add `compile.test.yo` as the self-compile smoke, plus
     any file the grep finds.
-  - When more than ~8 files qualify, one
-    `YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal --parallel 1`
-    under an `exclusive` lock (~37 min on an M4, one resident evaluator) is
-    cheaper than the serial loop (~4.5 min a file). On a machine with the
-    memory for it, `YO_TEST_FORK=4` runs the same files in forked workers
-    (see "`YO_TEST_FORK=N`" above).
+  - When more than ~8 files qualify, run the ~8 most relevant ones, one file per
+    call, and leave the rest to develop's battery (say so under Deferred).
+    **Never run the whole `tests/internal` directory as a gate** (maintainer,
+    2026-10-23). That covers branch gates, reviews and regenerations alike,
+    in-process or serial. Measured on 2026-10-23 (Linux, 32 cores, 64 GB): four
+    concurrent in-process runs took 4–5 h each with the CPU two-thirds idle. They
+    collided on shared `/tmp` fixtures and reported false watch and
+    module_invalidation failures. The full directory is develop's battery's job.
+    Watch that battery and fix forward.
   - `macro_expansion.test.yo` (6.5 GB) runs only when the parser, macros or
     `quote` change, and always `exclusive`.
 - **cli-diff** only when the diff can move CLI output: std (line-pinned LSP
@@ -1035,8 +1038,8 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   A wrapper started with `setsid` is its own group: `kill -- -<pgid>`. Before
   restarting a build, check `pgrep -af "yo compile"` for a compile still
   writing the same `yo-out`.
-- On a large machine (64 GB) the in-process `tests/internal` run (~12 GB) takes
-  a normal slot: `exclusive` would hold every slot for its ~95 minutes.
+- The whole-directory in-process `tests/internal` run is not a gate (see "Choosing
+  a Tier 1 gate"). A single in-process file on a large machine takes a normal slot.
 
 ## Compiler internal tests — `tests/internal/`
 

@@ -127,7 +127,7 @@ nix develop . --command bash -c 'yo build --std-path ./std --cc clang'
 yo check ./src --watch                       # `--watch-once` reads changed paths from stdin: one round, rc = failures
 yo build --watch --profile [--max-rss-mb N]  # in-process artifact rebuilds; `profile: watch round N <ms> rss=…MB`
 yo compile src/main.yo --emit-chunks auto --jobs 8 --profile   # N translation units + `.o` cache: an edit recompiles only dirty units
-YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal --parallel 1   # one evaluator, 77 → 37 min, ~10 GB resident: developer knob, never CI
+YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal/<file>.test.yo --parallel 1   # in-process knob, ~10 GB resident: never CI, and never the whole directory as a gate (see Tier 1)
 
 # Language tests. --parallel 1 for single files. Always save verbose output to a file.
 yo test ./tests/algebraic_effects.test.yo --bail -v --parallel 1 &> output.txt
@@ -217,11 +217,12 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
   - **Tier 1 is the merge gate:** a targeted local gate of about 20–30 minutes, run before the PR is opened.
     - `yo build --std-path ./std`, only when `src/` changed; a std- or tests-only change reuses a develop-built binary.
     - `check ./src` and `check ./std`.
-    - The feature's own test files and the tests that name a changed identifier, run ONE file per `yo test` call (it takes one path), plus every `tests/internal` file that imports a changed `src/` module or names a changed identifier. #1343 broke develop by skipping `gc_runtime_atomics`. A std- or prelude-only change does NOT select every internal file (each re-evaluates the compiler, ~4.5 min); more than ~8 → one in-process run under `exclusive`. Selection recipe: `testing.instructions.md` ("Choosing a Tier 1 gate").
+    - The feature's own test files and the tests that name a changed identifier, run ONE file per `yo test` call (it takes one path), plus every `tests/internal` file that imports a changed `src/` module or names a changed identifier. #1343 broke develop by skipping `gc_runtime_atomics`. A std- or prelude-only change does NOT select every internal file (each re-evaluates the compiler, ~4.5 min). Cap the selection at ~8 files, the most relevant ones; leave the rest to develop's battery and say so under Deferred. Selection recipe: `testing.instructions.md` ("Choosing a Tier 1 gate").
     - cli-diff-test, only when std, CLI output, diagnostics text, skills or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
     - When a change alters what parses or type-checks outside `src/`/`std/` (a Generation A that sweeps `tests/`), three places escape both the migration and a tree-binary Tier 1. First, `yo test` steps a SEED runs: grep `.github/workflows/` and run those files with the seed. Second, Yo programs inside workflow `run:` blocks and shell here-documents: run `scripts/check-embedded-yo.sh` and check each probe with the tree binary. Third, programs embedded in test string literals, which a `yo` subprocess compiles: put the tree binary first on `PATH` as `yo`, because locally `yo` is the seed. #1440 turned four develop jobs red this way (`issues/fixed/2026-10-18-the-fv-job-runs-generation-a-test-files-with-the-seed.md`).
     - fmt and `check-issue-refs.sh`.
     - Not in Tier 1: the full language suite, `yo test ./std`, the fixpoint and the full `tests/internal`.
+    - **Never run the whole `tests/internal` directory locally** (maintainer, 2026-10-23). This applies to branch gates, reviews and regenerations alike, in-process or serial. It is develop's battery's job. On 2026-10-23 four concurrent in-process runs took 4–5 h each on a box whose CPU was two-thirds idle, and they collided on shared `/tmp` fixtures, which produced false watch and module_invalidation failures.
   - **Tier 2, the PR's battery, is not waited for.** It still fires when the PR opens. Once the PR is merged, cancel it, since it gates nothing.
   - **Tier 3 is develop's battery.** Several PRs can be admin-merged in a row; the next develop battery covers all of them.
     - Watch it on its pinned run ID.
