@@ -10,7 +10,8 @@
 //! runtime's `__yo_debug_alloc_on` hook. The language suite runs this file
 //! under its default allocator, where only the clean round trip runs; the
 //! cli-case `test-allocator-debug-suite` runs it under `--allocator debug`,
-//! where every test runs and every parent must itself end with no live block.
+//! where every test runs and every parent must itself end with no leaked
+//! block.
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
@@ -164,6 +165,28 @@ test("an exit before main returns lists its live blocks without judging them", {
       assert(out.status.success(), `exit(0) keeps its status, got: ${err}`);
       assert(err.contains("56 bytes"), `the report lists the block, got: ${err}`);
       assert(err.contains("so its live blocks are not judged"), `the report says why, got: ${err}`);
+    })
+  );
+});
+// A module global is never dropped: what it still holds at exit is in use,
+// not leaked, so the exit check must not fail on it.
+g_kept := ArrayList(String).new();
+test("blocks a module global still reaches at exit are not leaks", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      (mut(k) : usize) = usize(0);
+      while(k < usize(20), {
+        g_kept.push(k.to_string());
+        k = (k + usize(1));
+      });
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("reachable", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.success(), `the run passes the leak check, got: ${err}`);
+      assert(err.contains("still reachable from module globals"), `the report counts the reachable blocks, got: ${err}`);
+      assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
     })
   );
 });

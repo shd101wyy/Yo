@@ -308,9 +308,10 @@ API that promises not to leak — and a possible `yo check` lint under
    today's `--debug-heap` needs `--allocator fixed`). It is what makes a
    leaked cycle a failing test rather than a silent cost.
    *Built 2026-10-23 (Z11 "As built" in that file):* the report prints
-   `live at exit: B blocks / S bytes` like `--debug-heap`, lists live blocks
-   by allocation number, and fails a run (status 23) or a test
-   (`Memory leak detected`) whose `main` returned with a live block, which
+   `live at exit: B blocks / S bytes` like `--debug-heap`, separates what a
+   module global still reaches from what leaked, lists leaked blocks by
+   allocation number, and fails a run (status 23) or a test
+   (`Memory leak detected`) whose `main` returned with a leaked block, which
    is the per-test count W6a records over the corpus.
 3. One release with `Off` as the default (W1's knob flipped), with the
    count of tracked types left in std and `src/` and the oracle's leak

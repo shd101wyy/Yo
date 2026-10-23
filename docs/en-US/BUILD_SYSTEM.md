@@ -185,8 +185,9 @@ by reporting live blocks at process exit.
 `AllocatorKind.Debug` is `yo compile --allocator debug`, the allocator for
 finding memory bugs: a double free or a free of a pointer it never handed out
 aborts, freed blocks are poisoned and quarantined so a write after free is
-reported, and the exit report lists every block still live. A run whose
-`main` returns with a live block exits with status 23, so `yo build run` and
+reported, and the exit report lists every leaked block. A run whose
+`main` returns with a leaked block (one no module global still reaches)
+exits with status 23, so `yo build run` and
 `yo test --allocator debug` fail on a leak. See
 [Memory Safety](MEMORY_SAFETY.md#--allocator-debug-leaks-and-heap-misuse-at-run-time).
 

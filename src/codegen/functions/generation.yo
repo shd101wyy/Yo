@@ -1645,6 +1645,22 @@ generate_main_wrapper :: (fn(context : &FunctionGenerationContext, module_vars :
     em.emit_string(
       String.from("\n// Module-level mutable variable initialization (runs first).\nstatic void __yo_main_module_init(void) {\n")
     );
+    // Under `--allocator debug` every module global is a root of the exit
+    // report's reachability scan: module globals are never dropped, so what
+    // they still hold at exit is in use, not leaked.
+    if(debug_alloc, {
+      (rti : usize) = usize(0);
+      while(rti < module_vars.len(), {
+        match(
+          module_vars.get(rti),
+          .Some(rv) => if(!rv.is_thread_local, {
+            em.emit_string_line(`  __yo_debug_alloc_root(&${rv.c_var_name}, sizeof(${rv.c_var_name}));`);
+          }),
+          .None => ()
+        );
+        rti = (rti + usize(1));
+      });
+    });
     (mvi : usize) = usize(0);
     while(mvi < module_vars.len(), {
       match(

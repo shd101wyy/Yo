@@ -219,8 +219,9 @@ payload-free variant as an over-drop canary, and re-run the fixed binary under
 fix over-dropped and introduced a use-after-free.
 
 **On a box with no LeakSanitizer and no `leaks` (Windows), `--allocator debug`
-replaces both**: the exit report lists every live block by allocation number,
-a run whose `main` returns with one exits 23, `yo test --allocator debug`
+replaces both**: the exit report lists every leaked block (live and not
+reachable from a module global) by allocation number, a run whose `main`
+returns with one exits 23, `yo test --allocator debug`
 fails a leaking test, and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`
 for a debugger stack. **The fixed-region allocator's `--debug-heap` oracle
 counts the same way**: build with

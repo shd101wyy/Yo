@@ -511,7 +511,10 @@ Rules for codegen code and for the evaluator analyses codegen calls late
   FIFO). `main` calls `__yo_debug_alloc_init()` first so its atexit report
   runs LAST, after the runtime's own cleanup handlers; the body marks a
   normal return with `__yo_debug_alloc_main_returned()`, and only then does a
-  live block exit with status 23 (`yo test` names it a leak). The program
+  leaked block exit with status 23 (`yo test` names it a leak). Module
+  globals are never dropped, so `__yo_main_module_init` registers each one
+  with `__yo_debug_alloc_root` and the report's conservative scan counts what
+  they still reach as reachable, not leaked. The program
   reads the mode through `__yo_debug_alloc_on()` (extern "Yo").
 
 ### Out-of-memory policy (all allocators)

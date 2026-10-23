@@ -293,7 +293,7 @@ unsafe 表面仍可能把一个块释放两次、释放一个从未分配过的�
 - **重复释放，或释放一个它从未分配出去的指针，会中止程序**，报告 `debug allocator: double free: free of block #N (S bytes), already freed`，或者指出那个指针。
 - **被释放的块会被投毒并隔离**，而不是被重用（最多保留 64 MiB 已释放的负载）。通过悬垂指针的写入会在该块离开隔离区时或在退出时被报告：`block #N (S bytes) was written after it was freed (first changed byte at offset K)`。
 - **新分配的块填充为 `0xAA`**，因此读取没人初始化过的内存会看到一个可辨认的模式，而不是碰巧为零。
-- **退出报告列出每个仍然存活的块。** 它总会打印 `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`，然后按分配编号列出最多 32 个存活块。当 `main` 正常返回而仍有块存活时，进程以状态码 23 退出并打印 `leak check failed`。程序内部调用 `exit()` 会跳过所有 drop，因此它的存活块会被列出，但不作判定。
+- **退出报告列出每个泄漏的块。** 它总会打印 `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`。模块全局变量永远不会被 drop，因此仍能从某个模块全局变量到达的块（对全局变量及其所到达内容的保守扫描）被计为 `still reachable from module globals`，而不是泄漏。随后按分配编号列出最多 32 个泄漏的块。当 `main` 正常返回而有块泄漏时，进程以状态码 23 退出并打印 `leak check failed`。程序内部调用 `exit()` 会跳过所有 drop，因此它的存活块会被列出，但不作判定。
 - **`yo test --allocator debug` 让泄漏的测试失败。** 每个测试运行在独立的进程中，因此测试体返回时仍有块存活的测试会以 `Memory leak detected` 失败。
 
 块以分配编号命名；设置 `YO_DEBUG_ALLOC_TRAP=<n>` 后，程序会在第 `n` 次分配时中止，调试器即可显示它来自哪里（单线程程序的分配编号是确定的）。该分配器目前还不检查释放时给出的大小是否与块一致（这需要分配器接口下一版本中带大小的 `free`），也不记录分配位置。

@@ -181,8 +181,8 @@ libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执�
 
 `AllocatorKind.Debug` 即 `yo compile --allocator debug`，用于查找内存 bug 的
 分配器：重复释放或释放一个它从未分配出去的指针会中止程序，被释放的块会被投毒并
-隔离，因此释放后写入会被报告，退出报告会列出每个仍然存活的块。`main` 返回时仍有
-存活块的运行以状态码 23 退出，因此 `yo build run` 和 `yo test --allocator debug`
+隔离，因此释放后写入会被报告，退出报告会列出每个泄漏的块。`main` 返回时仍有
+泄漏块（没有任何模块全局变量还能到达的块）的运行以状态码 23 退出，因此 `yo build run` 和 `yo test --allocator debug`
 会在泄漏时失败。参见
 [内存安全](MEMORY_SAFETY.md#--allocator-debug运行时的泄漏与堆误用)。
 

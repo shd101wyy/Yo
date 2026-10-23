@@ -9956,6 +9956,8 @@ run_test :: (
           (combined : String) = String.from_bytes(tout.stdout.clone());
           combined.push_string(String.from_bytes(tout.stderr.clone()));
           (t_status : i32) = tout.status.raw;
+          // The decoded exit code (`t_status` is the raw wait status).
+          (t_exit : Option(i32)) = tout.status.code();
           // Older ASan runtimes: "detect_leaks is not supported" → retry once
           // without leak detection.
           if(use_asan && combined.contains("detect_leaks is not supported"), {
@@ -9965,6 +9967,7 @@ run_test :: (
             combined = String.from_bytes(tout2.stdout.clone());
             combined.push_string(String.from_bytes(tout2.stderr.clone()));
             t_status = tout2.status.raw;
+            t_exit = tout2.status.code();
             _sv_asan3 := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
           });
           // A leak is a FAILURE even at exit 0 —
@@ -9975,7 +9978,7 @@ run_test :: (
           // binary itself fails with status 23 and this line when the test
           // body returned with blocks still live. Named as a leak, not as a
           // bare exit status.
-          has_debug_alloc_leak := ((test_allocator == "debug") && (t_status == i32(23)) && combined.contains("debug allocator: leak check failed"));
+          has_debug_alloc_leak := ((test_allocator == "debug") && (t_exit.unwrap_or(i32(-1)) == i32(23)) && combined.contains("debug allocator: leak check failed"));
           has_leak := (has_asan_leak || has_debug_alloc_leak);
           test_ms := (test_t0.elapsed().as_nanos() / i64(1000000));
           if((t_status == i32(0)) && !has_leak, {

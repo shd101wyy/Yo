@@ -263,9 +263,11 @@ size, allocation number, address-keyed canary), a live list, fresh blocks
 filled 0xAA, freed blocks poisoned 0xDD and kept in a 64 MiB FIFO
 quarantine (checked on eviction and at exit, so a write after free is
 reported), double-free and foreign-pointer aborts, and an exit report:
-`debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`
-plus up to 32 live blocks by allocation number. When `main` returned
-normally a live block exits 23 (`leak check failed`), which `yo test`
+`debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`,
+the blocks still reachable from a module global (a conservative scan whose
+roots `__yo_main_module_init` registers, since module globals are never
+dropped), and up to 32 leaked blocks by allocation number. When `main`
+returned normally a leaked block exits 23 (`leak check failed`), which `yo test`
 names `Memory leak detected`; an `exit()` mid-program is listed, not
 judged. Two parts are deferred: the **size-mismatch abort** needs allocator
 interface v2's sized `free` (v0.2.71 Generation A), and **allocation sites**
