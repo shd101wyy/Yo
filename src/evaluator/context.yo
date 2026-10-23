@@ -1480,7 +1480,7 @@ record_def_dependency :: (fn(dependee : &String) -> unit)({
         .Some(d) => d,
         .None => return(())
       );
-      dk := def_key(ast_expr_token(&top.expr).module_path, top.index, &top.name);
+      dk := def_key(&ast_expr_token(&top.expr).module_path.*, top.index, &top.name);
       deps := match(
         g_def_deps.with(m => m.get(&dk)),
         .Some(existing) => existing,
@@ -2310,7 +2310,7 @@ _statement_start :: (fn(e : &AstExpr) -> Tuple(usize, usize))({
 register_module_anchors :: (fn(begin_exprs : &ArrayList(AstExpr)) -> unit)({
   module_path := match(
     begin_exprs.get(usize(0)),
-    .Some(first) => ast_expr_token(&first).module_path.clone(),
+    .Some(first) => ast_expr_token(&first).module_path.*.clone(),
     .None => {
       return(());
     }
@@ -2395,7 +2395,7 @@ begin_module_walk :: (
 )({
   module_path := match(
     begin_exprs.get(usize(0)),
-    .Some(first) => ast_expr_token(&first).module_path.clone(),
+    .Some(first) => ast_expr_token(&first).module_path.*.clone(),
     .None => env.module_path.*.clone()
   );
   g_finished_walks.with_mut(m => m.remove(module_path.clone()));

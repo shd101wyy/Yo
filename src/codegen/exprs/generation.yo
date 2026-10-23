@@ -527,7 +527,7 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
     index_unchecked_twin_of(ast_expr_id(expr)),
     .Some(twin) => {
       tok := ast_expr_token(expr);
-      site := `${_idx_c_string_literal(&tok.module_path)}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
+      site := `${_idx_c_string_literal(&tok.module_path.*)}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
       if(
         guard_site_is_proved(expr, "index-in-bounds"),
         `${_index_method_call_by_name(&twin, recv_arg.clone(), index_code.clone(), context)} /* __yo_cidx_elided(${site}) */`,
@@ -747,7 +747,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
       out.push_string(ast_expr_to_string(expr));
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         ftk := ast_expr_token(expr);
-        ceg_eprintln(`[fttmark] loc=${ftk.module_path}:${ftk.row.to_string()}:${ftk.column.to_string()} expr=${ast_expr_to_string(expr)}`);
+        ceg_eprintln(`[fttmark] loc=${ftk.module_path.*}:${ftk.row.to_string()}:${ftk.column.to_string()} expr=${ast_expr_to_string(expr)}`);
       });
       return(out);
     }
@@ -978,7 +978,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
       out.push_string(ast_expr_to_string(expr));
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
         ftk2 := ast_expr_token(expr);
-        ceg_eprintln(`[fttmark] loc=${ftk2.module_path}:${ftk2.row.to_string()}:${ftk2.column.to_string()} expr=${ast_expr_to_string(expr)}`);
+        ceg_eprintln(`[fttmark] loc=${ftk2.module_path.*}:${ftk2.row.to_string()}:${ftk2.column.to_string()} expr=${ast_expr_to_string(expr)}`);
       });
       out
     }

@@ -113,7 +113,7 @@ _eval_arg :: (
 /// (`is_destroying_builtin_call_capable`).
 _require_destroying_builtin_capable :: (fn(builtin : str, expr : &AstExpr, exn : Exception) -> unit)({
   tok := ast_expr_token(expr);
-  if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.clone())), {
+  if(!is_destroying_builtin_call_capable(Option(String).Some(tok.module_path.*.clone())), {
     name := String.from(builtin);
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     place := match(args.get(usize(0)), .Some(a) => ast_expr_to_string(&a), .None => String.new());

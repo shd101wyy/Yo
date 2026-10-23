@@ -1963,7 +1963,7 @@ find_matching_generic_impl :: (
 /// carry the path as typed and a demand-loaded one's the `file://` key, and a
 /// replay of one impl under the other spelling is not a second impl.
 _impl_site_string :: (fn(tok : &Token) -> String)(
-  `${display_module_path(&tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
+  `${display_module_path(&tok.module_path.*)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
 );
 /// `Deref` (the auto-dereference marker, plans/VALUES_BY_DEFAULT.md §3.3) is
 /// implemented by the prelude's cells only: an impl anywhere else is an
@@ -1971,7 +1971,7 @@ _impl_site_string :: (fn(tok : &Token) -> String)(
 /// and never through a user wrapper. Checked on the RESOLVED trait — its
 /// nominal key against the prelude `Deref`'s — so an alias is caught too.
 _throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
-  if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
+  if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.*.clone()), ctx.std_path.clone()), {
     return(());
   });
   is_deref := match(
@@ -5565,7 +5565,7 @@ evaluate_module_value :: (
             .Atom(_, _) => String.new()
           );
           if((pos_trait_name == "Send") || (pos_trait_name == "Sync") || (pos_trait_name == "Acyclic"), {
-            if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.clone())), {
+            if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.*.clone())), {
               suffix := cond(
                 (pos_trait_name == "Send") => String.from("send across threads"),
                 (pos_trait_name == "Sync") => String.from("share across threads"),
@@ -5878,7 +5878,7 @@ evaluate_module_value :: (
                         d_val,
                         .FuncVal(d_fvd, d_cvs) => {
                           d_tok := ast_expr_token(expr);
-                          d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.module_path, usize(d_tok.row), usize(d_tok.column));
+                          d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.module_path.*, usize(d_tok.row), usize(d_tok.column));
                           d_body_clone := clone_expr_fresh_ids(&d_fvd.*.body);
                           d_fresh := EvalValue.FuncVal(
                             rc(
@@ -5911,7 +5911,7 @@ evaluate_module_value :: (
                             &d_fvd.*.cap_names,
                             &d_fvd.*.cap_tys,
                             &d_cvs,
-                            rc(ast_expr_token(&d_fvd.*.body).module_path)
+                            ast_expr_token(&d_fvd.*.body).module_path
                           );
                           ___df := d_env.push_frame(false);
                           d_pts := match(d_sub_ty, Rc(.Func({ param_types : d_ppts })) => d_ppts, _ => no_types());
@@ -6338,7 +6338,7 @@ _hand_written_clone_on_copy_msg :: (fn(receiver_ty : &TypeValue, other_site : &O
 /// (whose derive templates and primitive impls are exempt) and outside
 /// generated code?
 _is_hand_written_impl :: (fn(trait_tok : &Token, ctx : &EvalContext) -> bool)(
-  !is_prelude_or_generated_file(Option(String).Some(trait_tok.module_path.clone()), ctx.std_path.clone())
+  !is_prelude_or_generated_file(Option(String).Some(trait_tok.module_path.*.clone()), ctx.std_path.clone())
 );
 /// The two directions of "a hand-written `Clone` on a `Copy` type is an
 /// error" (decision 36) at a CONCRETE impl of `trait_ty` for `receiver_ty`
@@ -6361,7 +6361,7 @@ _check_copy_clone_exclusion :: (
       clone_key := get_trait_key(&cc.clone_tt);
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
-        if(!is_std_module_path(&trait_tok.module_path, &ctx.std_path), {
+        if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
           g_user_clone_sites.with_mut(m => m.insert(site.clone(), true));
         });
         g_hand_written_clone_sites.with_mut(m => m.insert(site, true));
@@ -6408,7 +6408,7 @@ _check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok 
     .Some(cc) => {
       clone_key := get_base_trait_key(&cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
-        if(!is_std_module_path(&trait_tok.module_path, &ctx.std_path), {
+        if(!is_std_module_path(&trait_tok.module_path.*, &ctx.std_path), {
           g_user_clone_sites.with_mut(m => m.insert(entry.site.clone(), true));
         });
         g_hand_written_clone_sites.with_mut(m => m.insert(entry.site.clone(), true));

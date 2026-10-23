@@ -20,7 +20,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
-{ Token, TokenKind } :: import("../token.yo");
+{ Token, TokenKind, empty_token_text } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
 { parse } :: import("../parser.yo");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_fn_call_of } :: import("../expr.yo");
@@ -58,7 +58,7 @@
 _target_lines :: (
   fn(def_tok : &Token, doc_abs : &String, doc_lines : &ArrayList(String)) -> Option(ArrayList(String))
 )({
-  target_fs := uri_to_fs_path(&def_tok.module_path);
+  target_fs := uri_to_fs_path(&def_tok.module_path.*);
   if(target_fs == uri_to_fs_path(doc_abs.clone()), {
     return(Option(ArrayList(String)).Some(doc_lines));
   });
@@ -81,7 +81,7 @@ _location_of :: (
     .Some(target_lines) => j_range_in(&target_lines, usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col),
     .None => j_range(usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col)
   );
-  jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", &range).obj()
+  jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.*.clone()))).put("range", &range).obj()
 });
 
 /// The parsed program of the module at `module_path` (either `file://`
@@ -404,7 +404,7 @@ _owner_member_decl :: (
       return(Option(Token).None);
     }
   );
-  module_exprs := _module_exprs(decl_tok.module_path.clone(), doc_abs, doc_exprs);
+  module_exprs := _module_exprs(decl_tok.module_path.*.clone(), doc_abs, doc_exprs);
   value := match(
     _binding_value(&module_exprs, &head),
     .Some(v) => v,
@@ -466,7 +466,7 @@ _method_decl :: (
       return(Option(Token).None);
     }
   );
-  module_exprs := _module_exprs(body_tok.module_path.clone(), doc_abs, doc_exprs);
+  module_exprs := _module_exprs(body_tok.module_path.*.clone(), doc_abs, doc_exprs);
   found := ArrayList(Token).new();
   (i : usize) = usize(0);
   while(i < module_exprs.len(), {
@@ -1071,7 +1071,7 @@ _tok_before :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
       .None => ()
     );
   });
-  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : String.new(), input : String.new()), idx : usize(0))
+  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()), idx : usize(0))
 });
 /// The nearest non-whitespace token at/after index `i` (past the end is
 /// the same synthetic End marker).
@@ -1089,5 +1089,5 @@ _tok_after :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
     );
     j = (j + usize(1));
   });
-  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : String.new(), input : String.new()), idx : usize(0))
+  _TokAt(tok : Token(kind : TokenKind.Operator, value : String.new(), row : u32(0), column : u32(0), character : u32(0), module_path : empty_token_text(), input : empty_token_text()), idx : usize(0))
 });

@@ -660,7 +660,7 @@ evaluate_asm :: (
 )({
   tok := ast_expr_token(expr);
   // Phase C privilege gate.
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -966,7 +966,7 @@ evaluate_global_asm :: (
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
-  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     exn.throw(
       dyn(
         format_error_message(

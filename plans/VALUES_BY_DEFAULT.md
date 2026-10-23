@@ -7144,6 +7144,115 @@ heavy run, the command is given in item 2.
             like `Environment.module_path`). This is a prerequisite: it
             removes the population cost, and the fix is not a hand edit
             of the 11 sites.
+            - **As built 2026-10-22** (branch `perf/share-token-input`):
+              both fields are `Rc(String)`. The lexer makes one cell per
+              lexing (`tokenize_shared`; `tokenize(&String, &String)`
+              wraps its arguments once), and `Parser` holds the two cells.
+              A token synthesized by the parser, desugaring, gensym, match
+              lowering, the formatter or the evaluator copies its origin
+              token's cells. A token with no source shares one module-level
+              cell (`empty_token_text()`, `placeholder_token`,
+              `raii_token`). A template interpolation's sub-parser shares
+              the enclosing module's path cell, and lexes in place over the
+              token's `input` cell. The synthetic-token cache keeps one path
+              cell per module, sharing the caller's buffer. An env built
+              from a token (`impl.yo`'s def-time env) now shares that
+              token's cell instead of wrapping a new one. Readers spell
+              `tok.input.*` / `&tok.module_path.*`. A plain copy of the
+              `Rc` is a count bump, and `Rc` Eq compares payloads, so token
+              equality keeps its meaning. Two `tests/internal` tests pin the
+              sharing by cell identity: in `parser.test.yo`, every token of
+              a parse that carries source text (lexed, synthesized by the
+              parser for a template's literal parts, or lexed from its
+              interpolation body) holds the module's two cells,
+              and in `macro_helpers.test.yo` a gensym'd token holds its
+              source token's cells.
+            - Purpose check, `yo fix ./src/<f>.yo --migrate explicit-copy
+              --dry-run --hot-path src/evaluator --hot-path src/lexer.yo
+              --hot-path src/env.yo --std-path ./std`, develop `e30c0d8ed`
+              against the branch, each with its own stage 1. On develop,
+              the tool inserts `.clone()` at the 11 `input` field stores
+              (parser 8, `expr.yo` 1, formatter 2) and at their 11
+              `module_path` siblings. It also lists about 20 more token
+              copies as "source written afterwards". On the branch it
+              neither inserts nor lists any token-cell copy: a cell copy is
+              exempt from the explicit-copy rule. The only token site left is
+              a payload copy, `Span(path : close_tok.module_path.*)` in a
+              parse error, which both trees clone. The insertion counts are
+              parser 21 → 7, `expr.yo` 7 → 5 and formatter 8 → 4. Three
+              sites are new, all small text: `Parser.new`'s two
+              `rc(input_string)`/`rc(module_path)` (listed, once per parse),
+              `rc(sp.expr_text)` for an interpolation body (one clone of
+              that body's text), and `rc(mark.value)` for a projection
+              marker (one clone of the marker name).
+            - Measured with stage-1 binaries built by the v0.2.68 seed with
+              clang, both checking the develop `e30c0d8ed` tree, so the
+              input is the same. Two runs each, back to back
+              (develop/branch/develop/branch), under one normal heavy-lock
+              ticket, each capped at 12 GB. The load average was 7–9.
+
+              | input | binary | user s | max RSS kB |
+              | --- | --- | --- | --- |
+              | `std/rand.yo` | develop | 12.80, 11.50 | 141,336, 141,424 |
+              | `std/rand.yo` | branch | 11.57, 11.81 | 139,932, 140,032 |
+              | `src/main.yo` | develop | 498.1, 555.1 | 1,057,116, 1,053,832 |
+              | `src/main.yo` | branch | 533.6, 506.2 | 1,054,860, 1,058,604 |
+
+              `std/rand.yo` uses 1.4 MB less (−1.0 %). `src/main.yo` is
+              within the noise: the means are +1.3 MB (+0.12 %), and two
+              runs of the same binary differ by 3–4 MB. User time is also
+              within the noise. As expected, the change recovers little
+              today, because `String` stays a ref type until B8. Its effect
+              is that the B1 sites become count bumps.
+            - A first build of the branch measured +7.8 MB on
+              `src/main.yo` in both runs (1,062,696 and 1,061,528 kB against
+              1,053,792 and 1,054,848). The cause was the synthetic-token
+              cache. It wrapped the path in `rc(module_path.clone())`, and
+              an `auto-generated://` path carries the whole generated
+              snippet, so every generated module's text was copied once
+              more. The cell now shares the caller's buffer, and the second
+              build's numbers are the ones in the table.
+            - Re-measured 2026-10-23 after rebasing onto develop `4b96ec5e9`
+              (B5, #1551), same method: develop's and the branch's stage 1
+              both check the develop tree, three runs each, interleaved, at
+              a load average of 10–13.
+
+              | input | binary | max RSS kB |
+              | --- | --- | --- |
+              | `std/rand.yo` | develop | 139,644, 139,980, 140,532 |
+              | `std/rand.yo` | branch | 138,160, 138,220, 137,768 |
+              | `src/main.yo` | develop | 1,161,264, 1,162,136, 1,160,824 |
+              | `src/main.yo` | branch | 1,162,400, 1,162,024, 1,163,528 |
+
+              `std/rand.yo` uses 2.0 MB less (−1.4 %), and `src/main.yo`
+              1.2 MB more (+0.11 %). User time is not comparable: two of
+              the six `src/main.yo` runs took 14–15 minutes on the
+              overloaded box, against 6 for the others.
+            - The `src/main.yo` gap depends on the input and on the base.
+              On develop `265faa941`'s tree, four runs each gave +5.7 MB
+              (develop 1,055,652–1,057,244 kB, branch 1,061,308–1,063,608
+              kB). The `4b96ec5e9` pair, one run each, gave +7.6 MB on
+              that same tree (1,059,412 against 1,067,064 kB). The older
+              binaries on that tree did not split this way. Develop's
+              `e30c0d8ed` binary measured 1,063,644 kB and the branch's
+              build on it 1,063,712 kB. A develop build at `95162303d`
+              (another agent's, build flags not recorded) measured 1,060,600
+              and 1,061,276 kB. So on that input the
+              branch binaries stay near the older develop level, while
+              develop's binaries from `265faa941` on use about 6 MB less.
+              No per-token or per-parse cost explains a gap that comes and
+              goes with the input and the base. The branch adds two `Rc`
+              cells per lexing and one per synthetic-token module. It
+              removes the `String.from("")` pairs of `make_err_expr` and of
+              the parser's separator tokens. The gap was not attributed
+              further. The emitted C confirms what the change does: with
+              the same input, the two stage-1 binaries emit identical C
+              (`yo compile src/main.yo --emit-c --skip-c-compiler
+              --optimize 2`, develop `265faa941`'s tree). Each tree's own
+              stage-2 C differs in 693 of about 18,660 functions, with hashed
+              names normalized. Across those functions the branch's C has
+              356 more reads of an `Rc` cell's payload field, 121 more count
+              decrements, 48 more increments, and 316 fewer `NULL` tests.
          2. Fix the two tool defects, each with its cli-case. Done
             2026-10-22 (branch `fix/explicit-copy-s1-tool-defects`; the
             issue docs carry the mechanism), with a third defect from the

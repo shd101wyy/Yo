@@ -300,7 +300,7 @@ _evaluate_inout_local_binding :: (
   // element as `x := &mut ptr.*` while the collection is pinned by a hidden
   // local and guarded by the runtime borrow flag (§8 C2/C3). No pin is taken
   // for a deref place — the pointer has no owner the binding could hold.
-  rhs_is_privileged := is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone()));
+  rhs_is_privileged := is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.*.clone()));
   // A place through a pointer dereference (the borrowed `for`'s element) is
   // not tracked for exclusivity: its root is the pointer, which the runtime
   // borrow flag on the collection guards.
@@ -490,7 +490,7 @@ _evaluate_inout_local_binding :: (
     pin_expr,
     .Some(pp) => {
       pp_tok := ast_expr_token(&pp);
-      pin_name := generate_new_temp_variable_name(&env.module_path.*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path));
+      pin_name := generate_new_temp_variable_name(&env.module_path.*, usize(pp_tok.row), usize(pp_tok.column), .None, .Some(pp_tok.module_path.*));
       pin_var = add_variable_to_env(env, &pin_name, &pin_type, Option(EvalValue).None, false, false, true, false, &name_tok);
     },
     .None => ()
@@ -522,7 +522,7 @@ _evaluate_inout_local_binding :: (
       range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
       (step_pin : Option(Variable)) = Option(Variable).None;
       if(range.has_repoint, {
-        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+        sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*));
         step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
         match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(lhs), &spv), .None => ());
       });
@@ -673,7 +673,7 @@ _bind_projection_result :: (
   range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
   (step_pin : Option(Variable)) = Option(Variable).None;
   if(range.has_repoint, {
-    sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+    sp_name := generate_new_temp_variable_name(&env.module_path.*, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path.*));
     step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
     match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
   });
@@ -1335,7 +1335,7 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
     // gate): `consume`/`runtime`/`recur`/`dyn` are call-dispatch names — a
     // user binding is silently hijacked and can never run. This covers `::`
     // definitions (including bare functions), typed `(x : T) =` and `:=`.
-    if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.ends_with(String.from("std/prelude.yo")), {
+    if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.*.ends_with(String.from("std/prelude.yo")), {
       raise_flow_violation(
         format_error_message(
           &res_tok,
@@ -1642,7 +1642,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(&actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value == "_") =>
-        generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path)),
+        generate_new_temp_variable_name(&env.module_path.*, usize(actual_lhs_tok.row), usize(actual_lhs_tok.column), .None, .Some(actual_lhs_tok.module_path.*)),
       true =>
         actual_lhs_tok.value.clone()
     );
@@ -1764,11 +1764,11 @@ Use \`::\` for compile-time definitions inside impl.`
         // the flag on some resolution paths (see expr_info.yo
         // g_module_level_globals).
         if(is_module_level, {
-          register_module_level_global(&actual_lhs_tok.module_path, var_name.clone());
+          register_module_level_global(&actual_lhs_tok.module_path.*, var_name.clone());
         });
         if(is_mut_decl, {
           if(is_module_level, {
-            register_mut_global(&actual_lhs_tok.module_path, var_name.clone());
+            register_mut_global(&actual_lhs_tok.module_path.*, var_name.clone());
           });
         });
         // A thread-local is a module-level global PLUS the registry entry that
@@ -1798,7 +1798,7 @@ Use \`::\` for compile-time definitions inside impl.`
               )
             );
           });
-          register_thread_local(&actual_lhs_tok.module_path, var_name.clone());
+          register_thread_local(&actual_lhs_tok.module_path.*, var_name.clone());
         });
         variable_set_doc_comment(&new_var, &doc_comment_opt);
         // A second-class value (it holds a capture-list borrow) may be bound

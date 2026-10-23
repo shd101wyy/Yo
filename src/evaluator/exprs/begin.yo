@@ -1895,7 +1895,7 @@ _ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
 });
 _ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> unit)({
   acc.reads = (acc.reads + usize(1));
-  if((tok.module_path == site.module_path) && (tok.byte_offset > site.byte_offset), {
+  if((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset), {
     acc.later = true;
   });
 });
@@ -1911,7 +1911,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
     return(());
   });
   tok := ast_expr_token(e);
-  if((tok.byte_offset == site.byte_offset) && (tok.module_path == site.module_path), {
+  if((tok.byte_offset == site.byte_offset) && (tok.module_path.* == site.module_path), {
     acc.site_seen = true;
   });
   ei_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e));
@@ -2198,7 +2198,7 @@ _schedule_scope_end_drops :: (
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
         e7 := (e6 && !_name_matches_opt(v.name.clone(), &tail_atom_name));
         if(g_debug_scope_drops, {
-          eprintln(`[sd] mod=${v.token.module_path} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
+          eprintln(`[sd] mod=${v.token.module_path.*} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
         });
         if(e7, {
           to_drop.push(v);
@@ -2437,7 +2437,7 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
     return(Option(String).None);
   });
 
-  if(ast_expr_token(stmt).module_path.starts_with("auto-generated://"), {
+  if(ast_expr_token(stmt).module_path.*.starts_with("auto-generated://"), {
     return(Option(String).None);
   });
   inner := t_refine_inner(ty);
@@ -2791,7 +2791,7 @@ _evaluate_begin_expression_impl :: (
                   Rc(.Func({ result : rfb, meta : __fm1 })) => {
                     rfco := __fm1.*.result_is_comptime_only;
                     if(!rfco && type_representation_contains_raw_ptr(&rfb)
-                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.clone())), {
+                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.*.clone())), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
                         allow_parameter_source : true,
@@ -3786,7 +3786,7 @@ _evaluate_begin_expression_impl :: (
               if(wv.name.starts_with(String.from("_")), {
                 skip = true;
               });
-              if(wv.token.module_path.starts_with(String.from("auto-generated://")), {
+              if(wv.token.module_path.*.starts_with(String.from("auto-generated://")), {
                 skip = true;
               });
               // A binding whose value is a TYPE (a generic parameter like
@@ -3807,12 +3807,12 @@ _evaluate_begin_expression_impl :: (
               );
               if(!skip, {
                 wspan := Span(
-                  path : wv.token.module_path,
+                  path : wv.token.module_path.*,
                   row : usize(wv.token.row),
                   col : usize(wv.token.column),
                   len : wv.token.value.chars().count()
                 );
-                wlines := wv.token.input.split(String.from("\n"));
+                wlines := wv.token.input.*.split(String.from("\n"));
                 wsource_line := match(
                   wlines.get(usize(wv.token.row)),
                   .Some(l) => l,

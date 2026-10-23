@@ -64,7 +64,7 @@ _LiveVar :: ref(struct(def_end : u64, last : u64, scope_end : u64, to_scope_end 
 /// `compute_cross_boundary_variables`, read by the struct emitter
 /// (`inline_await_result_fields`) and `emit_inline_await`.
 (g_local_await_results : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
-_site_of :: (fn(tok : &Token) -> String)(`${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`);
+_site_of :: (fn(tok : &Token) -> String)(`${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()}`);
 /// State of the live-range walk over one `io.async` body.
 _LiveWalk :: ref(
   struct(
@@ -91,7 +91,7 @@ _LiveWalk :: ref(
 );
 /// A token's source position as one ordered key (row major).
 _lv_pos :: (fn(tok : &Token, w : &_LiveWalk) -> u64)({
-  if(!(tok.module_path == w.module_path), {
+  if(!(tok.module_path.* == w.module_path), {
     w.foreign = true;
   });
   (u64(tok.row) * u64(1048576)) + u64(tok.column)
@@ -555,7 +555,7 @@ compute_cross_boundary_variables :: (
   captured_variables := analysis.captured_variables;
   body_tok := ast_expr_token(body_expr.clone());
   w := _LiveWalk(
-    module_path : body_tok.module_path.clone(),
+    module_path : body_tok.module_path.*.clone(),
     foreign : false,
     vars : HashMap(String, _LiveVar).new(),
     remap : analysis.variable_id_remapping,
@@ -1710,7 +1710,7 @@ _report_await_fusion :: (fn(await_expr : &AstExpr, future_arg : &AstExpr) -> uni
     .Some(c) => if(c.verdict.len() == usize(0), `fusable (callee ${c.callee_at})`, `rejected (callee ${c.callee_at}): ${c.verdict}`),
     .None => if(ast_expr_is_atom(future_arg), String.from("not a call"), String.from("no io.async wrapper callee"))
   );
-  eprintln(`fusion: ${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()} ${verdict}`);
+  eprintln(`fusion: ${tok.module_path.*}:${tok.row.to_string()}:${tok.column.to_string()} ${verdict}`);
 });
 /// Emit one suspension point of the single-pass lowering, where the
 /// expression generator reached `io.await(future, effects)`, and return the C

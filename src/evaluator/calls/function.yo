@@ -296,7 +296,7 @@ _reject_private_method_call :: (
   name_tok := ast_expr_token(&name_expr);
   owner := match(mi.all_hits.get(usize(0)), .Some(h) => h.owner.clone(), .None => String.new());
   owner_opt := cond((owner.len() > usize(0)) => Option(String).Some(owner), true => Option(String).None);
-  if(private_member_blocked(name_tok.value.clone(), &owner_opt, &name_tok.module_path), {
+  if(private_member_blocked(name_tok.value.clone(), &owner_opt, &name_tok.module_path.*), {
     recv_str := cond(
       mi.is_static => ast_expr_to_string(&mi.receiver_expr),
       true => match(
@@ -483,7 +483,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   // Every evaluated `.` access reaches here (`reject_destructor_member_read`):
   // test the name before anything allocates.
   is_old_spelling := ((name_tok.value == "dispose") && migrate_drop_trait_on());
-  if(!(is_drop_method_name(&name_tok.value) || is_old_spelling) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
+  if(!(is_drop_method_name(&name_tok.value) || is_old_spelling) || name_tok.module_path.*.starts_with(String.from("auto-generated://")), {
     return(());
   });
   name := name_tok.value.clone();
@@ -744,18 +744,18 @@ _wrapper_member_repair :: (fn(receiver : &AstExpr, name_tok : &Token, ctor : &St
   r_start := usize(recv_tok.byte_offset);
   n_start := usize(name_tok.byte_offset);
   n_end := (n_start + name_tok.value.len());
-  if((n_end >= src.len()) || (r_start >= n_start), {
+  if((n_end >= src.*.len()) || (r_start >= n_start), {
     return(Option(Repair).None);
   });
   written := `${recv_tok.value}.${name_tok.value}(`;
-  if(src.substring(r_start, n_end + usize(1)) != written, {
+  if(src.*.substring(r_start, n_end + usize(1)) != written, {
     return(Option(Repair).None);
   });
   sep := cond((arg_count > usize(0)) => `, `, true => ``);
   replacement := `${ctor}.${name_tok.value}(${recv_tok.value}${sep}`;
   Option(Repair).Some(
     Repair(
-      span : Span(path : recv_tok.module_path, row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
+      span : Span(path : recv_tok.module_path.*, row : usize(recv_tok.row), col : usize(recv_tok.column), len : written.chars().count()),
       replacement : replacement,
       description : `call the ${ctor}'s own ${name_tok.value}: ${ctor}.${name_tok.value}(${recv_tok.value}${cond((arg_count > usize(0)) => `, ...`, true => ``)})`
     )
@@ -823,7 +823,7 @@ _reject_class1_panic_method_call :: (
       .None => false
     );
   });
-  if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.module_path.clone())), {
+  if(c1_recv_banned && !is_class1_panic_exempt_file(Option(String).Some(c1_name_tok.module_path.*.clone())), {
     raise_flow_violation(
       format_error_message_with_help(
         &c1_name_tok,
@@ -853,7 +853,7 @@ _reject_private_construction :: (
   (i : usize) = usize(0);
   while(i < labels.len(), {
     lbl := match(labels.get(i), .Some(l) => l.clone(), .None => String.new());
-    if(private_member_blocked(lbl.clone(), &decl, &tok.module_path), {
+    if(private_member_blocked(lbl.clone(), &decl, &tok.module_path.*), {
       exn.throw(
         dyn(
           format_error_message(
@@ -2689,13 +2689,13 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
           CaptureBorrow(
             label : label.clone(),
             is_mut : lent_mut,
-            root_id : generate_variable_id(&tok.module_path, &label),
+            root_id : generate_variable_id(&tok.module_path.*, &label),
             root_name : label.clone(),
             path : ArrayList(String).new(),
             root_is_value_param : false,
             through_value : false,
             assumed : true,
-            site : `${tok.module_path}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()}`
+            site : `${tok.module_path.*}:${(tok.row + u32(1)).to_string()}:${(tok.column + u32(1)).to_string()}`
           )
         );
       });
@@ -2918,7 +2918,7 @@ _future_lends_into :: (fn(e : &AstExpr, via : &AstExpr, ctx : &EvalContext, out 
           b := match(leaf_bs.get(bi), .Some(x) => x, .None => return(()));
           out.push(
             _FutureLend(
-              place : _LentPlace(root : AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&b.root_name, &tok.module_path)), path : b.path.clone()),
+              place : _LentPlace(root : AstExpr.Atom(alloc_global_expr_id(), synthetic_token(&b.root_name, &tok.module_path.*)), path : b.path.clone()),
               is_mut : b.is_mut,
               via : via.clone()
             )
@@ -3125,7 +3125,7 @@ _check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayLis
 _reject_global_lend_to_future :: (fn(place : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
   lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
   gv := match(_lent_root_variable(&lp.root, ctx), .Some(v) => v, .None => return(()));
-  if(!gv.is_module_level || (gv.is_compile_time_only || !is_mut_global(&gv.token.module_path, &gv.name)), {
+  if(!gv.is_module_level || (gv.is_compile_time_only || !is_mut_global(&gv.token.module_path.*, &gv.name)), {
     return(());
   });
   raise_flow_violation(
@@ -3502,7 +3502,7 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, env :
   pp := global_place_path(&l.place, ctx);
   place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => gv.ty.clone());
   place_is_handle := (is_reference_struct_type(&place_ty) || is_atomic_reference_struct_type(&place_ty));
-  marked := is_mut_global(&gv.token.module_path, &gv.name);
+  marked := is_mut_global(&gv.token.module_path.*, &gv.name);
   is_write := (l.exclusive && !place_is_handle && !pp.through_handle);
   if(global_lend_audit_enabled(), {
     kind := cond(
@@ -3510,7 +3510,7 @@ _judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, env :
       type_is_bitwise_copy(place_ty.clone()) => "copy",
       true => "owning"
     );
-    tl := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
+    tl := if(is_thread_local(&gv.token.module_path.*, &gv.name), "thread_local", "static");
     global_lend_audit_print(
       &`${global_lend_location(&at)} [global-lend] form=${l.tag} kind=${kind} storage=${tl} marked=${if(marked, "yes", "no")} write=${if(is_write, "yes", "no")} reach=${if(pp.heap, "heap", "binding")} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``
     );
@@ -3569,7 +3569,7 @@ _is_structural_clone_call :: (fn(call : &AstExpr, place_ty : &TypeValue, env : &
   defined_in_std := match(
     lookup_method_callee_value(ast_expr_id(call)),
     .Some(.FuncVal(mfv, _)) => {
-      mp := ast_expr_token(&mfv.*.body).module_path.clone();
+      mp := ast_expr_token(&mfv.*.body).module_path.*.clone();
       mp.starts_with("auto-generated://") || is_std_module_path(&mp, &ctx.std_path)
     },
     _ => false
@@ -6821,7 +6821,7 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
 /// Hand-written bodies keep the plain error.
 _generated_no_method_independence :: (fn(err : &YoError, func_expr : &AstExpr, ctx : &EvalContext) -> YoError)(
   cond(
-    !ast_expr_token(func_expr).module_path.starts_with(String.from("auto-generated://")) => err,
+    !ast_expr_token(func_expr).module_path.*.starts_with(String.from("auto-generated://")) => err,
     true => match(
       match(func_expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), _ => Option(AstExpr).None),
       .Some(recv) => match(
@@ -6984,7 +6984,7 @@ evaluate_function_call :: (
   ) -> AstExpr
 )({
   call_tok := ast_expr_token(expr);
-  call_mp := call_tok.module_path.clone();
+  call_mp := call_tok.module_path.*.clone();
   moved_before := _lent_roots_moved_before(expr, env);
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(&call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
@@ -8016,7 +8016,7 @@ _evaluate_function_call_unanchored :: (
     Rc(.Func({ meta : __fm3 })) => match(__fm3.*.is_extern, .Some(lang) => (lang == "c"), .None => false),
     _ => false
   );
-  gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.clone()));
+  gate_in_autogen := is_auto_generated_expansion(Option(String).Some(tok.module_path.*.clone()));
   // Rule D6 (`plans/reference/PARALLELISM_RULES.md`): a runtime extern (an
   // `extern` other than "c" — the `__yo_*` entry points `std/sys/externs.yo`
   // exports) called BY NAME from a file without the pragma. Declaring one
@@ -8032,7 +8032,7 @@ _evaluate_function_call_unanchored :: (
     Rc(.Func({ meta : __fm_d6 })) => match(__fm_d6.*.is_extern, .Some(lang) => (lang != "c"), .None => false),
     _ => false
   );
-  if(gate_is_extern_runtime && _d6_callee_is_by_name(&func_expr, ctx) && !gate_in_autogen && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
+  if(gate_is_extern_runtime && _d6_callee_is_by_name(&func_expr, ctx) && !gate_in_autogen && !is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -9977,7 +9977,7 @@ Fix: wrap the call:
               body : body_box,
               cap_names : cap_names,
               cap_tys : cap_tys,
-              func_id : stable_func_id(String.from(""), &recur_tok.module_path, usize(recur_tok.row), usize(recur_tok.column)),
+              func_id : stable_func_id(String.from(""), &recur_tok.module_path.*, usize(recur_tok.row), usize(recur_tok.column)),
               env_key : fv_env_key
             )
           ),
