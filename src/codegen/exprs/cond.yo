@@ -810,6 +810,16 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                   line.push_string(value_code.clone());
                   line.push_str(";");
                   em.emit_string_line(&line);
+                  // The cond still names `tv` as its value, and a reader after
+                  // the control flow (a function body's tail,
+                  // `(fn(q : &R) -> R)(cond(true => return(q)))`) reads it in
+                  // unreachable code: declare it, as the if/else chain does,
+                  // or the C names an undeclared identifier.
+                  tv_c_type := get_type_string(&value_type, &context.base);
+                  if(!_temp_is_declared(&temp_var_opt, context) && !(tv_c_type == "void"), {
+                    em.emit_string_line(`${indent.clone()}${tv_c_type} ${tv.clone()};`);
+                    declare_c_var_name(&context.base, tv.clone());
+                  });
                 }));
               }),
               .None => ()

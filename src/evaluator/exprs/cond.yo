@@ -351,6 +351,12 @@ evaluate_cond :: (
             return(expr);
           }
         );
+        // The arm's value leaves with the control flow (`return(x)` moves
+        // its temp out), as a runtime arm's does below: consume the body's
+        // temp, or the enclosing block's scope end released the returned
+        // value right before the `return`
+        // (issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md).
+        consume_case_body_temp_var(&evaluated_body, &expr_info_adopt_env(&body_info), ctx);
         result_ty := cond(
           match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
