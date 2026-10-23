@@ -18,7 +18,7 @@ in `plans/reference/`. Listed so nobody proposes it again:
 
 | Zig | Yo today | Where |
 | --- | --- | --- |
-| `comptime` and types as values; a function is generic iff it has comptime parameters; instantiations memoized | the same model, further: `comptime(T) : Type`, `comptime(Type)` results, CTFE over the whole language | `docs/en-US/CTFE.md`, `plans/backlog/UNIFIED_COMPTIME_DESIGN.md` |
+| `comptime` and types as values; a function is generic iff it has comptime parameters; instantiations memoized | the same model, further: `comptime(T) : Type`, `comptime(Type)` results, CTFE over the whole language | `docs/en-US/CTFE.md`, `plans/archive/UNIFIED_COMPTIME_DESIGN.md` (superseded by `plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md`) |
 | `anytype` | an unbounded `generic(T)` parameter defers the body to the call (AGENTS.md pitfalls) | `src/evaluator/calls/` |
 | `@typeInfo`/`@Type`, `@TypeOf` | `TypeInfo`, `Type.get_info()`, `type_of` | `docs/en-US/TYPE_REFLECTION.md`, `src/expr.yo:28` |
 | `@embedFile` | `embed_file` yielding a `comptime_str` | `docs/en-US/CTFE.md:141` |
@@ -135,6 +135,9 @@ checked at the slot it enters", E1102). File the current behaviour as an
 issue if none exists *(verify)*; measure `check ./src` CTFE time before
 and after.
 
+**Consumed by** `plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md` C5, as
+recorded.
+
 ### Z4. `@src()` — source location as a value
 
 **Yo today.** Panics bake `file:row:col` into the emitted C; nothing lets
@@ -147,6 +150,9 @@ evaluated where it is written; a defaulted parameter
 `loc : SourceLocation = source_location()` then gives any assert or log
 helper the caller's site at no cost, which is what `std/assert`,
 `std/log` and `std/testing` want. Small (one builtin, one prelude type).
+
+**Consumed by** `plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md` C6, with
+this shape; C6 adds Z11's leak table and the comptime consumers.
 
 ### Z5. Packed structs and bit fields; explicit alignment
 
@@ -187,21 +193,26 @@ codegen case and two prelude functions.
 exist; derive rules walk fields at comptime through AST reflection. Whether
 a `for` over a `ComptimeList` **inside a runtime function body** unrolls
 per element (Zig's `inline for`, the generic serializer/formatter idiom)
-is *(verify)*: if it already does, document it in `CTFE.md`; if it
-evaluates the list at runtime or is rejected, add `comptime_for(list, x => …)`
-as a prelude macro that unrolls at expansion time.
+was *(verify)*; verified 2026-10-23: it is rejected (E0610, no `into_iter`
+on `ComptimeList`, in a runtime body; E1104 in a comptime body). The
+original verdict, a prelude macro that unrolls at expansion time, is ruled
+out by the macro removal. **Consumed by**
+`plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md` C8: `comptime_for(list, x => …)`
+as an evaluator builtin form.
 
 ### Z8. `@setEvalBranchQuota` — a CTFE budget
 
-**Yo today.** No evaluation budget in the evaluator *(grep: no
-budget/quota/fuel in `src/evaluator/`)*: a runaway comptime loop hangs
-`yo check` and the LSP with it. Zig's default quota is 1000 branches,
-raised per site.
+**Yo today.** No nameable evaluation budget. (Corrected 2026-10-23: the
+evaluator does have a 10 000-iteration fuel cap on `while(comptime(...))`,
+`YO_MAX_COMPTIME_LOOP_ITERATIONS`, and a `--compile-timeout-ms` wall-clock
+deadline.) Zig's default quota is 1000 branches, raised per site.
 
 **Verdict: adopt, small:** a default branch quota per comptime
 evaluation, an E-code that names the site and says how to raise it,
 `comptime_budget(n)` for the sites that legitimately need more (table
 generation). Protects every `yo check` and the LSP from one bad loop.
+
+**Consumed by** `plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md` C7.
 
 ### Z9. Labeled blocks as expressions
 
@@ -269,6 +280,10 @@ idiom. **Yo today:** none *(grep: no comptime map in `std/`)*; the
 compiler's own lexer keyword dispatch and `src/cli_lang.yo` tables are the
 consumers. **Verdict: adopt, small-medium,** as `ComptimeStringMap(V)`
 constructed from a comptime list of pairs; CTFE already does the work.
+
+**Not consumed** by `plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md`: its
+C2 is a separate comptime-only `ComptimeDict(V)`, named apart; this item,
+with its runtime consumers, stays open here.
 
 ### Z15. `std.MultiArrayList`
 
@@ -347,7 +362,7 @@ green this project has been burned by.
 | Z2 error return traces, `errdefer` | medium | `try(expr)` landing | with `try` |
 | Z13 enum containers | small | L8 discriminants | after L8 |
 | Z5 packed structs, alignment | large | a design doc | on the first register-map consumer |
-| Z7, Z19, Z20 | verify first | — | — |
+| Z19, Z20 | verify first (Z7 answered, see Z7) | — | — |
 | Z18 | a CP0 row | CODEGEN_PERFORMANCE CP0 | with CP0 |
 
 ## Maintenance

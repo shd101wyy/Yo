@@ -233,6 +233,24 @@ aliasing, Yo wins exclusivity and type location-freedom), a soundness
 verdict, and three harvests (field-path `depends`, unique reachability
 as a static `get_mut`, generational-reference evidence for the
 `Arena(T)`/`Id(T)` candidate).
+[`COMPTIME_METAPROGRAMMING_AUDIT`](backlog/COMPTIME_METAPROGRAMMING_AUDIT.md)
+(2026-10-22) is the full audit of comptime support asked for by the macro
+removal, written against the post-VBD end state: the verdict (no capability
+Yo wants is lost; the one real delta, user-defined ad-hoc expression
+splicing, is the removal decision's deliberate trade), the audit of the four
+layers (values, signatures, the CTFE engine, the quote/Expr/derive layer)
+with a nine-item gap table, the proposed additions C1–C9 (comptime template
+strings, a comptime-only `ComptimeDict`, `Expr` constructors and provenance
+with `source_location()`, `comptime_fn` promotion widened past
+integer/float/`comptime_str` returns, an arbitrary-precision `comptime_int`,
+`comptime_for`, a CTFE budget), two rules it needs (`comptime_eval`
+restricted to declarations, and a `Comptime` storage exclusion that must land
+by VBD's B8), and the plan for the demonstration that comptime-only
+metaprogramming is sufficient: a Lisp interpreter with Lisp-level macros,
+running entirely in Yo's comptime context (`tests/comptime_lisp.test.yo`,
+not yet written). It supersedes
+[`UNIFIED_COMPTIME_DESIGN`](archive/UNIFIED_COMPTIME_DESIGN.md) (stale,
+TS-era, archived).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
