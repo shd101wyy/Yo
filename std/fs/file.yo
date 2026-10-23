@@ -80,22 +80,22 @@ IoTraits :: import("../io");
 /// The descriptor, path and position behind a `File`'s `Box`. Its `Drop`
 /// closes the descriptor unless `close` or `into_fd` retired it.
 _FileState :: struct(
-    _fd : i32,
-    _path : Path,
-    _is_closed : bool,
-    /// Byte offset for the NEXT `read`/`write_*` on this handle.
-    ///
-    /// `File` must carry its own position because the async runtime implements
-    /// reads and writes with POSITIONAL I/O (`pread`/`pwrite`), which neither
-    /// consults nor advances the descriptor's file position. Passing a constant
-    /// 0 here is what made every `read` return the first bytes forever, every
-    /// `write_*` overwrite at the start, and `seek` a silent no-op —
-    /// issues/fixed/file-read-write-ignore-position-always-offset-zero.md.
-    ///
-    /// One exception is deliberate: a handle opened `.Append` carries
-    /// `O_APPEND`, and the kernel forces those writes to end-of-file whatever
-    /// offset is supplied, so `_pos` does not govern them.
-    _pos : u64
+  _fd : i32,
+  _path : Path,
+  _is_closed : bool,
+  /// Byte offset for the NEXT `read`/`write_*` on this handle.
+  ///
+  /// `File` must carry its own position because the async runtime implements
+  /// reads and writes with POSITIONAL I/O (`pread`/`pwrite`), which neither
+  /// consults nor advances the descriptor's file position. Passing a constant
+  /// 0 here is what made every `read` return the first bytes forever, every
+  /// `write_*` overwrite at the start, and `seek` a silent no-op —
+  /// issues/fixed/file-read-write-ignore-position-always-offset-zero.md.
+  ///
+  /// One exception is deliberate: a handle opened `.Append` carries
+  /// `O_APPEND`, and the kernel forces those writes to end-of-file whatever
+  /// offset is supplied, so `_pos` does not govern them.
+  _pos : u64
 );
 impl(
   _FileState,
@@ -241,19 +241,17 @@ impl(
   /// Write bytes from an `ArrayList(u8)` to the file.
   /// Returns the number of bytes written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(
-      { &self, &data }(e : IoExn) =>
-        cond(
-          (data.len() == usize(0)) => usize(0),
-          true => {
-            st := self._st();
-            result := e.io.await(IO_file.write(self._cell._fd, data.ptr().unwrap(), u32(data.len()), self._cell._pos), e.io);
-            n := IoError.check(result, e.exn);
-            unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
-            usize(n)
-          }
-        )
-    )
+    io.async({ &self, &data }(e : IoExn) =>
+      cond(
+        (data.len() == usize(0)) => usize(0),
+        true => {
+          st := self._st();
+          result := e.io.await(IO_file.write(self._cell._fd, data.ptr().unwrap(), u32(data.len()), self._cell._pos), e.io);
+          n := IoError.check(result, e.exn);
+          unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
+          usize(n)
+        }
+      ))
   ),
   /// `fsync` this descriptor: block until the file's data AND metadata have
   /// reached the storage device. This is Rust's `File::sync_all`, NOT Rust's

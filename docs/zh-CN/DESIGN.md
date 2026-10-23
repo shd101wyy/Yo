@@ -1258,7 +1258,25 @@ export(main);
 
 要把字段从一个仍然存活的持有者中移出，请使用 `std/mem`（即 Rust 的 `std::mem`）：`replace(&mut h.f, v)` 写入 `v` 并返回旧值，`take(&mut h.f)` 写入 `T` 的默认值（`where(T <: Default)`）并返回旧值，`swap(&mut a, &mut b)` 交换两个位置的值。它们都按位移动，因此只能移动的值既不会被复制，也不会被 drop 两次。它们位于独立的模块而不是 prelude 中，所以这些名字仍可用于你自己的定义：`{ replace, take, swap } :: import("std/mem");`。
 
-泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。`std/` 目前还没有使用只能移动的类型：它的资源仍是引用类型，会在[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的后续步骤中变成只能移动的值。
+泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。
+
+#### std 的资源是只能移动的
+
+`std/` 中的资源是只能移动的值：`File`、`TempDir`、`TempFile`、`Watcher`、`TcpStream`、`TcpListener`、`UdpSocket`、`UnixStream`、`UnixListener`、`TlsStream`、`HttpClient`、`Child` 及其管道句柄（`ChildStdin`、`ChildStdout`、`ChildStderr`）、`Thread`，以及拥有其中之一的 `BufReader`/`BufWriter`（[值语义计划](../../plans/VALUES_BY_DEFAULT.md) V3）。每个都是状态存放在 `Box` 里的结构体，因此句柄可以移动，而 future 或运行时仍持有状态的地址。丢弃句柄即释放资源：描述符被关闭、临时文件被删除、监视被停止、线程被分离。原子原语（`Mutex`、`RwLock`、`Channel`、`Atomic*` 类型以及 `std/sync` 的其余部分）在后续步骤之前仍是共享的引用类型。
+
+- **复制是 E0901。** `g := f` 移动文件，之后再使用 `f` 是 E0901（使用已移动的值）。把一个句柄存两次、或在两个闭包中捕获它，同样是 E0901。在这次改动之前，`File` 是引用句柄，副本共享它的描述符和位置。
+- **借出它。** 每个方法都取 `self : &Self`，所以 `f.read_to_string(io)` 借用 `f`。只使用资源的函数取 `&File`。
+- **通过引用类型共享。** 在单个线程内，`rc(f)` 得到 `Rc(File)`，它的所有句柄都指向同一个文件（`h.*.read_to_string(io)`）。跨线程时用 `Arc(Mutex(TcpStream))`。持有资源的 `ref` 结构体出于同样的原因把它存为 `Rc` 字段，就像 `HttpServer` 持有它的监听器那样。
+- **把它移出来。** `Option(T).unwrap` 通过借用读取，不能把只能移动的载荷移出来。改用消耗型 match：`f := match(opt, .Some(x) => x, .None => …)`。
+- **交出所有权。** `BufReader(File).new(f)` 和 `TcpListener.incoming()` 取得所有权（`sink`）；`get_ref()` 和 `Incoming.listener()` 把它借回来。要在派生的任务中服务一个套接字，把它移入该任务。
+
+若方法的 future 在挂起点之间读写资源的状态，它会借用该资源直到 future 完成。这类方法是 `File.read`、`File.write` 及其便捷方法、所有 `close`、`BufReader.read_line`、`Child.wait`、`HttpClient.fetch`，以及 `Reader`/`Writer` 的默认方法（`read_to_end`、`read_to_string`、`write_all`）。借用型 future 遵守 §3.13 A2 的规则：
+
+- 在创建它的地方 await。它不能被绑定到名字、被 spawn 或被返回（E0909）。
+- 它的 effect bundle 必须是一个位置。写成 `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`；在 `io.await` 里内联 `IoExn(...)` 是 E0910。
+- 被借用的资源不能位于 `ref` 对象或指针解引用之内（E0909）：把它存为 `Rc` 字段。
+
+只需要描述符的 future（`TcpStream.read`、`TcpListener.accept`、`UdpSocket.recv`）复制描述符而不借用任何东西，因此可以被 spawn。
 
 #### 析构函数：`Drop`
 

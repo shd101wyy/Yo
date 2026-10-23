@@ -205,7 +205,7 @@ test("a connected UnixStream write to an accepted peer that has closed throws in
 // AF_UNIX listener has no AcceptEx, and its accept() used to block the
 // event-loop thread itself: the client's connect, on the same loop, never ran.
 _reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  io.async(e => {
+  io.async({ &s, want }(e : IoExn) => {
     got := ArrayList(u8).new();
     buf := ArrayList(u8).new();
     mut(i) := usize(0);
@@ -232,8 +232,10 @@ _reads_exactly :: (fn(s : &UnixStream, want : usize, io : Io) -> Impl(Future(Arr
     got
   })
 );
-_pending_accept_server :: (fn(listener : &UnixListener, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async(e => {
+// The task owns the listener (a move-only value), so it can be spawned; the
+// listener closes when the task ends or is aborted.
+_pending_accept_server :: (fn(sink(listener) : UnixListener, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async({ listener }(e : IoExn) => {
     s := e.io.await(listener.accept(e.io), e);
     req := e.io.await(_reads_exactly(&s, usize(4), e.io), e);
     assert(req.len() == usize(4), "the server read the whole request");
@@ -255,7 +257,7 @@ test("accept pending in a spawned task before the client connects", {
   path := _sock("pending.sock");
   _remove_stale(&path, io);
   listener := io.await(UnixListener.bind(&path, io), e);
-  server := io.spawn(_pending_accept_server(&listener, io), e);
+  server := io.spawn(_pending_accept_server(listener, io), e);
   // Let the server task run up to its accept before the client exists.
   io.await(yield(io), io);
   client := io.await(UnixStream.connect(&path, io), e);
@@ -266,7 +268,6 @@ test("accept pending in a spawned task before the client connects", {
   assert(reply(usize(3)) == u8(103), "g");
   server.await(io);
   io.await(client.close(io), e);
-  io.await(listener.close(io), e);
   io.await(remove_file(&path, io), e);
 });
 // The same pending accept, never answered: aborting its task must take the
@@ -286,11 +287,10 @@ test("aborting a task whose accept is pending releases it", {
   path := _sock("abort.sock");
   _remove_stale(&path, io);
   listener := io.await(UnixListener.bind(&path, io), e);
-  server := io.spawn(_pending_accept_server(&listener, io), e);
+  server := io.spawn(_pending_accept_server(listener, io), e);
   io.await(yield(io), io);
   server.abort();
   _r := server.await(io);
-  io.await(listener.close(io), e);
   io.await(remove_file(&path, io), e);
   assert(true, "the aborted accept did not hold the loop");
 });

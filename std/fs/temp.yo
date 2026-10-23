@@ -163,17 +163,15 @@ impl(
   /// follows, because both consult the same `_removed` flag. Async, awaited
   /// on the event loop.
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(
-      { &self, io }(e : IoExn) =>
-        cond(
-          self._cell._removed => (),
-          true => {
-            st := addr_of(self._cell.*);
-            e.io.await(_dir_mod.remove_dir(&self._cell._path, io), e);
-            unsafe(consume(st.*._removed = true));
-          }
-        )
-    )
+    io.async({ &self, io }(e : IoExn) =>
+      cond(
+        self._cell._removed => (),
+        true => {
+          st := addr_of(self._cell.*);
+          e.io.await(_dir_mod.remove_dir(&self._cell._path, io), e);
+          unsafe(consume(st.*._removed = true));
+        }
+      ))
   )
 );
 export(TempDir);
@@ -295,20 +293,18 @@ impl(
   /// becomes a no-op. Async, awaited on the event loop; throws `IoExn` if
   /// either step fails.
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(
-      { &self, io }(e : IoExn) =>
-        cond(
-          self._cell._removed => (),
-          true => {
-            st := addr_of(self._cell.*);
-            // The file's state sits inside this temporary's box: close it
-            // through its address (this future borrows the temporary).
-            e.io.await(_file_mod._close_file_state(addr_of(self._cell._file._cell.*), io), e);
-            e.io.await(_dir_mod.remove_file(&self._cell._path, io), e);
-            unsafe(consume(st.*._removed = true));
-          }
-        )
-    )
+    io.async({ &self, io }(e : IoExn) =>
+      cond(
+        self._cell._removed => (),
+        true => {
+          st := addr_of(self._cell.*);
+          // The file's state sits inside this temporary's box: close it
+          // through its address (this future borrows the temporary).
+          e.io.await(_file_mod._close_file_state(addr_of(self._cell._file._cell.*), io), e);
+          e.io.await(_dir_mod.remove_file(&self._cell._path, io), e);
+          unsafe(consume(st.*._removed = true));
+        }
+      ))
   )
 );
 export(TempFile);

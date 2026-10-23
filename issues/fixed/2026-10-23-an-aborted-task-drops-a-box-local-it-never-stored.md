@@ -10,9 +10,17 @@
 { IoExn, Exception } :: import("std/error");
 { println } :: import("std/fmt");
 _St :: struct(fd : i32, closed : bool);
-impl(_St, Drop(drop : (fn(self : &mut Self) -> unit)({
-  if(!self.closed, { println(`close ${self.fd}`); self.closed = true; });
-})));
+impl(
+  _St,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      if(!self.closed, {
+        println(`close ${self.fd}`);
+        self.closed = true;
+      });
+    })
+  )
+);
 R :: struct(_cell : Box(_St));
 impl(R, get : (fn(self : &Self) -> i32)(self._cell.fd));
 _make :: (fn(fail : bool, io : Io) -> Impl(Future(R, IoExn)))(
@@ -32,7 +40,13 @@ _outer :: (fn(fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
   })
 );
 _run :: (fn(fail : bool, io : Io) -> bool)({
-  exn := Exception(throw : (err -> { unwind(false); }));
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(false);
+      }
+    )
+  );
   ioe := IoExn(io : io, exn : exn);
   v := io.await(_outer(fail, io), ioe);
   v == i32(7)

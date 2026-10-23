@@ -1297,7 +1297,25 @@ Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field 
 
 To move a field out of a holder that stays alive, use `std/mem` (Rust's `std::mem`): `replace(&mut h.f, v)` stores `v` and returns the old value, `take(&mut h.f)` stores `T`'s default (`where(T <: Default)`) and returns the old value, and `swap(&mut a, &mut b)` exchanges two places. Each moves bitwise, so a move-only value is neither copied nor dropped twice. They live in their own module rather than the prelude, so the names stay free for your own definitions: `{ replace, take, swap } :: import("std/mem");`.
 
-A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
+A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call.
+
+#### std's resources are move-only
+
+The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Watcher`, `TcpStream`, `TcpListener`, `UdpSocket`, `UnixStream`, `UnixListener`, `TlsStream`, `HttpClient`, `Child` and its pipe handles (`ChildStdin`, `ChildStdout`, `ChildStderr`), `Thread`, and a `BufReader`/`BufWriter` that owns one of them ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), V3). Each is a struct whose state lives in a `Box`, so the handle can move while a future or the runtime holds the state's address. Dropping the handle releases the resource: the descriptor is closed, the temporary removed, the watch stopped, the thread detached. The atomic primitives (`Mutex`, `RwLock`, `Channel`, the `Atomic*` types and the rest of `std/sync`) are still shared reference types until a later step.
+
+- **A copy is E0901.** `g := f` moves the file, and a use of `f` afterwards is E0901 (use of moved value). Storing one handle twice, or capturing it in two closures, is E0901 as well. Before this change a `File` was a reference handle, and a copy shared its descriptor and position.
+- **Lend it.** Every method takes `self : &Self`, so `f.read_to_string(io)` borrows `f`. A function that only uses a resource takes `&File`.
+- **Share it through a reference type.** On one thread, `rc(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
+- **Moving it out.** `Option(T).unwrap` reads through a borrow and cannot move a move-only payload out. Use a consuming match instead: `f := match(opt, .Some(x) => x, .None => …)`.
+- **Hand it over.** `BufReader(File).new(f)` and `TcpListener.incoming()` take ownership (`sink`); `get_ref()` and `Incoming.listener()` lend it back. To serve a socket from a spawned task, move it into the task.
+
+A method whose future reads or writes the resource's state across a suspension borrows the resource until the future completes. These are `File.read`, `File.write` and their conveniences, every `close`, `BufReader.read_line`, `Child.wait`, `HttpClient.fetch`, and the `Reader`/`Writer` defaults (`read_to_end`, `read_to_string`, `write_all`). A borrowing future follows the rules of §3.13 A2:
+
+- Await it where it is made. It cannot be bound to a name, spawned or returned (E0909).
+- Its effect bundle must be a place. Write `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`; an inline `IoExn(...)` in the `io.await` is E0910.
+- The borrowed resource cannot live inside a `ref` object or a pointer dereference (E0909): hold it as an `Rc` field.
+
+A future that only needs the descriptor (`TcpStream.read`, `TcpListener.accept`, `UdpSocket.recv`) copies the descriptor and borrows nothing, so it can be spawned.
 
 #### The destructor: `Drop`
 

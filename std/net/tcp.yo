@@ -178,6 +178,13 @@ _close_stream_state :: (fn(st : *_TcpStreamState, io : Io) -> Impl(Future(unit, 
     );
   })
 );
+/// `_close_stream_state` over `s`'s state, for a stream held inside another
+/// value's box (`TlsStream`): the future captures the state's address and
+/// borrows nothing, so the caller's own future must borrow the owner of `s`
+/// until this one completes.
+_close_stream_in_place :: (fn(s : &TcpStream, io : Io) -> Impl(Future(unit, IoExn)))(
+  _close_stream_state(addr_of(s._cell.*), io)
+);
 /// A stream owning the connected socket `fd`.
 _new_stream :: (fn(fd : i32, peer : SocketAddr, local : SocketAddr) -> TcpStream)(
   TcpStream(_cell : box(_TcpStreamState(_fd : fd, _peer_addr : peer, _local_addr : local, _is_closed : false)))
@@ -636,7 +643,7 @@ impl(
     })
   })
 );
-export(TcpStream, _close_stream_state);
+export(TcpStream, _close_stream_in_place);
 
 // === std/io async trait impls (STD_API_AUDIT D5) ===
 //

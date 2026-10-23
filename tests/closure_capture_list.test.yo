@@ -14,6 +14,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { Thread } :: import("std/thread");
+{ IoExn, Exception } :: import("std/error");
 (g_cl_total : i32) = i32(0);
 _cl_call0 :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
 _cl_call1 :: (fn(f : &Impl(Fn(x : i32) -> i32), x : i32) -> i32)(f(x));
@@ -602,6 +603,24 @@ test("borrow places: an `io.async` body's capture list may borrow, and its futur
     f := io.async({ &k }(io : Io) => k);
     ()
   }, "would hold a borrowing future");
+});
+// An annotated parameter after a capture list binds the future's context type
+// the way a plain `(e : IoExn) => ...` does, with no expected type to lean on
+// (issues/fixed/2026-10-23-an-io-async-capture-list-hides-the-annotated-context-parameter.md).
+test("an `io.async` body's capture list keeps its annotated `IoExn` parameter", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  b := IoExn(io : io, exn : exn);
+  k := i32(5);
+  w := io.await(io.async({ k }(e : IoExn) => (k + i32(1))), b);
+  assert(w == i32(6), "the IoExn-context body ran with its by-value capture");
+  r := io.await(io.async({ &k }(e : IoExn) => (k + i32(2))), b);
+  assert(r == i32(7), "the IoExn-context body read its borrowed capture");
 });
 test("an `io.async` body's by-value capture list moves a captured future out", {
   k := i32(1);
