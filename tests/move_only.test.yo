@@ -1576,7 +1576,9 @@ test("move-only: in an io.async loop, an exit inside a binding's own initializer
   assert(g_mo_sum == i32(3), "nothing disposed twice");
 });
 // An exit in a later arm than the move: the move is not on the exit's path,
-// so the exit drops the local
+// so the exit drops the local. (A `match` whose other arm breaks or continues
+// still drops the moved local after the match:
+// issues/2026-10-23-a-match-whose-other-arm-breaks-drops-the-moved-local-again-after-the-match.md.)
 // (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
 _mo_break_in_later_arm :: (fn(k : i32) -> i32)({
   (mut(i) : i32) = i32(0);
@@ -1598,18 +1600,12 @@ _mo_continue_in_later_arm :: (fn(k : i32) -> i32)({
   while(i < i32(3), {
     i = (i + i32(1));
     f := _MoFd(n : i);
-    match(
-      _mo_some(i),
-      .Some(_) => cond(
-        (i != k) => {
-          total = (total + _mo_take(f));
-        },
-        true => {
-          continue;
-        }
-      ),
-      .None => {
-        break;
+    cond(
+      (i != k) => {
+        total = (total + _mo_take(f));
+      },
+      true => {
+        continue;
       }
     );
   });

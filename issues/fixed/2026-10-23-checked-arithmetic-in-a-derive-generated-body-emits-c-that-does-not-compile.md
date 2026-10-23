@@ -44,10 +44,15 @@ unterminated.
 
 ## Fix
 
-`_idx_c_string_literal` writes every control byte (below 0x20, and 0x7f) as
-a three-digit octal escape. The trap's message then names the generated code
-as its file, which is what the token says. The same helper serves the checked
-index, division and negation guards.
+`_idx_c_string_literal` names an `auto-generated://` path that carries code
+(it contains a newline) by its scheme alone, `"auto-generated://"`: the code is
+no location a reader can open, and the review of the first version of this
+fix measured that embedding it copied the whole generated body into the C
+once per checked site and into the trap's message. Every other control byte
+(below 0x20, and 0x7f) is written as a three-digit octal escape. The same
+helper serves the checked index, division and negation guards. A `??/` in a
+path would still be a C trigraph:
+`issues/2026-10-23-a-string-literal-containing-a-trigraph-is-rewritten-by-the-c-compiler.md`.
 
 **Regression test:** `tests/derive.test.yo`, "a derive-generated body with
 checked arithmetic compiles; a `break` drops a live value local". Under the

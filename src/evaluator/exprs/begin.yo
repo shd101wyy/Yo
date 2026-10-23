@@ -72,7 +72,7 @@ pragma(Pragma.AllowUnsafe);
   lookup_method_callee_type
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, is_fnonce_capture_frame, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, variable_undone_moves, snapshot_env, is_fnonce_capture_frame, env_adopt } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -777,10 +777,18 @@ _m3_span_contains :: (fn(node : &AstExpr, t : &Token) -> bool)({
 /// through arm `i`, so an exit there still owns the variable though it
 /// follows the move in source (`if(c, { take(s); }, { break; })`): `.None`,
 /// no move ahead on this path. A move in a `cond` condition is on the path
-/// of every later arm and keeps `consumed`
+/// of every later arm and keeps `consumed`. Only a move the flow log kept for
+/// its arm counts (`UndoneMove`, recorded when the next arm starts): a temp's
+/// `consumed_at_token` is not a move on one path (temps are not flow-logged,
+/// and the token is rewritten by each later use that re-consumes it), and
+/// treating it as one dropped a temp whose count `parts := <temp>` had
+/// already handed to `parts`
 /// (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
-_m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, consumed : &Option(Token)) -> Option(Token))({
+_m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
   ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
+  if((i == usize(0)) || !_m3_is_flow_logged_move(variable, &ct), {
+    return(consumed);
+  });
   (j : usize) = usize(0);
   while(j < i, {
     match(
@@ -804,13 +812,30 @@ _m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, consumed : &O
   });
   consumed
 });
+/// Whether the flow log kept `variable`'s move at `t` for the arm that made
+/// it (see `UndoneMove`).
+_m3_is_flow_logged_move :: (fn(variable : &Variable, t : &Token) -> bool)({
+  moves := variable_undone_moves(variable);
+  (k : usize) = usize(0);
+  while(k < moves.len(), {
+    match(
+      moves.get(k),
+      .Some(m) => if(!m.arm_drop && _m3_tokens_comparable(&m.moved_at, t) && (m.moved_at.character == t.character), {
+        return(true);
+      }),
+      .None => ()
+    );
+    k = (k + usize(1));
+  });
+  false
+});
 /// The consumption an exit inside the argument `args(i)` of a plain call is
 /// ordered against. A variable passed by value as an earlier argument
 /// (`g(b, { if(c, { break; }); 0 })`) moves when the call runs, after every
 /// argument is evaluated, so an exit in a later argument still owns it:
 /// `.None`
 /// (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
-_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, consumed : &Option(Token)) -> Option(Token))({
+_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, variable : &Variable, consumed : &Option(Token)) -> Option(Token))({
   ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
   // A block's statements run one by one: an earlier one is not an argument.
   if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
@@ -822,7 +847,7 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
       args.get(j),
       .Some(a) => if(ast_expr_is_atom(&a), {
         at := ast_expr_token(&a);
-        if(_m3_tokens_comparable(&at, &ct) && (at.character == ct.character), {
+        if((at.value == variable.name) && _m3_tokens_comparable(&at, &ct) && (at.character == ct.character), {
           return(Option(Token).None);
         });
       }),
@@ -1041,7 +1066,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
           match(
             args.get(ci),
             .Some(arg) => if(ast_expr_is_fn_call(&arg) && ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
-              arm_consumed := _m3_consumed_for_arm(&args, ci, consumed);
+              arm_consumed := _m3_consumed_for_arm(&args, ci, variable, consumed);
               match(
                 arg,
                 .FnCall(_, _, bargs, _, _) => {
@@ -1068,7 +1093,7 @@ _m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : 
       recur(&func, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, consumed);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed);
         match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
@@ -1126,7 +1151,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
           match(
             args.get(ci),
             .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
-              arm_consumed := _m3_consumed_for_arm(&args, ci, consumed);
+              arm_consumed := _m3_consumed_for_arm(&args, ci, variable, consumed);
               match(
                 arg,
                 .FnCall(_, _, bargs, _, _) => {
@@ -1150,7 +1175,7 @@ _m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr
       recur(&func, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, consumed);
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, variable, consumed);
         match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
