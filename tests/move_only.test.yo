@@ -1366,3 +1366,38 @@ test("move-only: an inner loop's exit and a move before a `break` drop nothing t
   assert(_mo_break_before_undone_move(i32(2)) == i32(1), "1 moved, the break at 2");
   assert(g_mo_disposed == (before3 + i32(2)), "1 by the callee, 2 once at the break");
 });
+// The same exits inside an io.async body, across an await, where the local
+// lives in a task slot rather than a C local.
+test("move-only: in an io.async loop, a `break` or `continue` before a later move drops the slot local once", {
+  before := g_mo_disposed;
+  result := rc(RefCell(i32).new(0));
+  task := io.async((io : Io) => {
+    (mut(i) : i32) = i32(0);
+    (mut(total) : i32) = i32(0);
+    while(i < i32(3), {
+      i = (i + i32(1));
+      f := _MoFd(n : i);
+      io.await(yield(io), io);
+      if(i == i32(2), {
+        break;
+      });
+      total = (total + _mo_take(f));
+    });
+    (mut(j) : i32) = i32(0);
+    while(j < i32(3), {
+      j = (j + i32(1));
+      g := _MoFd(n : (j * i32(10)));
+      io.await(yield(io), io);
+      if(j == i32(2), {
+        continue;
+      });
+      total = (total + _mo_take(g));
+    });
+    result.with_mut(cur => {
+      cur = total;
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur) == i32(41), "1, then 10 and 30, reached the callee");
+  assert(g_mo_disposed == (before + i32(5)), "1, 10 and 30 by the callee, 2 at the break, 20 at the continue");
+});

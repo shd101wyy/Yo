@@ -9,7 +9,8 @@ path. The same body written by hand in an `impl` drops both. (Filed as S2;
 raised to S1 by the probe's review, 2026-10-23: `issues/README.md` puts
 silently wrong results and unbounded leaks under S1.)
 
-**Status:** open. **Found:** 2026-10-23 by the V2b B8 flip probe
+**Status:** fixed 2026-10-23 (branch `fix/derive-early-return-drop`; see
+[Fix](#fix)). **Found:** 2026-10-23 by the V2b B8 flip probe
 (`plans/handover/VBD_B8_PROBE_CENSUS_2026-10-22.md`). Once `String` is a value,
 `tests/encoding/json.test.yo`'s "derived decode missing field errors" leaks
 1 byte under LeakSanitizer. `derive(FromJson)`'s body
@@ -41,7 +42,7 @@ has no drop on either path. Renaming the locals (no `__` prefix) or giving
 the lambda a full `fn(k : i32) -> Result(Self, i32)` signature does not change
 the result.
 
-## Root cause (hypothesis)
+## Root cause (hypothesis, superseded by [Fix](#fix))
 
 The early-return epilogue ("Drop local variables before early return",
 `src/codegen/`) lists the owned value locals that the function generation
@@ -51,7 +52,7 @@ derive-generated body are bound while the derive's impl is being evaluated,
 and they are evidently not registered with the function that codegen later
 emits. The probe did not trace the registration; this is a reading of the C.
 
-## Fix direction
+## Fix direction (as filed)
 
 Register a derive-generated body's owned value locals like those of a
 written body. The regression test is the repro, which should print
@@ -62,3 +63,51 @@ written body. The regression test is the repro, which should print
 After B8, every `derive(FromJson)` error path that has already decoded a
 `String` or a list field leaks it. Any other `derive_rule` whose body binds
 an owned value local and returns early leaks the same way.
+
+## Fix
+
+The bug was not in registration and not derive-specific in mechanism: the
+M3 driver in `_evaluate_begin_expression_impl`
+(`src/evaluator/exprs/begin.yo`) skipped every local and every parameter
+whose binding token's module path starts with `auto-generated://`, the
+pseudo-path `.to_expr()` stamps on code parsed from a string. The driver
+attaches a `___drop` of a CONSUMED local (one the body moves later, here
+`__x` into `Self(x : __x, …)`) to each `return`/`unwind` before the move and
+feeds the effect-escape list; with the exemption, a derive-generated body got
+none of them. The `ref`/`Rc` locals the issue saw released took a different
+path (they are not consumed on develop, so the scope-end list carried them).
+The exemption came over from the TypeScript compiler
+(`begin.ts`, tag `src-attic-final`) with no stated reason. Its likely purpose,
+ordering tokens of different streams, is already covered: the attach walk and
+the escape gate compare tokens only within one stream
+(`_m3_tokens_comparable`: same module path and same input) and decline
+otherwise, so dropping the exemption cannot attach a drop after a move.
+
+The fix removes the exemption for locals and for parameters, so a
+derive-generated body and the same body written by hand get the same exit
+drops. The emit-diff gate over `src/main.yo` (develop binary vs the fixed
+one, same source) differs only in numbering, so no compiler-internal
+derived body (`___dup`/`___drop`/`Clone`/`Eq`/`Hash`) changed.
+
+The adversarial review of other exits found two more bugs, fixed on the same
+branch:
+
+- `break`/`continue` before a later move skipped the drop in hand-written and
+  derive-generated code alike
+  (`issues/fixed/2026-10-23-a-break-or-continue-before-a-later-move-skips-the-drop-of-a-loop-body-local.md`).
+- Checked arithmetic in a derive-generated body emitted C that does not
+  compile
+  (`issues/fixed/2026-10-23-checked-arithmetic-in-a-derive-generated-body-emits-c-that-does-not-compile.md`).
+
+And one, filed and not fixed here: an `unwind` through a type-qualified
+method call is not caught by the frame that installed the handler
+(`issues/2026-10-23-an-unwind-through-a-method-call-is-not-caught-by-the-frame-that-installed-the-handler.md`).
+
+**Regression tests:** `tests/derive.test.yo`, "an early return from a
+derive-generated body drops a live value local" and "an effect unwind out of a
+derive-generated body drops a live value local" (a `Drop` counter; both fail
+under the v0.2.68 seed with `__x is dropped once …`). Under the B8 flip
+probe's std (`probe/v2b-b8-flip-census`), `tests/encoding/json.test.yo`'s
+"derived decode missing field errors" leaks 1 byte under LeakSanitizer with a
+develop-built binary and passes with the fixed one.
+
