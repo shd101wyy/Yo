@@ -1,0 +1,21 @@
+// issues/2026-10-23-a-statement-after-an-always-exiting-statement-in-a-loop-body-leaves-the-function-untranspiled.md
+// (the `for(&mut xs, ...)` shape). Expected: prints 5. Actual: builds, then
+// aborts with "yo: FATAL: reached yo_id_…, whose body failed to transpile"
+// (rc 134). The `return` is the body's LAST statement.
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+R :: ref(struct(n : i32));
+f :: (fn(xs : &mut ArrayList(R)) -> R)({
+  for(&mut xs, x => {
+    v := x;
+    return(v);
+  });
+  R(n : i32(0))
+});
+main :: (fn() -> unit)({
+  mut(xs) := ArrayList(R).new();
+  xs.push(R(n : i32(5)));
+  a := f(&mut xs);
+  println(&a.n);
+});
+export(main);

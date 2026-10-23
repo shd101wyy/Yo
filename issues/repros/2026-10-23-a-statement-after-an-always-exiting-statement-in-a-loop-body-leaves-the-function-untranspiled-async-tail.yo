@@ -1,0 +1,23 @@
+// issues/2026-10-23-a-statement-after-an-always-exiting-statement-in-a-loop-body-leaves-the-function-untranspiled.md
+// (the `io.async` body shape). Expected: prints 5. Actual: the C compiler
+// rejects the program ("error: expected expression" after
+// `sm->result = // Failed to transpile R(n : i32(0));`).
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+R :: ref(struct(n : i32));
+f :: (fn(k : bool, q : &R, io : Io) -> Impl(Future(R, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    cond(
+      k => return(q),
+      true => return(q)
+    );
+    R(n : i32(0))
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  r := R(n : i32(5));
+  a := io.await(f(true, &r, io), io);
+  println(&a.n);
+});
+export(main);

@@ -1,0 +1,21 @@
+// issues/2026-10-23-a-statement-after-an-always-exiting-statement-in-a-loop-body-leaves-the-function-untranspiled.md
+// Expected: prints 0. Actual: the C compiler rejects the call to `v1`
+// ("its definition-time evaluation failed and was swallowed"); the
+// compile-time spelling `cond(true => break)` compiles and aborts at runtime
+// with "yo: FATAL: reached yo_id_…, whose body failed to transpile".
+{ println } :: import("std/fmt");
+v1 :: (fn(k : bool) -> i32)({
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    cond(
+      k => break,
+      true => break
+    );
+    i = (i + i32(1));
+  });
+  i
+});
+main :: (fn() -> unit)({
+  println(v1(true));
+});
+export(main);
