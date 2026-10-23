@@ -737,6 +737,139 @@ _m3_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) ->
   init2 := if(!_m3_tokens_comparable(&init, reference), reference, init);
   _m3_max_comparable_token(expr, reference, &init2)
 });
+_m3_min_comparable_token :: (fn(node : &AstExpr, reference : &Token, best : &Token) -> Token)({
+  tok := ast_expr_token(node);
+  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character < best.character), tok, best);
+  match(
+    node,
+    .FnCall(_, func, args, _, _) => {
+      (acc : Token) = recur(&func, reference, &best2);
+      n := args.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          args.get(i),
+          .Some(a) => {
+            acc = recur(&a, reference, &acc);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      acc
+    },
+    .Atom(_, _) => best2
+  )
+});
+/// Whether the token `t` lies within the source span of `node`'s tree. False
+/// when `node`'s own token cannot be ordered against `t`.
+_m3_span_contains :: (fn(node : &AstExpr, t : &Token) -> bool)({
+  tok := ast_expr_token(node);
+  if(!_m3_tokens_comparable(&tok, t), {
+    return(false);
+  });
+  lo := _m3_min_comparable_token(node, t, &tok);
+  hi := _m3_max_comparable_token(node, t, &tok);
+  (lo.character <= t.character) && (t.character <= hi.character)
+});
+/// The consumption an exit inside the arm `args(i)` of a `cond`/`match` is
+/// ordered against. A move in the BODY of an earlier arm is not on the path
+/// through arm `i`, so an exit there still owns the variable though it
+/// follows the move in source (`if(c, { take(s); }, { break; })`): `.None`,
+/// no move ahead on this path. A move in a `cond` condition is on the path
+/// of every later arm and keeps `consumed`
+/// (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
+_m3_consumed_for_arm :: (fn(args : &ArrayList(AstExpr), i : usize, consumed : &Option(Token)) -> Option(Token))({
+  ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
+  (j : usize) = usize(0);
+  while(j < i, {
+    match(
+      args.get(j),
+      .Some(arm) => if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
+        match(
+          arm,
+          .FnCall(_, _, bargs, _, _) => match(
+            bargs.get(usize(1)),
+            .Some(body) => if(_m3_span_contains(&body, &ct), {
+              return(Option(Token).None);
+            }),
+            .None => ()
+          ),
+          .Atom(_, _) => ()
+        );
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  consumed
+});
+/// The consumption an exit inside the argument `args(i)` of a plain call is
+/// ordered against. A variable passed by value as an earlier argument
+/// (`g(b, { if(c, { break; }); 0 })`) moves when the call runs, after every
+/// argument is evaluated, so an exit in a later argument still owns it:
+/// `.None`
+/// (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
+_m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i : usize, consumed : &Option(Token)) -> Option(Token))({
+  ct := match(consumed, .Some(t) => t, .None => return(Option(Token).None));
+  // A block's statements run one by one: an earlier one is not an argument.
+  if(ast_expr_is_fn_call_of(call, BK_BEGIN, Option(usize).None), {
+    return(consumed);
+  });
+  (j : usize) = usize(0);
+  while(j < i, {
+    match(
+      args.get(j),
+      .Some(a) => if(ast_expr_is_atom(&a), {
+        at := ast_expr_token(&a);
+        if(_m3_tokens_comparable(&at, &ct) && (at.character == ct.character), {
+          return(Option(Token).None);
+        });
+      }),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  consumed
+});
+/// Whether `stmt` is the binding statement that initializes, at `init_tok`, a
+/// variable it declares (`x := …`, `(x : T) = …`). An exit inside its right
+/// side runs before the variable holds anything, so no exit drop attaches
+/// there: a task-slot local still holds its previous iteration's moved-out
+/// value at that point
+/// (issues/fixed/2026-10-23-an-exit-inside-a-bindings-own-initializer-drops-a-stale-task-slot.md).
+_m3_is_binding_statement_at :: (fn(stmt : &AstExpr, init_tok : &Token) -> bool)(
+  match(
+    stmt,
+    .FnCall(_, _, sargs, _, _) => if(ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(stmt, BK_ASSIGN, Option(usize).Some(usize(2))), {
+      match(sargs.get(usize(0)), .Some(lhs) => _m3_has_token_at(&lhs, init_tok), .None => false)
+    }, false),
+    .Atom(_, _) => false
+  )
+);
+_m3_has_token_at :: (fn(node : &AstExpr, t : &Token) -> bool)({
+  tok := ast_expr_token(node);
+  if(_m3_tokens_comparable(&tok, t) && (tok.character == t.character), {
+    return(true);
+  });
+  match(
+    node,
+    .FnCall(_, func, args, _, _) => {
+      if(recur(&func, t), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        if(match(args.get(i), .Some(a) => recur(&a, t), .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    .Atom(_, _) => false
+  )
+});
 /// `stmt` is an assignment statement, so its value, the old value it replaced,
 /// is unused. An explicit-copy old value (a move-only value, or plain data
 /// without `Copy`) is dropped right after the store, as Rust drops it: its
@@ -824,9 +957,10 @@ _is_function_boundary_for_early_drop :: (fn(expr : &AstExpr, _ctx : &EvalContext
 });
 /// If `variable` is still initialized at `cleanup_point` on the `expr`
 /// return/unwind path, and its init is at-or-before that point which is strictly
-/// before its consumption, attach `drop_expr` to `expr`'s
-/// early_return_only_deferred_drop_expressions.
-_attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, variable : &Variable, drop_expr : &AstExpr, init_tok : &Token, consumed_tok : &Token, ctx : &EvalContext) -> unit)({
+/// before its consumption on that path (`consumed`; `.None` when no move lies
+/// ahead of it on the path, see `_m3_consumed_for_arm`), attach `drop_expr`
+/// to `expr`'s early_return_only_deferred_drop_expressions.
+_attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, variable : &Variable, drop_expr : &AstExpr, init_tok : &Token, consumed : &Option(Token), ctx : &EvalContext) -> unit)({
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
     .None => (),
@@ -842,7 +976,8 @@ _attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, va
       // module path the other way (`file://…`), so it cannot be ordered
       // against a body token (AGENTS.md: never compare the two spellings).
       init_ok := (latest.is_parameter || _m3_token_is_at_or_before(init_tok, cleanup_point));
-      if(init_ok && _m3_token_is_before(cleanup_point, consumed_tok), {
+      before_move := match(consumed, .Some(ct) => _m3_token_is_before(cleanup_point, &ct), .None => true);
+      if(init_ok && before_move, {
         existing := match(expr_info_early_return_only_deferred_drop_expressions(&ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
         (fi : usize) = usize(0);
@@ -866,12 +1001,16 @@ _attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, va
 });
 /// Recursively attach `drop_expr` (for `variable`) to every return/unwind in
 /// `expr` where the variable is live-but-not-yet-consumed.
-_attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)({
+_attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)(
+  if(variable.consumed_at_token.is_some(), _m3_attach_to_returns(expr, variable, drop_expr, &variable.consumed_at_token, ctx), ())
+);
+/// `_attach_early_return_only_drop_to_returns`'s walk; `consumed` is the move
+/// an exit in `expr` is ordered against (`_m3_consumed_for_arm`).
+_m3_attach_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, consumed : &Option(Token), ctx : &EvalContext) -> unit)({
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
-  consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb, .None => return(()));
   if(ast_expr_is_atom(expr), {
     if((ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND)) && !variable_moved_at_cleanup_point(variable, ast_expr_token(expr), true), {
-      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, &consumed_tok, ctx);
+      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, consumed, ctx);
     });
     return(());
   });
@@ -884,35 +1023,37 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Va
         // return's own `sink(b)` — already released the value on this path,
         // though the tail's later move is what the variable still shows.
         if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr)), true), {
-          _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, &consumed_tok), variable, drop_expr, &init_tok, &consumed_tok, ctx);
+          ref_tok := match(consumed, .Some(ct) => ct, .None => ast_expr_token(expr));
+          _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, &ref_tok), variable, drop_expr, &init_tok, consumed, ctx);
         });
         return(());
       });
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
-        .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => recur(&mx, variable, drop_expr, ctx), .None => ()),
+        .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => recur(&mx, variable, drop_expr, consumed, ctx), .None => ()),
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
-        recur(&func, variable, drop_expr, ctx);
+        recur(&func, variable, drop_expr, consumed, ctx);
         (ci : usize) = usize(0);
         while(ci < args.len(), {
           match(
             args.get(ci),
             .Some(arg) => if(ast_expr_is_fn_call(&arg) && ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
+              arm_consumed := _m3_consumed_for_arm(&args, ci, consumed);
               match(
                 arg,
                 .FnCall(_, _, bargs, _, _) => {
                   (bj : usize) = usize(0);
                   while(bj < bargs.len(), {
-                    match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, ctx), .None => ());
+                    match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, &arm_consumed, ctx), .None => ());
                     bj = (bj + usize(1));
                   });
                 },
                 .Atom(_, _) => ()
               );
             }, {
-              recur(&arg, variable, drop_expr, ctx);
+              recur(&arg, variable, drop_expr, consumed, ctx);
             }),
             .None => ()
           );
@@ -923,10 +1064,11 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Va
       if(_is_function_boundary_for_early_drop(expr, ctx), {
         return(());
       });
-      recur(&func, variable, drop_expr, ctx);
+      recur(&func, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, ctx), .None => ());
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, consumed);
+        match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -943,14 +1085,18 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Va
 /// Without it, `b := make(); if(c, { break; }); sink(b);` in a loop body
 /// skipped `b`'s drop on the `break` path
 /// (issues/fixed/2026-10-23-a-break-or-continue-before-a-later-move-skips-the-drop-of-a-loop-body-local.md).
-_attach_consumed_drop_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)({
+_attach_consumed_drop_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)(
+  if(variable.consumed_at_token.is_some(), _m3_attach_to_loop_exits(expr, variable, drop_expr, &variable.consumed_at_token, ctx), ())
+);
+/// `_attach_consumed_drop_to_loop_exits`'s walk; `consumed` is the move an
+/// exit in `expr` is ordered against (`_m3_consumed_for_arm`).
+_m3_attach_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, consumed : &Option(Token), ctx : &EvalContext) -> unit)({
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
-  consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb, .None => return(()));
   if(ast_expr_is_atom_of(expr, BK_BREAK) || ast_expr_is_atom_of(expr, "continue") || ast_expr_is_fn_call_of(expr, BK_BREAK, Option(usize).None) || ast_expr_is_fn_call_of(expr, "continue", Option(usize).None), {
     // A move the flow log undid for the paths after an arm this exit lies
     // inside (`sink(b); break;` in an `if`) already released the value here.
     if(!variable_moved_at_cleanup_point(variable, ast_expr_token(expr), true), {
-      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, &consumed_tok, ctx);
+      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, consumed, ctx);
     });
     return(());
   });
@@ -965,7 +1111,7 @@ _attach_consumed_drop_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable
         .Some(ei) => match(
           expr_info_macro_expansion(&ei),
           .Some(mx) => {
-            recur(&mx, variable, drop_expr, ctx);
+            recur(&mx, variable, drop_expr, consumed, ctx);
             return(());
           },
           .None => ()
@@ -973,25 +1119,26 @@ _attach_consumed_drop_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
-        recur(&func, variable, drop_expr, ctx);
+        recur(&func, variable, drop_expr, consumed, ctx);
         (ci : usize) = usize(0);
         while(ci < args.len(), {
           match(
             args.get(ci),
             .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
+              arm_consumed := _m3_consumed_for_arm(&args, ci, consumed);
               match(
                 arg,
                 .FnCall(_, _, bargs, _, _) => {
                   (bj : usize) = usize(0);
                   while(bj < bargs.len(), {
-                    match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, ctx), .None => ());
+                    match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, &arm_consumed, ctx), .None => ());
                     bj = (bj + usize(1));
                   });
                 },
                 .Atom(_, _) => ()
               );
             }, {
-              recur(&arg, variable, drop_expr, ctx);
+              recur(&arg, variable, drop_expr, consumed, ctx);
             }),
             .None => ()
           );
@@ -999,10 +1146,11 @@ _attach_consumed_drop_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable
         });
         return(());
       });
-      recur(&func, variable, drop_expr, ctx);
+      recur(&func, variable, drop_expr, consumed, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, ctx), .None => ());
+        arg_consumed := _m3_consumed_for_call_arg(expr, &args, ai, consumed);
+        match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, &arg_consumed, ctx), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -3525,13 +3673,14 @@ _evaluate_begin_expression_impl :: (
               evaluated := evaluate_expression_raw(&drop_expr, &env, ctx, exn);
               consumed_escape_drops.push(evaluated);
               (dai : usize) = usize(0);
+              ev_init := match(ev.initialized_at_token, .Some(it) => it, .None => begin_tok);
               while(dai < begin_args.len(), {
                 match(
                   begin_args.get(dai),
-                  .Some(arg) => {
+                  .Some(arg) => if(!_m3_is_binding_statement_at(&arg, &ev_init), {
                     _attach_early_return_only_drop_to_returns(&arg, &ev, &evaluated, ctx);
                     _attach_consumed_drop_to_loop_exits(&arg, &ev, &evaluated, ctx);
-                  },
+                  }),
                   .None => ()
                 );
                 dai = (dai + usize(1));
