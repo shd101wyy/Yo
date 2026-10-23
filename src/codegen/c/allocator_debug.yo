@@ -445,10 +445,10 @@ int __yo_debug_alloc_report(void) {
   leak_bytes = __yo_dbg_live_bytes - reach_bytes;
   __yo_dbg_format_size(peak, sizeof(peak), __yo_dbg_peak_bytes);
   fflush(stdout);
-  fprintf(stderr, "debug allocator: peak %s, %llu allocations, live at exit: %zu blocks / %zu bytes\n",
+  fprintf(stderr, "debug allocator: peak %s, %llu allocations, live at exit: %zu blocks / %zu bytes\\n",
       peak, (unsigned long long)__yo_dbg_seq, __yo_dbg_live_blocks, __yo_dbg_live_bytes);
   if (reach_blocks > 0) {
-    fprintf(stderr, "debug allocator:   %zu blocks / %zu bytes still reachable from module globals\n",
+    fprintf(stderr, "debug allocator:   %zu blocks / %zu bytes still reachable from module globals\\n",
         reach_blocks, reach_bytes);
   }
   // Allocation order: the live list, skipping what the scan reached.
@@ -460,20 +460,20 @@ int __yo_debug_alloc_report(void) {
         ? (__yo_dbg_entry_t*)bsearch(&key, es, n, sizeof(__yo_dbg_entry_t), __yo_dbg_entry_cmp)
         : NULL;
     if (e != NULL && e->reachable) continue;
-    fprintf(stderr, "debug allocator:   leaked block #%llu: %zu bytes\n", (unsigned long long)b->seq, b->size);
+    fprintf(stderr, "debug allocator:   leaked block #%llu: %zu bytes\\n", (unsigned long long)b->seq, b->size);
     listed += 1;
   }
   if (leak_blocks > listed) {
-    fprintf(stderr, "debug allocator:   ... and %zu more leaked blocks\n", leak_blocks - listed);
+    fprintf(stderr, "debug allocator:   ... and %zu more leaked blocks\\n", leak_blocks - listed);
   }
   if (leak_blocks > 0) {
     if (judged) {
       fprintf(stderr,
-          "debug allocator: leak check failed: %zu blocks / %zu bytes leaked after main returned (exit status %d); YO_DEBUG_ALLOC_TRAP=<n> aborts at allocation #n\n",
+          "debug allocator: leak check failed: %zu blocks / %zu bytes leaked after main returned (exit status %d); YO_DEBUG_ALLOC_TRAP=<n> aborts at allocation #n\\n",
           leak_blocks, leak_bytes, __YO_DBG_LEAK_EXIT);
       rc = __YO_DBG_LEAK_EXIT;
     } else {
-      fprintf(stderr, "debug allocator: the process exited before main returned, so its live blocks are not judged\n");
+      fprintf(stderr, "debug allocator: the process exited before main returned, so its live blocks are not judged\\n");
     }
   }
   fflush(stderr);
