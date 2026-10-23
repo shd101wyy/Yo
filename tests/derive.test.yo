@@ -1048,8 +1048,8 @@ test("an effect unwind out of a derive-generated body drops a live value local",
 });
 // Checked arithmetic and a `break` in a derive-generated body. The overflow
 // check's source location is the body's `auto-generated://` pseudo-path,
-// which holds the body's code, newlines included; it is escaped into one C
-// string literal
+// which holds the body's code, newlines included; the C location literal
+// names only the scheme for it
 // (issues/fixed/2026-10-23-checked-arithmetic-in-a-derive-generated-body-emits-c-that-does-not-compile.md).
 // The loop's `__b` is dropped at the `break` that precedes its move
 // (issues/fixed/2026-10-23-a-break-or-continue-before-a-later-move-skips-the-drop-of-a-loop-body-local.md).
@@ -1069,4 +1069,42 @@ test("a derive-generated body with checked arithmetic compiles; a `break` drops 
   g_de_exit_drops = i32(0);
   assert(DeLoopHost.de_sum_until(i32(2)) == i32(1), "1, then the break at 2");
   assert(g_de_exit_drops == i32(2), "1 by the callee, 2 at the break");
+});
+// An exit between a move and a reassignment of a derive body's local finds it
+// moved out and drops nothing
+// (issues/fixed/2026-10-23-an-exit-between-a-move-and-a-reassignment-drops-the-moved-value.md);
+// an exit in a later arm than the move drops it
+// (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
+DeExitMore :: trait(
+  de_reassign : (fn(k : i32) -> i32),
+  de_later_arm : (fn(k : i32) -> i32)
+);
+__derive_de_exit_more :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  reassign_body :: "({ (mut(__z) : DeExitB) = DeExitB(n : i32(3)); (mut(acc) : i32) = _de_exit_take(__z); if(k == i32(2), { return(i32(-2)); }); __z = DeExitB(n : i32(4)); acc + _de_exit_take(__z) })";
+  later_arm_body :: "({ __s := DeExitB(n : k); (mut(acc) : i32) = i32(0); if(k != i32(2), { acc = _de_exit_take(__s); }, { return(i32(-1)); }); acc })";
+  ctx.make_impl(
+    quote(
+      DeExitMore(
+        de_reassign : (k -> unquote(reassign_body.to_expr())),
+        de_later_arm : (k -> unquote(later_arm_body.to_expr()))
+      )
+    )
+  )
+});
+derive_rule(DeExitMore, __derive_de_exit_more);
+DeMoreHost :: struct(n : i32);
+derive(DeMoreHost, DeExitMore);
+test("a derive-generated body: an exit between a move and a reassignment drops nothing; one in a later arm drops the local", {
+  g_de_exit_drops = i32(0);
+  assert(DeMoreHost.de_reassign(i32(2)) == i32(-2), "the return after the first move");
+  assert(g_de_exit_drops == i32(1), "3 by the callee only");
+  g_de_exit_drops = i32(0);
+  assert(DeMoreHost.de_reassign(i32(5)) == i32(7), "both moved");
+  assert(g_de_exit_drops == i32(2), "3 and 4 by the callee");
+  g_de_exit_drops = i32(0);
+  assert(DeMoreHost.de_later_arm(i32(2)) == i32(-1), "the returning arm");
+  assert(g_de_exit_drops == i32(1), "the local is dropped at the return");
+  g_de_exit_drops = i32(0);
+  assert(DeMoreHost.de_later_arm(i32(5)) == i32(5), "the moving arm");
+  assert(g_de_exit_drops == i32(1), "by the callee");
 });

@@ -841,9 +841,10 @@ _m3_consumed_for_call_arg :: (fn(call : &AstExpr, args : &ArrayList(AstExpr), i 
 _m3_is_binding_statement_at :: (fn(stmt : &AstExpr, init_tok : &Token) -> bool)(
   match(
     stmt,
-    .FnCall(_, _, sargs, _, _) => if(ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(stmt, BK_ASSIGN, Option(usize).Some(usize(2))), {
-      match(sargs.get(usize(0)), .Some(lhs) => _m3_has_token_at(&lhs, init_tok), .None => false)
-    }, false),
+    .FnCall(_, _, sargs, _, _) => (
+      (ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(stmt, BK_ASSIGN, Option(usize).Some(usize(2))))
+      && match(sargs.get(usize(0)), .Some(lhs) => _m3_has_token_at(&lhs, init_tok), .None => false)
+    ),
     .Atom(_, _) => false
   )
 );
