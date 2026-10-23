@@ -7453,6 +7453,33 @@ heavy run, the command is given in item 2.
            because it cannot walk up to `.github/skills`; that is the
            staging, not the branch.
          - The explicit-copy dry run is the one above.
+       - Tier 1 again after the rebase onto develop `265faa941` (#1549,
+         the explicit-copy migration's S1 fixes in `src/`), at `11ee5cb9e`:
+         - `yo build --std-path ./std` with the v0.2.68 seed passes;
+           `check ./std` passes under the seed and the tree binary, and
+           `check ./src --std-path ./std` under the tree binary.
+         - The 133 language test files that import a touched std module
+           (the earlier 72 plus every file importing `std/fmt` or
+           `std/error`) were run one per call. 131 pass. The two failures
+           are the LeakSanitizer verdicts already listed above
+           (`tests/net/tcp.test.yo`, `tests/net/unix.test.yo`).
+           `tests/http/http_limits.test.yo` passed this time.
+         - `tests/internal` in-process under `YO_TEST_LEAK_VERDICT=0`: the
+           first 49 files alphabetically (through `lsp_protocol`, which
+           covers `compile`, `error`, `build_runner`, `check_watch`,
+           `concurrent_test_runs` and the other importers of the touched
+           `fs`/`path`/`json`/`process` modules) pass, and the run hit its
+           two-hour cap inside `macro_expansion`. The remaining importers
+           of those modules ran one per call and pass:
+           `memory_safety_paths`, `module_invalidation`, `parser`,
+           `resolver`, `type_trait_methods` and `version`.
+         - Full cli-diff: 421 pass, 1 skip (network), 7 golden diffs. All 7
+           are the staging diffs above (the binary was copied out of the
+           checkout). The 7 re-run with the in-tree binary pass, and so
+           do the 23 `context-*` cases after the `STRINGS.md` edit.
+         - `docs/en-US/STRINGS.md` and `docs/zh-CN/STRINGS.md` now name the
+           eleven getters, the `.clone()` a caller writes to own the
+           result, and the temporary-receiver error.
    - **B4 (b). Hand edits in `src/`, by directory.** Split by N1's counts
      into PRs of at most ~250 sites (likely `src/evaluator/`, then
      `src/codegen/`, then the rest).
