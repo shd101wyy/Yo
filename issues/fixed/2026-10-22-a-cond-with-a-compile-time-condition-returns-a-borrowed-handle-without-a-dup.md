@@ -92,21 +92,18 @@ arm's eval temp, applies the dup (including the fallback for a stale dup
 temp), and returns the C expression that holds the counted value. The
 if/else chain and the collapse both call it. In the collapse, the `cond`
 adopts the arm's eval temp as its own result name, so the helper has often
-declared `tv` already. The collapse then assigns the counted value to `tv`
-without declaring it a second time (`tv_declared_by_arm`). For the
+declared `tv` already. The collapse then skips the assignment when the counted
+value is already in `tv`, and otherwise assigns it without declaring `tv` a
+second time (`tv_declared_by_arm`). For the
 reproducer, `rd` is now:
 
 ```c
 static inline R* rd(R* __yo_v_q) {
   R* tmp = __yo_v_q;
   ((R*)__yo_incr_rc((void*)(tmp)));
-  tmp = tmp;
   return tmp;
 }
 ```
-
-(The self-assignment is the collapse path's existing adopted-temp
-assignment; it was there before the fix.)
 
 Regression tests are in `tests/rc.test.yo`: "a compile-time-collapsed cond
 dups the borrowed handle it returns" and "a compile-time-collapsed cond in a

@@ -741,7 +741,9 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
             // its owner and the cond's result both released it
             // (issues/fixed/2026-10-22-a-cond-with-a-compile-time-condition-returns-a-borrowed-handle-without-a-dup.md).
             // The dup path can declare the arm's eval temp, which is normally
-            // the `tv` this cond adopted from the arm (see below).
+            // the `tv` this cond adopted from the arm: the counted value is
+            // then already in `tv` (no assignment), or in the dup's own temp
+            // (a plain assignment, no second declaration).
             dup_arm := (!ast_expr_is_fn_call_of(&value, BK_BEGIN, Option(usize).None) && _arm_value_has_dups(&value, context));
             tv_declared_before := _temp_is_declared(&temp_var_opt, context);
             value_code := if(
@@ -775,7 +777,7 @@ generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &Fu
               temp_var_opt,
               .Some(tv) => if(!is_unit, {
                 is_cf := _is_cf_code(&value, value_code.clone(), context);
-                if((value_code.len() > usize(0)) && !is_cf, {
+                if((value_code.len() > usize(0)) && !is_cf && !(tv_declared_by_arm && (value_code == tv)), {
                   line := indent.clone();
                   // The collapse-to-direct path skips this cond's own temp
                   // declaration because the evaluator ADOPTS the arm body's
