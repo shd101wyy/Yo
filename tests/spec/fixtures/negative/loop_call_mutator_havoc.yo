@@ -1,0 +1,34 @@
+// issues/fixed/2026-10-23-a-loop-or-branch-misses-a-list-a-free-function-call-changes.md:
+// `grow1` is a free function whose contract relates its list parameter with
+// `old(xs)`, so the call rebinds `ys`. The loop's havoc set used to know
+// only METHOD receivers, so `ys` kept its pre-loop value at the head and
+// the assert "proved"; it fails on the second iteration. The branch twin
+// `maybe_grow` kept `ys` grown on the path that never called `grow1`.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+
+grow1 :: (fn(xs : ArrayList(i32), ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
+  xs.push(i32(7));
+});
+
+grow_in_loop :: (fn(n : i32, requires(n == i32(3)), ensures(true)) -> (r : i32))({
+  ys := ArrayList(i32).new();
+  (mut(i) : i32) = i32(0);
+  while(i < n, {
+    invariant((i >= i32(0)) && (i <= n));
+    assert(ys.len() == usize(0));
+    grow1(ys);
+    i = (i + i32(1));
+  });
+  i
+});
+
+maybe_grow :: (fn(c : bool, ensures(r == usize(1))) -> (r : usize))({
+  ys := ArrayList(i32).new();
+  if(c, {
+    grow1(ys);
+  });
+  ys.len()
+});
+export(grow1, grow_in_loop, maybe_grow);

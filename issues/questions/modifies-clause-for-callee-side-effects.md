@@ -83,3 +83,20 @@ contract to be explicit about each reference-typed parameter it does not
 change, so the trusted base carries no convention. Decide together with
 `issues/questions/2026-10-14-effect-operation-contracts.md`, which relies
 on the purity frame rule staying as it is for effect operations.
+
+## Update (2026-10-23): the convention now covers only checked frames
+
+The convention was also applied to callees nothing checks: a `runtime`-mode
+callee that pushes onto its own list parameter under `ensures(true)` left
+the caller's list unchanged, and one that reached the caller's list through
+a `RefCell` global could not have named it in any clause
+(`issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md`).
+The call site now trusts "no `old(p)` means unchanged" only for a closed
+frame: a `ghost_fn`, an `assumed()` contract (point 2's vouched base), or a
+function verified in `verify` mode that calls no open-frame callee. Any
+other callee rebinds every list in scope after the call, and a `&mut`
+argument is always rebound
+(`issues/fixed/2026-10-23-a-mut-ref-argument-keeps-its-pre-call-value-at-a-call-site.md`).
+That is the counter-position's default frame for the unchecked part of the
+call graph; the `assumed()` corner is unchanged and still rests on review.
+

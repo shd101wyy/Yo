@@ -1,0 +1,41 @@
+// issues/fixed/2026-10-23-a-dead-cond-arm-assumes-its-guard-false-after-the-cond.md:
+// after a cond whose arm exits the loop, the walk assumed that arm's bare
+// guard false. When `i` is 7 the EARLIER arm `i > 5` runs and falls
+// through, so `assert(i != 7)` fails at runtime; `overlap` must refute.
+// `exclusive` has no earlier arm that matches 7 and verifies.
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+overlap :: (fn(n : i32, requires(n >= i32(0), n <= i32(10)), ensures(r >= i32(0))) -> (r : i32))({
+  (mut(i) : i32) = i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    cond(
+      (i > i32(5)) => (),
+      (i == i32(7)) => {
+        break;
+      },
+      true => ()
+    );
+    assert(i != i32(7));
+    i = (i + i32(1));
+  });
+  i
+});
+
+exclusive :: (fn(n : i32, requires(n >= i32(0), n <= i32(10)), ensures(r >= i32(0))) -> (r : i32))({
+  (mut(i) : i32) = i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    cond(
+      (i == i32(7)) => {
+        break;
+      },
+      true => ()
+    );
+    assert(i != i32(7));
+    i = (i + i32(1));
+  });
+  i
+});
+export(overlap, exclusive);

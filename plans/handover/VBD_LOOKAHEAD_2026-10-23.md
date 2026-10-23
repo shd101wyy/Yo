@@ -100,7 +100,7 @@ CI's stage 1 is the seed compiling the tree's std and src. B8–B11 run on the v
 
 C5, the derive early return, landed as #1557.
 
-Not seed-relevant, but open and S1: `issues/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md` (the verifier). It belongs with B14's verifier work, not with this window.
+Not seed-relevant: the verifier S1 `issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md` (open when this was written) is fixed by `fix/s1-verifier-frame`, outside this window.
 
 Z11 (`feat/z11-debug-allocator`) needs no seed and may also merge before the v0.2.69 cut. That is better, because W6a then has its oracle one release earlier.
 

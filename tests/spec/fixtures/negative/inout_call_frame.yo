@@ -1,0 +1,16 @@
+// issues/fixed/2026-10-23-a-mut-ref-argument-keeps-its-pre-call-value-at-a-call-site.md:
+// `bump` writes through its `&mut` parameter and its contract is true. The
+// caller's `y` is 1 after the call, so `after_bump` cannot return 0; the
+// call site used to keep `y` at its pre-call term and prove it.
+pragma(Pragma.Verify);
+
+bump :: (fn(x : &mut i32, requires(x < i32(100)), ensures(true)) -> unit)({
+  x = (x + i32(1));
+});
+
+after_bump :: (fn(n : i32, requires(n == i32(0)), ensures(r == i32(0))) -> (r : i32))({
+  (mut(y) : i32) = n;
+  bump(&mut y);
+  y
+});
+export(bump, after_bump);

@@ -1,0 +1,42 @@
+// issues/fixed/2026-10-23-a-break-in-a-match-arm-ends-the-walk-of-the-enclosing-block.md:
+// a `break` in one match arm left the walk's path marked dead after the
+// match, so the rest of the loop body was never walked and its invariant
+// was never checked on the fall-through path. `acc_stays_zero`'s invariant
+// fails on the second iteration; it must refute. `find7` needs the break
+// arm and verifies.
+pragma(Pragma.Verify);
+
+acc_stays_zero :: (fn(n : i32, requires(n >= i32(0), n <= i32(10)), ensures(r >= i32(0))) -> (r : i32))({
+  (mut(i) : i32) = i32(0);
+  (mut(acc) : i32) = i32(0);
+  while(i < n, {
+    invariant(acc == i32(0));
+    match(
+      i,
+      7 => {
+        break;
+      },
+      _ => ()
+    );
+    acc = (acc + i32(1));
+    i = (i + i32(1));
+  });
+  acc
+});
+
+find7 :: (fn(n : i32, requires(n >= i32(0), n <= i32(10)), ensures(r <= n)) -> (r : i32))({
+  (mut(i) : i32) = i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    match(
+      i,
+      7 => {
+        break;
+      },
+      _ => ()
+    );
+    i = (i + i32(1));
+  });
+  i
+});
+export(acc_stays_zero, find7);

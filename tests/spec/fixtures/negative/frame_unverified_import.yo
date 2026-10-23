@@ -1,0 +1,22 @@
+// `poke` sits in a `pragma(Pragma.Verify)` file this run does not verify (it
+// is not a target), so its frame is open whatever its pragma says: `probe`
+// returns 1 after `remember(xs)` and must refute. The frame used to count the
+// imported file's pragma as a verified body whenever the body's types were
+// at hand — under `yo compile`, whose shared table keeps them — and proved
+// `probe` (review finding 3 on
+// issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ poke } :: import("./frame_unverified_import_stash.yo");
+
+probe :: (
+  fn(
+    xs : ArrayList(i32),
+    requires(xs.len() == usize(0)),
+    ensures(r == usize(0))
+  ) -> (r : usize)
+)({
+  poke();
+  xs.len()
+});
+export(probe);

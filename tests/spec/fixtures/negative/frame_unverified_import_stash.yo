@@ -1,0 +1,31 @@
+// `frame_unverified_import.yo`'s callee: `frame_interior_mutation_stash.yo`
+// with `pragma(Pragma.Verify)`. Nothing verifies `poke` when only the
+// importing file is the target (`yo compile` verifies the targets alone), so
+// its pragma must not close its frame (review finding 3 on
+// issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md).
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+
+(STASH : RefCell(ArrayList(ArrayList(i32)))) = RefCell(ArrayList(ArrayList(i32))).new(ArrayList(ArrayList(i32)).new());
+
+/// Keeps a second handle to `xs`.
+remember :: (fn(xs : ArrayList(i32)) -> unit)({
+  STASH.with_mut(s => {
+    s.push(xs);
+  });
+});
+
+/// Pushes onto the first remembered list.
+poke :: (fn(ensures(true)) -> unit)({
+  STASH.with_mut(s => {
+    match(
+      s.get(usize(0)),
+      .Some(l) => {
+        l.push(i32(7));
+      },
+      .None => ()
+    );
+  });
+});
+export(remember, poke);

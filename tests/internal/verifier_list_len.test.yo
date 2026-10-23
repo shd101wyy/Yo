@@ -15,9 +15,12 @@
   mm_load_file,
   mm_preload_prelude,
   mm_resolve_entry_abs,
+  mm_reset,
+  mm_set_shared_expr_info_table,
   resolve_std_path,
   _take_load_error
 } :: import("../../src/module_manager.yo");
+{ expr_info_table_new } :: import("../../src/expr_info.yo");
 { clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
 {
   set_verify_mode_override,
@@ -683,4 +686,103 @@ test("distinct(a, b) lets a body mutate one of two same-typed lists; one list pa
     _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),
     `append_unchecked must be a subset error, got: [${_reports_dump(&bad_reports)}]`
   );
+});
+
+test("a callee that reaches a caller's list through a RefCell global does not leave it framed", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/frame_interior_mutation.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(0), `probe must not verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `probe must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("an open frame: a runtime-mode callee's own list argument, and a verify-mode callee that calls one, change the caller's list", {
+  if(!_have_z3(), {
+    return(());
+  });
+  param_reports := _load_reports(String.from("./tests/spec/fixtures/negative/frame_runtime_param_mutation.yo"), io, true);
+  assert(_count_outcome(&param_reports, String.from("refuted")) == usize(1), `probe_grow must refute, got: [${_reports_dump(&param_reports)}]`);
+  assert(_count_outcome(&param_reports, String.from("ok")) == usize(0), `probe_grow must not verify, got: [${_reports_dump(&param_reports)}]`);
+  trans_reports := _load_reports(String.from("./tests/spec/fixtures/negative/frame_transitive.yo"), io, true);
+  assert(_count_outcome(&trans_reports, String.from("ok")) == usize(1), `quiet must verify, got: [${_reports_dump(&trans_reports)}]`);
+  assert(_count_outcome(&trans_reports, String.from("refuted")) == usize(1), `probe_quiet must refute, got: [${_reports_dump(&trans_reports)}]`);
+});
+
+test("a &mut argument is the callee's post-call value; old(v) at the call reads the pre-call one", {
+  if(!_have_z3(), {
+    return(());
+  });
+  bad_reports := _load_reports(String.from("./tests/spec/fixtures/negative/inout_call_frame.yo"), io, true);
+  assert(_count_outcome(&bad_reports, String.from("ok")) == usize(1), `bump must verify, got: [${_reports_dump(&bad_reports)}]`);
+  assert(_count_outcome(&bad_reports, String.from("refuted")) == usize(1), `after_bump must refute, got: [${_reports_dump(&bad_reports)}]`);
+  ok_reports := _load_reports(String.from("./tests/spec/fixtures/valid/inout_call_old.yo"), io, true);
+  assert(_count_outcome(&ok_reports, String.from("ok")) == usize(2), `inc and twice_bumped must verify, got: [${_reports_dump(&ok_reports)}]`);
+});
+
+test("a loop and a branch havoc a list that a free-function call changes", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/loop_call_mutator_havoc.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), `only grow1 may verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(2), `grow_in_loop and maybe_grow must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("a write in one match arm does not hold on the other arms' paths", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/match_arm_write_merge.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), `only grow1 may verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(2), `match_grow and match_assign must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("a list bound by a pattern is havocked at an open-frame call", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/frame_pattern_bound_list.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(0), `probe_opt must not verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `probe_opt must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("an early return is outside the subset: the value after its branch does not stand for it", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/early_return_in_branch.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(0), `neither function may verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("subset-error")) == usize(2), `both must be subset errors, got: [${_reports_dump(&reports)}]`);
+});
+
+test("a break in a match arm leaves the rest of the loop body walked", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/match_arm_break.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), `only find7 may verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `acc_stays_zero must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("after a cond, a dead arm is assumed not TAKEN, not its guard false", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/cond_dead_arm_overlap.yo"), io, true);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), `only exclusive may verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `overlap must refute, got: [${_reports_dump(&reports)}]`);
+});
+
+test("a verify-mode callee this run does not verify has an open frame, with compile's shared table too", {
+  if(!_have_z3(), {
+    return(());
+  });
+  // `yo compile` keeps every module's types in one shared table, so the
+  // imported callee's body is at hand although nothing verifies it.
+  mm_set_shared_expr_info_table(expr_info_table_new());
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/frame_unverified_import.yo"), io, true);
+  mm_reset();
+  assert(_count_outcome(&reports, String.from("ok")) == usize(0), `probe must not verify, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `probe must refute, got: [${_reports_dump(&reports)}]`);
 });
