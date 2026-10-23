@@ -7545,6 +7545,9 @@ run_compile :: (
         // last one): no concatenated copy of the whole C text
         // (plans/CODEGEN_MEMORY_REDUCTION.md §0.6).
         c_file := io.await(File.open(Path.new(c_path.clone()), .Write, io), IoExn(io : io, exn : exn));
+        // A `File` method's future borrows the file, so its bundle must be a
+        // place (E0910).
+        c_b := IoExn(io : io, exn : exn);
         (pw : usize) = usize(0);
         while(pw < c_parts.len(), {
           if((pw == usize(4)) && c_spill_exists, {
@@ -7553,13 +7556,13 @@ run_compile :: (
           match(
             c_parts.get(pw),
             .Some(part) => {
-              _pw_n := io.await(c_file.write_string(&part, io), IoExn(io : io, exn : exn));
+              _pw_n := io.await(c_file.write_string(&part, io), c_b);
             },
             .None => ()
           );
           pw = (pw + usize(1));
         });
-        io.await(c_file.close(io), IoExn(io : io, exn : exn));
+        io.await(c_file.close(io), c_b);
       }
     );
     if(c_spill_exists, {
@@ -8375,9 +8378,10 @@ _check_code_spill :: (fn(path : &String, expected : usize, io : Io, exn : Except
   if(!io.await(exists(Path.new(path), io), io), {
     exn.throw(dyn(_lost_code_spill_error(path, String.from("is gone"), expected)));
   });
-  src := io.await(File.open(Path.new(path), .Read, io), IoExn(io : io, exn : exn));
+  b := IoExn(io : io, exn : exn);
+  src := io.await(File.open(Path.new(path), .Read, io), b);
   size := src.size();
-  io.await(src.close(io), IoExn(io : io, exn : exn));
+  io.await(src.close(io), b);
   if(size != i64(expected), {
     exn.throw(dyn(_lost_code_spill_error(path, `holds ${size.to_string()} bytes`, expected)));
   });
@@ -8388,25 +8392,26 @@ _check_code_spill :: (fn(path : &String, expected : usize, io : Io, exn : Except
 /// exactly the `expected` bytes the emitter spilled were copied.
 _copy_code_spill_into :: (fn(src_path : &String, expected : usize, dst : &File, io : Io, exn : Exception) -> unit)({
   chunk := usize(4194304);
-  src := io.await(File.open(Path.new(src_path), .Read, io), IoExn(io : io, exn : exn));
+  b := IoExn(io : io, exn : exn);
+  src := io.await(File.open(Path.new(src_path), .Read, io), b);
   buf := (*u8)(valve_malloc(chunk).unwrap());
   (copied : usize) = usize(0);
   (going : bool) = true;
   while(going, {
-    n := io.await(src.read(buf, chunk, io), IoExn(io : io, exn : exn));
+    n := io.await(src.read(buf, chunk, io), b);
     if(n == usize(0), {
       going = false;
     }, {
       (done : usize) = usize(0);
       while(done < n, {
-        w := io.await(dst.write(buf.add(done), n - done, io), IoExn(io : io, exn : exn));
+        w := io.await(dst.write(buf.add(done), n - done, io), b);
         done = (done + w);
       });
       copied = (copied + n);
     });
   });
   valve_free(.Some((*void)(buf)));
-  io.await(src.close(io), IoExn(io : io, exn : exn));
+  io.await(src.close(io), b);
   if(copied != expected, {
     exn.throw(dyn(_lost_code_spill_error(src_path, `yielded ${copied.to_string()} bytes`, expected)));
   });

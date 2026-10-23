@@ -33,11 +33,14 @@ pragma(Pragma.AllowUnsafe);
 read_lsp_message :: (
   fn(reader : &BufReader(Stdin), io : Io, exn : Exception) -> Option(String)
 )({
+  // `read_line`'s future borrows the reader, so its bundle must be a place
+  // (E0910).
+  b := IoExn(io : io, exn : exn);
   (content_len : usize) = usize(0);
   (saw_header : bool) = false;
   (done_headers : bool) = false;
   while(!done_headers, {
-    line_opt := io.await(reader.read_line(io), IoExn(io : io, exn : exn));
+    line_opt := io.await(reader.read_line(io), b);
     match(
       line_opt,
       .Some(raw_line) => {
@@ -83,7 +86,7 @@ read_lsp_message :: (
   if(content_len == usize(0), {
     exn.throw(dyn(`lsp: frame without a Content-Length header`));
   });
-  bytes_opt := io.await(reader.read_exact(content_len, io), IoExn(io : io, exn : exn));
+  bytes_opt := io.await(reader.read_exact(content_len, io), b);
   match(
     bytes_opt,
     .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
