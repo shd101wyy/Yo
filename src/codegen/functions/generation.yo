@@ -1151,7 +1151,7 @@ generate_all_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
   // Generate parallelism runtime only when the program uses threads/workers.
   // This avoids ~450 lines of C thread pool code for single-threaded programs.
   if(context.uses_parallelism, {
-    generate_parallelism_runtime(&context.base.emitter, context.base.debug_parallelism, &context.base.target_info, context.uses_async);
+    generate_parallelism_runtime(&context.base.emitter, context.base.debug_parallelism, &context.base.target_info, context.uses_async, context.base.allocator == "debug");
   });
   // TLS backend: emitted independently of uses_async — a SYNC program probing
   // tls_available() must still link the __yo_tls_ ABI. Target selection

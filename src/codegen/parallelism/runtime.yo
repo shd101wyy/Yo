@@ -17,9 +17,18 @@ import("std/string");
 { Emitter } :: import("../../emitter.yo");
 { TargetInfo, is_target_macos, is_target_linux, is_target_windows } :: import("../../target.yo");
 generate_parallelism_runtime :: (
-  fn(emitter : &Emitter, debug_parallelism : bool, target_info : &TargetInfo, uses_async : bool) -> unit
+  fn(emitter : &Emitter, debug_parallelism : bool, target_info : &TargetInfo, uses_async : bool, debug_alloc : bool) -> unit
 )({
   debug_parallelism;
+  // `--allocator debug` (src/codegen/c/allocator_debug.yo): the worker array
+  // lives as long as the process (the atexit shutdown frees nothing, a worker
+  // may still be running against it), so it is a root of the exit report's
+  // reachability scan rather than a leak.
+  pool_root_line := if(
+    debug_alloc,
+    `  __yo_debug_alloc_root(&__yo_worker_threads, sizeof(__yo_worker_threads));\n`,
+    ``
+  );
   is_windows := is_target_windows(target_info);
   _is_linux := is_target_linux(target_info);
   _is_macos := is_target_macos(target_info);
@@ -362,7 +371,7 @@ static void __yo_worker_pool_init(size_t num_threads) {
   PARALLELISM_DEBUG("[WORKER] Initializing worker pool with %zu threads\\n", num_threads);
 
   __yo_worker_threads = (__yo_worker_thread_t*)__yo_rc_alloc(sizeof(__yo_worker_thread_t) * num_threads);
-  __yo_worker_num_threads = num_threads;
+${pool_root_line}  __yo_worker_num_threads = num_threads;
   __yo_worker_next_thread = 0;
 
   for (size_t i = 0; i < num_threads; i++) {
