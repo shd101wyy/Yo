@@ -84,19 +84,36 @@ of every generic body in std. So the fix stays inside the raw-view exemption.
   `SomeT`. It answers yes when a recorded generic `Drop` impl's receiver
   pattern is the same constructor (`constructor_func_id`) applied to distinct
   parameters of the impl's own. Every `where(P <: Tr)` of that impl must also
-  be implied: the matching argument is a `SomeT` whose declared bounds carry
-  `Tr`'s trait key, and `Tr` must be instantiation-independent (a marker, or a
-  trait that mentions none of the impl's parameters), so that its stored value
-  is the trait to compare. Any other shape is not exempted, and the concrete
-  instantiation decides as before.
+  be implied by a bound the matching argument (a `SomeT`) declares. A `Tr`
+  that names none of the impl's parameters (a marker, `Clone`, `Hash`) is
+  compared by trait key. A parameterized `Tr` that names them (`HashMap`'s
+  `where(K <: (Eq(K), Hash))`) is compared up to renaming
+  (`_same_trait_under_renaming`): the same trait constructor, and each
+  recorded instantiation argument either one of the impl's parameters, mapped
+  through the receiver pattern to the signature's argument at that position,
+  or a type naming none of them with the same `type_key`. Any other shape
+  (`Eq(Rc(K))`) is not exempted, and the concrete instantiation decides as
+  before.
+- Review found that the bounds a parameter declares lost every `where`
+  clause but the last one: `where(T <: Clone), where(T <: Send)` left `T`
+  with only `Send`. That was a separate bug in the signature's where pass,
+  which also skipped the earlier clauses at a call. It is fixed in the same
+  change
+  (`issues/fixed/2026-10-23-only-the-last-where-clause-of-a-signature-is-checked-at-a-call.md`).
 
 Measured with the fixed binary:
 
 - The repro prints `0` twice.
 - `fn(generic(T), b : &CBuf(T), where(T <: Clone))` is accepted, where the
   `Drop` impl is `where(T <: Clone)`.
+- The bound also counts when it sits in either of two `where` clauses.
+- `&HMap(K, V)`, whose `Drop` is declared `where(K <: (Eq(K), Hash))` as
+  `HashMap`'s is, is accepted under `where(K <: (Eq(K), Hash))`, and under
+  `where(A <: (Hash, Eq(A)))` with the parameters renamed.
 - Still rejected in a safe file: an unbounded `&CBuf(T)`, `&CBuf(T)` under
-  `where(T <: Send)`, `p : *T`, and `&View(T)`, a `?*T` view with no `Drop`.
+  `where(T <: Send)`, `&HMap(K, V)` under `where(K <: Hash)` or
+  `where(K <: (Eq(V), Hash))`, `p : *T`, and `&View(T)`, a `?*T` view with no
+  `Drop`.
 
 **Test:** `tests/raw_view_generic_owner.test.yo`, with its fixture
 `tests/fixtures/raw_view_generic_owner.yo`. It fails to compile on develop
