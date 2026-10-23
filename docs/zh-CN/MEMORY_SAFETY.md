@@ -290,13 +290,14 @@ Findings (file:line:col):
 
 unsafe 表面仍可能把一个块释放两次、释放一个从未分配过的指针、通过悬垂指针写入，或者忘记释放一个块。`--allocator debug`（`yo compile`、`yo test`，或 `build.yo` 中的 `allocator : AllocatorKind.Debug`）让程序运行在一个建立于系统堆之上的跟踪分配器上，在所有平台上都能发现这些问题，包括 AddressSanitizer 不可用的平台：
 
-- **重复释放，或释放一个它从未分配出去的指针，会中止程序**，报告 `debug allocator: double free: free of block #N (S bytes), already freed`，或者指出那个指针。
-- **被释放的块会被投毒并隔离**，而不是被重用（最多保留 64 MiB 已释放的负载）。通过悬垂指针的写入会在该块离开隔离区时或在退出时被报告：`block #N (S bytes) was written after it was freed (first changed byte at offset K)`。
+- **重复释放，或释放一个它从未分配出去的指针，会中止程序**，报告 `debug allocator: double free: free of block #N (S bytes), already freed`，或者指出那个指针。分配器先在自己的表中查找指针，再读取它周围的任何内存，因此错误的指针不会让检查本身崩溃。
+- **被释放的块会被投毒并隔离**，而不是被重用（最多保留 64 MiB 已释放的负载；最近释放的那个块无论多大都会保留）。通过悬垂指针的写入会在该块离开隔离区时或在退出时被报告：`block #N (S bytes) was written after it was freed (first changed byte at offset K)`。块一旦离开隔离区，其内存就已归还系统，因此再次释放它会被报告为分配器 `did not hand out (or whose block already left the quarantine)` 的指针，而不是重复释放。
 - **新分配的块填充为 `0xAA`**，因此读取没人初始化过的内存会看到一个可辨认的模式，而不是碰巧为零。
-- **退出报告列出每个泄漏的块。** 它总会打印 `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`。模块全局变量永远不会被 drop，因此仍能从某个模块全局变量到达的块（对全局变量及其所到达内容的保守扫描）被计为 `still reachable from module globals`，而不是泄漏。随后按分配编号列出最多 32 个泄漏的块。当 `main` 正常返回而有块泄漏时，进程以状态码 23 退出并打印 `leak check failed`。程序内部调用 `exit()` 会跳过所有 drop，因此它的存活块会被列出，但不作判定。
-- **`yo test --allocator debug` 让泄漏的测试失败。** 每个测试运行在独立的进程中，因此测试体返回时仍有块存活的测试会以 `Memory leak detected` 失败。
+- **退出报告列出每个泄漏的块。** 它总会打印 `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`。模块全局变量永远不会被 drop，因此仍能从某个模块全局变量、或从运行时自身贯穿进程生命周期的状态（例如工作线程池）到达的块（对这些根及其所到达内容的保守扫描）被计为 `still reachable from module globals or runtime state`，而不是泄漏。随后按分配编号列出最多 32 个泄漏的块。当 `main` 正常返回而有块泄漏时，进程以状态码 23 退出并打印 `leak check failed`。
+- **某些退出只列出存活块而不作判定。** 程序内部调用 `exit()` 会跳过所有 drop。程序启动的线程（`Thread.spawn` 或线程池工作线程）若仍在运行，它拥有的块只有它自己的栈能到达，而扫描看不到栈：报告会先最多等待一秒让程序的线程结束（此时线程池已通知空闲的工作线程停止），如果仍有线程在运行，报告会说明这一点且不作判定。`YO_DEBUG_ALLOC_VERDICT=0` 关闭该判定。
+- **`yo test --allocator debug` 让泄漏的测试失败。** 每个测试运行在独立的进程中，因此测试体返回时仍有块存活的测试会以 `Memory leak detected` 失败。`YO_TEST_LEAK_VERDICT=0` 同样会关闭这一判定（运行器以 `YO_DEBUG_ALLOC_VERDICT=0` 传给测试二进制），而带 `pragma(Pragma.NeedsLeakVerdict)` 的文件在 `--allocator debug` 下即使没有构建 AddressSanitizer 二进制也会运行。
 
-块以分配编号命名；设置 `YO_DEBUG_ALLOC_TRAP=<n>` 后，程序会在第 `n` 次分配时中止，调试器即可显示它来自哪里（单线程程序的分配编号是确定的）。该分配器目前还不检查释放时给出的大小是否与块一致（这需要分配器接口下一版本中带大小的 `free`），也不记录分配位置。
+块以分配编号命名；设置 `YO_DEBUG_ALLOC_TRAP=<n>` 后，程序会在第 `n` 次分配时中止，调试器即可显示它来自哪里（单线程程序的分配编号是确定的）。该分配器目前还不检查释放时给出的大小是否与块一致（这需要分配器接口下一版本中带大小的 `free`），既不记录分配位置，也不记录类型名。它也不会给 arena 命名：从未 `deinit` 的 `Arena` 只会显示为匿名的泄漏块，而 `--allocator fixed --debug-heap` 会按名称列出它。
 
 ## FFI
 

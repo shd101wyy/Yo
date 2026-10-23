@@ -29,6 +29,15 @@ generate_parallelism_runtime :: (
     `  __yo_debug_alloc_root(&__yo_worker_threads, sizeof(__yo_worker_threads));\n`,
     ``
   );
+  // `--allocator debug`: the program's threads are counted, so the exit
+  // report can wait for them (a running thread's stack is no root). Counted
+  // in before the thread is created, so a thread the report races cannot be
+  // missed; counted out as the thread's last act, after everything it frees.
+  thread_enter_line := if(debug_alloc, `  __yo_debug_alloc_thread_enter();\n`, ``);
+  thread_leave_line := if(debug_alloc, `  __yo_debug_alloc_thread_leave();\n`, ``);
+  creation_failed_leave_line := if(debug_alloc, `    __yo_debug_alloc_thread_leave();\n`, ``);
+  worker_enter_line := if(debug_alloc, `    __yo_debug_alloc_thread_enter();\n`, ``);
+  worker_failed_leave_line := if(debug_alloc, `      __yo_debug_alloc_thread_leave();\n`, ``);
   is_windows := is_target_windows(target_info);
   _is_linux := is_target_linux(target_info);
   _is_macos := is_target_macos(target_info);
@@ -37,13 +46,13 @@ generate_parallelism_runtime :: (
     `static unsigned __stdcall __yo_thread_entry(void* arg) {`,
     `static void* __yo_thread_entry(void* arg) {`
   );
-  thread_entry_return := if(is_windows, `  return 0;`, `  return NULL;`);
+  thread_entry_return := if(is_windows, `${thread_leave_line}  return 0;`, `${thread_leave_line}  return NULL;`);
   worker_entry_signature := if(
     is_windows,
     `static unsigned __stdcall __yo_worker_thread_entry(void* arg) {`,
     `static void* __yo_worker_thread_entry(void* arg) {`
   );
-  worker_entry_return := if(is_windows, `  return 0;`, `  return NULL;`);
+  worker_entry_return := if(is_windows, `${thread_leave_line}  return 0;`, `${thread_leave_line}  return NULL;`);
   yield_call := if(is_windows, `      SwitchToThread();`, `      sched_yield();`);
   pool_mutex_decl := if(
     is_windows,
@@ -201,9 +210,9 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   args->closure = closure;
 
   // Create OS thread
-  int ret = __yo_raw_thread_create(&thread.handle, __yo_thread_entry, args);
+${thread_enter_line}  int ret = __yo_raw_thread_create(&thread.handle, __yo_thread_entry, args);
   if (ret != 0) {
-    PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d); running inline\\n", ret);
+${creation_failed_leave_line}    PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d); running inline\\n", ret);
     // Same contract as __yo_worker_spawn's inline fallback: with no OS thread
     // the closure would never run at all — its work silently dropped and its
     // reference-counted captures never released, since the wrapper that drops
@@ -386,7 +395,7 @@ ${pool_root_line}  __yo_worker_num_threads = num_threads;
     // concurrent access to order against yet.
     atomic_store_explicit(&worker->started, 0, memory_order_relaxed);
 
-    int ret = __yo_raw_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
+${worker_enter_line}    int ret = __yo_raw_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
     if (ret == 0) {
       // Detached at birth: the pool never joins a worker (see
       // __yo_worker_pool_shutdown), and an unjoined, undetached thread is a
@@ -395,7 +404,7 @@ ${pool_root_line}  __yo_worker_num_threads = num_threads;
       __yo_raw_thread_detach(worker->handle);
     }
     if (ret != 0) {
-      PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
+${worker_failed_leave_line}      PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
       worker->running = 0;
       // Relaxed: thread creation failed, so no worker thread exists to
       // race with this store. Mark "started" to avoid waiting forever.

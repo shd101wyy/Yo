@@ -396,7 +396,7 @@ exe :: build.executable({
   运行中，丢弃了一个环的测试会以 `Memory leak detected:` 失败。
   `YO_TEST_LEAK_VERDICT=0` 关闭该判定（CI 会设置它），`--allocator fixed --debug-heap`
   则改为打印计数。`yo test --allocator debug` 在所有平台上都会让这样的测试失败，
-  并给出调试分配器的泄漏报告
+  并给出调试分配器的泄漏报告（同一变量也会关闭这一判定）
   （[内存安全](MEMORY_SAFETY.md#--allocator-debug运行时的泄漏与堆误用)）。
 
 对于只有一个两单元垃圾环的程序：

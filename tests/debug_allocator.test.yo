@@ -9,9 +9,10 @@
 //! run only when the program reads its allocator as `debug` through the
 //! runtime's `__yo_debug_alloc_on` hook. The language suite runs this file
 //! under its default allocator, where only the clean round trip runs; the
-//! cli-case `test-allocator-debug-suite` runs it under `--allocator debug`,
-//! where every test runs and every parent must itself end with no leaked
-//! block.
+//! cli-case `test-allocator-debug-suite` (Linux) and the `test-native` CI
+//! legs (macOS, Windows) run it under `--allocator debug`, where every test
+//! runs. A child always runs with the verdict on (`YO_DEBUG_ALLOC_VERDICT=1`),
+//! whatever `YO_TEST_LEAK_VERDICT` staged for the parent.
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
@@ -23,6 +24,9 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { env, args } :: import("std/env");
 { GlobalAllocator } :: import("std/allocator");
 { exit } :: import("std/libc/stdlib");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 extern(
   "Yo",
   __yo_debug_alloc_on :
@@ -32,7 +36,9 @@ _debug_on :: (fn() -> bool)(unsafe(__yo_debug_alloc_on()));
 /// The fault this process should commit, when it is a child.
 _child_mode :: (fn() -> Option(String))(env.get(`YO_DEBUG_ALLOC_CHILD`));
 /// Run this test binary again as a child in `mode`, and return its output.
-_run_child :: (fn(mode : str, io : Io) -> Output)({
+/// The child judges its own live blocks unless `verdict` is `"0"`.
+_run_child :: (fn(mode : str, io : Io) -> Output)(_run_child_with_verdict(mode, "1", io));
+_run_child_with_verdict :: (fn(mode : str, verdict : str, io : Io) -> Output)({
   exn := Exception(
     throw : (
       err -> {
@@ -41,6 +47,7 @@ _run_child :: (fn(mode : str, io : Io) -> Output)({
     )
   );
   _s := env.set(String.from("YO_DEBUG_ALLOC_CHILD"), String.from(mode));
+  _v := env.set(String.from("YO_DEBUG_ALLOC_VERDICT"), String.from(verdict));
   argv := args();
   cmd := Command.new(&argv(usize(0)));
   io.await(cmd.output(io), IoExn(io : io, exn : exn))
@@ -108,8 +115,7 @@ test("a free of a pointer it never handed out aborts", {
   match(
     _child_mode(),
     .Some(_) => {
-      // An interior pointer: its would-be header lies inside the real block's
-      // header, so the canary check reads memory the allocator owns.
+      // An interior pointer: the block table does not know it.
       p := _alloc(usize(64));
       unsafe(GlobalAllocator.free(.Some((*void)((*u8)(p).add(usize(16))))));
     },
@@ -187,6 +193,125 @@ test("blocks a module global still reaches at exit are not leaks", {
       assert(out.status.success(), `the run passes the leak check, got: ${err}`);
       assert(err.contains("still reachable from module globals"), `the report counts the reachable blocks, got: ${err}`);
       assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
+    })
+  );
+});
+// Bigger than the 64 MiB quarantine on its own.
+_BIG :: usize(73400320);
+test("a double free of a block bigger than the quarantine is still named", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      p := _alloc(_BIG);
+      unsafe(GlobalAllocator.free(.Some(p)));
+      unsafe(GlobalAllocator.free(.Some(p)));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("big-double-free", io);
+      err := String.from_bytes(out.stderr);
+      assert(!out.status.success(), "the child must not succeed");
+      assert(err.contains("debug allocator: double free: free of block #"), `the abort names the double free, got: ${err}`);
+      assert(err.contains("(73400320 bytes), already freed"), `the abort names the size, got: ${err}`);
+    })
+  );
+});
+test("a free of a block that already left the quarantine is rejected without reading it", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      // The second free pushes the big block out of the quarantine and back
+      // to the system; the third must not read its (unmapped) header.
+      big := _alloc(_BIG);
+      unsafe(GlobalAllocator.free(.Some(big)));
+      small := _alloc(usize(16));
+      unsafe(GlobalAllocator.free(.Some(small)));
+      unsafe(GlobalAllocator.free(.Some(big)));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("evicted-free", io);
+      err := String.from_bytes(out.stderr);
+      assert(!out.status.success(), "the child must not succeed");
+      assert(err.contains("whose block already left the quarantine"), `the abort names the pointer as unknown, got: ${err}`);
+    })
+  );
+});
+test("YO_DEBUG_ALLOC_VERDICT=0 lists a leaked block without failing the run", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      _p := _alloc(usize(48));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child_with_verdict("verdict-off", "0", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.success(), `the run keeps its status, got: ${err}`);
+      assert(err.contains("leaked block #"), `the report still lists the block, got: ${err}`);
+      assert(err.contains("the leak verdict is off (YO_DEBUG_ALLOC_VERDICT=0)"), `the report says why, got: ${err}`);
+    })
+  );
+});
+test("a detached thread that finishes after main returns is waited for, not reported", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      // The handle is dropped (detached) and main returns while the thread
+      // still holds its closure and the string it builds.
+      _t := Thread(unit).spawn(io => {
+        sleep_blocking(Duration.from_millis(i64(200)));
+        msg := String.from("a string built on the thread after main returned");
+        assert(msg.len() > usize(0), "the thread ran");
+      });
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("late-thread", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.success(), `the run passes the leak check, got: ${err}`);
+      assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
+    })
+  );
+});
+test("a thread still running past the wait leaves the live blocks unjudged", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      _t := Thread(unit).spawn(io => {
+        msg := String.from("a string the running thread still owns at exit");
+        sleep_blocking(Duration.from_millis(i64(5000)));
+        assert(msg.len() > usize(0), "the thread ran");
+      });
+      sleep_blocking(Duration.from_millis(i64(100)));
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("running-thread", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.success(), `a running thread is no leak, got: ${err}`);
+      assert(err.contains("threads of the program were still running"), `the report says why, got: ${err}`);
+    })
+  );
+});
+test("a pool's finished tasks are judged after its workers exit", {
+  match(
+    _child_mode(),
+    .Some(_) => {
+      pool := ThreadPool.new(usize(4));
+      (mut(i) : usize) = usize(0);
+      while(i < usize(32), {
+        k := i;
+        spawn(&pool, io => {
+          xs := ArrayList(String).new();
+          xs.push(k.to_string());
+          assert(xs.len() == usize(1), "the task ran");
+        });
+        i = (i + usize(1));
+      });
+      pool.join_all();
+    },
+    .None => if(_debug_on(), {
+      out := _run_child("pool", io);
+      err := String.from_bytes(out.stderr);
+      assert(out.status.success(), `the run passes the leak check, got: ${err}`);
+      assert(!err.contains("leaked block"), `nothing is reported leaked, got: ${err}`);
+      assert(!err.contains("not judged"), `the workers exited within the wait, got: ${err}`);
     })
   );
 });

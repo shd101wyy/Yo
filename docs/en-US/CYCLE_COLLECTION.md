@@ -406,7 +406,8 @@ Under `off`:
   `Memory leak detected:`. `YO_TEST_LEAK_VERDICT=0` turns the verdict off
   (CI sets it), and `--allocator fixed --debug-heap` prints the counts
   instead. `yo test --allocator debug` fails such a test on every platform,
-  with the debug allocator's leak report
+  with the debug allocator's leak report (the same variable turns that
+  verdict off too)
   ([Memory Safety](MEMORY_SAFETY.md#--allocator-debug-leaks-and-heap-misuse-at-run-time)).
 
 For a program whose one garbage cycle has two cells:

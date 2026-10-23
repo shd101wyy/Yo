@@ -4,18 +4,30 @@
 //!
 //! A tracking allocator over the system one, Zig's `DebugAllocator` and
 //! `std.testing.allocator` in one runtime. Every block carries a header with
-//! its requested size and its allocation number, and sits on a live list.
-//! Fresh payloads are filled with 0xAA. A freed block is poisoned with 0xDD
-//! and kept in a quarantine instead of going back to the system heap, so a
-//! double free is caught and a write after free is found when the block
-//! leaves the quarantine or at exit. A pointer the allocator never handed out
-//! is rejected by its header canary. At exit the report splits the live
-//! blocks into those still reachable from a module global (a conservative
-//! scan whose roots `__yo_main_module_init` registers; module globals are
-//! never dropped) and the leaked rest, which it lists. When `main` returned
-//! normally a leaked block fails the process with exit status 23
-//! (`yo test --allocator debug` fails a test that leaks). It is decision 48's leak oracle (W6 precondition 2) and works
-//! on every platform, unlike LeakSanitizer.
+//! its requested size and its allocation number, sits on a live list, and is
+//! registered in a block table keyed by its payload address. Fresh payloads
+//! are filled with 0xAA. A freed block is poisoned with 0xDD and kept in a
+//! quarantine instead of going back to the system heap, so a double free is
+//! caught and a write after free is found when the block leaves the
+//! quarantine or at exit. `free` and `realloc` look a pointer up in the table
+//! before they read anything around it, so a pointer the allocator never
+//! handed out (or whose block already went back to the system) is rejected
+//! without touching memory the allocator does not own. At exit the report
+//! splits the live blocks into those still reachable from a module global or
+//! a registered runtime static (a conservative scan whose roots
+//! `__yo_main_module_init` and the runtime register; module globals are never
+//! dropped) and the leaked rest, which it lists. When `main` returned normally
+//! a leaked block fails the process with exit status 23 (`yo test --allocator
+//! debug` fails a test that leaks). It is decision 48's leak oracle (W6
+//! precondition 2) and works on every platform, unlike LeakSanitizer.
+//!
+//! Threads: a thread the program started and that is still running owns
+//! blocks only its stack reaches, which the scan cannot see. The runtime
+//! counts the program's threads (`__yo_debug_alloc_thread_enter/leave`,
+//! `parallelism/runtime.yo`), and the report first waits up to
+//! `__YO_DBG_THREAD_WAIT_MS` for them to finish (the pool's atexit shutdown
+//! has told idle workers to stop by then). A thread still running after that
+//! leaves the live blocks listed but not judged, like an `exit()`.
 //!
 //! Emission split: the same as the fixed arm (`allocator_fixed.yo`). The
 //! `#define` family and the external prototypes go to the HEADER section, the
@@ -23,18 +35,20 @@
 //! links every chunk against one copy.
 //!
 //! Not built yet: the size-mismatch abort needs the allocator interface's
-//! sized `free` (version 2), and allocation sites need Z4's
-//! `source_location`. Until then the report names a block by its allocation
-//! number, and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`, so a
-//! debugger shows its stack.
+//! sized `free` (version 2), allocation sites need Z4's `source_location`,
+//! and type names need `__yo_rc_alloc` to pass a type tag. Until then the
+//! report names a block by its allocation number and size, and
+//! `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`, so a debugger shows its
+//! stack.
 { String } :: import("std/string");
 { Emitter } :: import("../../emitter.yo");
 { CodeGenContext } :: import("../utils/index.yo");
-{ is_target_wasm } :: import("../../target.yo");
+{ is_target_wasm, is_target_windows } :: import("../../target.yo");
 { emit_heap_format_size } :: import("./allocator_fixed.yo");
 /// Emit the `#define __yo_malloc __yo_debug_malloc` family and the external
-/// prototypes into the header section. The main wrapper calls the three
-/// `__yo_debug_alloc_*` hooks (`functions/generation.yo`).
+/// prototypes into the header section. The main wrapper calls the
+/// `__yo_debug_alloc_*` hooks (`functions/generation.yo`), the parallelism
+/// runtime the thread pair (`parallelism/runtime.yo`).
 emit_debug_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
   emitter.emit_header_string_line(
     `
@@ -55,6 +69,8 @@ void* __yo_debug_aligned_alloc(size_t alignment, size_t size);
 void __yo_debug_alloc_init(void);
 void __yo_debug_alloc_main_returned(void);
 void __yo_debug_alloc_root(const void* addr, size_t size);
+void __yo_debug_alloc_thread_enter(void);
+void __yo_debug_alloc_thread_leave(void);
 int __yo_debug_alloc_report(void);`
   );
 });
@@ -69,6 +85,16 @@ emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
       String.new(),
       String.from("  atexit(__yo_dbg_atexit);\n")
     );
+  // One step of the report's wait for the program's own threads: a
+  // millisecond's sleep. WASM never has a thread to wait for (thread creation
+  // fails there and `__yo_thread_spawn` runs the closure inline).
+  thread_nap :=
+    cond(
+      is_target_wasm(&context.target_info) => String.from("    break;"),
+      is_target_windows(&context.target_info) => String.from("    Sleep(1);"),
+      true => String.from("    struct timespec ts;\n    ts.tv_sec = 0;\n    ts.tv_nsec = 1000000L;\n    nanosleep(&ts, NULL);")
+    );
+  time_include := if(is_target_windows(&context.target_info), String.new(), String.from("#include <time.h>"));
   em.emit_string_line(
     `
 // ============================================================================
@@ -76,10 +102,14 @@ emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
 // ============================================================================
 // Layout of a block: [system padding][header][payload]. The header sits right
 // before the payload and records the system pointer, the requested size, the
-// allocation number and a canary (a state word XOR the header's address, so a
-// stray pointer cannot pass for a block). Live blocks are on a list in
-// allocation order; freed blocks are poisoned and kept on a FIFO quarantine
-// of at most __YO_DBG_QUARANTINE_BYTES payload bytes.
+// allocation number and a canary (a state word XOR the header's address).
+// Every block the allocator still owns (live or quarantined) is in the block
+// table, keyed by its payload address; free/realloc trust a pointer only
+// after the table names it. Live blocks are on a list in allocation order;
+// freed blocks are poisoned and kept on a FIFO quarantine of at most
+// __YO_DBG_QUARANTINE_BYTES payload bytes (the newest freed block always
+// stays, whatever its size).
+${time_include}
 #define __YO_DBG_GRAN (_Alignof(max_align_t))
 #define __YO_DBG_ROUNDUP(x) (((x) + (__YO_DBG_GRAN - 1)) & ~((size_t)(__YO_DBG_GRAN - 1)))
 #define __YO_DBG_LIVE ((uintptr_t)0x4C495645u)
@@ -89,6 +119,7 @@ emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
 #define __YO_DBG_QUARANTINE_BYTES ((size_t)64 * 1024 * 1024)
 #define __YO_DBG_LEAK_EXIT 23
 #define __YO_DBG_LEAKS_LISTED 32
+#define __YO_DBG_THREAD_WAIT_MS 1000
 
 typedef struct __yo_dbg_block {
   struct __yo_dbg_block* prev;
@@ -100,6 +131,8 @@ typedef struct __yo_dbg_block {
 } __yo_dbg_block_t;
 
 #define __YO_DBG_HDR (__YO_DBG_ROUNDUP(sizeof(__yo_dbg_block_t)))
+// A removed block-table slot (open addressing needs the probe chain intact).
+#define __YO_DBG_TOMB ((__yo_dbg_block_t*)(uintptr_t)1)
 
 typedef struct {
   __yo_dbg_block_t* head;
@@ -115,10 +148,19 @@ static size_t __yo_dbg_peak_bytes = 0;
 static uint64_t __yo_dbg_seq = 0;
 static uint64_t __yo_dbg_trap_seq = 0;
 static int __yo_dbg_ready = 0;
+static int __yo_dbg_verdict_off = 0;
 static atomic_flag __yo_dbg_lock = ATOMIC_FLAG_INIT;
 static atomic_int __yo_dbg_main_done = 0;
-// The module globals' storage (registered by __yo_main_module_init): the
-// roots of the exit report's reachability scan. Kept in system memory, so the
+// The program's own threads (Thread.spawn and pool workers) not yet finished.
+static atomic_size_t __yo_dbg_threads = 0;
+// The block table, in system memory so it is never a tracked block itself.
+static __yo_dbg_block_t** __yo_dbg_table = NULL;
+static size_t __yo_dbg_table_cap = 0;   // a power of two
+static size_t __yo_dbg_table_count = 0; // blocks in the table
+static size_t __yo_dbg_table_used = 0;  // blocks + tombstones
+// The roots of the exit report's reachability scan: the module globals'
+// storage (registered by __yo_main_module_init) and the runtime statics that
+// hold blocks for the life of the process. Kept in system memory, so the
 // registry itself is never a tracked block.
 typedef struct {
   const void* addr;
@@ -160,6 +202,76 @@ static void __yo_dbg_unlink(__yo_dbg_list_t* l, __yo_dbg_block_t* b) {
   b->next = NULL;
 }
 
+static size_t __yo_dbg_hash(const void* p) {
+  uint64_t x = (uint64_t)(uintptr_t)p;
+  x ^= x >> 33;
+  x *= 0xff51afd7ed558ccdULL;
+  x ^= x >> 33;
+  return (size_t)x;
+}
+
+// The table slot holding the block whose payload is p, or NULL. Reads only
+// the table and the blocks it names, never the memory around p.
+static __yo_dbg_block_t** __yo_dbg_table_find(const void* p) {
+  size_t mask, i;
+  if (__yo_dbg_table_cap == 0) return NULL;
+  mask = __yo_dbg_table_cap - 1;
+  for (i = __yo_dbg_hash(p) & mask;; i = (i + 1) & mask) {
+    __yo_dbg_block_t* e = __yo_dbg_table[i];
+    if (e == NULL) return NULL;
+    if (e != __YO_DBG_TOMB && __yo_dbg_payload(e) == p) return &__yo_dbg_table[i];
+  }
+}
+
+static void __yo_dbg_table_put(__yo_dbg_block_t** table, size_t cap, __yo_dbg_block_t* b) {
+  size_t mask = cap - 1;
+  size_t i = __yo_dbg_hash(__yo_dbg_payload(b)) & mask;
+  while (table[i] != NULL && table[i] != __YO_DBG_TOMB) i = (i + 1) & mask;
+  table[i] = b;
+}
+
+// Rebuild the table at a size that keeps it at most a quarter full, dropping
+// the tombstones. 0 when the system is out of memory.
+static int __yo_dbg_table_rehash(void) {
+  size_t cap = 1024, i;
+  __yo_dbg_block_t** grown;
+  while ((__yo_dbg_table_count + 1) * 4 > cap) cap *= 2;
+  grown = (__yo_dbg_block_t**)calloc(cap, sizeof(__yo_dbg_block_t*));
+  if (grown == NULL) return 0;
+  for (i = 0; i < __yo_dbg_table_cap; i++) {
+    __yo_dbg_block_t* e = __yo_dbg_table[i];
+    if (e != NULL && e != __YO_DBG_TOMB) __yo_dbg_table_put(grown, cap, e);
+  }
+  free(__yo_dbg_table);
+  __yo_dbg_table = grown;
+  __yo_dbg_table_cap = cap;
+  __yo_dbg_table_used = __yo_dbg_table_count;
+  return 1;
+}
+
+static int __yo_dbg_table_insert(__yo_dbg_block_t* b) {
+  if ((__yo_dbg_table_used + 1) * 2 > __yo_dbg_table_cap) {
+    if (!__yo_dbg_table_rehash()) return 0;
+  }
+  {
+    size_t mask = __yo_dbg_table_cap - 1;
+    size_t i = __yo_dbg_hash(__yo_dbg_payload(b)) & mask;
+    while (__yo_dbg_table[i] != NULL && __yo_dbg_table[i] != __YO_DBG_TOMB) i = (i + 1) & mask;
+    if (__yo_dbg_table[i] == NULL) __yo_dbg_table_used += 1;
+    __yo_dbg_table[i] = b;
+  }
+  __yo_dbg_table_count += 1;
+  return 1;
+}
+
+static void __yo_dbg_table_remove(__yo_dbg_block_t* b) {
+  __yo_dbg_block_t** slot = __yo_dbg_table_find(__yo_dbg_payload(b));
+  if (slot != NULL) {
+    *slot = __YO_DBG_TOMB;
+    __yo_dbg_table_count -= 1;
+  }
+}
+
 static void __yo_dbg_atexit(void);
 
 // Called under the lock by the first allocation, and first thing in main so
@@ -167,10 +279,13 @@ static void __yo_dbg_atexit(void);
 // run in reverse order, so the report runs after the runtime's own cleanup).
 static void __yo_dbg_ensure_init(void) {
   const char* trap;
+  const char* verdict;
   if (__yo_dbg_ready) return;
   __yo_dbg_ready = 1;
   trap = getenv("YO_DEBUG_ALLOC_TRAP");
   if (trap != NULL) __yo_dbg_trap_seq = (uint64_t)strtoull(trap, NULL, 10);
+  verdict = getenv("YO_DEBUG_ALLOC_VERDICT");
+  if (verdict != NULL && verdict[0] == '0' && verdict[1] == '\\0') __yo_dbg_verdict_off = 1;
 ${atexit_line}}
 
 void __yo_debug_alloc_init(void) {
@@ -183,7 +298,17 @@ void __yo_debug_alloc_main_returned(void) {
   atomic_store_explicit(&__yo_dbg_main_done, 1, memory_order_release);
 }
 
-// A module global is a root: what it reaches at exit is still in use, not
+// Called before a thread is created (and again, undone, when creation fails)
+// and as the thread's last act, after it freed everything it frees.
+void __yo_debug_alloc_thread_enter(void) {
+  atomic_fetch_add_explicit(&__yo_dbg_threads, 1, memory_order_acq_rel);
+}
+
+void __yo_debug_alloc_thread_leave(void) {
+  atomic_fetch_sub_explicit(&__yo_dbg_threads, 1, memory_order_acq_rel);
+}
+
+// A root: what the memory at addr reaches at exit is still in use, not
 // leaked (module globals are never dropped). A registry that cannot grow
 // drops the root, which can only turn a reachable block into a reported one.
 void __yo_debug_alloc_root(const void* addr, size_t size) {
@@ -220,6 +345,10 @@ static void* __yo_dbg_alloc_locked(size_t alignment, size_t size) {
   b = __yo_dbg_header((void*)payload);
   b->raw = raw;
   b->size = size;
+  if (!__yo_dbg_table_insert(b)) {
+    free(raw);
+    return NULL;
+  }
   b->seq = ++__yo_dbg_seq;
   b->canary = __YO_DBG_LIVE ^ (uintptr_t)b;
   __yo_dbg_push(&__yo_dbg_live, b);
@@ -250,18 +379,35 @@ static void __yo_dbg_verify_freed(__yo_dbg_block_t* b) {
   }
 }
 
-// Classify a pointer that is not a live block, for the abort message.
-_Noreturn static void __yo_dbg_bad_pointer(const char* op, void* ptr) {
-  __yo_dbg_block_t* b = __yo_dbg_header(ptr);
-  if (b->canary == (__YO_DBG_FREED ^ (uintptr_t)b)) {
-    fflush(stdout); fprintf(stderr, "debug allocator: double free: %s of block #%llu (%zu bytes), already freed\\n",
+// The pointer handed to op is not a live block: b is its table entry (a
+// quarantined block, or one whose header was overwritten), or NULL when the
+// table does not know the pointer at all.
+_Noreturn static void __yo_dbg_bad_pointer(const char* op, void* ptr, __yo_dbg_block_t* b) {
+  fflush(stdout);
+  if (b != NULL && b->canary == (__YO_DBG_FREED ^ (uintptr_t)b)) {
+    fprintf(stderr, "debug allocator: double free: %s of block #%llu (%zu bytes), already freed\\n",
         op, (unsigned long long)b->seq, b->size);
+  } else if (b != NULL) {
+    fprintf(stderr, "debug allocator: %s of %p, whose block header was overwritten (a write before the block's start)\\n",
+        op, ptr);
   } else {
-    fflush(stdout); fprintf(stderr,
+    fprintf(stderr,
         "debug allocator: %s of %p, which this allocator did not hand out (or whose block already left the quarantine)\\n",
         op, ptr);
   }
   __yo_abort();
+}
+
+// The block the table names for ptr when it is live; otherwise the abort.
+// Called with the lock held; releases it before aborting.
+static __yo_dbg_block_t* __yo_dbg_live_block(const char* op, void* ptr) {
+  __yo_dbg_block_t** slot = __yo_dbg_table_find(ptr);
+  __yo_dbg_block_t* b = (slot != NULL) ? *slot : NULL;
+  if (b == NULL || b->canary != (__YO_DBG_LIVE ^ (uintptr_t)b)) {
+    __yo_dbg_lock_release();
+    __yo_dbg_bad_pointer(op, ptr, b);
+  }
+  return b;
 }
 
 static void __yo_dbg_free_locked(__yo_dbg_block_t* b) {
@@ -272,12 +418,14 @@ static void __yo_dbg_free_locked(__yo_dbg_block_t* b) {
   b->canary = __YO_DBG_FREED ^ (uintptr_t)b;
   __yo_dbg_push(&__yo_dbg_quarantine, b);
   __yo_dbg_quarantine_bytes += b->size;
-  while (__yo_dbg_quarantine_bytes > __YO_DBG_QUARANTINE_BYTES) {
+  // The block just freed stays even when it alone exceeds the cap, so an
+  // immediate second free of a big block is still named a double free.
+  while (__yo_dbg_quarantine_bytes > __YO_DBG_QUARANTINE_BYTES && __yo_dbg_quarantine.head != b) {
     __yo_dbg_block_t* old = __yo_dbg_quarantine.head;
     __yo_dbg_verify_freed(old);
     __yo_dbg_unlink(&__yo_dbg_quarantine, old);
+    __yo_dbg_table_remove(old);
     __yo_dbg_quarantine_bytes -= old->size;
-    old->canary = 0;
     free(old->raw);
   }
 }
@@ -317,11 +465,7 @@ void __yo_debug_free(void* ptr) {
   if (ptr == NULL) return;
   __yo_dbg_lock_acquire();
   __yo_dbg_ensure_init();
-  b = __yo_dbg_header(ptr);
-  if (b->canary != (__YO_DBG_LIVE ^ (uintptr_t)b)) {
-    __yo_dbg_lock_release();
-    __yo_dbg_bad_pointer("free", ptr);
-  }
+  b = __yo_dbg_live_block("free", ptr);
   __yo_dbg_free_locked(b);
   __yo_dbg_lock_release();
 }
@@ -338,11 +482,7 @@ void* __yo_debug_realloc(void* ptr, size_t size) {
   }
   __yo_dbg_lock_acquire();
   __yo_dbg_ensure_init();
-  b = __yo_dbg_header(ptr);
-  if (b->canary != (__YO_DBG_LIVE ^ (uintptr_t)b)) {
-    __yo_dbg_lock_release();
-    __yo_dbg_bad_pointer("realloc", ptr);
-  }
+  b = __yo_dbg_live_block("realloc", ptr);
   np = __yo_dbg_alloc_locked(__YO_DBG_GRAN, size);
   if (np == NULL) {
     __yo_dbg_lock_release();
@@ -360,9 +500,9 @@ void* __yo_debug_realloc(void* ptr, size_t size) {
     `
 // The exit report's reachability scan: every live block, sorted by address,
 // with its mark. A block is reachable when a pointer-sized word inside a
-// module global, or inside a reachable block, points into its payload
-// (LeakSanitizer's conservative scan with the module globals as its only
-// roots). What is left unmarked is leaked.
+// root, or inside a reachable block, points into its payload (LeakSanitizer's
+// conservative scan with the registered roots as its only roots). What is
+// left unmarked is leaked.
 typedef struct {
   __yo_dbg_block_t* b;
   int reachable;
@@ -402,20 +542,36 @@ static void __yo_dbg_scan(const void* addr, size_t size, __yo_dbg_entry_t* es, s
   }
 }
 
+// Wait, up to __YO_DBG_THREAD_WAIT_MS, for the program's own threads to
+// finish; returns how many are still running. Called WITHOUT the lock: a
+// finishing thread frees through it.
+static size_t __yo_dbg_wait_threads(void) {
+  int waited = 0;
+  size_t running = atomic_load_explicit(&__yo_dbg_threads, memory_order_acquire);
+  while (running > 0 && waited < __YO_DBG_THREAD_WAIT_MS) {
+${thread_nap}
+    waited += 1;
+    running = atomic_load_explicit(&__yo_dbg_threads, memory_order_acquire);
+  }
+  return running;
+}
+
 // The exit report: the quarantine is checked for writes after free, then the
-// live blocks are split into those still reachable from a module global and
-// the leaked rest, which are listed. Returns __YO_DBG_LEAK_EXIT when main
-// returned normally with a leaked block; an exit() from inside the program
-// skips every drop, so its blocks are listed but not judged.
+// live blocks are split into those still reachable from a root and the
+// leaked rest, which are listed. Returns __YO_DBG_LEAK_EXIT when main
+// returned normally with a leaked block. Not judged, only listed: an exit()
+// from inside the program (it skips every drop), a thread of the program
+// still running (its stack is no root), YO_DEBUG_ALLOC_VERDICT=0.
 int __yo_debug_alloc_report(void) {
   __yo_dbg_block_t* b;
   __yo_dbg_entry_t* es;
   __yo_dbg_entry_t** stack;
   char peak[32];
-  size_t n = 0, i, sp = 0, listed = 0;
+  size_t n = 0, i, sp = 0, listed = 0, running = 0;
   size_t reach_blocks = 0, reach_bytes = 0, leak_blocks, leak_bytes;
-  int judged = atomic_load_explicit(&__yo_dbg_main_done, memory_order_acquire);
+  int main_done = atomic_load_explicit(&__yo_dbg_main_done, memory_order_acquire);
   int rc = 0;
+  if (main_done && !__yo_dbg_verdict_off) running = __yo_dbg_wait_threads();
   __yo_dbg_lock_acquire();
   for (b = __yo_dbg_quarantine.head; b != NULL; b = b->next) __yo_dbg_verify_freed(b);
   es = (__yo_dbg_entry_t*)malloc((__yo_dbg_live_blocks + 1) * sizeof(__yo_dbg_entry_t));
@@ -448,7 +604,7 @@ int __yo_debug_alloc_report(void) {
   fprintf(stderr, "debug allocator: peak %s, %llu allocations, live at exit: %zu blocks / %zu bytes\\n",
       peak, (unsigned long long)__yo_dbg_seq, __yo_dbg_live_blocks, __yo_dbg_live_bytes);
   if (reach_blocks > 0) {
-    fprintf(stderr, "debug allocator:   %zu blocks / %zu bytes still reachable from module globals\\n",
+    fprintf(stderr, "debug allocator:   %zu blocks / %zu bytes still reachable from module globals or runtime state\\n",
         reach_blocks, reach_bytes);
   }
   // Allocation order: the live list, skipping what the scan reached.
@@ -467,13 +623,19 @@ int __yo_debug_alloc_report(void) {
     fprintf(stderr, "debug allocator:   ... and %zu more leaked blocks\\n", leak_blocks - listed);
   }
   if (leak_blocks > 0) {
-    if (judged) {
+    if (!main_done) {
+      fprintf(stderr, "debug allocator: the process exited before main returned, so its live blocks are not judged\\n");
+    } else if (__yo_dbg_verdict_off) {
+      fprintf(stderr, "debug allocator: the leak verdict is off (YO_DEBUG_ALLOC_VERDICT=0), so the live blocks are not judged\\n");
+    } else if (running > 0) {
+      fprintf(stderr,
+          "debug allocator: %zu threads of the program were still running %d ms after main returned, so the live blocks are not judged\\n",
+          running, __YO_DBG_THREAD_WAIT_MS);
+    } else {
       fprintf(stderr,
           "debug allocator: leak check failed: %zu blocks / %zu bytes leaked after main returned (exit status %d); YO_DEBUG_ALLOC_TRAP=<n> aborts at allocation #n\\n",
           leak_blocks, leak_bytes, __YO_DBG_LEAK_EXIT);
       rc = __YO_DBG_LEAK_EXIT;
-    } else {
-      fprintf(stderr, "debug allocator: the process exited before main returned, so its live blocks are not judged\\n");
     }
   }
   fflush(stderr);
