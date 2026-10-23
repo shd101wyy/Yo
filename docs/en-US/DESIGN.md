@@ -3659,7 +3659,9 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
   nothing to the caller: `replace(v)` and `take()` (`T <: Default`) store a
   new value and return the old one, `replace_with(v => ...)` stores what
   the closure computes from `v : &T` and returns the old value, and
-  `into_inner()` consumes the cell. Several `with` bodies may run at once;
+  `into_inner()` consumes the cell. Unlike Rust's `replace_with`, whose
+  closure is an `FnOnce(&mut T) -> T`, the closure is an `Fn` lent `&T`, as
+  a `with` body is. Several `with` bodies may run at once;
   a `with_mut` (or `replace_with`'s closure) runs alone, and a conflicting
   access while one runs panics, as Rust's `RefCell::borrow_mut` does. The
   mark is released when the body returns or unwinds. A `RefCell` is `Send` when `T` is and never

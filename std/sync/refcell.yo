@@ -80,7 +80,11 @@ impl(
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: `_mark` points into the slot of the cell whose access is
-      // ending; the cell outlives the access that holds this guard.
+      // ending, which is meant to outlive the access that holds this guard.
+      // It does not when the body frees the cell and the cell was reached
+      // through an `Rc` auto-deref receiver: the compiler neither keeps that
+      // receiver alive nor rejects the conflicting body
+      // (issues/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
       unsafe(consume(self._mark.* = (self._mark.* - self._taken)));
     })
   )
@@ -101,7 +105,7 @@ impl(
     // SAFETY: `slot` is the cell's live slot, and this thread is the only
     // one that reaches it (`RefCell` is not `Sync`).
     if(unsafe(slot.*._borrow) < isize(0), {
-      __yo_panic("RefCell.with: the value is mutably borrowed (a with_mut body is running)");
+      __yo_panic("RefCell.with: the value is mutably borrowed (a with_mut or replace_with body is running)");
     });
     unsafe(consume(slot.*._borrow = (slot.*._borrow + isize(1))));
     _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(1));
@@ -114,7 +118,7 @@ impl(
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
-      __yo_panic("RefCell.with_mut: the value is already borrowed (a with or with_mut body is running)");
+      __yo_panic("RefCell.with_mut: the value is already borrowed (a with, with_mut or replace_with body is running)");
     });
     unsafe(consume(slot.*._borrow = isize(-1)));
     _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(-1));
@@ -127,7 +131,7 @@ impl(
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
-      __yo_panic("RefCell.replace: the value is already borrowed (a with or with_mut body is running)");
+      __yo_panic("RefCell.replace: the value is already borrowed (a with, with_mut or replace_with body is running)");
     });
     Self._swap(slot, value, isize(0))
   }),
@@ -140,6 +144,14 @@ impl(
   /// or unwinds, and an unwinding `f` leaves the value unchanged. Panics if
   /// any `with` or `with_mut` body of this cell is running.
   ///
+  /// Unlike Rust's `replace_with`, whose `f` is an `FnOnce(&mut T) -> T`,
+  /// `f` is an `Fn` lent `&T`, as a `with` body is: it cannot move a
+  /// captured move-only value into its result (E0913). Until V2b gives a
+  /// `String` or a collection its own buffer, an `f` that returns its
+  /// argument unchanged (`v => v`) returns a value sharing storage with the
+  /// old one, so a write through either reaches the other; return
+  /// `v.clone()` for an independent value.
+  ///
   /// ```yo
   /// { RefCell } :: import("std/sync/refcell");
   /// hits := RefCell(i32).new(i32(4));
@@ -149,7 +161,7 @@ impl(
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
-      __yo_panic("RefCell.replace_with: the value is already borrowed (a with or with_mut body is running)");
+      __yo_panic("RefCell.replace_with: the value is already borrowed (a with, with_mut or replace_with body is running)");
     });
     unsafe(consume(slot.*._borrow = isize(-1)));
     _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(-1));
@@ -173,7 +185,8 @@ impl(
   /// Move the slot's value out and `value` in, leaving `mark` as the slot's
   /// mark; the caller has checked the old mark.
   _swap : (fn(slot : *_RefCellSlot(T), value : T, mark : isize) -> T)({
-    // SAFETY: `slot` is the cell's live slot, and no body of the cell is
+    // SAFETY: `slot` is the cell's live slot (in `replace_with`, unless `f`
+    // freed the cell: issues/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md), and no body of the cell is
     // reading it. The old contents move out bitwise before the new ones move
     // in, so nothing is copied and nothing is dropped twice (a move-only `T`
     // works). The whole slot moves, never `_value` through `addr_of`: a
@@ -194,7 +207,7 @@ impl(
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
-      __yo_panic("RefCell.take: the value is already borrowed (a with or with_mut body is running)");
+      __yo_panic("RefCell.take: the value is already borrowed (a with, with_mut or replace_with body is running)");
     });
     Self._swap(slot, (T <: Default).default(), isize(0))
   })

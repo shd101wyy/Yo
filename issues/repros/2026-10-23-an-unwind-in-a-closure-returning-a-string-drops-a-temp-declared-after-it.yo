@@ -1,0 +1,21 @@
+// issues/2026-10-23-an-unwind-in-a-closure-returning-a-string-drops-a-temp-declared-after-it.md: the C compiler rejects the closure (undeclared temp,
+// `return -1;` in a String-returning function); expected output `-1`, then `1`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+apply :: (fn(s : &String, f : &Impl(Fn(v : &String) -> String)) -> String)(f(s));
+run_unwind :: (fn(b : &String) -> i32)({
+  _s := apply(b, v => {
+    if(v.len() > usize(2), {
+      unwind(i32(-1));
+    });
+    v.clone()
+  });
+  i32(1)
+});
+main :: (fn() -> unit)({
+  b := String.from("abc");
+  println(run_unwind(&b));
+  c := String.from("a");
+  println(run_unwind(&c));
+});
+export(main);
