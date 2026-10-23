@@ -160,7 +160,7 @@ fix changes which of the two paths emits the method (measured on a two-implement
 
 ## Relationship to the FTT work
 
-Same class as `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
+Same class as `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 PR #275's `abort()` rewrite is the backstop that turned this from a silent wrong
 value into a loud crash; it is untouched by this fix. This was one of the roots
 it was backstopping.

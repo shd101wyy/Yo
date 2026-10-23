@@ -118,7 +118,7 @@ The same happens for any never-returning body (an infinite loop in place of
 return — a `return x + 1;` body is correctly diagnosed at `-O0`, `-O1` and
 `-O2` alike. Since codegen deliberately writes `abort()` into every
 value-returning stub (so the body does not fall off the end, which would be UB
-— see `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`), the
+— see `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`), the
 guard is disabled by exactly the property it was written to guard.
 
 ## Fix

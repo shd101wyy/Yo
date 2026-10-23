@@ -100,7 +100,7 @@ uninitialised.
 
 This is therefore NOT a missing check — it is the **def-eval / async-closure
 blind spot** again, the same root as
-`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` and the "~220
+`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md` and the "~220
 type-level swallow classes" still open in
 `issues/fixed/self-hosted-compile-swallows-undefined-call.md`.
 
@@ -123,7 +123,7 @@ tree, the mechanism is:
 So there is **no short constructor call and no short compound literal**. There
 IS a marker, and `-Werror=return-type` (PR #275, `dd4dbbf5a`) rejects it. This
 is not a class the FTT backstop stops short of; it is
-`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` with a missing
+`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md` with a missing
 struct field as the trigger instead of a renamed method.
 
 #### Evidence

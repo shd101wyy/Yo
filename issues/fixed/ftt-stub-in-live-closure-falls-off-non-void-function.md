@@ -2,7 +2,10 @@
 
 **Severity:** S1 — failed-transpile statements are silently dropped from live closures — programs run with missing side effects
 
-**Status: the compile half is FIXED; `yo check` still passes.** Re-verified 2026-10-01 on develop
+**Status: FIXED 2026-10-23.** `yo check` now reports the swallowed error too; see
+"Fix: the `check` half (2026-10-23)" at the end. The paragraphs below are the history.
+
+**Earlier status: the compile half is FIXED; `yo check` still passes.** Re-verified 2026-10-01 on develop
 `29bf728b4` and the v0.2.46 seed, using the committed repro and unit-returning variants, with and
 without an await, spawned or inline:
 - `yo compile` fails on every one of them. Develop reports the swallowed error itself
@@ -246,3 +249,40 @@ spaces/tabs and require a newline (or buffer start).
 Tree build of develop `af62bdb28`, and the v0.2.45 seed unless noted. See `plans/ASYNC_STATE_MACHINE_GENERATION.md` §3.3.
 
 **CHANGED: no longer silent.** The committed repro (with its effect bundle fixed) and unit-returning variants, with or without an await, now fail `yo compile` with the generic E0905. `yo check` still exits 0, and the real error (`E0610 No method "no_such_method_at_all"`) is visible only through `YO_DEBUG_SWALLOW=1`.
+
+## Fix: the `check` half (2026-10-23)
+
+**Reproduced** on develop `5136a2b9d` with the develop tree binary and `--std-path ./std`. The
+committed repro was already reported (it has an expected type). The open shape was the unannotated
+`io.async((e) => …)` with NO expected type, `issues/repros/ftt-stub-in-unannotated-io-async-closure-check-passes.yo`:
+
+- `yo check` exited 0;
+- `yo compile --skip-c-compiler` exited 1 with `error[E0610]: No method "no_such_method_at_all" on HashSet(usize)`;
+- the spawned spelling (`h := io.spawn(f, io); h.await(io)`) reported only the cascaded
+  `E0610: No method "await" on JoinHandle(T)` under both commands.
+
+`YO_DEBUG_SWALLOW=1` showed `[kept] site=anon-abstract`: Channel 3 never fired. The error went
+only into the hollow-body registry, which only codegen reads (`_report_hollow_async_body`,
+`src/codegen/exprs/async.yo`).
+
+**Root cause.** Channel 3 judged whether the closure is abstract from the RAW parameter types,
+while the body was checked with the types the call had already bound. With no expected type, Step
+6b-nested (`src/evaluator/calls/helper.yo`) derives `E` from the receiver and binds `E := Io` as an
+env variable; it does not resolve the `E` SomeT. The parameter loop in
+`src/evaluator/values/anonymous_function.yo` substitutes that binding (`rp_ty`), so the trial
+checks the body with `e : Io` and genuinely fails. The `body_params_abstract` test read
+`param_types`, where `e` is still the unresolved `E`, so it counted the body abstract and skipped
+the re-raise.
+
+**Fix.** The parameter loop records each regular parameter's bound type (`bound_param_types`), and
+the `body_params_abstract` test judges that type: the type the body was actually checked with. A
+parameter whose SomeT nothing bound concretely still reads as the raw SomeT and stays abstract.
+
+**Tests.** Two cli-cases, each failing on the develop binary (rc 0; the JoinHandle cascade) and
+passing after: `tests/cli-cases/check-unannotated-io-async-body-error-is-reported` and
+`tests/cli-cases/check-unannotated-io-async-spawned-body-error-is-reported`.
+
+**Not in this fix.** A generic end-of-check report of every surviving hollow-body registry entry.
+An earlier successful trial can leave the body with ExprInfo, so a leftover entry does not prove the
+body is hollow. The remaining swallow is a receiver that is itself a SomeT inside a generic trial,
+and that body is re-checked at specialization.

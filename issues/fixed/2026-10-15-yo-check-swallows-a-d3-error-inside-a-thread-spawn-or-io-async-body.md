@@ -43,7 +43,7 @@ loses it.
 
 ## Cause (suspected at filing; superseded by "Root cause" below)
 
-The same class as `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
+The same class as `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
 a closure argument to a generic `sink`/`FnOnce` parameter is evaluated by a
 definition-time trial whose errors are recorded and swallowed, and nothing
 reports them at the end of `check`. That doc covers the `io.async` case for
@@ -103,7 +103,7 @@ C compiler's error-attribute stub). `compile-io-async-body-swallowed-error` was 
 the same E0601 and span, now raised by the evaluator before main's
 unused-variable warning is printed.
 
-Still open, recorded in `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
+Still open, recorded in `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`:
 an unannotated `(e) =>` `io.async` closure whose row is not yet resolved when
 the closure is evaluated keeps the swallow.
 
