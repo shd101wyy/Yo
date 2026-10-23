@@ -7160,7 +7160,13 @@ heavy run, the command is given in item 2.
               token's cell instead of wrapping a new one. Readers spell
               `tok.input.*` / `&tok.module_path.*`. A plain copy of the
               `Rc` is a count bump, and `Rc` Eq compares payloads, so token
-              equality keeps its meaning.
+              equality keeps its meaning. Two `tests/internal` tests pin the
+              sharing by cell identity: in `parser.test.yo`, every token of
+              a parse that carries source text (lexed, synthesized by the
+              parser for a template's literal parts, or lexed from its
+              interpolation body) holds the module's two cells,
+              and in `macro_helpers.test.yo` a gensym'd token holds its
+              source token's cells.
             - Purpose check, `yo fix ./src/<f>.yo --migrate explicit-copy
               --dry-run --hot-path src/evaluator --hot-path src/lexer.yo
               --hot-path src/env.yo --std-path ./std`, develop `e30c0d8ed`
@@ -7206,6 +7212,44 @@ heavy run, the command is given in item 2.
               snippet, so every generated module's text was copied once
               more. The cell now shares the caller's buffer, and the second
               build's numbers are the ones in the table.
+            - Re-measured 2026-10-23 after rebasing onto develop `4b96ec5e9`
+              (B5, #1551), same method: develop's and the branch's stage 1
+              both check the develop tree, three runs each, interleaved, at
+              a load average of 10–13.
+
+              | input | binary | max RSS kB |
+              | --- | --- | --- |
+              | `std/rand.yo` | develop | 139,644, 139,980, 140,532 |
+              | `std/rand.yo` | branch | 138,160, 138,220, 137,768 |
+              | `src/main.yo` | develop | 1,161,264, 1,162,136, 1,160,824 |
+              | `src/main.yo` | branch | 1,162,400, 1,162,024, 1,163,528 |
+
+              `std/rand.yo` uses 2.0 MB less (−1.4 %), and `src/main.yo`
+              1.2 MB more (+0.11 %). User time is not comparable: two of
+              the six `src/main.yo` runs took 14–15 minutes on the
+              overloaded box, against 6 for the others.
+            - The `src/main.yo` gap is not stable across bases. On develop
+              `265faa941` the same comparison gave +5.7 MB (four runs each:
+              develop 1,055,652–1,057,244 kB, branch 1,061,308–1,063,608
+              kB). On that input, though, develop's `e30c0d8ed` binary and
+              the branch's build on it measured 1,063,644 and 1,063,712 kB,
+              and a develop build at `95162303d` measured 1,060,600–
+              1,061,276 kB. So the branch stayed at about the earlier
+              develop level while develop `265faa941` dropped about 6 MB.
+              That gap closed again on `4b96ec5e9`. No per-token or
+              per-parse cost explains a gap that comes and goes with the
+              base. The branch adds two `Rc` cells per lexing and one per
+              synthetic-token module, and it removes the
+              `String.from("")` pairs of `make_err_expr` and of the
+              parser's separator tokens. The gap was not attributed
+              further. The emitted C confirms what the change does: with
+              the same input, the two stage-1 binaries emit identical C
+              (`yo compile src/main.yo --emit-c --skip-c-compiler
+              --optimize 2`, develop `265faa941`'s tree). Each tree's own
+              stage-2 C differs in 693 of about 18,660 functions, with hashed
+              names normalized. Across those functions the branch's C has
+              356 more reads of an `Rc` cell's payload field, 121 more count
+              decrements, 48 more increments, and 316 fewer `NULL` tests.
          2. Fix the two tool defects, each with its cli-case. Done
             2026-10-22 (branch `fix/explicit-copy-s1-tool-defects`; the
             issue docs carry the mechanism), with a third defect from the
