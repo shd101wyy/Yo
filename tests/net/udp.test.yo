@@ -27,10 +27,11 @@ test("UdpSocket bind and close", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   unsafe(printf("  socket fd = %d\n", sock.fd()));
   assert(sock.fd() >= i32(0), "fd should be valid");
-  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), ioe);
   unsafe(printf("  close ok\n"));
 });
 test("UdpSocket local_addr", {
@@ -42,11 +43,12 @@ test("UdpSocket local_addr", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   la := sock.local_addr();
   unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
   assert(la.ip.is_loopback(), "should be loopback");
-  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), ioe);
 });
 test("UdpSocket send_to and recv", {
   exn := Exception(
@@ -57,6 +59,7 @@ test("UdpSocket send_to and recv", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server_addr := SocketAddr.loopback(u16(19910));
   server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19911));
@@ -68,12 +71,12 @@ test("UdpSocket send_to and recv", {
   data.push(u8(108)); // l
   data.push(u8(108)); // l
   data.push(u8(111)); // o
-  n := io.await(client.send_to(&data, server_addr, io), IoExn(io : io, exn : exn));
+  n := io.await(client.send_to(&data, server_addr, io), ioe);
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(5), "should send 5 bytes");
   // Server receives
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  nr := io.await(server.recv(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
+  nr := io.await(server.recv(recv_buf, usize(256), io), ioe);
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(5), "should receive 5 bytes");
   assert((recv_buf.add(usize(0))).* == u8(72), "H");
@@ -82,8 +85,8 @@ test("UdpSocket send_to and recv", {
   assert((recv_buf.add(usize(3))).* == u8(108), "l");
   assert((recv_buf.add(usize(4))).* == u8(111), "o");
   free(.Some((*void)(recv_buf)));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(server.close(io), ioe);
 });
 test("UdpSocket recv_from gets source address", {
   exn := Exception(
@@ -94,6 +97,7 @@ test("UdpSocket recv_from gets source address", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server_addr := SocketAddr.loopback(u16(19912));
   server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19913));
@@ -102,12 +106,12 @@ test("UdpSocket recv_from gets source address", {
   data := ArrayList(u8).new();
   data.push(u8(65)); // A
   data.push(u8(66)); // B
-  io.await(client.send_to(&data, server_addr, io), IoExn(io : io, exn : exn));
+  io.await(client.send_to(&data, server_addr, io), ioe);
   // Server receives, and gets the sender back as a DECODED SocketAddr — the
   // sockaddr buffer and its length used to be raw out-params the caller had to
   // malloc, pre-set to 128, pass in, decode with IO_tcp.get_* and free.
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  got := io.await(server.recv_from(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
+  got := io.await(server.recv_from(recv_buf, usize(256), io), ioe);
   unsafe(printf("  received = %zu\n", got.0));
   assert(got.0 == usize(2), "should receive 2 bytes");
   assert((recv_buf.add(usize(0))).* == u8(65), "A");
@@ -115,8 +119,8 @@ test("UdpSocket recv_from gets source address", {
   assert(got.1.port == u16(19913), "src port should be 19913");
   assert(got.1.ip == IpAddr.loopback_v4(), "src ip is the loopback the client bound");
   free(.Some((*void)(recv_buf)));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(server.close(io), ioe);
 });
 test("UdpSocket recv_from_bytes needs no raw pointers at all", {
   exn := Exception(
@@ -127,6 +131,7 @@ test("UdpSocket recv_from_bytes needs no raw pointers at all", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server_addr := SocketAddr.loopback(u16(19916));
   server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19917));
@@ -135,16 +140,16 @@ test("UdpSocket recv_from_bytes needs no raw pointers at all", {
   data.push(u8(120)); // x
   data.push(u8(121)); // y
   data.push(u8(122)); // z
-  io.await(client.send_to(&data, server_addr, io), IoExn(io : io, exn : exn));
+  io.await(client.send_to(&data, server_addr, io), ioe);
   // `send_to` has always taken an ArrayList; every RECEIVE took a *(u8), so a
   // program without Pragma.AllowUnsafe could send a datagram and not read one.
-  got := io.await(server.recv_from_bytes(usize(256), io), IoExn(io : io, exn : exn));
+  got := io.await(server.recv_from_bytes(usize(256), io), ioe);
   assert(got.0.len() == usize(3), "truncated to the 3 bytes actually received");
   assert(got.0(usize(0)) == u8(120), "x");
   assert(got.0(usize(2)) == u8(122), "z");
   assert(got.1.port == u16(19917), "and the sender's port came back decoded");
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(server.close(io), ioe);
 });
 test("UdpSocket recv_bytes over a connected socket", {
   exn := Exception(
@@ -155,19 +160,20 @@ test("UdpSocket recv_bytes over a connected socket", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server_addr := SocketAddr.loopback(u16(19918));
   server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
   client_addr := SocketAddr.loopback(u16(19919));
   client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
-  io.await(client.connect(server_addr, io), IoExn(io : io, exn : exn));
+  io.await(client.connect(server_addr, io), ioe);
   data := ArrayList(u8).new();
   data.push(u8(7));
-  io.await(client.send(&data, io), IoExn(io : io, exn : exn));
-  got := io.await(server.recv_bytes(usize(64), io), IoExn(io : io, exn : exn));
+  io.await(client.send(&data, io), ioe);
+  got := io.await(server.recv_bytes(usize(64), io), ioe);
   assert(got.len() == usize(1), "one byte, and the list is truncated to it");
   assert(got(usize(0)) == u8(7), "the byte that was sent");
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(server.close(io), ioe);
 });
 test("UdpSocket set_broadcast", {
   exn := Exception(
@@ -178,10 +184,11 @@ test("UdpSocket set_broadcast", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
-  io.await(sock.set_broadcast(true, io), IoExn(io : io, exn : exn));
+  io.await(sock.set_broadcast(true, io), ioe);
   unsafe(printf("  broadcast ok\n"));
-  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), ioe);
 });
 test("UDP bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
   // plans/archive/STD_API_AUDIT.md C2: udp's _make_sockaddr had the same hardcoded
@@ -202,8 +209,9 @@ test("UDP bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   sock := io.await(UdpSocket.bind(doc_addr, io), IoExn(io : io, exn : exn));
-  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), ioe);
   assert(false, "UDP bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
 });
 // `bind` used to ECHO its argument as `_local_addr`, so a port-0 (ephemeral)
@@ -219,11 +227,12 @@ test("UdpSocket.bind to port 0 reports the kernel-assigned port", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   la := sock.local_addr();
   assert(la.port != u16(0), "an ephemeral bind must report the real port");
   assert(la.ip.is_loopback(), "and the real address");
-  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), ioe);
 });
 // `send`/`recv` documented "requires prior connect" — and no `connect` existed,
 // so they could only ever fail with ENOTCONN.
@@ -236,27 +245,28 @@ test("UdpSocket.connect makes send and recv usable", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   client := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
-  io.await(client.connect(server.local_addr(), io), IoExn(io : io, exn : exn));
-  io.await(server.connect(client.local_addr(), io), IoExn(io : io, exn : exn));
+  io.await(client.connect(server.local_addr(), io), ioe);
+  io.await(server.connect(client.local_addr(), io), ioe);
   msg := ArrayList(u8).new();
   msg.push(u8(104));
   msg.push(u8(105));
-  sent := io.await(client.send(&msg, io), IoExn(io : io, exn : exn));
+  sent := io.await(client.send(&msg, io), ioe);
   assert(sent == usize(2), "send on a connected socket sends the datagram");
   buf := (*u8)(malloc(usize(16)).unwrap());
-  got := io.await(server.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
+  got := io.await(server.recv(buf, usize(16), io), ioe);
   assert(got == usize(2), "recv on the connected peer gets it");
   assert(((buf.add(usize(0))).* == u8(104)) && ((buf.add(usize(1))).* == u8(105)), "payload intact");
   reply := ArrayList(u8).new();
   reply.push(u8(33));
-  _r := io.await(server.send(&reply, io), IoExn(io : io, exn : exn));
-  got2 := io.await(client.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
+  _r := io.await(server.send(&reply, io), ioe);
+  got2 := io.await(client.recv(buf, usize(16), io), ioe);
   assert((got2 == usize(1)) && ((buf.add(usize(0))).* == u8(33)), "the reply comes back over the connected pair");
   free(.Some((*void)(buf)));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(server.close(io), ioe);
 });
 
 test("a quiet recv_from parks the task, not the event loop", {
@@ -278,8 +288,12 @@ test("a quiet recv_from parks the task, not the event loop", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   client := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  // The receiving task owns the server socket (a move-only value): its
+  // address is read first, and the socket closes when the task ends.
+  server_addr := server.local_addr();
 
   recv_task := io.spawn(
     io.async((io : Io) => {
@@ -315,10 +329,9 @@ test("a quiet recv_from parks the task, not the event loop", {
   data.push(u8(110)); // n
   data.push(u8(103)); // g
   data.push(u8(33)); // !
-  sent := io.await(client.send_to(&data, server.local_addr(), io), IoExn(io : io, exn : exn));
+  sent := io.await(client.send_to(&data, server_addr, io), ioe);
   assert(sent == usize(5), "send_to delivered 5 bytes");
 
   recv_task.await(io);
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
 });

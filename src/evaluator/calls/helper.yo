@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_fn_call_of,
+  ast_expr_is_capture_list_params,
   ast_expr_is_fn_call,
   ast_expr_is_atom,
   ast_expr_is_atom_of,
@@ -6298,10 +6299,12 @@ _io_async_receiver_bundle_expr :: (fn(expr : &AstExpr) -> Option(AstExpr))(
   )
 );
 /// C60 guard: true when the io.async call's closure argument declares an
-/// ANNOTATED parameter (`(ctx : Ctx) => ...`). An annotation binds `E`
-/// through the argument-unification path, and the receiver-derived bind must
-/// yield to it — pre-binding `E := Io` from the receiver made the annotated
-/// `Ctx` param fail unification ("Cannot unify incompatible struct types").
+/// ANNOTATED parameter (`(ctx : Ctx) => ...`, or `{ caps }(ctx : Ctx) => ...`
+/// after a capture list). An annotation binds `E` through the
+/// argument-unification path, and the receiver-derived bind must yield to it
+/// — pre-binding `E := Io` from the receiver made the annotated `Ctx` param
+/// fail unification ("Cannot unify incompatible struct types";
+/// issues/fixed/2026-10-23-an-io-async-capture-list-hides-the-annotated-context-parameter.md).
 _io_async_closure_param_is_annotated :: (fn(expr : &AstExpr) -> bool)(
   match(
     expr,
@@ -6315,7 +6318,18 @@ _io_async_closure_param_is_annotated :: (fn(expr : &AstExpr) -> bool)(
         .FnCall(_, _, ap_cl_args, _, _) => match(
           ap_cl_args.get(usize(0)),
           .None => false,
-          .Some(ap_param) => ast_expr_is_fn_call_of(&ap_param, ":", Option(usize).Some(usize(2)))
+          .Some(ap_param) => cond(
+            ast_expr_is_capture_list_params(&ap_param) => match(
+              ap_param,
+              .FnCall(_, _, cl_params, _, _) => match(
+                cl_params.get(usize(0)),
+                .None => false,
+                .Some(cl_p0) => ast_expr_is_fn_call_of(&cl_p0, ":", Option(usize).Some(usize(2)))
+              ),
+              .Atom(_, _) => false
+            ),
+            true => ast_expr_is_fn_call_of(&ap_param, ":", Option(usize).Some(usize(2)))
+          )
         )
       )
     )

@@ -226,7 +226,7 @@ _ends_headers :: (fn(b : &ArrayList(u8)) -> bool)({
 // client has not read yet. Both make a server that answers correctly look like
 // one that did not.
 _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async(e => {
+  io.async({ &stream }(e : IoExn) => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     mut(eof) := false;
@@ -255,10 +255,10 @@ _read_request :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)
 // purpose, a task captures by value (plans/VALUES_BY_DEFAULT.md §3.13), and an
 // `Rc`'s payload is read-only through the handle (decision 46).
 _serve_scripted :: (
-  fn(listener : &TcpListener, responses : &ArrayList(String), seen : &Rc(RefCell(ArrayList(String))), io : Io) ->
+  fn(sink(listener) : TcpListener, responses : ArrayList(String), seen : Rc(RefCell(ArrayList(String))), io : Io) ->
     Impl(Future(unit, IoExn))
 )(
-  io.async(e => {
+  io.async({ listener, responses, seen }(e : IoExn) => {
     mut(k) := usize(0);
     while(runtime(k < responses.len()), {
       s := e.io.await(listener.accept(e.io), e);
@@ -293,7 +293,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   responses.push(_redirect_to(`/final`)); // absolute path → /final
   responses.push(_ok_body(`done`));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
   assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
@@ -302,7 +302,6 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   assert(seen.with(xs => xs(usize(1))).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen.with(xs => xs(usize(1)))}`);
   assert(seen.with(xs => xs(usize(2))).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen.with(xs => xs(usize(2)))}`);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("fetch throws TooManyRedirects past max_redirects", {
   exn := Exception(
@@ -321,7 +320,7 @@ test("fetch throws TooManyRedirects past max_redirects", {
   responses.push(_redirect_to(`/again`));
   responses.push(_redirect_to(`/again`));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   // max_redirects 2: hop 0 → hop 1 → hop 2 is the third 3xx, one too many.
   opts := FetchOptions.new().with_max_redirects(usize(2));
   _r := io.await(fetch_with(`http://127.0.0.1:19961/start`, &opts, io), IoExn(io : io, exn : exn));
@@ -341,14 +340,13 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   responses := ArrayList(String).new();
   responses.push(_redirect_to(`/elsewhere`));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_redirects(usize(0));
   resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, &opts, io), IoExn(io : io, exn : exn));
   assert(resp.status == StatusCode.FOUND(), `the 3xx itself should come back, got ${resp.status}`);
   assert(match(resp.get_header(`Location`), .Some(l) => (l == "/elsewhere"), .None => false), "Location header should be preserved");
   assert(seen.with(xs => xs.len()) == usize(1), "exactly one request");
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("fetch throws ResponseTooLarge past max_response_bytes", {
   exn := Exception(
@@ -371,7 +369,7 @@ test("fetch throws ResponseTooLarge past max_response_bytes", {
   responses := ArrayList(String).new();
   responses.push(_ok_body(&body));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_response_bytes(usize(100));
   _r := io.await(fetch_with(`http://127.0.0.1:19963/big`, &opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw ResponseTooLarge");
@@ -386,8 +384,8 @@ test("fetch default response ceiling is 64 MiB and 0 lifts it", {
 });
 // A server that accepts and then never answers — the case a deadline exists
 // for: fetch is parked inside a read that will not return on its own.
-_serve_silent :: (fn(listener : &TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async(e => {
+_serve_silent :: (fn(sink(listener) : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async({ listener, hold }(e : IoExn) => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(&s, e.io), e);
     e.io.await(sleep(hold, e.io), e.io);
@@ -407,7 +405,7 @@ test("fetch throws Timeout when the server never answers", {
   );
   addr := SocketAddr.loopback(u16(19964));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  server := io.spawn(_serve_silent(&listener, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_silent(listener, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
   _r := io.await(fetch_with(`http://127.0.0.1:19964/hang`, &opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw Timeout");
@@ -462,7 +460,7 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   // and sizes use UPPER-case hex — both legal per RFC 9112 §7.1.
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(r1.status == StatusCode.OK(), `status ${r1.status}`);
   assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
@@ -470,11 +468,10 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   assert(r2.body == "hello, chunked!!!", `chunk extension + upper-case size, got "${r2.body}"`);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 // The throwing fetch runs as its OWN spawned task: its handler unwinds that
 // task only, `JoinHandle.await` then yields `.None` for the unwound task, and
-// the test joins the server and closes the listener on the normal path.
+// the test joins the server, whose task owns the listener and closes it.
 // Unwinding out of the test body itself left the server task parked in
 // `accept` on a never-closed listener, which keeps the Linux event loop alive
 // after the last test — the process never exited (hollow sweep rc=124).
@@ -500,11 +497,10 @@ test("a malformed chunk size is a typed HttpError, not a garbage body", {
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
   outcome := client.await(io);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(match(outcome, .None => true, .Some(r) => false), `a non-hex chunk size must throw (task unwound → None)`);
   assert(seen.with(xs => xs.len()) == usize(1), "the server saw exactly one request");
 });
@@ -538,14 +534,13 @@ test("fetch throws Other on a garbage status line, and the aborted task disposes
   responses := ArrayList(String).new();
   responses.push(`garbage\r\n\r\n`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   (mut(outcome) : Option(HttpResponse)) = Option(HttpResponse).None;
   {
     client := io.spawn(fetch_with(`http://127.0.0.1:19967/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : garbage_exn));
     outcome = client.await(io);
   };
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(match(outcome, .None => true, .Some(r) => false), `a garbage status line must throw (task unwound → None)`);
   assert(seen.with(xs => xs.len()) == usize(1), "the server saw exactly one request");
 });
@@ -578,10 +573,9 @@ test("fetch round-trips a binary body byte-for-byte", {
   responses := ArrayList(String).new();
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r := io.await(fetch_with(`http://127.0.0.1:19968/bin`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), "200");
   got := r.body.clone();
   assert(got.len() == usize(8), `body is 8 bytes (got ${got.len()})`);
@@ -612,24 +606,24 @@ test("fetch round-trips a binary body byte-for-byte", {
 // separately, so whether they reach the client in a single `read` is the
 // platform's write-coalescing decision — which is exactly how the over-read
 // below hid: it failed on one CI runner and passed on the other five.
-_serve_one_write :: (fn(listener : &TcpListener, payload : &String, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async(e => {
+_serve_one_write :: (fn(sink(listener) : TcpListener, payload : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async({ listener, payload }(e : IoExn) => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(&s, e.io), e);
-    _w := e.io.await(s.write_string(payload, e.io), e);
+    _w := e.io.await(s.write_string(&payload, e.io), e);
     e.io.await(s.close(e.io), e);
     return(());
   })
 );
 _serve_then_trailing :: (
-  fn(listener : &TcpListener, response : &String, trailing : &String, io : Io) ->
+  fn(sink(listener) : TcpListener, response : String, trailing : String, io : Io) ->
     Impl(Future(unit, IoExn))
 )(
-  io.async(e => {
+  io.async({ listener, response, trailing }(e : IoExn) => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(&s, e.io), e);
-    _w := e.io.await(s.write_string(response, e.io), e);
-    _t := e.io.await(s.write_string(trailing, e.io), e);
+    _w := e.io.await(s.write_string(&response, e.io), e);
+    _t := e.io.await(s.write_string(&trailing, e.io), e);
     e.io.await(s.close(e.io), e);
     return(());
   })
@@ -658,7 +652,7 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   server := io.spawn(
     _serve_then_trailing(
-      &listener,
+      listener,
       `HTTP/1.1 200 OK\r\nContent-Length:5\r\n\r\nhello`,
       `TRAILING-MUST-NOT-BE-READ`,
       io
@@ -671,7 +665,6 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
   );
   outcome := client.await(io);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(
     match(outcome, .Some(r) => (r.body == "hello"), .None => false),
     `a single-digit Content-Length with no space after the colon must end the message`
@@ -701,7 +694,7 @@ test("only a real Content-Length field line frames a kept-alive response", {
   // picked it up and asked for 99 bytes of a 5-byte body.
   server := io.spawn(
     _serve_then_trailing(
-      &listener,
+      listener,
       `HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 5\r\n\r\nhello`,
       `TRAILING-MUST-NOT-BE-READ`,
       io
@@ -714,7 +707,6 @@ test("only a real Content-Length field line frames a kept-alive response", {
   );
   outcome := client.await(io);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(
     match(outcome, .Some(r) => (r.body == "hello"), .None => false),
     `X-Content-Length must not frame the message`
@@ -745,7 +737,7 @@ test("bytes after a Content-Length body are not part of the body", {
   addr := SocketAddr.loopback(u16(19982));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   server := io.spawn(
-    _serve_one_write(&listener, `HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloHTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nbad`, io),
+    _serve_one_write(listener, `HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloHTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nbad`, io),
     IoExn(io : io, exn : report_exn)
   );
   client := io.spawn(
@@ -754,7 +746,6 @@ test("bytes after a Content-Length body are not part of the body", {
   );
   outcome := client.await(io);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   body := match(outcome, .Some(r) => r.body.clone(), .None => `<client unwound>`);
   assert(body == "hello", `body must stop at Content-Length, got [${body}]`);
 });
@@ -787,7 +778,7 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: -5\r\nConnection: close\r\n\r\nhello`);
   responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello`);
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_serve_scripted(&listener, &responses, &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   c1 := io.spawn(fetch_with(`http://127.0.0.1:19976/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
   o1 := c1.await(io);
   c2 := io.spawn(fetch_with(`http://127.0.0.1:19976/negative`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
@@ -795,7 +786,6 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   c3 := io.spawn(fetch_with(`http://127.0.0.1:19976/conflict`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
   o3 := c3.await(io);
   server.await(io);
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
   assert(match(o1, .None => true, .Some(r) => false), `"abc" is not a length and must throw (task unwound → None)`);
   assert(match(o2, .None => true, .Some(r) => false), `a negative Content-Length must throw`);
   assert(match(o3, .None => true, .Some(r) => false), `two Content-Length lines that disagree must throw`);
@@ -1048,8 +1038,8 @@ _ka_one_shot :: (fn(mode : i32) -> bool)(
 );
 // One connection: read framed requests off it and answer each one, until the
 // peer closes (an empty framed message is EOF) or the mode says to stop.
-_ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : &_KaStats, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async(e => {
+_ka_conn :: (fn(stream : &TcpStream, mode : i32, stats : _KaStats, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async({ &stream, mode, stats }(e : IoExn) => {
     // ONE carry list for the whole connection: a single `read` can deliver
     // the end of this request and the start of the next.
     carry := rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new()));
@@ -1114,17 +1104,16 @@ _ka_bind :: (fn(port : u16, io : Io) -> Impl(Future(TcpListener, IoExn)))(
   })
 );
 _ka_serve :: (
-  fn(listener : &TcpListener, max_conns : usize, mode : i32, stats : &_KaStats, io : Io) ->
+  fn(sink(listener) : TcpListener, max_conns : usize, mode : i32, stats : _KaStats, io : Io) ->
     Impl(Future(unit, IoExn))
 )(
-  io.async(e => {
+  io.async({ listener, max_conns, mode, stats }(e : IoExn) => {
     held := ArrayList(TcpStream).new();
     mut(n) := usize(0);
     while(runtime(n < max_conns), {
       stream := e.io.await(listener.accept(e.io), e);
       stats.accepts = (stats.accepts + usize(1));
       n = (n + usize(1));
-      held.push(stream);
       // Stop listening the moment the budget is spent, so an unexpected
       // reconnect is REFUSED rather than left hanging.
       cond(
@@ -1134,12 +1123,17 @@ _ka_serve :: (
         true => ()
       );
       e.io.await(_ka_conn(&stream, mode, stats, e.io), e);
+      // `stream` is move-only: the list owns it once its exchange is done.
+      held.push(stream);
     });
-    mut(i) := usize(0);
-    while(runtime(i < held.len()), {
-      s := held(i);
-      e.io.await(s.close(e.io), e);
-      i = (i + usize(1));
+    while(runtime(!held.is_empty()), {
+      match(
+        held.pop(),
+        .Some(s) => {
+          e.io.await(s.close(e.io), e);
+        },
+        .None => ()
+      );
     });
     ()
   })
@@ -1156,7 +1150,7 @@ test("HttpClient: a second request runs on the pooled connection, with no reconn
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19840), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_KEEP, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19840/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
@@ -1186,7 +1180,7 @@ test("HttpClient: the free fetch stays one-shot — it announces Connection: clo
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19841), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(2), _KA_KEEP, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
   a := io.await(fetch(`http://127.0.0.1:19841/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
   assert(stats.saw_close, "the one-shot fetch sent Connection: close");
@@ -1209,7 +1203,7 @@ test("HttpClient: Connection: close retires the connection", {
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19842), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(2), _KA_CLOSE, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_CLOSE, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19842/one`, io), e);
   assert(a.body == `n=1`, `response: ${a.body}`);
@@ -1232,7 +1226,7 @@ test("HttpClient: an HTTP/1.0 response without Connection: keep-alive retires th
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19843), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_HTTP10, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19843/one`, io), e);
   assert(a.version == `HTTP/1.0`, `the version is kept as received: ${a.version}`);
@@ -1252,7 +1246,7 @@ test("HttpClient: an HTTP/1.0 response WITH Connection: keep-alive is reused", {
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19844), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_HTTP10_KEEP, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10_KEEP, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19844/one`, io), e);
   assert(a.version == `HTTP/1.0`, `version: ${a.version}`);
@@ -1275,7 +1269,7 @@ test("HttpClient: a response of unknown length is close-delimited and retires th
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19845), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_UNSIZED, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_UNSIZED, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19845/one`, io), e);
   assert(a.body == `n=1`, `the body arrived with the close: ${a.body}`);
@@ -1297,7 +1291,7 @@ test("HttpClient: a connection the server closed while idle is retried once on a
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19846), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(2), _KA_HALF_CLOSE, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_HALF_CLOSE, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19846/one`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
@@ -1323,7 +1317,7 @@ test("HttpClient: the idle cap is respected", {
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19847), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(2), _KA_KEEP, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
   // `max_idle == 0` is the degenerate cap: nothing is ever pooled, so the
   // client behaves like the one-shot `fetch` while still speaking keep-alive
   // on the wire.
@@ -1349,7 +1343,7 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19848), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(2), _KA_KEEP, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
   // A 1 ms age limit expires between two requests without a sleep long
   // enough to slow the suite down.
   client := HttpClient.new().with_idle_timeout(Duration.from_millis(i64(1)));
@@ -1395,8 +1389,8 @@ test("HttpClient: dispose closes every idle connection", {
   stats := _ka_stats();
   l1 := io.await(_ka_bind(u16(19849), io), e);
   l2 := io.await(_ka_bind(u16(19855), io), e);
-  t1 := io.spawn(_ka_serve(&l1, usize(1), _KA_KEEP, &stats, io), e);
-  t2 := io.spawn(_ka_serve(&l2, usize(1), _KA_KEEP, &stats, io), e);
+  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, stats, io), e);
+  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19849/one`, io), e);
   b := io.await(client.fetch(`http://127.0.0.1:19855/two`, io), e);
@@ -1435,8 +1429,8 @@ test("HttpClient: the pool never crosses ports", {
   stats := _ka_stats();
   l1 := io.await(_ka_bind(u16(19850), io), e);
   l2 := io.await(_ka_bind(u16(19851), io), e);
-  t1 := io.spawn(_ka_serve(&l1, usize(1), _KA_KEEP, &stats, io), e);
-  t2 := io.spawn(_ka_serve(&l2, usize(1), _KA_KEEP, &stats, io), e);
+  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, stats, io), e);
+  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19850/a`, io), e);
   assert(a.body == `n=1`, `first server: ${a.body}`);
@@ -1488,7 +1482,7 @@ test("HttpClient: the pool never crosses hosts", {
   // HALF_CLOSE so the server task FINISHES after one exchange: the throw
   // below unwinds the test body, and a server left parked on a read would
   // keep the event loop alive and stop the process from exiting.
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_HALF_CLOSE, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HALF_CLOSE, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19852/a`, io), e);
   assert(a.body == `n=1`, `first response: ${a.body}`);
@@ -1521,7 +1515,7 @@ test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", 
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19853), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_204, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_204, stats, io), e);
   client := HttpClient.new();
   opts := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
   a := io.await(client.fetch_with(`http://127.0.0.1:19853/one`, &opts, io), e);
@@ -1550,7 +1544,7 @@ test("HttpClient: a HEAD response ends at its headers and the connection is reus
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
   listener := io.await(_ka_bind(u16(19854), io), e);
-  task := io.spawn(_ka_serve(&listener, usize(1), _KA_KEEP, &stats, io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
   client := HttpClient.new();
   head := FetchOptions.new().with_method(.HEAD).with_timeout(Duration.from_secs(i64(10)));
   a := io.await(client.fetch_with(`http://127.0.0.1:19854/one`, &head, io), e);

@@ -20,6 +20,7 @@ test("Command.new + status (echo exits 0)", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   cmd := cond(
     (platform == Platform.Windows) => {
       c := Command.new(`cmd.exe`);
@@ -34,7 +35,7 @@ test("Command.new + status (echo exits 0)", {
       c
     }
   );
-  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  st := io.await(cmd.status(io), ioe);
   assert(st.success(), "echo should succeed");
   assert(st.code().unwrap() == i32(0), "echo exit code 0");
 });
@@ -46,6 +47,7 @@ test("Command.output captures stdout", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   cmd := cond(
     (platform == Platform.Windows) => {
       c := Command.new(`cmd.exe`);
@@ -60,7 +62,7 @@ test("Command.output captures stdout", {
       c
     }
   );
-  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
+  out := io.await(cmd.output(io), ioe);
   assert(out.status.success(), "status success");
   assert(out.stdout.len() >= usize(11), "stdout has at least 11 bytes");
   assert(out.stdout(usize(0)) == u8(121), "y");
@@ -76,6 +78,7 @@ test("Command.status non-zero exit", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   cmd := cond(
     (platform == Platform.Windows) => {
       c := Command.new(`cmd.exe`);
@@ -86,7 +89,7 @@ test("Command.status non-zero exit", {
     },
     true => Command.new(`false`)
   );
-  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  st := io.await(cmd.status(io), ioe);
   assert(!st.success(), "should not be success");
   assert(st.code().unwrap() == i32(1), "exit code 1");
 });
@@ -453,8 +456,8 @@ test("take_stdin/take_stdout give Writer/Reader handles over the child's pipes",
   cmd := Command.new(`/bin/cat`.to_string());
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
   child := io.await(cmd.spawn(io), e);
-  w := child.take_stdin().unwrap();
-  r := child.take_stdout().unwrap();
+  w := match(child.take_stdin(), .Some(h) => h, .None => __yo_panic("take_stdin: the stream was not piped"));
+  r := match(child.take_stdout(), .Some(h) => h, .None => __yo_panic("take_stdout: the stream was not piped"));
   assert(w.fd() >= i32(0), "the write handle owns a real fd");
   assert(r.fd() >= i32(0), "the read handle owns a real fd");
   // The Writer default `write_string` reaches a child pipe.
@@ -491,7 +494,7 @@ test("taking a stream moves the fd out of the Child", {
   // stderr was never piped, so there is nothing to take.
   assert(child.take_stderr().is_none(), "an unpiped stream has no handle");
   match(child.take_stdin(), .Some(w) => io.await(w.close(io), e), .None => assert(false, "stdin was piped"));
-  r := first.unwrap();
+  r := match(first, .Some(h) => h, .None => __yo_panic("stdout was piped"));
   out := io.await(r.read_to_end(io), e);
   assert(out.len() == usize(0), "cat saw EOF immediately and wrote nothing");
   io.await(child.wait(io), e);
@@ -510,6 +513,11 @@ _feed_and_drop :: (fn(child : &Child, payload : &String, io : Io, e : IoExn) -> 
     .None => false
   )
 );
+// A spawned task cannot borrow `r` (a move-only `ChildStdout`) from the test's
+// frame, so the task owns it and reads it to the end.
+_read_owned :: (fn(sink(r) : ChildStdout, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async({ r }(e : IoExn) => e.io.await(r.read_to_string(e.io), e))
+);
 test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   if(platform == Platform.Windows, {
     unsafe(printf("  skipped on windows\n"));
@@ -527,7 +535,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   cmd := Command.new(`/bin/cat`.to_string());
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
   child := io.await(cmd.spawn(io), e);
-  r := child.take_stdout().unwrap();
+  r := match(child.take_stdout(), .Some(h) => h, .None => __yo_panic("take_stdout: the stream was not piped"));
   assert(_feed_and_drop(&child, `dropped`, io, e), "stdin was piped");
   // BOUNDED on purpose. Without `Drop` on `ChildStdin` the pipe stays open,
   // `cat` waits for an EOF that never comes, and a bare `read_to_string` here
@@ -536,7 +544,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   // with it, the read finishes immediately.
   // The read is an `IoExn` future and `timeout` takes an `Io` one, so it
   // runs as a task spawned with `e` and is timed out through its join.
-  rh := io.spawn(r.read_to_string(io), e);
+  rh := io.spawn(_read_owned(r, io), e);
   text := match(
     io.await(timeout(rh.join(io), Duration.from_millis(i64(2000)), io), io),
     .Ok(.Some(t)) => t,
@@ -572,7 +580,7 @@ test("take_stderr reads a child's stderr as a Reader", {
   cmd.arg(`printf 'to stderr' 1>&2`.to_string());
   cmd.stderr(Stdio.Piped);
   child := io.await(cmd.spawn(io), e);
-  r := child.take_stderr().unwrap();
+  r := match(child.take_stderr(), .Some(h) => h, .None => __yo_panic("take_stderr: the stream was not piped"));
   text := io.await(r.read_to_string(io), e);
   assert(text == `to stderr`, `stderr came through: ${text}`);
   io.await(child.wait(io), e);

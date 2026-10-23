@@ -106,6 +106,7 @@ test("bytes pipelined after a body-less request are not its body", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19983)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   raw := io.await(
@@ -115,7 +116,7 @@ test("bytes pipelined after a body-less request are not its body", {
   assert(raw.contains(`body=[]`), `the pipelined bytes leaked into the body: ${raw}`);
   assert(!raw.contains(`/smuggled`), `the smuggled request line reached the handler: ${raw}`);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 test("HttpResponse.to_string adds Content-Length and keeps explicit headers", {
   s := HttpResponse.with_status(StatusCode.NOT_FOUND()).header(`X-A`, `1`).with_body(`nope`).to_string();
@@ -132,6 +133,7 @@ test("serve_once answers a GET from fetch (method, path, header, empty body)", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19970)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch(`http://127.0.0.1:19970/hello?q=1`, io), IoExn(io : io, exn : exn));
@@ -141,7 +143,7 @@ test("serve_once answers a GET from fetch (method, path, header, empty body)", {
   assert(resp.get_header(`Content-Length`).unwrap() == resp.body.len().to_string(), "Content-Length matches the body");
   assert(resp.get_header(`Connection`).unwrap() == "close", "server adds Connection: close");
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 test("serve_once reads a POST body and forwards request headers", {
   exn := Exception(
@@ -152,13 +154,14 @@ test("serve_once reads a POST body and forwards request headers", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19971)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(`payload — 3 bytes of dash`).with_header(`X-Tag`, `t1`);
   resp := io.await(fetch_with(`http://127.0.0.1:19971/post`, &opts, io), IoExn(io : io, exn : exn));
   assert(resp.body == "POST /post tag=t1 body=[payload — 3 bytes of dash]", `echo body: ${resp.body}`);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 test("a chunked request body is decoded before the handler sees it", {
   exn := Exception(
@@ -169,16 +172,17 @@ test("a chunked request body is decoded before the handler sees it", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
-  _w := io.await(s.write_string(`PUT /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n`, io), IoExn(io : io, exn : exn));
+  _w := io.await(s.write_string(`PUT /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n`, io), ioe);
   raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 200 OK\r\n`), `status line: ${raw}`);
   assert(raw.ends_with(`PUT /c tag=- body=[abcde]`), `decoded body reached the handler: ${raw}`);
-  io.await(s.close(io), IoExn(io : io, exn : exn));
+  io.await(s.close(io), ioe);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 test("a request that does not parse gets 400 with the reason, handler not called", {
   exn := Exception(
@@ -189,6 +193,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
   called := ArrayList(i32).new();
   task := io.spawn(
@@ -199,14 +204,14 @@ test("a request that does not parse gets 400 with the reason, handler not called
     IoExn(io : io, exn : exn)
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
-  _w := io.await(s.write_string(`BREW /pot HTTP/1.1\r\nHost: x\r\n\r\n`, io), IoExn(io : io, exn : exn));
+  _w := io.await(s.write_string(`BREW /pot HTTP/1.1\r\nHost: x\r\n\r\n`, io), ioe);
   raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Unknown method: BREW`), `reason in body: ${raw}`);
   assert(called.len() == usize(0), "handler must not run for a malformed request");
-  io.await(s.close(io), IoExn(io : io, exn : exn));
+  io.await(s.close(io), ioe);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 test("serve loops until stop(); local_addr reports the bound port", {
   exn := Exception(
@@ -217,6 +222,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19974)), io), IoExn(io : io, exn : exn));
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
   hits := ArrayList(i32).new();
@@ -239,7 +245,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   assert((r1.body == "n=1") && ((r2.body == "n=2") && (r3.body == "n=3")), `three sequential requests: ${r1.body} ${r2.body} ${r3.body}`);
   task.await(io);
   assert(hits.len() == usize(3), "serve returned after stop()");
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 // The request direction of the binary-body pin: parse_request must slice the
 // body at BYTE offsets without char-boundary checks — a body starting with a
@@ -253,6 +259,7 @@ test("the server round-trips a binary request body byte-for-byte", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   srv := io.await(HttpServer.bind(SocketAddr.loopback(u16(19979)), io), IoExn(io : io, exn : exn));
   task := io.spawn(
     srv.serve_once(req => {
@@ -270,7 +277,7 @@ test("the server round-trips a binary request body byte-for-byte", {
   opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(&body);
   r := io.await(fetch_with(`http://127.0.0.1:19979/echo`, &opts, io), IoExn(io : io, exn : exn));
   task.await(io);
-  io.await(srv.close(io), IoExn(io : io, exn : exn));
+  io.await(srv.close(io), ioe);
   assert(r.status == StatusCode.OK(), "200");
   got := r.body.clone();
   assert(got.len() == usize(4), `echoed 4 bytes (got ${got.len()})`);
@@ -298,6 +305,7 @@ test("Content-Length framing: OWS after the colon is optional, and only a real f
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19980)), io), IoExn(io : io, exn : exn));
   task := io.spawn(
     server.serve(req => {
@@ -338,7 +346,7 @@ test("Content-Length framing: OWS after the colon is optional, and only a real f
   r6 := io.await(_raw_exchange(u16(19980), `POST /last HTTP/1.1\r\nHost: x\r\nContent-Length: 12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
   assert(r6.ends_with(&want), `Content-Length: 12000 (canonical): ${r6}`);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 // The same anchoring rule for Transfer-Encoding. `X-Transfer-Encoding:
 // chunked` ENDS with the field name, so the old substring search turned on
@@ -354,6 +362,7 @@ test("only a real Transfer-Encoding field line turns on chunked decoding", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19981)), io), IoExn(io : io, exn : exn));
   task := io.spawn(
     server.serve(req => {
@@ -378,7 +387,7 @@ test("only a real Transfer-Encoding field line turns on chunked decoding", {
   );
   assert(r2.ends_with(`/xte body=[zz]`), `X-Transfer-Encoding is a different field: ${r2}`);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 // issues/fixed/one-malformed-request-killed-http-server-serve.md: a framing
 // defect used to THROW out of `serve` and end the server. It is the client's
@@ -392,6 +401,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
   hits := ArrayList(i32).new();
   task := io.spawn(
@@ -408,18 +418,18 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
     IoExn(io : io, exn : exn)
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
-  _w := io.await(s.write_string(`POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n`, io), IoExn(io : io, exn : exn));
+  _w := io.await(s.write_string(`POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n`, io), ioe);
   raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Content-Length`), `reason names the header: ${raw}`);
-  io.await(s.close(io), IoExn(io : io, exn : exn));
+  io.await(s.close(io), ioe);
   assert(hits.len() == usize(0), "handler must not run for a malformed frame");
   // The server is still there for the next client.
   r := io.await(fetch(`http://127.0.0.1:19976/last`, io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), `next request served: ${r.status}`);
   task.await(io);
   assert(hits.len() == usize(1), "exactly the good request reached the handler");
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });
 test("a request over max_request_bytes gets 413 and serve keeps serving", {
   exn := Exception(
@@ -430,6 +440,7 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn)).with_max_request_bytes(usize(64));
   task := io.spawn(
     server.serve(req => {
@@ -445,12 +456,12 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn));
   big := `GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nHost: x\r\n\r\n`;
-  _w := io.await(s.write_string(&big, io), IoExn(io : io, exn : exn));
+  _w := io.await(s.write_string(&big, io), ioe);
   raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 413 `), `status line: ${raw}`);
-  io.await(s.close(io), IoExn(io : io, exn : exn));
+  io.await(s.close(io), ioe);
   r := io.await(fetch(`http://127.0.0.1:19977/last`, io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), `next request served: ${r.status}`);
   task.await(io);
-  io.await(server.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), ioe);
 });

@@ -30,10 +30,11 @@ test("TcpListener bind and close", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   unsafe(printf("  listener fd = %d\n", listener.fd()));
   assert(listener.fd() >= i32(0), "fd should be valid");
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
   unsafe(printf("  close ok\n"));
 });
 test("TcpListener local_addr returns bound address", {
@@ -45,11 +46,12 @@ test("TcpListener local_addr returns bound address", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   la := listener.local_addr();
   unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
   assert(la.ip.is_loopback(), "should be loopback");
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
 });
 // ============================================================================
 // TcpStream tests
@@ -63,17 +65,18 @@ test("TCP connect to listener and accept", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19900));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   unsafe(printf("  listener fd = %d\n", listener.fd()));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
   unsafe(printf("  client fd = %d\n", client.fd()));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   unsafe(printf("  accepted fd = %d\n", server_stream.fd()));
   assert(server_stream.fd() >= i32(0), "accepted fd should be valid");
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP echo with write_str and read", {
   exn := Exception(
@@ -84,17 +87,18 @@ test("TCP echo with write_str and read", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19901));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   // Client sends
-  n := io.await(client.write_str("Hello Net!", io), IoExn(io : io, exn : exn));
+  n := io.await(client.write_str("Hello Net!", io), ioe);
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(10), "should send 10 bytes");
   // Server reads
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
+  nr := io.await(server_stream.read(recv_buf, usize(256), io), ioe);
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(10), "should receive 10 bytes");
   assert((recv_buf.add(usize(0))).* == u8(72), "H");
@@ -103,9 +107,9 @@ test("TCP echo with write_str and read", {
   assert((recv_buf.add(usize(3))).* == u8(108), "l");
   assert((recv_buf.add(usize(4))).* == u8(111), "o");
   free(.Some((*void)(recv_buf)));
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP echo with write String", {
   exn := Exception(
@@ -116,24 +120,25 @@ test("TCP echo with write String", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19902));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   // Write using String
   msg := `Hello String!`;
-  n := io.await(client.write_string(&msg, io), IoExn(io : io, exn : exn));
+  n := io.await(client.write_string(&msg, io), ioe);
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(13), "should send 13 bytes");
   // Server reads
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
+  nr := io.await(server_stream.read(recv_buf, usize(256), io), ioe);
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(13), "should receive 13 bytes");
   free(.Some((*void)(recv_buf)));
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP write_bytes", {
   exn := Exception(
@@ -144,22 +149,23 @@ test("TCP write_bytes", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19903));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   // Write bytes
   data := ArrayList(u8).new();
   data.push(u8(1));
   data.push(u8(2));
   data.push(u8(3));
   data.push(u8(4));
-  n := io.await(client.write_bytes(&data, io), IoExn(io : io, exn : exn));
+  n := io.await(client.write_bytes(&data, io), ioe);
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(4), "should send 4 bytes");
   // Server reads
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
+  nr := io.await(server_stream.read(recv_buf, usize(256), io), ioe);
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(4), "should receive 4 bytes");
   assert((recv_buf.add(usize(0))).* == u8(1), "byte 0");
@@ -167,9 +173,9 @@ test("TCP write_bytes", {
   assert((recv_buf.add(usize(2))).* == u8(3), "byte 2");
   assert((recv_buf.add(usize(3))).* == u8(4), "byte 3");
   free(.Some((*void)(recv_buf)));
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP set_nodelay and set_keepalive", {
   exn := Exception(
@@ -180,15 +186,16 @@ test("TCP set_nodelay and set_keepalive", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19904));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  io.await(client.set_nodelay(true, io), IoExn(io : io, exn : exn));
+  io.await(client.set_nodelay(true, io), ioe);
   unsafe(printf("  nodelay ok\n"));
-  io.await(client.set_keepalive(true, io), IoExn(io : io, exn : exn));
+  io.await(client.set_keepalive(true, io), ioe);
   unsafe(printf("  keepalive ok\n"));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP shutdown", {
   exn := Exception(
@@ -199,15 +206,16 @@ test("TCP shutdown", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19905));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
-  io.await(client.shutdown(Shutdown.Both, io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
+  io.await(client.shutdown(Shutdown.Both, io), ioe);
   unsafe(printf("  shutdown ok\n"));
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP peer_addr returns remote address", {
   exn := Exception(
@@ -218,6 +226,7 @@ test("TCP peer_addr returns remote address", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19906));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
@@ -225,8 +234,8 @@ test("TCP peer_addr returns remote address", {
   unsafe(printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap()));
   assert(pa.ip.is_loopback(), "peer should be loopback");
   assert(pa.port == u16(19906), "peer port should be 19906");
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("TCP read_to_end gets all data", {
   exn := Exception(
@@ -237,15 +246,16 @@ test("TCP read_to_end gets all data", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19907));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   // Client sends data then closes write side
-  io.await(client.write_str("ABCDE", io), IoExn(io : io, exn : exn));
-  io.await(client.shutdown(Shutdown.Write, io), IoExn(io : io, exn : exn));
+  io.await(client.write_str("ABCDE", io), ioe);
+  io.await(client.shutdown(Shutdown.Write, io), ioe);
   // Server reads all
-  data := io.await(server_stream.read_to_end(io), IoExn(io : io, exn : exn));
+  data := io.await(server_stream.read_to_end(io), ioe);
   unsafe(printf("  read_to_end len = %lld\n", i64(data.len())));
   assert(data.len() == usize(5), "should be 5 bytes");
   assert(data(usize(0)) == u8(65), "A");
@@ -253,9 +263,9 @@ test("TCP read_to_end gets all data", {
   assert(data(usize(2)) == u8(67), "C");
   assert(data(usize(3)) == u8(68), "D");
   assert(data(usize(4)) == u8(69), "E");
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("IPv6 loopback connect round-trip", {
   // The only IPv6 CLIENT connect in the suite. Windows routes stream connects
@@ -330,8 +340,9 @@ test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)",
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(doc_addr, io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
   assert(false, "bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
 });
 test("ephemeral bind reports the real port via local_addr", {
@@ -345,11 +356,12 @@ test("ephemeral bind reports the real port via local_addr", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   la := listener.local_addr();
   unsafe(printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap()));
   assert(la.port != u16(0), "port-0 bind must report the kernel-assigned port, not echo 0");
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
 });
 test("accept reports the real peer address", {
   // plans/archive/STD_API_AUDIT.md C2: accept fabricated the peer as 0.0.0.0 (it read
@@ -362,16 +374,17 @@ test("accept reports the real peer address", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19910));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   pa := server_stream.peer_addr();
   unsafe(printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap()));
   assert(pa.ip.is_loopback(), "accepted peer must be 127.0.0.1, not a fabricated 0.0.0.0");
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
+  io.await(server_stream.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 test("one listener accepts three sequential connections", {
   // issues/fixed/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md: the
@@ -386,6 +399,7 @@ test("one listener accepts three sequential connections", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19911));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   mut(round) := 0;
@@ -393,19 +407,19 @@ test("one listener accepts three sequential connections", {
     unsafe(printf("  round %d: connect\n", round));
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
     unsafe(printf("  round %d: accept\n", round));
-    server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
-    n := io.await(client.write_str("x", io), IoExn(io : io, exn : exn));
+    server_stream := io.await(listener.accept(io), ioe);
+    n := io.await(client.write_str("x", io), ioe);
     assert(n == usize(1), "should send 1 byte");
     buf := (*u8)(malloc(usize(8)).unwrap());
-    nr := io.await(server_stream.read(buf, usize(8), io), IoExn(io : io, exn : exn));
+    nr := io.await(server_stream.read(buf, usize(8), io), ioe);
     assert(nr == usize(1), "server should read the 1 byte");
     free(.Some((*void)(buf)));
-    io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-    io.await(client.close(io), IoExn(io : io, exn : exn));
+    io.await(server_stream.close(io), ioe);
+    io.await(client.close(io), ioe);
     unsafe(printf("  round %d: done\n", round));
     round = (round + 1);
   });
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
 });
 test("client reads to EOF after the server closes, twice on one listener", {
   // Second half of the redirect shape: the SERVER writes and closes first, the
@@ -419,22 +433,23 @@ test("client reads to EOF after the server closes, twice on one listener", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19912));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   mut(round) := 0;
   while(round < 2, {
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-    server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
-    io.await(server_stream.write_str("HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n", io), IoExn(io : io, exn : exn));
-    io.await(server_stream.close(io), IoExn(io : io, exn : exn));
+    server_stream := io.await(listener.accept(io), ioe);
+    io.await(server_stream.write_str("HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n", io), ioe);
+    io.await(server_stream.close(io), ioe);
     unsafe(printf("  round %d: server closed, client read_to_end\n", round));
-    body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
+    body := io.await(client.read_to_end(io), ioe);
     unsafe(printf("  round %d: got %zu bytes\n", round, body.len()));
     assert(body.len() == usize(41), "client must see the whole response then EOF");
-    io.await(client.close(io), IoExn(io : io, exn : exn));
+    io.await(client.close(io), ioe);
     round = (round + 1);
   });
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
 });
 // ---------------------------------------------------------------------------
 // The shape that deadlocked Windows for four hours, pinned in raw TCP
@@ -455,7 +470,7 @@ _d6_ends_headers :: (fn(b : &ArrayList(u8)) -> bool)({
   )
 });
 _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async(e => {
+  io.async({ &stream }(e : IoExn) => {
     buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     mut(eof) := false;
@@ -478,10 +493,12 @@ _d6_read_headers :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoE
     String.from_bytes(bytes)
   })
 );
+// The server task owns the listener (a move-only value): it is moved in, and
+// it closes when the task's future is dropped.
 _d6_scripted_server :: (
-  fn(listener : &TcpListener, rounds : usize, seen : &Rc(RefCell(ArrayList(String))), io : Io) -> Impl(Future(unit, IoExn))
+  fn(sink(listener) : TcpListener, rounds : usize, seen : Rc(RefCell(ArrayList(String))), io : Io) -> Impl(Future(unit, IoExn))
 )(
-  io.async(e => {
+  io.async({ listener, rounds, seen }(e : IoExn) => {
     mut(k) := usize(0);
     while(runtime(k < rounds), {
       eprintln(`  server: accept ${k} pending`);
@@ -505,23 +522,23 @@ test("accept pending in a spawned task before the client connects", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19913));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_d6_scripted_server(&listener, usize(1), &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_d6_scripted_server(listener, usize(1), seen, io), ioe);
   eprintln(`  client: connecting while the server task's accept is pending`);
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
   eprintln(`  client: connected, writing the request`);
-  _n := io.await(client.write_str("GET /one HTTP/1.1\r\nHost: x\r\n\r\n", io), IoExn(io : io, exn : exn));
+  _n := io.await(client.write_str("GET /one HTTP/1.1\r\nHost: x\r\n\r\n", io), ioe);
   eprintln(`  client: written, reading to EOF`);
-  body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
+  body := io.await(client.read_to_end(io), ioe);
   eprintln(`  client: got ${body.len()} bytes`);
   assert(body.len() == usize(59), "the whole response, then EOF from the server's close");
-  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), ioe);
   server.await(io);
   assert(seen.with(xs => xs.len()) == usize(1), "one request seen");
   assert(seen.with(xs => xs(usize(0))).starts_with(`GET /one`), "the request line");
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("three request/response rounds against a spawned scripted server", {
   exn := Exception(
@@ -532,24 +549,24 @@ test("three request/response rounds against a spawned scripted server", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19914));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   seen := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
-  server := io.spawn(_d6_scripted_server(&listener, usize(3), &seen, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_d6_scripted_server(listener, usize(3), seen, io), ioe);
   mut(round) := 0;
   while(round < 3, {
     eprintln(`  client: round ${round} connect`);
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-    _n := io.await(client.write_str("GET /hop HTTP/1.1\r\nHost: x\r\n\r\n", io), IoExn(io : io, exn : exn));
-    body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
+    _n := io.await(client.write_str("GET /hop HTTP/1.1\r\nHost: x\r\n\r\n", io), ioe);
+    body := io.await(client.read_to_end(io), ioe);
     eprintln(`  client: round ${round} got ${body.len()} bytes`);
     assert(body.len() == usize(59), "each hop's whole response");
-    io.await(client.close(io), IoExn(io : io, exn : exn));
+    io.await(client.close(io), ioe);
     round = (round + 1);
   });
   server.await(io);
   assert(seen.with(xs => xs.len()) == usize(3), "three requests seen");
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("TCP local_addr is this end, and it is the peer's peer_addr", {
   exn := Exception(
@@ -560,10 +577,11 @@ test("TCP local_addr is this end, and it is the peer's peer_addr", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   addr := SocketAddr.loopback(u16(19934));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
-  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), ioe);
   cl := client.local_addr();
   // The kernel picks the source port, so the value cannot be predicted — but
   // it must be a real ephemeral port on the loopback interface, and it must
@@ -575,9 +593,9 @@ test("TCP local_addr is this end, and it is the peer's peer_addr", {
   assert(server_stream.peer_addr() == cl, "the server's peer_addr is the client's local_addr");
   // And the accepted socket's local address is the listener's.
   assert(server_stream.local_addr().port == u16(19934), "the accepted socket is bound to the listening port");
-  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
-  io.await(client.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(server_stream.close(io), ioe);
+  io.await(client.close(io), ioe);
+  io.await(listener.close(io), ioe);
 });
 // ============================================================================
 // TcpListener.incoming — the listener as a `Stream`
@@ -592,6 +610,7 @@ test("TcpListener.incoming is a Stream of accepted connections", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   bound := listener.local_addr();
   // The chain is built here, not inside the task: a closure argument written
@@ -618,9 +637,9 @@ test("TcpListener.incoming is a Stream of accepted connections", {
     match(accepted(usize(1)), .Ok(st) => (st.fd() >= i32(0)), .Err(_) => false),
     "so is the second — the failure lives IN the item, so one bad accept would not end the stream"
   );
-  io.await(client1.close(io), IoExn(io : io, exn : exn));
-  io.await(client2.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(client1.close(io), ioe);
+  io.await(client2.close(io), ioe);
+  // `incoming()` took the listener; it closes when the stream drops.
 });
 test("a closed listener's incoming stream is finished", {
   exn := Exception(
@@ -631,8 +650,9 @@ test("a closed listener's incoming stream is finished", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), ioe);
   conns := listener.incoming();
   first := io.await(conns.next(io), io);
   assert(first.is_none(), "a closed listener accepts nothing more, so the stream is over");
@@ -648,6 +668,7 @@ test("a consumer loop over incoming serves each connection in turn", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   bound := listener.local_addr();
   fds := ArrayList(i32).new();
@@ -689,9 +710,9 @@ test("a consumer loop over incoming serves each connection in turn", {
   assert(fds.len() == usize(2), "the body ran once per connection");
   assert(fds(usize(0)) >= i32(0), "first connection was accepted, not an error item");
   assert(fds(usize(1)) >= i32(0), "second too");
-  io.await(client1.close(io), IoExn(io : io, exn : exn));
-  io.await(client2.close(io), IoExn(io : io, exn : exn));
-  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  io.await(client1.close(io), ioe);
+  io.await(client2.close(io), ioe);
+  // `incoming()` took the listener; it closes when the stream drops.
 });
 
 test("connecting to a non-routable address does not park the event loop", {
@@ -734,8 +755,9 @@ test("connecting to a non-routable address does not park the event loop", {
           }
         )
       );
-      stream := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : task_exn));
-      io.await(stream.close(io), IoExn(io : io, exn : task_exn));
+      te := IoExn(io : io, exn : task_exn);
+      stream := io.await(TcpStream.connect(addr, io), te);
+      io.await(stream.close(io), te);
       return(());
     }),
     io

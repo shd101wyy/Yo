@@ -23,6 +23,7 @@ test("TempDir.new creates a directory", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
   p := td.path().to_string();
   unsafe(printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap()));
@@ -31,7 +32,7 @@ test("TempDir.new creates a directory", {
   e := io.await(fs_file.exists(td.path(), io), io);
   assert(e, "temp dir should exist");
   // Remove
-  io.await(td.remove(io), IoExn(io : io, exn : exn));
+  io.await(td.remove(io), ioe);
   unsafe(printf("  removed ok\n"));
   // Verify removed
   e2 := io.await(fs_file.exists(td.path(), io), io);
@@ -46,6 +47,7 @@ test("TempDir.new_in creates in specified parent", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   tmp := temp_dir();
   parent := Path.new(&tmp);
   td := io.await(TempDir.new_in(&parent, io), IoExn(io : io, exn : exn));
@@ -53,7 +55,7 @@ test("TempDir.new_in creates in specified parent", {
   unsafe(printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap()));
   // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
   assert(td.path().starts_with(&parent), "path should start with parent");
-  io.await(td.remove(io), IoExn(io : io, exn : exn));
+  io.await(td.remove(io), ioe);
 });
 test("TempDir.remove is idempotent", {
   exn := Exception(
@@ -64,10 +66,11 @@ test("TempDir.remove is idempotent", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
-  io.await(td.remove(io), IoExn(io : io, exn : exn));
+  io.await(td.remove(io), ioe);
   // Second remove should succeed (no-op)
-  io.await(td.remove(io), IoExn(io : io, exn : exn));
+  io.await(td.remove(io), ioe);
   unsafe(printf("  second remove ok\n"));
 });
 // ============================================================================
@@ -82,6 +85,7 @@ test("TempFile.new creates a file", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   tf := io.await(TempFile.new(io), IoExn(io : io, exn : exn));
   p := tf.path().to_string();
   unsafe(printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap()));
@@ -90,7 +94,7 @@ test("TempFile.new creates a file", {
   e := io.await(fs_file.exists(tf.path(), io), io);
   assert(e, "temp file should exist");
   // Remove
-  io.await(tf.remove(io), IoExn(io : io, exn : exn));
+  io.await(tf.remove(io), ioe);
   unsafe(printf("  removed ok\n"));
   // Verify removed
   e2 := io.await(fs_file.exists(tf.path(), io), io);
@@ -105,6 +109,7 @@ test("TempFile.new_in creates in specified parent", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   tmp := temp_dir();
   parent := Path.new(&tmp);
   tf := io.await(TempFile.new_in(&parent, io), IoExn(io : io, exn : exn));
@@ -112,7 +117,7 @@ test("TempFile.new_in creates in specified parent", {
   unsafe(printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap()));
   // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
   assert(tf.path().starts_with(&parent), "path should start with parent");
-  io.await(tf.remove(io), IoExn(io : io, exn : exn));
+  io.await(tf.remove(io), ioe);
 });
 test("TempFile.file returns usable File", {
   exn := Exception(
@@ -123,16 +128,17 @@ test("TempFile.file returns usable File", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   tf := io.await(TempFile.new(io), IoExn(io : io, exn : exn));
   f := tf.file();
   // Write to the file
-  n := io.await(f.write_string(`temp file content`, io), IoExn(io : io, exn : exn));
+  n := io.await(f.write_string(`temp file content`, io), ioe);
   unsafe(printf("  wrote %d bytes\n", n));
   // Read it back using the path
   s := io.await(fs_file.read_to_string(tf.path(), io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `temp file content`, "temp file content mismatch");
-  io.await(tf.remove(io), IoExn(io : io, exn : exn));
+  io.await(tf.remove(io), ioe);
 });
 test("TempFile.remove is idempotent", {
   exn := Exception(
@@ -143,10 +149,11 @@ test("TempFile.remove is idempotent", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   tf := io.await(TempFile.new(io), IoExn(io : io, exn : exn));
-  io.await(tf.remove(io), IoExn(io : io, exn : exn));
+  io.await(tf.remove(io), ioe);
   // Second remove should succeed (no-op)
-  io.await(tf.remove(io), IoExn(io : io, exn : exn));
+  io.await(tf.remove(io), ioe);
   unsafe(printf("  second remove ok\n"));
 });
 // ============================================================================
@@ -200,9 +207,10 @@ test("TempDir Drop after remove is a no-op", {
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   {
     td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
-    io.await(td.remove(io), IoExn(io : io, exn : exn));
+    io.await(td.remove(io), ioe);
   };
   unsafe(printf("  dispose-after-remove ok\n"));
 });

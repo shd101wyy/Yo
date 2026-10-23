@@ -47,13 +47,14 @@ _make_junction :: (fn(link : &Path, target : &Path, io : Io) -> bool)({
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   cmd := Command.new(`cmd`);
   cmd.arg(`/c`);
   cmd.arg(`mklink`);
   cmd.arg(`/J`);
   cmd.arg(_winpath(link));
   cmd.arg(_winpath(target));
-  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  st := io.await(cmd.status(io), ioe);
   st.success()
 });
 // Best-effort stale removal, so a failed previous run's leftovers (a

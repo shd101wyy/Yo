@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
-{ TcpStream, _close_stream_state } :: import("../net/tcp");
+{ TcpStream, _close_stream_in_place } :: import("../net/tcp");
 { NetError } :: import("../net/errors");
 IO_tcp :: import("../sys/tcp");
 { SocketAddr, IpAddr } :: import("../net/addr");
@@ -329,7 +329,7 @@ impl(
           unsafe(__yo_tls_free(t._ssl, self._cell._ctx));
           // The socket's state sits inside this stream's box: close it
           // through its address (this future borrows the TLS stream).
-          e.io.await(_close_stream_state(addr_of(self._cell._tcp._cell.*), e.io), e);
+          e.io.await(_close_stream_in_place(&self._cell._tcp, e.io), e);
         }
       );
       return(());
@@ -361,103 +361,103 @@ impl(
 );
 /// Read decrypted bytes into `buf` through the session `t`.
 _tls_read :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    ssl := t._ssl;
-    io.async(e => {
-      (out : usize) = usize(0);
-      (settled : bool) = false;
-      while(!settled, {
-        ret := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
-        (act : int) = int(0);
-        cond(
-          (ret > int(0)) => {
-            out = usize(ret);
-            settled = true;
-          },
-          true => {
-            err := unsafe(__yo_tls_get_error(ssl, ret));
-            cond(
-              (err == _SSL_ERROR_ZERO_RETURN()) => {
-                out = usize(0);
-                settled = true;
-              },
-              (err == _SSL_ERROR_WANT_READ()) => {
-                act = int(1);
-              },
-              (err == _SSL_ERROR_WANT_WRITE()) => {
-                act = int(2);
-              },
-              true => {
-                _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
-                settled = true;
-              }
-            );
-          }
-        );
-        // One post-cond await block (the handshake loop's proven shape; two
-        // separate awaiting `if`s after the cond trip the async state
-        // machine — issues/fixed/async-postwhile-multiple-await-ifs.md). WANT_READ
-        // (act 1) flushes then feeds; WANT_WRITE (act 2) only flushes.
-        if(act > int(0), {
-          e.io.await(_flush_wbio(t, e.io), e);
-          (got : usize) = usize(1);
-          if(act == int(1), {
-            got = e.io.await(_feed_rbio(t, e.io), e);
-          });
+  ssl := t._ssl;
+  io.async(e => {
+    (out : usize) = usize(0);
+    (settled : bool) = false;
+    while(!settled, {
+      ret := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
+      (act : int) = int(0);
+      cond(
+        (ret > int(0)) => {
+          out = usize(ret);
+          settled = true;
+        },
+        true => {
+          err := unsafe(__yo_tls_get_error(ssl, ret));
           cond(
-            (got == usize(0)) => {
+            (err == _SSL_ERROR_ZERO_RETURN()) => {
               out = usize(0);
               settled = true;
             },
-            true => ()
+            (err == _SSL_ERROR_WANT_READ()) => {
+              act = int(1);
+            },
+            (err == _SSL_ERROR_WANT_WRITE()) => {
+              act = int(2);
+            },
+            true => {
+              _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
+              settled = true;
+            }
           );
+        }
+      );
+      // One post-cond await block (the handshake loop's proven shape; two
+      // separate awaiting `if`s after the cond trip the async state
+      // machine — issues/fixed/async-postwhile-multiple-await-ifs.md). WANT_READ
+      // (act 1) flushes then feeds; WANT_WRITE (act 2) only flushes.
+      if(act > int(0), {
+        e.io.await(_flush_wbio(t, e.io), e);
+        (got : usize) = usize(1);
+        if(act == int(1), {
+          got = e.io.await(_feed_rbio(t, e.io), e);
         });
+        cond(
+          (got == usize(0)) => {
+            out = usize(0);
+            settled = true;
+          },
+          true => ()
+        );
       });
-      return(out);
-    })
+    });
+    return(out);
+  })
 });
 /// Write plaintext through the session `t`; returns the byte count accepted.
 _tls_write :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    ssl := t._ssl;
-    io.async(e => {
-      (out : usize) = usize(0);
-      (settled : bool) = false;
-      while(!settled, {
-        ret := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
-        e.io.await(_flush_wbio(t, e.io), e);
-        (need_read : bool) = false;
+  ssl := t._ssl;
+  io.async(e => {
+    (out : usize) = usize(0);
+    (settled : bool) = false;
+    while(!settled, {
+      ret := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
+      e.io.await(_flush_wbio(t, e.io), e);
+      (need_read : bool) = false;
+      cond(
+        (ret > int(0)) => {
+          out = usize(ret);
+          settled = true;
+        },
+        true => {
+          err := unsafe(__yo_tls_get_error(ssl, ret));
+          cond(
+            (err == _SSL_ERROR_WANT_READ()) => {
+              need_read = true;
+            },
+            (err == _SSL_ERROR_WANT_WRITE()) => (),
+            true => {
+              _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
+              settled = true;
+            }
+          );
+        }
+      );
+      if(need_read, {
+        got := e.io.await(_feed_rbio(t, e.io), e);
         cond(
-          (ret > int(0)) => {
-            out = usize(ret);
+          (got == usize(0)) => {
+            _throw_tls(TlsError.Closed, e.exn);
             settled = true;
           },
-          true => {
-            err := unsafe(__yo_tls_get_error(ssl, ret));
-            cond(
-              (err == _SSL_ERROR_WANT_READ()) => {
-                need_read = true;
-              },
-              (err == _SSL_ERROR_WANT_WRITE()) => (),
-              true => {
-                _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
-                settled = true;
-              }
-            );
-          }
+          true => ()
         );
-        if(need_read, {
-          got := e.io.await(_feed_rbio(t, e.io), e);
-          cond(
-            (got == usize(0)) => {
-              _throw_tls(TlsError.Closed, e.exn);
-              settled = true;
-            },
-            true => ()
-          );
-        });
       });
-      return(out);
-    })
-  });
+    });
+    return(out);
+  })
+});
 export(TlsStream);
 // === std/io async trait impls (D5) ===
 impl(

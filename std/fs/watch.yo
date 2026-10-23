@@ -211,14 +211,14 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
 impl(
   Watcher,
   /// The watched path.
-  path : (fn(self : &mut Self) -> Path)(self._cell._root),
+  path : (fn(self : &Self) -> Path)(self._cell._root),
   /// Whether the watch is still running.
-  is_active : (fn(self : &mut Self) -> bool)(self._cell._active),
+  is_active : (fn(self : &Self) -> bool)(self._cell._active),
   /// Events queued and not yet read.
-  pending : (fn(self : &mut Self) -> usize)(self._cell._queue.len() - self._cell._head),
+  pending : (fn(self : &Self) -> usize)(self._cell._queue.len() - self._cell._head),
   /// Take the next queued event without waiting; `.None` when the queue is
   /// empty.
-  poll : (fn(self : &mut Self) -> Option(FsEvent))({
+  poll : (fn(self : &Self) -> Option(FsEvent))({
     st := addr_of(self._cell.*);
     cond(
       (self._cell._head < self._cell._queue.len()) => {

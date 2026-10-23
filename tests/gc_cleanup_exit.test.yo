@@ -41,10 +41,11 @@ test("exit with live tracked chain terminates cleanly (no GC teardown double-fre
       }
     )
   );
+  ioe := IoExn(io : io, exn : exn);
   _s := env.set(String.from("YO_GC_EXIT_CHILD"), String.from("1"));
   argv := args();
   cmd := Command.new(&argv(usize(0)));
-  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
+  out := io.await(cmd.output(io), ioe);
   st := out.status;
   assert(st.signal() == i32(0), `child must exit, not die on a signal (got signal ${st.signal()})`);
   assert(st.code().unwrap_or(i32(-1)) != i32(0), `child must exit non-zero (got ${st.code().unwrap_or(i32(-1))})`);

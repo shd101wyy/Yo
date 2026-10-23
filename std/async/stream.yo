@@ -267,11 +267,12 @@ impl(
         if(self._remaining > usize(0), {
           self._remaining = (self._remaining - usize(1));
           nx := io.await(self._inner.next(io), io);
-          out = nx;
           // Upstream finished early: stop pulling on every later `next`.
+          // Tested before `nx` moves into `out` (an item may be move-only).
           if(nx.is_none(), {
             self._remaining = usize(0);
           });
+          out = nx;
         });
         out
       })

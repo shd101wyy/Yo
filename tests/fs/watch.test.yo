@@ -81,7 +81,7 @@ test("next(io) resolves when an event arrives and .None after close", {
   d := temp_dir();
   target := path_join(&d, `yo_watch_next.txt`);
   _unlink(&target, io);
-  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
+  mut(w) := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
   _touch(&target, String.from("x"), io);
   ev := io.await(w.next(io), io);
   assert(ev.is_some(), "next resolved with an event");
@@ -183,7 +183,7 @@ test("a watcher dropped without close() releases its backend handle", {
   );
   target := path_join(&d, `yo_watch_drop.txt`);
   _unlink(&target, io);
-  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
+  mut(w) := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
   _touch(&target, String.from("x"), io);
   ev := io.await(w.next(io), io);
   assert(ev.is_some(), "a watcher created after 200 dropped ones still delivers");
@@ -222,11 +222,8 @@ test("a Watcher is a Stream: map + take collects one event name", {
   );
   assert(got.len() == usize(1), "take(1) ends the stream after one event");
   assert(got(usize(0)).len() > usize(0), "the mapped item is the entry name");
-  (mut(more) : Option(FsEvent)) = w.poll();
-  while(more.is_some(), {
-    more = w.poll();
-  });
-  w.close();
+  // `map` took the watcher (a move-only value) into the stream, and the
+  // finished `collect` dropped the stream, which stopped the watch.
   _unlink(&target, io);
 });
 
@@ -337,7 +334,7 @@ test("a task waiting in next(io) does not spin the CPU", {
     d := temp_dir();
     target := path_join(&d, `yo_watch_idle.txt`);
     _unlink(&target, io);
-    w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
+    mut(w) := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
     h := io.spawn(_touch_later(&target, io), io);
     cpu0 := _cpu_ms();
     ev := io.await(w.next(io), io);

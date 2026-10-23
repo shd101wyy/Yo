@@ -10,9 +10,14 @@
 { IoExn, Exception } :: import("std/error");
 { println } :: import("std/fmt");
 _Tok :: struct(n : i32);
-impl(_Tok, Drop(drop : (fn(self : &mut Self) -> unit)({
-  println(`drop _Tok(${self.n})`);
-})));
+impl(
+  _Tok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`drop _Tok(${self.n})`);
+    })
+  )
+);
 _make :: (fn(fail : bool, io : Io) -> Impl(Future(_Tok, IoExn)))(
   io.async(e => {
     if(fail, {
@@ -30,7 +35,13 @@ _outer :: (fn(fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
   })
 );
 _run :: (fn(fail : bool, io : Io) -> bool)({
-  exn := Exception(throw : (err -> { unwind(false); }));
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(false);
+      }
+    )
+  );
   ioe := IoExn(io : io, exn : exn);
   v := io.await(_outer(fail, io), ioe);
   v == i32(7)

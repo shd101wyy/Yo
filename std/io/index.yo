@@ -21,6 +21,10 @@
 //! The `Dyn(Reader)` spelling works too (C17 fixed 2026-08-29; pinned in
 //! `tests/io/async_traits.test.yo`): a `Dyn(Reader)` dispatches `read` and
 //! the defaults through its vtable and can be the `R` of `BufReader(R)`.
+//! Only a reader whose `read` future owns what it uses can be erased: a
+//! vtable's future type carries no borrow, so a move-only `File`, whose
+//! future borrows the file, is not a `dyn(Reader)` (E0909). Take it through a
+//! generic `Impl(Reader)` instead.
 //! Concrete types carry NO duplicate spellings of the trait operations —
 //! `File`/`TcpStream` read-everything is `read_to_end`/`read_to_string`, the
 //! trait defaults (D2: one Rust-shaped name per operation); their
