@@ -2875,7 +2875,7 @@ _ic_note_result_positions :: (fn(e : &AstExpr, dest_decl : &String, nested : boo
 );
 _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool, ctx : &EvalContext) -> unit)({
   at := _ic_leftmost_token(e);
-  at_module := canonical_module_path(&at.module_path);
+  at_module := canonical_module_path(&at.module_path.*);
   if(nested, {
     g_copy_tail_dests.with_mut(xs => xs.push(CopyWrite(decl : dest_decl.clone(), at_module : at_module.clone(), at_offset : at.byte_offset)));
   });
@@ -2951,7 +2951,7 @@ record_clone_impl_body :: (fn(member : &AstExpr, receiver : &String) -> unit)({
       .Atom(_, _) => ()
     );
   });
-  at_module := canonical_module_path(&root.module_path);
+  at_module := canonical_module_path(&root.module_path.*);
   key := `${at_module}:${lo.to_string()}:${hi.to_string()}`;
   if(g_clone_impl_body_keys.with_mut(s => s.insert(key)), {
     g_clone_impl_bodies.with_mut(xs => xs.push(CloneImplBody(at_module : at_module, start : lo, end : hi, receiver : receiver.clone())));
