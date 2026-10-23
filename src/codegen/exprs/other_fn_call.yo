@@ -1639,9 +1639,16 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // Method dispatch: the callee is a property access, not an atom,
             // so the atom fallback in _call_may_unwind is false here.
             cm_may_unwind := _call_may_unwind(&method_fv, &cm_mft, &cm_ptypes.items, false, context);
-            cm_install_ei := new_expr_info(&ei.env, &cm_mft);
+            // The installation test reads its env whole. A type-qualified call
+            // (`Q.make(k, raise)`) records no method callee, so the scope
+            // release keeps the env of the DOT callee (its FuncVal installs),
+            // not the call's: read the callee's env, as the plain-call path
+            // does. A receiver call's dot has no info; its call env is kept.
+            cm_env_key := match(context.base.get_expr_info(&func_expr), .Some(_) => ast_expr_id(&func_expr), .None => ast_expr_id(expr));
+            cm_install_env := match(context.base.get_expr_info(&func_expr), .Some(cfi) => cfi.env, .None => ei.env);
+            cm_install_ei := new_expr_info(&cm_install_env, &cm_mft);
             cm_install_ei.value = method_fv;
-            cm_is_install := _call_is_handler_installation(ast_expr_id(expr), &cm_install_ei, &cm_mft, &cm_ptypes.items, &dm_runtime, context, Option(String).None);
+            cm_is_install := _call_is_handler_installation(cm_env_key, &cm_install_ei, &cm_mft, &cm_ptypes.items, &dm_runtime, context, Option(String).None);
             // A projection method (decision 24; a generic impl's, resolved by
             // this dispatch) is the place `(*m(args))`, as on the direct-call
             // path below: never a `T` temp.
