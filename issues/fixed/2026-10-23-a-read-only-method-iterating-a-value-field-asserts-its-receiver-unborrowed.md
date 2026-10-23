@@ -92,6 +92,16 @@ asserted. Defect 1 had a soundness twin, a missed assert that let a borrowed
   defined-but-inert local is no longer read as undefined. A pointer-typed
   local whose root is NONE (fabricated from integers) still reads as
   unknown storage, matching `ctor_root`'s rule.
+- Reading constructions precisely exposed one more imprecision. A call that
+  omits trailing `?=` arguments (`RefCell.new`'s `box(slot)`, omitting
+  `alloc ?= .None`) could not be matched to its parameters, and an
+  unmatched call to a callee with any mutation gave up with `all`. Before
+  the fix, `box(...)`'s shell value hid it. `_MsP.argv` now matches the
+  given positional arguments of a plain call to the leading parameters; an
+  omitted default is the callee's own value and cannot name the caller's
+  storage. A mask hit or returned root on an omitted position stays
+  conservative, and `collect` treats a mutated omitted position as unknown
+  storage. Without this, every `RefCell.new(v)` asserted `v` unborrowed.
 - No `Clone` special case: a clone is not always fresh (`Rc.clone` shares
   its payload), and the callee analysis already models that.
 
@@ -99,7 +109,8 @@ Regression test: `tests/for_macro_borrow_user_collection.test.yo`, "borrowed
 for: read-only methods iterating a value field by value, through an alias,
 do not trip the flag". It covers a derived `Clone`, a hand-written `Clone`
 with a bare constructor tail, a `Copy` source, an iterator bound to a local
-then returned, a fully constant iterator and a chain of locals. Before the
+then returned, a fully constant iterator and a chain of locals, plus a
+`RefCell.new(other)` call as a guard for the omitted-default matching. Before the
 fix, five of the six methods carried the entry assert and the test panicked
 (the chain of locals did not). The existing
 "user methods iterating the collection…" test is unchanged.

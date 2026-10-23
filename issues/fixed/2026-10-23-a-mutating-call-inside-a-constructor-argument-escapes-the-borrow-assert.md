@@ -3,7 +3,10 @@
 **Severity:** S1 — a safe-looking program reads freed memory. A `&mut self`
 method whose only write to the receiver happens inside a constructor
 argument (`W(a : push_len(&mut self.items), b : 0)` or
-`.Some(push_len(&mut self.items))`) gets no entry invalidation assert. Called through a second handle inside a borrowed
+`.Some(push_len(&mut self.items))`), or inside a call to a helper whose whole
+body is a constructor (`mkw(&mut self.items)` with
+`mkw :: (fn(xs : &mut ArrayList(i32)) -> W)(W(a : push_len(xs), b : 0))`),
+gets no entry invalidation assert. Called through a second handle inside a borrowed
 `for(&mut bag, …)`, it reallocates the walked buffer, and the loop then
 writes through a dangling element pointer.
 
@@ -15,7 +18,7 @@ The v0.2.68 seed and develop `7898d4da0` behave the same.
 ## Reproducer
 
 `tests/cli-cases/inout-for-ctor-arg-mutation-struct-panics/fixture/src/main.yo`
-(and its `-enum-` sibling; the `-tuple-` one already asserted and is kept as
+(and its `-enum-` and `-helper-` siblings; the `-tuple-` one already asserted and is kept as
 a guard, because the fix's helper now also looks inside tuple values):
 
 ```yo ignore
@@ -35,7 +38,7 @@ impl(
 // main: other := bag; for(&mut bag, x => { seen = (seen + other.grow()); x = (x + i32(1)); });
 ```
 
-Under `--sanitize address` the struct and enum shapes report a
+Under `--sanitize address` the struct, enum and helper shapes report a
 heap-use-after-free on the loop's `x = (x + i32(1))` (measured with the v0.2.68
 seed). Binding the call first
 (`a := push_len(&mut self.items); W(a : a, …)`) panics correctly with
@@ -47,8 +50,9 @@ The PARAM-STORAGE mask walk (`_MsP.walk`,
 `src/evaluator/effects/mutation_summary.yo`) skips any call whose
 `ExprInfo.value` is not exactly `UnknownVal`, reading it as a compile-time
 fold that never runs. A runtime construction's value is a SHELL
-(`StructVal`/`EnumVal`) with an `UnknownVal` leaf, so the walk
-skipped the whole construction and never visited the mutating argument.
+(`StructVal`/`EnumVal`) with an `UnknownVal` leaf, and so is the value of a
+call to a function whose body is such a construction. The walk skipped the
+whole expression and never visited the mutating call inside it.
 
 ## Fix
 
@@ -58,5 +62,6 @@ construction, sees `push_len` write `self.items`, and `grow` carries the
 assert. The same change fixes the false assert in the sibling doc above.
 
 Regression tests: `tests/cli-cases/inout-for-ctor-arg-mutation-struct-panics`,
-`…-enum-panics` (both failed before the fix) and the guard
+`…-enum-panics` and `…-helper-panics` (all three failed before the fix) and
+the guard
 `…-tuple-panics` (rc 1, the panic line).
