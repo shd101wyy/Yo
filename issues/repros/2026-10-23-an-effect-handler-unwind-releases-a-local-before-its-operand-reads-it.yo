@@ -1,0 +1,27 @@
+// issues/2026-10-23-an-effect-handler-unwind-releases-a-local-before-its-operand-reads-it.md
+// Expected (`--sanitize address --allocator system`): prints 6, then
+// `G rc=1 want 1`. Actual: heap-use-after-free (READ of size 4) — the handler
+// releases `x` before `unwind` reads `x.n`.
+{ println } :: import("std/fmt");
+R :: ref(struct(n : i32));
+Ask :: (ctl(k : i32) -> R);
+(G : R) = R(n : i32(5));
+use_ask :: (fn(ask : Ask) -> i32)({
+  a := ask(i32(1));
+  b := ask(i32(2));
+  a.n + b.n
+});
+run :: (fn() -> i32)({
+  (ask : Ask) = (
+    k -> {
+      x := R(n : k);
+      unwind(x.n + G.n);
+    }
+  );
+  use_ask(ask)
+});
+main :: (fn() -> unit)({
+  println(run());
+  println(`G rc=${ref_count(G)} want 1`);
+});
+export(main);

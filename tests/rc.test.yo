@@ -2933,3 +2933,77 @@ test("a compile-time-collapsed cond's return arm keeps the returned value alive"
   };
   assert(ref_count(r) == usize(1), "each copy released its own count");
 });
+// The same collapse in an `io.async` body after an await, where the body
+// owns a local that the return arm releases.
+_cond_ct_async_return :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(_CondCtBox, Io)))(
+  io.async((io : Io) => {
+    x := _CondCtBox(n : i32(100));
+    io.await(yield(io), io);
+    cond(true => return(q));
+    x
+  })
+);
+test("a compile-time-collapsed cond's return arm in an async body releases the body's locals", {
+  r := _CondCtBox(n : i32(4));
+  {
+    a := io.await(_cond_ct_async_return(&r, io), io);
+    assert(ref_count(r) == usize(2), "an async body's return arm after an await");
+    assert(a.n == i32(4), "the returned handle reads its object");
+  };
+  assert(ref_count(r) == usize(1), "the async result released its count");
+});
+// `break` and `continue` arms collapse the same way (the arm's control flow
+// consumes its body temp), after a collapsed value in the same loop body.
+_cond_ct_loop_break :: (fn(q : &_CondCtBox) -> i32)({
+  mut(i) := i32(0);
+  while(i < i32(3), {
+    t := cond(true => q);
+    i = (i + t.n);
+    cond(true => break);
+  });
+  i
+});
+_cond_ct_for_continue :: (fn(q : &_CondCtBox) -> i32)({
+  mut(xs) := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  mut(s) := i32(0);
+  for(&xs, x => {
+    t := cond(true => q);
+    s = (s + (t.n * x));
+    cond(true => continue);
+  });
+  s
+});
+test("a compile-time-collapsed cond's break and continue arms after a collapsed value in a loop body", {
+  r := _CondCtBox(n : i32(4));
+  assert(_cond_ct_loop_break(&r) == i32(4), "a collapsed value, then a collapsed break");
+  assert(ref_count(r) == usize(1), "the loop body's copy released its count");
+  assert(_cond_ct_for_continue(&r) == i32(12), "a collapsed value, then a collapsed continue");
+  assert(ref_count(r) == usize(1), "the for body's copies released their counts");
+});
+// A wrapper awaited twice by one task is fused at both await sites: its body,
+// with the collapsed conds, is emitted twice in sibling C blocks.
+_cond_ct_fused :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))({
+  x := cond(
+    false => q,
+    true => q
+  );
+  y := cond(true => q);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    x.n + y.n
+  })
+});
+_cond_ct_fused_twice :: (fn(q : &_CondCtBox, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    a := io.await(_cond_ct_fused(q, io), io);
+    b := io.await(_cond_ct_fused(q, io), io);
+    a + b
+  })
+);
+test("a compile-time-collapsed cond in a wrapper awaited twice by one task", {
+  r := _CondCtBox(n : i32(5));
+  assert(io.await(_cond_ct_fused_twice(&r, io), io) == i32(20), "each await reads the handle twice");
+  assert(ref_count(r) == usize(1), "every collapsed copy released its count");
+});

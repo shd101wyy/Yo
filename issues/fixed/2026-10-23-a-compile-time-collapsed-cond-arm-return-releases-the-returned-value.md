@@ -72,6 +72,13 @@ on the arm body, as the runtime arms do. When the collapsed arm is control
 flow, codegen declares the `cond`'s result temp if nothing declared it, as
 the if/else chain does (the read is unreachable).
 
-Regression test: `tests/rc.test.yo`, "a compile-time-collapsed cond's return
-arm keeps the returned value alive" (the shapes above, each asserting
-`ref_count`).
+Regression tests in `tests/rc.test.yo`: "a compile-time-collapsed cond's
+return arm keeps the returned value alive" (the shapes above, each asserting
+`ref_count`); "a compile-time-collapsed cond's return arm in an async body
+releases the body's locals" (an `io.async` body after an await: develop
+crashes it with an ASan SEGV, and a standalone program leaks the body's
+local); and "a compile-time-collapsed cond's break and continue arms after a
+collapsed value in a loop body" (`cond(true => break)` in a `while`,
+`cond(true => continue)` in a `for`, which develop failed with a
+use-after-free). The first only fails to compile on develop; the other two
+fail at runtime there.

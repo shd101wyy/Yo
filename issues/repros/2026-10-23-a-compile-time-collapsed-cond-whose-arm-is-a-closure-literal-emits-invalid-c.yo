@@ -1,0 +1,16 @@
+// issues/2026-10-23-a-compile-time-collapsed-cond-whose-arm-is-a-closure-literal-emits-invalid-c.md
+// Expected: prints 5. Actual: the C compiler rejects the program
+// ("initializing '__yo_t_…' (aka 'struct …') with an expression of
+// incompatible type 'int32_t (void *)'").
+{ println } :: import("std/fmt");
+R :: ref(struct(n : i32));
+f :: (fn(q : &R) -> Impl(Fn() -> i32))({
+  x := q;
+  cond(true => (() => x.n))
+});
+main :: (fn() -> unit)({
+  r := R(n : i32(5));
+  e := f(&r);
+  println(e());
+});
+export(main);

@@ -122,3 +122,17 @@ collapse, filed and fixed on this branch:
 `issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md`
 (an arm that is `return(x)`). A `match` arm, a block arm, an owned arm and a
 unit arm were already correct.
+
+The second review round moved the collapse's "is the result temp declared"
+gate (`_temp_is_declared`) from the function-wide `declared_c_var_names` set
+to the open C scopes (`scope_stack_contains` over `declared_scopes`), the gate
+`issues/fixed/2026-10-22-a-dup-temp-in-a-wrapper-awaited-twice-is-undeclared-at-the-second-site.md`
+introduced for the dup temp. The set only grows, so at the second fused await
+site of a wrapper awaited twice the first site's declaration still counted:
+the collapse emitted a harmless `tv = tv;` there, and a named dup temp or a
+control-flow arm at such a site would have redeclared or left `tv`
+undeclared. The control-flow branch's bare `T tv;` registers itself in the
+open scope (the emitter's scope tracker records only `T x = …;`
+declarations). Regression test: "a compile-time-collapsed cond in a wrapper
+awaited twice by one task" (develop fails it with a heap-use-after-free; the
+self-assignment it removes is not observable at runtime).
