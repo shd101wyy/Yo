@@ -7412,8 +7412,11 @@ run_compile :: (
     chunk_parts := ArrayList(String).new();
     // Finished function bodies stream to this file during emission
     // (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3); its bytes belong
-    // before the last C part.
-    code_spill_path := `${output}.yo-code-spill`;
+    // before the last C part. The name carries this process's pid, so no
+    // other process ever opens, truncates or deletes it
+    // (`code_spill_path_for`); spills of dead compiles of this output go first.
+    code_spill_path := code_spill_path_for(&output);
+    _remove_dead_code_spills(&output, io);
     // Strip a target-format extension so `app.html` gets `app.c`, not
     // `app.html.c` (hoisted above the compile: `--line-directives` needs the
     // sidecar/chunk names the C will be written to BEFORE emission starts —
@@ -7444,9 +7447,16 @@ run_compile :: (
     // `&mut ctx.expr_info_table` beside `&ctx` lends one place twice, which
     // decision 28's value-root rule rejects once it lands with V2b.
     info_table := ctx.expr_info_table;
-    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
+    (c_spilled_bytes : usize) = usize(0);
+    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
-    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
+    // Whether the code spilled is the emitter's own count, never the state of
+    // the path: a file that is missing or holds other bytes is a lost part of
+    // the C, which must fail the compile instead of being skipped or spliced.
+    (c_spill_exists : bool) = (c_spilled_bytes > usize(0));
+    if(c_spill_exists, {
+      _check_code_spill(code_spill_path.clone(), c_spilled_bytes, io, exn);
+    });
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
     (c_spilled : String) = String.new();
@@ -7537,7 +7547,7 @@ run_compile :: (
         (pw : usize) = usize(0);
         while(pw < c_parts.len(), {
           if((pw == usize(4)) && c_spill_exists, {
-            _copy_file_into(code_spill_path.clone(), &c_file, io, exn);
+            _copy_code_spill_into(code_spill_path.clone(), c_spilled_bytes, &c_file, io, exn);
           });
           match(
             c_parts.get(pw),
@@ -8066,7 +8076,7 @@ run_compile :: (
 // Exported for tests/internal/compile.test.yo, which drives the compile
 // command in-process (the test runner's own child compiles are separate yo
 // processes, so the corpus has no other handle on this entry point).
-export(run_compile);
+export(run_compile, code_spill_path_for, _check_code_spill, _copy_code_spill_into);
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
 /// for a file) — the check walker, filtered to `.test.yo`.
 /// Every member's test files, for `yo test --workspace` (§4.6). The workspace
@@ -8266,13 +8276,118 @@ _current_rss_mb :: (fn() -> usize)(
     true => _current_rss_mb_linux()
   )
 );
-/// Append the file at `src_path` to `dst` in 4 MiB pieces (the code spill,
-/// plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
-/// the ~110 MB of function bodies back in memory at the end).
-_copy_file_into :: (fn(src_path : &String, dst : &File, io : Io, exn : Exception) -> unit)({
+/// The file this process's compile of `output` streams its finished function
+/// bodies to. The pid keeps it private: two compiles of one output (a
+/// `yo build` re-run beside the still-running child of a killed one) used to
+/// share `<output>.yo-code-spill`, the first to finish deleted it, and the
+/// other then wrote its C without the spilled code
+/// (issues/fixed/2026-10-23-concurrent-compiles-of-one-output-share-the-code-spill-file.md).
+code_spill_path_for :: (fn(output : &String) -> String)(
+  `${output}.${pid().to_string()}.yo-code-spill`
+);
+/// Whether no process `p` exists any more: `kill(p, 0)` fails with `ESRCH`
+/// (POSIX) or `EINVAL` (Windows, `OpenProcess` on an unused pid). Any other
+/// answer, including `EPERM` for another user's process, counts as alive.
+_process_is_gone :: (fn(p : i32) -> bool)({
+  { kill } :: import("std/sys/process");
+  { ESRCH, EINVAL } :: import("std/libc/errno");
+  probe := kill(p, i32(0));
+  (probe == (i32(0) - i32(ESRCH))) || (probe == (i32(0) - i32(EINVAL)))
+});
+/// Remove the code spills (`<output>.<pid>.yo-code-spill`) left beside
+/// `output` by compiles whose process is gone: a compile killed during
+/// emission, or one whose codegen failed after its first spill, cannot remove
+/// its own, and with a per-process name the next compile no longer overwrites
+/// it (a self-compile's spill is ~125 MB). A spill of a running compile is
+/// kept. Best effort: an unreadable directory or a failed removal is skipped.
+_remove_dead_code_spills :: (fn(output : &String, io : Io) -> unit)({
+  swallow := Exception(throw : (_err -> unwind(())));
+  (cut : usize) = usize(0);
+  match(
+    output.last_index_of("/"),
+    .Some(i) => {
+      cut = (i + usize(1));
+    },
+    .None => ()
+  );
+  match(
+    output.last_index_of("\\"),
+    .Some(i) => {
+      if((i + usize(1)) > cut, {
+        cut = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  dir := output.substring(usize(0), cut);
+  prefix := `${output.substring(cut, output.len())}.`;
+  suffix := String.from(".yo-code-spill");
+  listed := if(cut == usize(0), String.from("."), dir.clone());
+  entries := io.await(read_dir(Path.new(&listed), io), IoExn(io : io, exn : swallow));
+  (ei : usize) = usize(0);
+  while(ei < entries.len(), {
+    match(
+      entries.get(ei),
+      .Some(entry) => {
+        name := entry.name.clone();
+        if((name.len() > (prefix.len() + suffix.len())) && (name.starts_with(prefix.clone()) && name.ends_with(suffix.clone())), {
+          digits := name.substring(prefix.len(), name.len() - suffix.len());
+          (all_digits : bool) = true;
+          (di : usize) = usize(0);
+          while(di < digits.len(), {
+            b := digits.byte_at(di);
+            if((b < u8(48)) || (b > u8(57)), {
+              all_digits = false;
+            });
+            di = (di + usize(1));
+          });
+          if(all_digits, {
+            match(
+              digits.parse(i32),
+              .Ok(p) => {
+                if(_process_is_gone(p), {
+                  ok := ArrayList(bool).new();
+                  _try_remove_once(`${dir}${name}`, io, &mut ok);
+                });
+              },
+              .Err(_) => ()
+            );
+          });
+        });
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+});
+/// The error for a code spill that does not hold what this compile wrote to it.
+_lost_code_spill_error :: (fn(path : &String, found : &String, expected : usize) -> String)(
+  `compile: the C code spill file "${path}" ${found}, but this compile spilled ${expected.to_string()} bytes to it; another process removed or rewrote it during the compile, so the C would be missing part of its code`
+);
+/// The code spill at `path` must exist and hold exactly the `expected` bytes
+/// the emitter wrote. Anything else would splice a stranger's bytes into the
+/// C or leave out every spilled function body and the runtime emitted ahead
+/// of them (issues/fixed/2026-10-23-concurrent-compiles-of-one-output-share-the-code-spill-file.md).
+_check_code_spill :: (fn(path : &String, expected : usize, io : Io, exn : Exception) -> unit)({
+  if(!io.await(exists(Path.new(path), io), io), {
+    exn.throw(dyn(_lost_code_spill_error(path, String.from("is gone"), expected)));
+  });
+  src := io.await(File.open(Path.new(path), .Read, io), IoExn(io : io, exn : exn));
+  size := src.size();
+  io.await(src.close(io), IoExn(io : io, exn : exn));
+  if(size != i64(expected), {
+    exn.throw(dyn(_lost_code_spill_error(path, `holds ${size.to_string()} bytes`, expected)));
+  });
+});
+/// Append the code spill at `src_path` to `dst` in 4 MiB pieces
+/// (plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
+/// the ~110 MB of function bodies back in memory at the end), failing unless
+/// exactly the `expected` bytes the emitter spilled were copied.
+_copy_code_spill_into :: (fn(src_path : &String, expected : usize, dst : &File, io : Io, exn : Exception) -> unit)({
   chunk := usize(4194304);
   src := io.await(File.open(Path.new(src_path), .Read, io), IoExn(io : io, exn : exn));
   buf := (*u8)(valve_malloc(chunk).unwrap());
+  (copied : usize) = usize(0);
   (going : bool) = true;
   while(going, {
     n := io.await(src.read(buf, chunk, io), IoExn(io : io, exn : exn));
@@ -8284,10 +8399,14 @@ _copy_file_into :: (fn(src_path : &String, dst : &File, io : Io, exn : Exception
         w := io.await(dst.write(buf.add(done), n - done, io), IoExn(io : io, exn : exn));
         done = (done + w);
       });
+      copied = (copied + n);
     });
   });
   valve_free(.Some((*void)(buf)));
   io.await(src.close(io), IoExn(io : io, exn : exn));
+  if(copied != expected, {
+    exn.throw(dyn(_lost_code_spill_error(src_path, `yielded ${copied.to_string()} bytes`, expected)));
+  });
 });
 /// The process's peak resident set so far (`--profile` marks). Linux reads
 /// `VmHWM` from `/proc/self/status`; elsewhere 0 (the marks' rss still reads).

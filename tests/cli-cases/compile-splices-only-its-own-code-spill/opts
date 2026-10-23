@@ -1,0 +1,17 @@
+# A file at the code-spill path this compile did not write must not reach its C
+# (issues/fixed/2026-10-23-concurrent-compiles-of-one-output-share-the-code-spill-file.md).
+#
+# The compile used to decide whether to splice `<output>.yo-code-spill` into
+# the C by whether that path existed, and two compiles of one output shared the
+# path. On 2026-10-22 and 2026-10-23 a `yo build` re-run beside the orphaned
+# compile child of a killed one lost its spill: the other compile finished
+# first and deleted the file, so the C went out without the runtime and every
+# spilled function body, and clang failed on `__yo_borrow_assert_unborrowed`.
+#
+# The fixture plants a foreign spill at the old shared path. This program is
+# far too small to spill (the threshold is 8 MiB of function bodies), so a
+# compile that decides by its own spilled byte count ignores the file and
+# leaves it alone. The pre-fix compile spliced it into `app.c`, the C compiler
+# hit the planted `#error`, and the file was deleted.
+stdout_keep=^(Using |error|.*#error)
+timeout=300

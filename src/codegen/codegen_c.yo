@@ -366,7 +366,9 @@ static inline void __yo_sm_pools_drain(void) {
 /// Compile a module value to C11 source, returned as its parts in order
 /// (`Emitter.sections`: write or print them one after another). With a
 /// `code_spill_path`, the leading part of the code section is in that file
-/// instead: it belongs between the fourth part and the fifth.
+/// instead: it belongs between the fourth part and the fifth, and
+/// `code_spilled_out` receives its length (0 = nothing spilled). The caller
+/// decides by that count, never by whether a file exists at the path.
 ///
 /// Pipeline: register the collection/dispatch indirections → build the context →
 /// collect required functions + types → emit C includes → the Future-state enum →
@@ -383,7 +385,7 @@ static inline void __yo_sm_pools_drain(void) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, cycle_collector_off : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String) -> ArrayList(String))({
+compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, target : &TargetInfo, allocator : &String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, cycle_collector_off : bool, eval_ctx : &EvalContext, module_env : &Environment, exn : Exception, chunk_parts_out : &mut ArrayList(String), emit_chunks : usize, chunk_auto_cap : usize, chunk_by_module : bool, code_spill_path : &String, line_directives : bool, line_c_name : &String, chunk_name_base : &String, code_spilled_out : &mut usize) -> ArrayList(String))({
   // Emitters record their errors (codegen_fatal, codegen_user_error); each
   // emission phase below ends with `raise_codegen_error(exn)`, which throws
   // the first one through this compile's exn (a clean rc=1).
@@ -740,6 +742,7 @@ static Slice_uint8_t_u42_ __yo_args;
   profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
   scope_release_report();
   base.emitter.close_code_spill();
+  code_spilled_out = base.emitter.code_spilled_bytes;
   base.emitter.sections()
 });
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);

@@ -30,11 +30,11 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { Exception, IoExn } :: import("std/error");
 { args, env, cwd } :: import("std/env");
 { exit } :: import("std/libc/stdlib");
-{ platform, Platform } :: import("std/process");
-{ write_string, copy } :: import("std/fs/file");
+{ platform, Platform, pid } :: import("std/process");
+{ File, write_string, copy } :: import("std/fs/file");
 { create_dir_all, remove_file } :: import("std/fs/dir");
 { Path } :: import("std/path");
-{ run_compile, windows_path_with_dir_first } :: import("../../src/main.yo");
+{ run_compile, windows_path_with_dir_first, code_spill_path_for, _check_code_spill, _copy_code_spill_into } :: import("../../src/main.yo");
 { file_exists_sync, read_file_sync } :: import("../../src/manifest.yo");
 
 test("the --sanitize address probe consults the chosen --c-compiler, not the system cc", {
@@ -283,4 +283,89 @@ test("a specialization reached through a call gets the hashed C name, not its ra
     );
   });
   assert(longest <= usize(160), `every yo_id_ function name is at most 160 bytes; the longest is ${longest.to_string()}`);
+});
+// The code spill (`<output>.<pid>.yo-code-spill`, plans/CODEGEN_MEMORY_REDUCTION.md
+// §0.10) is private to its compile, spliced by the byte count the emitter
+// reports and checked against it, and a dead compile's leftover is removed.
+// Two compiles of one output used to share `<output>.yo-code-spill`: the
+// first to finish deleted it, and the other wrote C without its runtime and
+// most function bodies, with rc=0
+// (issues/fixed/2026-10-23-concurrent-compiles-of-one-output-share-the-code-spill-file.md).
+/// The message `_check_code_spill` throws, "" when the spill checks out (a
+/// handler is capture-free, so the text travels as the fn's value).
+_spill_check_error :: (fn(path : &String, expected : usize, io : Io) -> String)({
+  exn := Exception(throw : (err -> unwind(err.to_string())));
+  _check_code_spill(path, expected, io, exn);
+  String.new()
+});
+/// The message `_copy_code_spill_into` throws, "" when it copied `expected` bytes.
+_spill_copy_error :: (fn(path : &String, expected : usize, dst : &File, io : Io) -> String)({
+  exn := Exception(throw : (err -> unwind(err.to_string())));
+  _copy_code_spill_into(path, expected, dst, io, exn);
+  String.new()
+});
+test("a code spill that is gone or holds other bytes fails the compile", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error while setting up the spill files: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  assert(code_spill_path_for(String.from("out/app")) == `out/app.${pid().to_string()}.yo-code-spill`, "the spill path carries this process's pid");
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  scratch := `${cwd_str}/tmp-code-spill-check-it`;
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
+  spill := `${scratch}/app.spill`;
+  io.await(write_string(Path.new(spill.clone()), String.from("int a;\n"), io), IoExn(io : io, exn : exn));
+  assert(_spill_check_error(spill.clone(), usize(7), io) == "", "a spill holding exactly the spilled bytes passes");
+  resized := _spill_check_error(spill.clone(), usize(9), io);
+  assert(resized.contains("holds 7 bytes, but this compile spilled 9 bytes"), `a resized spill fails; got: ${resized}`);
+  gone := _spill_check_error(`${scratch}/missing.spill`, usize(7), io);
+  assert(gone.contains("is gone, but this compile spilled 7 bytes"), `a missing spill fails; got: ${gone}`);
+  dst := io.await(File.open(Path.new(`${scratch}/app.c`), .Write, io), IoExn(io : io, exn : exn));
+  truncated := _spill_copy_error(spill.clone(), usize(9), &dst, io);
+  assert(truncated.contains("yielded 7 bytes, but this compile spilled 9 bytes"), `a copy that yields fewer bytes fails; got: ${truncated}`);
+  assert(_spill_copy_error(spill.clone(), usize(7), &dst, io) == "", "a copy of exactly the spilled bytes passes");
+  io.await(dst.close(io), IoExn(io : io, exn : exn));
+});
+test("a compile splices only its own spill, by its byte count, and removes dead compiles' spills", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error while compiling the spill fixture: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  scratch := `${cwd_str}/tmp-code-spill-own-it`;
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
+  fixture := String.from("{ println } :: import(\"std/fmt\");\nmain :: (fn() -> unit)({\n  println(\"hi\");\n});\nexport(main);\n");
+  io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
+  // The program is far too small to spill, so nothing may be spliced: not a
+  // file at this compile's own (pid) path, nor one at the old shared path.
+  planted := String.from("#error a spill this compile never wrote\n");
+  own := `${scratch}/fx.${pid().to_string()}.yo-code-spill`;
+  shared := `${scratch}/fx.yo-code-spill`;
+  // No process has this pid: above Linux's pid_max ceiling (2^22) and
+  // macOS's, and not a multiple of 4 as every Windows pid is.
+  dead := `${scratch}/fx.4294967.yo-code-spill`;
+  io.await(write_string(Path.new(own.clone()), &planted, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(shared.clone()), &planted, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(dead.clone()), &planted, io), IoExn(io : io, exn : exn));
+  compile_argv := ArrayList(String).new();
+  compile_argv.push(String.from("yo"));
+  compile_argv.push(String.from("compile"));
+  compile_argv.push(`${scratch}/fx.yo`);
+  compile_argv.push(String.from("--skip-c-compiler"));
+  compile_argv.push(String.from("-o"));
+  compile_argv.push(`${scratch}/fx`);
+  run_compile(&compile_argv, io, exn);
+  c_text := String.from_bytes(read_file_sync(`${scratch}/fx.c`, exn));
+  assert(!c_text.contains("a spill this compile never wrote"), "no planted spill is spliced into the C");
+  assert(file_exists_sync(own.clone()) && (String.from_bytes(read_file_sync(own.clone(), exn)) == planted), "the file at this live process's spill path is left alone");
+  assert(file_exists_sync(shared.clone()) && (String.from_bytes(read_file_sync(shared.clone(), exn)) == planted), "the file at the old shared path is left alone");
+  assert(!file_exists_sync(dead.clone()), "a spill of a compile whose process is gone is removed");
 });
