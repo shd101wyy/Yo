@@ -2160,18 +2160,32 @@ _parse_decimal :: (fn(s : &String) -> usize)({
   });
   v
 });
-/// C string literal for the source location (module paths are URIs; escape
-/// the two characters C cares about).
+/// C string literal for the source location. A module path is a URI, except
+/// the `auto-generated://` pseudo-path of code the compiler parsed from a
+/// string (a `derive_rule` body), which carries that code, newlines included:
+/// `"` and `\` are backslash-escaped and every control byte is a three-digit
+/// octal escape, so the literal stays on one line
+/// (issues/fixed/2026-10-23-checked-arithmetic-in-a-derive-generated-body-emits-c-that-does-not-compile.md).
 _idx_c_string_literal :: (fn(s : &String) -> String)({
   bytes := ArrayList(u8).new();
   bytes.push(u8(34));
   (i : usize) = usize(0);
   while(i < s.len(), {
     ch := s.byte_at(i);
-    if((ch == u8(34)) || (ch == u8(92)), {
-      bytes.push(u8(92));
-    });
-    bytes.push(ch);
+    cond(
+      ((ch < u8(32)) || (ch == u8(127))) => {
+        bytes.push(u8(92));
+        bytes.push(u8(48) + (ch / u8(64)));
+        bytes.push(u8(48) + ((ch / u8(8)) % u8(8)));
+        bytes.push(u8(48) + (ch % u8(8)));
+      },
+      true => {
+        if((ch == u8(34)) || (ch == u8(92)), {
+          bytes.push(u8(92));
+        });
+        bytes.push(ch);
+      }
+    );
     i = (i + usize(1));
   });
   bytes.push(u8(34));

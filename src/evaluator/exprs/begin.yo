@@ -23,6 +23,7 @@ pragma(Pragma.AllowUnsafe);
   BK_TUPLE,
   BK_RETURN,
   BK_BREAK,
+  BK_WHILE,
   BF_DUP,
   BF_DROP,
   BF_UNWIND,
@@ -920,6 +921,82 @@ _attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Va
         return(());
       });
       if(_is_function_boundary_for_early_drop(expr, ctx), {
+        return(());
+      });
+      recur(&func, variable, drop_expr, ctx);
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, ctx), .None => ());
+        ai = (ai + usize(1));
+      });
+    },
+    .Atom(_, _) => ()
+  )
+});
+/// The loop-exit counterpart of `_attach_early_return_only_drop_to_returns`:
+/// attach `drop_expr` to every `break`/`continue` in `expr` that leaves the
+/// block declaring `variable` while the variable is live and not yet
+/// consumed. A `break` or `continue` inside a loop nested in that block exits
+/// only the nested loop, so the walk does not enter a `while`; a macro call
+/// is walked through its expansion alone (a `for` body sits inside the
+/// expansion's `while`, and its raw `x => body` argument is the same nodes).
+/// Without it, `b := make(); if(c, { break; }); sink(b);` in a loop body
+/// skipped `b`'s drop on the `break` path
+/// (issues/fixed/2026-10-23-a-break-or-continue-before-a-later-move-skips-the-drop-of-a-loop-body-local.md).
+_attach_consumed_drop_to_loop_exits :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)({
+  init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
+  consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb, .None => return(()));
+  if(ast_expr_is_atom_of(expr, BK_BREAK) || ast_expr_is_atom_of(expr, "continue") || ast_expr_is_fn_call_of(expr, BK_BREAK, Option(usize).None) || ast_expr_is_fn_call_of(expr, "continue", Option(usize).None), {
+    // A move the flow log undid for the paths after an arm this exit lies
+    // inside (`sink(b); break;` in an `if`) already released the value here.
+    if(!variable_moved_at_cleanup_point(variable, ast_expr_token(expr), true), {
+      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, &consumed_tok, ctx);
+    });
+    return(());
+  });
+  match(
+    expr,
+    .FnCall(_, func, args, _, _) => {
+      if(ast_expr_is_fn_call_of(expr, BK_WHILE, Option(usize).None) || _is_function_boundary_for_early_drop(expr, ctx), {
+        return(());
+      });
+      match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
+        .Some(ei) => match(
+          expr_info_macro_expansion(&ei),
+          .Some(mx) => {
+            recur(&mx, variable, drop_expr, ctx);
+            return(());
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
+        recur(&func, variable, drop_expr, ctx);
+        (ci : usize) = usize(0);
+        while(ci < args.len(), {
+          match(
+            args.get(ci),
+            .Some(arg) => if(ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
+              match(
+                arg,
+                .FnCall(_, _, bargs, _, _) => {
+                  (bj : usize) = usize(0);
+                  while(bj < bargs.len(), {
+                    match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, ctx), .None => ());
+                    bj = (bj + usize(1));
+                  });
+                },
+                .Atom(_, _) => ()
+              );
+            }, {
+              recur(&arg, variable, drop_expr, ctx);
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
         return(());
       });
       recur(&func, variable, drop_expr, ctx);
@@ -3414,7 +3491,8 @@ _evaluate_begin_expression_impl :: (
     });
   });
   // M3 driver: attach early-return-only `___drop`s for CONSUMED (moved-out) owning
-  // locals to each return/unwind preceding consumption. Runs
+  // locals to each return/unwind preceding consumption, and to each
+  // break/continue that leaves this block before it. Runs
   // before pop_frame. Consumed vars are disjoint from the scope-end drop set.
   // The SAME evaluated drops also feed `consumed_escape_drops`: an effect
   // escape (`__yo_effect_escaped`) is a third exit kind neither the scope-end
@@ -3448,7 +3526,14 @@ _evaluate_begin_expression_impl :: (
               consumed_escape_drops.push(evaluated);
               (dai : usize) = usize(0);
               while(dai < begin_args.len(), {
-                match(begin_args.get(dai), .Some(arg) => _attach_early_return_only_drop_to_returns(&arg, &ev, &evaluated, ctx), .None => ());
+                match(
+                  begin_args.get(dai),
+                  .Some(arg) => {
+                    _attach_early_return_only_drop_to_returns(&arg, &ev, &evaluated, ctx);
+                    _attach_consumed_drop_to_loop_exits(&arg, &ev, &evaluated, ctx);
+                  },
+                  .None => ()
+                );
                 dai = (dai + usize(1));
               });
             });
@@ -3728,9 +3813,9 @@ export(collect_dup_calls_conservatively);
 export(reject_empty_record_arm);
 export(evaluate_begin_expression);
 /// A binding a consuming `match` arm owns (plans/VALUES_BY_DEFAULT.md
-/// decision 26) that the arm's body moved: a `return`, `unwind` or effect
-/// escape before the move still drops it, as the M3 driver above does for a
-/// block's own consumed locals. The binding lives in the arm's frame, not in
+/// decision 26) that the arm's body moved: a `return`, `unwind`, effect
+/// escape, `break` or `continue` before the move still drops it, as the M3
+/// driver above does for a block's own consumed locals. The binding lives in the arm's frame, not in
 /// the body block's, so the block's driver never sees it.
 attach_consumed_binding_exit_drops :: (fn(body : &AstExpr, v : &Variable, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(v.consumed_at_token.is_none() || v.initialized_at_token.is_none() || !_variable_can_need_drop_ignoring_consumed(v), {
@@ -3738,6 +3823,7 @@ attach_consumed_binding_exit_drops :: (fn(body : &AstExpr, v : &Variable, env : 
   });
   evaluated := evaluate_expression_raw(generate_expr_from_code(`___drop(${v.name})`, exn), env, ctx, exn);
   _attach_early_return_only_drop_to_returns(body, v, &evaluated, ctx);
+  _attach_consumed_drop_to_loop_exits(body, v, &evaluated, ctx);
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(body)),
     .Some(bi) => {

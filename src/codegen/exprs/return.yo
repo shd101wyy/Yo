@@ -16,15 +16,14 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ sm_slot_of } :: import("../async/state_machine_naming.yo");
 { emit_async_future_escape, emit_async_future_completion, emit_sm_unwind_catch } :: import("./async_completion.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_future_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { t_unit } :: import("../../types/creators.yo");
 { generate_atom } :: import("./atom.yo");
 
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, get_deferred_drop_target_atom, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, generate_early_return_only_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, get_variable_name_for_codegen_at, type_key, get_deferred_drop_target_atom_name, is_deferred_drop_for_closure_capture, sanitize_for_c_identifier, scope_stack_contains, fresh_local_name } :: import("../utils/index.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The atom a `___drop(x)` / `x.___drop()` drop expression targets.
 _drop_target_atom :: (fn(drop_expr : &AstExpr) -> Option(AstExpr))(
@@ -694,73 +693,6 @@ generate_consumed_var_drops_for_escape :: (fn(indent : &String, context : &Funct
         });
       });
     }),
-    .None => ()
-  )
-);
-/// Emit the early-return-only deferred drops attached to `expr` (a return/unwind
-/// node) — M3.
-/// skip closure-capture drops, emit the rest.
-generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)(
-  match(
-    context.base.get_expr_info(expr),
-    .Some(ei) => match(
-      expr_info_early_return_only_deferred_drop_expressions(&ei),
-      .Some(early_drops) => {
-        em := context.base.emitter;
-        (i : usize) = usize(0);
-        while(i < early_drops.len(), {
-          match(
-            early_drops.get(i),
-            .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
-              // Gate: the drop target's C declaration must have been emitted AND
-              // its enclosing C block must still be open at this exact point
-              // (block-scope stack — same authoritative C-emission-order signal
-              // as _keep_pending_drop; params are seeded at function entry).
-              // Source-token gates at attach time cannot see C decl-emission
-              // order: a `x := match(...)` binding emits its C declaration
-              // AFTER the switch, so a `return` inside an arm precedes it in C
-              // while FOLLOWING x's init token in source — with the dup/drop
-              // pair optimizer consuming such bindings, the M3-attached drop
-              // referenced an undeclared identifier (stage-2 `result` /
-              // `temp_var_name`). A target absent from the stack holds no C
-              // value here, so skipping cannot double-free or leak. Subsumes
-              // the former minted-TEMP declared_c_var_names check.
-              // A local with a task slot is never declared as a C variable,
-              // so the stack cannot vouch for it; the slot always exists and
-              // is zero while it owns nothing
-              // (issues/fixed/an-early-return-from-an-io-async-body-never-releases-a-slot-local-its-tail-moves.md).
-              skip_undeclared := match(
-                get_deferred_drop_target_atom_name(&drop_expr),
-                .Some(vn) => {
-                  cn := sanitize_for_c_identifier(vn.clone(), false);
-                  in_slot := match(
-                    context.state_machine_variables,
-                    .Some(smv) => (context.in_async_state_machine.is_some() && sm_slot_of(match(get_deferred_drop_target_atom(&drop_expr), .Some(ta) => ast_expr_id(&ta), .None => ast_expr_id(expr)), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some()),
-                    .None => false
-                  );
-                  // Likewise an `FnOnce` closure's owned capture lives in the
-                  // closure context, never a C local (decision 37).
-                  !in_slot && !is_fnonce_capture_drop(ast_expr_id(&drop_expr)) && !context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &cn))
-                },
-                .None => false
-              );
-              if(!skip_undeclared, {
-                code := _call_generate_expr(&drop_expr, indent.clone(), context);
-                if(code.len() > usize(0), {
-                  line := indent.clone();
-                  line.push_string(&code);
-                  line.push_str(";");
-                  em.emit_string_line(&line);
-                });
-              });
-            }),
-            .None => ()
-          );
-          i = (i + usize(1));
-        });
-      },
-      .None => ()
-    ),
     .None => ()
   )
 );
