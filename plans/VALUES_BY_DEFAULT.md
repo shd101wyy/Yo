@@ -7480,6 +7480,12 @@ heavy run, the command is given in item 2.
          - `docs/en-US/STRINGS.md` and `docs/zh-CN/STRINGS.md` now name the
            eleven getters, the `.clone()` a caller writes to own the
            result, and the temporary-receiver error.
+         - Rebased once more onto develop `6dee22187` (#1550, #1551's B5
+           `src/` globals; only this plan overlaps), and re-gated at
+           `74e0d2e48`: the build, `check ./std`, `check ./src`,
+           `tests/internal/compile.test.yo` and the cli-cases
+           `compile-splices-only-its-own-code-spill`, `compile-profile` and
+           `test-debug-heap-sees-an-arc-mutex-cycle` all pass.
    - **B4 (b). Hand edits in `src/`, by directory.** Split by N1's counts
      into PRs of at most ~250 sites (likely `src/evaluator/`, then
      `src/codegen/`, then the rest).
