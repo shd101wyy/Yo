@@ -938,9 +938,9 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
       return(_anon_fn_value(expr, indent.clone(), context, "Anonymous function missing function value"));
     });
   });
-  // Closure `x => body` / `x =>> body` → its function value (capture-struct
+  // Closure `x => body` → its function value (capture-struct
   // construction is Phase 3; closure-type annotations fall through).
-  if(ast_expr_is_fn_call_of(expr, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr, "=>>", Option(usize).Some(usize(2))), {
+  if(ast_expr_is_fn_call_of(expr, "=>", Option(usize).Some(usize(2))), {
     is_closure_type := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(&a0, BK_FN, Option(usize).None), .None => false), .Atom(_, _) => false);
     if(!is_closure_type, {
       return(_anon_fn_value(expr, indent.clone(), context, "Anonymous closure missing function value"));

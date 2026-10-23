@@ -1066,3 +1066,20 @@ test("decision 42: `&&T` is rejected: a borrow of a borrow does not exist", {
   parse(`f :: (fn(x : &&i32) -> unit)(());`, `test.yo`, exn);
   assert(false, "expected the `&&T` parse error");
 });
+// ─── `=>>` is not an operator ───────────────────────────────────────────────
+// The "async closure" arrow `=>>` was removed (maintainer decision 2026-10-22):
+// it never was a lexer token (`=>>` lexes as `=>` then `>`), so the dangling
+// `>` is a paren-less operator call, E0008, before any evaluator or codegen
+// site could see a `=>>` callee.
+test("`x =>> body` is rejected with E0008", {
+  s := _parse_error_text(`f :: g(x =>> x);`);
+  if(!s.contains(`error[E0008]`), {
+    println(`expected E0008 for =>>, got: ${s}`);
+    assert(false, "`x =>> body` must be rejected with E0008");
+  });
+  t := _parse_error_text(`f :: g((x : i32) =>> {\n  x\n});`);
+  if(!t.contains(`error[E0008]`), {
+    println(`expected E0008 for a typed =>> closure, got: ${t}`);
+    assert(false, "`(x : i32) =>> { body }` must be rejected with E0008");
+  });
+});
