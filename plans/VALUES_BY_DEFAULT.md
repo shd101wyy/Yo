@@ -624,6 +624,68 @@ cannot be copied.
 - **Who may use them.** Both are builtins usable only in a file with
   `pragma(Pragma.AllowUnsafe)` (decision 6). Safe code gets a reference
   type only by writing `Rc`/`Arc`.
+- **As built, Generation A (decided 2026-10-23, `feat/yo-cell-primitive-gen-a`).**
+  The points this section left open, decided as follows. The test file is
+  `tests/yo_cell.test.yo`; the safe-file rejection is pinned in
+  `tests/safe_code_structural_gates.test.yo`.
+  - **A type builtin.** `__yo_cell(V)` and `__yo_atomic_cell(V)` evaluate to
+    a type (`evaluate_cell_type`, `src/evaluator/types/struct.yo`), which is
+    exactly `ref(struct((*) : V))` or `atomic(ref(struct((*) : V)))` in
+    layout. Every existing lowering therefore applies unchanged: the header,
+    `c.*` as the payload place, dup/drop (`++`/`--` against the atomic
+    `fetch_add`/`fetch_sub`), `ref_count`, `__yo_rc_forget_payload`, the
+    `type_id` dispose dispatch and D3.
+  - **One type per `V`.** The builtin stamps its own name as the type's
+    `constructor_func_id` and `[V]` as its type arguments, so `type_key`
+    gives one C type per `V` wherever it is spelled, including after a
+    generic `V` is substituted. The struct id is the builtin's name plus
+    `type_key(V)`, so the per-id registries (fields, derived markers) hold one
+    entry per `V`. `is_cell_primitive_type` (`src/types/guards.yo`) reads the
+    stamp. Diagnostics name it `__yo_cell(V)`.
+  - **The constructor is `__yo_cell(V)(v, alloc)`,** with `v : V` moved in
+    and `alloc : Option(Allocator)`, both positional, both required (no
+    default: the primitive is spelled explicitly, and its wrappers own the
+    default). The evaluator checks `alloc` against the prelude's own
+    `Option(Allocator)`. Codegen evaluates the payload, then `alloc`, once
+    each, into temps. It then calls the cell's constructor
+    `__yo_new_<C>(__yo_alloc_scope_t, V)`; only a cell's constructor takes the
+    scope as a parameter, so no other C changes.
+  - **The allocator.** `.Some(a)` passes `{a.ctx, a.vtable}` to
+    `__yo_rc_alloc_scoped`, which calls `a`'s vtable directly with the
+    caller's scope still current, as `box` does. There is no scope switch,
+    so an allocator whose callback allocates through the scope does not
+    recurse
+    (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+    `.None` is the current `with_allocator` scope, else the global
+    allocator. The block layout is the one `Rc` cells use: the tag bit in
+    `ref_count` plus the 16-byte owner prefix, so `__yo_rc_free` releases
+    either.
+  - **The payload is a mutable place.** A write through `c.*` is legal, as
+    through any `ref` object. Decision 46's read-only rule (E0919) belongs to
+    the `Rc` wrapper, not to the cell. D3 applies to an atomic cell as it
+    applies to every atomic object.
+  - **Send, Sync and the collector add nothing new.** They are derived as
+    for `ref` objects: a `__yo_cell` is neither `Send` nor `Sync`, and a
+    `__yo_atomic_cell` is both iff `V` is `Sync`. The primitive itself has no
+    `Send`/`Sync` bound, so `Arc`'s wrapper keeps its `where` clause. A
+    non-atomic cell is a collector node iff `can_type_form_rc_cycle`; an
+    atomic one never is. Decision 48 removes the collector, so it gets no
+    work here.
+  - **The gate** is on the type, so a construction and an annotation are
+    both rejected outside an unsafe-capable file. The prelude declares
+    `pragma(Pragma.AllowUnsafe)`, so V5's prelude wrappers may use the cell.
+    The error carries no code, like the other unsafe-capability gates (the
+    raw-pointer, union-read and destroying-builtin rejections).
+  - **Left to V5.** The cell is the storage V5's wrappers hold, not the
+    wrappers' semantics. Today the compiler identifies `Rc`, `Arc` and `Box`
+    by their stamped names plus their current shapes (`is_box_type`,
+    `handle_payload_is_read_only`, `unique_box_payload_type`), and
+    auto-dereference and E0919 key on those. A wrapper whose only field is
+    `_cell : __yo_cell(V)` is not one of those shapes. V5 Generation A
+    therefore needs those predicates to learn the new shape, and std may use
+    the new shape only on a seed that carries them. Either that compiler
+    half lands in a release before V5's std half, or the predicates are
+    taught both shapes ahead of time.
 - **`Box` and buffers are plain allocations, not cells.** `Box`, `String`
   and collection buffers are owned by their value: no header, no count.
 - **A cell is a cycle-collector node; a value is not.**

@@ -15,7 +15,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue, no_types, no_labels } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_cell_primitive_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell, value_type_owns_buffer } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
@@ -209,17 +209,30 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
     .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
+  // A cell primitive's constructor takes the allocation scope as its first
+  // parameter (`__yo_cell(V)(v, alloc)`, plans/VALUES_BY_DEFAULT.md §3.5):
+  // the call site passes the explicit allocator's `{ctx, vtable}`, or the
+  // current scope for `.None`. Every other object is placed by the current
+  // allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5).
+  is_cell := is_cell_primitive_type(type);
   // Signature + malloc.
   sig := String.from("static ");
   sig.push_string(c_name.clone());
   sig.push_str("* ");
   sig.push_string(constructor_name.clone());
   sig.push_str("(");
+  if(is_cell, {
+    sig.push_str("__yo_alloc_scope_t __yo_sc");
+    if(any_param, {
+      sig.push_str(", ");
+    });
+  });
   sig.push_string(&params);
   sig.push_str(") {");
   em.emit_string_line(&sig);
-  // Placed by the current allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5).
-  em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
+  if(!is_cell, {
+    em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
+  });
   alloc := String.from("  ");
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");

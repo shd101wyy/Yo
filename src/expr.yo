@@ -382,6 +382,15 @@ BK_QUOTE :: "quote";
 BK_GENSYM :: "gensym";
 BK_COMPTIME_LIST_VAL :: "comptime_list";
 BK_REF :: "ref";
+/// The private heap-cell primitives (plans/VALUES_BY_DEFAULT.md §3.5):
+/// `__yo_cell(V)` is one counted allocation holding `V` behind the RC header,
+/// with plain `++`/`--`, and `__yo_atomic_cell(V)` is its atomically counted
+/// twin. Each is a type builtin usable only in a
+/// `pragma(Pragma.AllowUnsafe)` file; `__yo_cell(V)(v, alloc)` constructs one.
+/// The names double as the `constructor_func_id` the builtin stamps on the
+/// type (`is_cell_primitive_type`, types/guards.yo).
+BK_YO_CELL :: "__yo_cell";
+BK_YO_ATOMIC_CELL :: "__yo_atomic_cell";
 /// The deleted spelling of `sink` (V3b Generation B step 3), kept only to
 /// name it in an error.
 BK_OWN :: "own";
@@ -1061,7 +1070,7 @@ is_function_boundary_arrow :: (fn(e : &AstExpr) -> bool)(
 export(BK_FN, BK_UNSAFE_FN, BK_CTL, BK_FN_TRAIT, BK_FN_ONCE_TRAIT, BK_ATOMIC, BK_STRUCT, BK_NEWTYPE, BK_ENUM, BK_UNION);
 export(BK_TRAIT, BK_IMPL_UPPER, BK_IMPL_LOWER, BK_PTR);
 export(BK_COMPTIME_LIST_TYPE, BK_FUTURE, BK_CONCRETE, BK_DYN_UPPER, BK_DYN_LOWER);
-export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_OWN);
+export(BK_OP_AND, BK_OP_OR, BK_QUOTE, BK_GENSYM, BK_COMPTIME_LIST_VAL, BK_REF, BK_OWN, BK_YO_CELL, BK_YO_ATOMIC_CELL);
 export(BF_COMPTIME_ASSERT, BF_COMPTIME_FN, BF_COMPTIME_PRINT, BF_COMPTIME_EXPECT_ERROR, BF_COMPTIME_EVAL, BF_COMPTIME_READ_FILE, BF_COMPTIME_JSON_PARSE, BF_COMPTIME_TOML_PARSE);
 export(BF_PANIC, BF_ASM, BF_GLOBAL_ASM, BF_MACRO_EXPAND, BF_CONSUME, BF_DROP, BF_DUP, BF_VA_START);
 export(BF_REQUIRES, BF_ENSURES, BF_INVARIANT, BF_DECREASES, BF_ASSUMED, BF_LAW, BF_REFINE, BF_GHOST, BF_GHOST_FN, BF_OLD, BF_FORALL, BF_EXISTS, BF_IMPLIES, BF_SEQ_UNIT, BF_SEQ_APPEND, BF_SEQ_LEN, BF_SEQ_NTH, BF_SEQ_OF, BF_PRODUCED, BF_DISTINCT, BF_STR_BYTES, BF_MS_SINGLE, BF_MS_ADD, BF_MS_COUNT, BF_MS_OF, BF_SET_SINGLE, BF_SET_ADD, BF_SET_CONTAINS);

@@ -29,6 +29,8 @@ import("std/fmt");
   BK_ATOMIC,
   BK_STRUCT,
   BK_REF,
+  BK_YO_CELL,
+  BK_YO_ATOMIC_CELL,
   BK_NEWTYPE,
   BK_ENUM,
   BK_UNION,
@@ -351,7 +353,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_function_type } :: import("../types/function.yo");
 { evaluate_future_type } :: import("../types/future_trait.yo");
 { evaluate_newtype_type } :: import("../types/newtype.yo");
-{ evaluate_struct_type } :: import("../types/struct.yo");
+{ evaluate_struct_type, evaluate_cell_type } :: import("../types/struct.yo");
 { evaluate_trait_type } :: import("../types/trait.yo");
 { evaluate_tuple_type } :: import("../types/tuple.yo");
 { evaluate_union_type } :: import("../types/union.yo");
@@ -1018,6 +1020,11 @@ _evaluate_expression :: (
             }
           )
         },
+        // The private cell primitives (plans/VALUES_BY_DEFAULT.md §3.5).
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_YO_CELL, .None)) =>
+          evaluate_cell_type(expr, env, ctx, false, exn),
+        ((__dk_len == usize(16)) && ast_expr_is_fn_call_of(expr, BK_YO_ATOMIC_CELL, .None)) =>
+          evaluate_cell_type(expr, env, ctx, true, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_STRUCT, .None)) =>
           evaluate_struct_type(expr, env, ctx, false, false, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BK_NEWTYPE, .None)) =>

@@ -240,3 +240,14 @@ test("___drop and the RC-release builtins are rejected in safe code", {
     h.xs.len()
   }, "'__yo_sometype_drop(...)' is not available in safe code");
 });
+// The private heap-cell primitives need an unsafe-capable file
+// (plans/VALUES_BY_DEFAULT.md §3.5): safe code shares a value with
+// `rc(v)`/`arc(v)`. The gate fires on the type itself, so neither a
+// construction nor a type annotation gets through.
+test("the cell primitives are not available in safe code", {
+  comptime_expect_error(__yo_cell(i32)(i32(1), .None), "`__yo_cell(...)` is not available in safe code");
+  comptime_expect_error(__yo_atomic_cell(i32)(i32(1), .None), "`__yo_atomic_cell(...)` is not available in safe code");
+  comptime_expect_error({
+    (c : __yo_cell(i32)) = rc(i32(1));
+  }, "`__yo_cell(...)` is not available in safe code");
+});

@@ -16,15 +16,17 @@ import("std/fmt");
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_STRUCT,
-  BK_NEWTYPE
+  BK_NEWTYPE,
+  BK_YO_CELL,
+  BK_YO_ATOMIC_CELL
 } :: import("../../expr.yo");
-{ new_expr_info, expr_info_table_set } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_set, expr_info_table_get, expr_info_adopt_env } :: import("../../expr_info.yo");
 { Environment, env_adopt } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
 { TypeValue, TypeValueNode, register_struct_field_comptime_flags, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { Exception } :: import("std/error");
 {
@@ -42,6 +44,9 @@ import("std/fmt");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class } :: import("../../types/utils.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { reject_second_class_escape } :: import("../utils.yo");
+{ type_key } :: import("../../types/type_key.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ evaluate_expression_raw } :: import("../exprs/expr.yo");
 evaluate_struct_type :: (
   fn(
     expr : &AstExpr,
@@ -377,4 +382,161 @@ evaluate_struct_type :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
   expr
 });
-export(evaluate_struct_type);
+/// `__yo_cell(V)` / `__yo_atomic_cell(V)`: the private heap-cell primitive
+/// (plans/VALUES_BY_DEFAULT.md §3.5, decided 2026-10-23).
+///
+/// The type is `ref(struct((*) : V))` (`is_atomic` false: plain `++`/`--`) or
+/// `atomic(ref(struct((*) : V)))`: one allocation, the RC header, then `V`
+/// inline, so every RC lowering, `c.*`, `ref_count`, the cycle collector's
+/// tracking and D3 treat it as they treat `Rc(V)`/`Arc(V)` today. What is
+/// new is its identity and its constructor:
+/// - **One type per `V`.** The builtin stamps its own name as the
+///   `constructor_func_id` and `[V]` as the type arguments, so `type_key`
+///   keys it by `V` (one C type wherever it is spelled, and after a generic
+///   `V` is substituted), and the struct id is the builtin's name plus
+///   `type_key(V)`, so the per-id registries (fields, derived markers) hold
+///   one entry per `V`.
+/// - **The constructor takes the allocator**: `__yo_cell(V)(v, alloc)`, with
+///   `alloc : Option(Allocator)` (the call arm in evaluator/calls/function.yo,
+///   `is_cell_primitive_type`).
+///
+/// Usable only in a `pragma(Pragma.AllowUnsafe)` file (decision 6): safe
+/// code gets a reference type only by writing `Rc`/`Arc`.
+evaluate_cell_type :: (
+  fn(
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    is_atomic_rc : bool,
+    exn : Exception
+  ) -> AstExpr
+)({
+  (env : Environment) = env_in;
+  builtin := if(is_atomic_rc, BK_YO_ATOMIC_CELL, BK_YO_CELL);
+  tok := ast_expr_token(expr);
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.*.clone())), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          &tok,
+          `\`${builtin}(...)\` is not available in safe code: it is the private heap-cell primitive behind \`Rc\` and \`Arc\` (plans/VALUES_BY_DEFAULT.md §3.5).`,
+          Option(String).Some(String.from("share a value with `rc(v)` (`Rc(T)`) or `arc(v)` (`Arc(T)`); a file that implements a cell wrapper declares `pragma(Pragma.AllowUnsafe);`"))
+        )
+      )
+    );
+    return(make_err_expr());
+  });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  if(args.len() != usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          &tok,
+          `\`${builtin}\` takes exactly one argument, the payload type: \`${builtin}(V)\`, got ${args.len().to_string()}.`
+        )
+      )
+    );
+    return(make_err_expr());
+  });
+  payload_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  payload_eval := evaluate_expression_raw(&payload_expr, &env, ctx, exn);
+  payload_ty := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&payload_eval)),
+    .Some(pi) => {
+      env = expr_info_adopt_env(&pi);
+      match(
+        pi.value,
+        .Some(.TypeVal(pt)) => Option(TypeValue).Some(pt),
+        _ => Option(TypeValue).None
+      )
+    },
+    .None => Option(TypeValue).None
+  );
+  v := match(
+    payload_ty,
+    .Some(pt) => pt,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(&payload_expr),
+            `\`${builtin}(V)\` expects a type, got:\n${ast_expr_to_string(&payload_expr)}`
+          )
+        )
+      );
+      return(make_err_expr());
+    }
+  );
+  // The payload rules of a `ref` object's field (evaluate_struct_type): the
+  // cell outlives any one frame, so it holds neither a `ctl` handler nor a
+  // second-class value, and a comptime-only payload has no C layout.
+  payload_label := String.from("*");
+  if(type_is_control_bound(&v), {
+    exn.throw(dyn(format_error_message(ast_expr_token(&payload_expr), control_bound_field_message(&payload_label, &v))));
+  });
+  reject_second_class_escape(&v, String.from("the payload type of a cell (a second-class type may not be a field type, an element type or a type argument)"), ast_expr_token(&payload_expr), ctx, exn);
+  payload_types := ArrayList(TypeValue).new();
+  payload_types.push(v);
+  if(fields_have_incompatible_contexts(&payload_types), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(&payload_expr),
+          `\`${builtin}(${type_to_string(&v)})\`: a cell's payload is a run-time value, and ${type_to_string(&v)} exists only at compile time.`
+        )
+      )
+    );
+    return(make_err_expr());
+  });
+  cell_id := String.from(builtin);
+  cell_id.push_str("#");
+  cell_id.push_string(type_key(&v));
+  cell_name := String.from(builtin);
+  cell_name.push_str("(");
+  cell_name.push_string(type_to_string(&v));
+  cell_name.push_str(")");
+  labels := ArrayList(String).new();
+  labels.push(payload_label.clone());
+  field_types_s := shared_list(payload_types);
+  type_args := ArrayList(TypeValue).new();
+  type_args.push(v);
+  cell_ty := rc(
+    TypeValueNode.Struct(
+      cell_id.clone(),
+      cell_name,
+      shared_list(labels),
+      field_types_s.clone(),
+      true,
+      is_atomic_rc,
+      false,
+      String.from(builtin),
+      shared_list(type_args),
+      false
+    )
+  );
+  register_struct_final(cell_id.clone(), &cell_ty);
+  flags := ArrayList(bool).new();
+  flags.push(false);
+  register_struct_field_comptime_flags(cell_id.clone(), &flags);
+  auto_derive_traits_for_struct_type(cell_id.clone(), &field_types_s.items, true, is_atomic_rc, &env, &cell_ty);
+  fields := ArrayList(TypeField).new();
+  fields.push(
+    TypeField(
+      label : payload_label,
+      ty : v,
+      is_comptime : false,
+      default_value : Option(EvalValue).None,
+      assigned_value : Option(EvalValue).None,
+      doc_comment : Option(String).None,
+      is_effect_param : false
+    )
+  );
+  register_struct_fields(cell_id.clone(), &fields);
+  out_info := new_expr_info(&env, &type_of_type(&cell_ty));
+  out_info.value = Option(EvalValue).Some(create_type_value(&cell_ty));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
+  callee_expr := match(expr, .FnCall(_, f_box, _, _, _) => f_box, .Atom(_, _) => expr);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
+  expr
+});
+export(evaluate_struct_type, evaluate_cell_type);

@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, no_types } :: import("./definitions.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell } :: import("./creators.yo");
 { t_refine_inner } :: import("./definitions.yo");
+{ BK_YO_CELL, BK_YO_ATOMIC_CELL } :: import("../expr.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Type-declaration MODULE registry — which module declared a struct / enum /
@@ -487,6 +488,20 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 );
 /// True if `t` is the prelude's unique cell `Box(V)` (`unique_box_payload_type`).
 is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is_some());
+/// True if `t` is a cell primitive, `__yo_cell(V)` or `__yo_atomic_cell(V)`
+/// (plans/VALUES_BY_DEFAULT.md §3.5). The builtin stamps its own name as the
+/// type's `constructor_func_id` (`evaluate_cell_type`,
+/// evaluator/types/struct.yo); no function id has that spelling, so the stamp
+/// identifies the primitive. Its layout and counting are those of
+/// `ref(struct((*) : V))` / `atomic(ref(struct((*) : V)))`; only its
+/// constructor differs, taking the allocator.
+is_cell_primitive_type :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t_refine_inner(t),
+    Rc(.Struct({ constructor_func_id : cfid, is_reference_semantics : is_ref })) => (is_ref && ((cfid == BK_YO_CELL) || (cfid == BK_YO_ATOMIC_CELL))),
+    _ => false
+  )
+);
 is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.FnTraitT(base_name : _)) => true, _ => false)
 );
@@ -1086,6 +1101,7 @@ export(
   is_newtype_type,
   is_str_type,
   is_box_type,
+  is_cell_primitive_type,
   unique_box_payload_type,
   is_unique_box_type,
   SharedCellNames,

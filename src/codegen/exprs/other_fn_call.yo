@@ -10,10 +10,10 @@
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype } :: import("../functions/declarations.yo");
 { TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
-{ is_builtin_yo_inline_function } :: import("../constants.yo");
+{ is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
@@ -1005,6 +1005,45 @@ _enum_variant_index :: (fn(enum_ty : &TypeValue, name : &String) -> Option(usize
     _ => Option(usize).None
   )
 );
+/// The allocation scope (`__yo_alloc_scope_t`) of a cell primitive's
+/// constructor call from its `Option(Allocator)` argument `alloc_arg`
+/// (plans/VALUES_BY_DEFAULT.md §3.5): `.Some(a)` is `{a.ctx, a.vtable}`, so the
+/// cell is allocated through `a`'s vtable with no scope switch, and `.None` is
+/// the current `with_allocator` scope, else the global allocator. The
+/// argument is evaluated once, into a temp named after the call `call`.
+_cell_alloc_scope :: (fn(alloc_arg : &AstExpr, call : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  opt_ty := match(context.base.get_expr_info(alloc_arg), .Some(ai) => ai.ty, .None => rc(TypeValueNode.Unit));
+  alloc_ty := match(
+    opt_ty,
+    Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
+      (found : Option(TypeValue)) = Option(TypeValue).None;
+      (vi : usize) = usize(0);
+      while((vi < vns.len()) && found.is_none(), {
+        if(match(vns.get(vi), .Some(vn) => (vn == "Some"), .None => false), {
+          found = match(vfs.get(vi), .Some(fs) => fs.get(usize(0)), .None => Option(TypeValue).None);
+        });
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    _ => Option(TypeValue).None
+  );
+  code := emit_deferred_dup_or_code(alloc_arg, _call_generate_expr(alloc_arg, indent.clone(), context), indent.clone(), context);
+  match(
+    alloc_ty,
+    .Some(a_ty) => {
+      tmp := `__yo_cell_alloc_${ast_expr_id(call).to_string()}`;
+      em := context.base.emitter;
+      em.emit_string_line(`${indent}${get_type_string(&opt_ty, &context.base)} ${tmp} = ${code};`);
+      some_tag := get_enum_variant_c_name(&opt_ty, String.from("Some"), &context.base);
+      payload := `${tmp}.data.${c_variant_member_name(String.from("Some"))}.${sanitize_for_c_identifier(String.from("value"), false)}`;
+      `((${tmp}.tag == ${some_tag}) ? (__yo_alloc_scope_t){ (void*)${payload}.${c_field_name(&a_ty, String.from("ctx"))}, (const void*)${payload}.${c_field_name(&a_ty, String.from("vtable"))} } : __yo_scope_current())`
+    },
+    // The evaluator types the argument `Option(Allocator)`
+    // (`_cell_allocator_type`, evaluator/calls/function.yo).
+    .None => codegen_fatal_expr(String.from("a cell primitive's allocator argument reached codegen without an `Option(Allocator)` type"))
+  )
+});
 /// Emit a RUNTIME enum construction `.Variant(args...)` whose field values are
 /// runtime (so the evaluator left an EnumVal shell with holes that
 /// generate_comptime_value can't fill — `/* skip generating value */`).
@@ -1963,9 +2002,14 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // See issues/fixed/ref-struct-comptime-field-breaks-constructor-arity.md.
           ctor_rt_n := get_runtime_struct_fields(wrapped.clone()).len();
           ctor_labeled := _ctor_args_from_labeled(wrapped.clone(), &obj_fncall_args);
+          // A cell primitive (`__yo_cell(V)(v, alloc)`, plans/VALUES_BY_DEFAULT.md
+          // §3.5) records exactly its two arguments, the payload and the
+          // allocator, which is a constructor parameter and not a field.
+          is_cell := is_cell_primitive_type(&wrapped);
           ctor_args := match(
             ei.runtime_arg_exprs_in_order,
             .Some(ra) => cond(
+              is_cell => ra,
               (ra.len() == usize(0)) => ctor_labeled,
               ((ra.len() > ctor_rt_n) && (ctor_labeled.len() == ctor_rt_n)) => ctor_labeled,
               true => ra
@@ -1974,7 +2018,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           );
           ctor_list := String.from("");
           ctor_fields := get_runtime_struct_fields(wrapped.clone());
-          nca := ctor_args.len();
+          nca := if(is_cell, usize(1), ctor_args.len());
           (ci : usize) = usize(0);
           (any_ctor_arg : bool) = false;
           while(ci < nca, {
@@ -2012,6 +2056,25 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               .None => ()
             );
             ci = (ci + usize(1));
+          });
+          // The cell's allocation scope goes first. The payload was
+          // generated first (Yo evaluates arguments left to right), so it is
+          // held in a temp before the allocator argument runs.
+          if(is_cell, {
+            em_c := context.base.emitter;
+            if(ctor_list.len() > usize(0), {
+              payload_ty := match(ctor_fields.get(usize(0)), .Some(f) => f.ty, .None => rc(TypeValueNode.Unit));
+              payload_tmp := `__yo_cell_payload_${ast_expr_id(expr).to_string()}`;
+              em_c.emit_string_line(`${indent}${get_type_string(&payload_ty, &context.base)} ${payload_tmp} = ${ctor_list};`);
+              ctor_list = payload_tmp;
+            });
+            scope := match(ctor_args.get(usize(1)), .Some(alloc_arg) => _cell_alloc_scope(&alloc_arg, expr, indent, context), .None => codegen_fatal_expr(String.from("a cell primitive's constructor call reached codegen without its allocator argument")));
+            with_scope := scope.clone();
+            if(ctor_list.len() > usize(0), {
+              with_scope.push_str(", ");
+              with_scope.push_string(&ctor_list);
+            });
+            ctor_list = with_scope;
           });
           ctor_call := String.from("__yo_new_");
           ctor_call.push_string(&cname);

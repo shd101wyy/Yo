@@ -1,0 +1,202 @@
+pragma(Pragma.SkipWasm32Wasi); // the atomic cell's thread test needs pthreads
+pragma(Pragma.AllowUnsafe);
+//! The private heap-cell primitives `__yo_cell(V)` and `__yo_atomic_cell(V)`
+//! (plans/VALUES_BY_DEFAULT.md §3.5, Generation A): one counted allocation
+//! holding `V` behind the RC header, constructed by `__yo_cell(V)(v, alloc)`
+//! with `alloc : Option(Allocator)`. V5 moves `Rc`, `Arc` and the `atomic(...)`
+//! std types onto them; until then only this file uses them. The safe-file
+//! rejection is pinned in tests/safe_code_structural_gates.test.yo.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Arena } :: import("std/arena");
+{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ Thread } :: import("std/thread");
+test("a cell holds its payload, and a copy shares it", {
+  c := __yo_cell(i32)(i32(5), .None);
+  assert(c.* == i32(5), "the payload");
+  d := c;
+  assert(d.* == i32(5), "the copy reads the same payload");
+  // A cell is a mutable cell, as a `ref` object is: the write is seen
+  // through every handle (only the `Rc` wrapper is read-only, decision 46).
+  c.* = i32(7);
+  assert(d.* == i32(7), "the write is seen through the other handle");
+  assert(c.* == i32(7), "and through the first");
+});
+// Copies of a value holding the cell are counted (a copy of a bare local
+// may be elided, decision 27, as for `Rc`).
+_CellHolder :: struct(h : __yo_cell(i32), n : i32);
+test("ref_count counts the handles of a cell", {
+  w := _CellHolder(h : __yo_cell(i32)(i32(1), .None), n : i32(0));
+  assert(ref_count(w.h) == usize(1), "a fresh cell has one handle");
+  {
+    w2 := w;
+    assert((ref_count(w.h) == usize(2)) && (ref_count(w2.h) == usize(2)), "a nested-scope copy counts");
+  };
+  assert(ref_count(w.h) == usize(1), "the nested copy released its count");
+});
+_read_cell :: (fn(c : &__yo_cell(i32)) -> i32)(c.*);
+test("__yo_cell(V) is one type wherever it is spelled", {
+  c := __yo_cell(i32)(i32(3), .None);
+  assert(_read_cell(&c) == i32(3), "a cell built here is the parameter's type");
+  (t : __yo_cell(i32)) = __yo_cell(i32)(i32(4), .None);
+  assert(_read_cell(&t) == i32(4), "an annotated local is the same type");
+  b := __yo_cell(bool)(true, .None);
+  comptime_expect_error(_read_cell(&b));
+  comptime_expect_error({
+    (u : __yo_cell(i32)) = __yo_atomic_cell(i32)(i32(1), .None);
+  });
+});
+_cell_get :: (fn(generic(T : Type), c : &__yo_cell(T)) -> T)(c.*.clone());
+test("a cell of a generic payload type", {
+  c := __yo_cell(String)(String.from("cell"), .None);
+  assert(_cell_get(&c) == String.from("cell"), "the String payload, through a generic parameter");
+  n := __yo_cell(i64)(i64(9), .None);
+  assert(_cell_get(&n) == i64(9), "an i64 instantiation of the same generic");
+});
+// The payload's drop runs once, when the last handle is released.
+_CellDropCount :: struct(p : *usize);
+impl(
+  _CellDropCount,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      unsafe(self.p.* = (self.p.* + usize(1)));
+    })
+  )
+);
+test("the last handle's release drops the payload once", {
+  drops := usize(0);
+  {
+    c := __yo_cell(_CellDropCount)(_CellDropCount(p : addr_of(drops)), .None);
+    d := c;
+    {
+      e := d;
+      assert(ref_count(e) >= usize(1), "a live handle");
+    };
+    assert(drops == usize(0), "handles are alive");
+    assert(c.*.p == addr_of(drops), "the payload is intact");
+  };
+  assert(drops == usize(1), `dropped once: ${drops}`);
+});
+test("an atomic cell is counted atomically and shared across a thread", {
+  shared := __yo_atomic_cell(i32)(i32(42), .None);
+  t := Thread(unit).spawn(io => {
+    assert(shared.* == i32(42), "the worker reads the cell");
+  });
+  t.join();
+  assert(shared.* == i32(42), "the owner still reads it");
+  assert(ref_count(shared) == usize(1), "the worker's handle was released");
+});
+// --- The allocator argument ---
+test("alloc : .Some(a) places the cell in a, and .None follows the scope", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    a := __yo_cell(i32)(i32(5), .Some(arena.allocator()));
+    assert(arena.live_blocks() == usize(1), `the cell is in the arena: ${arena.live_blocks()}`);
+    assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
+    g := __yo_cell(i32)(i32(6), .None);
+    assert(arena.live_blocks() == usize(1), "a .None cell outside any scope is on the global allocator");
+    s := with_allocator(arena.allocator(), () => __yo_atomic_cell(i32)(i32(7), .None));
+    assert(arena.live_blocks() == usize(2), "a .None cell inside with_allocator is placed by the scope");
+    assert(((a.* + g.*) + s.*) == i32(18), "the payloads");
+  };
+  assert(arena.live_blocks() == usize(0), "the last drops released both cells into the arena");
+  arena.deinit();
+});
+test("an explicit allocator inside another scope wins, and the outer scope survives", {
+  inner := Arena.new(usize(1) << usize(16));
+  outer := Arena.new(usize(1) << usize(16));
+  {
+    x := with_allocator(outer.allocator(), () => {
+      placed := __yo_atomic_cell(i32)(i32(7), .Some(inner.allocator()));
+      scoped := __yo_cell(i32)(i32(8), .None);
+      assert(outer.live_blocks() == usize(1), `the .None cell after it still follows the scope: ${outer.live_blocks()}`);
+      assert(scoped.* == i32(8), "the scoped payload");
+      placed
+    });
+    assert(inner.live_blocks() == usize(1), "the explicit allocator placed the cell");
+    assert(outer.live_blocks() == usize(0), "the scoped cell died with the closure");
+    assert(x.* == i32(7), "the placed payload");
+  };
+  assert(inner.live_blocks() == usize(0), "released into the explicit allocator");
+  inner.deinit();
+  outer.deinit();
+});
+// An allocator whose `alloc` itself allocates through the scope
+// (issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md):
+// the cell calls `a`'s vtable with the caller's scope current, as `box` does,
+// so the callback's own `ArrayList` goes to the global heap instead of
+// recursing into `a`.
+_ReentCounts :: struct(allocs : usize, frees : usize);
+_reent_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_ReentCounts)(ctx.unwrap());
+  unsafe(c.*.allocs = (c.*.allocs + usize(1)));
+  scratch := ArrayList(usize).new();
+  scratch.push(size);
+  GlobalAllocator.malloc(size)
+});
+_reent_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(GlobalAllocator.realloc(ptr, new_size));
+_reent_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  c := (*_ReentCounts)(ctx.unwrap());
+  unsafe(c.*.frees = (c.*.frees + usize(1)));
+  GlobalAllocator.free(ptr);
+});
+test("an allocator whose callback allocates through the scope does not recurse", {
+  vt := AllocatorVTable(alloc : _reent_alloc, realloc : _reent_realloc, free : _reent_free);
+  counts := _ReentCounts(allocs : usize(0), frees : usize(0));
+  a := Allocator(ctx : .Some((*void)(addr_of(counts))), vtable : addr_of(vt));
+  {
+    c := __yo_cell(i32)(i32(1), .Some(a));
+    d := __yo_atomic_cell(i32)(i32(2), .Some(a));
+    assert((c.* + d.*) == i32(3), "both payloads");
+    assert(counts.allocs == usize(2), `one allocation through a per cell: ${counts.allocs}`);
+  };
+  assert(counts.frees == usize(2), `both cells were released through a: ${counts.frees}`);
+});
+// --- What V5 builds on the primitive: a wrapper whose only field is the cell ---
+_WrapRc :: (fn(comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _cell : __yo_cell(V)
+  )
+);
+_wrap_rc :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .None) -> _WrapRc(V))(
+  _WrapRc(V)(_cell : __yo_cell(V)(value, alloc))
+);
+test("a wrapper over the cell: generic construction with the allocator, copy, count", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    w := _wrap_rc(i32(11), alloc : .Some(arena.allocator()));
+    assert(arena.live_blocks() == usize(1), "the wrapper's cell is in the arena");
+    v := w;
+    assert(v._cell.* == i32(11), "the payload through the copy");
+    assert(ref_count(w._cell) == usize(2), `the copy shares the cell: ${ref_count(w._cell)}`);
+    s := _wrap_rc(String.from("text"));
+    assert(s._cell.* == String.from("text"), "a String payload on the global allocator");
+  };
+  assert(arena.live_blocks() == usize(0), "the wrapper's cell was released into the arena");
+  arena.deinit();
+});
+test("the payload moves out of the only handle (V5's try_unwrap)", {
+  drops := usize(0);
+  c := __yo_cell(_CellDropCount)(_CellDropCount(p : addr_of(drops)), .None);
+  assert(ref_count(c) == usize(1), "the only handle");
+  payload := __yo_ptr_read(addr_of(c.*));
+  __yo_rc_forget_payload(&c);
+  assert(payload.p == addr_of(drops), "the payload moved out");
+  assert(drops == usize(0), "the cell no longer drops it");
+});
+// A cell is a cycle-collector node when its payload can reach a cell
+// (plans/VALUES_BY_DEFAULT.md §3.5): a node that points back at itself
+// through a cell compiles with its traversal and is released.
+_CellNode :: ref(
+  struct(
+    value : i32,
+    next : Option(__yo_cell(Self))
+  )
+);
+test("a cell of a cyclic payload type", {
+  n := _CellNode(value : i32(1), next : .None);
+  c := __yo_cell(_CellNode)(n, .None);
+  assert(c.*.value == i32(1), "the node through the cell");
+  assert(c.*.next.is_none(), "no edge yet");
+});
