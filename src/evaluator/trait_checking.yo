@@ -62,6 +62,8 @@ pragma(Pragma.AllowUnsafe);
   is_value_nominal_type,
   set_move_only_nominal_fn,
   MoveOnlyNominalFn,
+  set_generic_owner_drop_fn,
+  GenericOwnerDropFn,
   set_type_lacks_copy_fn,
   set_type_lacks_clone_fn,
   type_is_control_bound,
@@ -86,6 +88,7 @@ pragma(Pragma.AllowUnsafe);
   set_check_self_constraints_fn,
   set_receiver_kind_trait_fn,
   nominal_declares_move_only,
+  generic_instantiation_declares_drop,
   is_concrete_impl_being_registered,
   mark_concrete_impl_being_registered : impl_mark_concrete_impl_being_registered,
   unmark_concrete_impl_being_registered : impl_unmark_concrete_impl_being_registered,
@@ -3186,6 +3189,7 @@ _trait_checking_init := (fn() -> bool)({
   set_check_self_constraints_fn(check_self_constraints_violation_msg);
   set_receiver_kind_trait_fn(receiver_kind_trait_violation_msg);
   set_move_only_nominal_fn(Option(MoveOnlyNominalFn).Some(nominal_declares_move_only));
+  set_generic_owner_drop_fn(Option(GenericOwnerDropFn).Some(generic_instantiation_declares_drop));
   set_copy_trait_blockers_fn(copy_trait_blockers);
   set_type_lacks_copy_fn(type_lacks_copy_for_flip);
   set_type_lacks_clone_fn(_type_lacks_clone_for_diagnostics);

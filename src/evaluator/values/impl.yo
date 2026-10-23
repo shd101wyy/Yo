@@ -6240,6 +6240,131 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   _record_move_only_fast(ty, key_epoch, &found);
   found
 });
+/// The `GenericOwnerDropFn` answer, for the raw-view gate's owner exemption
+/// only: does a recorded generic `Drop` impl cover `ty`, an instantiation of
+/// a value nominal constructor at unresolved type parameters (`Buf(T)` in a
+/// generic signature)? `nominal_declares_move_only` answers `""` there,
+/// because `try_match_generic_impl` binds no impl parameter to a `SomeT`. The
+/// impl covers `ty` when its receiver pattern is the same constructor applied
+/// to distinct parameters of the impl's own, and each of its `where` bounds
+/// is implied by a bound the matching argument (a `SomeT`) declares.
+/// Anything else stays undecided here, so the instantiation decides. This is
+/// not a move-only answer: `type_is_move_only` is unchanged for such a type
+/// (issues/fixed/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md).
+generic_instantiation_declares_drop :: (fn(ty : &TypeValue) -> bool)({
+  (cfid, args, is_ref) := match(
+    ty,
+    Rc(.Struct({ constructor_func_id : c, type_arguments : ta, is_reference_semantics : r })) => (c, ta, r),
+    _ => return(false)
+  );
+  if(is_ref || cfid.is_empty() || !_any_type_has_some_type(&args.items), {
+    return(false);
+  });
+  if(force_pending_move_only_impls(type_head_name_for_impl_forcing(ty)), {
+    _clear_move_only_memo();
+  });
+  (i : usize) = usize(0);
+  while(i < g_move_only_decls.with(xs => xs.len()), i = (i + usize(1)), {
+    match(
+      g_move_only_decls.with(xs => xs.get(i)),
+      .Some(d) => match(
+        d.generic,
+        .Some(ge) => if(_generic_drop_impl_covers(&ge, &cfid, &args), {
+          return(true);
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  false
+});
+/// `generic_instantiation_declares_drop`'s per-impl test: `ge`'s receiver
+/// pattern is constructor `cfid` applied to distinct parameters of `ge`, and
+/// every `where(P <: Tr)` of `ge` constrains a pattern parameter whose
+/// argument in `args` is a `SomeT` declaring `Tr` itself (same trait key; `Tr`
+/// must be instantiation-independent, so its stored value is the trait).
+_generic_drop_impl_covers :: (fn(ge : &GenericImplEntry, cfid : &String, args : &SharedList(TypeValue)) -> bool)({
+  (pc, pat_args) := match(
+    ge.receiver_type_pattern,
+    Rc(.Struct({ constructor_func_id : c, type_arguments : pta })) => (c, pta),
+    _ => return(false)
+  );
+  if((pc != cfid) || (pat_args.len() != args.len()), {
+    return(false);
+  });
+  // Each pattern argument is one of the impl's parameters, used once.
+  (j : usize) = usize(0);
+  while(j < pat_args.len(), j = (j + usize(1)), {
+    pj := match(pat_args.get(j), .Some(t) => t, .None => return(false));
+    if(!_is_forall_of(&ge.forall_some_types, &pj), {
+      return(false);
+    });
+    (k : usize) = usize(0);
+    while(k < j, k = (k + usize(1)), {
+      if(match(pat_args.get(k), .Some(pk) => _same_type_var(&pj, &pk), .None => false), {
+        return(false);
+      });
+    });
+  });
+  // Each where bound is implied by the constrained argument's own bounds.
+  (w : usize) = usize(0);
+  while(w < ge.where_constraint_some_types.len(), w = (w + usize(1)), {
+    w_some := match(ge.where_constraint_some_types.get(w), .Some(t) => t, .None => return(false));
+    w_trait := match(ge.where_constraint_traits.get(w), .Some(t) => t, .None => return(false));
+    w_key := get_trait_key(&w_trait);
+    if(w_key.is_empty() || !(_is_marker_trait(&w_trait) || _where_trait_mentions_no_forall(&w_trait, &ge.forall_some_types)), {
+      return(false);
+    });
+    (implied : bool) = false;
+    (p : usize) = usize(0);
+    while(p < pat_args.len(), p = (p + usize(1)), {
+      if(match(pat_args.get(p), .Some(pp) => _same_type_var(&pp, &w_some), .None => false), {
+        implied = match(
+          args.get(p),
+          .Some(Rc(.SomeT({ required_trait_types : rts }))) => {
+            (found : bool) = false;
+            (r : usize) = usize(0);
+            while((r < rts.len()) && !found, r = (r + usize(1)), {
+              if(match(rts.get(r), .Some(rt) => (get_trait_key(&rt) == w_key), .None => false), {
+                found = true;
+              });
+            });
+            found
+          },
+          _ => false
+        );
+      });
+    });
+    if(!implied, {
+      return(false);
+    });
+  });
+  true
+});
+/// Are `a` and `b` the same type variable (a `SomeT` with the same name and
+/// frame level)?
+_same_type_var :: (fn(a : &TypeValue, b : &TypeValue) -> bool)(
+  match(
+    a,
+    Rc(.SomeT({ name : an, frame_level : al })) => match(
+      b,
+      Rc(.SomeT({ name : bn, frame_level : bl })) => ((an == bn) && (al == bl)),
+      _ => false
+    ),
+    _ => false
+  )
+);
+/// Is the type variable `t` one of `foralls`?
+_is_forall_of :: (fn(foralls : &ArrayList(TypeValue), t : &TypeValue) -> bool)({
+  (i : usize) = usize(0);
+  while(i < foralls.len(), i = (i + usize(1)), {
+    if(match(foralls.get(i), .Some(f) => _same_type_var(&f, t), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
 /// Record `ty`'s answer in the identity cache, when the key it is memoized
 /// under was computed in the current type-key epoch (else `ty`'s key may have
 /// changed since).
@@ -6545,7 +6670,7 @@ export(GenericImplEntry, MethodCandidate);
 ifc_memo_entry_count :: (fn() -> usize)(g_ifc_memo.with(m => m.len()));
 export(purge_ifc_memo_owned_by, ifc_memo_entry_count);
 export(TypeImplementsTraitFullFn);
-export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only);
+export(set_type_implements_trait_full_fn, set_register_trait_value_fn, set_check_self_constraints_fn, set_receiver_kind_trait_fn, get_trait_key, nominal_declares_move_only, generic_instantiation_declares_drop);
 export(register_generic_impl, purge_concrete_trait_impls_owned_by);
 export(register_negative_generic_impl, find_matching_negative_generic_impl);
 export(try_match_generic_impl);

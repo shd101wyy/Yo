@@ -429,6 +429,19 @@ MoveOnlyNominalFn :: (fn(ty : &TypeValue) -> String);
 set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
   g_move_only_nominal_fn = f;
 });
+/// Answers whether a recorded generic `Drop` impl covers a value nominal
+/// instantiated at unresolved type parameters (`Buf(T)` in a generic
+/// signature), which `MoveOnlyNominalFn` cannot match. Consulted only by
+/// `value_type_owns_buffer_outright` (the raw-view gate's owner exemption),
+/// never by the move-only checks. Installed at init with
+/// `MoveOnlyNominalFn`.
+GenericOwnerDropFn :: (fn(ty : &TypeValue) -> bool);
+(mut(g_generic_owner_drop_fn) : Option(GenericOwnerDropFn)) = Option(GenericOwnerDropFn).None;
+/// Install the generic owner `Drop` answer (`evaluator/trait_checking.yo`
+/// does at init).
+set_generic_owner_drop_fn :: (fn(f : Option(GenericOwnerDropFn)) -> unit)({
+  g_generic_owner_drop_fn = f;
+});
 /// Set once some `impl` that declares `Drop` has been seen
 /// (registered, or recorded pending by the lazy module walk): until then no
 /// type is move-only, and the move-only checks skip their work. Never
@@ -1522,9 +1535,14 @@ value_type_owns_buffer :: (fn(ty : &TypeValue) -> bool)(
 /// A buffer-owning value (`value_type_owns_buffer`) that also declares a
 /// destructor (`Drop`) of its own, so it frees the buffer: an
 /// owner, as opposed to a view such as an iterator holding a `?*E` into
-/// someone else's buffer.
+/// someone else's buffer. At unresolved type parameters (`Buf(T)` in a
+/// generic signature) the declaration's generic `Drop` impl decides
+/// (`GenericOwnerDropFn`).
 value_type_owns_buffer_outright :: (fn(ty : &TypeValue) -> bool)(
-  value_type_owns_buffer(ty) && _nominal_declares_move_only(&resolve_enum_shell(resolve_struct_shell(ty)))
+  value_type_owns_buffer(ty) && {
+    shell := resolve_enum_shell(resolve_struct_shell(ty));
+    _nominal_declares_move_only(&shell) || (g_move_only_possible && match(g_generic_owner_drop_fn, .Some(f) => f(&shell), .None => false))
+  }
 );
 /// Type ids an explicit `impl(T, Acyclic())` declares (recorded by
 /// `values/impl.yo` when the impl is checked). A declared `Acyclic` exempts
@@ -3457,7 +3475,7 @@ export(can_comptime_float_cast_to);
 export(prohibit_void_type);
 export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
-export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
+export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn, GenericOwnerDropFn, set_generic_owner_drop_fn);
 export(type_is_control_bound);
 export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, buffer_element_types, value_acyclic_obligations, value_type_owns_buffer, value_type_owns_buffer_outright, _type_refs_back_to_cyclic);
 export(type_requires_inference);
