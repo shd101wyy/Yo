@@ -1097,7 +1097,7 @@ _tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
     .FnCall(_, callee, args, _, tok) => {
       out.push(tok);
       _tokens_of(&callee, out);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
         _tokens_of(&args(i), out);
       });
@@ -1116,7 +1116,7 @@ test("every token of a parse shares the module's source and path cells", {
   source := String.from("f(`a${b + c}d`, x - y, { p; q });");
   prog := parse(&source, `cells.yo`, exn);
   toks := ArrayList(Token).new();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < prog.len(), i = (i + usize(1)), {
     _tokens_of(&prog(i), &mut toks);
   });
@@ -1124,8 +1124,8 @@ test("every token of a parse shares the module's source and path cells", {
   src_cell := first.input;
   path_cell := first.module_path;
   assert(src_cell.* == source, "the first token carries the source text");
-  (shared : usize) = usize(0);
-  (j : usize) = usize(0);
+  (mut(shared) : usize) = usize(0);
+  (mut(j) : usize) = usize(0);
   while(j < toks.len(), j = (j + usize(1)), {
     t := toks(j);
     t_src := t.input;
