@@ -3122,7 +3122,7 @@ test_closure :: (fn() -> unit)({
 ```yo
 test_capture :: (fn() -> unit)({
   // 值类型 — 按值捕获
-  counter := i32(0);
+  mut(counter) := i32(0);
 
   // 引用语义类型 — 按引用捕获
   data := rc(RefCell(i32).new(i32(42))); // `std/sync/refcell`
@@ -3130,9 +3130,7 @@ test_capture :: (fn() -> unit)({
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
       counter = (counter + increment); // 修改本地副本
-      data.with_mut(v => {
-        v = (v + increment);
-      }); // 修改共享对象
+      data.replace_with(v => (v + increment)); // 修改共享对象
       return(counter);
     }
   );
@@ -3479,15 +3477,13 @@ test("Rc reference counting", {
 
 `Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。通过 `Rc` 的写入（`h.n = v`、`h.* = v`、`bump(&mut h.n)`、`h.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
 
-- **`RefCell(T)`**（`std/sync/refcell`）是共享修改的载荷：`Rc(RefCell(T))`。访问限定在闭包内，与 `Mutex(T)` 相同：`with(v => ...)` 借出 `v : &T`，`with_mut(v => ...)` 借出 `v : &mut T`，二者都返回闭包的结果。多个 `with` 闭包体可以同时运行；`with_mut` 只能单独运行，运行期间的冲突访问会 panic，与 Rust 的 `RefCell::borrow_mut` 相同。闭包体返回或 unwind 时标记被释放。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝（跨线程请共享 `Arc(Mutex(T))`）。它也可以放在普通值中，此时可以通过 `&` 借用进行写入。
+- **`RefCell(T)`**（`std/sync/refcell`）是共享修改的载荷：`Rc(RefCell(T))`。访问限定在闭包内，与 `Mutex(T)` 相同：`with(v => ...)` 借出 `v : &T`，`with_mut(v => ...)` 借出 `v : &mut T`，二者都返回闭包的结果。Rust 的按值移动方法不向调用者借出任何东西：`replace(v)` 和 `take()`（要求 `T <: Default`）存入新值并返回旧值，`replace_with(v => ...)` 存入闭包根据 `v : &T` 算出的新值并返回旧值，`into_inner()` 消耗这个单元。多个 `with` 闭包体可以同时运行；`with_mut`（以及 `replace_with` 的闭包）只能单独运行，运行期间的冲突访问会 panic，与 Rust 的 `RefCell::borrow_mut` 相同。闭包体返回或 unwind 时标记被释放。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝（跨线程请共享 `Arc(Mutex(T))`）。它也可以放在普通值中，此时可以通过 `&` 借用进行写入。
 
   ```yo
   { RefCell } :: import("std/sync/refcell");
   log := rc(RefCell(i32).new(i32(0)));
   other := log; // 指向同一个单元的第二个句柄
-  other.with_mut(n => {
-    n = (n + i32(1));
-  });
+  other.replace_with(n => (n + i32(1)));
   assert(log.with(n => n) == i32(1), "seen through the first handle");
   ```
 

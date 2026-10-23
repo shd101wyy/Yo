@@ -3254,7 +3254,7 @@ Closures capture variables from their environment:
 ```yo
 test_capture :: (fn() -> unit)({
   // Value type - captured by value
-  counter := i32(0);
+  mut(counter) := i32(0);
 
   // Reference-semantics type - captured by reference
   data := rc(RefCell(i32).new(i32(42))); // `std/sync/refcell`
@@ -3262,9 +3262,7 @@ test_capture :: (fn() -> unit)({
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
       counter = (counter + increment); // Modifies local copy
-      data.with_mut(v => {
-        v = (v + increment);
-      }); // Modifies shared object
+      data.replace_with(v => (v + increment)); // Modifies shared object
       return(counter);
     }
   );
@@ -3657,10 +3655,14 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
 - **`RefCell(T)`** (`std/sync/refcell`) is the payload for shared mutation:
   `Rc(RefCell(T))`. Access is scoped to a closure, as `Mutex(T)`'s is:
   `with(v => ...)` lends `v : &T`, `with_mut(v => ...)` lends `v : &mut T`,
-  and each returns the closure's result. Several `with` bodies may run at
-  once; a `with_mut` runs alone, and a conflicting access while one runs
-  panics, as Rust's `RefCell::borrow_mut` does. The mark is released when
-  the body returns or unwinds. A `RefCell` is `Send` when `T` is and never
+  and each returns the closure's result. Rust's value-moving methods lend
+  nothing to the caller: `replace(v)` and `take()` (`T <: Default`) store a
+  new value and return the old one, `replace_with(v => ...)` stores what
+  the closure computes from `v : &T` and returns the old value, and
+  `into_inner()` consumes the cell. Several `with` bodies may run at once;
+  a `with_mut` (or `replace_with`'s closure) runs alone, and a conflicting
+  access while one runs panics, as Rust's `RefCell::borrow_mut` does. The
+  mark is released when the body returns or unwinds. A `RefCell` is `Send` when `T` is and never
   `Sync`, so `Arc(RefCell(T))` is rejected (share an `Arc(Mutex(T))` across
   threads). It may also sit in a plain value, where it makes a write through
   a `&` borrow possible.
@@ -3669,9 +3671,7 @@ A write through an `Rc` (`h.n = v`, `h.* = v`, `bump(&mut h.n)`,
   { RefCell } :: import("std/sync/refcell");
   log := rc(RefCell(i32).new(i32(0)));
   other := log; // a second handle to the same cell
-  other.with_mut(n => {
-    n = (n + i32(1));
-  });
+  other.replace_with(n => (n + i32(1)));
   assert(log.with(n => n) == i32(1), "seen through the first handle");
   ```
 

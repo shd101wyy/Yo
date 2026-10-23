@@ -427,6 +427,15 @@ Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize))
   reference — is either unnecessary (you own the value: mutate the field) or
   is a `RefCell(T)` over a `Copy` payload (`c.get_mut().* = v`). There is no
   `Cell` in the language and no hole it leaves.
+
+  *Amended 2026-10-23: the "no hole" claim is retracted.* `get_mut()` has not
+  landed, and the increment it implies, `c.get_mut().* = (c.get().* + 1)`,
+  conflicts with itself: both marks are held to the end of the expression
+  (VBD §3.10), so it panics. Today the increment is
+  `c.replace_with(v => (v + i32(1)))` (`RefCell`'s `replace`, `replace_with`,
+  `take` and `into_inner`). Whether a flagless `Cell(T)` follows, on a
+  compiler-known interior primitive (the proposed decision 49), is
+  `issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md`.
 - **`RefCell<T>` is `RefCell(T)`** (decision 41; `std/sync`, beside
   `Mutex(T)`). `Rc<RefCell<T>>` becomes `Rc(RefCell(T))`: the cell holds the
   shared and exclusive marks, `with(v => …)`/`with_mut(v => …)`
@@ -859,7 +868,7 @@ it has, or needs, a Yo spelling:
 | `Deref` coercions (`&String → &str`, `&Vec<T> → &[T]`, `&Box<T> → &T`) | none (D43): a view is explicit (`View(u8)`, L1); `str` is the first-class static view; `.field` and `.method()` auto-deref through `&` and `Box`/`Rc` |
 | `RefMut<'a, T>` / `Ref<'a, T>` guard values | §4.2: `with`/`with_mut` closures and `get`/`get_mut` projections (`MutexGuard` has a value form, §3.2) |
 | `Pin<&mut Self>`, `Unpin` | §2.3 |
-| `Cell<T>` | §4.2 (a `RefCell(T)` over a `Copy` payload) |
+| `Cell<T>` | §4.2 (a `RefCell(T)` over a `Copy` payload, `replace_with`; a flagless `Cell(T)` is an open question) |
 | `Weak<T>` | §4.1 |
 | `Cow<'a, T>` | §4.4 |
 | `as_deref` | no coercion from `&String` to `str`: re-derive or clone (§3.6); `as_ref`/`as_mut` are expressible (`Option(&T)`, D43) |
