@@ -5,7 +5,7 @@ that destructures a `newtype` by its field (`W(_b : b) => b`) is lowered to
 `self._b`, but a newtype's C representation is its field's type, which has
 no member `_b`.
 
-**Status:** open. **Found:** 2026-10-22 by the V2b B8 flip probe
+**Status:** fixed 2026-10-23 (see Fix). **Found:** 2026-10-22 by the V2b B8 flip probe
 (`plans/handover/VBD_B8_PROBE_CENSUS_2026-10-22.md`). Once `String` is
 `newtype(_bytes : ArrayList(u8))`, `String.into_bytes(sink(self))` has to move
 `_bytes` out of `self`, and the struct pattern is the only spelling that the
@@ -53,19 +53,41 @@ np.c:2262:55: error: no member named '_b' in 'struct __yo_t_5390551108033029306_
 
 The same pattern on a `struct(...)` (not a newtype) compiles and runs.
 
-## Root cause (hypothesis)
+## Root cause
 
 The match lowering (`src/codegen/exprs/match.yo`) renders a struct pattern's
 field binding as `<scrutinee>.<field>` without consulting whether the
 scrutinee's type is a newtype, whose C type is its field's type. Elsewhere a
 newtype's field read goes through the newtype erasure, so the `.field` is
-dropped.
+dropped. Confirmed: the `.Struct` arm of `_emit_pattern_chain` is the only
+place a struct pattern's field is rendered, and it always appended
+`.field` (`->field` at a pointer position). Every form failed: a consuming
+match (`self._b`), a borrow match, a `&mut` match, a newtype nested in an
+enum payload, and a newtype over a `String` or an `ArrayList` (whose C type is
+a pointer, so clang also reported "did you mean to use '->'"). A literal
+sub-pattern (`Meters(_m : 0)` over an `i32`) failed with "member reference
+base type 'int' is not a structure or union".
 
-## Fix direction
+## Fix
 
-When the pattern's struct is a newtype, bind the field to the scrutinee
-itself. The regression test is the repro above, which should print `4`, then
-`drop B`.
+`_emit_pattern_chain`'s `.Struct` arm (`src/codegen/exprs/match.yo`) renders
+the single field of a newtype pattern as the scrutinee path itself, and as
+`(*path)` at a pointer position, as the newtype case of a destructuring
+(`_emit_destructurings` in `src/codegen/exprs/init_assignment.yo`) already
+did. Everything else in the arm is unchanged: the `in_cell` flag passed to the
+sub-pattern, so a `&mut` match binds the field's place as `&(path)`, and a
+consuming match binds the moved value. The binding-collection walks
+(`_collect_bind_decls` and the cell-position walk) carry no C path and needed
+no change; compile-time matching of a newtype pattern already worked.
+
+Regression tests in `tests/match_structs.test.yo` (each fails at the C
+compiler on develop `30069d837` and passes, under AddressSanitizer and the
+leak verdict, with the fix): a `sink(self)` method moving the field out (the
+repro, with a drop counter: nothing is dropped by the move, the new owner
+drops it once), a borrow match and a write through a `&mut` match, a newtype
+pattern inside an enum payload pattern, newtypes over a `String` and an
+`ArrayList(u8)` moving their buffers out, and a literal sub-pattern at runtime
+and at compile time. The repro prints `4`, then `drop B`.
 
 ## Why it matters for the release plan
 
