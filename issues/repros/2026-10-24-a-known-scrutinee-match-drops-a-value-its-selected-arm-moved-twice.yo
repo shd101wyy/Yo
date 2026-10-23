@@ -1,0 +1,36 @@
+// issues/fixed/2026-10-24-a-known-scrutinee-match-drops-a-value-its-selected-arm-moved-twice.md
+// Expected: prints 2 (each `Fd` dropped once) and exits 0.
+// Actual (develop c45d099b4): prints 4 and the assert fails: the scope end drops `bad` again.
+{ println } :: import("std/fmt");
+{ assert } :: import("std/assert");
+(mut(g_d) : i32) = i32(0);
+Fd :: struct(n : i32);
+impl(
+  Fd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_d = (g_d + i32(1));
+    })
+  )
+);
+take :: (fn(sink(f) : Fd) -> i32)(f.n);
+f :: (fn() -> i32)({
+  bad := Fd(n : i32(1));
+  v := match(i32(4), i32(4) => take(bad), _ => i32(0));
+  v
+});
+g :: (fn() -> i32)({
+  bad := Fd(n : i32(1));
+  v := match(Option(i32).Some(i32(2)), .Some(x) => (take(bad) + x), _ => i32(0));
+  v
+});
+main :: (fn() -> unit)({
+  f();
+  g();
+  {
+    gd := g_d;
+    println(&gd);
+  };
+  assert(g_d == i32(2), "once each");
+});
+export(main);

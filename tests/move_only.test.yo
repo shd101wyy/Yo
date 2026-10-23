@@ -343,6 +343,34 @@ test("move-only: a move in a returning match arm does not reach the code after t
   assert(_mo_call_scrutinee_string(.Some(String.from(""))) == String.from("bad"), "moved after the match");
   assert(_mo_call_scrutinee_string(.None) == String.from("bad"), "moved by the returning arm");
 });
+// The other direction of the same join: a compile-time-known scrutinee whose
+// SELECTED arm moves a value, beside a later arm that reaches the join without
+// moving it. The scope end must not drop the moved value a second time
+// (issues/fixed/2026-10-24-a-known-scrutinee-match-drops-a-value-its-selected-arm-moved-twice.md).
+_mo_known_int_selected_moves :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(i32(4), i32(4) => _mo_take(bad), _ => i32(0));
+  v
+});
+_mo_known_enum_selected_moves :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(Option(i32).Some(i32(2)), .Some(x) => (_mo_take(bad) + x), _ => i32(0));
+  v
+});
+_mo_known_int_selected_keeps :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(i32(5), i32(4) => _mo_take(bad), _ => i32(0));
+  v
+});
+test("move-only: a known-scrutinee match drops a value its selected arm moved exactly once", {
+  before := g_mo_disposed;
+  assert(_mo_known_int_selected_moves() == i32(1), "a known integer selects the moving arm");
+  assert(g_mo_disposed == (before + i32(1)), "known integer: disposed once, by the arm");
+  assert(_mo_known_enum_selected_moves() == i32(3), "a known enum selects the moving arm");
+  assert(g_mo_disposed == (before + i32(2)), "known enum: disposed once, by the arm");
+  assert(_mo_known_int_selected_keeps() == i32(0), "a known integer selects the `_` arm");
+  assert(g_mo_disposed == (before + i32(3)), "kept, disposed once at the scope end");
+});
 _MoPair :: struct(fd : _MoFd, tag : i32);
 test("move-only: an assignment statement drops the old value at the assignment", {
   before := g_mo_disposed;

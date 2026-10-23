@@ -100,6 +100,12 @@ move survives for codegen as the `UndoneMove` `keep_last_arm_moves` recorded,
 so the return path still drops nothing twice. The change is in `match.yo`
 only. `cond` already joins through `merge_and_check_envs` on every path.
 
+The same change closes the mirror-image runtime bug, found in review: a
+compile-time-known scrutinee whose SELECTED arm moves a local while a later,
+unselected arm reaches the join without moving it. Develop dropped the local a
+second time at the scope end (S1, a heap use-after-free for a `String`):
+`issues/fixed/2026-10-24-a-known-scrutinee-match-drops-a-value-its-selected-arm-moved-twice.md`.
+
 Regression test: "move-only: a move in a returning match arm does not reach
 the code after the match" in `tests/move_only.test.yo`. It covers a call
 scrutinee with the returning arm last and first, the statement form, an
