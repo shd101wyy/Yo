@@ -638,10 +638,21 @@ cannot be copied.
   - **One type per `V`.** The builtin stamps its own name as the type's
     `constructor_func_id` and `[V]` as its type arguments, so `type_key`
     gives one C type per `V` wherever it is spelled, including after a
-    generic `V` is substituted. The struct id is the builtin's name plus
-    `type_key(V)`, so the per-id registries (fields, derived markers) hold one
-    entry per `V`. `is_cell_primitive_type` (`src/types/guards.yo`) reads the
-    stamp. Diagnostics name it `__yo_cell(V)`.
+    generic `V` is substituted. The struct id is one per `V` as well: a
+    payload the CTFE memo would take for an earlier cell's payload
+    (`_ctfe_args_equal`) reuses that cell's id, otherwise the id is the
+    builtin's name plus `type_key(V)`. The memo's equality treats a recursive
+    declaration's self-shell as its final type, so `__yo_cell(Self)` inside
+    `Node`'s declaration and `__yo_cell(Node)` after it are one type, as
+    `Rc(Self)` and `Rc(Node)` are (two ids gave them two C types). The per-id
+    registries (fields, derived markers) hold one entry per `V`.
+    `is_cell_primitive_type` (`src/types/guards.yo`) reads the stamp.
+    Diagnostics name it `__yo_cell(V)`.
+  - **The payload is a run-time value.** `__yo_cell(Type)` and
+    `__yo_atomic_cell(comptime_int)` are rejected at the type ("exists only
+    at compile time"); a generic payload is checked at its instantiation.
+    The names `__yo_cell` and `__yo_atomic_cell` are reserved for bindings
+    (`is_reserved_builtin_binding_name`), the only reserved `__yo` names.
   - **The constructor is `__yo_cell(V)(v, alloc)`,** with `v : V` moved in
     and `alloc : Option(Allocator)`, both positional, both required (no
     default: the primitive is spelled explicitly, and its wrappers own the
@@ -653,9 +664,13 @@ cannot be copied.
   - **The allocator.** `.Some(a)` passes `{a.ctx, a.vtable}` to
     `__yo_rc_alloc_scoped`, which calls `a`'s vtable directly with the
     caller's scope still current, as `box` does. There is no scope switch,
-    so an allocator whose callback allocates through the scope does not
-    recurse
-    (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+    so the cell adds no recursion of its own: built outside any
+    `with_allocator` scope, an allocator whose callback allocates through the
+    scope does not recurse. Built inside `with_allocator(a, …)`, the
+    callback's allocation goes to `a` again and the stack overflows, exactly
+    as `box(v, alloc : .Some(a))` does there; the contract stays option 1 of
+    `issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`
+    (a callback must not allocate through the scope).
     `.None` is the current `with_allocator` scope, else the global
     allocator. The block layout is the one `Rc` cells use: the tag bit in
     `ref_count` plus the 16-byte owner prefix, so `__yo_rc_free` releases
@@ -685,7 +700,13 @@ cannot be copied.
     therefore needs those predicates to learn the new shape, and std may use
     the new shape only on a seed that carries them. Either that compiler
     half lands in a release before V5's std half, or the predicates are
-    taught both shapes ahead of time.
+    taught both shapes ahead of time. Teaching them is V5's compiler half
+    (`.*` and auto-dereference through `_cell`, `ref_count`, E0919, the
+    `dyn` cell), not a rider on the primitive, so this PR does not. Open for
+    the schedule (2026-10-24): `plans/handover/VBD_RELEASE_SCHEDULE.md`'s
+    v0.2.71 row names `__yo_cell` as V5's only seed prerequisite, which
+    understates it; either that compiler half joins the v0.2.71 cut, or V5's
+    std half moves one release after it.
 - **`Box` and buffers are plain allocations, not cells.** `Box`, `String`
   and collection buffers are owned by their value: no header, no count.
 - **A cell is a cycle-collector node; a value is not.**

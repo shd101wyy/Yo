@@ -125,8 +125,10 @@ test("an explicit allocator inside another scope wins, and the outer scope survi
 // An allocator whose `alloc` itself allocates through the scope
 // (issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md):
 // the cell calls `a`'s vtable with the caller's scope current, as `box` does,
-// so the callback's own `ArrayList` goes to the global heap instead of
-// recursing into `a`.
+// so outside any `with_allocator` scope the callback's own `ArrayList` goes
+// to the global heap instead of recursing into `a`. Inside
+// `with_allocator(a, …)` it recurses, as `box(v, alloc : .Some(a))` does: a
+// callback must not allocate through the scope (option 1 of that question).
 _ReentCounts :: struct(allocs : usize, frees : usize);
 _reent_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
   c := (*_ReentCounts)(ctx.unwrap());
@@ -199,4 +201,37 @@ test("a cell of a cyclic payload type", {
   c := __yo_cell(_CellNode)(n, .None);
   assert(c.*.value == i32(1), "the node through the cell");
   assert(c.*.next.is_none(), "no edge yet");
+  // `__yo_cell(_CellNode)` written here and the field's `__yo_cell(Self)`
+  // are one type: the cell stores into the field.
+  m := _CellNode(value : i32(2), next : .Some(c));
+  assert(match(m.next, .Some(x) => x.*.value, .None => i32(0)) == i32(1), "the edge reaches the first node");
+});
+// The same through a value struct, whose field type is spelled with `Self`:
+// a cell built outside the declaration from the type's name is the field's
+// type (two ids for the two spellings gave two C types, and the store
+// failed in the C compiler).
+_CellList :: struct(
+  value : i32,
+  next : Option(__yo_cell(Self))
+);
+_cell_list_next :: (fn(l : &_CellList) -> i32)(match(l.next, .Some(x) => x.*.value, .None => i32(-1)));
+test("__yo_cell(Self) in a declaration and __yo_cell(T) after it are one type", {
+  a := _CellList(value : i32(1), next : .None);
+  b := _CellList(value : i32(2), next : .Some(__yo_cell(_CellList)(a, .None)));
+  assert(_cell_list_next(&b) == i32(1), "the field holds the cell built from the name");
+  (c : __yo_cell(_CellList)) = __yo_cell(_CellList)(b, .None);
+  d := _CellList(value : i32(3), next : .Some(c));
+  assert(_cell_list_next(&d) == i32(2), "an annotated cell stores into the field too");
+  assert(match(d.next, .Some(x) => _cell_list_next(&x.*), .None => i32(0)) == i32(1), "two edges deep");
+});
+// --- What the primitive rejects ---
+test("a payload that exists only at compile time is rejected", {
+  comptime_expect_error(__yo_cell(Type)(i32, .None), "exists only at compile time");
+  comptime_expect_error(__yo_atomic_cell(comptime_int)(1, .None), "exists only at compile time");
+});
+test("__yo_cell and __yo_atomic_cell are reserved builtin names", {
+  // A binding of either name would be hijacked by the type builtin at every
+  // call.
+  comptime_expect_error(__yo_cell := 1, "names a builtin");
+  comptime_expect_error(__yo_atomic_cell :: (fn(x : i32) -> i32)(x), "names a builtin");
 });

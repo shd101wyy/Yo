@@ -142,7 +142,9 @@ is_reserved_operator_name :: (fn(name : &String) -> bool)(
 /// `__yo_self`/`__yo_pat_s`/`__yo_contract_result` into user modules. The V3b
 /// snake_case synonyms (`type_of` `size_of` `align_of` `type_id`) and the
 /// `addr_of` address-of builtin are on the first line
-/// (plans/VALUES_BY_DEFAULT.md V3b Generation A).
+/// (plans/VALUES_BY_DEFAULT.md V3b Generation A). Of the `__yo` names only the
+/// two cell primitives, `__yo_cell` and `__yo_atomic_cell`, are reserved: they
+/// are type builtins the evaluator dispatches on by name.
 is_reserved_builtin_binding_name :: (fn(name : &String) -> bool)(
   (name == "type_of") || (name == "size_of") || (name == "align_of") || (name == "type_id") || (name == "addr_of") ||
     (name == "runtime") || (name == "unwind") || (name == "recur") || (name == "consume")
@@ -170,6 +172,10 @@ is_reserved_builtin_binding_name :: (fn(name : &String) -> bool)(
                       // `mut` follows `&` in a borrow (`x : &mut T`, `&mut x`,
                       // plans/VALUES_BY_DEFAULT.md decision 42), as in Rust.
                       (name == "mut")
+                      ||
+                        // The private cell primitives (plans/VALUES_BY_DEFAULT.md
+                        // §3.5): the only `__yo` names the evaluator dispatches on.
+                        (name == "__yo_cell") || (name == "__yo_atomic_cell")
 );
 /// The error for a binding named by a reserved builtin word
 /// (`is_reserved_builtin_binding_name`).

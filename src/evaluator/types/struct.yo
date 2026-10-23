@@ -41,12 +41,15 @@ import("std/fmt");
 { _type_reaches_root_by_value } :: import("./enum.yo");
 { ArrayList } :: import("std/collections/array_list");
 { auto_derive_traits_for_struct_type, enforce_atomic_object_send } :: import("./utils.yo");
-{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class } :: import("../../types/utils.yo");
+{ fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message, type_pointee_second_class, type_contains_some_type } :: import("../../types/utils.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { reject_second_class_escape } :: import("../utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ type_is_comptime_only_full } :: import("../trait_checking.yo");
+{ _ctfe_args_equal } :: import("../calls/comptime_fn.yo");
+{ RefCell } :: import("std/sync/refcell");
 evaluate_struct_type :: (
   fn(
     expr : &AstExpr,
@@ -382,6 +385,50 @@ evaluate_struct_type :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
   expr
 });
+/// One instantiation of a cell primitive: its payload type and its struct id.
+_CellInstance :: struct(is_atomic : bool, payload : TypeValue, id : String);
+/// Every cell instantiation so far, in creation order. Global for the reason
+/// the CTFE memo is (`g_comptime_fn_caches`, calls/comptime_fn.yo): a module
+/// loaded on demand evaluates in a fresh context, and it must still name the
+/// same cell type.
+(g_cell_instances : RefCell(ArrayList(_CellInstance))) = RefCell(ArrayList(_CellInstance)).new(ArrayList(_CellInstance).new());
+/// The struct id of the cell `__yo_cell(v)` (`is_atomic` false) or
+/// `__yo_atomic_cell(v)`. A payload that the CTFE memo would take for an
+/// earlier instantiation's payload (`_ctfe_args_equal`) reuses that
+/// instantiation's id, so the cells of one type share one id as the
+/// instances of one generic constructor do. Otherwise the id is minted from
+/// the builtin's name and `type_key(v)`.
+///
+/// The memo's equality matters for a recursive declaration. Inside
+/// `Node :: struct(next : Option(__yo_cell(Self)))` the payload is the
+/// declaration's self-shell, whose `type_key` is the bare declaration id,
+/// while `__yo_cell(Node)` written after it keys `Node` by its fields. Minted
+/// from the two keys, the two cells had two ids; `type_key`'s cycle guard,
+/// which is keyed by the id, then cut the two at different depths and gave
+/// them two C types, so storing one into the field failed in the C compiler
+/// (`incompatible pointer types`). The memo treats a shell and its final as
+/// one type, so both spellings get one id and one C type, as `Rc(Self)` and
+/// `Rc(Node)` do.
+_cell_instance_id :: (fn(is_atomic : bool, v : &TypeValue) -> String)({
+  given := EvalValue.TypeVal(v.clone());
+  n := g_cell_instances.with(xs => xs.len());
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      g_cell_instances.with(xs => xs.get(i)),
+      .Some(inst) => if((inst.is_atomic == is_atomic) && _ctfe_args_equal(&EvalValue.TypeVal(inst.payload.clone()), &given), {
+        return(inst.id);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  id := String.from(if(is_atomic, BK_YO_ATOMIC_CELL, BK_YO_CELL));
+  id.push_str("#");
+  id.push_string(type_key(v));
+  g_cell_instances.with_mut(xs => xs.push(_CellInstance(is_atomic : is_atomic, payload : v.clone(), id : id.clone())));
+  id
+});
 /// `__yo_cell(V)` / `__yo_atomic_cell(V)`: the private heap-cell primitive
 /// (plans/VALUES_BY_DEFAULT.md §3.5, decided 2026-10-23).
 ///
@@ -393,9 +440,9 @@ evaluate_struct_type :: (
 /// - **One type per `V`.** The builtin stamps its own name as the
 ///   `constructor_func_id` and `[V]` as the type arguments, so `type_key`
 ///   keys it by `V` (one C type wherever it is spelled, and after a generic
-///   `V` is substituted), and the struct id is the builtin's name plus
-///   `type_key(V)`, so the per-id registries (fields, derived markers) hold
-///   one entry per `V`.
+///   `V` is substituted). The struct id is one per `V` too
+///   (`_cell_instance_id`), so the per-id registries (fields, derived
+///   markers) hold one entry per `V`.
 /// - **The constructor takes the allocator**: `__yo_cell(V)(v, alloc)`, with
 ///   `alloc : Option(Allocator)` (the call arm in evaluator/calls/function.yo,
 ///   `is_cell_primitive_type`).
@@ -475,9 +522,9 @@ evaluate_cell_type :: (
     exn.throw(dyn(format_error_message(ast_expr_token(&payload_expr), control_bound_field_message(&payload_label, &v))));
   });
   reject_second_class_escape(&v, String.from("the payload type of a cell (a second-class type may not be a field type, an element type or a type argument)"), ast_expr_token(&payload_expr), ctx, exn);
-  payload_types := ArrayList(TypeValue).new();
-  payload_types.push(v);
-  if(fields_have_incompatible_contexts(&payload_types), {
+  // The cell is a run-time object, so its payload must have a run-time
+  // representation. A generic payload is decided at its instantiation.
+  if(!type_contains_some_type(&v) && type_is_comptime_only_full(&v, &env), {
     exn.throw(
       dyn(
         format_error_message(
@@ -488,9 +535,9 @@ evaluate_cell_type :: (
     );
     return(make_err_expr());
   });
-  cell_id := String.from(builtin);
-  cell_id.push_str("#");
-  cell_id.push_string(type_key(&v));
+  payload_types := ArrayList(TypeValue).new();
+  payload_types.push(v);
+  cell_id := _cell_instance_id(is_atomic_rc, &v);
   cell_name := String.from(builtin);
   cell_name.push_str("(");
   cell_name.push_string(type_to_string(&v));
