@@ -8,6 +8,7 @@
 // exactly once. `g_mo_disposed` counts the `dispose` runs of `_MoFd` and
 // `_MoLate`, and `g_mo_sum` adds up the disposed `_MoFd`s' `n`.
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
 { VList } :: import("./fixtures/owned_buffer.yo");
@@ -249,6 +250,98 @@ test("move-only: a returning arm beside arms that move a value drops it at the r
   assert(_mo_some_move_or_return(i32(1)) == i32(77), "returned");
   assert(_mo_some_move_or_return(i32(2)) == i32(0), "kept, then dropped at the arm's end");
   assert(g_mo_disposed == (before + i32(6)), "and again for a move in some arms");
+});
+// A `match` arm that moves a value and returns never reaches the code after
+// the `match`, whatever the scrutinee: a call result (a value unknown at
+// compile time) or a compile-time-known value, and whichever arm comes last
+// (issues/fixed/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md).
+_mo_id_opt :: (fn(o : Option(i32)) -> Option(i32))(o);
+_mo_id_str :: (fn(o : Option(String)) -> Option(String))(o);
+_mo_call_scrutinee_return_last :: (fn(o : Option(i32)) -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    _mo_id_opt(o),
+    .Some(x) => x,
+    .None => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+_mo_call_scrutinee_return_first :: (fn(o : Option(i32)) -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    _mo_id_opt(o),
+    .None => {
+      return(_mo_take(bad) - i32(100));
+    },
+    .Some(x) => x
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+_mo_call_scrutinee_statement :: (fn(o : Option(i32)) -> i32)({
+  bad := _MoFd(n : i32(1));
+  match(
+    _mo_id_opt(o),
+    .Some(_) => (),
+    .None => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  _mo_take(bad)
+});
+_mo_call_scrutinee_string :: (fn(o : Option(String)) -> String)({
+  bad := String.from("bad");
+  s := match(
+    _mo_id_str(o),
+    .Some(x) => x,
+    .None => {
+      return(bad);
+    }
+  );
+  cond((s.len() > usize(0)) => s, true => bad)
+});
+_mo_known_enum_scrutinee :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    Option(i32).Some(i32(3)),
+    .Some(x) => x,
+    _ => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+_mo_known_int_scrutinee :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    i32(4),
+    i32(4) => i32(4),
+    _ => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+test("move-only: a move in a returning match arm does not reach the code after the match", {
+  before := g_mo_disposed;
+  assert(_mo_call_scrutinee_return_last(.Some(i32(3))) == i32(3), "kept, dropped at the scope end");
+  assert(_mo_call_scrutinee_return_last(.Some(i32(-3))) == i32(1), "moved after the match");
+  assert(_mo_call_scrutinee_return_last(.None) == i32(-99), "moved by the returning arm");
+  assert(g_mo_disposed == (before + i32(3)), "returning arm last: disposed once on every path");
+  assert(_mo_call_scrutinee_return_first(.Some(i32(3))) == i32(3), "kept, dropped at the scope end");
+  assert(_mo_call_scrutinee_return_first(.Some(i32(-3))) == i32(1), "moved after the match");
+  assert(_mo_call_scrutinee_return_first(.None) == i32(-99), "moved by the returning arm");
+  assert(g_mo_disposed == (before + i32(6)), "returning arm first: disposed once on every path");
+  assert(_mo_call_scrutinee_statement(.Some(i32(3))) == i32(1), "moved after the match");
+  assert(_mo_call_scrutinee_statement(.None) == i32(-99), "moved by the returning arm");
+  assert(g_mo_disposed == (before + i32(8)), "statement match: disposed once on every path");
+  assert(_mo_known_enum_scrutinee() == i32(3), "a known enum selects the first arm");
+  assert(_mo_known_int_scrutinee() == i32(4), "a known integer selects the first arm");
+  assert(g_mo_disposed == (before + i32(10)), "known scrutinee: kept, dropped at the scope end");
+  assert(_mo_call_scrutinee_string(.Some(String.from("ok"))) == String.from("ok"), "the payload");
+  assert(_mo_call_scrutinee_string(.Some(String.from(""))) == String.from("bad"), "moved after the match");
+  assert(_mo_call_scrutinee_string(.None) == String.from("bad"), "moved by the returning arm");
 });
 _MoPair :: struct(fd : _MoFd, tag : i32);
 test("move-only: an assignment statement drops the old value at the assignment", {
