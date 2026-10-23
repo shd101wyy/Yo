@@ -1,3 +1,5 @@
+// `__yo_ptr_eq` checks that every token of a parse shares one source cell.
+pragma(Pragma.AllowUnsafe);
 { rune, String } :: import("std/string");
 { println } :: import("std/fmt");
 { Exception } :: import("std/error");
@@ -1082,4 +1084,61 @@ test("`x =>> body` is rejected with E0008", {
     println(`expected E0008 for a typed =>> closure, got: ${t}`);
     assert(false, "`(x : i32) =>> { body }` must be rejected with E0008");
   });
+});
+// Every token of one parse holds the module's `input`/`module_path` cells
+// (`Token.input`): the lexer's tokens, the parser's synthesized operator
+// tokens, and a template interpolation body's sub-parse. A token with no
+// source text holds the shared empty cell; no token holds a fresh cell over
+// a copy of the text.
+_tokens_of :: (fn(e : &AstExpr, out : &mut ArrayList(Token)) -> unit)(
+  match(
+    e,
+    .Atom(_, tok) => out.push(tok),
+    .FnCall(_, callee, args, _, tok) => {
+      out.push(tok);
+      _tokens_of(&callee, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        _tokens_of(&args(i), out);
+      });
+    }
+  )
+);
+test("every token of a parse shares the module's source and path cells", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected parse error");
+        unwind(());
+      }
+    )
+  );
+  source := String.from("f(`a${b + c}d`, x - y, { p; q });");
+  prog := parse(&source, `cells.yo`, exn);
+  toks := ArrayList(Token).new();
+  (i : usize) = usize(0);
+  while(i < prog.len(), i = (i + usize(1)), {
+    _tokens_of(&prog(i), &mut toks);
+  });
+  first := toks(usize(0));
+  src_cell := first.input;
+  path_cell := first.module_path;
+  assert(src_cell.* == source, "the first token carries the source text");
+  (shared : usize) = usize(0);
+  (j : usize) = usize(0);
+  while(j < toks.len(), j = (j + usize(1)), {
+    t := toks(j);
+    t_src := t.input;
+    t_path := t.module_path;
+    if(t.value == `b`, {
+      assert(unsafe(__yo_ptr_eq(&t_src, &src_cell)), "an interpolation body's token shares the enclosing source cell");
+      assert(unsafe(__yo_ptr_eq(&t_path, &path_cell)), "an interpolation body's token shares the enclosing path cell");
+    });
+    if(t_src.*.len() > usize(0), {
+      assert(unsafe(__yo_ptr_eq(&t_src, &src_cell)), "a token with source text shares the source cell");
+      assert(unsafe(__yo_ptr_eq(&t_path, &path_cell)), "a token with source text shares the path cell");
+      shared = (shared + usize(1));
+    });
+  });
+  assert(shared > usize(8), "the walk saw the program's tokens");
 });
