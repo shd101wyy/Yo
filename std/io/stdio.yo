@@ -43,12 +43,16 @@ pragma(Pragma.AllowUnsafe);
 { IoError } :: import("../sys/errors");
 IO_file :: import("../sys/file");
 
-/// The process's standard input (fd 0).
-Stdin :: ref(struct());
-/// The process's standard output (fd 1).
-Stdout :: ref(struct());
-/// The process's standard error (fd 2).
-Stderr :: ref(struct());
+/// The process's standard input (fd 0). A plain value: it holds no state,
+/// so copies are free and every copy reads the same descriptor.
+Stdin :: struct();
+derive(Stdin, Copy, Clone);
+/// The process's standard output (fd 1), a plain value like `Stdin`.
+Stdout :: struct();
+derive(Stdout, Copy, Clone);
+/// The process's standard error (fd 2), a plain value like `Stdin`.
+Stderr :: struct();
+derive(Stderr, Copy, Clone);
 /// Handle to standard input.
 stdin :: (fn() -> Stdin)(Stdin());
 /// Handle to standard output.

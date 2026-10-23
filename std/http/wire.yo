@@ -615,7 +615,9 @@ read_http_message_buffered :: (
     where(R <: Reader)
   ) -> Impl(Future(Result(String, HttpError), IoExn))
 )(
-  io.async(e => {
+  // The future borrows `stream` (a `File`/`TcpStream` is move-only); await it
+  // where it is made.
+  io.async({ &stream, max_bytes, kind, &carry }(e : IoExn) => {
     buf_size := usize(8192);
     // An OWNED buffer, not a raw malloc. The future can be ABORTED mid-read
     // (a `fetch` deadline wins `timeout`'s race and aborts the exchange parked
@@ -807,7 +809,10 @@ read_http_message :: (
   fn(generic(R : Type), stream : &R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
-  read_http_message_buffered(stream, max_bytes, kind, rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new())), io)
+  io.async({ &stream, max_bytes, kind }(e : IoExn) => {
+    framed := e.io.await(read_http_message_buffered(stream, max_bytes, kind, rc(RefCell(ArrayList(u8)).new(ArrayList(u8).new())), e.io), e);
+    framed
+  })
 );
 export(
   MessageKind,

@@ -337,7 +337,7 @@ impl(
   map : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       f : F,
       where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> B))
     ) -> StreamMap(Self, B, F)
@@ -348,7 +348,7 @@ impl(
   filter : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       f : F,
       where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> StreamFilter(Self, F)
@@ -360,7 +360,7 @@ impl(
   filter_map : (
     fn(
       generic(A : Type, B : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       f : F,
       where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> Option(B)))
     ) -> StreamFilterMap(Self, B, F)
@@ -371,7 +371,7 @@ impl(
   take : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       n : usize,
       where(Self <: Stream(Item := A))
     ) -> StreamTake(Self)
@@ -382,7 +382,7 @@ impl(
   skip : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       n : usize,
       where(Self <: Stream(Item := A))
     ) -> StreamSkip(Self)
@@ -395,7 +395,7 @@ impl(
   for_each : (
     fn(
       generic(A : Type, F : Type),
-      self : Self,
+      sink(self) : Self,
       f : F,
       io : Io,
       where(Self <: Stream(Item := A), F <: (Fn(item : &A) -> unit))
@@ -423,7 +423,7 @@ impl(
   collect : (
     fn(
       generic(A : Type),
-      self : Self,
+      sink(self) : Self,
       io : Io,
       where(Self <: Stream(Item := A))
     ) -> Impl(Future(ArrayList(A), Io))

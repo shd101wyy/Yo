@@ -144,31 +144,16 @@ export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);
 _Transport :: enum(Plain(stream : TcpStream), Secure(stream : TlsStream));
 impl(
   _Transport,
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
-      (n : usize) = usize(0);
-      match(
-        self,
-        .Plain(stream) => {
-          n = e.io.await(stream.read(buf, size, e.io), e);
-        },
-        .Secure(stream) => {
-          n = e.io.await(stream.read(buf, size, e.io), e);
-        }
-      );
-      n
-    })
-  ),
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
+    io.async({ &self, &data }(e : IoExn) => {
       (n : usize) = usize(0);
       match(
         self,
         .Plain(stream) => {
-          n = e.io.await(stream.write_string(data, e.io), e);
+          n = e.io.await(stream.write_string(&data, e.io), e);
         },
         .Secure(stream) => {
-          n = e.io.await(stream.write_string(data, e.io), e);
+          n = e.io.await(stream.write_string(&data, e.io), e);
         }
       );
       n
@@ -176,7 +161,7 @@ impl(
   ),
   /// Graceful close: a TLS transport also gets its `close_notify` flushed.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(e => {
+    io.async({ &self }(e : IoExn) => {
       match(
         self,
         .Plain(stream) => {
@@ -191,9 +176,9 @@ impl(
   ),
   /// Close without the event loop, by delegating to the stream's own
   /// `close_sync` (what its `Drop` runs). This is what the pool uses:
-  /// eviction, expiry and `HttpClient`'s `dispose` all run in plain
-  /// (non-async) code, and the connection being closed there is either dead
-  /// or unwanted — there is nobody left to send a TLS `close_notify` to.
+  /// eviction, expiry and `HttpClient`'s drop all run in plain (non-async)
+  /// code, and the connection being closed there is either dead or unwanted
+  /// — there is nobody left to send a TLS `close_notify` to.
   close_sync : (fn(self : &Self) -> unit)(
     match(
       self,
@@ -206,7 +191,19 @@ impl(
   _Transport,
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.read(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        (n : usize) = usize(0);
+        match(
+          self,
+          .Plain(stream) => {
+            n = e.io.await(stream.read(buf, size, e.io), e);
+          },
+          .Secure(stream) => {
+            n = e.io.await(stream.read(buf, size, e.io), e);
+          }
+        );
+        n
+      })
     )
   )
 );
@@ -214,13 +211,11 @@ impl(
 // `read_http_message_buffered` needs the SAME list across every message on a
 // connection, because one `read` can deliver the end of this message and the
 // start of the next.
-_Idle :: ref(
-  struct(
-    key : String,
-    transport : _Transport,
-    carry : Rc(RefCell(ArrayList(u8))),
-    since : Instant
-  )
+_Idle :: struct(
+  key : String,
+  transport : _Transport,
+  carry : Rc(RefCell(ArrayList(u8))),
+  since : Instant
 );
 // ============================================================================
 // HttpClient
@@ -256,15 +251,13 @@ DEFAULT_IDLE_TIMEOUT_SECS :: i64(30);
 /// `https://b` would speak to the wrong peer under the first peer's
 /// certificate, so the key is checked, never inferred.
 ///
-/// `dispose` closes every idle connection, and `close_idle()` is the same
-/// operation under a name a caller can invoke (Go's
-/// `Transport.CloseIdleConnections`). **Call `close_idle()`** when you are
-/// done with a client: a client that has made a request does not currently
-/// reach reference count zero, because a `ref` value passed as a parameter to
-/// an `io.async` future is never released
-/// (`issues/fixed/a-ref-value-passed-to-an-async-future-is-never-released.md`), so
-/// the `dispose` on a scope exit does not yet fire. It is correct and will
-/// start firing when that defect is fixed.
+/// Dropping the client closes every idle connection, and `close_idle()` is
+/// the same operation under a name a caller can invoke (Go's
+/// `Transport.CloseIdleConnections`).
+///
+/// A client is a move-only value (its pool is a `Box`): one owner closes the
+/// pool, and a copy is E0901. `fetch` borrows it until the request is
+/// awaited; to share one client between tasks, hold it as `Rc(HttpClient)`.
 ///
 /// ## Example
 ///
@@ -283,51 +276,27 @@ DEFAULT_IDLE_TIMEOUT_SECS :: i64(30);
 /// on the next request rather than on a timer, closing the connection in hand
 /// rather than evicting one already pooled, and retrying only idempotent
 /// methods) are implementation choices that may change.
-HttpClient :: ref(
-  struct(
-    _idle : ArrayList(_Idle),
-    /// Maximum idle connections held at once. When the pool is full a
-    /// finished connection is closed instead of stored; `0` disables reuse
-    /// altogether.
-    max_idle : usize,
-    /// How long a connection may sit idle before it is closed rather than
-    /// reused. `Duration.from_secs(0)` lifts the limit.
-    idle_timeout : Duration
-  )
+HttpClient :: struct(_cell : Box(_HttpClientState));
+impl(HttpClient, !Sync());
+/// A client's pool and its policy, behind the client's `Box`. Its `Drop`
+/// closes every idle connection.
+_HttpClientState :: struct(
+  _idle : ArrayList(_Idle),
+  /// Maximum idle connections held at once. When the pool is full a
+  /// finished connection is closed instead of stored; `0` disables reuse
+  /// altogether.
+  max_idle : usize,
+  /// How long a connection may sit idle before it is closed rather than
+  /// reused. `Duration.from_secs(0)` lifts the limit.
+  idle_timeout : Duration
 );
 impl(
-  HttpClient,
-  /// A client with an empty pool, `DEFAULT_MAX_IDLE_CONNECTIONS` idle slots
-  /// and a `DEFAULT_IDLE_TIMEOUT_SECS` age limit.
-  new : (fn() -> Self)(
-    Self(
-      _idle : ArrayList(_Idle).new(),
-      max_idle : DEFAULT_MAX_IDLE_CONNECTIONS,
-      idle_timeout : Duration.from_secs(DEFAULT_IDLE_TIMEOUT_SECS)
-    )
-  ),
-  /// Cap the idle connections held at once (`0` disables reuse).
-  with_max_idle : (fn(self : &Self, n : usize) -> Self)({
-    self.max_idle = n;
-    self
-  }),
-  /// Set the idle age limit (`Duration.from_secs(0)` lifts it).
-  with_idle_timeout : (fn(self : &Self, limit : Duration) -> Self)({
-    self.idle_timeout = limit;
-    self
-  }),
-  /// How many connections are currently idle in the pool.
-  idle_count : (fn(self : &Self) -> usize)(
-    self._idle.len()
-  ),
-  /// Close every idle connection — Go's `Transport.CloseIdleConnections`.
-  /// Connections currently carrying a request are unaffected; they are owned
-  /// by their exchange and are closed or pooled when it finishes.
-  close_idle : (fn(self : &Self) -> unit)({
+  _HttpClientState,
+  /// Close every idle connection and empty the pool.
+  _close_idle : (fn(self : &mut Self) -> unit)({
     i := usize(0);
     while(runtime(i < self._idle.len()), {
-      entry := self._idle(i);
-      entry.transport.close_sync();
+      self._idle(i).transport.close_sync();
       i = (i + usize(1));
     });
     self._idle.clear();
@@ -336,25 +305,23 @@ impl(
   // idle past the age limit on the way past. Purging here rather than on a
   // timer is what keeps the pool free of a background task: the only moment
   // a `std` client is guaranteed to be running is a request.
-  _take : (fn(self : &Self, key : &String) -> Option(_Idle))({
+  _take : (fn(self : &mut Self, key : &String) -> Option(_Idle))({
     limit := self.idle_timeout;
     limit_ms := limit.as_millis();
     (found : Option(_Idle)) = Option(_Idle).None;
     i := usize(0);
     while(runtime(i < self._idle.len()), {
-      entry := self._idle(i);
-      since := entry.since;
+      since := self._idle(i).since;
       age := since.elapsed();
       age_ms := age.as_millis();
       expired := ((limit_ms > i64(0)) && (age_ms >= limit_ms));
       cond(
         expired => {
-          entry.transport.close_sync();
+          self._idle(i).transport.close_sync();
           _dropped := self._idle.remove(i);
         },
-        (found.is_none() && (entry.key == key)) => {
-          found = Option(_Idle).Some(entry);
-          _picked := self._idle.remove(i);
+        (found.is_none() && (self._idle(i).key == key)) => {
+          found = Option(_Idle).Some(self._idle.remove(i));
         },
         true => {
           i = (i + usize(1));
@@ -363,27 +330,65 @@ impl(
     });
     found
   }),
-  // Store a finished connection. `false` means the pool is full (or reuse is
-  // off) and the caller must close it — Go's answer too: the connection in
-  // hand is closed rather than evicting one already in the pool, so a burst
-  // of parallel requests cannot churn the whole pool.
-  _put : (fn(self : &Self, key : &String, transport : &_Transport, carry : &Rc(RefCell(ArrayList(u8)))) -> bool)(
+  // Store a finished connection, or hand it back when the pool is full (or
+  // reuse is off): the caller then closes it — Go's answer too: the
+  // connection in hand is closed rather than evicting one already in the
+  // pool, so a burst of parallel requests cannot churn the whole pool.
+  _put : (fn(self : &mut Self, key : &String, sink(transport) : _Transport, carry : &Rc(RefCell(ArrayList(u8)))) -> Option(_Transport))(
     cond(
-      (self._idle.len() >= self.max_idle) => false,
+      (self._idle.len() >= self.max_idle) => Option(_Transport).Some(transport),
       true => {
         self._idle.push(_Idle(key : key.clone(), transport : transport, carry : carry, since : Instant.now()));
-        true
+        Option(_Transport).None
       }
     )
   )
 );
 impl(
-  HttpClient,
+  _HttpClientState,
   Drop(
     drop : (fn(self : &mut Self) -> unit)(
-      self.close_idle()
+      self._close_idle()
     )
   )
+);
+impl(
+  HttpClient,
+  /// A client with an empty pool, `DEFAULT_MAX_IDLE_CONNECTIONS` idle slots
+  /// and a `DEFAULT_IDLE_TIMEOUT_SECS` age limit.
+  new : (fn() -> Self)(
+    Self(
+      _cell : box(
+        _HttpClientState(
+          _idle : ArrayList(_Idle).new(),
+          max_idle : DEFAULT_MAX_IDLE_CONNECTIONS,
+          idle_timeout : Duration.from_secs(DEFAULT_IDLE_TIMEOUT_SECS)
+        )
+      )
+    )
+  ),
+  /// The pool, written through `&HttpClient` (see the type's doc).
+  _pool : (fn(self : &Self) -> *_HttpClientState)(addr_of(self._cell.*)),
+  /// Cap the idle connections held at once (`0` disables reuse).
+  with_max_idle : (fn(sink(self) : Self, n : usize) -> Self)({
+    unsafe(consume(self._pool().*.max_idle = n));
+    self
+  }),
+  /// Set the idle age limit (`Duration.from_secs(0)` lifts it).
+  with_idle_timeout : (fn(sink(self) : Self, limit : Duration) -> Self)({
+    unsafe(consume(self._pool().*.idle_timeout = limit));
+    self
+  }),
+  /// How many connections are currently idle in the pool.
+  idle_count : (fn(self : &Self) -> usize)(
+    self._cell._idle.len()
+  ),
+  /// Close every idle connection — Go's `Transport.CloseIdleConnections`.
+  /// Connections currently carrying a request are unaffected; they are owned
+  /// by their exchange and are closed or pooled when it finishes.
+  close_idle : (fn(self : &Self) -> unit)({
+    unsafe(self._pool().*._close_idle());
+  })
 );
 export(HttpClient, DEFAULT_MAX_IDLE_CONNECTIONS, DEFAULT_IDLE_TIMEOUT_SECS);
 // ============================================================================
@@ -623,7 +628,7 @@ _connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
         out = Option(_Transport).Some(_Transport.Plain(stream));
       }
     );
-    out.unwrap()
+    match(out, .Some(t) => t, .None => __yo_panic("unreachable: no transport"))
   })
 );
 /// One request, one response — no redirects and no deadline.
@@ -654,7 +659,7 @@ _connect :: (fn(prep : &_Prepared, io : Io) -> Impl(Future(_Transport, IoExn)))(
 /// `ConnectionFailed` instead, so a non-idempotent replay is the caller's
 /// decision to make.
 _fetch_once :: (
-  fn(url_str : &String, opts : &FetchOptions, pool : &Option(HttpClient), io : Io) ->
+  fn(url_str : &String, opts : &FetchOptions, pool : Option(*_HttpClientState), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
@@ -676,8 +681,11 @@ _fetch_once :: (
         (attempt == usize(0)) => {
           match(
             pool,
-            .Some(client) => {
-              taken = client._take(&prep.key);
+            .Some(p) => {
+              // SAFETY: `pool` points into the `HttpClient` whose `fetch`
+              // future is running this exchange; that future borrows the
+              // client, and it joins the exchange before it completes.
+              taken = unsafe(p.*._take(&prep.key));
             },
             .None => ()
           );
@@ -691,9 +699,9 @@ _fetch_once :: (
       (conn_opt : Option(_Transport)) = Option(_Transport).None;
       match(
         taken,
-        .Some(entry) => {
-          conn_opt = Option(_Transport).Some(entry.transport);
-          carry = entry.carry;
+        .Some(_Idle(key : _, transport : pooled, carry : pooled_carry, since : _)) => {
+          conn_opt = Option(_Transport).Some(pooled);
+          carry = pooled_carry;
         },
         .None => ()
       );
@@ -704,7 +712,9 @@ _fetch_once :: (
         },
         true => ()
       );
-      conn := conn_opt.unwrap();
+      // `_Transport` is move-only: take it out of the option with a
+      // consuming match (`unwrap` reads through a borrow).
+      conn := match(conn_opt, .Some(c) => c, .None => __yo_panic("unreachable: no connection"));
       _wn := e.io.await(conn.write_string(&prep.request, e.io), e);
       framed := e.io.await(
         read_http_message_buffered(&conn, opts.max_response_bytes, prep.kind, &carry, e.io),
@@ -752,7 +762,7 @@ _fetch_once :: (
         },
         true => ()
       );
-      (retire : bool) = false;
+      (keep : bool) = false;
       cond(
         !dead => {
           resp := match(
@@ -764,32 +774,31 @@ _fetch_once :: (
               HttpResponse.new(StatusCode.OK(), ``) // unreachable
             }
           );
-          keep := (!prep.sent_close && _response_keeps_alive(&resp, prep.kind));
-          (stored : bool) = false;
-          cond(
-            keep => {
-              match(
-                pool,
-                .Some(client) => {
-                  stored = client._put(&prep.key, &conn, &carry);
-                },
-                .None => ()
-              );
-            },
-            true => ()
-          );
-          retire = !stored;
+          keep = (!prep.sent_close && _response_keeps_alive(&resp, prep.kind));
           out = Option(HttpResponse).Some(resp);
         },
         true => ()
       );
+      // Pool the connection, or get it back to close it. A connection that
+      // was already closed above (a dead or retried one) is never pooled, and
+      // closing it again is a no-op.
+      back := cond(
+        (keep && pool.is_some()) => match(
+          pool,
+          // SAFETY: as at `_take` above.
+          .Some(p) => unsafe(p.*._put(&prep.key, conn, &carry)),
+          .None => Option(_Transport).Some(conn)
+        ),
+        true => Option(_Transport).Some(conn)
+      );
       // The graceful close is the last await in the loop body, and it sits
       // one branch under the `while` for that reason.
-      cond(
-        retire => {
-          e.io.await(conn.close(e.io), e);
+      match(
+        back,
+        .Some(retired) => {
+          e.io.await(retired.close(e.io), e);
         },
-        true => ()
+        .None => ()
       );
       attempt = (attempt + usize(1));
     });
@@ -845,7 +854,7 @@ _redirect_options :: (fn(opts : &FetchOptions, status : StatusCode) -> FetchOpti
 /// host takes a connection to THAT host out of the pool (or opens one) — a
 /// pooled connection is never handed to a different target.
 _fetch_follow :: (
-  fn(url_str : &String, opts : &FetchOptions, pool : &Option(HttpClient), io : Io) ->
+  fn(url_str : &String, opts : &FetchOptions, pool : Option(*_HttpClientState), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
@@ -931,7 +940,7 @@ _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -
 // the free `fetch_with` and by `HttpClient.fetch_with`; the only difference
 // between them is `pool`.
 _fetch_deadline :: (
-  fn(url_str : &String, opts : &FetchOptions, pool : &Option(HttpClient), io : Io) ->
+  fn(url_str : &String, opts : &FetchOptions, pool : Option(*_HttpClientState), io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
@@ -998,7 +1007,7 @@ fetch_with :: (
   io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
-    resp := e.io.await(_fetch_deadline(url_str, opts, Option(HttpClient).None, e.io), e);
+    resp := e.io.await(_fetch_deadline(url_str, opts, Option(*_HttpClientState).None, e.io), e);
     return(resp);
   })
 );
@@ -1032,10 +1041,13 @@ impl(
   HttpClient,
   /// GET `url_str`, reusing an idle connection to the same scheme/host/port
   /// when the pool has one and returning it to the pool afterwards.
+  ///
+  /// The future borrows the client (the exchange reaches its pool): await it
+  /// where it is made.
   fetch : (fn(self : &Self, url_str : &String, io : Io) -> Impl(Future(HttpResponse, IoExn)))(
-    io.async(e => {
+    io.async({ &self, &url_str }(e : IoExn) => {
       resp := e.io.await(
-        _fetch_deadline(url_str, FetchOptions.new(), Option(HttpClient).Some(self), e.io),
+        _fetch_deadline(url_str, FetchOptions.new(), Option(*_HttpClientState).Some(self._pool()), e.io),
         e
       );
       return(resp);
@@ -1046,8 +1058,8 @@ impl(
     fn(self : &Self, url_str : &String, opts : &FetchOptions, io : Io) ->
       Impl(Future(HttpResponse, IoExn))
   )(
-    io.async(e => {
-      resp := e.io.await(_fetch_deadline(url_str, opts, Option(HttpClient).Some(self), e.io), e);
+    io.async({ &self, &url_str, &opts }(e : IoExn) => {
+      resp := e.io.await(_fetch_deadline(url_str, opts, Option(*_HttpClientState).Some(self._pool()), e.io), e);
       return(resp);
     })
   )

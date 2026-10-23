@@ -50,28 +50,41 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
 
+/// A `BufReader`'s buffer and cursor, in the reader's `Box`: the methods
+/// take `self : &Self` and move the cursor inside the box.
+_BufReaderState :: struct(
+  _buf : ArrayList(u8),
+  _pos : usize,
+  _filled : usize,
+  _capacity : usize
+);
 /// Buffered reader over any `Reader`.
+///
+/// It OWNS its inner reader (`new` moves it in, as Rust's `BufReader::new`
+/// does), so a `BufReader(File)` is move-only like the `File`; `get_ref`
+/// lends the inner reader back. The buffer lives in a `Box` that the methods
+/// write through `&Self`, so a `BufReader` is never `Sync`.
 BufReader :: (fn(comptime(R) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _inner : R,
-      _buf : ArrayList(u8),
-      _pos : usize,
-      _filled : usize,
-      _capacity : usize
-    )
+  struct(
+    _inner : R,
+    _st : Box(_BufReaderState)
   )
 );
-/// Buffered writer over any `Writer`.
+impl(generic(R : Type), BufReader(R), !Sync());
+/// A `BufWriter`'s pending bytes, in the writer's `Box`.
+_BufWriterState :: struct(
+  _buf : ArrayList(u8),
+  _capacity : usize
+);
+/// Buffered writer over any `Writer`. It owns its inner writer, as
+/// `BufReader` owns its reader; `get_ref` lends it back.
 BufWriter :: (fn(comptime(W) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _inner : W,
-      _buf : ArrayList(u8),
-      _capacity : usize
-    )
+  struct(
+    _inner : W,
+    _st : Box(_BufWriterState)
   )
 );
+impl(generic(W : Type), BufWriter(W), !Sync());
 /// A `capacity`-long zeroed byte buffer (`ArrayList` used as fixed storage).
 _zeroed :: (fn(capacity : usize) -> ArrayList(u8))({
   b := ArrayList(u8).with_capacity(capacity);
@@ -85,26 +98,31 @@ impl(
   generic(R : Type),
   where(R <: Reader),
   BufReader(R),
-  /// Wrap `inner` with the default 4096-byte buffer.
-  new : (fn(inner : &R) -> Self)(
-    Self(_inner : inner, _buf : _zeroed(usize(4096)), _pos : usize(0), _filled : usize(0), _capacity : usize(4096))
+  /// Wrap `inner` (moved in) with the default 4096-byte buffer.
+  new : (fn(sink(inner) : R) -> Self)(
+    Self.with_capacity(inner, usize(4096))
   ),
-  /// Wrap `inner` with a `capacity`-byte buffer.
-  with_capacity : (fn(inner : &R, capacity : usize) -> Self)(
-    Self(_inner : inner, _buf : _zeroed(capacity), _pos : usize(0), _filled : usize(0), _capacity : capacity)
+  /// Wrap `inner` (moved in) with a `capacity`-byte buffer.
+  with_capacity : (fn(sink(inner) : R, capacity : usize) -> Self)(
+    Self(_inner : inner, _st : box(_BufReaderState(_buf : _zeroed(capacity), _pos : usize(0), _filled : usize(0), _capacity : capacity)))
   ),
+  /// The inner reader, lent.
+  get_ref : (fn(self : &Self) -> &R)(&self._inner),
+  /// The buffer state, written through `&Self`.
+  _state : (fn(self : &Self) -> *_BufReaderState)(addr_of(self._st.*)),
   /// Number of buffered bytes available without touching the inner reader.
   buffered : (fn(self : &Self) -> usize)(
-    self._filled - self._pos
+    self._st._filled - self._st._pos
   ),
   /// Refill the internal buffer from the inner reader. Resolves to the
   /// number of bytes now buffered; `0` means the inner reader hit EOF.
   _fill : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
-      p := match(self._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
-      n := e.io.await(self._inner.read(p, self._capacity, io), e);
-      self._pos = usize(0);
-      self._filled = n;
+    io.async({ &self, io }(e : IoExn) => {
+      st := self._state();
+      p := match(self._st._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
+      n := e.io.await(self._inner.read(p, self._st._capacity, io), e);
+      unsafe(consume(st.*._pos = usize(0)));
+      unsafe(consume(st.*._filled = n));
       n
     })
   ),
@@ -114,16 +132,17 @@ impl(
   /// framing protocols read ASCII headers; validate with `String.from_utf8`
   /// where the content is untrusted.
   read_line : (fn(self : &Self, io : Io) -> Impl(Future(Option(String), IoExn)))(
-    io.async(e => {
+    io.async({ &self, io }(e : IoExn) => {
+      st := self._state();
       line_bytes := ArrayList(u8).new();
       (found_newline : bool) = false;
       (hit_eof : bool) = false;
       while(!found_newline && !hit_eof, {
         cond(
-          (self._pos < self._filled) => {
-            scan := self._pos;
-            while((scan < self._filled) && !found_newline, {
-              b := self._buf(scan);
+          (self._st._pos < self._st._filled) => {
+            scan := self._st._pos;
+            while((scan < self._st._filled) && !found_newline, {
+              b := self._st._buf(scan);
               cond(
                 (b == u8(10)) => {
                   found_newline = true;
@@ -134,7 +153,7 @@ impl(
               );
               scan = (scan + usize(1));
             });
-            self._pos = scan;
+            unsafe(consume(st.*._pos = scan));
           },
           true => {
             n := e.io.await(Self._fill(self, io), e);
@@ -157,15 +176,16 @@ impl(
   /// Resolves to `.None` when EOF arrives first; the partial bytes are
   /// discarded with the broken frame.
   read_exact : (fn(self : &Self, n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn)))(
-    io.async(e => {
+    io.async({ &self, n, io }(e : IoExn) => {
+      st := self._state();
       result := ArrayList(u8).new();
       (hit_eof : bool) = false;
       while((result.len() < n) && !hit_eof, {
         cond(
-          (self._pos < self._filled) => {
-            while((result.len() < n) && (self._pos < self._filled), {
-              result.push(self._buf(self._pos));
-              self._pos = (self._pos + usize(1));
+          (self._st._pos < self._st._filled) => {
+            while((result.len() < n) && (self._st._pos < self._st._filled), {
+              result.push(self._st._buf(self._st._pos));
+              unsafe(consume(st.*._pos = (st.*._pos + usize(1))));
             });
           },
           true => {
@@ -189,19 +209,20 @@ impl(
   BufReader(R),
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async(e => {
+      io.async({ &self, buf, size, io }(e : IoExn) => {
+        st := self._state();
         (out : usize) = usize(0);
         (done : bool) = false;
         // Serve buffered bytes first.
-        available := (self._filled - self._pos);
+        available := (self._st._filled - self._st._pos);
         cond(
           (available > usize(0)) => {
             to_copy := cond((available < size) => available, true => size);
             (i : usize) = usize(0);
             while(i < to_copy, i = (i + usize(1)), {
-              (buf.add(i)).* = self._buf(self._pos + i);
+              (buf.add(i)).* = self._st._buf(self._st._pos + i);
             });
-            self._pos = (self._pos + to_copy);
+            unsafe(consume(st.*._pos = (st.*._pos + to_copy)));
             out = to_copy;
             done = true;
           },
@@ -209,7 +230,7 @@ impl(
         );
         // Empty buffer + large read: bypass the buffer entirely.
         cond(
-          (!done && (size >= self._capacity)) => {
+          (!done && (size >= self._st._capacity)) => {
             out = e.io.await(self._inner.read(buf, size, io), e);
             done = true;
           },
@@ -222,9 +243,9 @@ impl(
             to_copy := cond((got < size) => got, true => size);
             (j : usize) = usize(0);
             while(j < to_copy, j = (j + usize(1)), {
-              (buf.add(j)).* = self._buf(j);
+              (buf.add(j)).* = self._st._buf(j);
             });
-            self._pos = to_copy;
+            unsafe(consume(st.*._pos = to_copy));
             out = to_copy;
           },
           true => ()
@@ -238,24 +259,28 @@ impl(
   generic(W : Type),
   where(W <: Writer),
   BufWriter(W),
-  /// Wrap `inner` with the default 4096-byte buffer.
-  new : (fn(inner : &W) -> Self)(
-    Self(_inner : inner, _buf : ArrayList(u8).with_capacity(usize(4096)), _capacity : usize(4096))
+  /// Wrap `inner` (moved in) with the default 4096-byte buffer.
+  new : (fn(sink(inner) : W) -> Self)(
+    Self.with_capacity(inner, usize(4096))
   ),
-  /// Wrap `inner` with a `capacity`-byte buffer.
-  with_capacity : (fn(inner : &W, capacity : usize) -> Self)(
-    Self(_inner : inner, _buf : ArrayList(u8).with_capacity(capacity), _capacity : capacity)
+  /// Wrap `inner` (moved in) with a `capacity`-byte buffer.
+  with_capacity : (fn(sink(inner) : W, capacity : usize) -> Self)(
+    Self(_inner : inner, _st : box(_BufWriterState(_buf : ArrayList(u8).with_capacity(capacity), _capacity : capacity)))
   ),
+  /// The inner writer, lent.
+  get_ref : (fn(self : &Self) -> &W)(&self._inner),
+  /// The pending bytes, written through `&Self`.
+  _state : (fn(self : &Self) -> *_BufWriterState)(addr_of(self._st.*)),
   /// Number of bytes currently buffered.
   buffered : (fn(self : &Self) -> usize)(
-    self._buf.len()
+    self._st._buf.len()
   ),
   /// Buffer a `String`'s bytes. The pointer-taking `write` is the trait's
   /// primitive; this is the form callers actually want, and the fd-based
   /// `std/sys/bufio` writer this module replaced had it — dropping it would
   /// have made "write a string to a buffered writer" a pointer exercise.
   write_string : (fn(self : &Self, s : &String, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(e => {
+    io.async({ &self, &s, io }(e : IoExn) => {
       bytes := &s;
       n := bytes.len();
       cond(
@@ -270,7 +295,7 @@ impl(
   ),
   /// Buffer an `ArrayList(u8)`. Companion to `write_string`, same rationale.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(e => {
+    io.async({ &self, &data, io }(e : IoExn) => {
       n := data.len();
       cond(
         (n > usize(0)) => {
@@ -284,12 +309,13 @@ impl(
   ),
   /// Deliver the buffered bytes to the inner writer (without flushing IT).
   _flush_buf : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(e => {
+    io.async({ &self, io }(e : IoExn) => {
+      st := self._state();
       cond(
-        (self._buf.len() > usize(0)) => {
-          p := match(self._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
-          e.io.await(self._inner.write_all(p, self._buf.len(), io), e);
-          self._buf = ArrayList(u8).with_capacity(self._capacity);
+        (self._st._buf.len() > usize(0)) => {
+          p := match(self._st._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
+          e.io.await(self._inner.write_all(p, self._st._buf.len(), io), e);
+          unsafe(st.*._buf.clear());
         },
         true => ()
       );
@@ -303,10 +329,11 @@ impl(
   BufWriter(W),
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async(e => {
+      io.async({ &self, buf, size, io }(e : IoExn) => {
+        st := self._state();
         (src_pos : usize) = usize(0);
         while(src_pos < size, {
-          space := (self._capacity - self._buf.len());
+          space := (self._st._capacity - self._st._buf.len());
           cond(
             (space == usize(0)) => {
               e.io.await(Self._flush_buf(self, io), e);
@@ -316,7 +343,7 @@ impl(
               to_copy := cond((remaining < space) => remaining, true => space);
               (i : usize) = usize(0);
               while(i < to_copy, i = (i + usize(1)), {
-                self._buf.push((buf.add(src_pos + i)).*);
+                unsafe(st.*._buf.push((buf.add(src_pos + i)).*));
               });
               src_pos = (src_pos + to_copy);
             }
@@ -326,7 +353,7 @@ impl(
       })
     ),
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      io.async(e => {
+      io.async({ &self, io }(e : IoExn) => {
         e.io.await(Self._flush_buf(self, io), e);
         e.io.await(self._inner.flush(io), e);
         ()

@@ -39,7 +39,7 @@ DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
 /// Write `resp` to `stream`, with `Connection: close` unless it names a
 /// `Connection` itself, and close the connection.
 _respond :: (fn(stream : &TcpStream, resp : HttpResponse, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async(e => {
+  io.async({ &stream, resp }(e : IoExn) => {
     cond(
       resp.get_header(`Connection`).is_none() => {
         resp.headers.insert(`Connection`, `close`);
@@ -52,9 +52,13 @@ _respond :: (fn(stream : &TcpStream, resp : HttpResponse, io : Io) -> Impl(Futur
   })
 );
 /// An HTTP/1.1 server bound to a `TcpListener`.
+///
+/// A shared `ref` handle: a handler may call `stop()` on the server it runs
+/// under. The listener is move-only, so the server holds it through an `Rc`,
+/// which is what lets `close`'s future borrow it across a suspension.
 HttpServer :: ref(
   struct(
-    listener : TcpListener,
+    listener : Rc(TcpListener),
     /// Requests larger than this are answered with `413 Payload Too Large`
     /// and the connection closed; `serve` keeps going (0 lifts the ceiling).
     max_request_bytes : usize,
@@ -68,12 +72,12 @@ impl(
   bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(HttpServer, IoExn)))(
     io.async(e => {
       listener := e.io.await(TcpListener.bind(addr, e.io), e);
-      HttpServer(listener : listener, max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
+      HttpServer(listener : rc(listener), max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
     })
   ),
   /// The address the server is listening on.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self.listener.local_addr()
+    self.listener.*.local_addr()
   ),
   /// Set the request-size ceiling (builder pattern; 0 = unlimited).
   with_max_request_bytes : (fn(self : &Self, n : usize) -> Self)({
@@ -89,7 +93,7 @@ impl(
   /// (issues/fixed/one-malformed-request-killed-http-server-serve.md).
   _accept_request : (fn(self : &Self, io : Io) -> Impl(Future(Tuple(TcpStream, Result(HttpRequest, HttpResponse)), IoExn)))(
     io.async(e => {
-      stream := e.io.await(self.listener.accept(e.io), e);
+      stream := e.io.await(self.listener.*.accept(e.io), e);
       framed := e.io.await(read_http_message(&stream, self.max_request_bytes, MessageKind.Request, e.io), e);
       parsed := match(
         framed,
@@ -151,7 +155,10 @@ impl(
   }),
   /// Close the listening socket.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    self.listener.close(io)
+    io.async(e => {
+      listener := self.listener;
+      e.io.await(listener.*.close(e.io), e);
+    })
   )
 );
 export(HttpServer, DEFAULT_MAX_REQUEST_BYTES);

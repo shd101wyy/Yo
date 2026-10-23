@@ -124,14 +124,41 @@ _throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
 // ============================================================================
 // TcpStream (declared before TcpListener so accept can reference it)
 // ============================================================================
-/// A connected TCP stream for bidirectional data transfer.
-TcpStream :: ref(
-  struct(
-    _fd : i32,
-    _peer_addr : SocketAddr,
-    _local_addr : SocketAddr,
-    _is_closed : bool
+/// The socket and its addresses behind a `TcpStream`'s `Box`. Its `Drop`
+/// closes the socket unless `close`/`close_sync` already did.
+_TcpStreamState :: struct(
+  _fd : i32,
+  _peer_addr : SocketAddr,
+  _local_addr : SocketAddr,
+  _is_closed : bool
+);
+impl(
+  _TcpStreamState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._is_closed => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
   )
+);
+/// A connected TCP stream for bidirectional data transfer.
+///
+/// A move-only value (its state is a `Box`): moving it moves the socket, and a
+/// copy is E0901. Lend it with `&s`, or share one stream as `Rc(TcpStream)`
+/// on one thread or `Arc(Mutex(TcpStream))` across threads. Every method
+/// takes `self : &Self`; `close` marks the socket closed inside the box, so a
+/// `TcpStream` is never `Sync`.
+TcpStream :: struct(_cell : Box(_TcpStreamState));
+impl(TcpStream, !Sync());
+/// A stream owning the connected socket `fd`.
+_new_stream :: (fn(fd : i32, peer : SocketAddr, local : SocketAddr) -> TcpStream)(
+  TcpStream(_cell : box(_TcpStreamState(_fd : fd, _peer_addr : peer, _local_addr : local, _is_closed : false)))
 );
 /// Ask the kernel which address `fd` is bound to. Used to fill in a socket's
 /// local address once, at connect / accept / bind time, so the accessors are
@@ -181,14 +208,35 @@ _shutdown_to_how :: (fn(how : Shutdown) -> i32)(
   )
 );
 export(Shutdown, make_sockaddr, sockaddr_to_socket_addr);
-/// A TCP socket that listens for incoming connections.
-TcpListener :: ref(
-  struct(
-    _fd : i32,
-    _local_addr : SocketAddr,
-    _is_closed : bool
+/// The socket and its address behind a `TcpListener`'s `Box`. Its `Drop`
+/// closes the socket unless `close` already did.
+_TcpListenerState :: struct(
+  _fd : i32,
+  _local_addr : SocketAddr,
+  _is_closed : bool
+);
+impl(
+  _TcpListenerState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._is_closed => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
   )
 );
+/// A TCP socket that listens for incoming connections.
+///
+/// A move-only value, as `TcpStream` is: one owner closes the socket, and a
+/// copy is E0901. Lend it with `&listener`; to serve from a spawned task,
+/// move the listener into the task, or share it as `Rc(TcpListener)`.
+TcpListener :: struct(_cell : Box(_TcpListenerState));
+impl(TcpListener, !Sync());
 /// The stream of connections arriving at a `TcpListener` — Rust's
 /// `TcpListener::incoming`, created by `listener.incoming()`.
 ///
@@ -203,11 +251,16 @@ TcpListener :: ref(
 /// server loop from `accept` to `incoming` does not change its error
 /// vocabulary.
 ///
-/// The stream finishes (`.None`) once the listener is closed — including by
-/// another task while a `next` is pending — mirroring `Watcher`. As there,
-/// `next`'s future holds its own handle, so it borrows nothing (a borrow of a
-/// `ref` object across the suspension is E0909, §3.13 A2).
-Incoming :: ref(struct(_listener : TcpListener));
+/// The stream OWNS the listener (`incoming` moves it in, as tokio-stream's
+/// `TcpListenerStream::new` does): dropping the stream closes the socket.
+/// `listener()` lends it back, for `local_addr` or an early `close`. The
+/// stream finishes (`.None`) once the listener is closed.
+Incoming :: struct(_listener : TcpListener);
+impl(
+  Incoming,
+  /// The listener, lent.
+  listener : (fn(self : &Self) -> &TcpListener)(&self._listener)
+);
 impl(
   Incoming,
   Stream(
@@ -215,16 +268,16 @@ impl(
     next : (
       fn(self : &mut Self, io : Io) -> Impl(Future(Option(Result(TcpStream, NetError)), Io))
     )(
-      io.async({ inc : self }(io : Io) => {
+      io.async({ &mut self }(io : Io) => {
         (out : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
-        if(!inc._listener._is_closed, {
+        if(!self._listener._cell._is_closed, {
           // The raw accept, not the throwing `accept` method: this stream
           // reports failure IN the item, and an `Exception` handler cannot be
           // installed across a suspension inside an async body.
           addr_buf := (*u8)(malloc(usize(128)).unwrap());
           addr_len := (*u32)(malloc(usize(4)).unwrap());
           addr_len.* = u32(128);
-          client_fd := io.await(IO_tcp.accept(inc._listener._fd, addr_buf, addr_len), io);
+          client_fd := io.await(IO_tcp.accept(self._listener._cell._fd, addr_buf, addr_len), io);
           // A failed accept, or an accepted socket that cannot be made safe
           // for `stream_write` (closed here, never handed out), is the item's
           // error.
@@ -243,12 +296,7 @@ impl(
             ),
             true => Option(Result(TcpStream, NetError)).Some(
               Result(TcpStream, NetError).Ok(
-                TcpStream(
-                  _fd : client_fd,
-                  _peer_addr : sockaddr_to_socket_addr(addr_buf),
-                  _local_addr : _read_local_addr(client_fd, SocketAddr.any(u16(0))),
-                  _is_closed : false
-                )
+                _new_stream(client_fd, sockaddr_to_socket_addr(addr_buf), _read_local_addr(client_fd, SocketAddr.any(u16(0))))
               )
             )
           );
@@ -301,12 +349,12 @@ impl(
       // from the kernel; echoing the bind argument reported port 0
       // (plans/archive/STD_API_AUDIT.md C2). The bind argument IS a meaningful
       // fallback here, unlike on a connected socket.
-      return(TcpListener(_fd : fd, _local_addr : _read_local_addr(fd, addr), _is_closed : false));
+      return(TcpListener(_cell : box(_TcpListenerState(_fd : fd, _local_addr : _read_local_addr(fd, addr), _is_closed : false))));
     })
   ),
   /// Accept an incoming connection, returning a new `TcpStream`.
   accept : (fn(self : &Self, io : Io) -> Impl(Future(TcpStream, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       // Allocate space for the peer address
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
@@ -336,14 +384,7 @@ impl(
       peer_addr := sockaddr_to_socket_addr(addr_buf);
       free(.Some((*void)(addr_buf)));
       free(.Some((*void)(addr_len)));
-      return(
-        TcpStream(
-          _fd : client_fd,
-          _peer_addr : peer_addr,
-          _local_addr : _read_local_addr(client_fd, SocketAddr.any(u16(0))),
-          _is_closed : false
-        )
-      );
+      return(_new_stream(client_fd, peer_addr, _read_local_addr(client_fd, SocketAddr.any(u16(0)))));
     })
   }),
   /// The connections arriving at this listener, as a `Stream` of
@@ -361,22 +402,25 @@ impl(
   ///
   /// Every `std/async/stream` combinator applies, and a function can be
   /// generic over `where(S <: Stream)` instead of over this listener.
-  incoming : (fn(self : &Self) -> Incoming)(
+  ///
+  /// The stream takes the listener (it is moved in): read its address first,
+  /// or through `Incoming.listener()`.
+  incoming : (fn(sink(self) : Self) -> Incoming)(
     Incoming(_listener : self)
   ),
   /// Get the local address this listener is bound to.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self._local_addr
+    self._cell._local_addr
   ),
   /// Close the listener socket.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
       cond(
-        self._is_closed => (),
+        self._cell._is_closed => (),
         true => {
-          r := e.io.await(IO_tcp.close(fd), e.io);
-          self._is_closed = true;
+          st := addr_of(self._cell.*);
+          r := e.io.await(IO_tcp.close(self._cell._fd), e.io);
+          unsafe(consume(st.*._is_closed = true));
           cond(
             (r < i32(0)) => {
               _throw_io(i32(0) - r, e.exn);
@@ -386,25 +430,10 @@ impl(
         }
       );
     })
-  }),
+  ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._fd
-  )
-);
-impl(
-  TcpListener,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._is_closed => {
-          { close_sync } :: import("../sys/file");
-          close_sync(self._fd);
-          self._is_closed = true;
-        },
-        true => ()
-      );
-    })
+    self._cell._fd
   )
 );
 export(TcpListener);
@@ -440,14 +469,7 @@ impl(
         },
         true => ()
       );
-      return(
-        TcpStream(
-          _fd : fd,
-          _peer_addr : addr,
-          _local_addr : _read_local_addr(fd, SocketAddr.any(u16(0))),
-          _is_closed : false
-        )
-      );
+      return(_new_stream(fd, addr, _read_local_addr(fd, SocketAddr.any(u16(0)))));
     })
   ),
   /// Read up to `size` bytes from the stream into `buf`, resolving to the
@@ -463,7 +485,7 @@ impl(
   /// (`read_to_end`, `read_to_string`) or wraps the stream in
   /// `BufReader(TcpStream)`.
   read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
@@ -476,7 +498,7 @@ impl(
   /// `IoExn`. Needs `pragma(Pragma.AllowUnsafe)` for the raw pointer —
   /// `write_bytes` / `write_str` / `write_string` are the safe spellings.
   write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_tcp.stream_write(fd, buf, size), e.io);
       usize(NetError.check(r, e.exn))
@@ -485,7 +507,7 @@ impl(
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     s := String.from(data);
     io.async(e => {
       r := e.io.await(IO_tcp.stream_write(fd, s.ptr().unwrap(), s.len()), e.io);
@@ -495,7 +517,7 @@ impl(
   /// Write a `String` to the stream.
   /// Returns the number of bytes written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
@@ -504,7 +526,7 @@ impl(
   /// Write raw bytes from an `ArrayList(u8)` to the stream.
   /// Returns the number of bytes written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
@@ -512,7 +534,7 @@ impl(
   }),
   /// Shut down part or all of the connection.
   shutdown : (fn(self : &Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     raw_how := _shutdown_to_how(how);
     io.async(e => {
       r := e.io.await(IO_tcp.shutdown(fd, raw_how), e.io);
@@ -525,14 +547,14 @@ impl(
     })
   }),
   /// Close the stream.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
       cond(
-        self._is_closed => (),
+        self._cell._is_closed => (),
         true => {
-          r := e.io.await(IO_tcp.close(fd), e.io);
-          self._is_closed = true;
+          st := addr_of(self._cell.*);
+          r := e.io.await(IO_tcp.close(self._cell._fd), e.io);
+          unsafe(consume(st.*._is_closed = true));
           cond(
             (r < i32(0)) => {
               _throw_io(i32(0) - r, e.exn);
@@ -542,40 +564,41 @@ impl(
         }
       );
     })
-  }),
+  ),
   /// Close the socket now, without the event loop: what `Drop` runs, for
-  /// a caller that must release the descriptor from plain code while other
-  /// references to the stream may still be live (a TLS stream's teardown, a
-  /// connection pool's eviction). A no-op once the stream is closed. The
-  /// destructor itself is never called by hand (E0915).
+  /// a caller that must release the descriptor from plain code before the
+  /// stream itself goes away (a TLS stream's teardown, a connection pool's
+  /// eviction). A no-op once the stream is closed. The destructor itself is
+  /// never called by hand (E0915).
   close_sync : (fn(self : &Self) -> unit)({
     cond(
-      !self._is_closed => {
+      !self._cell._is_closed => {
         { close_sync } :: import("../sys/file");
-        close_sync(self._fd);
-        self._is_closed = true;
+        st := addr_of(self._cell.*);
+        close_sync(self._cell._fd);
+        unsafe(consume(st.*._is_closed = true));
       },
       true => ()
     );
   }),
   /// Get the remote peer's socket address.
   peer_addr : (fn(self : &Self) -> SocketAddr)(
-    self._peer_addr
+    self._cell._peer_addr
   ),
   /// Get this end's socket address — Rust's `TcpStream::local_addr`. Read
   /// from the kernel once, when the stream was connected or accepted, because
   /// that is the only way to learn the ephemeral port and the source
   /// interface the kernel chose; neither is in the `connect` argument.
   local_addr : (fn(self : &Self) -> SocketAddr)(
-    self._local_addr
+    self._cell._local_addr
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._fd
+    self._cell._fd
   ),
   /// Enable or disable TCP_NODELAY (disables Nagle's algorithm).
   set_nodelay : (fn(self : &Self, nodelay : bool, io : Io) -> Impl(Future(unit, IoExn)))({
-    sock_fd := self._fd;
+    sock_fd := self._cell._fd;
     io.async(e => {
       val := cond(nodelay => i32(1), true => i32(0));
       val_ptr := addr_of(val);
@@ -590,7 +613,7 @@ impl(
   }),
   /// Enable or disable SO_KEEPALIVE on the socket.
   set_keepalive : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))({
-    sock_fd := self._fd;
+    sock_fd := self._cell._fd;
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
@@ -603,14 +626,6 @@ impl(
       );
     })
   })
-);
-impl(
-  TcpStream,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)(
-      self.close_sync()
-    )
-  )
 );
 export(TcpStream);
 

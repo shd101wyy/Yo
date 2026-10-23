@@ -45,6 +45,8 @@ pragma(Pragma.AllowUnsafe);
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
+{ NetError } :: import("../net/errors");
+IO_tcp :: import("../sys/tcp");
 { SocketAddr, IpAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
 IoTraits :: import("../io");
@@ -123,62 +125,91 @@ _ssl_err_string :: (fn() -> String)({
 _throw_tls :: (fn(err : &TlsError, exn : Exception) -> unit)(
   exn.throw(dyn(err))
 );
-/// A connected TLS client stream.
-TlsStream :: ref(
-  struct(
-    _tcp : TcpStream,
-    _ctx : *void,
-    _ssl : *void,
-    // Owned by _ssl after SSL_set_bio; kept for the pumps.
-    _rbio : *void,
-    _wbio : *void,
-    _closed : bool
+/// The socket and the OpenSSL objects behind a `TlsStream`'s `Box`. Its
+/// `Drop` releases both unless `close`/`close_sync` already did: a
+/// `TlsStream` dropped without `close` used to leak everything it owned — the
+/// socket descriptor AND the OpenSSL `SSL`/`SSL_CTX` pair.
+_TlsState :: struct(
+  _tcp : TcpStream,
+  _ctx : *void,
+  _ssl : *void,
+  // Owned by _ssl after SSL_set_bio; kept for the pumps.
+  _rbio : *void,
+  _wbio : *void,
+  _closed : bool
+);
+impl(
+  _TlsState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      if(!self._closed, {
+        self._closed = true;
+        // __yo_tls_free releases both BIOs (owned by the SSL object) and
+        // the context.
+        unsafe(__yo_tls_free(self._ssl, self._ctx));
+        self._tcp.close_sync();
+      });
+    })
   )
 );
+/// A connected TLS client stream.
+///
+/// A move-only value (its state is a `Box`): one owner frees the session, and
+/// a copy is E0901. Lend it with `&s`, or share it as `Rc(TlsStream)`.
+/// `close` marks the session closed inside the box, so it is never `Sync`.
+TlsStream :: struct(_cell : Box(_TlsState));
+impl(TlsStream, !Sync());
+/// What the record pumps need, copied out of the state: the socket's fd, the
+/// session and its two BIOs. Plain words, so a pump future borrows nothing.
+_TlsIo :: struct(
+  _fd : i32,
+  _ssl : *void,
+  _rbio : *void,
+  _wbio : *void
+);
+derive(_TlsIo, Copy, Clone);
 /// Drain the write BIO (ciphertext OpenSSL produced) into the socket.
-_flush_wbio :: (fn(s : &TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
-  tcp := s._tcp;
-  wbio := s._wbio;
+_flush_wbio :: (fn(t : _TlsIo, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     buf := ArrayList(u8).with_capacity(_PUMP_CAP());
     buf.resize_with_byte(_PUMP_CAP(), int(0));
-    (pending : usize) = unsafe(__yo_tls_bio_pending(wbio));
+    (pending : usize) = unsafe(__yo_tls_bio_pending(t._wbio));
     while(pending > usize(0), {
-      n := unsafe(__yo_tls_bio_read(wbio, (*void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
+      n := unsafe(__yo_tls_bio_read(t._wbio, (*void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
       cond(
         (n > int(0)) => {
           // write_all over the raw chunk.
           (sent : usize) = usize(0);
           (want : usize) = usize(n);
           while(sent < want, {
-            w := e.io.await(tcp.write(buf.ptr().unwrap().add(sent), want - sent, e.io), e);
+            r := e.io.await(IO_tcp.stream_write(t._fd, buf.ptr().unwrap().add(sent), want - sent), e.io);
+            w := usize(NetError.check(r, e.exn));
             sent = (sent + w);
           });
         },
         true => ()
       );
-      pending = unsafe(__yo_tls_bio_pending(wbio));
+      pending = unsafe(__yo_tls_bio_pending(t._wbio));
     });
     return(());
   })
-});
+);
 /// Feed one socket read into the read BIO. Returns the byte count (0 = EOF).
-_feed_rbio :: (fn(s : &TlsStream, io : Io) -> Impl(Future(usize, IoExn)))({
-  tcp := s._tcp;
-  rbio := s._rbio;
+_feed_rbio :: (fn(t : _TlsIo, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
     buf := ArrayList(u8).with_capacity(_PUMP_CAP());
     buf.resize_with_byte(_PUMP_CAP(), int(0));
-    n := e.io.await(tcp.read(buf.ptr().unwrap(), _PUMP_CAP(), e.io), e);
+    r := e.io.await(IO_tcp.recv(t._fd, buf.ptr().unwrap(), _PUMP_CAP(), i32(0)), e.io);
+    n := usize(NetError.check(r, e.exn));
     cond(
       (n > usize(0)) => {
-        _w := unsafe(__yo_tls_bio_write(rbio, (*void)(buf.ptr().unwrap()), int(n)));
+        _w := unsafe(__yo_tls_bio_write(t._rbio, (*void)(buf.ptr().unwrap()), int(n)));
       },
       true => ()
     );
     return(n);
   })
-});
+);
 impl(
   TlsStream,
   /// Connect to `host:port` and complete a TLS handshake. Certificate
@@ -211,14 +242,15 @@ impl(
       ssl := ssl_opt.unwrap();
       rbio := unsafe(__yo_tls_rbio(ssl));
       wbio := unsafe(__yo_tls_wbio(ssl));
-      s := TlsStream(_tcp : tcp, _ctx : ctx, _ssl : ssl, _rbio : rbio, _wbio : wbio, _closed : false);
+      t := _TlsIo(_fd : tcp.fd(), _ssl : ssl, _rbio : rbio, _wbio : wbio);
+      s := TlsStream(_cell : box(_TlsState(_tcp : tcp, _ctx : ctx, _ssl : ssl, _rbio : rbio, _wbio : wbio, _closed : false)));
       // 3. Handshake pump. Awaits sit ONE branch under the while — deeper
       // nesting is an unsupported async shape (the closure FTTs to an abort
       // stub; see issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md).
       (done : bool) = false;
       while(!done, {
         ret := unsafe(__yo_tls_handshake(ssl));
-        e.io.await(_flush_wbio(&s, e.io), e);
+        e.io.await(_flush_wbio(t, e.io), e);
         (need_read : bool) = false;
         cond(
           (ret == int(1)) => {
@@ -238,7 +270,7 @@ impl(
           }
         );
         if(need_read, {
-          got := e.io.await(_feed_rbio(&s, e.io), e);
+          got := e.io.await(_feed_rbio(t, e.io), e);
           cond(
             (got == usize(0)) => {
               _throw_tls(TlsError.Handshake(detail : `peer closed during handshake`.to_string()), e.exn);
@@ -250,9 +282,84 @@ impl(
       return(s);
     })
   ),
+  /// The record pumps' handles (see `_TlsIo`).
+  _io : (fn(self : &Self) -> _TlsIo)(
+    _TlsIo(_fd : self._cell._tcp.fd(), _ssl : self._cell._ssl, _rbio : self._cell._rbio, _wbio : self._cell._wbio)
+  ),
   /// Read decrypted bytes into `buf`. 0 = the peer closed the session.
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    ssl := self._ssl;
+  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    _tls_read(self._io(), buf, size, io)
+  ),
+  /// Write plaintext; returns the byte count accepted (all of `size` on
+  /// success — SSL_write is all-or-nothing by default).
+  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    _tls_write(self._io(), buf, size, io)
+  ),
+  /// Write a `str`; returns the byte count written.
+  write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
+    t := self._io();
+    s := String.from(data);
+    io.async(e => {
+      n := e.io.await(_tls_write(t, s.ptr().unwrap(), s.len(), e.io), e);
+      return(n);
+    })
+  }),
+  /// Write a `String` (matches TcpStream.write_string); byte count written.
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
+    t := self._io();
+    io.async(e => {
+      n := e.io.await(_tls_write(t, data.ptr().unwrap(), data.len(), e.io), e);
+      return(n);
+    })
+  }),
+  /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
+  /// objects — the stream must not be used afterwards.
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
+      cond(
+        self._cell._closed => (),
+        true => {
+          st := addr_of(self._cell.*);
+          t := self._io();
+          unsafe(consume(st.*._closed = true));
+          _sd := unsafe(__yo_tls_shutdown(t._ssl));
+          e.io.await(_flush_wbio(t, e.io), e);
+          // __yo_tls_free releases both BIOs (owned by the SSL object) and
+          // the context.
+          unsafe(__yo_tls_free(t._ssl, self._cell._ctx));
+          e.io.await(self._cell._tcp.close(e.io), e);
+        }
+      );
+      return(());
+    })
+  ),
+  /// Close without the event loop: free the OpenSSL objects and close the
+  /// socket now (`TcpStream.close_sync`), even while a pending read or write
+  /// future still holds the socket. What `Drop` runs, and what a caller in
+  /// plain code (a connection pool's eviction) uses, since the destructor is
+  /// never called by hand (E0915).
+  ///
+  /// It does NOT send a `close_notify`: flushing the write BIO needs the
+  /// event loop. `close(io)` is the graceful form and makes `close_sync` a
+  /// no-op afterwards; a peer that only sees the TCP FIN is what every
+  /// language's TLS drop does.
+  close_sync : (fn(self : &Self) -> unit)({
+    cond(
+      !self._cell._closed => {
+        st := addr_of(self._cell.*);
+        unsafe(consume(st.*._closed = true));
+        // __yo_tls_free releases both BIOs (owned by the SSL object) and
+        // the context.
+        unsafe(__yo_tls_free(self._cell._ssl, self._cell._ctx));
+        self._cell._tcp.close_sync();
+      },
+      true => ()
+    );
+  })
+);
+/// Read decrypted bytes into `buf` through the session `t`.
+_tls_read :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    ssl := t._ssl;
     io.async(e => {
       (out : usize) = usize(0);
       (settled : bool) = false;
@@ -289,10 +396,10 @@ impl(
         // machine — issues/fixed/async-postwhile-multiple-await-ifs.md). WANT_READ
         // (act 1) flushes then feeds; WANT_WRITE (act 2) only flushes.
         if(act > int(0), {
-          e.io.await(_flush_wbio(self, e.io), e);
+          e.io.await(_flush_wbio(t, e.io), e);
           (got : usize) = usize(1);
           if(act == int(1), {
-            got = e.io.await(_feed_rbio(self, e.io), e);
+            got = e.io.await(_feed_rbio(t, e.io), e);
           });
           cond(
             (got == usize(0)) => {
@@ -305,17 +412,16 @@ impl(
       });
       return(out);
     })
-  }),
-  /// Write plaintext; returns the byte count accepted (all of `size` on
-  /// success — SSL_write is all-or-nothing by default).
-  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    ssl := self._ssl;
+});
+/// Write plaintext through the session `t`; returns the byte count accepted.
+_tls_write :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    ssl := t._ssl;
     io.async(e => {
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!settled, {
         ret := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
-        e.io.await(_flush_wbio(self, e.io), e);
+        e.io.await(_flush_wbio(t, e.io), e);
         (need_read : bool) = false;
         cond(
           (ret > int(0)) => {
@@ -337,7 +443,7 @@ impl(
           }
         );
         if(need_read, {
-          got := e.io.await(_feed_rbio(self, e.io), e);
+          got := e.io.await(_feed_rbio(t, e.io), e);
           cond(
             (got == usize(0)) => {
               _throw_tls(TlsError.Closed, e.exn);
@@ -349,75 +455,7 @@ impl(
       });
       return(out);
     })
-  }),
-  /// Write a `str`; returns the byte count written.
-  write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
-    s := String.from(data);
-    io.async(e => {
-      n := e.io.await(self.write(s.ptr().unwrap(), s.len(), e.io), e);
-      return(n);
-    })
-  }),
-  /// Write a `String` (matches TcpStream.write_string); byte count written.
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
-      n := e.io.await(self.write(data.ptr().unwrap(), data.len(), e.io), e);
-      return(n);
-    })
-  ),
-  /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
-  /// objects — the stream must not be used afterwards.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(e => {
-      cond(
-        self._closed => (),
-        true => {
-          self._closed = true;
-          _sd := unsafe(__yo_tls_shutdown(self._ssl));
-          e.io.await(_flush_wbio(self, e.io), e);
-          // __yo_tls_free releases both BIOs (owned by the SSL object) and
-          // the context.
-          unsafe(__yo_tls_free(self._ssl, self._ctx));
-          e.io.await(self._tcp.close(e.io), e);
-        }
-      );
-      return(());
-    })
-  ),
-  /// Close without the event loop: free the OpenSSL objects and close the
-  /// socket now (`TcpStream.close_sync`), even while a pending read or write
-  /// future still holds the socket. What `Drop` runs, and what a caller in
-  /// plain code (a connection pool's eviction) uses, since the destructor is
-  /// never called by hand (E0915).
-  ///
-  /// It does NOT send a `close_notify`: flushing the write BIO needs the
-  /// event loop. `close(io)` is the graceful form and makes `close_sync` a
-  /// no-op afterwards; a peer that only sees the TCP FIN is what every
-  /// language's TLS drop does.
-  close_sync : (fn(self : &Self) -> unit)({
-    cond(
-      !self._closed => {
-        self._closed = true;
-        // __yo_tls_free releases both BIOs (owned by the SSL object) and
-        // the context.
-        unsafe(__yo_tls_free(self._ssl, self._ctx));
-        self._tcp.close_sync();
-      },
-      true => ()
-    );
-  })
-);
-impl(
-  TlsStream,
-  Drop(
-    /// A `TlsStream` dropped without `close` used to leak everything it owned
-    /// — the socket descriptor AND the OpenSSL `SSL`/`SSL_CTX` pair.
-    /// `dispose` releases both, through `close_sync`.
-    drop : (fn(self : &mut Self) -> unit)(
-      self.close_sync()
-    )
-  )
-);
+  });
 export(TlsStream);
 // === std/io async trait impls (D5) ===
 impl(
@@ -435,7 +473,7 @@ impl(
       self.write(buf, size, io)
     ),
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      _flush_wbio(self, io)
+      _flush_wbio(self._io(), io)
     )
   )
 );

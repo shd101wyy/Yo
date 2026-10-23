@@ -96,37 +96,70 @@ impl(
   /// behaves the same on every platform.
   defaults : (fn() -> Self)(Self(recursive : false))
 );
-/// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`
-/// when done — closing stops the native watch and makes `next` resolve
-/// `.None` for any waiter.
-Watcher :: ref(
-  struct(
-    _handle : events.FsEventHandle,
-    _root : Path,
-    _queue : ArrayList(FsEvent),
-    /// Index of the first unread event in `_queue`; the list is compacted
-    /// whenever it has been fully drained.
-    _head : usize,
-    _active : bool,
-    /// Tasks suspended in `next`, woken by the next event or by `close`.
-    _waiters : ArrayList(Waker)
-  )
+/// A live watch's state, behind the `Watcher`'s `Box`. The runtime's event
+/// callback holds a raw pointer to it (the box keeps its address while the
+/// `Watcher` handle moves), and its `Drop` unregisters the watch.
+_WatcherState :: struct(
+  _handle : events.FsEventHandle,
+  _root : Path,
+  _queue : ArrayList(FsEvent),
+  /// Index of the first unread event in `_queue`; the list is compacted
+  /// whenever it has been fully drained.
+  _head : usize,
+  _active : bool,
+  /// Tasks suspended in `next`, woken by the next event or by `close`.
+  _waiters : ArrayList(Waker)
 );
 /// Resume every task suspended in `next`: an event arrived, or the watch
 /// closed. Each re-checks the queue, so waking all of them is safe.
-_wake_waiters :: (fn(w : &Watcher) -> unit)({
-  pending := w._waiters;
-  w._waiters = ArrayList(Waker).new();
-  (i : usize) = usize(0);
-  while(i < pending.len(), i = (i + usize(1)), {
-    pending(i).wake();
+_wake_waiters :: (fn(st : &mut _WatcherState) -> unit)({
+  while(runtime(st._waiters.len() > usize(0)), {
+    w := st._waiters.remove(usize(0));
+    w.wake();
   });
 });
+/// Stop the native watch and wake every waiter. Idempotent.
+_stop_watch :: (fn(st : &mut _WatcherState) -> unit)({
+  if(st._active, {
+    st._active = false;
+    events.fs_event_stop(st._handle);
+    events.fs_event_close(st._handle);
+    _wake_waiters(&mut st);
+  });
+});
+impl(
+  _WatcherState,
+  /// Dropping the watcher stops the native watch.
+  ///
+  /// This is not merely tidy. `watch` registers `_on_fs_event` with a RAW,
+  /// NON-OWNING pointer to this state, so a watcher that is dropped while
+  /// active would leave the event loop holding a dangling pointer and calling
+  /// back into freed memory — a use-after-free, on top of leaking the
+  /// backend's `__yo_fs_event_t` and its inotify/kqueue descriptor. The drop
+  /// unregistering the watch is exactly what makes the non-owning
+  /// `user_data` sound: the callback cannot outlive the state, because the
+  /// state's own teardown removes it.
+  /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(_stop_watch(&mut self))
+  )
+);
+/// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`
+/// when done — closing stops the native watch and makes `next` resolve
+/// `.None` for any waiter.
+///
+/// A move-only value (its state is a `Box`): one owner stops the watch, and a
+/// copy is E0901. `close` takes `self : &Self` and stops the watch inside the
+/// box, so a `Watcher` is never `Sync`.
+Watcher :: struct(_cell : Box(_WatcherState));
+impl(Watcher, !Sync());
 /// The runtime callback: runs on the event loop thread, so touching the
-/// watcher's queue needs no lock. `user_data` is the `Watcher` handle itself.
+/// watcher's queue needs no lock. `user_data` is the watcher's state.
 _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
-  w := unsafe.cast(&user_data, Watcher);
-  if(w._active, {
+  // SAFETY: `user_data` is the `_WatcherState` `watch` registered, which
+  // stays at its address until its drop unregisters this callback.
+  w := (*_WatcherState)((*void)(user_data));
+  if(unsafe(w.*._active), {
     // SAFETY: every backend hands a NUL-terminated entry name (`""` when it
     // has none — runtime_io_common's inotify/kqueue paths, the Windows
     // notification loop) that lives for the duration of the callback; it is
@@ -138,12 +171,12 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
       .Err(_) => String.new()
     );
     if((mask & events.FS_EVENT_RENAME) != i32(0), {
-      w._queue.push(FsEvent(name : name.clone(), kind : FsEventKind.Rename));
+      unsafe(w.*._queue.push(FsEvent(name : name.clone(), kind : FsEventKind.Rename)));
     });
     if((mask & events.FS_EVENT_CHANGE) != i32(0), {
-      w._queue.push(FsEvent(name : name, kind : FsEventKind.Change));
+      unsafe(w.*._queue.push(FsEvent(name : name, kind : FsEventKind.Change)));
     });
-    _wake_waiters(&w);
+    _wake_waiters(&mut unsafe(w.*));
   });
 });
 /// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
@@ -153,57 +186,59 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   // watch its prefix (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
   cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(IoError.InvalidInput)));
   w := Watcher(
-    _handle : events.fs_event_init(),
-    _root : path,
-    _queue : ArrayList(FsEvent).new(),
-    _head : usize(0),
-    _active : false,
-    _waiters : ArrayList(Waker).new()
+    _cell : box(
+      _WatcherState(
+        _handle : events.fs_event_init(),
+        _root : path,
+        _queue : ArrayList(FsEvent).new(),
+        _head : usize(0),
+        _active : false,
+        _waiters : ArrayList(Waker).new()
+      )
+    )
   );
+  st := addr_of(w._cell.*);
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
-  status := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(&w, *u8));
+  status := events.fs_event_start(w._cell._handle, cstr, flags, _on_fs_event, (*u8)((*void)(st)));
   if(status < i32(0), {
-    events.fs_event_close(w._handle);
+    events.fs_event_close(w._cell._handle);
     exn.throw(dyn(IoError.from_errno(i32(0) - status)));
   });
-  w._active = true;
+  unsafe(consume(st.*._active = true));
   w
 });
 impl(
   Watcher,
   /// The watched path.
-  path : (fn(self : &mut Self) -> Path)(self._root),
+  path : (fn(self : &mut Self) -> Path)(self._cell._root),
   /// Whether the watch is still running.
-  is_active : (fn(self : &mut Self) -> bool)(self._active),
+  is_active : (fn(self : &mut Self) -> bool)(self._cell._active),
   /// Events queued and not yet read.
-  pending : (fn(self : &mut Self) -> usize)(self._queue.len() - self._head),
+  pending : (fn(self : &mut Self) -> usize)(self._cell._queue.len() - self._cell._head),
   /// Take the next queued event without waiting; `.None` when the queue is
   /// empty.
-  poll : (fn(self : &mut Self) -> Option(FsEvent))(
+  poll : (fn(self : &mut Self) -> Option(FsEvent))({
+    st := addr_of(self._cell.*);
     cond(
-      (self._head < self._queue.len()) => {
-        ev := self._queue(self._head);
-        self._head = (self._head + usize(1));
-        if(self._head == self._queue.len(), {
-          self._queue = ArrayList(FsEvent).new();
-          self._head = usize(0);
+      (self._cell._head < self._cell._queue.len()) => {
+        ev := self._cell._queue(self._cell._head);
+        unsafe(consume(st.*._head = (st.*._head + usize(1))));
+        if(self._cell._head == self._cell._queue.len(), {
+          unsafe(st.*._queue.clear());
+          unsafe(consume(st.*._head = usize(0)));
         });
         Option(FsEvent).Some(ev)
       },
       true => Option(FsEvent).None
     )
-  ),
+  }),
   /// Stop the native watch. Queued events stay readable through `poll`;
-  /// `next` no longer waits. Idempotent, and called for you when the last
-  /// reference to the watcher goes away (`Drop` below).
+  /// `next` no longer waits. Idempotent, and called for you when the watcher
+  /// is dropped.
   close : (fn(self : &Self) -> unit)({
-    if(self._active, {
-      self._active = false;
-      events.fs_event_stop(self._handle);
-      events.fs_event_close(self._handle);
-      _wake_waiters(self);
-    });
+    st := addr_of(self._cell.*);
+    _stop_watch(&mut unsafe(st.*));
   })
 );
 /// A `Watcher` IS an async stream of events, and was the shape the `Stream`
@@ -223,36 +258,19 @@ impl(
     /// watcher spun a core and the loop never blocked
     /// (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
     ///
-    /// The future holds its own handle on the watcher (a `Watcher` is a
-    /// shared `ref` object), so it borrows nothing: a borrow of a `ref`
-    /// object across the suspension is E0909 (§3.13 A2).
+    /// The future borrows the watcher (`&mut self`): await it where it is
+    /// made, or hand the watcher to a combinator that owns it.
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
-      io.async({ w : self }(io : Io) => {
-        while(runtime((w._head >= w._queue.len()) && w._active), {
+      io.async({ &mut self }(io : Io) => {
+        st := addr_of(self._cell.*);
+        while(runtime((self._cell._head >= self._cell._queue.len()) && self._cell._active), {
           p := Park.new();
-          w._waiters.push(p.waker());
+          unsafe(st.*._waiters.push(p.waker()));
           io.await(p.wait(io), io);
         });
-        w.poll()
+        self.poll()
       })
     )
-  )
-);
-impl(
-  Watcher,
-  /// Releasing the last reference stops the native watch.
-  ///
-  /// This is not merely tidy. `watch` registers `_on_fs_event` with a RAW,
-  /// NON-OWNING pointer to the watcher (`unsafe.cast(w, *u8)`), so a watcher
-  /// that is dropped while active leaves the event loop holding a dangling
-  /// pointer and calling back into freed memory — a use-after-free, on top of
-  /// leaking the backend's `__yo_fs_event_t` and its inotify/kqueue
-  /// descriptor. `dispose` unregistering the watch is exactly what makes the
-  /// non-owning `user_data` sound: the callback cannot outlive the object,
-  /// because the object's own teardown removes it.
-  /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)(self.close())
   )
 );
 export(FsEventKind, FsEvent, WatchOptions, Watcher, watch);

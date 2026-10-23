@@ -72,7 +72,7 @@ Reader :: trait(
   (read_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
     (
       (self, io) ->
-        io.async(e => {
+        io.async({ &self, io }(e : IoExn) => {
           // It used to read into a separate 4 KiB chunk (filled first with
           // 4096 pushes) and copy every byte over with its own `push`: a 16 KiB
           // file cost five reads and ~20k contract-checked pushes.
@@ -100,7 +100,7 @@ Reader :: trait(
   (read_to_string : (fn(self : &Self, io : Io) -> Impl(Future(String, IoExn)))) ?=
     (
       (self, io) ->
-        io.async(e => {
+        io.async({ &self, io }(e : IoExn) => {
           bytes := e.io.await(Self.read_to_end(self, io), e);
           match(
             String.from_utf8(bytes),
@@ -125,7 +125,7 @@ Writer :: trait(
   (write_all : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(unit, IoExn)))) ?=
     (
       (self, buf, size, io) ->
-        io.async(e => {
+        io.async({ &self, buf, size, io }(e : IoExn) => {
           (written : usize) = usize(0);
           while(written < size, {
             n := e.io.await(Self.write(self, buf.add(written), size - written, io), e);
@@ -172,7 +172,7 @@ export(Seek);
 copy :: (
   fn(generic(R : Type, W : Type), r : &R, w : &W, io : Io, where(R <: Reader, W <: Writer)) -> Impl(Future(u64, IoExn))
 )(
-  io.async(e => {
+  io.async({ &r, &w }(e : IoExn) => {
     (total : u64) = u64(0);
     chunk := ArrayList(u8).with_capacity(usize(4096));
     (ci : usize) = usize(0);
