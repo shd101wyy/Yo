@@ -1,7 +1,9 @@
 // `RefCell(T)` (std/sync/refcell): shared mutation behind `Rc`, checked at
 // run time (plans/VALUES_BY_DEFAULT.md decisions 41 and 46, §6 "Decision 46"
-// step 1). A conflicting access panics; that path is pinned by the cli case
-// `refcell-with-mut-under-with-panics`.
+// step 1). A conflicting access panics; those paths are pinned by the cli
+// cases `refcell-with-mut-under-with-panics`,
+// `refcell-replace-under-with-panics` and
+// `refcell-replace-with-reentry-panics`.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -63,6 +65,81 @@ test("clone copies the value into a new cell", {
     v = i32(4);
   });
   assert((a.with(v => v) == i32(3)) && (b.with(v => v) == i32(4)), "independent cells");
+});
+// `replace`, `replace_with`, `take` and `into_inner`: step 0 of
+// issues/questions/2026-10-23-should-yo-add-a-flagless-cell.md.
+test("replace_with counts through a second handle and returns the old value", {
+  counter := rc(RefCell(i32).new(i32(0)));
+  other := counter;
+  assert(other.replace_with(n => (n + i32(1))) == i32(0), "the old value");
+  assert(counter.replace_with(n => (n * i32(10))) == i32(1), "the first handle sees 1");
+  assert(other.with(n => n) == i32(10), "both updates landed in the one cell");
+});
+test("replace swaps a String in and gives the old one back", {
+  name := rc(RefCell(String).new(String.from("old")));
+  other := name;
+  was := other.replace(String.from("new"));
+  assert(was == "old", "the replaced value");
+  assert(name.with(s => (s == "new")), "seen through the other handle");
+});
+test("replace_with builds the successor of a collection from the current one", {
+  log := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+  log.with_mut(xs => {
+    xs.push(String.from("a"));
+  });
+  was := log.replace_with(xs => {
+    next := xs.clone();
+    next.push(String.from("b"));
+    next
+  });
+  assert(was.len() == usize(1), "the old list");
+  assert(log.with(xs => xs.len()) == usize(2), "the new list");
+});
+test("take leaves the default behind", {
+  log := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+  other := log;
+  other.with_mut(xs => {
+    xs.push(String.from("a"));
+    xs.push(String.from("b"));
+  });
+  taken := log.take();
+  assert(taken.len() == usize(2), "the items moved out");
+  assert(other.with(xs => xs.len()) == usize(0), "an empty list is left");
+  n := RefCell(i32).new(i32(7));
+  assert((n.take() == i32(7)) && (n.with(v => v) == i32(0)), "i32's default is 0");
+});
+test("into_inner consumes the cell and returns the value", {
+  cell := RefCell(String).new(String.from("x"));
+  cell.with_mut(s => {
+    s.push_str("y");
+  });
+  s := cell.into_inner();
+  assert(s == "xy", "the value written through the cell");
+  shared := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+  shared.with_mut(xs => {
+    xs.push(String.from("z"));
+  });
+  xs := match(Rc.try_unwrap(shared), .Ok(c) => c.into_inner(), .Err(_) => ArrayList(String).new());
+  assert(xs.len() == usize(1), "the only handle's cell gives its list up");
+});
+test("the mark is released when replace_with's function unwinds", {
+  c := rc(RefCell(i32).new(i32(1)));
+  _unwinds :: (fn(cell : &Rc(RefCell(i32))) -> i32)({
+    cell.replace_with(
+      v => cond(
+        (v == i32(1)) => unwind(i32(7)),
+        true => (v + i32(1))
+      )
+    );
+    i32(0)
+  });
+  assert(_unwinds(&c) == i32(7), "the function unwound out of the caller");
+  assert(c.with(v => v) == i32(1), "the value is unchanged");
+  assert(c.replace_with(v => (v + i32(1))) == i32(1), "the cell is free again");
+  c.with_mut(v => {
+    v = (v + i32(1));
+  });
+  assert(c.with(v => v) == i32(3), "and with_mut runs after it");
 });
 test("RefCell is Send when T is, never Sync, so Arc(RefCell(T)) is rejected", {
   comptime_assert(Type.impls(RefCell(i32), Send), "RefCell(i32) is Send");

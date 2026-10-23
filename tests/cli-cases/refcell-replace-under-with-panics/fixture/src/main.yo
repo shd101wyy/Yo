@@ -1,0 +1,17 @@
+// A `replace` on a RefCell while a `with` body of the same cell runs
+// (reached through a second `Rc` handle) panics: the old value would move
+// out from under the running body, as Rust's `RefCell::replace` panics
+// under a live `borrow`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  a := rc(RefCell(String).new(String.from("old")));
+  b := a;
+  a.with(s => {
+    println(`reading ${s}`);
+    b.replace(String.from("new"));
+  });
+  println("unreachable");
+});
+export(main);

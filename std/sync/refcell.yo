@@ -12,11 +12,14 @@
 //! { RefCell } :: import("std/sync/refcell");
 //! log := rc(RefCell(i32).new(i32(0)));
 //! other := log; // a second handle to the same cell
-//! other.with_mut(n => {
-//!   n = (n + i32(1));
-//! });
+//! other.replace_with(n => (n + i32(1))); // returns the old value, 0
 //! seen := log.with(n => n); // 1
 //! ```
+//!
+//! Beside the two closure doors, the cell has Rust's value-moving methods,
+//! which lend nothing to the caller: `replace(v)` and `take()` swap a value
+//! in and return the old one, `replace_with(f)` computes the new value from
+//! the current one, and `into_inner()` consumes the cell.
 //!
 //! ## Stability
 //!
@@ -49,6 +52,10 @@ _RefCellSlot :: (fn(comptime(T) : Type) -> comptime(Type))(
 /// - `with_mut(body)` runs `body` with `v : &mut T`, alone: a `with` or
 ///   `with_mut` on the same cell while it runs, or a `with_mut` while a
 ///   `with` runs, panics.
+/// - `replace(v)`, `replace_with(f)` and `take()` store a new value and
+///   return the old one, lending nothing to the caller; each panics while a
+///   `with` or `with_mut` body runs, and `replace_with` holds the cell as
+///   `with_mut` does while `f` runs. `into_inner()` consumes the cell.
 ///
 /// The mark is released when the body returns or unwinds. A `RefCell` is
 /// `Send` when `T` is and never `Sync`, so `Arc(RefCell(T))` is rejected:
@@ -112,6 +119,84 @@ impl(
     unsafe(consume(slot.*._borrow = isize(-1)));
     _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(-1));
     unsafe(body(&mut slot.*._value))
+  }),
+  /// Store `value` and return the value it replaces — Rust's `replace`.
+  /// Panics if any `with` or `with_mut` body of this cell is running: the old
+  /// value moves out, and a running body is reading or writing it.
+  replace : (fn(self : &Self, value : T) -> T)({
+    slot := addr_of(self._slot.*);
+    // SAFETY: as in `with`.
+    if(unsafe(slot.*._borrow) != isize(0), {
+      __yo_panic("RefCell.replace: the value is already borrowed (a with or with_mut body is running)");
+    });
+    Self._swap(slot, value, isize(0))
+  }),
+  /// Store `f(v)`, computed from the current value `v`, and return the value
+  /// it replaces — Rust's `replace_with`. `f` reads the value as `v : &T`,
+  /// as a `with` body does, and returns its successor: the result replaces
+  /// the value wholesale, so `f` is not lent `&mut T` (an edit in place is
+  /// `with_mut`). The cell is held as `with_mut` holds it while `f` runs, so
+  /// any access to it from `f` panics; the mark is released when `f` returns
+  /// or unwinds, and an unwinding `f` leaves the value unchanged. Panics if
+  /// any `with` or `with_mut` body of this cell is running.
+  ///
+  /// ```yo
+  /// { RefCell } :: import("std/sync/refcell");
+  /// hits := RefCell(i32).new(i32(4));
+  /// old := hits.replace_with(n => (n + i32(1))); // old is 4, the cell holds 5
+  /// ```
+  replace_with : (fn(self : &Self, f : &Impl(Fn(v : &T) -> T)) -> T)({
+    slot := addr_of(self._slot.*);
+    // SAFETY: as in `with`.
+    if(unsafe(slot.*._borrow) != isize(0), {
+      __yo_panic("RefCell.replace_with: the value is already borrowed (a with or with_mut body is running)");
+    });
+    unsafe(consume(slot.*._borrow = isize(-1)));
+    _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(-1));
+    new_value := unsafe(f(&slot.*._value));
+    // The swap keeps the `-1` mark, which `_release` clears on return.
+    Self._swap(slot, new_value, isize(-1))
+  }),
+  /// The value, out of the consumed cell — Rust's `into_inner`. No mark is
+  /// checked: a running `with` or `with_mut` body holds the cell borrowed,
+  /// so the cell cannot be given up by value while one runs, and a shared
+  /// `Rc(RefCell(T))` reaches this only through `Rc.try_unwrap`, which needs
+  /// the only handle.
+  ///
+  /// The value is bound out of the cell's `Box`: a copy, which the box's
+  /// drop then releases. A move-only `T` is therefore rejected (E0901), since
+  /// nothing moves a payload out of a `Box` bitwise yet
+  /// (issues/2026-10-23-a-move-only-payload-cannot-move-out-of-a-box.md).
+  into_inner : (fn(self : Self) -> T)(
+    match(self, { _slot : { _borrow : _, _value : value } } => value)
+  ),
+  /// Move the slot's value out and `value` in, leaving `mark` as the slot's
+  /// mark; the caller has checked the old mark.
+  _swap : (fn(slot : *_RefCellSlot(T), value : T, mark : isize) -> T)({
+    // SAFETY: `slot` is the cell's live slot, and no body of the cell is
+    // reading it. The old contents move out bitwise before the new ones move
+    // in, so nothing is copied and nothing is dropped twice (a move-only `T`
+    // works). The whole slot moves, never `_value` through `addr_of`: a
+    // `unit` value has no C storage to point at (`HashMap.try_insert`).
+    old := __yo_ptr_read(slot);
+    __yo_ptr_write(slot, _RefCellSlot(T)(_borrow : mark, _value : value));
+    match(old, { _borrow : _, _value : old_value } => old_value)
+  })
+);
+/// `take`, for a `T` with a default.
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  RefCell(T),
+  /// Store `T`'s default and return the value it replaces — Rust's `take`.
+  /// Panics as `replace` does.
+  take : (fn(self : &Self) -> T)({
+    slot := addr_of(self._slot.*);
+    // SAFETY: as in `with`.
+    if(unsafe(slot.*._borrow) != isize(0), {
+      __yo_panic("RefCell.take: the value is already borrowed (a with or with_mut body is running)");
+    });
+    Self._swap(slot, (T <: Default).default(), isize(0))
   })
 );
 /// A new cell holding a clone of the value (read as `with` reads it, so it

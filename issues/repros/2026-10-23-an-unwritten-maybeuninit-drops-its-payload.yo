@@ -1,0 +1,20 @@
+// issues/2026-10-23-an-unwritten-maybeuninit-drops-its-payload.md: prints `drop 0`
+// although no `Tok` was ever constructed.
+{ println } :: import("std/fmt");
+Tok :: struct(n : i32);
+impl(
+  Tok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`drop ${self.n.to_string()}`);
+    })
+  )
+);
+main :: (fn() -> unit)({
+  {
+    _mu := MaybeUninit(Tok).new();
+    println("never written");
+  };
+  println("end");
+});
+export(main);
