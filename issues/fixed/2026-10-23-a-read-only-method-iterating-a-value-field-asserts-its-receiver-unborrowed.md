@@ -87,7 +87,9 @@ asserted. Defect 1 had a soundness twin, a missed assert that let a borrowed
   `mutation_summary.yo` now treat a value as folded only when it has no
   unknown leaf. A runtime construction is classified by its arguments
   (`ctor_root`), so a clone's result is FRESH and an iterator holding it is
-  FRESH. `UnitVal` and `FuncVal` keep their old treatment.
+  FRESH. `UnitVal` and `FuncVal` keep their old treatment. A module value
+  (`import(...)` inside a body) still counts as folded even when some
+  members are runtime: it is never constructed at run time.
 - `define_from` records a declared local even when its root is NONE, so a
   defined-but-inert local is no longer read as undefined. A pointer-typed
   local whose root is NONE (fabricated from integers) still reads as

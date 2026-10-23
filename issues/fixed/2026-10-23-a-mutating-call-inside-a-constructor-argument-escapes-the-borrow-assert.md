@@ -52,7 +52,10 @@ The PARAM-STORAGE mask walk (`_MsP.walk`,
 fold that never runs. A runtime construction's value is a SHELL
 (`StructVal`/`EnumVal`) with an `UnknownVal` leaf, and so is the value of a
 call to a function whose body is such a construction. The walk skipped the
-whole expression and never visited the mutating call inside it.
+whole expression and never visited the mutating call inside it. In the
+compiler's own source the same skip hid ordinary runtime calls whose
+compile-time value is such a shell (`type_to_string(&ty)`,
+`id.to_string()`): the walk never looked at them at all.
 
 ## Fix
 
