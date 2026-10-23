@@ -141,6 +141,92 @@ test("the mark is released when replace_with's function unwinds", {
   });
   assert(c.with(v => v) == i32(3), "and with_mut runs after it");
 });
+// A cell reached through an `Rc` element is kept alive for the call even
+// when the body drops every other handle: the caller holds a +1 on the
+// handle, and a body naming the container itself is E0910
+// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
+// The value has a destructor, so each access reports how many values were
+// destroyed while its body ran: 0 when the cell outlived the body.
+mut(_rc_cell_drops) := i32(0);
+_RcTracked :: struct(n : i32);
+impl(
+  _RcTracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _rc_cell_drops = (_rc_cell_drops + i32(1));
+    })
+  )
+);
+_rc_tracked_list :: (fn(n : i32) -> ArrayList(Rc(RefCell(_RcTracked))))({
+  xs := ArrayList(Rc(RefCell(_RcTracked))).new();
+  xs.push(rc(RefCell(_RcTracked).new(_RcTracked(n : n))));
+  xs
+});
+test("with, with_mut, replace_with and replace keep a cell reached through an Rc element alive", {
+  _rc_cell_drops = i32(0);
+  a := _rc_tracked_list(i32(1));
+  a2 := a;
+  assert(
+    a(usize(0)).with_mut(v => {
+      a2.clear();
+      v.n = (v.n + i32(1));
+      _rc_cell_drops
+    }) == i32(0),
+    "with_mut: the cell outlives the body"
+  );
+  assert(_rc_cell_drops == i32(1), "and is destroyed once, after it");
+  b := _rc_tracked_list(i32(2));
+  b2 := b;
+  assert(
+    b(usize(0)).with(v => {
+      b2.clear();
+      _rc_cell_drops + (v.n - v.n)
+    }) == i32(1),
+    "with"
+  );
+  assert(_rc_cell_drops == i32(2), "destroyed once");
+  c := _rc_tracked_list(i32(3));
+  c2 := c;
+  old := c(usize(0)).replace_with(v => {
+    c2.clear();
+    _RcTracked(n : (v.n + _rc_cell_drops))
+  });
+  assert(old.n == i32(3), "replace_with: the old value, read from a live cell");
+  assert(_rc_cell_drops == i32(3), "the new value is destroyed with the cell after the call; the old one is held");
+  d := _rc_tracked_list(i32(4));
+  d2 := d;
+  old_d := d(usize(0)).replace({
+    d2.clear();
+    _RcTracked(n : _rc_cell_drops)
+  });
+  assert(old_d.n == i32(4), "replace: an argument that drops the last other handle");
+  assert(_rc_cell_drops == i32(4), "the new value is destroyed with the cell after the call");
+  e := _rc_tracked_list(i32(5));
+  e2 := e;
+  assert(
+    RefCell(_RcTracked).with_mut(&e(usize(0)).*, v => {
+      e2.clear();
+      _rc_cell_drops + (v.n - v.n)
+    }) == i32(4),
+    "a `&` argument through the handle"
+  );
+  assert(_rc_cell_drops == i32(5), "destroyed once, after the call");
+});
+test("a body naming the container its cell is lent from is E0910", {
+  comptime_expect_error({
+    xs := _rc_tracked_list(i32(1));
+    xs(usize(0)).with_mut(v => {
+      xs.clear();
+    })
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    xs := _rc_tracked_list(i32(1));
+    xs(usize(0)).replace_with(v => {
+      xs.clear();
+      _RcTracked(n : v.n)
+    })
+  }, "an earlier argument of the same call lends to it");
+});
 test("RefCell is Send when T is, never Sync, so Arc(RefCell(T)) is rejected", {
   comptime_assert(Type.impls(RefCell(i32), Send), "RefCell(i32) is Send");
   comptime_assert(!Type.impls(RefCell(i32), Sync), "RefCell(i32) is not Sync");

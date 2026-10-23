@@ -3007,6 +3007,298 @@ test("a compile-time-collapsed cond in a wrapper awaited twice by one task", {
   assert(io.await(_cond_ct_fused_twice(&r, io), io) == i32(20), "each await reads the handle twice");
   assert(ref_count(r) == usize(1), "every collapsed copy released its count");
 });
+// A `&Self` receiver, or a `&` argument, reached through an `Rc`/`Arc`
+// payload is kept alive for its call: the caller takes its +1 on the HANDLE
+// (Aliasing Stage 0), so a closure argument that drops every other handle
+// leaves the cell alive until the call returns. When the closure names the
+// handle's container itself, the call is E0910, as the `&` argument is
+// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
+// The payload has a destructor, so it is move-only and no copy of it could
+// keep it: `peek` returns how many payloads were destroyed while its closure
+// ran, 0 when the cell outlived the closure.
+mut(_rcv_drops) := i32(0);
+_RcvCell :: struct(n : i32);
+impl(
+  _RcvCell,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _rcv_drops = (_rcv_drops + i32(1));
+    })
+  )
+);
+impl(
+  _RcvCell,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> i32)({
+    act();
+    _rcv_drops + (self.n - self.n)
+  })
+);
+_RcvField :: struct(r : Rc(_RcvCell));
+_RcvHolder :: struct(xs : ArrayList(Rc(_RcvCell)));
+impl(_RcvHolder, first : (fn(self : &Self) -> &Rc(_RcvCell))(&self.xs(usize(0))));
+_rcv_peek :: (fn(c : &_RcvCell, act : &Impl(Fn() -> unit)) -> i32)({
+  act();
+  _rcv_drops + (c.n - c.n)
+});
+test("a receiver reached through an Rc element outlives a closure that drops the last other handle", {
+  _rcv_drops = i32(0);
+  hs := ArrayList(Rc(_RcvCell)).new();
+  hs.push(rc(_RcvCell(n : i32(1))));
+  hs2 := hs;
+  assert(
+    hs(usize(0)).peek(() => {
+      hs2.clear();
+    }) == i32(0),
+    "auto-dereferenced receiver: the cell outlives the call"
+  );
+  assert(_rcv_drops == i32(1), "and is destroyed once, after it");
+  hs.push(rc(_RcvCell(n : i32(2))));
+  assert(
+    hs(usize(0)).*.peek(() => {
+      hs2.clear();
+    }) == i32(1),
+    "written `.*` receiver"
+  );
+  assert(_rcv_drops == i32(2), "destroyed once");
+  hs.push(rc(_RcvCell(n : i32(3))));
+  assert(
+    _rcv_peek(&hs(usize(0)).*, () => {
+      hs2.clear();
+    }) == i32(2),
+    "a `&` argument through the handle"
+  );
+  assert(_rcv_drops == i32(3), "destroyed once");
+  h := _RcvHolder(xs : hs);
+  hs.push(rc(_RcvCell(n : i32(4))));
+  assert(
+    h.xs(usize(0)).peek(() => {
+      hs2.clear();
+    }) == i32(3),
+    "an element of a field"
+  );
+  assert(_rcv_drops == i32(4), "destroyed once");
+  hs.push(rc(_RcvCell(n : i32(5))));
+  assert(
+    h.first().peek(() => {
+      hs2.clear();
+    }) == i32(4),
+    "a handle returned by a projection call"
+  );
+  assert(_rcv_drops == i32(5), "destroyed once");
+});
+test("a receiver behind a field, nested handles or an Arc outlives the closure too", {
+  _rcv_drops = i32(0);
+  fs := ArrayList(_RcvField).new();
+  fs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
+  fs2 := fs;
+  assert(
+    fs(usize(0)).r.peek(() => {
+      fs2.clear();
+    }) == i32(0),
+    "an Rc field of an element"
+  );
+  assert(_rcv_drops == i32(1), "destroyed once");
+  nested := ArrayList(Rc(Rc(_RcvCell))).new();
+  nested.push(rc(rc(_RcvCell(n : i32(2)))));
+  nested2 := nested;
+  assert(
+    nested(usize(0)).peek(() => {
+      nested2.clear();
+    }) == i32(1),
+    "Rc(Rc(T)): the inner handle holds the payload"
+  );
+  assert(_rcv_drops == i32(2), "destroyed once");
+  boxed := ArrayList(Rc(Box(_RcvCell))).new();
+  boxed.push(rc(box(_RcvCell(n : i32(3)))));
+  boxed2 := boxed;
+  assert(
+    boxed(usize(0)).peek(() => {
+      boxed2.clear();
+    }) == i32(2),
+    "Rc(Box(T)): the Rc owns the box"
+  );
+  assert(_rcv_drops == i32(3), "destroyed once");
+  shared := ArrayList(Arc(_RcvCell)).new();
+  shared.push(arc(_RcvCell(n : i32(4))));
+  shared2 := shared;
+  assert(
+    shared(usize(0)).peek(() => {
+      shared2.clear();
+    }) == i32(3),
+    "an Arc element"
+  );
+  assert(_rcv_drops == i32(4), "destroyed once");
+});
+// The same call in an `io.async` body: the handle's share is taken on the
+// state machine's path too, across the awaits around the call.
+_rcv_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    hs := ArrayList(Rc(_RcvCell)).new();
+    hs.push(rc(_RcvCell(n : i32(1))));
+    hs2 := hs;
+    io.await(yield(io), io);
+    seen := hs(usize(0)).peek(() => {
+      hs2.clear();
+    });
+    io.await(yield(io), io);
+    seen
+  })
+);
+test("a receiver reached through an Rc element in an io.async body outlives the closure", {
+  _rcv_drops = i32(0);
+  assert(io.await(_rcv_in_task(io), io) == i32(0), "the cell outlives the call in the task");
+  assert(_rcv_drops == i32(1), "and is destroyed once");
+});
+// A copyable payload behind a `Box` or a value field keeps its own +1.
+_RcvText :: struct(s : String);
+impl(
+  _RcvText,
+  peek_len : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> usize)({
+    act();
+    self.s.len()
+  })
+);
+_RcvTextField :: struct(t : _RcvText);
+test("a copyable receiver behind a Box or a value field of an element keeps its value", {
+  bs := ArrayList(Box(_RcvText)).new();
+  bs.push(box(_RcvText(s : String.from("hello"))));
+  bs2 := bs;
+  assert(
+    bs(usize(0)).peek_len(() => {
+      bs2.clear();
+    }) == usize(5),
+    "Box element"
+  );
+  vs := ArrayList(_RcvTextField).new();
+  vs.push(_RcvTextField(t : _RcvText(s : String.from("hello"))));
+  vs2 := vs;
+  assert(
+    vs(usize(0)).t.peek_len(() => {
+      vs2.clear();
+    }) == usize(5),
+    "a value field of an element"
+  );
+});
+test("a closure naming the container a receiver is lent from is E0910", {
+  comptime_expect_error({
+    hs := ArrayList(Rc(_RcvCell)).new();
+    hs(usize(0)).peek(() => {
+      hs.clear();
+    })
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    fs := ArrayList(_RcvField).new();
+    fs(usize(0)).r.peek(() => {
+      fs.clear();
+    })
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    mut(r) := rc(_RcvCell(n : i32(1)));
+    r.peek(() => {
+      r = rc(_RcvCell(n : i32(2)));
+    })
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    ts := ArrayList(_RcvText).new();
+    ts(usize(0)).peek_len(() => {
+      ts.clear();
+    })
+  }, "an earlier argument of the same call lends to it");
+});
+// An exit taken while a later argument of the call is evaluated (`return`,
+// `break`, `continue`, an unwind, a task's `return`) skips the post-call
+// release of the share the receiver took on the handle, so the exit releases
+// it: a share left behind keeps the cell alive past its last handle, and the
+// payload is never destroyed
+// (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
+impl(
+  _RcvCell,
+  peek_k : (fn(self : &Self, k : i32, act : &Impl(Fn() -> unit)) -> i32)({
+    act();
+    self.n + k
+  })
+);
+_rcv_exit_return :: (fn(hs : &ArrayList(Rc(_RcvCell)), o : Option(i32)) -> i32)(
+  hs(usize(0)).peek_k(match(o, .Some(v) => v, .None => return(i32(-1))), () => ())
+);
+_rcv_exit_return_field :: (fn(fs : &ArrayList(_RcvField), o : Option(i32)) -> i32)(
+  fs(usize(0)).r.peek_k(match(o, .Some(v) => v, .None => return(i32(-1))), () => ())
+);
+_rcv_exit_loops :: (fn(hs : &ArrayList(Rc(_RcvCell))) -> i32)({
+  mut(sum) := i32(0);
+  mut(i) := i32(0);
+  while(i < i32(5), i = (i + i32(1)), {
+    sum = (sum + hs(usize(0)).peek_k(cond((i == i32(3)) => break, true => i), () => ()));
+  });
+  mut(j) := i32(0);
+  while(j < i32(5), j = (j + i32(1)), {
+    sum = (sum + hs(usize(0)).peek_k(cond((j == i32(2)) => continue, true => j), () => ()));
+  });
+  sum
+});
+_RcvExit :: (ctl(k : i32) -> i32);
+_rcv_pick :: (fn(k : i32, raise : _RcvExit) -> i32)(cond((k < i32(0)) => raise(k), true => k));
+_rcv_exit_unwind :: (fn(hs : &ArrayList(Rc(_RcvCell)), k : i32) -> i32)({
+  (raise : _RcvExit) = (
+    x -> {
+      unwind(i32(-7));
+    }
+  );
+  hs(usize(0)).peek_k(_rcv_pick(k, raise), () => ())
+});
+_rcv_exit_task :: (fn(o : Option(i32), io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    hs := ArrayList(Rc(_RcvCell)).new();
+    hs.push(rc(_RcvCell(n : i32(1))));
+    io.await(yield(io), io);
+    r := hs(usize(0)).peek_k(match(o, .Some(v) => v, .None => return(i32(5))), () => ());
+    io.await(yield(io), io);
+    r
+  })
+);
+test("an exit from a later argument releases the share a receiver took through an Rc", {
+  _rcv_drops = i32(0);
+  hs := ArrayList(Rc(_RcvCell)).new();
+  hs.push(rc(_RcvCell(n : i32(1))));
+  assert(_rcv_exit_return(&hs, .None) == i32(-1), "return from a later argument");
+  assert(_rcv_exit_return(&hs, .Some(i32(2))) == i32(3), "no exit");
+  assert(_rcv_exit_loops(&hs) == i32(18), "break and continue from a later argument");
+  assert(_rcv_exit_unwind(&hs, i32(-1)) == i32(-7), "unwind from a later argument");
+  assert(_rcv_exit_unwind(&hs, i32(2)) == i32(3), "no unwind");
+  hs.clear();
+  assert(_rcv_drops == i32(1), "every exit released its share");
+  fs := ArrayList(_RcvField).new();
+  fs.push(_RcvField(r : rc(_RcvCell(n : i32(1)))));
+  assert(_rcv_exit_return_field(&fs, .None) == i32(-1), "return, Rc field of an element");
+  fs.clear();
+  assert(_rcv_drops == i32(2), "the field's share was released");
+  assert(io.await(_rcv_exit_task(.None, io), io) == i32(5), "a task's return from a later argument");
+  assert(_rcv_drops == i32(3), "the task released its share");
+});
+// The share is released by exits that leave the call, not by an exit inside
+// the argument (a loop's `break`) or inside the closure (its `return`).
+_rcv_exit_inner :: (fn(hs : &ArrayList(Rc(_RcvCell)), hs2 : &mut ArrayList(Rc(_RcvCell))) -> i32)(
+  hs(usize(0)).peek_k({
+    mut(s) := i32(0);
+    while(true, {
+      s = (s + i32(1));
+      cond((s > i32(2)) => break, true => ());
+    });
+    s
+  }, { &mut hs2 }() => {
+    hs2.clear();
+    cond(true => return(()), true => ());
+    _rcv_drops = (_rcv_drops + i32(100));
+  })
+);
+test("an exit inside a later argument or its closure keeps the receiver's share", {
+  _rcv_drops = i32(0);
+  hs := ArrayList(Rc(_RcvCell)).new();
+  hs.push(rc(_RcvCell(n : i32(1))));
+  mut(hs2) := hs;
+  assert(_rcv_exit_inner(&hs, &mut hs2) == i32(4), "the cell outlives the call");
+  assert(_rcv_drops == i32(1), "and is destroyed once, after it");
+});
 
 // Teardown at any nesting depth (issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md).
 // The "does this type hold anything to drop" walk once answered "no" past 8

@@ -1,0 +1,14 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  hs := ArrayList(RefCell(String)).new();
+  hs.push(RefCell(String).new(String.from("hello")));
+  hs2 := hs;
+  hs(usize(0)).with_mut(v => {
+    hs2.clear();
+    println(&v);
+  });
+});
+export(main);

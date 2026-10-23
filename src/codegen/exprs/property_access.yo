@@ -27,8 +27,22 @@
 { _call_generate_expr } :: import("./_expr.yo");
 { sanitize_for_c_identifier, c_field_name, c_variant_member_name, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key, extern_c_global_matches, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
-{ lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
+{ lookup_io_builtin_struct_field, expr_info_deferred_dup_expressions, is_call_scoped_share_dup } :: import("../../expr_info.yo");
+{ emit_deferred_dup_or_code } :: import("./drop_dup.yo");
 { dyn_type_has_vtable_slot } :: import("../../types/utils.yo");
+/// `e` carries a deferred dup that is the caller-owned share of a call
+/// (`mark_call_scoped_share_dup`): its emission is the dereferencing access's.
+_carries_call_scoped_share :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    context.base.get_expr_info(e),
+    .Some(ei) => match(
+      expr_info_deferred_dup_expressions(&ei),
+      .Some(dups) => match(dups.get(usize(0)), .Some(d) => is_call_scoped_share_dup(ast_expr_id(&d)), .None => false),
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : &String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -282,7 +296,16 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     return(String.from("/* ERROR: field name must be an identifier */"));
   });
   field_name := ast_expr_token(&field_expr).value;
-  object_code := _call_generate_expr(&object_expr, indent.clone(), context);
+  object_code_raw := _call_generate_expr(&object_expr, indent.clone(), context);
+  // `h.*` whose handle carries the caller-owned share of a call it is lent
+  // to (Aliasing Stage 0 on an `Rc`/`Arc` handle, `consume_argument_for_parameter`):
+  // the place is reached through the dup, which keeps the cell alive until the
+  // call's post-call drop.
+  object_code := if(
+    (field_name == "*") && _carries_call_scoped_share(&object_expr, context),
+    emit_deferred_dup_or_code(&object_expr, &object_code_raw, indent, context),
+    object_code_raw
+  );
   obj_ei_opt := context.base.get_expr_info(&object_expr);
   object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => rc(TypeValueNode.Unit));
   object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);

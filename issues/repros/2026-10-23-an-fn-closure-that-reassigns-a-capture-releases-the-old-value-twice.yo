@@ -1,0 +1,14 @@
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+W :: struct(s : String);
+call_it :: (fn(act : &Impl(Fn() -> unit)) -> unit)({
+  act();
+});
+main :: (fn() -> unit)({
+  mut(r) := rc(W(s : String.from("hello")));
+  call_it(() => {
+    r = rc(W(s : String.from("bye")));
+  });
+  println(&r.s);
+});
+export(main);
