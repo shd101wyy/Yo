@@ -21,17 +21,18 @@ pragma(Pragma.AllowUnsafe);
 { arch, Arch } :: import("std/process");
 
 // The EXACT pre-fix failing shape: params used DIRECTLY inside the async
-// closure, no hoist-to-locals workaround.
+// closure, no hoist-to-locals workaround. The capture list lends `r`/`w` (a
+// `File` is move-only, so the future borrows it) and copies the rest.
 read_once_params :: (
   fn(generic(R : Type), r : &R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
-)(io.async(e => e.io.await(r.read(buf, size, io), e)));
+)(io.async({ &r, buf, size, io }(e : IoExn) => e.io.await(r.read(buf, size, io), e)));
 write_once_params :: (
   fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
-)(io.async(e => e.io.await(w.write(buf, size, io), e)));
+)(io.async({ &w, buf, size, io }(e : IoExn) => e.io.await(w.write(buf, size, io), e)));
 // Non-generic control of the same shape — always worked; pins that the fix
 // did not disturb the plain path.
 write_once_file :: (fn(f : &File, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async(e => e.io.await(f.write(buf, size, io), e))
+  io.async({ &f, buf, size, io }(e : IoExn) => e.io.await(f.write(buf, size, io), e))
 );
 
 test("generic fn async closure captures the enclosing params", {

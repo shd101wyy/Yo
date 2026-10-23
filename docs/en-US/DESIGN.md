@@ -1314,6 +1314,8 @@ A method whose future reads or writes the resource's state across a suspension b
 
 A future that only needs the descriptor (`TcpStream.read`, `TcpListener.accept`, `UdpSocket.recv`) copies the descriptor and borrows nothing, so it can be spawned.
 
+For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)` any more. The traits' defaults (`read_to_end`, `read_to_string`, `write_all`) return futures that borrow the reader or writer, and a vtable's future type carries no borrow, so `dyn(r)` as either trait object is E0909 for every implementor. Take one through a generic `Impl(Reader)` / `Impl(Writer)` parameter instead.
+
 #### The destructor: `Drop`
 
 `Drop` is the destructor trait, and its method `drop` has Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45): it runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. Its old name was `Dispose`, which the compiler no longer recognizes; `yo fix <path> --migrate drop-trait` rewrites old code (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`; a `.dispose` member that is not the destructor, such as an inherent method or a field of that name, is left as written).

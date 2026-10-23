@@ -1275,6 +1275,8 @@ export(main);
 
 只需要描述符的 future（`TcpStream.read`、`TcpListener.accept`、`UdpSocket.recv`）复制描述符而不借用任何东西，因此可以被 spawn。
 
+出于同样的原因，`Dyn(Reader)` 和 `Dyn(Writer)` 已不再可用。这两个 trait 的默认方法（`read_to_end`、`read_to_string`、`write_all`）返回借用 reader 或 writer 的 future，而 vtable 的 future 类型不携带借用，因此对任何实现者，把 `dyn(r)` 当作这两种 trait 对象都是 E0909。请改用泛型 `Impl(Reader)` / `Impl(Writer)` 参数。
+
 #### 析构函数：`Drop`
 
 `Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字；`yo fix <path> --migrate drop-trait` 会改写旧代码（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`；不是析构函数的 `.dispose` 成员，例如同名的固有方法或字段，保持原样）。

@@ -5337,6 +5337,26 @@ lands after V1 step 2, because its resource cells are the unique `Box`
   `WaitGroup`, `Once`, `OnceCell`, `ThreadPool`, the `std/sync`
   `Channel`/`Sender`/`Receiver`, the `Atomic*` types) rides V5 Generation A
   onto `__yo_atomic_cell`, so it is rewritten once.
+  - **As built (2026-10-23, branch `feat/v3-std-cell-free-resources`):**
+    each resource is `struct(_cell : Box(_XState))`, the state carrying the
+    `Drop` and marked `!Sync()` (writes go through `addr_of(self._cell.*)`,
+    the async `Mutex` precedent). Methods take `&Self`; a future that needs
+    the state across a suspension borrows the handle through a capture list
+    (A2), and a socket future that needs only the descriptor copies it, so it
+    can still be spawned. Riding along: `Stdin`/`Stdout`/`Stderr` are `Copy`
+    value structs; `BufReader`/`BufWriter` own their inner value (`sink`) with
+    a `Box`ed buffer; the `Stream` combinators and `TcpListener.incoming` take
+    `sink(self)`; `HttpServer` (still a `ref`) holds an `Rc(TcpListener)`;
+    `UnixStream`/`UnixListener` gained the close-on-drop they lacked.
+    `Box`'s `Drop` is a no-op on a zeroed box, which an aborted state machine
+    relies on (`issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md`).
+    Open: a user `Drop` on a never-stored task slot
+    (`issues/2026-10-23-an-aborted-task-runs-a-user-drop-on-a-local-it-never-stored.md`),
+    `Option.unwrap` of a move-only payload
+    (`issues/questions/2026-10-23-option-unwrap-cannot-move-a-move-only-payload.md`)
+    and the loss of `Dyn(Reader)`/`Dyn(Writer)`
+    (`issues/questions/2026-10-23-a-move-only-file-cannot-be-a-dyn-reader.md`).
+    `Child` still has no `Drop` of its own.
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
