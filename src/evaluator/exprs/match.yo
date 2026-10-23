@@ -2013,6 +2013,15 @@ evaluate_match :: (
           .None => (),
           .Some(mbi) => {
             env_adopt(&env, &mbi.env);
+            // The adopted env shows the move state the LAST evaluated arm left
+            // (each arm's moves are undone before the next one starts): restore
+            // the matched arm's own from the flow log. A diverging matched arm
+            // never reaches the join.
+            if(!(has_any_control_flow(mbi.control_flow)), {
+              only_mb := ArrayList(AstExpr).new();
+              only_mb.push(mb);
+              env = merge_and_check_envs(&env, &only_mb, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
+            });
             matched_body_val = mbi.value;
             did_use_matched_body = true;
           }
@@ -2033,6 +2042,9 @@ evaluate_match :: (
               .None => (),
               .Some(bi) => {
                 env_adopt(&env, &bi.env);
+                // The adopted env holds the last evaluated arm's move state, not
+                // this arm's: the join restores it from the flow log.
+                env = merge_and_check_envs(&env, &non_return_em, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
                 matched_body_val = bi.value;
                 did_use_single = true;
               }
@@ -2046,6 +2058,7 @@ evaluate_match :: (
               .None => (),
               .Some(bi) => {
                 env_adopt(&env, &bi.env);
+                env = merge_and_check_envs(&env, &non_return_em, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
                 did_use_single = true;
               }
             );
