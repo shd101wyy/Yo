@@ -669,17 +669,22 @@ impl(
 // ============================================================================
 // Child (spawn without waiting)
 // ============================================================================
+/// The pid and the parent's pipe ends behind a `Child`'s `Box`.
+_ChildState :: struct(
+  _pid : i32,
+  _stdin_fd : Option(i32),
+  _stdout_fd : Option(i32),
+  _stderr_fd : Option(i32),
+  _reaped : bool
+);
 /// A running child process, returned by `Command.spawn`. Pipe fds exist for
 /// the streams configured `Stdio.Piped`; `wait()` reaps the child.
-Child :: ref(
-  struct(
-    _pid : i32,
-    _stdin_fd : Option(i32),
-    _stdout_fd : Option(i32),
-    _stderr_fd : Option(i32),
-    _reaped : bool
-  )
-);
+///
+/// A move-only value (its state is a `Box`): one owner reaps the child, and a
+/// copy is E0901. Lend it with `&child`; its methods take `self : &Self` and
+/// update the pipe ends inside the box, so a `Child` is never `Sync`.
+Child :: struct(_cell : Box(_ChildState));
+impl(Child, !Sync());
 // ============================================================================
 // Child pipe handles (Reader / Writer over the parent end of a pipe)
 // ============================================================================
@@ -699,50 +704,77 @@ _pipe_read :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usi
     usize(IoError.check(n, e.exn))
   })
 );
+/// One parent pipe end, behind a `ChildStdin`/`ChildStdout`/`ChildStderr`'s
+/// `Box`. Dropping it closes the fd, so a child waiting on EOF is not left
+/// hanging by a forgotten `close`.
+_PipeEnd :: struct(_fd : i32, _closed : bool);
+impl(
+  _PipeEnd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._closed => {
+          close_sync(self._fd);
+          self._closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
+/// Close a pipe end through its box: `close` on each of the three handles.
+/// The flag is set INSIDE the async body, after the close, exactly as
+/// `File.close` does: a future that is created and never awaited must leave
+/// the handle closeable, or its drop would skip an fd that is still open.
+_pipe_close :: (fn(end : *_PipeEnd, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(
+    e =>
+      cond(
+        unsafe(end.*._closed) => (),
+        true => {
+          result := e.io.await(IO_file.close(unsafe(end.*._fd)), e.io);
+          unsafe(consume(end.*._closed = true));
+          IoError.check(result, e.exn);
+          ()
+        }
+      )
+  )
+);
 /// The parent's write end of a child's stdin pipe — a `Writer`, so
 /// `write_all`, `write_string` and the rest of `std/io`'s writer surface work
 /// on it. Take it off a `Child` with `take_stdin()`; closing it (explicitly,
-/// or by dropping it) is the EOF the child is usually waiting for.
-ChildStdin :: ref(struct(_fd : i32, _closed : bool));
+/// or by dropping it) is the EOF the child is usually waiting for. A
+/// move-only value: the handle owns the fd.
+ChildStdin :: struct(_cell : Box(_PipeEnd));
+impl(ChildStdin, !Sync());
 /// The parent's read end of a child's stdout pipe — a `Reader`, so
 /// `read_to_end`, `read_to_string`, `read_exact` and `BufReader` work on it.
-/// Take it off a `Child` with `take_stdout()`.
-ChildStdout :: ref(struct(_fd : i32, _closed : bool));
+/// Take it off a `Child` with `take_stdout()`. A move-only value, as
+/// `ChildStdin` is.
+ChildStdout :: struct(_cell : Box(_PipeEnd));
+impl(ChildStdout, !Sync());
 /// The parent's read end of a child's stderr pipe. Structurally identical to
 /// `ChildStdout` and distinct for the same reason Rust keeps them apart: the
 /// type says which stream you are holding.
-ChildStderr :: ref(struct(_fd : i32, _closed : bool));
+ChildStderr :: struct(_cell : Box(_PipeEnd));
+impl(ChildStderr, !Sync());
 impl(
   ChildStdin,
   /// The underlying file descriptor.
-  fd : (fn(self : &Self) -> i32)(self._fd),
+  fd : (fn(self : &Self) -> i32)(self._cell._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : &Self) -> bool)(self._closed),
+  is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
   /// Write up to `size` bytes. Returns the number written.
   write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    raw := cond(self._closed => i32(-1), true => self._fd);
+    raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
     _pipe_write(raw, buf, size, io)
   }),
   /// Close the write end — the child sees EOF. Safe to call multiple times.
-  ///
-  /// The flag is set INSIDE the async body, after the close, exactly as
-  /// `File.close` does: a future that is created and never awaited must leave
-  /// the handle closeable, or `dispose` would skip an fd that is still open.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    raw := self._fd;
-    io.async(
-      e =>
-        cond(
-          self._closed => (),
-          true => {
-            result := e.io.await(IO_file.close(raw), e.io);
-            self._closed = true;
-            IoError.check(result, e.exn);
-            ()
-          }
-        )
-    )
-  })
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_pipe_close(addr_of(self._cell.*), io), e);
+    })
+  )
 );
 impl(
   ChildStdin,
@@ -768,7 +800,7 @@ impl(
   /// Write a `String`, in full. `File.write_string` spells the same
   /// convenience.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async(e => {
+    io.async({ &self, &data }(e : IoExn) => {
       bytes := &data;
       cond(
         (bytes.len() == usize(0)) => usize(0),
@@ -781,49 +813,22 @@ impl(
   )
 );
 impl(
-  ChildStdin,
-  /// Dropping the handle closes the pipe, so a child waiting on EOF is not
-  /// left hanging by a forgotten `close`.
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._closed => {
-          close_sync(self._fd);
-          self._closed = true;
-        },
-        true => ()
-      );
-    })
-  )
-);
-impl(
   ChildStdout,
   /// The underlying file descriptor.
-  fd : (fn(self : &Self) -> i32)(self._fd),
+  fd : (fn(self : &Self) -> i32)(self._cell._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : &Self) -> bool)(self._closed),
+  is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
   /// Read up to `size` bytes. Returns the number read; 0 means EOF.
   read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    raw := cond(self._closed => i32(-1), true => self._fd);
+    raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
     _pipe_read(raw, buf, size, io)
   }),
-  /// Close the read end. Safe to call multiple times. Sets the flag after the
-  /// close, for the reason `ChildStdin.close` records.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    raw := self._fd;
-    io.async(
-      e =>
-        cond(
-          self._closed => (),
-          true => {
-            result := e.io.await(IO_file.close(raw), e.io);
-            self._closed = true;
-            IoError.check(result, e.exn);
-            ()
-          }
-        )
-    )
-  })
+  /// Close the read end. Safe to call multiple times.
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_pipe_close(addr_of(self._cell.*), io), e);
+    })
+  )
 );
 impl(
   ChildStdout,
@@ -834,47 +839,22 @@ impl(
   )
 );
 impl(
-  ChildStdout,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._closed => {
-          close_sync(self._fd);
-          self._closed = true;
-        },
-        true => ()
-      );
-    })
-  )
-);
-impl(
   ChildStderr,
   /// The underlying file descriptor.
-  fd : (fn(self : &Self) -> i32)(self._fd),
+  fd : (fn(self : &Self) -> i32)(self._cell._fd),
   /// Whether the handle has been closed.
-  is_closed : (fn(self : &Self) -> bool)(self._closed),
+  is_closed : (fn(self : &Self) -> bool)(self._cell._closed),
   /// Read up to `size` bytes. Returns the number read; 0 means EOF.
   read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    raw := cond(self._closed => i32(-1), true => self._fd);
+    raw := cond(self._cell._closed => i32(-1), true => self._cell._fd);
     _pipe_read(raw, buf, size, io)
   }),
-  /// Close the read end. Safe to call multiple times. Sets the flag after the
-  /// close, for the reason `ChildStdin.close` records.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    raw := self._fd;
-    io.async(
-      e =>
-        cond(
-          self._closed => (),
-          true => {
-            result := e.io.await(IO_file.close(raw), e.io);
-            self._closed = true;
-            IoError.check(result, e.exn);
-            ()
-          }
-        )
-    )
-  })
+  /// Close the read end. Safe to call multiple times.
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_pipe_close(addr_of(self._cell.*), io), e);
+    })
+  )
 );
 impl(
   ChildStderr,
@@ -882,27 +862,15 @@ impl(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
-  )
-);
-impl(
-  ChildStderr,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._closed => {
-          close_sync(self._fd);
-          self._closed = true;
-        },
-        true => ()
-      );
-    })
   )
 );
 impl(
   Child,
+  /// The state cell: written through `&Child` (see the type's doc).
+  _st : (fn(self : &Self) -> *_ChildState)(addr_of(self._cell.*)),
   /// The child's process id.
   pid : (fn(self : &Self) -> i32)(
-    self._pid
+    self._cell._pid
   ),
   /// Take the parent's write end of the child's stdin pipe as a `Writer`.
   /// `.None` if stdin was not `Stdio.Piped`, or if it has already been taken
@@ -914,10 +882,11 @@ impl(
   /// pipe, which is the EOF the child is usually waiting for.
   take_stdin : (fn(self : &Self) -> Option(ChildStdin))(
     match(
-      self._stdin_fd,
+      self._cell._stdin_fd,
       .Some(f) => {
-        self._stdin_fd = Option(i32).None;
-        Option(ChildStdin).Some(ChildStdin(_fd : f, _closed : false))
+        st := self._st();
+        unsafe(consume(st.*._stdin_fd = Option(i32).None));
+        Option(ChildStdin).Some(ChildStdin(_cell : box(_PipeEnd(_fd : f, _closed : false))))
       },
       .None => Option(ChildStdin).None
     )
@@ -929,10 +898,11 @@ impl(
   /// Taking MOVES the fd out of the `Child`, exactly as `take_stdin` does.
   take_stdout : (fn(self : &Self) -> Option(ChildStdout))(
     match(
-      self._stdout_fd,
+      self._cell._stdout_fd,
       .Some(f) => {
-        self._stdout_fd = Option(i32).None;
-        Option(ChildStdout).Some(ChildStdout(_fd : f, _closed : false))
+        st := self._st();
+        unsafe(consume(st.*._stdout_fd = Option(i32).None));
+        Option(ChildStdout).Some(ChildStdout(_cell : box(_PipeEnd(_fd : f, _closed : false))))
       },
       .None => Option(ChildStdout).None
     )
@@ -941,10 +911,11 @@ impl(
   /// `.None` if stderr was not `Stdio.Piped`, or if it has already been taken.
   take_stderr : (fn(self : &Self) -> Option(ChildStderr))(
     match(
-      self._stderr_fd,
+      self._cell._stderr_fd,
       .Some(f) => {
-        self._stderr_fd = Option(i32).None;
-        Option(ChildStderr).Some(ChildStderr(_fd : f, _closed : false))
+        st := self._st();
+        unsafe(consume(st.*._stderr_fd = Option(i32).None));
+        Option(ChildStderr).Some(ChildStderr(_cell : box(_PipeEnd(_fd : f, _closed : false))))
       },
       .None => Option(ChildStderr).None
     )
@@ -952,7 +923,7 @@ impl(
   /// Write bytes into the child's piped stdin. Requires `stdin(Stdio.Piped)`.
   /// Throws `BadFileDescriptor` once `take_stdin()` has moved the fd out.
   write_stdin : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd_opt := self._stdin_fd;
+    fd_opt := self._cell._stdin_fd;
     io.async(e => {
       fd := match(
         fd_opt,
@@ -967,22 +938,22 @@ impl(
     })
   }),
   /// Close the child's stdin pipe — the EOF the child is usually waiting for.
-  close_stdin : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd_opt := self._stdin_fd;
-    io.async(e => {
+  close_stdin : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
       match(
-        fd_opt,
+        self._cell._stdin_fd,
         .Some(f) => {
+          st := self._st();
           e.io.await(IO_file.close(f), e.io);
-          self._stdin_fd = Option(i32).None;
+          unsafe(consume(st.*._stdin_fd = Option(i32).None));
         },
         .None => ()
       );
     })
-  }),
+  ),
   /// Read the child's piped stdout to EOF. Requires `stdout(Stdio.Piped)`.
   read_stdout_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
-    fd_opt := self._stdout_fd;
+    fd_opt := self._cell._stdout_fd;
     io.async(e => {
       fd := match(
         fd_opt,
@@ -998,7 +969,7 @@ impl(
   }),
   /// Read the child's piped stderr to EOF. Requires `stderr(Stdio.Piped)`.
   read_stderr_to_end : (fn(self : &Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
-    fd_opt := self._stderr_fd;
+    fd_opt := self._cell._stderr_fd;
     io.async(e => {
       fd := match(
         fd_opt,
@@ -1018,39 +989,40 @@ impl(
   /// 2026-09-06 this handed back the raw `-errno` as an `i32`
   /// (issues/fixed/child-kill-returned-a-raw-errno.md).
   kill : (fn(self : &Self, signum : i32, exn : Exception) -> unit)({
-    _rc := IoError.check(IO_process.kill(self._pid, signum), exn);
+    _rc := IoError.check(IO_process.kill(self._cell._pid, signum), exn);
   }),
   /// Wait for the child to exit and return its status. Closes any pipe fds
   /// still open on this handle.
   wait : (fn(self : &Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
-    io.async(e => {
+    io.async({ &self }(e : IoExn) => {
+      st := self._st();
       match(
-        self._stdin_fd,
+        self._cell._stdin_fd,
         .Some(sf) => {
           e.io.await(IO_file.close(sf), e.io);
-          self._stdin_fd = Option(i32).None;
+          unsafe(consume(st.*._stdin_fd = Option(i32).None));
         },
         .None => ()
       );
       match(
-        self._stdout_fd,
+        self._cell._stdout_fd,
         .Some(of) => {
           e.io.await(IO_file.close(of), e.io);
-          self._stdout_fd = Option(i32).None;
+          unsafe(consume(st.*._stdout_fd = Option(i32).None));
         },
         .None => ()
       );
       match(
-        self._stderr_fd,
+        self._cell._stderr_fd,
         .Some(ef) => {
           e.io.await(IO_file.close(ef), e.io);
-          self._stderr_fd = Option(i32).None;
+          unsafe(consume(st.*._stderr_fd = Option(i32).None));
         },
         .None => ()
       );
-      raw := e.io.await(IO_process.waitpid(self._pid, i32(0)), e.io);
+      raw := e.io.await(IO_process.waitpid(self._cell._pid, i32(0)), e.io);
       IoError.check(raw, e.exn);
-      self._reaped = true;
+      unsafe(consume(st.*._reaped = true));
       ExitStatus(raw : raw)
     })
   )
@@ -1126,11 +1098,15 @@ impl(
         true => ()
       );
       Child(
-        _pid : pid,
-        _stdin_fd : cond((in_pair(usize(1)) >= i32(0)) => Option(i32).Some(in_pair(usize(1))), true => Option(i32).None),
-        _stdout_fd : cond((out_pair(usize(1)) >= i32(0)) => Option(i32).Some(out_pair(usize(1))), true => Option(i32).None),
-        _stderr_fd : cond((err_pair(usize(1)) >= i32(0)) => Option(i32).Some(err_pair(usize(1))), true => Option(i32).None),
-        _reaped : false
+        _cell : box(
+          _ChildState(
+            _pid : pid,
+            _stdin_fd : cond((in_pair(usize(1)) >= i32(0)) => Option(i32).Some(in_pair(usize(1))), true => Option(i32).None),
+            _stdout_fd : cond((out_pair(usize(1)) >= i32(0)) => Option(i32).Some(out_pair(usize(1))), true => Option(i32).None),
+            _stderr_fd : cond((err_pair(usize(1)) >= i32(0)) => Option(i32).Some(err_pair(usize(1))), true => Option(i32).None),
+            _reaped : false
+          )
+        )
       )
     })
   )

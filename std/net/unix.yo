@@ -39,20 +39,60 @@ IoTraits :: import("../io");
 _throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
 );
-/// A connected Unix-domain stream socket.
-UnixStream :: ref(
-  struct(
-    _fd : i32,
-    _is_closed : bool
+/// A Unix-domain socket descriptor behind a `UnixStream`'s `Box`. Its
+/// `Drop` closes the socket unless `close` already did.
+_UnixSocketState :: struct(
+  _fd : i32,
+  _is_closed : bool
+);
+impl(
+  _UnixSocketState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._is_closed => {
+          { close_sync } :: import("../sys/file");
+          close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
   )
 );
-/// A Unix-domain socket listening on a filesystem path.
-UnixListener :: ref(
-  struct(
-    _fd : i32,
-    _path : String,
-    _is_closed : bool
-  )
+/// A connected Unix-domain stream socket.
+///
+/// A move-only value (its state is a `Box`): one owner closes the socket, and
+/// a copy is E0901. Lend it with `&s`, or share it as `Rc(UnixStream)`.
+/// `close` marks the socket closed inside the box, so it is never `Sync`.
+UnixStream :: struct(_cell : Box(_UnixSocketState));
+impl(UnixStream, !Sync());
+/// The listening socket and its path behind a `UnixListener`'s `Box`.
+_UnixListenerState :: struct(
+  _sock : _UnixSocketState,
+  _path : String
+);
+/// A Unix-domain socket listening on a filesystem path. Move-only, as
+/// `UnixStream` is; dropping it closes the socket (the socket FILE stays).
+UnixListener :: struct(_cell : Box(_UnixListenerState));
+impl(UnixListener, !Sync());
+/// Close `st`'s socket from an async body, at most once.
+_close_unix :: (fn(st : *_UnixSocketState, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    cond(
+      unsafe(st.*._is_closed) => (),
+      true => {
+        r := e.io.await(IO_unix.close(unsafe(st.*._fd)), e.io);
+        unsafe(consume(st.*._is_closed = true));
+        cond(
+          (r < i32(0)) => {
+            _throw_io(i32(0) - r, e.exn);
+          },
+          true => ()
+        );
+      }
+    );
+  })
 );
 impl(
   UnixListener,
@@ -91,12 +131,12 @@ impl(
         },
         true => ()
       );
-      return(UnixListener(_fd : fd, _path : path_s, _is_closed : false));
+      return(UnixListener(_cell : box(_UnixListenerState(_sock : _UnixSocketState(_fd : fd, _is_closed : false), _path : path_s))));
     })
   ),
   /// Accept an incoming connection, returning a new `UnixStream`.
   accept : (fn(self : &Self, io : Io) -> Impl(Future(UnixStream, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._sock._fd;
     io.async(e => {
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
@@ -116,35 +156,22 @@ impl(
         },
         true => ()
       );
-      return(UnixStream(_fd : client_fd, _is_closed : false));
+      return(UnixStream(_cell : box(_UnixSocketState(_fd : client_fd, _is_closed : false))));
     })
   }),
   /// The filesystem path this listener is bound to.
   local_path : (fn(self : &Self) -> &String)(
-    &self._path
+    &self._cell._path
   ),
   /// Close the listener socket (the socket FILE stays — unlink it yourself).
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
-      cond(
-        self._is_closed => (),
-        true => {
-          r := e.io.await(IO_unix.close(fd), e.io);
-          self._is_closed = true;
-          cond(
-            (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
-            },
-            true => ()
-          );
-        }
-      );
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_close_unix(addr_of(self._cell._sock), io), e);
     })
-  }),
+  ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._fd
+    self._cell._sock._fd
   )
 );
 export(UnixListener);
@@ -184,7 +211,7 @@ impl(
         },
         true => ()
       );
-      return(UnixStream(_fd : fd, _is_closed : false));
+      return(UnixStream(_cell : box(_UnixSocketState(_fd : fd, _is_closed : false))));
     })
   ),
   /// Read up to `size` bytes into `buf`, resolving to the number actually
@@ -195,7 +222,7 @@ impl(
   /// needs `pragma(Pragma.AllowUnsafe)` — safe code uses the `Reader`
   /// defaults (`read_to_end`, `read_to_string`) or `BufReader(UnixStream)`.
   read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
@@ -207,7 +234,7 @@ impl(
   /// Needs `pragma(Pragma.AllowUnsafe)`; `write_bytes` / `write_str` /
   /// `write_string` are the safe spellings.
   write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_unix.stream_write(fd, buf, size), e.io);
       usize(NetError.check(r, e.exn))
@@ -215,7 +242,7 @@ impl(
   }),
   /// Write a `str` to the stream. Returns the number of bytes written.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     s := String.from(data);
     io.async(e => {
       r := e.io.await(IO_unix.stream_write(fd, s.ptr().unwrap(), s.len()), e.io);
@@ -224,7 +251,7 @@ impl(
   }),
   /// Write a `String` to the stream. Returns the number of bytes written.
   write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
@@ -232,34 +259,21 @@ impl(
   }),
   /// Write raw bytes from an `ArrayList(u8)`. Returns the count written.
   write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Close the stream.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
-      cond(
-        self._is_closed => (),
-        true => {
-          r := e.io.await(IO_unix.close(fd), e.io);
-          self._is_closed = true;
-          cond(
-            (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
-            },
-            true => ()
-          );
-        }
-      );
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_close_unix(addr_of(self._cell.*), io), e);
     })
-  }),
+  ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._fd
+    self._cell._fd
   )
 );
 export(UnixStream);

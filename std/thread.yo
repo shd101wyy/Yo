@@ -71,25 +71,52 @@ extern(
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
+/// The OS handle, the joined flag and the result channel behind a
+/// `Thread`'s `Box`. Dropping it detaches a thread that was never joined.
+_ThreadState :: (
+  fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
+)(
+  struct(
+    _handle : __yo_thread_t,
+    _joined : bool,
+    /// The body's result, in transit. Capacity 1: a thread produces exactly
+    /// one value, and `join` is the only reader.
+    _result : Channel(T)
+  )
+);
+impl(
+  generic(T : Type),
+  _ThreadState(T),
+  where(T <: Send),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._joined => {
+          self._joined = true;
+          __yo_thread_detach(self._handle);
+        },
+        true => ()
+      );
+    })
+  )
+);
 /// OS thread handle — Rust's `JoinHandle`. Each spawned thread gets its own
 /// Io event loop. `join` waits for it, once; dropping a handle that was never
 /// joined DETACHES the thread (it keeps running and the OS reclaims it when it
-/// finishes). Reference-counted so that detach-on-drop runs exactly once
-/// however many copies of the handle exist
-/// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md).
+/// finishes).
+///
+/// A move-only value (its state is a `Box`): there is one handle per thread,
+/// so detach-on-drop runs exactly once
+/// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md), and a
+/// copy is E0901. Lend it with `&t`; `join` takes `self : &Self` and marks the
+/// handle joined inside the box, so a `Thread` is never `Sync`. To join from
+/// elsewhere, move the handle there.
 Thread :: (
   fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
 )(
-  ref(
-    struct(
-      handle : __yo_thread_t,
-      _joined : bool,
-      /// The body's result, in transit. Capacity 1: a thread produces exactly
-      /// one value, and `join` is the only reader.
-      _result : Channel(T)
-    )
-  )
+  struct(_cell : Box(_ThreadState(T)))
 );
+impl(generic(T : Type), where(T <: Send), Thread(T), !Sync());
 impl(
   generic(T : Type),
   Thread(T),
@@ -110,7 +137,7 @@ impl(
       ()
     });
     raw := __yo_thread_spawn(relay);
-    Self(handle : raw, _joined : false, _result : chan)
+    Self(_cell : box(_ThreadState(T)(_handle : raw, _joined : false, _result : chan)))
   }),
   /// Block the current thread until this thread completes, and return what its
   /// body produced. Panics on a second call: joining a thread twice is
@@ -119,38 +146,23 @@ impl(
   ///
   /// At `T = unit` this reads as the old value-less `join()`.
   join : (fn(self : &Self) -> T)({
-    assert(!self._joined, "Thread.join: this thread was already joined");
-    self._joined = true;
-    __yo_thread_join(self.handle);
+    assert(!self._cell._joined, "Thread.join: this thread was already joined");
+    st := addr_of(self._cell.*);
+    unsafe(consume(st.*._joined = true));
+    __yo_thread_join(self._cell._handle);
     // The body ran to completion, so its value is in the channel. A miss means
     // the body UNWOUND past the send, which is not a case `join` can answer
     // for: there is no value, and inventing one would hand the caller a
     // fabricated result.
     match(
-      self._result.try_recv(),
+      self._cell._result.try_recv(),
       .Ok(v) => v,
       .Err(_) => __yo_panic("Thread.join: the thread body produced no value (it unwound)")
     )
   }),
   /// True once `join` has returned.
   is_joined : (fn(self : &Self) -> bool)(
-    self._joined
-  )
-);
-impl(
-  generic(T : Type),
-  Thread(T),
-  where(T <: Send),
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._joined => {
-          self._joined = true;
-          __yo_thread_detach(self.handle);
-        },
-        true => ()
-      );
-    })
+    self._cell._joined
   )
 );
 /// A pool of worker threads that tasks are handed to.

@@ -27,10 +27,20 @@
 //! the descriptor's own file offset never moves and `File._pos` is the only
 //! authority on "where am I". Two consequences a caller cannot see from the
 //! signatures: `seek`/`position` are pure arithmetic on the handle and never
-//! reach the OS (which is why `seek` needs only `exn`, not `io`), and a
-//! `File` is a `ref` handle, so a copy of one SHARES the position — two
-//! interleaved async reads through the same handle read from wherever the
-//! other one left off, they do not each get their own cursor.
+//! reach the OS (which is why `seek` needs only `exn`, not `io`), and every
+//! read through one `File` advances the same position — two interleaved async
+//! reads through the same handle read from wherever the other one left off,
+//! they do not each get their own cursor.
+//!
+//! ## A `File` is move-only
+//!
+//! A `File` owns its descriptor: it is a move-only value whose state lives in
+//! a `Box` (plans/VALUES_BY_DEFAULT.md V3). `f2 := f` moves the handle, and a
+//! copy that would leave two owners is error E0901. Lend it with `&f` (every
+//! method takes `self : &Self`), or share one handle as `Rc(File)` on one
+//! thread or `Arc(Mutex(File))` across threads. A method's future borrows the
+//! file until it is awaited: await it where it is made,
+//! `io.await(f.read_to_string(io), b)`, with the bundle `b` a variable.
 //!
 //! ## Stability
 //!
@@ -67,12 +77,9 @@ IoTraits :: import("../io");
 // ============================================================================
 // File
 // ============================================================================
-/// An open file handle with async read/write operations.
-///
-/// Provides methods for reading, writing, seeking, and querying file metadata.
-/// Files are automatically closed when disposed.
-File :: ref(
-  struct(
+/// The descriptor, path and position behind a `File`'s `Box`. Its `Drop`
+/// closes the descriptor unless `close` or `into_fd` retired it.
+_FileState :: struct(
     _fd : i32,
     _path : Path,
     _is_closed : bool,
@@ -89,10 +96,40 @@ File :: ref(
     /// `O_APPEND`, and the kernel forces those writes to end-of-file whatever
     /// offset is supplied, so `_pos` does not govern them.
     _pos : u64
-  )
 );
 impl(
+  _FileState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        !self._is_closed => {
+          IO_file.close_sync(self._fd);
+          self._is_closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
+/// An open file handle with async read/write operations.
+///
+/// Provides methods for reading, writing, seeking, and querying file metadata.
+/// The descriptor is closed when the `File` is dropped.
+///
+/// A move-only value (its state is a `Box(_FileState)`): moving it moves the
+/// descriptor, and a copy is E0901. Every method takes `self : &Self`; the
+/// position and the closed flag change inside the box, as Rust's `&File`
+/// reads and writes. That is why a `File` is `Send` but not `Sync`.
+File :: struct(_cell : Box(_FileState));
+impl(File, !Sync());
+impl(
   File,
+  /// A handle owning `fd`, at position 0.
+  _new : (fn(fd : i32, path : Path) -> Self)(
+    Self(_cell : box(_FileState(_fd : fd, _path : path, _is_closed : false, _pos : u64(0))))
+  ),
+  /// The state cell: written through `&File` (see the type's doc).
+  _st : (fn(self : &Self) -> *_FileState)(addr_of(self._cell.*)),
   /// Open a file at `path` with the given mode and custom permissions.
   open_with : (fn(path : &Path, mode : &OpenMode, perm : FilePermission, io : Io) -> Impl(Future(File, IoExn)))({
     flags := _open_mode_to_flags(mode);
@@ -106,12 +143,7 @@ impl(
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
-      File(
-        _fd : fd,
-        _path : path,
-        _is_closed : false,
-        _pos : u64(0)
-      )
+      File._new(fd, path)
     })
   }),
   /// Open a file from a `str` path with the given mode and custom permissions.
@@ -158,12 +190,7 @@ impl(
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
-      File(
-        _fd : fd,
-        _path : path,
-        _is_closed : false,
-        _pos : u64(0)
-      )
+      File._new(fd, path)
     })
   }),
   /// Open a file at `path` with an `OpenOptions` flag set and default
@@ -175,62 +202,40 @@ impl(
   open_cstr : (fn(path : *u8, mode : &OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
     File.open(Path.from_cstr(path), mode, io)
   ),
-  /// Read up to `size` bytes into the buffer `buf`.
-  /// Returns the number of bytes actually read.
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
-      result := e.io.await(IO_file.read(fd, buf, u32(size), self._pos), e.io);
-      n := IoError.check(result, e.exn);
-      self._pos = (self._pos + u64(n));
-      usize(n)
-    })
-  }),
-  /// Write up to `size` raw bytes from `buf` at the file's current position.
-  /// Returns the number of bytes written.
-  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
-      result := e.io.await(IO_file.write(fd, buf, u32(size), self._pos), e.io);
-      n := IoError.check(result, e.exn);
-      self._pos = (self._pos + u64(n));
-      usize(n)
-    })
-  }),
   /// Write a `String` to the file.
   /// Returns the number of bytes written.
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
-    io.async(e => {
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
       data_bytes := &data;
       cond(
         (data_bytes.len() == usize(0)) => usize(0),
         true => {
-          result := e.io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._pos), e.io);
+          st := self._st();
+          result := e.io.await(IO_file.write(self._cell._fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._cell._pos), e.io);
           n := IoError.check(result, e.exn);
-          self._pos = (self._pos + u64(n));
+          unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
           usize(n)
         }
       )
     })
-  }),
+  ),
   /// Write bytes from an `ArrayList(u8)` to the file.
   /// Returns the number of bytes written.
-  write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._fd;
+  write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(
-      e =>
+      { &self, &data }(e : IoExn) =>
         cond(
           (data.len() == usize(0)) => usize(0),
           true => {
-            result := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), self._pos), e.io);
+            st := self._st();
+            result := e.io.await(IO_file.write(self._cell._fd, data.ptr().unwrap(), u32(data.len()), self._cell._pos), e.io);
             n := IoError.check(result, e.exn);
-            self._pos = (self._pos + u64(n));
+            unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
             usize(n)
           }
         )
     )
-  }),
+  ),
   /// `fsync` this descriptor: block until the file's data AND metadata have
   /// reached the storage device. This is Rust's `File::sync_all`, NOT Rust's
   /// `Write::flush` — there is no user-space buffer in a `File` to flush, so
@@ -238,7 +243,7 @@ impl(
   /// no-op. Reach for this one only when durability is the point; it is by
   /// far the most expensive call on the type.
   flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       result := e.io.await(IO_file.fsync(fd), e.io);
       IoError.check(result, e.exn);
@@ -249,7 +254,7 @@ impl(
   /// `File::set_len`). Extending pads with zeroes. Takes effect regardless of
   /// this handle's read/write position.
   set_len : (fn(self : &Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
+    fd := self._cell._fd;
     io.async(e => {
       result := e.io.await(IO_file.ftruncate(fd, length), e.io);
       IoError.check(result, e.exn);
@@ -261,12 +266,7 @@ impl(
   /// `seek()` if the descriptor's data should be read from elsewhere. The
   /// path is unknown, so `path()` reports an empty path.
   from_fd : (fn(fd : i32) -> Self)(
-    Self(
-      _fd : fd,
-      _path : Path.new(String.new()),
-      _is_closed : false,
-      _pos : u64(0)
-    )
+    Self._new(fd, Path.new(String.new()))
   ),
   /// Seek to a position relative to `from`. Returns the new absolute byte offset.
   seek : (fn(self : &Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)({
@@ -278,14 +278,15 @@ impl(
     base := match(
       from,
       .Start => i64(0),
-      .Current => i64(self._pos),
+      .Current => i64(self._cell._pos),
       .End => self.size()
     );
     target := (base + offset);
     cond(
       (target < i64(0)) => exn.throw(dyn(IoError.from_errno(i32(EINVAL)))),
       true => {
-        self._pos = u64(target);
+        st := self._st();
+        unsafe(consume(st.*._pos = u64(target)));
         target
       }
     )
@@ -296,7 +297,7 @@ impl(
   /// descriptor via `lseek(SEEK_CUR)`, which ALWAYS answered 0: positional
   /// reads and writes never move it.
   position : (fn(self : &Self) -> i64)(
-    i64(self._pos)
+    i64(self._cell._pos)
   ),
   /// Move back to the beginning of the file (Rust's `Seek::rewind`).
   ///
@@ -308,27 +309,27 @@ impl(
   }),
   /// Get the file size in bytes.
   size : (fn(self : &Self) -> i64)(
-    IO_file.file_size(self._fd)
+    IO_file.file_size(self._cell._fd)
   ),
   /// Close the file descriptor. Safe to call multiple times.
-  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._fd;
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(
-      e =>
+      { &self }(e : IoExn) =>
         cond(
-          self._is_closed => (),
+          self._cell._is_closed => (),
           true => {
-            result := e.io.await(IO_file.close(fd), e.io);
-            self._is_closed = true;
+            st := self._st();
+            result := e.io.await(IO_file.close(self._cell._fd), e.io);
+            unsafe(consume(st.*._is_closed = true));
             IoError.check(result, e.exn);
             ()
           }
         )
     )
-  }),
+  ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
-    self._fd
+    self._cell._fd
   ),
   /// Give up ownership of the descriptor WITHOUT closing it — Rust's
   /// `IntoRawFd`. This handle is retired (a later `close` or its dispose is a
@@ -336,12 +337,13 @@ impl(
   /// `File.from_fd` or another wrapper; reading through the retired handle is
   /// a programming error.
   into_fd : (fn(self : &Self) -> i32)({
-    self._is_closed = true;
-    self._fd
+    st := self._st();
+    unsafe(consume(st.*._is_closed = true));
+    self._cell._fd
   }),
   /// Get the path this file was opened with.
   path : (fn(self : &Self) -> Path)(
-    self._path
+    self._cell._path
   ),
   /// Get file metadata (size, permissions, timestamps).
   ///
@@ -353,21 +355,7 @@ impl(
   /// A file renamed, replaced or unlinked after the open had the same
   /// problem. The descriptor names the inode; the path does not.
   metadata : (fn(self : &Self, io : Io) -> Impl(Future(Metadata, IoExn)))(
-    _metadata_mod.metadata_fd(self._fd, io)
-  )
-);
-impl(
-  File,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        !self._is_closed => {
-          IO_file.close_sync(self._fd);
-          self._is_closed = true;
-        },
-        true => ()
-      );
-    })
+    _metadata_mod.metadata_fd(self._cell._fd, io)
   )
 );
 export(File, OpenMode, OpenOptions, FilePermission, SeekFrom);
@@ -380,16 +368,32 @@ export(File, OpenMode, OpenOptions, FilePermission, SeekFrom);
 impl(
   File,
   IoTraits.Reader(
+    /// Read up to `size` bytes into the buffer `buf`, at the file's
+    /// position, and advance it. Returns the number of bytes actually read.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.read(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        st := self._st();
+        result := e.io.await(IO_file.read(self._cell._fd, buf, u32(size), self._cell._pos), e.io);
+        n := IoError.check(result, e.exn);
+        unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
+        usize(n)
+      })
     )
   )
 );
 impl(
   File,
   IoTraits.Writer(
+    /// Write up to `size` raw bytes from `buf` at the file's current
+    /// position, and advance it. Returns the number of bytes written.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.write(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        st := self._st();
+        result := e.io.await(IO_file.write(self._cell._fd, buf, u32(size), self._cell._pos), e.io);
+        n := IoError.check(result, e.exn);
+        unsafe(consume(st.*._pos = (st.*._pos + u64(n))));
+        usize(n)
+      })
     ),
     /// A no-op — Rust's `Write::flush` for `File`. An fd write has no
     /// user-space buffer behind it, so there is nothing to push. The

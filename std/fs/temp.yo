@@ -58,13 +58,49 @@ IO_file :: import("../sys/file");
 { memcpy } :: import("../libc/string");
 { platform, Platform } :: import("../process");
 { temp_dir } :: import("../env");
-/// Temporary directory that can be cleaned up with `remove`.
-TempDir :: ref(
-  struct(
-    _path : Path,
-    _removed : bool
+/// The path and the removed flag behind a `TempDir`'s `Box`. Its `Drop` is
+/// the best-effort removal (plans/archive/STD_API_AUDIT.md C12): errors are
+/// ignored and the removal is non-recursive (parity with `remove`) — use
+/// `remove(io)` to observe failures.
+_TempDirState :: struct(
+  _path : Path,
+  _removed : bool
+);
+impl(
+  _TempDirState,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      cond(
+        self._removed => (),
+        true => {
+          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr := path_cstr_bytes.ptr().unwrap();
+          cond(
+            (platform == Platform.Windows) => {
+              { _rmdir } :: import("../libc/windows");
+              // SAFETY: path_cstr points at the NUL-terminated bytes of
+              // path_cstr_bytes, alive for this whole block.
+              unsafe(_rmdir((*char)(path_cstr)));
+            },
+            true => {
+              { rmdir } :: import("../libc/unistd");
+              // SAFETY: as above — NUL-terminated, alive for the call.
+              unsafe(rmdir((*char)(path_cstr)));
+            }
+          );
+          self._removed = true;
+        }
+      );
+    })
   )
 );
+/// Temporary directory that can be cleaned up with `remove`.
+///
+/// A move-only value (its state is a `Box`): one owner removes the
+/// directory, and a copy is E0901. Lend it with `&dir`; `remove` marks it
+/// removed inside the box, so a `TempDir` is never `Sync`.
+TempDir :: struct(_cell : Box(_TempDirState));
+impl(TempDir, !Sync());
 impl(
   TempDir,
   /// Create a uniquely named directory inside `parent` and return a handle
@@ -103,7 +139,7 @@ impl(
       );
       path_str := String.from_cstr(buf).unwrap();
       free(.Some((*void)(buf)));
-      TempDir(_path : Path.new(&path_str), _removed : false)
+      TempDir(_cell : box(_TempDirState(_path : Path.new(&path_str), _removed : false)))
     })
   ),
   /// `new_in` against the system temporary directory (`env.temp_dir()` —
@@ -116,7 +152,7 @@ impl(
   /// life of the handle, and still returned after `remove` — the handle
   /// remembers the name it removed rather than emptying itself.
   path : (fn(self : &Self) -> Path)(
-    self._path
+    self._cell._path
   ),
   /// Remove the directory now and observe the outcome, instead of leaving it
   /// to `Drop`.
@@ -126,43 +162,59 @@ impl(
   /// Idempotent: a second call is a no-op, and so is the `Drop` that
   /// follows, because both consult the same `_removed` flag. Async, awaited
   /// on the event loop.
-  remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    self_path := self._path;
+  remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(
-      e =>
+      { &self, io }(e : IoExn) =>
         cond(
-          self._removed => (),
+          self._cell._removed => (),
           true => {
-            e.io.await(_dir_mod.remove_dir(&self_path, io), e);
-            self._removed = true;
+            st := addr_of(self._cell.*);
+            e.io.await(_dir_mod.remove_dir(&self._cell._path, io), e);
+            unsafe(consume(st.*._removed = true));
           }
         )
     )
-  })
+  )
 );
-// Drop: best-effort removal on drop (plans/archive/STD_API_AUDIT.md C12).
-// Errors are ignored and the removal is non-recursive (parity with
-// `remove`) — use `remove(io)` to observe failures.
+export(TempDir);
+/// The open file, its path and the removed flag behind a `TempFile`'s
+/// `Box`. Its `Drop` is the best-effort close + unlink
+/// (plans/archive/STD_API_AUDIT.md C12): errors are ignored — use
+/// `remove(io)` to observe failures. The fd is closed FIRST so Windows can
+/// delete the file (POSIX allows unlinking an open file; Windows does not).
+_TempFileState :: struct(
+  _file : _file_mod.File,
+  _path : Path,
+  _removed : bool
+);
 impl(
-  TempDir,
+  _TempFileState,
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
       cond(
         self._removed => (),
         true => {
+          cond(
+            self._file._cell._is_closed => (),
+            true => {
+              // `into_fd` retires the handle, so the `File`'s own drop that
+              // follows does not close the descriptor a second time.
+              IO_file.close_sync(self._file.into_fd());
+            }
+          );
           path_cstr_bytes := self._path.to_string().to_cstr();
           path_cstr := path_cstr_bytes.ptr().unwrap();
           cond(
             (platform == Platform.Windows) => {
-              { _rmdir } :: import("../libc/windows");
+              { _unlink } :: import("../libc/windows");
               // SAFETY: path_cstr points at the NUL-terminated bytes of
               // path_cstr_bytes, alive for this whole block.
-              unsafe(_rmdir((*char)(path_cstr)));
+              unsafe(_unlink((*char)(path_cstr)));
             },
             true => {
-              { rmdir } :: import("../libc/unistd");
+              { unlink } :: import("../libc/unistd");
               // SAFETY: as above — NUL-terminated, alive for the call.
-              unsafe(rmdir((*char)(path_cstr)));
+              unsafe(unlink((*char)(path_cstr)));
             }
           );
           self._removed = true;
@@ -171,15 +223,12 @@ impl(
     })
   )
 );
-export(TempDir);
 /// Temporary file backed by a `File` handle.
-TempFile :: ref(
-  struct(
-    _file : _file_mod.File,
-    _path : Path,
-    _removed : bool
-  )
-);
+///
+/// A move-only value (its state is a `Box`), as `File` is: one owner closes
+/// and unlinks the file, and a copy is E0901. `file()` lends the open `File`.
+TempFile :: struct(_cell : Box(_TempFileState));
+impl(TempFile, !Sync());
 impl(
   TempFile,
   /// Create a uniquely named file inside `parent`, open it, and return a
@@ -216,8 +265,8 @@ impl(
       path_str := String.from_cstr(buf).unwrap();
       free(.Some((*void)(buf)));
       path := Path.new(&path_str);
-      file := _file_mod.File(_fd : fd, _path : path, _is_closed : false, _pos : u64(0));
-      TempFile(_file : file, _path : path, _removed : false)
+      file := _file_mod.File._new(fd, path);
+      TempFile(_cell : box(_TempFileState(_file : file, _path : path, _removed : false)))
     })
   ),
   /// `new_in` against the system temporary directory (`env.temp_dir()`) —
@@ -225,19 +274,19 @@ impl(
   new : (fn(io : Io) -> Impl(Future(TempFile, IoExn)))(
     TempFile.new_in(Path.new(temp_dir()), io)
   ),
-  /// The open `File` behind this temporary, for reading and writing it. The
-  /// `TempFile` keeps its own reference, so this does NOT hand over
-  /// ownership: closing the returned handle leaves the `TempFile`'s cleanup
-  /// to unlink a file it no longer has open, which is harmless. The handle
-  /// starts at position 0 — write, then `seek` back before reading.
-  file : (fn(self : &Self) -> _file_mod.File)(
-    self._file
+  /// The open `File` behind this temporary, lent for reading and writing
+  /// it. The `TempFile` keeps ownership: closing the lent handle leaves the
+  /// `TempFile`'s cleanup to unlink a file it no longer has open, which is
+  /// harmless. The handle starts at position 0 — write, then `seek` back
+  /// before reading.
+  file : (fn(self : &Self) -> &_file_mod.File)(
+    &self._cell._file
   ),
   /// The file's real path, as `mkstemp` resolved it. Handing this to another
   /// process is the reason a NAMED temporary exists; note the file is
   /// unlinked when this handle drops, so the path outlives nothing.
   path : (fn(self : &Self) -> Path)(
-    self._path
+    self._cell._path
   ),
   /// Close the descriptor and unlink the file now, observing the outcome,
   /// instead of leaving it to `Drop`. The close comes FIRST so that
@@ -245,59 +294,19 @@ impl(
   /// file; Windows does not). Idempotent, and the following `Drop`
   /// becomes a no-op. Async, awaited on the event loop; throws `IoExn` if
   /// either step fails.
-  remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    self_file := self._file;
-    self_path := self._path;
+  remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(
-      e =>
+      { &self, io }(e : IoExn) =>
         cond(
-          self._removed => (),
+          self._cell._removed => (),
           true => {
-            e.io.await(self_file.close(io), e);
-            e.io.await(_dir_mod.remove_file(&self_path, io), e);
-            self._removed = true;
+            st := addr_of(self._cell.*);
+            e.io.await(self._cell._file.close(io), e);
+            e.io.await(_dir_mod.remove_file(&self._cell._path, io), e);
+            unsafe(consume(st.*._removed = true));
           }
         )
     )
-  })
-);
-// Drop: best-effort close + unlink on drop (plans/archive/STD_API_AUDIT.md C12).
-// Errors are ignored — use `remove(io)` to observe failures. The fd is
-// closed FIRST so Windows can delete the file (POSIX allows unlinking an
-// open file; Windows does not).
-impl(
-  TempFile,
-  Drop(
-    drop : (fn(self : &mut Self) -> unit)({
-      cond(
-        self._removed => (),
-        true => {
-          cond(
-            self._file._is_closed => (),
-            true => {
-              IO_file.close_sync(self._file._fd);
-              self._file._is_closed = true;
-            }
-          );
-          path_cstr_bytes := self._path.to_string().to_cstr();
-          path_cstr := path_cstr_bytes.ptr().unwrap();
-          cond(
-            (platform == Platform.Windows) => {
-              { _unlink } :: import("../libc/windows");
-              // SAFETY: path_cstr points at the NUL-terminated bytes of
-              // path_cstr_bytes, alive for this whole block.
-              unsafe(_unlink((*char)(path_cstr)));
-            },
-            true => {
-              { unlink } :: import("../libc/unistd");
-              // SAFETY: as above — NUL-terminated, alive for the call.
-              unsafe(unlink((*char)(path_cstr)));
-            }
-          );
-          self._removed = true;
-        }
-      );
-    })
   )
 );
 export(TempFile);
