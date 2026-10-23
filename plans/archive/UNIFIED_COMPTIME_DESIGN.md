@@ -1,5 +1,13 @@
 # Unified Compile-Time Design
 
+> **ARCHIVED 2026-10-23 — SUPERSEDED** by
+> [`plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md`](../backlog/COMPTIME_METAPROGRAMMING_AUDIT.md)
+> (§6). This proposal predates self-hosting (it edits the retired TypeScript
+> compiler), and its core idea, deleting `::` for inferred comptime storage,
+> was not taken: `::` stayed, and decision 47 made declared mutability the
+> rule (`mut(x) ::`, `comptime(mut(x)) :=`). Its three open questions are
+> answered in the audit's §6.
+
 ## Overview
 
 This document proposes simplifying Yo's compile-time semantics by:

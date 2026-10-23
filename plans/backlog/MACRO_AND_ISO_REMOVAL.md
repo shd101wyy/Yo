@@ -88,6 +88,10 @@ with no shape check. C2 restricts that result to items — `impl(...)` and
 trait applications, the only things a derive emits (Rust's derive emits
 items only) — so a derive rule cannot become a back door for statement
 macros. A non-item result is a diagnostic naming this doc.
+`comptime_eval`, which parses a string and evaluates it in the caller's env,
+is the other way data becomes code; this plan does not touch it, and
+`plans/backlog/COMPTIME_METAPROGRAMMING_AUDIT.md` §2 restricts it to
+declarations, the matching rule.
 
 ### 0.2 Rust's thread rule; no `Iso`
 
