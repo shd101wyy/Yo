@@ -10001,17 +10001,33 @@ impl(
   Box(T),
   Drop(
     /// Drops the payload, then frees the cell through its owner prefix.
-    drop : (fn(self : &mut Self) -> unit)({
-      // SAFETY: the box is the cell's only owner, and this runs once.
-      unsafe(drop_in_place(self._cell));
-      block := _box_owner_of((*void)(self._cell));
-      owner := unsafe(block.*);
+    ///
+    /// A zeroed box owns nothing, and dropping it is a no-op: codegen empties
+    /// a task's moved-from slots and leaves a slot its body never reached
+    /// zeroed, and drops both when the task is aborted, as every reference
+    /// handle's null-checked release allows. Without the check the abort of
+    /// a task that threw before a `Box`-holding local was stored freed address
+    /// 16 below null
+    /// (issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md).
+    drop : (fn(self : &mut Self) -> unit)(
       match(
-        owner.vtable,
-        .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block))),
-        .None => __yo_free(.Some((*void)(block)))
-      );
-    })
+        // SAFETY: a `*T` and an `Option(*T)` share one representation, the
+        // null pointer being `.None`.
+        unsafe(unsafe.cast(&self._cell, Option(*T))),
+        .None => (),
+        .Some(cell) => {
+          // SAFETY: the box is the cell's only owner, and this runs once.
+          unsafe(drop_in_place(cell));
+          block := _box_owner_of((*void)(cell));
+          owner := unsafe(block.*);
+          match(
+            owner.vtable,
+            .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block))),
+            .None => __yo_free(.Some((*void)(block)))
+          );
+        }
+      )
+    )
   )
 );
 /// `Clone` — a new cell holding a clone of the payload, placed where the

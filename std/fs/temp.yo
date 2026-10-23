@@ -301,7 +301,9 @@ impl(
           self._cell._removed => (),
           true => {
             st := addr_of(self._cell.*);
-            e.io.await(self._cell._file.close(io), e);
+            // The file's state sits inside this temporary's box: close it
+            // through its address (this future borrows the temporary).
+            e.io.await(_file_mod._close_file_state(addr_of(self._cell._file._cell.*), io), e);
             e.io.await(_dir_mod.remove_file(&self._cell._path, io), e);
             unsafe(consume(st.*._removed = true));
           }

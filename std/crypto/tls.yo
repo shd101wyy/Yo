@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
-{ TcpStream } :: import("../net/tcp");
+{ TcpStream, _close_stream_state } :: import("../net/tcp");
 { NetError } :: import("../net/errors");
 IO_tcp :: import("../sys/tcp");
 { SocketAddr, IpAddr } :: import("../net/addr");
@@ -327,7 +327,9 @@ impl(
           // __yo_tls_free releases both BIOs (owned by the SSL object) and
           // the context.
           unsafe(__yo_tls_free(t._ssl, self._cell._ctx));
-          e.io.await(self._cell._tcp.close(e.io), e);
+          // The socket's state sits inside this stream's box: close it
+          // through its address (this future borrows the TLS stream).
+          e.io.await(_close_stream_state(addr_of(self._cell._tcp._cell.*), e.io), e);
         }
       );
       return(());

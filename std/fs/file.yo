@@ -111,6 +111,25 @@ impl(
     })
   )
 );
+/// Close the descriptor in `st` from an async body, at most once. The flag is
+/// set after the close, so a close future made and never awaited leaves the
+/// descriptor for the state's `Drop`. The caller keeps `st` alive until the
+/// future completes (`File.close`'s future borrows the file; `TempFile.remove`'s
+/// borrows the temporary that owns it).
+_close_file_state :: (fn(st : *_FileState, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(
+    e =>
+      cond(
+        unsafe(st.*._is_closed) => (),
+        true => {
+          result := e.io.await(IO_file.close(unsafe(st.*._fd)), e.io);
+          unsafe(consume(st.*._is_closed = true));
+          IoError.check(result, e.exn);
+          ()
+        }
+      )
+  )
+);
 /// An open file handle with async read/write operations.
 ///
 /// Provides methods for reading, writing, seeking, and querying file metadata.
@@ -313,19 +332,9 @@ impl(
   ),
   /// Close the file descriptor. Safe to call multiple times.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async(
-      { &self }(e : IoExn) =>
-        cond(
-          self._cell._is_closed => (),
-          true => {
-            st := self._st();
-            result := e.io.await(IO_file.close(self._cell._fd), e.io);
-            unsafe(consume(st.*._is_closed = true));
-            IoError.check(result, e.exn);
-            ()
-          }
-        )
-    )
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_close_file_state(self._st(), io), e);
+    })
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : &Self) -> i32)(
@@ -358,7 +367,7 @@ impl(
     _metadata_mod.metadata_fd(self._cell._fd, io)
   )
 );
-export(File, OpenMode, OpenOptions, FilePermission, SeekFrom);
+export(File, OpenMode, OpenOptions, FilePermission, SeekFrom, _close_file_state);
 // === std/io async trait impls (STD_API_AUDIT D5) ===
 // Registered BEFORE the convenience functions below: they call the Reader
 // defaults (`file.read_to_end` / `file.read_to_string`) on a `File`, and a

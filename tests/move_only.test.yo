@@ -13,6 +13,7 @@
 { yield } :: import("std/async");
 { VList } :: import("./fixtures/owned_buffer.yo");
 { RefCell } :: import("std/sync/refcell");
+{ IoExn, Exception } :: import("std/error");
 (mut(g_mo_disposed) : i32) = i32(0);
 (mut(g_mo_sum) : i32) = i32(0);
 _MoFd :: struct(n : i32);
@@ -2533,4 +2534,38 @@ test("move-only: a move in a match arm that breaks is moved on some ways out of 
     }),
     "moved on some ways out of the loop"
   );
+});
+// A task that throws before a `Box`-holding local is stored is aborted with
+// the local's slot still zeroed, and the abort drops every local slot. A
+// zeroed `Box` owns nothing, so that drop is a no-op; it used to free the
+// address 16 below null and crash
+// (issues/fixed/2026-10-23-an-aborted-task-drops-a-box-local-it-never-stored.md).
+_MoBoxed :: struct(_cell : Box(_MoFd));
+_mo_boxed_make :: (fn(fail : bool, n : i32, io : Io) -> Impl(Future(_MoBoxed, IoExn)))(
+  io.async(e => {
+    if(fail, {
+      e.exn.throw(dyn(`boom`));
+    });
+    _MoBoxed(_cell : box(_MoFd(n : n)))
+  })
+);
+_mo_boxed_task :: (fn(fail : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    // Both locals live across the second await, so both have task slots.
+    a := e.io.await(_mo_boxed_make(fail, i32(5), e.io), e);
+    b := e.io.await(_mo_boxed_make(false, i32(6), e.io), e);
+    return(a._cell.n + b._cell.n);
+  })
+);
+_mo_boxed_run :: (fn(fail : bool, io : Io) -> i32)({
+  exn := Exception(throw : (err -> unwind(i32(-1))));
+  ioe := IoExn(io : io, exn : exn);
+  io.await(_mo_boxed_task(fail, io), ioe)
+});
+test("move-only: an aborted task drops a Box-holding local it never stored as nothing", {
+  before := g_mo_disposed;
+  assert(_mo_boxed_run(true, io) == i32(-1), "the task threw before storing `a`");
+  assert(g_mo_disposed == before, "no value was made, so none is disposed");
+  assert(_mo_boxed_run(false, io) == i32(11), "the task that does not throw adds both");
+  assert(g_mo_disposed == (before + i32(2)), "and disposes both once");
 });

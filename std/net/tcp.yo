@@ -156,6 +156,28 @@ impl(
 /// `TcpStream` is never `Sync`.
 TcpStream :: struct(_cell : Box(_TcpStreamState));
 impl(TcpStream, !Sync());
+/// Close the socket in `st` from an async body, at most once. The flag is set
+/// after the close, so a close future made and never awaited leaves the
+/// socket for the state's `Drop`. The caller keeps `st` alive until the
+/// future completes: `TcpStream.close`'s future borrows the stream, and
+/// `TlsStream.close`'s borrows the TLS stream that owns it.
+_close_stream_state :: (fn(st : *_TcpStreamState, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    cond(
+      unsafe(st.*._is_closed) => (),
+      true => {
+        r := e.io.await(IO_tcp.close(unsafe(st.*._fd)), e.io);
+        unsafe(consume(st.*._is_closed = true));
+        cond(
+          (r < i32(0)) => {
+            _throw_io(i32(0) - r, e.exn);
+          },
+          true => ()
+        );
+      }
+    );
+  })
+);
 /// A stream owning the connected socket `fd`.
 _new_stream :: (fn(fd : i32, peer : SocketAddr, local : SocketAddr) -> TcpStream)(
   TcpStream(_cell : box(_TcpStreamState(_fd : fd, _peer_addr : peer, _local_addr : local, _is_closed : false)))
@@ -548,21 +570,8 @@ impl(
   }),
   /// Close the stream.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-    io.async({ &self }(e : IoExn) => {
-      cond(
-        self._cell._is_closed => (),
-        true => {
-          st := addr_of(self._cell.*);
-          r := e.io.await(IO_tcp.close(self._cell._fd), e.io);
-          unsafe(consume(st.*._is_closed = true));
-          cond(
-            (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
-            },
-            true => ()
-          );
-        }
-      );
+    io.async({ &self, io }(e : IoExn) => {
+      e.io.await(_close_stream_state(addr_of(self._cell.*), io), e);
     })
   ),
   /// Close the socket now, without the event loop: what `Drop` runs, for
@@ -627,7 +636,7 @@ impl(
     })
   })
 );
-export(TcpStream);
+export(TcpStream, _close_stream_state);
 
 // === std/io async trait impls (STD_API_AUDIT D5) ===
 //
