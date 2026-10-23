@@ -1195,3 +1195,472 @@ test("move-only: a buffer-owning value is not a raw view in safe code", {
   ys := xs;
   assert(ys.len() == usize(2), "it moves like any owner");
 });
+// A `break` or `continue` that leaves a block before a later move of the
+// block's local drops the local, like an early `return` does
+// (issues/fixed/2026-10-23-a-break-or-continue-before-a-later-move-skips-the-drop-of-a-loop-body-local.md).
+// Each loop makes `_MoFd(n : 1)`, `_MoFd(n : 2)`, `_MoFd(n : 3)` and moves
+// each into `_mo_take` after the exit test, so every one is disposed exactly
+// once, by the callee or at the exit.
+_mo_break_before_move :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    if(i == k, {
+      break;
+    });
+    total = (total + _mo_take(f));
+  });
+  total
+});
+_mo_continue_before_move :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i == k) => {
+        continue;
+      },
+      true => ()
+    );
+    total = (total + _mo_take(f));
+  });
+  total
+});
+// The local lives in a block nested in the loop body.
+_mo_break_from_inner_block :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    {
+      f := _MoFd(n : i);
+      if(i == k, {
+        break;
+      });
+      total = (total + _mo_take(f));
+    };
+  });
+  total
+});
+// A consuming match arm's binding.
+_mo_arm_break_before_move :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    match(
+      _mo_some(i),
+      .Some(f) => {
+        if(i == k, {
+          break;
+        });
+        total = (total + _mo_take(f));
+      },
+      .None => ()
+    );
+  });
+  total
+});
+// A `for` body.
+_mo_for_break_before_move :: (fn(k : i32) -> i32)({
+  ns := ArrayList(i32).new();
+  ns.push(i32(1));
+  ns.push(i32(2));
+  ns.push(i32(3));
+  (mut(total) : i32) = i32(0);
+  for(&ns, n => {
+    f := _MoFd(n : n);
+    if(n == k, {
+      break;
+    });
+    total = (total + _mo_take(f));
+  });
+  total
+});
+// Over-drop canaries. A `break` of a loop nested in the block exits only that
+// loop, so `f` is still live after it and moved once.
+_mo_inner_loop_break_keeps_local :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    (mut(j) : i32) = i32(0);
+    while(true, {
+      j = (j + i32(1));
+      if(j == k, {
+        break;
+      });
+      if(j > i32(5), {
+        continue;
+      });
+    });
+    total = (total + _mo_take(f));
+  });
+  total
+});
+// A move on the breaking arm itself already released the value there.
+_mo_move_then_break :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    if(i == k, {
+      total = (total + _mo_take(f));
+      break;
+    });
+    total = (total + _mo_take(f));
+  });
+  total
+});
+// A `break` before a move that an arm's `continue` undoes for the paths
+// after it: `f` is dropped at the break by the block's own scope-end drop,
+// not by an exit drop too.
+_mo_break_before_undone_move :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    if(i == k, {
+      break;
+    });
+    if(i == i32(1), {
+      total = (total + _mo_take(f));
+      continue;
+    });
+    total = (total + i32(100));
+  });
+  total
+});
+test("move-only: a `break` or `continue` before a later move drops the local once", {
+  before := g_mo_disposed;
+  assert(_mo_break_before_move(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before + i32(2)), "1 by the callee, 2 at the break");
+  before2 := g_mo_disposed;
+  assert(_mo_continue_before_move(i32(2)) == i32(4), "1 + 3 moved, 2 skipped");
+  assert(g_mo_disposed == (before2 + i32(3)), "1 and 3 by the callee, 2 at the continue");
+  before3 := g_mo_disposed;
+  assert(_mo_break_from_inner_block(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before3 + i32(2)), "the inner block's local is dropped at the break");
+  before4 := g_mo_disposed;
+  assert(_mo_arm_break_before_move(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before4 + i32(2)), "the arm's binding is dropped at the break");
+  before5 := g_mo_disposed;
+  assert(_mo_for_break_before_move(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before5 + i32(2)), "the `for` body's local is dropped at the break");
+});
+test("move-only: an inner loop's exit and a move before a `break` drop nothing twice", {
+  before := g_mo_disposed;
+  assert(_mo_inner_loop_break_keeps_local(i32(2)) == i32(6), "every value reaches the callee");
+  assert(g_mo_disposed == (before + i32(3)), "each disposed once, by the callee");
+  before2 := g_mo_disposed;
+  assert(_mo_move_then_break(i32(2)) == i32(3), "1 and 2 moved");
+  assert(g_mo_disposed == (before2 + i32(2)), "each disposed once, by the callee");
+  before3 := g_mo_disposed;
+  assert(_mo_break_before_undone_move(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before3 + i32(2)), "1 by the callee, 2 once at the break");
+});
+// The same exits inside an io.async body, across an await, where the local
+// lives in a task slot rather than a C local.
+test("move-only: in an io.async loop, a `break` or `continue` before a later move drops the slot local once", {
+  before := g_mo_disposed;
+  result := rc(RefCell(i32).new(0));
+  task := io.async((io : Io) => {
+    (mut(i) : i32) = i32(0);
+    (mut(total) : i32) = i32(0);
+    while(i < i32(3), {
+      i = (i + i32(1));
+      f := _MoFd(n : i);
+      io.await(yield(io), io);
+      if(i == i32(2), {
+        break;
+      });
+      total = (total + _mo_take(f));
+    });
+    (mut(j) : i32) = i32(0);
+    while(j < i32(3), {
+      j = (j + i32(1));
+      g := _MoFd(n : (j * i32(10)));
+      io.await(yield(io), io);
+      if(j == i32(2), {
+        continue;
+      });
+      total = (total + _mo_take(g));
+    });
+    result.with_mut(cur => {
+      cur = total;
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur) == i32(41), "1, then 10 and 30, reached the callee");
+  assert(g_mo_disposed == (before + i32(5)), "1, 10 and 30 by the callee, 2 at the break, 20 at the continue");
+});
+// An exit between a move of a local and its reassignment finds the local
+// moved out: nothing is dropped there, though the variable is live again
+// after the reassignment
+// (issues/fixed/2026-10-23-an-exit-between-a-move-and-a-reassignment-drops-the-moved-value.md).
+// Each `_MoFd` is disposed once, by `_mo_take`.
+_mo_break_between_move_and_reassign :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    (mut(f) : _MoFd) = _MoFd(n : i);
+    total = (total + _mo_take(f));
+    if(i == k, {
+      break;
+    });
+    f = _MoFd(n : (i * i32(10)));
+    total = (total + _mo_take(f));
+  });
+  total
+});
+_mo_continue_between_move_and_reassign :: (fn(k : i32) -> i32)({
+  ns := ArrayList(i32).new();
+  ns.push(i32(1));
+  ns.push(i32(2));
+  ns.push(i32(3));
+  (mut(total) : i32) = i32(0);
+  for(&ns, n => {
+    (mut(f) : _MoFd) = _MoFd(n : n);
+    total = (total + _mo_take(f));
+    if(n == k, {
+      continue;
+    });
+    f = _MoFd(n : (n * i32(10)));
+    total = (total + _mo_take(f));
+  });
+  total
+});
+_mo_return_between_move_and_reassign :: (fn(k : i32) -> i32)({
+  (mut(f) : _MoFd) = _MoFd(n : i32(1));
+  (mut(total) : i32) = _mo_take(f);
+  if(k == i32(1), {
+    return(total);
+  });
+  f = _MoFd(n : i32(10));
+  total + _mo_take(f)
+});
+_MoRaise :: (ctl(n : i32) -> i32);
+_mo_maybe_raise :: (fn(n : i32, raise : _MoRaise) -> i32)(cond((n == i32(2)) => raise(n), true => n));
+_mo_unwind_between_move_and_reassign :: (fn(k : i32) -> i32)({
+  (raise : _MoRaise) = (n -> unwind(i32(100)));
+  (mut(f) : _MoFd) = _MoFd(n : i32(1));
+  (mut(total) : i32) = _mo_take(f);
+  total = (total + _mo_maybe_raise(k, raise));
+  f = _MoFd(n : i32(10));
+  total + _mo_take(f)
+});
+test("move-only: an exit between a move and a reassignment drops nothing", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  assert(_mo_break_between_move_and_reassign(i32(2)) == i32(13), "1 and 10, then 2 before the break");
+  assert(g_mo_disposed == (before + i32(3)), "1, 10 and 2, each by the callee once");
+  assert(g_mo_sum == i32(13), "nothing disposed twice");
+  g_mo_sum = i32(0);
+  before2 := g_mo_disposed;
+  assert(_mo_continue_between_move_and_reassign(i32(2)) == i32(46), "1 + 10, 2, 3 + 30");
+  assert(g_mo_disposed == (before2 + i32(5)), "five values, each by the callee once");
+  assert(g_mo_sum == i32(46), "nothing disposed twice");
+  g_mo_sum = i32(0);
+  before3 := g_mo_disposed;
+  assert(_mo_return_between_move_and_reassign(i32(1)) == i32(1), "the return after the first move");
+  assert(g_mo_disposed == (before3 + i32(1)), "1 by the callee only");
+  assert(_mo_return_between_move_and_reassign(i32(2)) == i32(11), "both moved");
+  assert(g_mo_disposed == (before3 + i32(3)), "1 and 10 by the callee");
+  assert(g_mo_sum == i32(12), "nothing disposed twice");
+  g_mo_sum = i32(0);
+  before4 := g_mo_disposed;
+  assert(_mo_unwind_between_move_and_reassign(i32(2)) == i32(100), "the handler unwinds after the first move");
+  assert(g_mo_disposed == (before4 + i32(1)), "1 by the callee only");
+  assert(g_mo_sum == i32(1), "nothing disposed twice");
+});
+test("move-only: in an io.async loop, an exit between a move and a reassignment drops nothing", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  result := rc(RefCell(i32).new(0));
+  task := io.async((io : Io) => {
+    (mut(i) : i32) = i32(0);
+    (mut(total) : i32) = i32(0);
+    while(i < i32(3), {
+      i = (i + i32(1));
+      (mut(f) : _MoFd) = _MoFd(n : i);
+      total = (total + _mo_take(f));
+      io.await(yield(io), io);
+      if(i == i32(2), {
+        break;
+      });
+      f = _MoFd(n : (i * i32(10)));
+      total = (total + _mo_take(f));
+    });
+    result.with_mut(cur => {
+      cur = total;
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur) == i32(13), "1 and 10, then 2 before the break");
+  assert(g_mo_disposed == (before + i32(3)), "1, 10 and 2, each by the callee once");
+  assert(g_mo_sum == i32(13), "nothing disposed twice");
+});
+// An exit inside the right side of a loop-body local's own binding leaves
+// before the local holds anything. Its task slot still holds the previous
+// iteration's moved-out value, which must not be dropped again
+// (issues/fixed/2026-10-23-an-exit-inside-a-bindings-own-initializer-drops-a-stale-task-slot.md).
+test("move-only: in an io.async loop, an exit inside a binding's own initializer drops nothing", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  result := rc(RefCell(i32).new(0));
+  task := io.async((io : Io) => {
+    (mut(total) : i32) = i32(0);
+    (mut(i) : i32) = i32(0);
+    while(i < i32(4), {
+      i = (i + i32(1));
+      x := cond(
+        (i == i32(3)) => {
+          break;
+        },
+        true => _MoFd(n : i)
+      );
+      io.await(yield(io), io);
+      total = (total + _mo_take(x));
+    });
+    (mut(j) : i32) = i32(0);
+    while(j < i32(4), {
+      j = (j + i32(1));
+      y := cond(
+        (j == i32(2)) => {
+          continue;
+        },
+        true => _MoFd(n : (j * i32(10)))
+      );
+      io.await(yield(io), io);
+      total = (total + _mo_take(y));
+    });
+    result.with_mut(cur => {
+      cur = total;
+    });
+  });
+  io.await(task, io);
+  assert(result.with(cur => cur) == i32(83), "1, 2, then 10, 30 and 40");
+  assert(g_mo_disposed == (before + i32(5)), "five values, each by the callee once");
+  assert(g_mo_sum == i32(83), "nothing disposed twice");
+  g_mo_sum = i32(0);
+  before2 := g_mo_disposed;
+  result2 := rc(RefCell(i32).new(0));
+  task2 := io.async((io : Io) => {
+    (mut(i) : i32) = i32(0);
+    while(i < i32(4), {
+      i = (i + i32(1));
+      x := cond(
+        (i == i32(3)) => {
+          return(());
+        },
+        true => _MoFd(n : i)
+      );
+      io.await(yield(io), io);
+      v := _mo_take(x);
+      result2.with_mut(cur => {
+        cur = (cur + v);
+      });
+    });
+  });
+  io.await(task2, io);
+  assert(result2.with(cur => cur) == i32(3), "1 and 2 before the return");
+  assert(g_mo_disposed == (before2 + i32(2)), "1 and 2, each by the callee once");
+  assert(g_mo_sum == i32(3), "nothing disposed twice");
+});
+// An exit in a later arm than the move: the move is not on the exit's path,
+// so the exit drops the local. (A `match` whose other arm breaks or continues
+// still drops the moved local after the match:
+// issues/2026-10-23-a-match-whose-other-arm-breaks-drops-the-moved-local-again-after-the-match.md.)
+// (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
+_mo_break_in_later_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    if(i != k, {
+      total = (total + _mo_take(f));
+    }, {
+      break;
+    });
+  });
+  total
+});
+_mo_continue_in_later_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i != k) => {
+        total = (total + _mo_take(f));
+      },
+      true => {
+        continue;
+      }
+    );
+  });
+  total
+});
+_mo_return_in_later_arm :: (fn(k : i32) -> i32)({
+  f := _MoFd(n : k);
+  (mut(total) : i32) = i32(0);
+  if(k != i32(2), {
+    total = _mo_take(f);
+  }, {
+    return(i32(-1));
+  });
+  total
+});
+test("move-only: an exit in a later arm than the move drops the local once", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  assert(_mo_break_in_later_arm(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before + i32(2)), "1 by the callee, 2 at the break");
+  before2 := g_mo_disposed;
+  assert(_mo_continue_in_later_arm(i32(2)) == i32(4), "1 and 3 moved, 2 skipped");
+  assert(g_mo_disposed == (before2 + i32(3)), "1 and 3 by the callee, 2 at the continue");
+  before3 := g_mo_disposed;
+  assert(_mo_return_in_later_arm(i32(2)) == i32(-1), "the return arm");
+  assert(g_mo_disposed == (before3 + i32(1)), "2 at the return");
+  assert(_mo_return_in_later_arm(i32(5)) == i32(5), "the moving arm");
+  assert(g_mo_disposed == (before3 + i32(2)), "5 by the callee");
+  assert(g_mo_sum == i32(16), "nothing disposed twice");
+});
+// A value passed by value moves when the call runs, after its later
+// arguments: a `break` inside one of them still owns it
+// (issues/fixed/2026-10-23-a-break-in-a-later-argument-skips-the-drop-of-a-by-value-argument.md).
+_mo_take_plus :: (fn(sink(f) : _MoFd, m : i32) -> i32)(f.n + m);
+_mo_break_in_later_argument :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    total = (
+      total + _mo_take_plus(f, {
+        if(i == k, {
+          break;
+        });
+        i32(0)
+      })
+    );
+  });
+  total
+});
+test("move-only: a `break` in a later argument than a by-value argument drops it once", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  assert(_mo_break_in_later_argument(i32(2)) == i32(1), "1 moved, the break at 2");
+  assert(g_mo_disposed == (before + i32(2)), "1 by the callee, 2 at the break");
+  assert(g_mo_sum == i32(3), "nothing disposed twice");
+});

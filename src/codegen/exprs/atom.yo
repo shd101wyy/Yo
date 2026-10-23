@@ -39,6 +39,7 @@
 { t_unit } :: import("../../types/creators.yo");
 { extract_future_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { emit_async_future_completion } :: import("./async_completion.yo");
+{ generate_early_return_only_deferred_drop_expressions } :: import("./drop_dup.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { panic, assert } :: import("std/assert");
 /// A shadowed name (a match-arm binding): its state-machine slot under the
@@ -532,6 +533,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
       context.base.current_continue_label,
       .Some(label) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
         out := String.from("goto ");
         out.push_string(&label);
         return(out);
@@ -542,6 +544,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
       context.base.current_loop_label,
       .Some(_) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
         return(String.from("continue"));
       },
       .None => ()
@@ -553,6 +556,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
       context.base.current_loop_label,
       .Some(loop_label) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
+        generate_early_return_only_deferred_drop_expressions(expr, indent.clone(), context);
         if(context.base.inside_match, {
           out := String.from("goto ");
           out.push_string(&loop_label);

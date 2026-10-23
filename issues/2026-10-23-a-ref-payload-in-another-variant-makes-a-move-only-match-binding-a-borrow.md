@@ -10,7 +10,7 @@ payload in the other variant compiles.
 **Status:** open. **Found:** 2026-10-23 by the V2b B8 flip probe
 (`plans/handover/VBD_B8_PROBE_CENSUS_2026-10-22.md`), while it minimized the
 `derive(FromJson)` leak
-(`issues/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md`).
+(`issues/fixed/2026-10-23-an-early-return-in-a-derive-generated-body-skips-the-drop-of-a-value-local.md`).
 On develop, `derive(FromJson)` on a struct with a move-only struct field
 fails to derive. `__derive_from_json` matches `Result(Field, JsonError)`, and
 `JsonError.Other` carries a `String` (a `ref` type on develop), so

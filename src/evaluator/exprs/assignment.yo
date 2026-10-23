@@ -35,7 +35,10 @@ pragma(Pragma.AllowUnsafe);
   get_variables_from_env,
   get_all_variables_from_env,
   update_existing_variable,
-  env_adopt
+  env_adopt,
+  UndoneMove,
+  variable_record_undone_move,
+  variable_has_undone_move
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
@@ -125,7 +128,8 @@ pragma(Pragma.AllowUnsafe);
   record_copy_write_decl,
   _ic_decl_key,
   _ic_place_root_decl,
-  place_cell_hops
+  place_cell_hops,
+  _last_token_of
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -2509,6 +2513,29 @@ comptime(${variable_name}) : ${dgc_ty_str}
     updated_variable.is_compile_time_only => rhs_info.value,
     true => Option(EvalValue).None
   );
+  // A store into a moved variable revives it, and `consumed_at_token` is
+  // reset below (the next move overwrites it), so nothing would remember
+  // that the variable owned nothing between the move and this store. A
+  // cleanup point there (an early `return`, `break`, `continue`, `unwind`
+  // or effect escape) must not release it again: record the window as a
+  // move undone at the end of this statement, which every cleanup decider
+  // reads through `variable_moved_at_cleanup_point`
+  // (issues/fixed/2026-10-23-an-exit-between-a-move-and-a-reassignment-drops-the-moved-value.md).
+  if(is_mutating_defined_variable, {
+    match(
+      updated_variable.consumed_at_token,
+      .Some(moved_at) => {
+        revived_at := _last_token_of(&rhs, ast_expr_token(&lhs_resolved));
+        if((moved_at.module_path == revived_at.module_path) && (moved_at.input == revived_at.input) && (moved_at.character < revived_at.character), {
+          window := UndoneMove(moved_at : moved_at, until : revived_at, inclusive : true);
+          if(!variable_has_undone_move(&updated_variable, &window), {
+            variable_record_undone_move(&updated_variable, &window);
+          });
+        });
+      },
+      .None => ()
+    );
+  });
   // Update the variable in the environment.
   new_variable := Variable(
     id : updated_variable.id,
