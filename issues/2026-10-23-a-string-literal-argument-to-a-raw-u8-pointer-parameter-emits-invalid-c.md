@@ -1,7 +1,7 @@
-# A string literal argument to a `*(u8)` parameter emits invalid C
+# A string literal argument to a `*u8` parameter emits invalid C
 
 **Severity:** S2 — in an `AllowUnsafe` file, passing a string literal to a
-Yo function whose parameter is `*(u8)` type-checks, and the C compiler then
+Yo function whose parameter is `*u8` type-checks, and the C compiler then
 rejects the emitted call; spelling the conversion `*(u8)("abc")` works.
 
 **Found:** 2026-10-23, while writing a probe for
@@ -15,7 +15,7 @@ Develop `265faa941` has it.
 ```yo
 pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio");
-show :: (fn(name : *(u8)) -> unit)({
+show :: (fn(name : *u8) -> unit)({
   unsafe(printf("%s\n", name));
 });
 main :: (fn() -> unit)({
@@ -31,7 +31,7 @@ strptr3.c:1962:46: error: operand of type '__yo_str' where arithmetic or pointer
 
 ## Analysis
 
-The argument check accepts the `str` literal for the `*(u8)` parameter, the
+The argument check accepts the `str` literal for the `*u8` parameter, the
 same coercion an extern C call such as `printf("%s", …)` gets, but the call
 emitter casts the whole `__yo_str` struct to `uint8_t*` instead of taking its
 `.ptr`, the rendering the explicit `*(u8)("abc")` cast gets. Either the

@@ -106,10 +106,19 @@ static inline R* rd(R* __yo_v_q) {
 ```
 
 Regression tests are in `tests/rc.test.yo`: "a compile-time-collapsed cond
-dups the borrowed handle it returns" and "a compile-time-collapsed cond in a
-binding dups the local it names". They cover `false => q, true => q`,
-`cond(true => q)`, a folded `(1 == 2)` condition, the runtime control, a
-raw-pointer `p.*`, a generic accessor on `Type.impls(T, Copy)` at a `ref`
-type and at `i32`, and a `cond` bound to a local. Each asserts `ref_count`,
-so the test fails without ASan too. Under the v0.2.68 seed both tests fail
-their first `ref_count` assertion.
+dups the borrowed handle it returns", "a compile-time-collapsed cond in a
+binding dups the local it names" and "a compile-time-collapsed cond dups
+through nesting, if, fields, arguments and async". They cover
+`false => q, true => q`, `cond(true => q)`, a folded `(1 == 2)` condition, the
+runtime control, a raw-pointer `p.*`, a generic accessor on
+`Type.impls(T, Copy)` at a `ref` type and at `i32`, a `cond` bound to a local,
+`cond(true => cond(true => q))`, a collapsed `cond` inside a runtime arm,
+`if(true, q, q)`, a borrowed struct's field, a call argument, and an async
+body after an `await`. Each asserts `ref_count`, so the tests fail without
+ASan too.
+
+The review of the other collapsed shapes found one more bug in the same
+collapse, filed and fixed on this branch:
+`issues/fixed/2026-10-23-a-compile-time-collapsed-cond-arm-return-releases-the-returned-value.md`
+(an arm that is `return(x)`). A `match` arm, a block arm, an owned arm and a
+unit arm were already correct.
