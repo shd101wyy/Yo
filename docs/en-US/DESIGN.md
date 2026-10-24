@@ -2706,7 +2706,8 @@ The rules of a consuming `match`:
 - A use of the scrutinee after a consuming `match` is E0901, whose help names
   `match(&x, …)`. Matching a module-level binding, a field (`x.f`), an element
   (`xs(i)`) or a dereference (`p.*`) by value is E0901 too (Yo has no partial
-  moves): write `match(&x.f, …)`.
+  moves): write `match(&x.f, …)`, or move the field out first with
+  `std/mem`'s `take(&mut x.f)` or `replace(&mut x.f, v)`.
 - `(name := p)` takes the whole value, so a binding inside `p` must be `Copy`.
   An or-pattern may not leave a part with a drop unbound (its alternatives
   would drop different parts): split the arm or bind the part.
