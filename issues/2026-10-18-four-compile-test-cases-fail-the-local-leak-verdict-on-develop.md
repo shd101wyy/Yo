@@ -143,6 +143,16 @@ The perf/acyclic-compiler-containers branch's full in-process run gives the
 same 143 verdicts. Nothing in the verdict changed; these tests join the
 expected local failures.
 
+**Re-check 2026-10-25 (Linux x86_64): the two code-spill cases #1550 added
+on 2026-10-23 show the same class.** On develop `ec701e967` plus
+`fix/mimalloc-missing-vendor-hard-error` (that branch's `run_compile` change
+only touches `--allocator mimalloc`), `compile.test.yo` in the default mode
+fails 6 of 6. Those are the four cases above plus "a code spill that is gone
+or holds other bytes fails the compile" and "a compile splices only its own
+spill, by its byte count, and removes dead compiles' spills", and every
+failure is `Memory leak detected:`. With `YO_TEST_LEAK_VERDICT=0`, CI's
+setting, all 6 pass. That run was not repeated on plain develop.
+
 ## Test
 
 The four cases above, run locally with the default leak verdict, are the
