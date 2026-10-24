@@ -23,7 +23,7 @@
 //! impl.yo → function_type.yo → trait_checking.yo → impl.yo.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ Token } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -212,6 +212,8 @@ PendingDefEval :: ref(
     function_type : TypeValue,
     strip_outer : bool,
     attempts : usize,
+    /// Each parameter's declaration token (`_fn_literal_param_tokens`).
+    param_decl_tokens : ArrayList(Token),
     /// The valueless forward-declared comptime fn variables this body saw.
     /// Once every one is filled, a re-run that still fails is a real error
     /// in the body (Phase 6 step 2, census site #4), not a forward reference.
@@ -652,6 +654,82 @@ _share_def_time_frames :: (fn(env : &Environment, strip : bool) -> Environment)(
     frozen : false
   )
 });
+/// The declaration token of each parameter of the fn literal `fn_literal`
+/// (`(fn(a : A, comptime(b) : B, (c : C) ?= d) -> R)(body)`): the identifier
+/// its label is spelled with, under the `=`/`?=`, `:` and one-argument mode
+/// wrappers (`comptime(...)`, `sink(...)`, `quote(...)`) the parameter
+/// parser strips (`evaluate_function_parameter`, types/function.yo).
+/// `generic(...)`, `using(...)` and `where(...)` entries declare no regular
+/// parameter and are skipped. Empty when the callee is not a written
+/// `fn(...) -> R` (a named function type).
+///
+/// `_build_def_time_body_env` binds each parameter with its token, so a
+/// parameter's `Variable.token` names its own declaration. The interned
+/// `synthetic_token` sits at byte offset 0 for every name in a module, which
+/// gave every parameter of a module one `_ic_decl_key` and let a write to
+/// one parameter list a copy out of another
+/// (issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md).
+/// The tokens are the AST's own handles, so nothing is minted per binding.
+_fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
+  out := ArrayList(Token).new();
+  ft := match(fn_literal, .FnCall(_, ft_box, _, _, _) => ft_box, .Atom(_, _) => return(out));
+  if(!ast_expr_is_fn_call_of(&ft, "->", Option(usize).Some(usize(2))), {
+    return(out);
+  });
+  decls := match(
+    ft,
+    .FnCall(_, _, ft_args, _, _) => match(ft_args.get(usize(0)), .Some(.FnCall(_, _, head_args, _, _)) => head_args, _ => return(out)),
+    .Atom(_, _) => return(out)
+  );
+  (di : usize) = usize(0);
+  while(di < decls.len(), di = (di + usize(1)), {
+    (d : AstExpr) = decls(di);
+    if(ast_expr_is_fn_call_of(&d, "=", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&d, "?=", Option(usize).Some(usize(2))), {
+      d = match(d, .FnCall(_, _, dv_args, _, _) => dv_args(usize(0)), .Atom(_, _) => d);
+    });
+    if(ast_expr_is_fn_call_of(&d, ":", Option(usize).Some(usize(2))), {
+      d = match(d, .FnCall(_, _, lab_args, _, _) => lab_args(usize(0)), .Atom(_, _) => d);
+      (peeling : bool) = true;
+      while(peeling, {
+        match(
+          d,
+          .FnCall(_, _, w_args, is_infix, _) => cond(
+            (!is_infix && (w_args.len() == usize(1))) => {
+              d = w_args(usize(0));
+            },
+            true => {
+              peeling = false;
+            }
+          ),
+          .Atom(_, _) => {
+            peeling = false;
+          }
+        );
+      });
+      match(
+        d,
+        .Atom(_, label_tok) => if(label_tok.kind == TokenKind.Identifier, {
+          out.push(label_tok);
+        }),
+        .FnCall(_, _, _, _, _) => ()
+      );
+    });
+  });
+  out
+});
+/// The token of the parameter `label` among `tokens`
+/// (`_fn_literal_param_tokens`), or `synthetic_token` in `module_path` when the
+/// declaration was not found.
+_param_decl_token :: (fn(tokens : &ArrayList(Token), label : &String, module_path : &String) -> Token)({
+  (ti : usize) = usize(0);
+  while(ti < tokens.len(), ti = (ti + usize(1)), {
+    t := tokens(ti);
+    if(t.value == label, {
+      return(t);
+    });
+  });
+  synthetic_token(label, module_path)
+});
 _build_def_time_body_env :: (
   fn(
     caller_env : &Environment,
@@ -707,7 +785,11 @@ _build_def_time_body_env :: (
     // runtime outer `a` must fail "Variable a not found", and `x = 12` on an
     // outer-declared `x` likewise. Module-level runtime globals (frame 0 /
     // is_module_level) stay visible.
-    strip_outer_runtime : bool
+    strip_outer_runtime : bool,
+    /// Each parameter's declaration token (`_fn_literal_param_tokens` of the
+    /// fn literal): a parameter binds with its own token, and with the
+    /// interned `synthetic_token` only when its declaration is not found.
+    param_decl_tokens : &ArrayList(Token)
   ) -> Environment
 )({
   // ENV SHARING (plans/backlog/YO_SELF_ENV_SHARING.md §3) — the body env
@@ -978,7 +1060,7 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, synthetic_token(&pn, &caller_env.module_path.*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path.*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
     pi = (pi + usize(1));
   });
   fresh_env
@@ -1011,7 +1093,8 @@ _rerun_pending_def_evals :: (fn(caller_env : &Environment, ctx : &EvalContext) -
           &pd.result_ty,
           &pd.where_entries,
           &pd.function_type,
-          pd.strip_outer
+          pd.strip_outer,
+          &pd.param_decl_tokens
         );
         rp_tok := ast_expr_token(&pd.body);
         rp_fv := EvalValue.FuncVal(
@@ -1725,6 +1808,7 @@ Result type: ${type_to_string(&result_box)}`
               get_func_param_comptime(ast_expr_id(&ctf_ft_box).to_string()),
             .Atom(_, _) => ArrayList(bool).new()
           );
+          def_param_toks := _fn_literal_param_tokens(expr);
           flow_env := _build_def_time_body_env(
             caller_env,
             &param_labels.items,
@@ -1735,7 +1819,8 @@ Result type: ${type_to_string(&result_box)}`
             &result_box,
             &def_where_entries,
             function_type,
-            ctx.is_evaluating_function_body_or_async_block.is_some()
+            ctx.is_evaluating_function_body_or_async_block.is_some(),
+            &def_param_toks
           );
           // Bind the variadic parameter (`...(quote(elems))` → `elems` as
           // an unknown ComptimeList) into the body env — its name/type
@@ -1896,6 +1981,7 @@ Result type: ${type_to_string(&result_box)}`
                   function_type : function_type,
                   strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
                   attempts : usize(3),
+                  param_decl_tokens : def_param_toks.clone(),
                   fwd_vars : fwd_cap_vars
                 )
               )
@@ -2220,6 +2306,7 @@ Result type: ${type_to_string(&result_box)}`
               .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(&dgc_ft_box).to_string()),
               .Atom(_, _) => ArrayList(bool).new()
             );
+            dg_param_toks := _fn_literal_param_tokens(expr);
             dg_env := _build_def_time_body_env(
               caller_env,
               &param_labels.items,
@@ -2230,7 +2317,8 @@ Result type: ${type_to_string(&result_box)}`
               &result_box,
               &dg_where,
               function_type,
-              ctx.is_evaluating_function_body_or_async_block.is_some()
+              ctx.is_evaluating_function_body_or_async_block.is_some(),
+              &dg_param_toks
             );
             // A THROWAWAY FuncVal with a fresh id (same pattern as flow_fv
             // above): reusing the real one lets trial registrations shadow
