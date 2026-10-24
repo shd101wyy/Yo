@@ -14,7 +14,7 @@
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations, get_closure_capture_info } :: import("../../function_value.yo");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { is_target_windows } :: import("../../target.yo");
-{ CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
+{ CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key, erased_future_result_type_string } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing.
 EvidenceParameter :: ref(
@@ -817,6 +817,65 @@ emitted_return_type_string :: (
     .None => Option(String).None
   )
 );
+/// The C name a function VALUE is passed, stored or returned as: its own name,
+/// or, when its prototype returns a concrete future, a thunk defined with the
+/// ERASED signature (`erased_future_result_type_string`).
+///
+/// A function declared `-> Impl(Future(T, E))` is emitted returning its
+/// returned block's `<block>_sync_fut_t*` / `<block>_state_t*`
+/// (`_async_override_return_type`), which direct callers need. A function-typed
+/// slot of the same Yo type spells the result as the generic Future interface
+/// pointer, and every call through the slot uses that spelling. Calling the
+/// function through it is undefined behavior (C11 6.5.2.2p9) that UBSan's
+/// `-fsanitize=function` aborts on. So the value is
+/// `static inline <iface>* __yo_fnval_thunk_<fn>(<params>) { return (<iface>*)<fn>(<args>); }`,
+/// emitted once into the declarations section (after every prototype), like
+/// `dispose_fn_thunk`
+/// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
+/// `.None` when `func_id` has no registered entry.
+fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(String))(
+  match(
+    context.get_function_entry(func_id.clone()),
+    .None => Option(String).None,
+    .Some(entry) => {
+      c_name := entry.c_name.clone();
+      ft := get_func_type(func_id.clone());
+      erased := if(is_function_type(&ft) && !is_closure_fn(func_id.clone()), erased_future_result_type_string(&_func_result_type(&ft), context), Option(String).None);
+      match(
+        erased,
+        .None => Option(String).Some(c_name),
+        .Some(er) => if(match(emitted_return_type_string(func_id, context), .Some(s) => (s == er), .None => true), Option(String).Some(c_name), {
+          thunk := `__yo_fnval_thunk_${c_name}`;
+          if(!context.dispose_thunks.contains(thunk.clone()), {
+            context.dispose_thunks.insert(thunk.clone());
+            proto := generate_function_prototype(&ft, thunk.clone(), context, Option(String).Some(er.clone()), false);
+            // The arguments are the parameter names the prototype generator
+            // gave (its label, else `param<i>`).
+            labels := match(ft, Rc(.Func({ meta : tm })) => tm.*.param_labels, _ => no_labels());
+            np := match(ft, Rc(.Func({ param_types : tpts })) => tpts.len(), _ => usize(0));
+            args := String.from("");
+            (i : usize) = usize(0);
+            while(i < np, {
+              if(i > usize(0), {
+                args.push_str(", ");
+              });
+              args.push_string(
+                match(
+                  labels.get(i),
+                  .Some(lbl) => if(lbl.len() > usize(0), sanitize_for_c_identifier(lbl.clone(), false), `param${i.to_string()}`),
+                  .None => `param${i.to_string()}`
+                )
+              );
+              i = (i + usize(1));
+            });
+            context.emitter.emit_declaration_string_line(`static inline ${proto} { return (${er})${c_name}(${args}); }`);
+          });
+          Option(String).Some(thunk)
+        })
+      )
+    }
+  )
+);
 /// The C return-type spelling the CALLEE of `func_expr` was emitted with, when
 /// that callee resolves to a registered closure impl fn — the `cc_` STATIC
 /// dispatch `other_fn_call` emits as `closure_<fid>(&<capture>, args...)`.
@@ -1017,4 +1076,4 @@ generate_function_declarations :: (fn(context : &CodeGenContext) -> unit)({
   generate_closure_vtable_declarations(context);
   em.emit_declaration_line("");
 });
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, _return_type_override, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, static_dispatch_callee_return_type);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, _return_type_override, fn_value_c_name, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, static_dispatch_callee_return_type);

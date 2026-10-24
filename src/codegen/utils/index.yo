@@ -1481,6 +1481,47 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// The C type of the generic Future interface for `ftt` (a `FutureTraitT`):
+/// `__yo_future_trait_*` pointer, minted on demand by the same hook
+/// `_lookup_named_c_type` uses; `__yo_io_future_t*` when even that fails.
+_future_interface_pointer :: (fn(ftt : &TypeValue, context : &CodeGenContext) -> String)(
+  match(
+    context.get_type_c_name(type_key(ftt)),
+    .Some(cn) => `${cn}*`,
+    .None => {
+      match(
+        g_on_demand_declare_fn,
+        .Some(odf) => odf(ftt, context),
+        .None => ()
+      );
+      match(
+        context.get_type_c_name(type_key(ftt)),
+        .Some(cn2) => `${cn2}*`,
+        .None => String.from("__yo_io_future_t*")
+      )
+    }
+  )
+);
+/// The ERASED C spelling of a function result `t` of type `Impl(Future(T, E))`:
+/// the generic Future interface pointer, whatever state machine `t` resolved
+/// to. A function-typed slot (`fn(..) -> Impl(Future(T, E))`) spells its
+/// result this way, while a function's own prototype returns its concrete
+/// `<block>_sync_fut_t*` / `<block>_state_t*`, so every function-pointer value
+/// and every call through one uses this spelling
+/// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
+/// `.None` when `t` is not a future SomeT, or is an extern-backed one
+/// (`IoFuture` lowers to `__yo_io_future_t*` in both places).
+erased_future_result_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(String))(
+  match(
+    _extract_future_trait_of_some_t(t),
+    .Some(ftt) => match(
+      some_resolution(t),
+      .Some(Rc(.ExternOpaqueT(_, _))) => Option(String).None,
+      _ => Option(String).Some(_future_interface_pointer(&ftt, context))
+    ),
+    .None => Option(String).None
+  )
+);
 /// get_type_string's SomeT-RESOLUTION cycle guard. The `.SomeT` arm hops to
 /// the resolved concrete (`recur(rct)`); a resolution CYCLE — a SomeT whose
 /// resolution/global entry resolves (directly or via a chain) back to a type
@@ -1666,22 +1707,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
             _some_t_requires_future(t),
             match(
               _extract_future_trait_of_some_t(t),
-              .Some(gft_ftt) => match(
-                context.get_type_c_name(type_key(&gft_ftt)),
-                .Some(gft_cn) => `${gft_cn}*`,
-                .None => {
-                  match(
-                    g_on_demand_declare_fn,
-                    .Some(gft_odf) => gft_odf(&gft_ftt, context),
-                    .None => ()
-                  );
-                  match(
-                    context.get_type_c_name(type_key(&gft_ftt)),
-                    .Some(gft_cn2) => `${gft_cn2}*`,
-                    .None => String.from("__yo_io_future_t*")
-                  )
-                }
-              ),
+              .Some(gft_ftt) => _future_interface_pointer(&gft_ftt, context),
               .None => String.from("__yo_io_future_t*")
             ),
             String.from("void*")
@@ -2403,6 +2429,7 @@ export(
   get_runtime_struct_fields,
   type_key,
   get_type_string,
+  erased_future_result_type_string,
   get_storage_type_string,
   dyn_slot_param_type_string,
   dyn_concrete_func_type,

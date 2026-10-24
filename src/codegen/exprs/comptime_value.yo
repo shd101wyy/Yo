@@ -24,6 +24,7 @@
   can_optimize_as_nullable_pointer,
   can_optimize_as_simple_enum
 } :: import("../utils/index.yo");
+{ fn_value_c_name } :: import("../functions/declarations.yo");
 /// C integer-literal suffix for an integer type (ValueTag suffix logic, driven
 /// by the threaded type).
 _int_suffix :: (fn(ty : &TypeValue) -> str)(
@@ -578,11 +579,12 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
       )
     ),
     // A first-class function VALUE lowers to its registered C function name —
-    // i.e. a function pointer. The
+    // i.e. a function pointer, through `fn_value_c_name`'s erased-signature
+    // thunk when the function returns a concrete future. The
     // function must have been collected for codegen; if not, emit a diagnostic.
     .FuncVal(__fvd1, _) => match(
-      context.get_function_entry(&__fvd1.*.func_id),
-      .Some(e) => e.c_name.clone(),
+      fn_value_c_name(&__fvd1.*.func_id, context),
+      .Some(cn) => cn,
       .None => {
         c := String.from("/* Error: no C function name for func value ");
         c.push_string(&__fvd1.*.func_id);
