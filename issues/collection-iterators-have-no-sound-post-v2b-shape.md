@@ -84,9 +84,10 @@ The design is written out in `plans/VALUES_BY_DEFAULT.md`, decision 39,
    - Still open, and the reason this doc stays open: `iter()` and
      `into_iter(self : &Self)` still store the receiver
      (`ArrayListIter._list`, `ArrayListIterPtr._list` and the other
-     collections' equivalents), and `for(&xs, …)` still lowers to the value
-     form through `into_iter`. Generation B (V2b B7, after B6):
-     - the read walk for `for(&xs, …)`;
+     collections' equivalents). Generation B (V2b B7, after B6):
+     - the read walk for `for(&xs, …)`: **landed as B7a (2026-10-23)**, a
+       `BorrowedWalk.walk_ref` cursor over `c := &xs` in every std
+       collection (`tests/for_read_walk.test.yo`);
      - a consuming `into_iter(self : Self)`;
      - `iter()` and the `*Ptr` iterators under
        `pragma(Pragma.AllowUnsafe)`.

@@ -1333,7 +1333,9 @@ _unwrap_if_label :: (fn(arg : &AstExpr, label : str) -> Option(AstExpr))({
 //   `y = &place` / `cur = &mut place`    → `I(y) = place` / `M(cur) = place`
 //   `{ y : &y, z : &mut z }(…) =>`       → `{ I(y) : &y, M(z) : &mut z }(…) =>`
 //   `{ &y, &mut z }(…) =>` (puns)        → `{ I(y), M(z) }(…) =>`
-//   `for(&xs, x => …)`                   → `for(xs, x => …)`
+//   `for(&xs, x => …)`                   → `for(xs, I(x) => …)` (the read
+//                                          walk; the map form's `(k, v)` →
+//                                          `(k, I(v))`)
 //   `for(&mut xs, x => …)`               → `for(xs, M(x) => …)` (and the
 //                                          map form's `(k, v)` → `(k, M(v))`)
 // A `&T` anywhere else (`T :: &i32`, `ArrayList(&T)`, a field's type) is not
@@ -1547,18 +1549,20 @@ _bs_closure_lhs :: (fn(lhs : &AstExpr) -> Option(AstExpr))(
     true => _bs_param(lhs)
   )
 );
-/// `for(&mut xs, h)`'s handle: `x => body` → `__yo_mut(x) => body`,
-/// `(k, v) => body` → `(k, __yo_mut(v)) => body`.
-_bs_mut_for_handle :: (fn(h : &AstExpr, at : &Token) -> AstExpr)(
+/// The borrowed `for`'s handle, in the source's mode: `for(&mut xs, h)` gives
+/// `x => body` → `__yo_mut(x) => body` and `(k, v) => body` →
+/// `(k, __yo_mut(v)) => body`; the read walk `for(&xs, h)` the same with
+/// `__yo_imm` (plans/VALUES_BY_DEFAULT.md B7a).
+_bs_for_handle :: (fn(is_mut : bool, h : &AstExpr, at : &Token) -> AstExpr)(
   match(
     _bs_infix_pair(h, "=>"),
     .Some(hp) => cond(
-      _bs_is_name(&hp.lhs) => _bs_with_operands(h, _borrow_mode_call1(true, &hp.lhs, at), &hp.rhs),
+      _bs_is_name(&hp.lhs) => _bs_with_operands(h, _borrow_mode_call1(is_mut, &hp.lhs, at), &hp.rhs),
       (ast_expr_is_fn_call_of(&hp.lhs, BK_TUPLE, Option(usize).Some(usize(2))) && _bs_is_name(match(_bs_args(&hp.lhs).get(usize(1)), .Some(v) => v, .None => make_err_expr()))) => {
         kv := _bs_args(&hp.lhs);
         nkv := ArrayList(AstExpr).new();
         nkv.push(match(kv.get(usize(0)), .Some(k) => k, .None => make_err_expr()));
-        nkv.push(_borrow_mode_call1(true, match(kv.get(usize(1)), .Some(v) => v, .None => make_err_expr()), at));
+        nkv.push(_borrow_mode_call1(is_mut, match(kv.get(usize(1)), .Some(v) => v, .None => make_err_expr()), at));
         _bs_with_operands(h, _bs_with_args(&hp.lhs, &nkv), &hp.rhs)
       },
       true => h
@@ -1742,7 +1746,7 @@ _borrow_spelling_rewrite :: (fn(e : &AstExpr) -> Option(AstExpr))({
         h := match(fa.get(usize(1)), .Some(x) => x, .None => make_err_expr());
         nfa := ArrayList(AstExpr).new();
         nfa.push(s.inner);
-        nfa.push(cond(s.is_mut => _bs_mut_for_handle(&h, &s.tok), true => h));
+        nfa.push(_bs_for_handle(s.is_mut, &h, &s.tok));
         return(Option(AstExpr).Some(_bs_with_args(e, &nfa)));
       },
       .None => ()

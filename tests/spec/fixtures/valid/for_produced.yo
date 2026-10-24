@@ -42,3 +42,14 @@ count_positive :: (fn(xs : ArrayList(i32), ensures(r <= xs.len())) -> (r : usize
   });
   n
 });
+
+// The read walk `for(&xs, x => …)` (plans/VALUES_BY_DEFAULT.md B7a) is the
+// same index model: its element is read in place, never copied out.
+copy_read :: (fn(xs : &ArrayList(i32), ensures(seq_of(r) == seq_of(xs))) -> (r : ArrayList(i32)))({
+  out := ArrayList(i32).new();
+  for(&xs, x => {
+    invariant(out == produced(xs));
+    out.push(x);
+  });
+  out
+});

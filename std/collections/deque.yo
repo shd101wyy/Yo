@@ -393,12 +393,23 @@ impl(
     WalkElem : T,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
     walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._len),
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut T)({
+    walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
       assert(cur < self._len, "Deque: walk cursor out of bounds");
       buf := self._buf.unwrap();
       buf.add((self._head + cur) % self._cap())
     }),
     walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  generic(T : Type),
+  Deque(T),
+  BorrowedWalkMut(
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut T)({
+      assert(cur < self._len, "Deque: walk cursor out of bounds");
+      buf := self._buf.unwrap();
+      buf.add((self._head + cur) % self._cap())
+    })
   )
 );
 impl(

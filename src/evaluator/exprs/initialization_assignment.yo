@@ -283,7 +283,7 @@ _evaluate_inout_local_binding :: (
   });
   // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
   // on the AST before evaluation so the message names the shape, not a type.
-  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`). To borrow an ELEMENT of a collection, iterate it with \`for(&mut coll, x => ...)\`; to hold a computed value, bind it with \`:=\` and no sigil.`;
+  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`). To borrow an ELEMENT of a collection, iterate it with \`for(${sig}coll, x => ...)\`; to hold a computed value, bind it with \`:=\` and no sigil.`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, &mut hops),

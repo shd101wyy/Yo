@@ -1,0 +1,9 @@
+# The read walk `for(&xs, …)` (B7a) lets its body READ the walked collection,
+# so the body can share its handle (`h := xs`) and grow it through the share.
+# The loop's guard holds `xs`'s runtime borrow flag, so the push panics
+# instead of reallocating the buffer under the live element reference `x`.
+# A user wrapper whose `walk_ref` forwards into an inner collection is NOT
+# covered by the flag:
+# issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300
