@@ -3380,13 +3380,8 @@ _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLen
 /// overwrites or lends `&mut` its root is E0910 in both spellings
 /// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
 /// An element read is recognised as `_global_lend_root` does: by the Index
-/// dispatch marker on the call, or an array-typed callee. A call through a
-/// closure-valued FIELD (`h.cb(x)`, `cb : Dyn(Fn …)`, any arity) also lends
-/// its root: codegen leaves that call inline while it spills a later argument
-/// to its own statement, so the call would run after a later argument freed
-/// the closure
-/// (issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
-/// Any other call (a closure local's call, a method or plain fn call, a
+/// dispatch marker on the call, or an array-typed callee. Any other call (a
+/// closure local's or a closure field's call, a method or plain fn call, a
 /// constructor) yields a temporary no argument can reach, so calling an
 /// `FnOnce` local inside an operand is not a lend of it
 /// (issues/fixed/2026-10-24-calling-an-fnonce-closure-is-a-false-e0910-after-the-receiver-exclusivity-extension.md).
@@ -3415,14 +3410,16 @@ _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
 });
 /// One place a call lends for its whole duration (decision 28): the receiver
 /// of a method whose `self` is a borrow (`self : &Self`, `self : &mut Self`),
-/// an `&x`/`&mut x` argument (`marked`), or an operand its operator's method
-/// borrows (`a == b` with Eq's `lhs : &Self`). `lent_arg` is the argument as
+/// an `&x`/`&mut x` argument (`marked`), an operand its operator's method
+/// borrows (`a == b` with Eq's `lhs : &Self`), or the closure- or fn-valued
+/// field a call calls (`h.cb(x)` lends `h.cb` to its own arguments, `from`
+/// 0, tag `callee`). `lent_arg` is the argument as
 /// written, `from` the index of the first argument evaluated after it,
 /// `exclusive` whether the lend is `&mut`, `form` how a diagnostic names it,
 /// and `tag` the short name `YO_AUDIT_GLOBAL_LEND` prints.
 _CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : bool, exclusive : bool, form : String, tag : String);
-/// The places `call` lends, in evaluation order: the receiver first, then the
-/// arguments. A by-value `self` moves the receiver itself (a later use of it
+/// The places `call` lends, in evaluation order: the receiver or the called
+/// field first, then the arguments. A by-value `self` moves the receiver itself (a later use of it
 /// is E0901), so it lends nothing. The call may omit defaulted parameters, so
 /// the method takes at least the receiver and the written arguments; a
 /// type-qualified call (`T.m(&x, k)`) names a type there, not a receiver.
@@ -3454,6 +3451,17 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
       ),
       _ => ()
     );
+  });
+  // A call through a closure- or fn-valued FIELD (`h.cb(x)`, `h.f(x)`) calls
+  // a value its holder still owns, and its arguments run before the call: an
+  // argument that moves the holder (`h.cb(eat(h))`) would leave the call a
+  // freed closure in any evaluation order (Rust's E0505). A method call
+  // (recorded callee) lends its receiver above instead; a module function or
+  // constructor (`m.f`, `E.Some`) is a compile-time value with no holder.
+  if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && lookup_method_callee_value(ast_expr_id(call)).is_none(), {
+    if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(ci) => !is_function_type(&ci.ty) || match(ci.value, .Some(v) => is_unknown_val(&v), .None => true), .None => false), {
+      out.push(_CallLend(place : op_callee.clone(), lent_arg : op_callee.clone(), from : usize(0), marked : false, exclusive : false, form : String.from("the closure-valued field the call calls"), tag : String.from("callee")));
+    });
   });
   operand_is_lent := _operator_operand_is_lent(call, ctx);
   (ai : usize) = usize(0);
@@ -3552,7 +3560,9 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
   while(li < lends.len(), li = (li + usize(1)), {
     match(
       lends.get(li),
-      .Some(l) => {
+      // A called field is lent only against the call's own arguments: it is
+      // no rule-3 lend of a module-level holder.
+      .Some(l) => if(!(l.tag == "callee"), {
         match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _judge_global_lend(call, &l, &gv, env, ctx, exn), .None => ());
         // Decision 47 step 2: an exclusive lend (a `&mut x` argument, the
         // receiver of a `&mut self` method) writes the binding below module
