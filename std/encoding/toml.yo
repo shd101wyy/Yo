@@ -418,20 +418,35 @@ _TableKind :: enum(
   ArrayElem
 );
 derive(_TableKind, Copy, Clone);
-/// The parser's state: the input bytes, the cursor, the tree, the table
+/// One step of a path from the document root down to a table: the value
+/// under a key of a table, or one element of an array (of tables).
+_Step :: enum(
+  /// The value stored under `name` in a table.
+  Key(name : String),
+  /// The `index`-th element of an array.
+  Elem(index : usize)
+);
+derive(_Step, Clone);
+/// The parser's state: the input bytes, the cursor, the PATH of the table
 /// `key = value` lines currently land in, and the provenance table above.
 ///
 /// BYTES, not `str`: `str` is the STATIC string view and a runtime `String`
 /// cannot become one, so a str-typed parser could never parse a config file
 /// read at runtime — the same reason `json.yo`'s `_Parser` holds bytes.
+///
+/// The tree itself is not here: `_parse_document` owns the root and lends it
+/// `&mut` to each line, and every write goes down a path from that root
+/// (`_store_at`). The current table is a path rather than a `TomlValue`,
+/// because a `TomlValue` held beside the root is a COPY of the table once
+/// `ArrayList` is a value type, and a line inserted into the copy would be
+/// lost (plans/handover/VBD_LOOKAHEAD_2026-10-23.md, P3).
 _Parser :: ref(
   struct(
     src : ArrayList(u8),
     pos : usize,
-    /// The document's root table.
-    root : TomlValue,
-    /// The table bare `key = value` lines are inserted into.
-    cur : TomlValue,
+    /// The path from the root to the table bare `key = value` lines are
+    /// inserted into, re-resolved from the root on every insert.
+    cur : ArrayList(_Step),
     /// `cur`'s encoded provenance path.
     cur_path : String,
     /// Encoded paths of every table this parse has created…
@@ -458,12 +473,10 @@ _path_index :: (fn(prefix : &String, idx : usize) -> String)({
 impl(
   _Parser,
   new : (fn(src : &ArrayList(u8)) -> Self)({
-    root := TomlValue.new_table();
     p := Self(
       src : src,
       pos : usize(0),
-      root : root,
-      cur : root,
+      cur : ArrayList(_Step).new(),
       cur_path : String.new(),
       paths : ArrayList(String).new(),
       kinds : ArrayList(_TableKind).new()
@@ -1603,74 +1616,193 @@ _parse_datetime :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
 // ============================================================================
 // Values
 // ============================================================================
+/// What a table holds under one key: nothing, a table, an array, or a
+/// scalar. `_probe_at`'s answer, so a walk decides without copying the value.
+_Slot :: enum(
+  Missing,
+  Table,
+  /// An array, and how many elements it has.
+  Array(len : usize),
+  Other
+);
+derive(_Slot, Copy, Clone);
+/// The position of `key` in a table's key list, or `.None`.
+_key_index :: (fn(keys : &ArrayList(String), key : &String) -> Option(usize))({
+  i := usize(0);
+  while(i < keys.len(), i = (i + usize(1)), {
+    cond(
+      (keys(i) == key) => {
+        return(Option(usize).Some(i));
+      },
+      true => ()
+    );
+  });
+  Option(usize).None
+});
+/// The kind of `v`, as `_probe_at` reports it.
+_slot_of :: (fn(v : &TomlValue) -> _Slot)(
+  match(
+    v,
+    .Table(_, _) => _Slot.Table,
+    .Array(items) => _Slot.Array(len : items.len()),
+    _ => _Slot.Other
+  )
+);
+/// What the table at `steps[si..]` below `t` holds under `key`. A READ: it
+/// descends by borrow, so no part of the tree is copied out. Every path a
+/// walk follows was resolved or created by that walk, so a step that does
+/// not resolve is a parser bug, not bad input.
+_probe_at :: (fn(t : &TomlValue, steps : &ArrayList(_Step), si : usize, key : &String) -> _Slot)(
+  cond(
+    (si < steps.len()) => match(
+      steps(si),
+      .Key(name) => match(
+        t,
+        .Table(tkeys, values) => match(
+          _key_index(&tkeys, &name),
+          .Some(j) => recur(&values(j), steps, si + usize(1), key),
+          .None => __yo_panic("toml: a parser path names a missing key")
+        ),
+        _ => __yo_panic("toml: a parser path steps by key into a non-table")
+      ),
+      .Elem(idx) => match(
+        t,
+        .Array(items) => recur(&items(idx), steps, si + usize(1), key),
+        _ => __yo_panic("toml: a parser path steps by index into a non-array")
+      )
+    ),
+    true => match(
+      t,
+      .Table(tkeys, values) => match(
+        _key_index(&tkeys, key),
+        .Some(j) => _slot_of(&values(j)),
+        .None => _Slot.Missing
+      ),
+      _ => __yo_panic("toml: a parser path ends at a non-table")
+    )
+  )
+);
+/// Store `value` at the end of the path `steps[si..]` below `t`: under
+/// `key` when the path ends at a table (`TomlValue.insert`), or as the new
+/// last element when it ends at an array and `key` is `.None` (the append a
+/// repeated `[[header]]` makes).
+///
+/// The write lands in the tree itself. Each level is remove-edit-insert:
+/// the child is MOVED out of its list (`swap_remove`, O(1)), edited as a
+/// local, and moved back to its slot (`push` + `swap`), so nothing is ever
+/// written into a `TomlValue` read out of the tree — a copy, once
+/// `ArrayList` is a value type. (Lending `&mut values(j)` down instead is
+/// rejected while `ArrayList` is a shared handle: `steps`, `key` and `value`
+/// could each hold a handle to `values`.)
+_store_at :: (
+  fn(t : &mut TomlValue, steps : &ArrayList(_Step), si : usize, key : Option(String), value : TomlValue) -> unit
+)(
+  cond(
+    (si < steps.len()) => match(
+      steps(si),
+      .Key(name) => match(
+        t,
+        .Table(tkeys, values) => match(
+          _key_index(&tkeys, &name),
+          .Some(j) => {
+            // Called by name, not `recur`: `recur(&mut child, …)` passes the
+            // local by value in the emitted C
+            // (issues/2026-10-24-recur-lends-a-local-mut-by-value-in-c.md).
+            child := values.swap_remove(j);
+            _store_at(&mut child, steps, si + usize(1), key, value);
+            values.push(child);
+            values.swap(j, values.len() - usize(1));
+          },
+          .None => __yo_panic("toml: a parser path names a missing key")
+        ),
+        _ => __yo_panic("toml: a parser path steps by key into a non-table")
+      ),
+      .Elem(idx) => match(
+        t,
+        .Array(items) => {
+          child := items.swap_remove(idx);
+          _store_at(&mut child, steps, si + usize(1), key, value);
+          items.push(child);
+          items.swap(idx, items.len() - usize(1));
+        },
+        _ => __yo_panic("toml: a parser path steps by index into a non-array")
+      )
+    ),
+    true => match(
+      key,
+      .Some(k) => {
+        _old := t.insert(k, value);
+      },
+      .None => match(
+        t,
+        .Array(items) => items.push(value),
+        _ => __yo_panic("toml: an append path ends at a non-array")
+      )
+    )
+  )
+);
 /// Insert `keys` → `value` into an INLINE table. Dotted keys are legal
 /// inside `{ }`, and a table they create may be extended by a later dotted
 /// key of the same inline table — but by nothing else, which is what
 /// `dotted` records: the encoded paths this inline table created itself.
+/// The walk keeps a path below `table` (`steps`), and every write goes down
+/// it from `table`.
 _insert_inline :: (
   fn(
-    table : &TomlValue,
+    table : &mut TomlValue,
     keys : &ArrayList(String),
-    value : &TomlValue,
+    value : TomlValue,
     dotted : &mut ArrayList(String),
     pos : usize
   ) -> Result(unit, TomlError)
 )({
-  (cur : TomlValue) = table;
+  steps := ArrayList(_Step).new();
   (path : String) = String.new();
   last := (keys.len() - usize(1));
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
     k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_tbl : TomlValue) = cur;
     match(
-      cur.get(&k),
-      .None => {
-        t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+      _probe_at(table, &steps, usize(0), &k),
+      .Missing => {
+        _store_at(table, &steps, usize(0), Option(String).Some(k.clone()), TomlValue.new_table());
         dotted.push(child_path.clone());
-        next_tbl = t;
       },
-      .Some(v) => {
+      .Table => {
+        (seen : bool) = false;
+        j := usize(0);
+        while(j < dotted.len(), j = (j + usize(1)), {
+          cond(
+            (dotted(j) == child_path) => {
+              seen = true;
+            },
+            true => ()
+          );
+        });
         cond(
-          v.is_table() => {
-            (seen : bool) = false;
-            j := usize(0);
-            while(j < dotted.len(), j = (j + usize(1)), {
-              cond(
-                (dotted(j) == child_path) => {
-                  seen = true;
-                },
-                true => ()
-              );
-            });
-            cond(
-              seen => {
-                next_tbl = v;
-              },
-              true => {
-                return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
-              }
-            );
+          !seen => {
+            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
           },
-          true => {
-            return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
-          }
+          true => ()
         );
+      },
+      _ => {
+        return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
       }
     );
-    cur = next_tbl;
+    steps.push(_Step.Key(k));
     path = child_path;
   });
   final_key := keys(last).clone();
-  cond(
-    cur.has_key(&final_key) => {
+  match(
+    _probe_at(table, &steps, usize(0), &final_key),
+    .Missing => (),
+    _ => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
-    },
-    true => ()
+    }
   );
-  _prev := cur.insert(final_key, value);
+  _store_at(table, &steps, usize(0), Option(String).Some(final_key), value);
   Result(unit, TomlError).Ok(())
 });
 /// One value. Arrays and inline tables are scanned INLINE here rather than in
@@ -1808,7 +1940,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
               }
             );
             _ins := match(
-              _insert_inline(&tbl, &keys, &v, &mut dotted, kv_pos),
+              _insert_inline(&mut tbl, &keys, v, &mut dotted, kv_pos),
               .Ok(_) => true,
               .Err(e) => {
                 return(Result(TomlValue, TomlError).Err(e));
@@ -1856,89 +1988,82 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
 // ============================================================================
 // Tables, headers, key/value pairs
 // ============================================================================
-/// A table and its encoded provenance path.
-_Cursor :: struct(
-  table : TomlValue,
-  path : String
-);
 /// Walk (creating as needed) the first `upto` segments of a header path from
-/// the document root. A segment that names an array of tables descends into
-/// its LAST element, which is what makes `[[fruit]] … [fruit.variety]` attach
-/// to the fruit most recently opened.
+/// the document root, pushing each step onto `steps`, and answer the encoded
+/// path of the table reached. A segment that names an array of tables
+/// descends into its LAST element, which is what makes
+/// `[[fruit]] … [fruit.variety]` attach to the fruit most recently opened.
 _walk_header_path :: (
-  fn(p : &_Parser, keys : &ArrayList(String), upto : usize, pos : usize) -> Result(_Cursor, TomlError)
+  fn(
+    p : &_Parser,
+    root : &mut TomlValue,
+    keys : &ArrayList(String),
+    upto : usize,
+    steps : &mut ArrayList(_Step),
+    pos : usize
+  ) -> Result(String, TomlError)
 )({
-  (cur : TomlValue) = p.root;
   (path : String) = String.new();
   i := usize(0);
   while(i < upto, i = (i + usize(1)), {
     k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_tbl : TomlValue) = cur;
     (next_path : String) = child_path.clone();
     match(
-      cur.get(&k),
-      .None => {
-        t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+      _probe_at(root, steps, usize(0), &k),
+      .Missing => {
+        _store_at(root, steps, usize(0), Option(String).Some(k.clone()), TomlValue.new_table());
         p.set_kind(&child_path, _TableKind.Implicit);
-        next_tbl = t;
+        steps.push(_Step.Key(k));
       },
-      .Some(v) => {
+      .Table => {
+        extendable := match(
+          p.kind_of(&child_path),
+          .Some(kk) => match(
+            kk,
+            .Explicit => true,
+            .Implicit => true,
+            .ArrayElem => true,
+            _ => false
+          ),
+          .None => false
+        );
         cond(
-          v.is_table() => {
-            extendable := match(
-              p.kind_of(&child_path),
-              .Some(kk) => match(
-                kk,
-                .Explicit => true,
-                .Implicit => true,
-                .ArrayElem => true,
-                _ => false
-              ),
-              .None => false
-            );
-            cond(
-              extendable => {
-                next_tbl = v;
-              },
-              true => {
-                return(Result(_Cursor, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
-              }
-            );
-          },
-          v.is_array() => {
-            is_aot := match(
-              p.kind_of(&child_path),
-              .Some(kk2) => match(kk2, .ArrayOfTables => true, _ => false),
-              .None => false
-            );
-            cond(
-              is_aot => {
-                items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
-                idx := (items.len() - usize(1));
-                next_tbl = items(idx);
-                next_path = _path_index(&child_path, idx);
-              },
-              true => {
-                return(Result(_Cursor, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
-              }
-            );
-          },
+          extendable => steps.push(_Step.Key(k)),
           true => {
-            return(Result(_Cursor, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
+            return(Result(String, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
           }
         );
+      },
+      .Array(n) => {
+        is_aot := match(
+          p.kind_of(&child_path),
+          .Some(kk2) => match(kk2, .ArrayOfTables => true, _ => false),
+          .None => false
+        );
+        cond(
+          is_aot => {
+            idx := (n - usize(1));
+            steps.push(_Step.Key(k));
+            steps.push(_Step.Elem(idx));
+            next_path = _path_index(&child_path, idx);
+          },
+          true => {
+            return(Result(String, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+          }
+        );
+      },
+      .Other => {
+        return(Result(String, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
       }
     );
-    cur = next_tbl;
     path = next_path;
   });
-  Result(_Cursor, TomlError).Ok(_Cursor(table : cur, path : path))
+  Result(String, TomlError).Ok(path)
 });
 /// A `[table]` or `[[array of tables]]` header. On success the parser's
 /// current table is the one the header opened.
-_parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
+_parse_header :: (fn(p : &_Parser, root : &mut TomlValue) -> Result(unit, TomlError))({
   pos := p.pos;
   p.advance();
   is_array := (p.cur_byte() == _LBRACKET);
@@ -1975,31 +2100,33 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
     true => ()
   );
   last := (keys.len() - usize(1));
-  cursor := match(
-    _walk_header_path(p, &keys, last, pos),
-    .Ok(c) => c,
+  steps := ArrayList(_Step).new();
+  table_path := match(
+    _walk_header_path(p, root, &keys, last, &mut steps, pos),
+    .Ok(s) => s,
     .Err(e) => {
       return(Result(unit, TomlError).Err(e));
     }
   );
   k := keys(last).clone();
-  child_path := _path_key(&cursor.path, &k);
-  existing := cursor.table.get(&k);
+  child_path := _path_key(&table_path, &k);
+  slot := _probe_at(root, &steps, usize(0), &k);
   cond(
     is_array => match(
-      existing,
-      .None => {
+      slot,
+      .Missing => {
         items := ArrayList(TomlValue).new();
-        elem := TomlValue.new_table();
-        items.push(elem);
-        _old := cursor.table.insert(k, TomlValue.Array(items));
+        items.push(TomlValue.new_table());
+        _store_at(root, &steps, usize(0), Option(String).Some(k.clone()), TomlValue.Array(items));
         p.set_kind(&child_path, _TableKind.ArrayOfTables);
         elem_path := _path_index(&child_path, usize(0));
         p.set_kind(&elem_path, _TableKind.ArrayElem);
-        p.cur = elem;
+        steps.push(_Step.Key(k));
+        steps.push(_Step.Elem(usize(0)));
+        p.cur = steps;
         p.cur_path = elem_path;
       },
-      .Some(v) => {
+      .Array(n) => {
         is_aot := match(
           p.kind_of(&child_path),
           .Some(kk) => match(kk, .ArrayOfTables => true, _ => false),
@@ -2007,55 +2134,60 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
         );
         cond(
           is_aot => {
-            items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
-            elem := TomlValue.new_table();
-            items.push(elem);
-            elem_path := _path_index(&child_path, items.len() - usize(1));
+            steps.push(_Step.Key(k));
+            _store_at(root, &steps, usize(0), Option(String).None, TomlValue.new_table());
+            elem_path := _path_index(&child_path, n);
             p.set_kind(&elem_path, _TableKind.ArrayElem);
-            p.cur = elem;
+            steps.push(_Step.Elem(n));
+            p.cur = steps;
             p.cur_path = elem_path;
           },
           true => {
             return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
           }
         );
+      },
+      // A table or a scalar under the key: a second header over it.
+      _ => {
+        return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
       }
     ),
     true => match(
-      existing,
-      .None => {
-        t := TomlValue.new_table();
-        _old := cursor.table.insert(k, t);
+      slot,
+      .Missing => {
+        _store_at(root, &steps, usize(0), Option(String).Some(k.clone()), TomlValue.new_table());
         p.set_kind(&child_path, _TableKind.Explicit);
-        p.cur = t;
+        steps.push(_Step.Key(k));
+        p.cur = steps;
         p.cur_path = child_path;
       },
-      .Some(v) => {
+      .Table => {
         // Only a table an earlier header path created IMPLICITLY may be
         // opened by its own header; everything else — a second `[a]`, a
-        // dotted key's table, an inline table, an array of tables — is a
-        // redefinition.
+        // dotted key's table, an inline table — is a redefinition.
         promotable := match(
           p.kind_of(&child_path),
           .Some(kk) => match(kk, .Implicit => true, _ => false),
           .None => false
         );
         cond(
-          (promotable && v.is_table()) => {
+          promotable => {
             p.set_kind(&child_path, _TableKind.Explicit);
-            p.cur = v;
+            steps.push(_Step.Key(k));
+            p.cur = steps;
             p.cur_path = child_path;
           },
-          v.is_table() => {
-            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
-          },
-          v.is_array() => {
-            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
-          },
           true => {
-            return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
+            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
           }
         );
+      },
+      // An array of tables, or any other array: a redefinition.
+      .Array(_) => {
+        return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+      },
+      .Other => {
+        return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
       }
     )
   );
@@ -2063,63 +2195,57 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
 });
 /// Insert a (possibly dotted) key/value pair into the parser's current
 /// table. Tables the dots create are recorded as `.Dotted`, which is what
-/// makes a later `[a.b]` header over them a redefinition.
+/// makes a later `[a.b]` header over them a redefinition. The walk starts
+/// from a CLONE of the current table's path: the dots extend this line's
+/// path only, never `p.cur`.
 _insert_keyval :: (
-  fn(p : &_Parser, keys : &ArrayList(String), value : &TomlValue, pos : usize) -> Result(unit, TomlError)
+  fn(p : &_Parser, root : &mut TomlValue, keys : &ArrayList(String), value : TomlValue, pos : usize) -> Result(unit, TomlError)
 )({
-  (cur : TomlValue) = p.cur;
+  steps := p.cur.clone();
   (path : String) = p.cur_path.clone();
   last := (keys.len() - usize(1));
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
     k := keys(i).clone();
     child_path := _path_key(&path, &k);
-    (next_tbl : TomlValue) = cur;
     match(
-      cur.get(&k),
-      .None => {
-        t := TomlValue.new_table();
-        _old := cur.insert(k, t);
+      _probe_at(root, &steps, usize(0), &k),
+      .Missing => {
+        _store_at(root, &steps, usize(0), Option(String).Some(k.clone()), TomlValue.new_table());
         p.set_kind(&child_path, _TableKind.Dotted);
-        next_tbl = t;
       },
-      .Some(v) => {
-        cond(
-          v.is_table() => {
-            reopenable := match(
-              p.kind_of(&child_path),
-              .Some(kk) => match(kk, .Dotted => true, _ => false),
-              .None => false
-            );
-            cond(
-              reopenable => {
-                next_tbl = v;
-              },
-              true => {
-                return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
-              }
-            );
-          },
-          true => {
-            return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
-          }
+      .Table => {
+        reopenable := match(
+          p.kind_of(&child_path),
+          .Some(kk) => match(kk, .Dotted => true, _ => false),
+          .None => false
         );
+        cond(
+          !reopenable => {
+            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+          },
+          true => ()
+        );
+      },
+      _ => {
+        return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
       }
     );
-    cur = next_tbl;
+    steps.push(_Step.Key(k));
     path = child_path;
   });
   final_key := keys(last).clone();
-  cond(
-    cur.has_key(&final_key) => {
+  match(
+    _probe_at(root, &steps, usize(0), &final_key),
+    .Missing => (),
+    _ => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
-    },
-    true => ()
+    }
   );
-  _prev := cur.insert(final_key, value);
+  _store_at(root, &steps, usize(0), Option(String).Some(final_key), value);
   Result(unit, TomlError).Ok(())
 });
-_parse_keyval :: (fn(p : &_Parser) -> Result(unit, TomlError))({
+_parse_keyval :: (fn(p : &_Parser, root : &mut TomlValue) -> Result(unit, TomlError))({
   pos := p.pos;
   keys := match(
     _parse_key_path(p),
@@ -2146,13 +2272,14 @@ _parse_keyval :: (fn(p : &_Parser) -> Result(unit, TomlError))({
       return(Result(unit, TomlError).Err(e));
     }
   );
-  _insert_keyval(p, &keys, &value, pos)
+  _insert_keyval(p, root, &keys, value, pos)
 });
 /// The document: a sequence of headers and key/value pairs, one per line,
 /// each of which must be followed by nothing but spaces, a comment, and a
 /// newline. A line that is none of those is an error rather than skipped
 /// text.
 _parse_document :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
+  root := TomlValue.new_table();
   (going : bool) = true;
   while(going, {
     _sk := match(
@@ -2168,7 +2295,7 @@ _parse_document :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       },
       (p.cur_byte() == _LBRACKET) => {
         _h := match(
-          _parse_header(p),
+          _parse_header(p, &mut root),
           .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
@@ -2184,7 +2311,7 @@ _parse_document :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       },
       true => {
         _kv := match(
-          _parse_keyval(p),
+          _parse_keyval(p, &mut root),
           .Ok(_) => true,
           .Err(e) => {
             return(Result(TomlValue, TomlError).Err(e));
@@ -2200,7 +2327,7 @@ _parse_document :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
       }
     );
   });
-  Result(TomlValue, TomlError).Ok(p.root)
+  Result(TomlValue, TomlError).Ok(root)
 });
 /// Parse a TOML document into a `TomlValue` tree (D13 — a pure transform
 /// returns a `Result`). The root is always a `.Table`; `.Err` carries the

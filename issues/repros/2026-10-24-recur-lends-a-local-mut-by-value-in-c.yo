@@ -1,0 +1,24 @@
+// `recur(&mut child, …)` emits `child` by value where the parameter is a
+// pointer: the C compiler rejects the call. Calling the function by name
+// (`bump(&mut child, …)`) emits `&child` and prints 2.
+{ println } :: import("std/fmt");
+Inner :: struct(n : i32);
+derive(Inner, Copy, Clone);
+bump :: (fn(x : &mut Inner, depth : usize) -> unit)(
+  cond(
+    (depth == usize(0)) => {
+      x.n = (x.n + i32(1));
+    },
+    true => {
+      mut(child) := Inner(n : x.n);
+      recur(&mut child, depth - usize(1));
+      x.n = child.n;
+    }
+  )
+);
+main :: (fn() -> unit)({
+  mut(a) := Inner(n : i32(1));
+  bump(&mut a, usize(2));
+  println(&a.n);
+});
+export(main);

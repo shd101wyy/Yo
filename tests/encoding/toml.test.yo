@@ -516,6 +516,73 @@ a.b = 1`
     "and a value cannot then be extended by a dotted key"
   );
 });
+// The parser builds the tree by writing down a PATH from the root (the
+// current table is a path, re-resolved on every line), never into a
+// `TomlValue` read out of the tree — such a value is a copy once `ArrayList`
+// is a value type, and every write below would be lost
+// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md, P3). Each line exercises
+// one way of reaching the table it writes.
+test("Every write lands in the tree: array elements, dotted keys, promoted and inline tables", {
+  text := `top = 0
+[[a]]
+x = 1
+p.q = 2
+r = 16
+[a.t]
+y = 3
+[[a.t2]]
+z = 4
+[[a.t2]]
+z = 5
+[[a]]
+x = 6
+[a.t]
+y = 7
+w = 8
+[m.n.o]
+v = 9
+[m]
+u = 10
+[m.n]
+s = 11
+[k]
+i = { b.c = 12, b.d = 13, e = 14 }
+j = 15`;
+  d := _doc(&text);
+  assert(d.table_len() == usize(4), "top, a, m, k at the root");
+  assert(d.get(`top`).unwrap().as_int().unwrap() == i64(0), "a root key");
+  a := d.get(`a`).unwrap();
+  assert(a.array_len() == usize(2), "[[a]] twice: two elements");
+  a0 := a.at(usize(0)).unwrap();
+  assert(a0.table_len() == usize(5), "the first element holds x, p, r, t and t2");
+  assert(a0.get(`x`).unwrap().as_int().unwrap() == i64(1), "a key in an array element");
+  assert(a0.get(`p`).unwrap().get(`q`).unwrap().as_int().unwrap() == i64(2), "a dotted key in an array element");
+  assert(a0.get(`p`).unwrap().table_len() == usize(1), "the dotted table holds only q");
+  assert(a0.get(`r`).unwrap().as_int().unwrap() == i64(16), "a dotted key does not move the current table");
+  assert(a0.get(`t`).unwrap().get(`y`).unwrap().as_int().unwrap() == i64(3), "[a.t] opens a table in the last element");
+  t2 := a0.get(`t2`).unwrap();
+  assert(t2.array_len() == usize(2), "[[a.t2]] twice inside the first element");
+  assert(t2.at(usize(0)).unwrap().get(`z`).unwrap().as_int().unwrap() == i64(4), "the nested array's first element");
+  assert(t2.at(usize(1)).unwrap().get(`z`).unwrap().as_int().unwrap() == i64(5), "and its second");
+  a1 := a.at(usize(1)).unwrap();
+  assert(a1.table_len() == usize(2), "the second element holds x and t");
+  assert(a1.get(`x`).unwrap().as_int().unwrap() == i64(6), "a key in the appended element");
+  a1t := a1.get(`t`).unwrap();
+  assert((a1t.get(`y`).unwrap().as_int().unwrap() == i64(7)) && (a1t.get(`w`).unwrap().as_int().unwrap() == i64(8)), "[a.t] again, in the new element");
+  m := d.get(`m`).unwrap();
+  assert(m.get(`u`).unwrap().as_int().unwrap() == i64(10), "an implicit table promoted by its header");
+  mn := m.get(`n`).unwrap();
+  assert(mn.get(`s`).unwrap().as_int().unwrap() == i64(11), "a deeper implicit table promoted");
+  assert(mn.get(`o`).unwrap().get(`v`).unwrap().as_int().unwrap() == i64(9), "the table that implied both");
+  k := d.get(`k`).unwrap();
+  i := k.get(`i`).unwrap();
+  assert(i.table_len() == usize(2), "the inline table holds b and e");
+  ib := i.get(`b`).unwrap();
+  assert((ib.get(`c`).unwrap().as_int().unwrap() == i64(12)) && (ib.get(`d`).unwrap().as_int().unwrap() == i64(13)), "dotted keys inside an inline table");
+  assert(i.get(`e`).unwrap().as_int().unwrap() == i64(14), "a plain key inside it");
+  assert(k.get(`j`).unwrap().as_int().unwrap() == i64(15), "the line after an inline table");
+  assert(_round_trips(&text), "and the document round-trips");
+});
 test("A raw CR inside a multi-line string is not a newline", {
   mut(bad) := `s = """a`;
   bad.push_byte(u8(13));
