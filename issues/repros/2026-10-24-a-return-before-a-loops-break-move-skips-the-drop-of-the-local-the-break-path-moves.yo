@@ -1,6 +1,7 @@
 // issues/2026-10-24-a-return-before-a-loops-break-move-skips-the-drop-of-the-local-the-break-path-moves.md
 // Expected: prints `made=2 drops=2` and exits 0.
-// Actual (develop f1cfa553d): prints `made=2 drops=0` and the assert fails:
+// Actual (develop f1cfa553d, and with the match-join fix): prints
+// `made=2 drops=0` and the assert fails (rc 134):
 // neither `return(i32(-2))` drops `f`, though `f` is moved only on the
 // `break` path, at a later iteration.
 { println } :: import("std/fmt");
@@ -60,8 +61,10 @@ via_if :: (fn(k : i32) -> i32)({
 main :: (fn() -> unit)({
   a := via_match(i32(3));
   b := via_if(i32(3));
-  println(`made=${g_m} drops=${g_d}`);
+  m := g_m;
+  d := g_d;
+  println(`made=${m} drops=${d}`);
   assert((a == i32(-2)) && (b == i32(-2)), "both return at i == 2");
-  assert(g_d == g_m, "each `return(i32(-2))` drops `f`");
+  assert(d == m, "each `return(i32(-2))` drops `f`");
 });
 export(main);
