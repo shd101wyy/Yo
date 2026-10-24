@@ -76,3 +76,6 @@ References now answer `f`'s declaration (0:9) and use, definition answers
 `tests/cli-cases/lsp-parameter-identity-deferred` runs the second: references
 on `f`'s `x` answer 0:30 and 0:47, definition 0:30, and the rename of `g`'s
 `x` edits 1:9 and 1:26 only.
+`tests/cli-cases/lsp-deferred-body-scopes` covers a local and a `match` arm
+binding in two deferred bodies: each `y` answers its own occurrences, where
+all six were one symbol before.
