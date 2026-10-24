@@ -926,11 +926,12 @@ is_function_specializable :: (fn(t : &TypeValue) -> bool)(false);
 ///
 /// A cell handle (`cell_handle_view`) is a box by the same rule: a
 /// non-atomic one always, an atomic one unless its payload is an object (a
-/// `ref` struct or enum, or another cell handle).
+/// `ref` struct, or another cell handle). An atomic `ref` enum is no object
+/// here, as for `Arc`: `dyn(arc(e))` into a `Send` `Dyn` boxes it.
 is_boxed_type :: (fn(t : &TypeValue) -> bool)(
   match(
     cell_handle_view(t),
-    .Some(v) => (!v.is_atomic || !(is_reference_struct_type(&v.payload) || is_reference_enum_type(&v.payload) || cell_handle_view(&v.payload).is_some())),
+    .Some(v) => (!v.is_atomic || !(is_reference_struct_type(&v.payload) || cell_handle_view(&v.payload).is_some())),
     .None => _is_boxed_cell_object_type(t)
   )
 );

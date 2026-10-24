@@ -81,7 +81,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
-{ is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { expr_tree_contains_return } :: import("../../expr_traversal.yo");
@@ -1607,8 +1607,10 @@ _optimize_dup_drop_pairs :: (
             merged.dup_calls.get(base_id.clone()),
             .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
               // Value types with RC fields: `y = temp` is a C memcpy; both
-              // copies need their own drop — never cancel.
-              value_type_with_rc := (!is_reference_struct_type(&base.ty) && type_contains_rc_type(&base.ty));
+              // copies need their own drop — never cancel. A cell handle
+              // (`cell_handle_view`, V5's `Rc`/`Arc`) is one cell pointer in
+              // C, as a `ref` object is, so its pairs cancel like an `Rc`'s.
+              value_type_with_rc := (!(is_reference_struct_type(&base.ty) || cell_handle_view(&base.ty).is_some()) && type_contains_rc_type(&base.ty));
               partial := _ids_list_contains(&merged.vars_with_partial_branch_dups, base_id.clone());
               // A dup taken in a DEEPER SCOPE than the candidate's own frame
               // — the body of a nested `{ … }` block — feeds a container whose

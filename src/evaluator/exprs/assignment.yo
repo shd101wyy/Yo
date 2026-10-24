@@ -1176,20 +1176,7 @@ throw_if_write_through_atomic_root :: (
     return(());
   });
   root_expr := get_root_expr_of_place(place);
-  match(
-    get_atomic_object_root_type(&root_expr, env),
-    .Some(atomic_obj_type) => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(place),
-            `Cannot ${how} atomic object '${ast_expr_to_string(&root_expr)}' (type ${type_to_string(&atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
-          )
-        )
-      );
-    },
-    .None => ()
-  );
+  _throw_if_atomic_object_root(place, &root_expr, env, how, exn);
   // D1: a write rooted in a module-level global (not a thread-local) is a
   // write to a static every thread shares.
   match(
@@ -1197,6 +1184,46 @@ throw_if_write_through_atomic_root :: (
     .Some(gv) => _d1_record_write(&gv, ast_expr_token(place), how, String.new(), exn),
     .None => ()
   );
+});
+/// D3's rooted case: `root_expr`, the root of `place`, is an atomic object.
+_throw_if_atomic_object_root :: (
+  fn(place : &AstExpr, root_expr : &AstExpr, env : &Environment, how : &String, exn : Exception) -> unit
+)({
+  match(
+    get_atomic_object_root_type(root_expr, env),
+    .Some(atomic_obj_type) => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(place),
+            `Cannot ${how} atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(&atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+          )
+        )
+      );
+    },
+    .None => ()
+  );
+});
+/// D3 for a local `&mut` lend of the evaluated `ev_place`: a `&mut` borrow
+/// binding (`m := &mut a.x`) or a `&mut` match scrutinee
+/// (`match(&mut a.x, …)`) lets the code after it write the place, so a place
+/// in an atomic object, at its root or past a hop, is rejected in safe code
+/// as the write itself would be. Lending the root binding itself
+/// (`&mut a`) lends the handle, not the object behind it: a write through
+/// the borrow is judged where it happens.
+throw_if_mut_lend_through_atomic_object :: (
+  fn(ev_place : &AstExpr, env : &Environment, how : String, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ev_place).module_path.*.clone())), {
+    return(());
+  });
+  bare := ast_expr_strip_borrow_marker(ev_place);
+  if(ast_expr_is_atom(&bare), {
+    return(());
+  });
+  root_expr := get_root_expr_of_place(&bare);
+  _throw_if_atomic_object_root(&bare, &root_expr, env, &how, exn);
+  _throw_if_write_through_atomic_hop(&bare, how, ctx, exn);
 });
 /// D3 for an evaluated place whose atomic object is not its root: a hop
 /// through an `Arc` reached by a field, a tuple element or another cell
@@ -2640,6 +2667,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
 });
 export(
   throw_if_write_through_atomic_root,
+  throw_if_mut_lend_through_atomic_object,
   borrowed_value_root_of_place,
   shared_borrow_param_root_of_place,
   reject_write_through_shared_borrow_param,
