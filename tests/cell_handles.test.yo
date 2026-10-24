@@ -111,15 +111,21 @@ test("S11/S12: a write through an atomic cell handle is D3 in safe code", {
   comptime_expect_error(s.a.*.x = i32(3), "atomic object");
   assert(a.*.x == i32(1), "nothing wrote the payload");
 });
+// A copy taken out of an array element is a second handle beside the
+// element, as for an `Rc` (tests/rc.test.yo, "tmp and y(0) should share
+// RC=2"); a copy whose source lives on in the same scope shares its count
+// instead (the next test).
 test("S19: ref_count counts the handles, not the constant 1", {
   h := trc(i32(1));
   assert(ref_count(h) == usize(1), "one handle");
-  (o : Option(TRc(i32))) = .Some(h);
-  assert(ref_count(h) == usize(2), `two handles: ${ref_count(h)}`);
-  match(o, .Some(g) => assert(g.* == i32(1), "the Option's handle reads the payload"), .None => assert(false, "a handle"));
+  hs := [h,];
+  g := hs(usize(0));
+  assert(ref_count(g) == usize(2), `two handles: ${ref_count(g)}`);
+  assert(g.* == i32(1), "the copy reads the payload");
   a := tarc(i32(2));
-  b := a;
-  assert(ref_count(a) == usize(2), `two atomic handles: ${ref_count(a)}`);
+  xs := [a,];
+  b := xs(usize(0));
+  assert(ref_count(b) == usize(2), `two atomic handles: ${ref_count(b)}`);
   assert(b.* == i32(2), "the copy");
 });
 // A copy whose source lives on shares the source's count when the dup/drop
