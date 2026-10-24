@@ -91,7 +91,7 @@ pragma(Pragma.AllowUnsafe);
   unmark_dot_callee,
   call_promote_index_places_for_write
 } :: import("../context.yo");
-{ is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
@@ -840,6 +840,47 @@ _reject_class1_panic_method_call :: (
 /// outside would write a private field. Enums, unions and source-namespace
 /// records are not literal-constructed this way and are unaffected. The
 /// access site is the call token's module (lexical), as above.
+/// An identifier atom `name`, synthesized at the position of `at`.
+_synth_name_atom :: (fn(name : str, at : &Token) -> AstExpr)(
+  AstExpr.Atom(
+    alloc_global_expr_id(),
+    Token(
+      kind : TokenKind.Identifier,
+      value : intern_token_str(String.from(name)),
+      row : at.row,
+      column : at.column,
+      character : at.character,
+      byte_offset : at.byte_offset,
+      module_path : at.module_path,
+      input : at.input
+    )
+  )
+);
+/// `Option(Allocator)`, the type of a cell primitive's allocator argument
+/// (`__yo_cell(V)(v, alloc)`, plans/VALUES_BY_DEFAULT.md §3.5): the prelude's
+/// own instantiation, evaluated in `env` from names synthesized at `at`. Both
+/// names are prelude exports, which no module can shadow.
+_cell_allocator_type :: (fn(at : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> TypeValue)({
+  ty_args := ArrayList(AstExpr).new();
+  ty_args.push(_synth_name_atom("Allocator", at));
+  opt_expr := AstExpr.FnCall(alloc_global_expr_id(), _synth_name_atom("Option", at), ty_args, false, at);
+  opt_eval := evaluate_expression_raw(&opt_expr, env, ctx, exn);
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&opt_eval)),
+    .Some(oi) => match(
+      oi.value,
+      .Some(.TypeVal(ot)) => ot,
+      _ => {
+        exn.throw(dyn(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which did not evaluate to a type here."))));
+        rc(TypeValueNode.Unit)
+      }
+    ),
+    .None => {
+      exn.throw(dyn(format_error_message(at, String.from("A cell's allocator argument needs the prelude's `Option(Allocator)`, which is not visible here."))));
+      rc(TypeValueNode.Unit)
+    }
+  )
+});
 _reject_private_construction :: (
   fn(
     struct_id : &String,
@@ -8319,6 +8360,26 @@ Fix: wrap the call:
               eprintln(`[call-struct] id=${struct_id} name=${struct_name}`);
             });
             _reject_private_construction(struct_id.clone(), struct_name.clone(), &struct_field_labels.items, &tok, exn);
+            // A cell primitive's constructor takes the allocator after the
+            // payload: `__yo_cell(V)(v, alloc)` with `alloc : Option(Allocator)`
+            // (plans/VALUES_BY_DEFAULT.md §3.5). `.None` places the cell in
+            // the current `with_allocator` scope, else the global allocator;
+            // `.Some(a)` places it in `a` with no scope switch. The argument
+            // is a constructor parameter, not a field: it is checked here, and
+            // codegen reads it from the second runtime argument slot.
+            if(is_cell_primitive_type(&func_type), {
+              fields_subst.push(
+                TypeField(
+                  label : String.from("alloc"),
+                  ty : _cell_allocator_type(&tok, &callee_env, ctx, exn),
+                  is_comptime : false,
+                  default_value : Option(EvalValue).None,
+                  assigned_value : Option(EvalValue).None,
+                  doc_comment : Option(String).None,
+                  is_effect_param : false
+                )
+              );
+            });
             call_result_s := try_to_call_type_with_arguments(&fields_subst, &func_expr, &args, &callee_env, ctx, false, exn);
             // Propagate io-builtin markers from extern function VALUES to the
             // constructed struct's FIELDS: constructing
