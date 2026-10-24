@@ -1,0 +1,36 @@
+//! A pattern binding holds a part of the scrutinee's variable and shares its
+//! buffer, so a write through the binding is a write of that variable. Each
+//! copy below shares its buffer with a list pushed through such a binding
+//! (a `match` by value, a `&mut` match, a record pattern, a `:=`
+//! destructuring), so all four are listed. `read_only`'s binding is only
+//! read, and its copy is cloned.
+{ ArrayList } :: import("std/collections/array_list");
+VEntry :: struct(yes : ArrayList(i32), opt : Option(ArrayList(i32)));
+by_value :: (fn(entry : &VEntry) -> usize)({
+  x := entry.opt;
+  match(entry.opt, .Some(v) => v.push(i32(1)), .None => ());
+  match(x, .Some(v) => v.len(), .None => usize(99))
+});
+by_mut :: (fn(entry : &mut VEntry) -> usize)({
+  x := entry.opt;
+  match(&mut entry.opt, .Some(v) => v.push(i32(1)), .None => ());
+  match(x, .Some(v) => v.len(), .None => usize(99))
+});
+record_pattern :: (fn(entry : &mut VEntry) -> usize)({
+  x := entry.yes;
+  match(&mut entry, { yes } => yes.push(i32(1)));
+  x.len()
+});
+destructured :: (fn(entry : &VEntry) -> usize)({
+  x := entry.yes;
+  { yes } := entry;
+  yes.push(i32(1));
+  x.len()
+});
+read_only :: (fn(entry : &VEntry) -> usize)({
+  x := entry.opt;
+  n := match(entry.opt, .Some(v) => v.len(), .None => usize(0));
+  n + match(x, .Some(v) => v.len(), .None => usize(99))
+});
+main :: (fn() -> unit)(());
+export(main);

@@ -1,0 +1,68 @@
+//! A region that runs more than once (a loop, a closure called again) runs
+//! a write above a copy again after it. Each copy below outlives one run of
+//! its region and shares its buffer with such a write, so all four are
+//! listed. `fresh_each_iteration`'s copy dies with its iteration, so the
+//! write above it never reaches it, and it is cloned.
+{ ArrayList } :: import("std/collections/array_list");
+VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+param_while :: (fn(entry : &mut VEntry) -> usize)({
+  mut(saved) := ArrayList(i32).new();
+  mut(i) := usize(0);
+  while(i < usize(2), i = (i + usize(1)), {
+    entry.yes.push(i32(1));
+    if(i == usize(0), {
+      saved = entry.yes;
+    });
+  });
+  saved.len()
+});
+local_while :: (fn() -> usize)({
+  mut(entry) := VEntry(yes : ArrayList(i32).new(), no : ArrayList(i32).new());
+  mut(saved) := ArrayList(i32).new();
+  mut(i) := usize(0);
+  while(i < usize(2), i = (i + usize(1)), {
+    entry.yes.push(i32(1));
+    if(i == usize(0), {
+      saved = entry.yes;
+    });
+  });
+  saved.len()
+});
+param_for :: (fn(entry : &mut VEntry, steps : ArrayList(i32)) -> usize)({
+  mut(saved) := ArrayList(i32).new();
+  for(steps, s => {
+    entry.yes.push(s);
+    if(s == i32(0), {
+      saved = entry.yes;
+    });
+  });
+  saved.len()
+});
+closure_twice :: (fn(entry : &mut VEntry) -> usize)({
+  mut(saved) := ArrayList(i32).new();
+  mut(i) := usize(0);
+  {
+    (step : Impl(Fn() -> unit)) = ({ &mut saved, &mut i, e : &mut entry }() => {
+      e.yes.push(i32(1));
+      if(i == usize(0), {
+        saved = e.yes;
+      });
+      i = (i + usize(1));
+    });
+    step();
+    step();
+  };
+  saved.len()
+});
+fresh_each_iteration :: (fn(entry : &mut VEntry) -> usize)({
+  mut(total) := usize(0);
+  mut(i) := usize(0);
+  while(i < usize(2), i = (i + usize(1)), {
+    entry.yes.push(i32(1));
+    seen := entry.yes;
+    total = (total + seen.len());
+  });
+  total + entry.yes.len()
+});
+main :: (fn() -> unit)(());
+export(main);

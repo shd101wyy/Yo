@@ -2872,7 +2872,7 @@ _decl_in_copy_loop :: (fn(decl : &String, l : &CopyLoop) -> bool)(
 /// its value flows on into (`flows_by_src`, after the site or anywhere in an
 /// enclosing region) are declared inside that region. A copy with no
 /// destination variable (an argument, a field store, a `return`) is assumed
-/// to outlive every one.
+/// to outlive one run of a loop or a closure, not one call of a function.
 _copy_when :: (
   fn(
     st : &ExplicitCopySite,
@@ -2928,7 +2928,12 @@ _copy_when :: (
     (mi : usize) = usize(0);
     while(mi < mates.len(), mi = (mi + usize(1)), {
       l := mates(mi);
-      (escapes : bool) = (dests.len() == usize(0));
+      // A copy with no destination variable is held by whatever it was
+      // handed to: a loop's or a closure's next run may still see it (a
+      // `list.push(x)`), a function's next call is taken not to (a callee's
+      // parameter dies with the call; what a callee stores is out of this
+      // guard's sight).
+      (escapes : bool) = ((dests.len() == usize(0)) && !l.is_function);
       (k : usize) = usize(0);
       while((k < dests.len()) && !escapes, k = (k + usize(1)), {
         escapes = !_decl_in_copy_loop(&dests(k), &l);

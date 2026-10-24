@@ -2978,9 +2978,10 @@ take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
 });
 /// The source span of a region whose code runs more than once, by byte
 /// offset in its module (`start`..`end`, inclusive, over the region's
-/// tokens): a runtime `while` (a `for` is one after expansion) or a fn
-/// literal (a closure a caller may call again, a function called twice).
-CopyLoop :: struct(at_module : String, start : u32, end : u32);
+/// tokens): a runtime `while` (a `for` is one after expansion), a closure a
+/// caller may call again, or a function (`is_function`, a `fn(...)`
+/// literal), which runs again on its next call.
+CopyLoop :: struct(at_module : String, start : u32, end : u32, is_function : bool);
 (g_copy_loops : RefCell(ArrayList(CopyLoop))) = RefCell(ArrayList(CopyLoop)).new(ArrayList(CopyLoop).new());
 (g_copy_loop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
 /// Record, while the migration runs, that `region` (a runtime `while`, a fn
@@ -2991,7 +2992,7 @@ CopyLoop :: struct(at_module : String, start : u32, end : u32);
 /// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
 /// One span per module the region's tokens come from: a `for`'s expansion
 /// mixes the prelude's template tokens with the body's own.
-record_copy_loop :: (fn(region : &AstExpr) -> unit)({
+record_copy_loop :: (fn(region : &AstExpr, (is_function : bool) ?= false) -> unit)({
   if(!g_migrate_explicit_copy, {
     return(());
   });
@@ -3041,7 +3042,7 @@ record_copy_loop :: (fn(region : &AstExpr) -> unit)({
   });
   (hk : usize) = usize(0);
   while(hk < heads.len(), hk = (hk + usize(1)), {
-    g_copy_loops.with_mut(xs => xs.push(CopyLoop(at_module : canonical_module_path(&heads(hk).module_path.*), start : los(hk), end : his(hk))));
+    g_copy_loops.with_mut(xs => xs.push(CopyLoop(at_module : canonical_module_path(&heads(hk).module_path.*), start : los(hk), end : his(hk), is_function : is_function)));
   });
 });
 take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
