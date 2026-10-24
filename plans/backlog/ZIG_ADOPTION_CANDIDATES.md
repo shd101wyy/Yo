@@ -26,7 +26,7 @@ in `plans/reference/`. Listed so nobody proposes it again:
 | lazy top-level analysis (only referenced declarations are analyzed) | order-independent, demand-evaluated `::` bindings | `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` |
 | `build.zig`, `b.option()`, `-Dname=value`, the global artifact cache, `zig cc` cross-compilation | `build.yo`, `-D`, the content-addressed cache, `--cc zig` | `plans/reference/BUILD_SYSTEM.md` (§"Zig reference", Phase 8 "Zig-style") |
 | `@cImport` / translate-c | `c_include(...)` as a module value | `plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md` |
-| `std.mem.Allocator` as a vtable value; arenas; fixed-buffer allocators | `Allocator`/`AllocatorVTable` in the prelude, `std/arena`, `--allocator fixed` (TLSF) | `plans/reference/EXPLICIT_ALLOCATORS.md`, `FIXED_REGION_ALLOCATOR.md` |
+| `std.mem.Allocator` as a vtable value; arenas; fixed-buffer allocators | `Allocator`/`AllocatorVTable` in the prelude, `--allocator fixed` (TLSF); `std/arena` was deleted 2026-10-24, and `ZIG_STYLE_ALLOCATORS.md` A1/A3 re-plan the fixed-buffer and arena allocators | `plans/reference/EXPLICIT_ALLOCATORS.md`, `FIXED_REGION_ALLOCATOR.md` |
 | `test "name" {}` blocks beside the code; `zig test` | `test(...)` declarations in any file; `yo test` | `docs/en-US/`, `std/*.test.yo` |
 | `///` and `//!` doc comments, `zig fmt` formatting doc code | the same spellings; `yo fmt` formats ` ```yo ` blocks in docs | `plans/reference/DOCUMENTATION_GENERATION.md` |
 | no variable shadowing | the no-shadowing rule ("similar to Zig") | `docs/en-US/DESIGN.md:204` |
@@ -282,10 +282,10 @@ abort** needs allocator interface v2's sized `free` (v0.2.71 Generation
 A); **allocation sites** need Z4, which has not landed; **type names**
 (A2 §3.5's "until Z4 lands the table carries the type name and size")
 need `__yo_rc_alloc` to pass a type tag into the header, so the report
-carries size and allocation number only; **arena names** need std's
-`Arena` tracking to read `__yo_debug_alloc_on`, which the v0.2.68 seed
-does not emit (Generation A/B), so an abandoned arena is anonymous leaked
-blocks here while `--debug-heap` names it. Until sites land a block is
+carries size and allocation number only. (The deferred **arena names**
+item is moot: `std/arena` and its `--debug-heap` listing were deleted
+2026-10-24; `ZIG_STYLE_ALLOCATORS.md` A3's `ArenaAllocator` decides its
+own debug reporting.) Until sites land a block is
 named by its allocation number and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at
 allocation `n` for a debugger stack. The `DebugAllocator` VALUE (a tracking wrapper over
 any `Allocator`) is A2's other face and waits for version 2 with the rest of

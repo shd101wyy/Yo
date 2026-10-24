@@ -393,7 +393,8 @@ aware grep (`grep -Pzo 'ref\(\s*(struct|enum)\('`) checked by hand:
    copy of a mutex must not be a second mutex.
    - `Mutex`, `RawMutex`, `RwLock`, `Cond`, `Barrier`, `Semaphore`,
      `WaitGroup`, `Once`, and `Channel`/`Sender`/`Receiver`, sync and async;
-   - `Thread`, `JoinHandle`, `ThreadPool`, `Waker`, `Park`, `Arena`;
+   - `Thread`, `JoinHandle`, `ThreadPool`, `Waker`, `Park` (`Arena` left
+     the list when `std/arena` was deleted, 2026-10-24);
    - `File`, `TempDir`/`TempFile`, `Watcher`, `TcpStream`/`TcpListener`/
      `UdpSocket`/`UnixStream`/`UnixListener`, `TlsStream`, `HttpClient`,
      and `Child`/`ChildStdin`/`ChildStdout`/`ChildStderr`;
@@ -451,7 +452,7 @@ rc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None) -> Rc(
 arc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Send, Sync, Acyclic))) -> Arc(T))(...);
 
 e := Expr.Add(box(l), box(r)); // T inferred from the argument
-c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
+c := rc(node, alloc : .Some(a)); // placed in the Allocator `a`
 ```
 
 - **`T` is inferred** from the argument, which the ~1,300 tree-node
@@ -8628,7 +8629,8 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
   Generation B moves std once a seed carries it.
 - **Tests:** an over-aligned element type in an `ArrayList` through an
   aligned allocator; a header-free pool allocator that frees by the size it
-  is given; and every existing arena and counting-allocator test.
+  is given; and every existing counting-allocator test (`std/arena` and
+  its tests were deleted 2026-10-24).
 - **Then:** the allocators Zig ships become ordinary std additions, such as
   a fixed-buffer allocator, a pool, a page allocator, and a debug allocator
   that reports leaks and double frees.

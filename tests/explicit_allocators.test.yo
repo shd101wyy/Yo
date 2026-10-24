@@ -84,10 +84,13 @@ test("A ref struct constructed in the scope comes from the scope's allocator", {
 test("Objects created outside the scope stay on the global allocator", {
   counts := _counts();
   heap := _counting(addr_of(counts));
-  before := _Point(x : i32(1), y : i32(1));
-  inside := with_allocator(heap, () => _Point(x : i32(2), y : i32(2)));
-  after := _Point(x : i32(3), y : i32(3));
-  assert(counts.live == usize(1), "only the scoped object");
+  {
+    before := _Point(x : i32(1), y : i32(1));
+    inside := with_allocator(heap, () => _Point(x : i32(2), y : i32(2)));
+    after := _Point(x : i32(3), y : i32(3));
+    assert(counts.live == usize(1), "only the scoped object");
+  };
+  assert(counts.live == usize(0), `the scoped object went back: ${counts.live}`);
 });
 test("ref enum variants, box, arc and dyn boxes are placed by the scope", {
   counts := _counts();
@@ -147,16 +150,20 @@ test("Nested scopes restore the outer allocator", {
   outer := _counting(addr_of(outer_counts));
   inner_counts := _counts();
   inner := _counting(addr_of(inner_counts));
-  pair := with_allocator(outer, () => {
-    a := _Point(x : i32(1), y : i32(0));
-    b := with_allocator(inner, () => _Point(x : i32(2), y : i32(0)));
-    c := _Point(x : i32(3), y : i32(0));
-    (a, b, c)
-  });
-  assert(outer_counts.live == usize(2), `outer holds a and c: ${outer_counts.live}`);
-  assert(inner_counts.live == usize(1), "inner holds b");
-  after := _Point(x : i32(4), y : i32(0));
-  assert(outer_counts.live == usize(2), "the scope ended with the call");
+  {
+    pair := with_allocator(outer, () => {
+      a := _Point(x : i32(1), y : i32(0));
+      b := with_allocator(inner, () => _Point(x : i32(2), y : i32(0)));
+      c := _Point(x : i32(3), y : i32(0));
+      (a, b, c)
+    });
+    assert(outer_counts.live == usize(2), `outer holds a and c: ${outer_counts.live}`);
+    assert(inner_counts.live == usize(1), "inner holds b");
+    after := _Point(x : i32(4), y : i32(0));
+    assert(outer_counts.live == usize(2), "the scope ended with the call");
+  };
+  assert(outer_counts.live == usize(0), `a and c went back to outer: ${outer_counts.live}`);
+  assert(inner_counts.live == usize(0), `b went back to inner: ${inner_counts.live}`);
 });
 test("A spawned thread does not inherit the scope", {
   counts := _counts();
@@ -173,22 +180,25 @@ test("A spawned thread does not inherit the scope", {
 test("A task keeps its scope across a suspension", {
   counts := _counts();
   heap := _counting(addr_of(counts));
-  task := with_allocator(
-    heap,
-    () => io.async((io : Io) => {
-      io.await(yield(io), io);
-      // Resumed from the event loop, after `with_allocator` has returned.
-      _Point(x : i32(8), y : i32(9))
-    })
-  );
-  outside := _Point(x : i32(0), y : i32(0));
-  assert(counts.live == usize(1), `the task's state machine: ${counts.live}`);
-  p := io.await(task, io);
-  assert(p.x == i32(8), "result");
-  // The point the task built after resuming is the allocator's; the runtime's
-  // own `yield` future is not (Rule 2). The task's state machine was the
-  // allocator's too, and the await released it: it consumed the task (§3.13 A1).
-  assert(counts.live == usize(1), `post-await point: ${counts.live}`);
+  {
+    task := with_allocator(
+      heap,
+      () => io.async((io : Io) => {
+        io.await(yield(io), io);
+        // Resumed from the event loop, after `with_allocator` has returned.
+        _Point(x : i32(8), y : i32(9))
+      })
+    );
+    outside := _Point(x : i32(0), y : i32(0));
+    assert(counts.live == usize(1), `the task's state machine: ${counts.live}`);
+    p := io.await(task, io);
+    assert(p.x == i32(8), "result");
+    // The point the task built after resuming is the allocator's; the runtime's
+    // own `yield` future is not (Rule 2). The task's state machine was the
+    // allocator's too, and the await released it: it consumed the task (§3.13 A1).
+    assert(counts.live == usize(1), `post-await point: ${counts.live}`);
+  };
+  assert(counts.live == usize(0), `the post-await point went back: ${counts.live}`);
 });
 // One state-machine type for both allocators: the per-type task pool
 // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7) is shared between them.
@@ -216,9 +226,12 @@ test("A task created in a scope never takes a pooled global block", {
     task := _pooled_task(io);
     io.await(task, io)
   };
-  task := with_allocator(heap, () => _pooled_task(io));
-  assert(counts.live == usize(1), `the scoped task is the allocator's: ${counts.live}`);
-  assert((io.await(task, io) + g) == i32(6), "results");
+  {
+    task := with_allocator(heap, () => _pooled_task(io));
+    assert(counts.live == usize(1), `the scoped task is the allocator's: ${counts.live}`);
+    assert((io.await(task, io) + g) == i32(6), "results");
+  };
+  assert(counts.live == usize(0), `the awaited task went back to the allocator: ${counts.live}`);
 });
 test("An unwind handled inside the scope keeps the scope, and the scope ends with the call", {
   counts := _counts();
@@ -241,10 +254,13 @@ test("An unwind handled inside the scope keeps the scope, and the scope ends wit
 test("with_allocator takes any Allocator value", {
   counts := _counts();
   heap := _counting(addr_of(counts));
-  p := with_allocator(heap, () => _Point(x : i32(5), y : i32(6)));
-  assert(counts.live == usize(1), "placed");
-  g := with_allocator(Allocator.global(), () => _Point(x : i32(7), y : i32(8)));
-  assert(counts.live == usize(1), "the global Allocator value places globally-routed blocks");
+  {
+    p := with_allocator(heap, () => _Point(x : i32(5), y : i32(6)));
+    assert(counts.live == usize(1), "placed");
+    g := with_allocator(Allocator.global(), () => _Point(x : i32(7), y : i32(8)));
+    assert(counts.live == usize(1), "the global Allocator value places globally-routed blocks");
+  };
+  assert(counts.live == usize(0), `the placed point went back: ${counts.live}`);
 });
 // ===== P3c: the core containers' default constructors follow the scope =====
 test("A default ArrayList created in the scope keeps growing in its allocator after it", {

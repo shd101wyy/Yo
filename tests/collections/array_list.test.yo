@@ -1459,51 +1459,63 @@ test("ArrayList.new_in keeps its buffer in its allocator through growth", {
 });
 test("ArrayList.with_capacity_in reserves inside its allocator", {
   counts := _counts();
-  list := ArrayList(u64).with_capacity_in(_counting(addr_of(counts)), usize(64));
-  assert(list.capacity() == usize(64), "capacity");
-  before := counts.requests;
-  mut(k) := usize(0);
-  while(runtime(k < usize(64)), {
-    list.push(u64(k));
-    k = (k + usize(1));
-  });
-  assert(counts.requests == before, "no growth within the reservation");
+  {
+    list := ArrayList(u64).with_capacity_in(_counting(addr_of(counts)), usize(64));
+    assert(list.capacity() == usize(64), "capacity");
+    before := counts.requests;
+    mut(k) := usize(0);
+    while(runtime(k < usize(64)), {
+      list.push(u64(k));
+      k = (k + usize(1));
+    });
+    assert(counts.requests == before, "no growth within the reservation");
+  };
+  assert(counts.live == usize(0), `dispose released the reservation: ${counts.live}`);
 });
 test("A cloned list lives in its source's allocator; a plain list stays global", {
   counts := _counts();
   a := _counting(addr_of(counts));
-  list := ArrayList(String).new_in(a);
-  list.push(String.from("one"));
-  list.push(String.from("two"));
-  c := list.clone();
-  assert(c.allocator().unwrap().same(a), "clone keeps the allocator");
-  assert(c(1) == String.from("two"), "clone copies the elements");
-  plain := ArrayList(i32).new();
-  plain.push(i32(1));
-  assert(plain.allocator().is_none(), "the default constructor stays on the global allocator");
+  {
+    list := ArrayList(String).new_in(a);
+    list.push(String.from("one"));
+    list.push(String.from("two"));
+    c := list.clone();
+    assert(c.allocator().unwrap().same(a), "clone keeps the allocator");
+    assert(c(1) == String.from("two"), "clone copies the elements");
+    plain := ArrayList(i32).new();
+    plain.push(i32(1));
+    assert(plain.allocator().is_none(), "the default constructor stays on the global allocator");
+  };
+  assert(counts.live == usize(0), `the source and the clone released into their allocator: ${counts.live}`);
 });
 test("shrink_to_fit on an empty list keeps its explicit allocator", {
   counts := _counts();
   a := _counting(addr_of(counts));
-  list := ArrayList(i32).new_in(a);
-  list.push(i32(1));
-  list.clear();
-  assert(list.shrink_to_fit().is_ok(), "shrink");
-  assert(list.allocator().is_some(), "still in the explicit allocator");
-  list.push(i32(2));
-  assert(list.allocator().unwrap().same(a), "growth after the shrink stays in the explicit allocator");
+  {
+    list := ArrayList(i32).new_in(a);
+    list.push(i32(1));
+    list.clear();
+    assert(list.shrink_to_fit().is_ok(), "shrink");
+    assert(list.allocator().is_some(), "still in the explicit allocator");
+    list.push(i32(2));
+    assert(list.allocator().unwrap().same(a), "growth after the shrink stays in the explicit allocator");
+  };
+  assert(counts.live == usize(0), `the regrown buffer released into its allocator: ${counts.live}`);
 });
 test("try_push reports an exhausted allocator as OutOfMemory", {
   counts := _counts_capped(usize(256));
-  list := ArrayList(u64).new_in(_counting(addr_of(counts)));
-  (mut(full) : bool) = false;
-  mut(k) := usize(0);
-  while(runtime(!full && (k < usize(1000))), {
-    full = list.try_push(u64(k)).is_err();
-    k = (k + usize(1));
-  });
-  assert(full, "the allocator runs out");
-  assert(list.len() < usize(1000), "the elements pushed so far survive");
+  {
+    list := ArrayList(u64).new_in(_counting(addr_of(counts)));
+    (mut(full) : bool) = false;
+    mut(k) := usize(0);
+    while(runtime(!full && (k < usize(1000))), {
+      full = list.try_push(u64(k)).is_err();
+      k = (k + usize(1));
+    });
+    assert(full, "the allocator runs out");
+    assert(list.len() < usize(1000), "the elements pushed so far survive");
+  };
+  assert(counts.live == usize(0), `the buffer that hit the cap released into its allocator: ${counts.live}`);
 });
 // `reserve` on an empty zero-sized-element list takes the one anchor buffer.
 // It copied the anchor out of a temporary `_zst_anchor()` list whose dispose
@@ -1528,11 +1540,14 @@ test("reserve on an empty zero-sized-element list takes the anchor and drops it 
 });
 test("A zero-sized element list in an explicit allocator", {
   counts := _counts();
-  list := ArrayList(unit).new_in(_counting(addr_of(counts)));
-  list.push(());
-  list.push(());
-  assert(list.len() == usize(2), "len");
-  assert(list.capacity() == ArrayList(unit).new().capacity(), "the same capacity a global ZST list reports");
+  {
+    list := ArrayList(unit).new_in(_counting(addr_of(counts)));
+    list.push(());
+    list.push(());
+    assert(list.len() == usize(2), "len");
+    assert(list.capacity() == ArrayList(unit).new().capacity(), "the same capacity a global ZST list reports");
+  };
+  assert(counts.live == usize(0), `the anchor released into its allocator: ${counts.live}`);
 });
 // `clone` allocates from its source's allocator, through the allocator vtable.
 // The mutation analysis read that call as "mutates everything", so a clone
