@@ -2,15 +2,14 @@
 
 Yo 用引用计数管理内存：对象在最后一个引用消失时被释放。**显式分配器**提供了另一个
 相互独立的选择：对象的字节放在**哪里**。你可以把一次计算产生的所有对象放进一个
-arena，统计某个库的每一次分配，或者给一个子系统单独的内存预算，而对象的用法和释放
+分配器，统计某个库的每一次分配，或者给一个子系统单独的内存预算，而对象的用法和释放
 时机都不会改变。
 
 - [模型](#模型)
 - [快速上手](#快速上手)
 - [分配作用域：`with_allocator`](#分配作用域with_allocator)
 - [容器](#容器)
-- [Arena：`std/arena`](#arenastdarena)
-- [何时使用 arena](#何时使用-arena)
+- [何时使用显式分配器](#何时使用显式分配器)
 - [线程与异步任务](#线程与异步任务)
 - [编写自己的分配器](#编写自己的分配器)
 - [底层 `Allocator` API](#底层-allocator-api)
@@ -22,47 +21,48 @@ arena，统计某个库的每一次分配，或者给一个子系统单独的内
 
 **分配器决定放置位置，引用计数决定生命周期。** 这是两件独立的事：
 
-- 放在 arena 里的对象，依然在最后一个引用消失时立刻释放，与其他对象完全一样。
-  不会有任何东西在“arena 消失时”背着你被释放。
+- 由显式分配器放置的对象，依然在最后一个引用消失时立刻释放，与其他对象完全一样。
+  不会有任何东西在“分配器消失时”背着你被释放。
 - 释放总是把内存块还给创建它的分配器。每个块在返回指针前面都带有一个 16 字节的
   所有者前缀，所以即使在另一个线程释放，或者在创建它的代码早已返回之后释放，块
   也会回到正确的地方。不可能把块释放到错误的分配器里。
 
-正因如此，显式分配器在 Yo 中是安全的，而在别的语言里它常常是 bug 的来源。在 Zig
-中，释放一个仍被引用的 arena 是 use-after-free；在 Yo 中，只要还有活跃的块，
-`Arena.deinit()` 就会 **panic**，错误变成一次明确的、可定义的失败。
+Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必须比它分配出去的每个块
+活得更久（见[编写自己的分配器](#编写自己的分配器)）。
 
 这些都不需要新语法。`Point(...)` 在分配作用域内外是同一个构造调用，变化的只是它的
 字节从哪里来。
 
 ## 快速上手
 
+接受 `Allocator` 参数的函数把它构建的东西放在那里，由调用者选择分配器。
+`Allocator.global()` 是作为这种值的全局分配器；[编写自己的分配器](#编写自己的分配器)
+给出了一个计数分配器。
+
 ```yo
 { println } :: import("std/fmt");
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
 Point :: ref(struct(x : i32, y : i32));
 
+build :: (fn(a : Allocator) -> usize)({
+  // 作用域内创建的每个 RC 对象和容器缓冲区都来自 `a`。
+  p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
+  xs := with_allocator(a, () => {
+    ys := ArrayList(i32).new(); // 跟随作用域
+    ys.push(p.x);
+    ys
+  });
+  // 在作用域外，显式指定分配器。
+  zs := ArrayList(i32).new_in(a);
+  zs.push(p.y);
+  xs.len() + zs.len()
+  // `p`、`xs` 和 `zs` 在这里消失，它们的块回到 `a`。
+});
+
 main :: (fn() -> unit)({
-  arena := Arena.new(usize(1) << usize(20)); // 一块 1 MiB 的区域
-  {
-    // 作用域内创建的每个 RC 对象和容器缓冲区都在 arena 里。
-    p := arena.scoped(() => Point(x : i32(3), y : i32(4)));
-    xs := with_allocator(arena.allocator(), () => {
-      ys := ArrayList(i32).new(); // 跟随作用域
-      ys.push(i32(1));
-      ys
-    });
-    // 在作用域外，显式指定分配器。
-    zs := ArrayList(i32).new_in(arena.allocator());
-    zs.push(i32(2));
-    println(`live blocks: ${arena.live_blocks()}`);
-  };
-  // `p`、`xs` 和 `zs` 都已消失，它们的块已经还给了 arena。
-  println(`live blocks: ${arena.live_blocks()}`); // 0
-  arena.deinit(); // 没有活跃的块，正常返回
+  println(`${build(Allocator.global())}`); // 2
 });
 export(main);
 ```
@@ -70,9 +70,7 @@ export(main);
 ## 分配作用域：`with_allocator`
 
 `with_allocator(a, f)`（`std/allocator`）在 `f` 运行期间（包括 `f` 调用的所有
-代码）把 `a` 设为当前线程的当前分配器，并返回 `f` 的结果。`arena.scoped(f)` 是用
-arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的分配器，所以作用域可以
-嵌套。
+代码）把 `a` 设为当前线程的当前分配器，并返回 `f` 的结果。`f` 返回或 unwind 时恢复之前的分配器，所以作用域可以嵌套。
 
 在作用域内，以下内容来自 `a`：
 
@@ -98,17 +96,10 @@ arena 的分配器做同样的调用。`f` 返回或 unwind 时恢复之前的�
 不会把值自动包装成 `Option`，所以调用方要写 `.Some(...)`：
 
 ```yo
-{ Arena } :: import("std/arena");
-
-arena := Arena.new(usize(1) << usize(16));
-{
-  b := box(i32(1), alloc : .Some(arena.allocator()));
-  r := rc(i32(2), alloc : .Some(arena.allocator()));
-  a := arc(i32(3), alloc : .Some(arena.allocator()));
-  assert(arena.live_blocks() == usize(3), "all three cells are in the arena");
-};
-assert(arena.live_blocks() == usize(0), "all three were freed into the arena");
-arena.deinit();
+// `a` 是任意 `Allocator`，例如一个参数。
+b := box(i32(1), alloc : .Some(a));
+r := rc(i32(2), alloc : .Some(a));
+c := arc(i32(3), alloc : .Some(a));
 ```
 
 显式的 `alloc` 只对这一个单元优先于当前作用域，之后作用域保持不变。它们到达 `a`
@@ -137,90 +128,45 @@ arena.deinit();
 
 容器会记住它的分配器。缓冲区的每一次增长、收缩和最终释放，都回到创建它时的分配器，
 无论那时当前是哪个作用域。`xs.allocator()` 返回这个分配器；对使用全局分配器的容器
-返回 `.None`。`clone()` 的结果放在源值所在的位置：arena 中的列表、映射或 `String`
-的克隆仍在同一个 arena 中，即使当时没有活动的作用域。全局容器的克隆跟随当前作用域，
+返回 `.None`。`clone()` 的结果放在源值所在的位置：显式分配器中的列表、映射或
+`String` 的克隆仍在同一个分配器中，即使当时没有活动的作用域。全局容器的克隆跟随当前作用域，
 与 `new()` 相同。
 
 容器自身的大小不变：分配器记录在缓冲区的所有者前缀里，只用一个已有字段中的一位来
 标记。
 
-## Arena：`std/arena`
+## 何时使用显式分配器
 
-`Arena` 是建立在一块连续区域上的 bump 分配器。
+在引用计数下，分配器改变的是字节**从哪里来**，而不是内存管理工作的多少：每一次引用
+计数更新和每一次释放仍然会发生。它真正带来的是：
 
-| 方法                   | 作用                                                                         |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `Arena.new(capacity)`  | 创建一个 `capacity` 字节（向上取整到 16）的 arena。无法分配该区域时 panic。   |
-| `arena.allocator()`    | 把 arena 作为 `Allocator` 值，传给 `with_allocator` 或 `new_in`。             |
-| `arena.scoped(f)`      | 即 `with_allocator(arena.allocator(), f)`。                                   |
-| `arena.live_blocks()`  | 在这里分配且尚未释放的块数（deinit 之后为 0）。                              |
-| `arena.used_bytes()`   | 区域中已使用的字节数，即 bump 偏移（deinit 之后为 0）。                       |
-| `arena.capacity()`     | 区域的大小（字节；deinit 之后为 0）。                                         |
-| `arena.is_released()`  | 是否已经执行过 `deinit` 或 `abandon`。                                        |
-| `arena.deinit()`       | 释放区域。若仍有活跃的块则 **panic**。最后一个 `Arena` 句柄消失时也会执行。   |
-| `arena.abandon()`      | 停止跟踪且永不释放区域。之后 `deinit` 不做任何事。                            |
+- **统计。** 计数分配器显示一个库、一个子系统或一个测试分配了什么，以及是否全部
+  归还。
+- **预算。** 分配器可以返回 `.None` 拒绝一次请求；容器的 `try_` 操作把它报告为
+  `AllocError.OutOfMemory`。
+- **局部性。** 从一块区域分配的分配器让一段工作的对象挨在一起。
 
-值得了解的行为：
+它不是通用的提速手段：全局分配器（mimalloc）的快速路径已经很快，在期待提速之前先
+测量。
 
-- **只有顶部的空间会被回收。** 释放最近分配的块会让 bump 指针回退；其他被释放的
-  空间要等整个 arena deinit 时才回收。区域有剩余空间时，`realloc` 会原地扩大最近
-  分配的块。
-- **有活跃块时 `deinit` 会 panic：**
-  `Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`。请先确保放在
-  arena 里的每个对象都已消失，例如像快速上手那样把它们放在一个内层代码块里。
-- **过期的 `Allocator` 副本碰不到已释放的内存。** arena deinit 之后再通过
-  `Allocator` 值分配会 panic。arena 的簿记永远不会被释放，所以过期副本看到的是一个
-  被标记的状态，而不是已释放的内存。
-- **已死的 arena 一直是死的。** 之后的 `Arena.new` 可能复用已死 arena 的簿记，但每个
-  `Arena` 句柄和每个 `Allocator` 值都记录了自己属于哪一个 arena。已死 arena 的句柄
-  仍然报告 `is_released()`，它的 `deinit`（以及它的最后一个引用消失）什么也不做，
-  通过它的过期 `Allocator` 副本分配仍然会 panic：它们都碰不到新的 arena。
-- **与进程同寿命的 arena 调用 `abandon()`。** 用于一直活到程序退出的启动表、字符串
-  驻留表等：arena 停止跟踪，永不释放区域，`deinit` 不做任何事。
-- **线程安全。** 每个 arena 操作都会获取 arena 自己的锁，所以块可以在任何线程上
-  分配和释放。
-
-## 何时使用 arena
-
-在引用计数下，arena 改变的是字节**从哪里来**，而不是内存管理工作的多少：每一次引用
-计数更新和每一次释放仍然会发生。所以 arena 并不是通用的提速手段。它真正带来的是：
-
-- **为一段有界的工作提供受检查的结束点。** 在一个 arena 里解析一个文件、回答一个
-  请求、运行一个测试或构建一张图，然后 `deinit`。如果这段工作的任何东西仍被引用
-  （缓存、全局变量、被捕获的闭包），`deinit` 会 panic 并告诉你有多少个块逃逸了。
-  这相当于断言这段工作确实清理干净了。
-- **局部性。** 这段工作的对象挨在同一块区域里，有利于遍历树、图这类链式结构。
-- **预算与统计。** arena 的容量是固定的，`live_blocks()` / `used_bytes()`（以及
-  `--debug-heap` 报告）显示一个子系统用了多少内存。计数分配器可以对一个库或一个
-  测试做同样的统计。
-- **廉价的分配与释放。** 分配是一次指针递增，释放是一次计数递减，而不是调用通用
-  分配器。
-
-不适合使用的情况：
-
-- **持续分配又释放的长时间运行的工作。** bump arena 只回收最近分配的块；中间释放
-  的空间要等到 `deinit` 才回收，所以频繁分配释放的代码会无限增长。
-- **与程序同寿命的数据。** 它永远不能 deinit，因此相比全局分配器没有收益（而
-  `abandon()` 是停止跟踪它的唯一方式）。
-- **只为追求速度。** 全局分配器（mimalloc）的快速路径已经很快；在期待提速之前先
-  测量。
+std 目前不提供 arena。`std/arena` 已于 2026-10-24 删除；`FixedBufferAllocator` 和
+`ArenaAllocator` 在计划中（`plans/backlog/ZIG_STYLE_ALLOCATORS.md`）。在此之前，
+按[编写自己的分配器](#编写自己的分配器)写出你需要的分配器。
 
 ## 线程与异步任务
 
 **作用域是按线程的。** 新建的线程从全局分配器开始，即使它是在作用域内创建的。要在
-线程中使用 arena，把它的 `Allocator` 值传进去，再在那里打开作用域：
+线程中使用分配器，把 `Allocator` 值传进去，再在那里打开作用域：
 
 ```yo
 { println } :: import("std/fmt");
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 
 Point :: ref(struct(x : i32, y : i32));
 
 main :: (fn() -> unit)({
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator(); // `Allocator` 是 `Send`；`Arena` 句柄不是
+  a := Allocator.global(); // 任意 `Allocator`：它是 `Send`
   t := Thread(i32).spawn(io => {
     p := with_allocator(a, () => Point(x : i32(1), y : i32(2)));
     p.x + p.y
@@ -230,8 +176,8 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`Allocator` 是两个字长的值，且是 `Send`。`Arena` 句柄是引用计数的，不是 `Send`，
-所以要通过它的 `Allocator` 值在线程间共享 arena。
+`Allocator` 是两个字长的值，且是 `Send`，所以只要它自己的回调是线程安全的，一个
+分配器就可以服务多个线程。
 
 **任务保留它的作用域。** 在 `with_allocator` 内创建的 `io.async` 任务，每次挂起后
 恢复时都带着同一个作用域，无论事件循环恢复它时当前是哪个作用域。即使
@@ -327,15 +273,15 @@ vtable 必须比它分配出去的每个块活得更久，模块级的 `:=` 绑�
 
 ## 调试：泄漏报告
 
-用 `--allocator fixed --debug-heap` 编译，退出报告会列出每个从未 deinit 的 arena 和
-每个被 abandon 的 arena，以及它的活跃块数和已用字节数：
+用 `--allocator fixed --debug-heap` 编译，退出报告会统计退出时仍然存活的堆块
+（`live at exit: N blocks / M bytes`），包括用户分配器从全局分配器取得的块：
 
 ```bash
 yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 ```
 
-`yo test` 接受同样的参数。退出时仍然存活的 arena 通常意味着放在其中的某个对象还被
-某个长期存在的东西引用，比如全局变量或缓存。
+`yo test` 接受同样的参数。在全局分配器前面放一个计数分配器，可以看出泄漏的块来自
+哪个子系统。
 
 ## 开销
 
@@ -345,8 +291,7 @@ yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 
 ## 限制
 
-- **arena 不能嵌套。** `Arena` 的区域总是来自全局分配器；暂不支持由另一个 arena
-  提供内存的 arena。
+- **std 中没有 arena。** 见[何时使用显式分配器](#何时使用显式分配器)。
 - **不支持超对齐的缓冲区。** 块按 16 对齐。元素对齐要求更严格的容器和以前一样不受
   支持。
 - **仅在运行时生效。** `with_allocator` 在编译期没有作用；编译期调用是一次 extern

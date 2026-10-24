@@ -1,6 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ Arena } :: import("std/arena");
+{ GlobalAllocator } :: import("std/allocator");
 { Deque } :: import("std/collections/deque");
 { String } :: import("std/string");
 // ===== Construction Tests =====
@@ -441,9 +441,43 @@ test("Deque Default is the empty deque", {
   assert(d.len() == usize(1), "the default deque is a usable deque");
 });
 // ===== Explicit allocators (plans/archive/EXPLICIT_ALLOCATORS.md P1) =====
-test("Deque.new_in keeps its ring in the arena through growth and wrap-around", {
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator();
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+_Counts :: struct(live : usize, requests : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+test("Deque.new_in keeps its ring in its allocator through growth and wrap-around", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
   {
     d := Deque(i32).new_in(a);
     mut(i) := i32(0);
@@ -455,8 +489,8 @@ test("Deque.new_in keeps its ring in the arena through growth and wrap-around", 
     assert(d.len() == usize(200), "len");
     assert(d.front().unwrap() == i32(-99), "front");
     assert(d.back().unwrap() == i32(99), "back");
-    assert(d.allocator().unwrap().same(a), "the ring is the arena's");
-    assert(arena.live_blocks() == usize(1), "growth frees the old ring into the arena");
+    assert(d.allocator().unwrap().same(a), "the ring is the allocator's");
+    assert(counts.live == usize(1), "growth frees the old ring into its allocator");
   };
-  assert(arena.live_blocks() == usize(0), "dispose released the ring");
+  assert(counts.live == usize(0), "dispose released the ring");
 });

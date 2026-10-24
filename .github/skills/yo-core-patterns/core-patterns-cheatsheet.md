@@ -170,14 +170,11 @@ kept := ArrayList(i32).from(arr.clone());
 ## Explicit allocators
 
 ```yo
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
-arena := Arena.new(usize(1) << usize(20));
-list := ArrayList(i32).new_in(arena.allocator()); // the buffer lives in the arena
-p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // RC objects created inside
-q := with_allocator(arena.allocator(), () => build()); // same, any Allocator
-arena.deinit(); // PANICS while a block is still live; abandon() never frees
+// `a` is any `Allocator` (a parameter, `Allocator.global()`, your own vtable).
+list := ArrayList(i32).new_in(a); // the buffer lives in `a`
+p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // RC objects created inside
 ```
 
 - RC still decides WHEN a block dies; the allocator decides WHERE. Releases
@@ -186,12 +183,13 @@ arena.deinit(); // PANICS while a block is still live; abandon() never frees
   inside `with_allocator(a, …)` keeps its buffer in `a` (also `HashMap`,
   `Deque`, `HashSet`, `StringBuilder`, `String`); outside a scope use
   `new_in(a)` / `with_capacity_in(a, n)`.
-- `Allocator` is `Send`; an `Arena` handle is not. Pass `arena.allocator()`
-  into a spawn body and call `with_allocator` there — a thread does not
-  inherit the scope.
+- `Allocator` is `Send`. Pass it into a spawn body and call `with_allocator`
+  there — a thread does not inherit the scope.
+- std ships no arena (`std/arena` was deleted 2026-10-24); write a vtable or
+  wait for `plans/backlog/ZIG_STYLE_ALLOCATORS.md`.
 - Calling `Allocator.alloc`/`free` directly returns raw pointers, so it needs
   `pragma(Pragma.AllowUnsafe)`; `_in` constructors and scopes do not.
-- Full guide (Arena API, custom allocators, threads, `--debug-heap`):
+- Full guide (custom allocators, threads, `--debug-heap`):
   `docs/en-US/EXPLICIT_ALLOCATORS.md`.
 
 ## Traits and associated types

@@ -77,8 +77,7 @@ same := Arc(i32)(i32(42));
 
 ### Placing the cell
 
-`arc(value, alloc : .Some(a))` allocates the cell from the allocator `a`, for
-example an arena. The last handle's drop frees the cell through `a`, on
+`arc(value, alloc : .Some(a))` allocates the cell from the allocator `a`. The last handle's drop frees the cell through `a`, on
 whichever thread drops it. Without `alloc`, a `with_allocator` scope places the
 cell, else the global allocator does ([EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)).
 Unlike `box`, `arc` makes `a` the current scope while the cell is allocated, so
@@ -86,15 +85,8 @@ Unlike `box`, `arc` makes `a` the current scope while the cell is allocated, so
 allocator" there):
 
 ```yo
-{ Arena } :: import("std/arena");
-
-arena := Arena.new(usize(1) << usize(16));
-{
-  a := arc(i32(42), alloc : .Some(arena.allocator()));
-  assert(arena.live_blocks() == usize(1), "the cell is in the arena");
-};
-assert(arena.live_blocks() == usize(0), "the last handle freed it into the arena");
-arena.deinit();
+// `alloc_a` is any `Allocator`, for example a parameter.
+shared := arc(i32(42), alloc : .Some(alloc_a));
 ```
 
 ### Dereferencing

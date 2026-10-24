@@ -85,52 +85,85 @@ test("Test Arc scope cleanup", {
 // --- Arc + Thread tests ---
 { Thread } :: import("std/thread");
 // --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2) ---
-{ Arena } :: import("std/arena");
-{ with_allocator } :: import("std/allocator");
+{ GlobalAllocator, with_allocator } :: import("std/allocator");
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+_Counts :: struct(live : usize, requests : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
 test("arc alloc : .Some(a) places the cell in a, and the default does not", {
-  arena := Arena.new(usize(1) << usize(16));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    a := arc(i32(5), alloc : .Some(arena.allocator()));
-    assert(arena.live_blocks() == usize(1), `the cell is in the arena: ${arena.live_blocks()}`);
+    a := arc(i32(5), alloc : .Some(heap));
+    assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
     g := arc(i32(6));
-    assert(arena.live_blocks() == usize(1), "the scope was restored: a default arc is on the global allocator");
+    assert(counts.live == usize(1), "the scope was restored: a default arc is on the global allocator");
     assert((a.* + g.*) == i32(11), "the payloads");
   };
-  assert(arena.live_blocks() == usize(0), "the last drop released the cell into the arena");
-  arena.deinit();
+  assert(counts.live == usize(0), "the last drop released the cell into the allocator");
 });
 test("arc alloc : .Some(a) inside another scope wins, and the outer scope survives", {
-  inner := Arena.new(usize(1) << usize(16));
-  outer := Arena.new(usize(1) << usize(16));
+  inner_counts := _counts();
+  inner := _counting(addr_of(inner_counts));
+  outer_counts := _counts();
+  outer := _counting(addr_of(outer_counts));
   {
-    x := with_allocator(outer.allocator(), () => {
-      placed := arc(i32(7), alloc : .Some(inner.allocator()));
+    x := with_allocator(outer, () => {
+      placed := arc(i32(7), alloc : .Some(inner));
       scoped := arc(i32(8));
-      assert(outer.live_blocks() == usize(1), `the default arc after it still follows the scope: ${outer.live_blocks()}`);
+      assert(outer_counts.live == usize(1), `the default arc after it still follows the scope: ${outer_counts.live}`);
       assert(scoped.* == i32(8), "the scoped payload");
       placed
     });
-    assert(inner.live_blocks() == usize(1), "the explicit allocator placed the cell");
-    assert(outer.live_blocks() == usize(0), "the scoped arc died with the closure");
+    assert(inner_counts.live == usize(1), "the explicit allocator placed the cell");
+    assert(outer_counts.live == usize(0), "the scoped arc died with the closure");
     assert(x.* == i32(7), "the placed payload");
   };
-  assert(inner.live_blocks() == usize(0), "released into the explicit allocator");
-  inner.deinit();
-  outer.deinit();
+  assert(inner_counts.live == usize(0), "released into the explicit allocator");
 });
 test("arc alloc : .Some(a) shared across a thread is released into a", {
-  arena := Arena.new(usize(1) << usize(16));
+  counts := _counts();
+  heap := _counting(addr_of(counts));
   {
-    shared := arc(i32(42), alloc : .Some(arena.allocator()));
+    shared := arc(i32(42), alloc : .Some(heap));
     t := Thread(unit).spawn(io => {
       assert(shared.* == i32(42), "the worker reads the placed cell");
     });
     t.join();
-    assert(arena.live_blocks() == usize(1), "one cell, two handles");
+    assert(counts.live == usize(1), "one cell, two handles");
   };
-  assert(arena.live_blocks() == usize(0), "the last handle released the cell into the arena");
-  arena.deinit();
+  assert(counts.live == usize(0), "the last handle released the cell into the allocator");
 });
 // A `Dyn(..., Send)` closure that captures a parameter of a generic
 // (`Impl(Fn)`) function is boxed by a synthesized `arc(closure)` whose `V` is

@@ -3,7 +3,7 @@
 Yo manages memory with reference counting: an object dies when its last
 reference goes away. An **explicit allocator** adds a second, independent
 choice: **where** the object's bytes live. You can put a whole computation's
-objects in one arena, count every allocation a library makes, or give a
+objects in one allocator, count every allocation a library makes, or give a
 subsystem its own memory budget, without changing how the objects are used or
 when they are freed.
 
@@ -11,8 +11,7 @@ when they are freed.
 - [Quick start](#quick-start)
 - [The allocation scope: `with_allocator`](#the-allocation-scope-with_allocator)
 - [Containers](#containers)
-- [Arenas: `std/arena`](#arenas-stdarena)
-- [When to use an arena](#when-to-use-an-arena)
+- [When to use an explicit allocator](#when-to-use-an-explicit-allocator)
 - [Threads and async tasks](#threads-and-async-tasks)
 - [Writing your own allocator](#writing-your-own-allocator)
 - [The low-level `Allocator` API](#the-low-level-allocator-api)
@@ -25,51 +24,53 @@ when they are freed.
 **The allocator decides placement, and reference counting decides lifetime.**
 These are two separate concerns:
 
-- An object placed in an arena is still released the moment its last
-  reference dies, exactly like any other object. Nothing is freed "when the
-  arena goes away" behind your back.
+- An object placed by an explicit allocator is still released the moment its
+  last reference dies, exactly like any other object. Nothing is freed "when
+  the allocator goes away" behind your back.
 - The release always returns the block to the allocator that made it. Every
   block carries its owner in a 16-byte prefix in front of the returned
   pointer, so a block freed on another thread, or long after the code that
   created it returned, still goes back to the right place. There is no way to
   free a block into the wrong allocator.
 
-This is what makes explicit allocators safe in Yo where they are a common
-source of bugs elsewhere. In Zig, freeing an arena while something still points
-into it is a use-after-free. In Yo, `Arena.deinit()` **panics** while any block
-is still live, so the mistake is a loud, defined failure.
+What Yo does not check is the allocator's own lifetime: its context and
+vtable must outlive every block it handed out (see
+[Writing your own allocator](#writing-your-own-allocator)).
 
 None of this needs new syntax. `Point(...)` is the same constructor call inside
 and outside an allocation scope; only where its bytes come from changes.
 
 ## Quick start
 
+A function that takes an `Allocator` places what it builds there; the caller
+chooses the allocator. `Allocator.global()` is the global allocator as such a
+value, and [Writing your own allocator](#writing-your-own-allocator) shows a
+counting one.
+
 ```yo
 { println } :: import("std/fmt");
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
 Point :: ref(struct(x : i32, y : i32));
 
+build :: (fn(a : Allocator) -> usize)({
+  // Every RC object and container buffer created in the scope comes from `a`.
+  p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
+  xs := with_allocator(a, () => {
+    ys := ArrayList(i32).new(); // follows the scope
+    ys.push(p.x);
+    ys
+  });
+  // Outside a scope, name the allocator explicitly.
+  zs := ArrayList(i32).new_in(a);
+  zs.push(p.y);
+  xs.len() + zs.len()
+  // `p`, `xs` and `zs` die here, and their blocks go back to `a`.
+});
+
 main :: (fn() -> unit)({
-  arena := Arena.new(usize(1) << usize(20)); // one 1 MiB region
-  {
-    // Every RC object and container buffer created in the scope lives in the arena.
-    p := arena.scoped(() => Point(x : i32(3), y : i32(4)));
-    xs := with_allocator(arena.allocator(), () => {
-      ys := ArrayList(i32).new(); // follows the scope
-      ys.push(i32(1));
-      ys
-    });
-    // Outside a scope, name the allocator explicitly.
-    zs := ArrayList(i32).new_in(arena.allocator());
-    zs.push(i32(2));
-    println(`live blocks: ${arena.live_blocks()}`);
-  };
-  // `p`, `xs` and `zs` are gone, so their blocks went back to the arena.
-  println(`live blocks: ${arena.live_blocks()}`); // 0
-  arena.deinit(); // fine: nothing is live
+  println(`${build(Allocator.global())}`); // 2
 });
 export(main);
 ```
@@ -78,8 +79,7 @@ export(main);
 
 `with_allocator(a, f)` (`std/allocator`) makes `a` the current allocator on
 this thread while `f` runs, including in everything `f` calls, and returns
-`f`'s result. `arena.scoped(f)` is the same call with the arena's allocator.
-The previous allocator is restored when `f` returns or unwinds, so scopes nest.
+`f`'s result. The previous allocator is restored when `f` returns or unwinds, so scopes nest.
 
 Inside a scope, these come from `a`:
 
@@ -108,17 +108,10 @@ handle. Yo does not wrap a value into an `Option`, so the caller writes
 `.Some(...)`:
 
 ```yo
-{ Arena } :: import("std/arena");
-
-arena := Arena.new(usize(1) << usize(16));
-{
-  b := box(i32(1), alloc : .Some(arena.allocator()));
-  r := rc(i32(2), alloc : .Some(arena.allocator()));
-  a := arc(i32(3), alloc : .Some(arena.allocator()));
-  assert(arena.live_blocks() == usize(3), "all three cells are in the arena");
-};
-assert(arena.live_blocks() == usize(0), "all three were freed into the arena");
-arena.deinit();
+// `a` is any `Allocator`, for example a parameter.
+b := box(i32(1), alloc : .Some(a));
+r := rc(i32(2), alloc : .Some(a));
+c := arc(i32(3), alloc : .Some(a));
 ```
 
 An explicit `alloc` wins over the current scope for that one cell, and the
@@ -153,103 +146,49 @@ A container remembers its allocator. Every growth, shrink and final release of
 its buffer goes back to the allocator it was created with, whichever scope is
 current at the time. `xs.allocator()` returns that allocator, or `.None` for a
 container on the global allocator. A `clone()` lands where its source lives:
-the clone of a list, map or `String` in an arena is in the same arena, even
-when no scope is active. The clone of a global container follows the current
+the clone of a list, map or `String` in an explicit allocator is in the same
+allocator, even when no scope is active. The clone of a global container follows the current
 scope, as `new()` does.
 
 The container's own size does not change: the allocator is recorded in the
 owner prefix of its buffer, with one bit of an existing word marking it.
 
-## Arenas: `std/arena`
+## When to use an explicit allocator
 
-`Arena` is a bump allocator over one contiguous region.
+Under reference counting an allocator changes **where** bytes come from, not
+how much memory-management work runs: every reference-count update and every
+release still happens. What it does buy:
 
-| Method                 | What it does                                                                 |
-| ---------------------- | ---------------------------------------------------------------------------- |
-| `Arena.new(capacity)`  | An arena over a region of `capacity` bytes (rounded up to 16). Panics if the region cannot be allocated. |
-| `arena.allocator()`    | The arena as an `Allocator` value, to pass to `with_allocator` or `new_in`.  |
-| `arena.scoped(f)`      | `with_allocator(arena.allocator(), f)`.                                      |
-| `arena.live_blocks()`  | Blocks allocated here and not yet freed (0 once deinit).                     |
-| `arena.used_bytes()`   | Bytes of the region in use, the bump offset (0 once deinit).                 |
-| `arena.capacity()`     | The region's size in bytes (0 once deinit).                                  |
-| `arena.is_released()`  | Whether `deinit` or `abandon` has run.                                       |
-| `arena.deinit()`       | Release the region. **Panics** if any block is still live. Also runs when the last `Arena` handle dies. |
-| `arena.abandon()`      | Stop tracking and never release the region. `deinit` becomes a no-op.        |
+- **Accounting.** A counting allocator shows what a library, a subsystem or a
+  test allocates and whether all of it came back.
+- **Budgets.** An allocator may refuse a request by returning `.None`; the
+  `try_` container operations report that as `AllocError.OutOfMemory`.
+- **Locality.** An allocator that hands out blocks from one region keeps a
+  piece of work's objects next to each other.
 
-Behavior worth knowing:
+It is not a general speedup: the global allocator (mimalloc) is already fast
+on its fast path, so measure before expecting a win.
 
-- **Freeing reclaims space only at the top.** Freeing the most recent block
-  moves the bump pointer back. Any other freed space is reclaimed when the
-  whole arena is deinit. `realloc` grows the most recent block in place when
-  the region has room.
-- **`deinit` with live blocks panics:**
-  `Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`. Make sure
-  every object placed in the arena is gone first, for example by keeping them
-  in an inner block as in the quick start.
-- **A stale `Allocator` copy cannot reach freed memory.** Allocating through
-  an `Allocator` value after its arena was deinit panics. The arena's
-  bookkeeping is never freed, so the stale copy finds a flagged state rather
-  than freed memory.
-- **A dead arena stays dead.** A later `Arena.new` may reuse a dead arena's
-  bookkeeping, but every `Arena` handle and every `Allocator` value records
-  which arena it was made for. The dead arena's handle keeps reporting
-  `is_released()`, its `deinit` (and its last reference dying) does nothing,
-  and an allocation through its stale `Allocator` copy still panics: none of
-  them reach the new arena.
-- **Process-lifetime arenas call `abandon()`.** Use it for startup tables and
-  interners that live until the program exits: the arena stops tracking, never
-  releases its region, and `deinit` does nothing.
-- **Thread-safe.** Every arena operation takes the arena's own lock, so blocks
-  may be allocated and freed on any thread.
-
-## When to use an arena
-
-Under reference counting an arena changes **where** bytes come from, not how
-much memory-management work runs: every reference-count update and every
-release still happens. So an arena is not a general speedup. What it does buy:
-
-- **A checked end for a bounded piece of work.** Parse one file, answer one
-  request, run one test, build one graph in an arena, then `deinit` it. If
-  anything from that work is still referenced (a cache, a global, a captured
-  closure), `deinit` panics and tells you how many blocks escaped. It is an
-  assertion that the work really cleaned up after itself.
-- **Locality.** The work's objects sit next to each other in one region, which
-  helps traversals of linked structures such as trees and graphs.
-- **Budgets and accounting.** An arena has a fixed capacity, and
-  `live_blocks()` / `used_bytes()` (plus the `--debug-heap` report) show what a
-  subsystem is using. A counting allocator does the same for a library or a
-  test.
-- **Cheap allocation and release.** Allocation is a pointer bump, and a release
-  is a counter decrement rather than a call into the general allocator.
-
-When not to use one:
-
-- **Long-running work that keeps allocating and freeing.** A bump arena only
-  reclaims the most recent block; everything else freed in the middle stays
-  used until `deinit`, so churn-heavy code grows without bound.
-- **Data that lives for the whole program.** It can never be deinit, so it
-  gains nothing over the global allocator (and `abandon()` is the only way to
-  stop tracking it).
-- **For raw speed alone.** The global allocator (mimalloc) is already fast on
-  its fast path; measure before expecting a win.
+std ships no arena today. `std/arena` was deleted on 2026-10-24; a
+`FixedBufferAllocator` and an `ArenaAllocator` are planned
+(`plans/backlog/ZIG_STYLE_ALLOCATORS.md`). Until then, write the allocator you
+need as in [Writing your own allocator](#writing-your-own-allocator).
 
 ## Threads and async tasks
 
 **The scope is per thread.** A spawned thread starts on the global allocator,
-even if it was spawned inside a scope. To use an arena in a thread, pass its
-`Allocator` value in and open a scope there:
+even if it was spawned inside a scope. To use an allocator in a thread, pass
+the `Allocator` value in and open a scope there:
 
 ```yo
 { println } :: import("std/fmt");
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { Thread } :: import("std/thread");
 
 Point :: ref(struct(x : i32, y : i32));
 
 main :: (fn() -> unit)({
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator(); // `Allocator` is `Send`; the `Arena` handle is not
+  a := Allocator.global(); // any `Allocator`: it is `Send`
   t := Thread(i32).spawn(io => {
     p := with_allocator(a, () => Point(x : i32(1), y : i32(2)));
     p.x + p.y
@@ -259,8 +198,8 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-`Allocator` is two words and `Send`. The `Arena` handle is reference counted
-and not `Send`, so share an arena across threads through its `Allocator` value.
+`Allocator` is two words and `Send`, so one allocator may serve several threads
+as long as its own callbacks are thread-safe.
 
 **A task keeps its scope.** An `io.async` task created inside `with_allocator`
 resumes with the same scope after every suspension, whichever scope is current
@@ -367,17 +306,16 @@ them which allocator to use. Never pass them a pointer that did not come from
 
 ## Debugging: the leak report
 
-Compile with `--allocator fixed --debug-heap` and the exit report lists every
-arena that was never deinit and every abandoned one, with its live blocks and
-bytes in use:
+Compile with `--allocator fixed --debug-heap` and the exit report counts the
+heap blocks still live at exit (`live at exit: N blocks / M bytes`), including
+the ones a user allocator obtained from the global allocator:
 
 ```bash
 yo compile main.yo --allocator fixed --debug-heap -o app && ./app
 ```
 
-`yo test` takes the same flags. An arena that is still live at exit usually
-means an object placed in it is still referenced from something long-lived,
-such as a global or a cache.
+`yo test` takes the same flags. A counting allocator in front of the global
+one tells which subsystem a leaked block came from.
 
 ## Cost
 
@@ -389,8 +327,8 @@ than in a new field.
 
 ## Limits
 
-- **Arenas are not nested.** An `Arena`'s region always comes from the global
-  allocator; an arena backed by another arena is out of scope for now.
+- **No arena in std.** See
+  [When to use an explicit allocator](#when-to-use-an-explicit-allocator).
 - **No over-aligned buffers.** Blocks are 16-aligned. Containers of types
   aligned more strictly than that are not supported, as before.
 - **Runtime only.** `with_allocator` has no effect at compile time; a

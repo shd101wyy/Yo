@@ -1,5 +1,6 @@
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ Arena } :: import("std/arena");
+{ GlobalAllocator } :: import("std/allocator");
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 // ===== String.repeat =====
@@ -142,18 +143,52 @@ test("StringBuilder Default is an empty builder", {
   assert(sb.to_string() == `hi`, "the default builder is a usable builder");
 });
 // ===== Explicit allocators (plans/archive/EXPLICIT_ALLOCATORS.md P1) =====
-test("StringBuilder.new_in builds in the arena and hands the buffer over", {
-  arena := Arena.new(usize(1) << usize(16));
-  a := arena.allocator();
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+_Counts :: struct(live : usize, requests : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+test("StringBuilder.new_in builds in its allocator and hands the buffer over", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
   {
     sb := StringBuilder.new_in(a);
     sb.write_str("hello, ");
-    sb.write_str("arena");
+    sb.write_str("placed");
     s := sb.to_string();
-    assert(s == `hello, arena`, "contents");
+    assert(s == `hello, placed`, "contents");
     sb.write_str("again");
     assert(sb.to_string() == `again`, "the next buffer works");
-    assert(arena.live_blocks() > usize(0), "the strings' bytes live in the arena");
+    assert(counts.live > usize(0), "the strings' bytes live in the allocator");
   };
-  assert(arena.live_blocks() == usize(0), "every buffer went back to the arena");
+  assert(counts.live == usize(0), "every buffer went back to the allocator");
 });

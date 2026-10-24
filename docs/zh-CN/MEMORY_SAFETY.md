@@ -131,30 +131,31 @@ main :: (fn() -> unit)({
 
 这些规则的讲解见 [FLOWABILITY.md](./FLOWABILITY.md)；编写安全代码不需要了解它们 —— 危险的形态会被编译器直接拒绝。
 
-## 显式分配器与 Arena
+## 显式分配器
 
-显式分配器决定一块内存**放在哪里**，引用计数仍然决定它**何时释放**。放在 arena 里的对象和其他对象一样，最后一个引用消失时立即释放，释放会被路由回分配它的那个分配器。内存块不会比它的簿记活得更久，也不可能被释放到错误的分配器。
+显式分配器决定一块内存**放在哪里**，引用计数仍然决定它**何时释放**。由显式分配器放置的对象和其他对象一样，最后一个引用消失时立即释放，释放会被路由回分配它的那个分配器：每个块在 16 字节前缀中记录自己的所有者，所以不可能被释放到错误的分配器。
 
 ```yo
-{ Arena } :: import("std/arena");
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 
 Point :: ref(struct(x : i32, y : i32));
 
-arena := Arena.new(usize(1) << usize(20)); // 一个 1 MiB 的区域
-p := arena.scoped(() => Point(x : i32(3), y : i32(4))); // 放在 arena 里
-xs := ArrayList(i32).new_in(arena.allocator()); // 缓冲区在 arena 里
+// `a` 是任意 `Allocator`：一个参数、`Allocator.global()` 或你自己的分配器。
+place :: (fn(a : Allocator) -> unit)({
+  p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // 放在 `a` 里
+  xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
+});
 ```
 
-- **放置跟随作用域。** `with_allocator(a, f)`（以及等价的 `arena.scoped(f)`）在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
-- **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `arena.allocator()` 传进 spawn 体，并在那里调用 `with_allocator`。
-- **arena 不会在活跃块之下死亡。** 只要还有活跃块，`Arena.deinit()`（最后一个 `Arena` 句柄消失时也会调用）就会 **panic**：`Arena.deinit: 1 block(s) still live (32 of 1024 bytes in use)`。在 Zig 中这是释放后使用；在 Yo 中它是确定的、显式的失败。通过过期的 `Allocator` 副本从已 deinit 的 arena 分配同样会 panic，即使之后的 `Arena.new` 已经复用了这个已死 arena 的簿记。簿记从不释放，而且每个句柄和 `Allocator` 值都记录了自己属于哪一个 arena，所以过期的句柄或副本访问到的是一个与它不再匹配的状态，既不是已释放的内存，也不是下一个 arena。
-- **进程生命周期的 arena 调用 `abandon()`。** 它停止跟踪并且永不释放区域，此后 `deinit` 不做任何事。适用于启动表和字符串驻留表。
-- **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`；arena 的每个操作都持有自己的锁，所以一个 arena 可以服务多个线程。`Arena` 句柄本身是引用计数的，不是 `Send`。
-- **泄漏检测能看到 arena。** 在 `--allocator fixed --debug-heap` 下，退出报告会列出每个从未 deinit 的 arena 和每个被 abandon 的 arena，以及它的活跃块数和已用字节数。
+- **放置跟随作用域。** `with_allocator(a, f)` 在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。
+- **任务保留自己的作用域。** 在 `with_allocator` 里创建的任务每次挂起后恢复时都使用同一个作用域，与事件循环恢复它时的当前作用域无关。新生成的线程从全局分配器开始；把 `Allocator` 值传进 spawn 体，并在那里调用 `with_allocator`。
+- **跨线程共享通过 `Allocator` 值。** `Allocator` 是两个字、实现 `Send`，所以只要它自己的回调是线程安全的，一个分配器就可以服务多个线程。
+- **分配器必须比它的块活得更久。** Yo 不检查这一点：用户编写的分配器的上下文和 vtable 必须一直有效，直到它分配出去的每个块都被释放。
 
-直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。完整指南（`Arena` API、编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
+std 不提供 arena：`std/arena` 已于 2026-10-24 删除，`FixedBufferAllocator` 和 `ArenaAllocator` 在计划中（`plans/backlog/ZIG_STYLE_ALLOCATORS.md`）。
+
+直接调用 `Allocator.alloc` / `free` 会得到裸指针，因此需要 `pragma(Pragma.AllowUnsafe);`。`_in` 构造函数和作用域不需要。完整指南（编写自己的分配器、线程、调试）见 [EXPLICIT_ALLOCATORS.md](./EXPLICIT_ALLOCATORS.md)；设计记录见 `plans/archive/EXPLICIT_ALLOCATORS.md`。
 
 ## 逃逸口：`pragma(Pragma.AllowUnsafe);`
 
@@ -297,7 +298,7 @@ unsafe 表面仍可能把一个块释放两次、释放一个从未分配过的�
 - **某些退出只列出存活块而不作判定。** 程序内部调用 `exit()` 会跳过所有 drop。程序启动的线程（`Thread.spawn` 或线程池工作线程）若仍在运行，它拥有的块只有它自己的栈能到达，而扫描看不到栈：报告会先最多等待一秒让程序的线程结束（此时线程池已通知空闲的工作线程停止），如果仍有线程在运行，报告会说明这一点且不作判定。`YO_DEBUG_ALLOC_VERDICT=0` 关闭该判定。
 - **`yo test --allocator debug` 让泄漏的测试失败。** 每个测试运行在独立的进程中，因此测试体返回时仍有块存活的测试会以 `Memory leak detected` 失败。`YO_TEST_LEAK_VERDICT=0` 同样会关闭这一判定（运行器以 `YO_DEBUG_ALLOC_VERDICT=0` 传给测试二进制），而带 `pragma(Pragma.NeedsLeakVerdict)` 的文件在 `--allocator debug` 下即使没有构建 AddressSanitizer 二进制也会运行。
 
-块以分配编号命名；设置 `YO_DEBUG_ALLOC_TRAP=<n>` 后，程序会在第 `n` 次分配时中止，调试器即可显示它来自哪里（单线程程序的分配编号是确定的）。该分配器目前还不检查释放时给出的大小是否与块一致（这需要分配器接口下一版本中带大小的 `free`），既不记录分配位置，也不记录类型名。它也不会给 arena 命名：从未 `deinit` 的 `Arena` 只会显示为匿名的泄漏块，而 `--allocator fixed --debug-heap` 会按名称列出它。
+块以分配编号命名；设置 `YO_DEBUG_ALLOC_TRAP=<n>` 后，程序会在第 `n` 次分配时中止，调试器即可显示它来自哪里（单线程程序的分配编号是确定的）。该分配器目前还不检查释放时给出的大小是否与块一致（这需要分配器接口下一版本中带大小的 `free`），既不记录分配位置，也不记录类型名。
 
 ## FFI
 

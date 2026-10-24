@@ -2,8 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert, assert_approx } :: import("std/assert");
 { rune, String, ParseFloatError } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ Arena } :: import("std/arena");
-{ with_allocator } :: import("std/allocator");
+{ GlobalAllocator, with_allocator } :: import("std/allocator");
 // ===== Construction Tests =====
 test("String.new creates empty string", {
   s := String.new();
@@ -2548,24 +2547,59 @@ test("clone copies the bytes into a buffer of its own", {
   assert(u.ptr() == before, "a mutator writes in place");
 });
 // A clone lives where its source's buffer lives (decision 12), as
+// A counting allocator: forwards to the global allocator and counts the
+// blocks it holds (`live`) and the alloc/realloc requests it served.
+_Counts :: struct(live : usize, requests : usize);
+_count_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.live = (c.*.live + usize(1)));
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  GlobalAllocator.malloc(size)
+});
+_count_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  c := (*_Counts)(ctx.unwrap());
+  unsafe(c.*.requests = (c.*.requests + usize(1)));
+  cond(
+    ptr.is_none() => {
+      unsafe(c.*.live = (c.*.live + usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_count_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  cond(
+    ptr.is_some() => {
+      c := (*_Counts)(ctx.unwrap());
+      unsafe(c.*.live = (c.*.live - usize(1)));
+    },
+    true => ()
+  );
+  GlobalAllocator.free(ptr);
+});
+_COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc, free : _count_free);
+_counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
+// An `Allocator` over `c`, which must outlive every block it hands out.
+_counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
 // `ArrayList.clone` and `to_bytes` already placed theirs; it used to land in
-// the caller's current scope, so an arena string cloned outside any scope
-// came back on the global heap.
+// the caller's current scope, so a string in an explicit allocator cloned
+// outside any scope came back on the global heap.
 // issues/fixed/string-clone-ignores-the-source-buffers-allocator.md
-test("clone of an arena string stays in the arena", {
-  arena := Arena.new(usize(1) << usize(16));
+test("clone of a string in an explicit allocator stays in that allocator", {
+  counts := _counts();
+  a := _counting(addr_of(counts));
   {
-    s := with_allocator(arena.allocator(), () => String.from("arena text"));
-    before := arena.live_blocks();
+    s := with_allocator(a, () => String.from("placed text"));
+    before := counts.live;
     mut(t) := s.clone();
-    assert(arena.live_blocks() == (before + usize(1)), `the clone's buffer is an arena block: ${arena.live_blocks()}`);
-    t.push_str(" grown past its first buffer so the growth goes through the arena too");
-    assert(t.to_bytes().allocator().unwrap().same(arena.allocator()), "the clone's buffer is owned by the arena");
+    assert(counts.live == (before + usize(1)), `the clone's buffer is the allocator's block: ${counts.live}`);
+    t.push_str(" grown past its first buffer so the growth goes through the allocator too");
+    assert(t.to_bytes().allocator().unwrap().same(a), "the clone's buffer is owned by the allocator");
     g := String.from("global text");
-    h := with_allocator(arena.allocator(), () => g.clone());
+    h := with_allocator(a, () => g.clone());
     assert(h.to_bytes().allocator().is_some(), "a global source cloned inside a scope follows the scope, as ArrayList.clone does");
   };
-  assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
+  assert(counts.live == usize(0), `released: ${counts.live}`);
 });
 test("every mutator writes only its own clone", {
   base := String.from("héllo");
