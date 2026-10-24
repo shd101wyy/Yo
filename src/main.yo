@@ -3326,6 +3326,13 @@ _run_migrate_explicit_copy :: (
         },
         .None => ()
       );
+      // A copy of a type without `Clone` (`ExplicitCopySite.lacks_clone`):
+      // unique buffers still make it E0901, and no `.clone()` spells it.
+      if(st.lacks_clone, {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
+        continue;
+      });
       // A copy out of a temporary that dies right after it (a field or an
       // element of a call's owned result, `_ic_dying_temp_source`) is
       // usually a move. Listed, so a value read again (a genuine copy) is
