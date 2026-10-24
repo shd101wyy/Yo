@@ -2825,16 +2825,18 @@ _run_migrate_rc_pattern :: (
   });
 });
 /// When the written-after guard calls a write or a flow "after" the copy
-/// site at `at_module`/`at_offset`. `mates` are the regions that run more
-/// than once (`record_copy_loop`: a runtime loop, a fn literal) enclosing
-/// the site; `carry` are those of them the copy outlives one run of
-/// (`_copy_when`). In a `carry` region every position is after the copy: a
-/// write above it runs again on the next iteration or call, while the copy
-/// still shares the buffer
+/// site at `at_module`/`at_offset`. Of the regions that run more than once
+/// (`record_copy_loop`: a runtime loop, a closure, a function) enclosing the
+/// site, `carry` are those the copy outlives one run of (`_copy_when`). In a
+/// `carry` region every position is after the copy: a write above it runs
+/// again on the next iteration or call, while the copy still shares the
+/// buffer
 /// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
-/// In a `mates` region every position is before it as well, for the same
-/// reason.
-_CopyWhen :: struct(at_module : String, at_offset : u32, mates : ArrayList(CopyLoop), carry : ArrayList(CopyLoop));
+/// In a `loops` region (an enclosing loop or closure, not a function) every
+/// position is before it as well, for the same reason: a buffer two
+/// variables there came to share on the previous iteration is still shared.
+/// A function's locals are new on each call.
+_CopyWhen :: struct(at_module : String, at_offset : u32, loops : ArrayList(CopyLoop), carry : ArrayList(CopyLoop));
 /// Does a region of `loops` (all in one module) hold `at_offset`?
 _in_copy_loops :: (fn(loops : &ArrayList(CopyLoop), at_offset : u32) -> bool)({
   (k : usize) = usize(0);
@@ -2852,7 +2854,7 @@ _copy_after :: (fn(w : &_CopyWhen, at_module : &String, at_offset : u32) -> bool
 );
 /// Does the position `at_module`/`at_offset` run before the copy `w`?
 _copy_before :: (fn(w : &_CopyWhen, at_module : &String, at_offset : u32) -> bool)(
-  (at_module == w.at_module) && ((at_offset < w.at_offset) || _in_copy_loops(&w.mates, at_offset))
+  (at_module == w.at_module) && ((at_offset < w.at_offset) || _in_copy_loops(&w.loops, at_offset))
 );
 /// Is the variable a declaration key (`_ic_decl_key`, `<module>:<offset>`)
 /// names declared inside `l`?
@@ -2870,7 +2872,7 @@ _decl_in_copy_loop :: (fn(decl : &String, l : &CopyLoop) -> bool)(
 /// The guard's view of the copy site `st` (`_CopyWhen`). Its copy outlives
 /// one run of an enclosing region unless the destination and every variable
 /// its value flows on into (`flows_by_src`, after the site or anywhere in an
-/// enclosing region) are declared inside that region. A copy with no
+/// enclosing loop or closure) are declared inside that region. A copy with no
 /// destination variable (an argument, a field store, a `return`) is assumed
 /// to outlive one run of a loop or a closure, not one call of a function.
 _copy_when :: (
@@ -2882,6 +2884,7 @@ _copy_when :: (
   ) -> _CopyWhen
 )({
   mates := ArrayList(CopyLoop).new();
+  loops := ArrayList(CopyLoop).new();
   match(
     loops_by_module.get(st.at_module.clone()),
     .Some(ls) => {
@@ -2889,6 +2892,9 @@ _copy_when :: (
       while(k < ls.len(), k = (k + usize(1)), {
         l := ls(k);
         if((l.start <= st.at_offset) && (st.at_offset <= l.end), {
+          if(!l.is_function, {
+            loops.push(ls(k));
+          });
           mates.push(l);
         });
       });
@@ -2917,7 +2923,7 @@ _copy_when :: (
           (k : usize) = usize(0);
           while(k < fl.len(), k = (k + usize(1)), {
             f := fl(k);
-            if((f.at_module == st.at_module) && ((f.at_offset > st.at_offset) || _in_copy_loops(&mates, f.at_offset)) && seen.insert(f.dst.clone()), {
+            if((f.at_module == st.at_module) && ((f.at_offset > st.at_offset) || _in_copy_loops(&loops, f.at_offset)) && seen.insert(f.dst.clone()), {
               dests.push(f.dst.clone());
             });
           });
@@ -2943,7 +2949,7 @@ _copy_when :: (
       });
     });
   });
-  _CopyWhen(at_module : st.at_module.clone(), at_offset : st.at_offset, mates : mates, carry : carry)
+  _CopyWhen(at_module : st.at_module.clone(), at_offset : st.at_offset, loops : loops, carry : carry)
 });
 /// Is the variable `decl` (an `_ic_decl_key`; empty for none) written after
 /// the copy `w` (`_copy_after`)?
