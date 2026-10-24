@@ -283,9 +283,9 @@ impl(
     match(
       self,
       Self(_inner : inner, _st : st) => {
-        // Bound first: a field moved straight into a tuple literal is
-        // dropped with its owner as well
-        // (issues/2026-10-25-a-tuple-literal-moving-a-field-out-of-a-parameter-double-frees-it.md).
+        // Bound first: a field copied straight into a tuple literal skips
+        // its dup, so the box would free the buffer the tuple still holds
+        // (issues/2026-10-25-a-tuple-literal-copying-a-field-out-of-a-value-skips-the-dup.md).
         pending := st.*._buf;
         (inner, pending)
       }
