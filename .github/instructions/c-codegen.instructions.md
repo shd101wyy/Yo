@@ -593,9 +593,11 @@ Under cycle GC, cycle-incapable non-atomic types carry the 16-byte `__yo_ref_hea
   blocks keep `__yo_rc_alloc` and are never placed.
 - **Two allocator interface versions, one switch.** `CodeGenContext.alloc_abi_v2`
   is read off the shape of std's `AllocatorVTable` (`std_allocator_abi_is_v2`,
-  never a flag; any other shape, two disagreeing std copies, or a version-2-shaped
-  vtable std no longer declares where the switch looks is an internal compiler
-  error, never a silent version 1): version 1 is `alloc(ctx, size)`/`realloc(ctx, p, n)`/`free(ctx, p)`
+  never a flag). std's struct is the one whose id was minted by a module under
+  the std path (`stable_id_module_path`), not an id prefix: an id keeps only two
+  path segments. Any other shape, two disagreeing std copies, or a
+  version-2-shaped vtable not declared in std is an internal compiler error,
+  never a silent version 1. Version 1 is `alloc(ctx, size)`/`realloc(ctx, p, n)`/`free(ctx, p)`
   with the 16-byte prefix; version 2 is `alloc(ctx, size, align)`,
   `realloc(ctx, p, old, new, align)`, `free(ctx, p, size, align)`, and a placed
   RC block's prefix is `max(32, align)` bytes, the owner in the last 16 (where

@@ -484,6 +484,34 @@ stable_position_id :: (
   });
   candidate
 });
+/// The module that minted the stable id `id` (`stable_position_id`), spelled
+/// as that mint saw the path; `.None` for an id this process never minted.
+/// The registry key is `<module_path>:<pos_key>`, where `pos_key` is
+/// `@<label>:<row>:<column>` (anchored) or `<row>:<column>`
+/// (`_anchored_position`), so the module path is the key without its last
+/// three or two `:` segments.
+stable_id_module_path :: (fn(id : &String) -> Option(String))(
+  match(
+    g_stable_id_owner.with(m => m.get(id)),
+    .Some(key) => {
+      segs := key.split(":");
+      n := segs.len();
+      anchored := (n >= usize(4)) && match(segs.get(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false);
+      keep := cond(anchored => (n - usize(3)), (n >= usize(3)) => (n - usize(2)), true => usize(0));
+      if(keep == usize(0), {
+        return(Option(String).None);
+      });
+      head := ArrayList(String).new();
+      (si : usize) = usize(0);
+      while(si < keep, {
+        match(segs.get(si), .Some(s) => head.push(s), .None => ());
+        si = (si + usize(1));
+      });
+      Option(String).Some(String.from(":").join(&head))
+    },
+    .None => Option(String).None
+  )
+);
 /// The declaration identity of the node at (`module_path`, `row`, `column`):
 /// the canonical module path plus the ABSOLUTE position. Pure — it mints and
 /// registers nothing, unlike `stable_position_id` / `stable_type_id` — so
@@ -566,6 +594,7 @@ export(
   TopLevelAnchor,
   register_top_level_anchors,
   stable_position_id,
+  stable_id_module_path,
   stable_occurrence_key,
   stable_label_id,
   stable_type_id,

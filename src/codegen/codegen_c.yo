@@ -412,7 +412,7 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
   base.cycle_collector_off = cycle_collector_off;
   // The allocator interface the runtime speaks, read off the shape of std's
   // `AllocatorVTable` (D30): version 1 until std moves (Generation B).
-  base.alloc_abi_v2 = std_allocator_abi_is_v2(module_env);
+  base.alloc_abi_v2 = std_allocator_abi_is_v2(module_env, &eval_ctx.std_path);
   // The entry module's path decides which top-level exports get plain,
   // externally-linked C names (functions/collection.yo).
   base.current_module_path = Option(String).Some(module_env.module_path.*.clone());
