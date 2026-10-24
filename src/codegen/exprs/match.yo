@@ -27,7 +27,7 @@
   expr_info_deferred_dup_expressions,
   scope_variables
 } :: import("../../expr_info.yo");
-{ is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type, is_newtype_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { note_state_machine_binding_id, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -2215,17 +2215,28 @@ _emit_pattern_chain :: (
     .Struct(struct_ty, field_idx, subs, _) => {
       // A value struct's fields are `path.f`; a reference-semantics struct is
       // a pointer in C, so `path->f`.
+      // A newtype's C type IS its single field's type, so the field is the
+      // value itself (`(*path)` at a pointer position), as a newtype
+      // destructuring binds it.
       ptrish := _position_is_ptrish(ty);
       flabels := _struct_pattern_labels(&struct_ty);
+      newtype := (is_newtype_type(&struct_ty) && (flabels.len() == usize(1)));
       ftys := _struct_pattern_field_tys(&struct_ty);
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         flabel := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        fcode := path.clone();
-        fcode.push_str(cond(ptrish => "->", true => "."));
-        fcode.push_string(c_field_name(&struct_ty, flabel.clone()));
+        fcode := cond(
+          (newtype && ptrish) => `(*${path})`,
+          newtype => path.clone(),
+          true => {
+            f := path.clone();
+            f.push_str(cond(ptrish => "->", true => "."));
+            f.push_string(c_field_name(&struct_ty, flabel.clone()));
+            f
+          }
+        );
         recur(&subs(i), &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || ptrish);
         i = (i + usize(1));
       });

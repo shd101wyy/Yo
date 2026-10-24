@@ -54,7 +54,7 @@ landing. This doc is N4's output for `plans/VALUES_BY_DEFAULT.md`, B8:
     (`issues/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md`):
     9 std sites took a `.clone()` that a fixed compiler would not need.
   - **A struct pattern on a newtype emits invalid C**
-    (`issues/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md`).
+    (`issues/fixed/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md`).
     `String.into_bytes` cannot move its buffer out, so the probe clones it.
   - **An early return in a derive-generated body skips a value local's
     drop**
@@ -373,7 +373,7 @@ binary built from `95162303d`, and each still fails the same way under both
 | `issues/fixed/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md` | S2 | blocks safe generic `ArrayList(T)` code at stage 1 (probe: pragma on `std/rand.yo`) |
 | `issues/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md` | S2 | 9 std false positives |
 | `issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md` | S2 | `{ _bytes } := self` cannot move a field out |
-| `issues/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md` | S2 | invalid C; `into_bytes` must clone |
+| `issues/fixed/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md` | S2 | invalid C; `into_bytes` must clone |
 | `issues/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md` | S2 | an extra copy, then E0901 |
 | `issues/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md` | S2 | spurious borrow-flag panic |
 | `issues/2026-10-23-a-ref-payload-in-another-variant-makes-a-move-only-match-binding-a-borrow.md` | S2 | false E0901; on develop it blocks `derive(FromJson)` on structs with move-only fields |

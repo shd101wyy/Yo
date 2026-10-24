@@ -150,3 +150,85 @@ test("a match through a borrowed element of a Box-children enum", {
   );
   assert(xs.len() == usize(2), "the list keeps both elements");
 });
+// A newtype's C type IS its single field's type (a transparent typedef), so a
+// struct pattern on a newtype binds the value itself: the arm used to render
+// `self._b`, a member the C type does not have, and the C compiler rejected
+// the program. A `sink(self)` method moving its field out through the
+// pattern is B8's `String.into_bytes` shape
+// (issues/fixed/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md).
+(mut(g_nt_dropped) : i32) = i32(0);
+_NtB :: struct(n : i32);
+impl(
+  _NtB,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_nt_dropped = (g_nt_dropped + self.n);
+    })
+  )
+);
+_NtW :: newtype(_b : _NtB);
+impl(
+  _NtW,
+  into_b : (fn(sink(self) : Self) -> _NtB)(
+    match(self, _NtW(_b : b) => b)
+  )
+);
+test("a sink method moves a newtype's field out through a struct pattern", {
+  before := g_nt_dropped;
+  {
+    w := _NtW(_b : _NtB(n : i32(4)));
+    b := w.into_b();
+    assert(b.n == i32(4), "the moved-out field");
+    assert(g_nt_dropped == before, "the move out drops nothing");
+  };
+  assert(g_nt_dropped == (before + i32(4)), "the moved-out field is dropped once, by its new owner");
+});
+test("a borrow match and a `&mut` match on a newtype read and write its field", {
+  before := g_nt_dropped;
+  {
+    mut(w) := _NtW(_b : _NtB(n : i32(5)));
+    assert(match(&w, _NtW(_b : b) => b.n) == i32(5), "a borrow match reads the field");
+    match(
+      &mut w,
+      _NtW(_b : b) => {
+        b.n = i32(9);
+      }
+    );
+    assert(w._b.n == i32(9), "a `&mut` match writes through the field's place");
+    assert(g_nt_dropped == before, "neither match drops the field");
+  };
+  assert(g_nt_dropped == (before + i32(9)), "the owner drops the written field once");
+});
+_NtE :: enum(Has(w : _NtW), Nil);
+test("a newtype pattern inside an enum payload pattern", {
+  e := _NtE.Has(w : _NtW(_b : _NtB(n : i32(6))));
+  got := match(&e, .Has(_NtW(_b : b)) => b.n, .Nil => i32(0));
+  assert(got == i32(6));
+  assert(match(&_NtE.Nil, .Has(_NtW(_b : b)) => b.n, .Nil => i32(0)) == i32(0));
+});
+_NtName :: newtype(_s : String);
+impl(_NtName, into_string : (fn(sink(self) : Self) -> String)(match(self, _NtName(_s : s) => s)));
+_NtBytes :: newtype(_v : ArrayList(u8));
+impl(_NtBytes, into_list : (fn(sink(self) : Self) -> ArrayList(u8))(match(self, _NtBytes(_v : v) => v)));
+test("a newtype over a String or an ArrayList moves its buffer out", {
+  s := _NtName(_s : String.from("hello")).into_string();
+  assert(s == "hello");
+  mut(xs) := ArrayList(u8).new();
+  xs.push(u8(1));
+  xs.push(u8(2));
+  v := _NtBytes(_v : xs).into_list();
+  assert(v.len() == usize(2));
+  assert(v(usize(1)) == u8(2));
+});
+_NtMeters :: newtype(_m : i32);
+derive(_NtMeters, Copy, Clone);
+test("a newtype pattern tests its field, at runtime and at compile time", {
+  f :: (fn(m : _NtMeters) -> i32)(
+    match(m, _NtMeters(_m : 0) => i32(-1), _NtMeters(_m : v) => v)
+  );
+  assert(f(_NtMeters(_m : i32(0))) == i32(-1));
+  assert(f(_NtMeters(_m : i32(7))) == i32(7));
+  K :: _NtMeters(_m : i32(3));
+  r :: match(K, _NtMeters(_m : 0) => i32(0), _NtMeters(_m : x) => x);
+  assert(r == i32(3));
+});
