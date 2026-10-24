@@ -177,7 +177,7 @@ test("a chunked request body is decoded before the handler sees it", {
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`PUT /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n`, io), ioe);
-  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 200 OK\r\n`), `status line: ${raw}`);
   assert(raw.ends_with(`PUT /c tag=- body=[abcde]`), `decoded body reached the handler: ${raw}`);
   io.await(s.close(io), ioe);
@@ -205,7 +205,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`BREW /pot HTTP/1.1\r\nHost: x\r\n\r\n`, io), ioe);
-  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Unknown method: BREW`), `reason in body: ${raw}`);
   assert(called.len() == usize(0), "handler must not run for a malformed request");
@@ -419,7 +419,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n`, io), ioe);
-  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Content-Length`), `reason names the header: ${raw}`);
   io.await(s.close(io), ioe);
@@ -457,7 +457,7 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn));
   big := `GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nHost: x\r\n\r\n`;
   _w := io.await(s.write_string(&big, io), ioe);
-  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), ioe);
   assert(raw.starts_with(`HTTP/1.1 413 `), `status line: ${raw}`);
   io.await(s.close(io), ioe);
   r := io.await(fetch(`http://127.0.0.1:19977/last`, io), IoExn(io : io, exn : exn));

@@ -1,0 +1,9 @@
+{ println } :: import("std/fmt");
+{ Thread } :: import("std/thread");
+V :: struct(b : Box(i32));
+main :: (fn() -> unit)({
+  t := Thread(V).spawn((io : Io) => V(b : box(i32(41))));
+  v := t.join();
+  println(`${v.b.* + i32(1)}`);
+});
+export(main);

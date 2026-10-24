@@ -657,7 +657,7 @@ test("a closed listener's incoming stream is finished", {
   ioe := IoExn(io : io, exn : exn);
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), ioe);
-  conns := listener.incoming();
+  mut(conns) := listener.incoming();
   first := io.await(conns.next(io), io);
   assert(first.is_none(), "a closed listener accepts nothing more, so the stream is over");
   second := io.await(conns.next(io), io);

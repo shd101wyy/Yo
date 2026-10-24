@@ -50,7 +50,7 @@ The runtime automatically initializes the event loop when the thread starts (`__
 // thread; any `Send` type may be carried out.
 Thread :: (
   fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
-)(ref(struct(handle : __yo_thread_t, _joined : bool, _result : Channel(T))));
+)(struct(_cell : Box(_ThreadState(T))));
 impl(
   generic(T : Type),
   Thread(T),
@@ -60,8 +60,8 @@ impl(
   spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),
   // Wait for the thread to complete (blocking) and take its result.
   // Panics on a second call.
-  join : (fn(self : Self) -> T),
-  is_joined : (fn(self : Self) -> bool)
+  join : (fn(self : &Self) -> T),
+  is_joined : (fn(self : &Self) -> bool)
 );
 ```
 
@@ -79,6 +79,13 @@ job := Job(id : i32(7));
 t := Thread(i32).spawn({ job }(io : Io) => run(job)); // job moves into the thread, no clone
 n := t.join(); // 7
 ```
+
+A `Thread` is a move-only value: its OS handle, joined flag and result
+channel live in a `Box`, so there is exactly one handle per thread and
+dropping it unjoined detaches the thread once. `t2 := t` moves the handle,
+and a copy that would leave two owners is E0901. Lend it with `&t`, or move
+it to wherever it is joined. Because `join` marks the handle inside the box
+through `&Self`, a `Thread` is `Send` but never `Sync`.
 
 ### Carrying a value out
 

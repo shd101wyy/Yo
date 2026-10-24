@@ -7562,6 +7562,28 @@ test("a borrowing future may hold a & place lent through an Rc deref, not a &mut
   pusher.await(io);
   assert(n == usize(2), "the re-derived place reads the push another task made through its own handle");
 });
+// A `ref` object is its own handle: a method whose future borrows
+// `self : &Self` lends the receiver binding, not a place inside the object,
+// so `r.m(io)` is accepted as the handle spelling `T.m(&r, io)` is. The
+// receiver used to read as an auto-dereferenced one and was E0909
+// (issues/fixed/2026-10-24-a-borrowing-method-future-on-a-ref-receiver-is-rejected-as-a-cell-lend.md).
+_A2RefCounter :: ref(struct(n : i32));
+impl(
+  _A2RefCounter,
+  twice_later : (fn(self : &Self, io : Io) -> Impl(Future(i32, Io)))(
+    io.async({ &self }(io : Io) => {
+      io.await(yield(io), io);
+      (self.n * i32(2))
+    })
+  )
+);
+test("a borrowing method future on a ref receiver lends the handle (§3.13 A2)", {
+  r := _A2RefCounter(n : i32(4));
+  assert(io.await(r.twice_later(io), io) == i32(8), "the receiver spelling");
+  assert(io.await(_A2RefCounter.twice_later(&r, io), io) == i32(8), "the handle spelling");
+  k := rc(_A2Counter(n : i32(3)));
+  comptime_expect_error(io.await(k.bump(io), io), "read-only through the handle");
+});
 // The decision 38 D check runs at the call that makes the future, so no
 // wrapper hides it: a `cond`/`if`/`match` arm or a block tail
 // (issues/fixed/a-wrapped-await-operand-skips-the-shared-cell-check.md).

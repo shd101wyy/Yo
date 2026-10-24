@@ -50,7 +50,7 @@ Yo 提供两种并行执行机制：
 // 任何满足 `Send` 的类型都可以被带出线程。
 Thread :: (
   fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type)
-)(ref(struct(handle : __yo_thread_t, _joined : bool, _result : Channel(T))));
+)(struct(_cell : Box(_ThreadState(T))));
 impl(
   generic(T : Type),
   Thread(T),
@@ -59,8 +59,8 @@ impl(
   // 该闭包会获得自己的每线程 Io 事件循环。
   spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> T, Send)) -> Self),
   // 等待线程完成（阻塞），并取回它的结果。第二次调用会 panic。
-  join : (fn(self : Self) -> T),
-  is_joined : (fn(self : Self) -> bool)
+  join : (fn(self : &Self) -> T),
+  is_joined : (fn(self : &Self) -> bool)
 );
 ```
 
@@ -75,6 +75,11 @@ job := Job(id : i32(7));
 t := Thread(i32).spawn({ job }(io : Io) => run(job)); // job 移入线程，无需克隆
 n := t.join(); // 7
 ```
+
+`Thread` 是只能移动（move-only）的值：它的操作系统句柄、joined 标志和结果通道都放在一个
+`Box` 里，因此每个线程恰好只有一个句柄，未 join 就被释放时只会 detach 一次。`t2 := t`
+会移动句柄，留下两个所有者的复制是 E0901。用 `&t` 借出，或把它移动到要 join 的地方。由于
+`join` 通过 `&Self` 在 box 内标记句柄，`Thread` 是 `Send`，但永远不是 `Sync`。
 
 ### 把值带出线程
 

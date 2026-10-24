@@ -1,0 +1,16 @@
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ println } :: import("std/fmt");
+with_once :: (fn(h : &mut HashMap(String, String), sink(body) : Impl(FnOnce(v : &mut HashMap(String, String)) -> unit)) -> unit)(
+  body(h)
+);
+main :: (fn() -> unit)({
+  (mut(h) : HashMap(String, String)) = HashMap(String, String).new();
+  k := String.from("a");
+  v := String.from("b");
+  with_once(&mut h, { k, v }(m) => {
+    _ := m.insert(k, v);
+  });
+  println(`${h.len()}`);
+});
+export(main);
