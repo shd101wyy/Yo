@@ -1,0 +1,13 @@
+// A generic function whose tail is a call to another generic function,
+// instantiated with T = unit, does not build: the outer specialization's
+// body is an abort stub and the C compiler rejects the call to it.
+{ assert } :: import("std/assert");
+inner :: (fn(generic(T : Type), v : T) -> T)(v);
+outer :: (fn(generic(T : Type), v : T) -> T)(inner(v));
+main :: (fn() -> unit)({
+  a := outer(());
+  assert(a == (), "unit forwards");
+  b := outer(i32(3));
+  assert(b == i32(3), "i32 forwards");
+});
+export(main);

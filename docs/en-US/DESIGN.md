@@ -1294,6 +1294,8 @@ export(main);
 
 Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a `&T` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `drop` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
 
+To move a field out of a holder that stays alive, use `std/mem` (Rust's `std::mem`): `replace(&mut h.f, v)` stores `v` and returns the old value, `take(&mut h.f)` stores `T`'s default (`where(T <: Default)`) and returns the old value, and `swap(&mut a, &mut b)` exchanges two places. Each moves bitwise, so a move-only value is neither copied nor dropped twice. They live in their own module rather than the prelude, so the names stay free for your own definitions: `{ replace, take, swap } :: import("std/mem");`.
+
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
 #### The destructor: `Drop`
@@ -2703,7 +2705,8 @@ The rules of a consuming `match`:
 - A use of the scrutinee after a consuming `match` is E0901, whose help names
   `match(&x, …)`. Matching a module-level binding, a field (`x.f`), an element
   (`xs(i)`) or a dereference (`p.*`) by value is E0901 too (Yo has no partial
-  moves): write `match(&x.f, …)`.
+  moves): write `match(&x.f, …)`, or move the field out first with
+  `std/mem`'s `take(&mut x.f)` or `replace(&mut x.f, v)`.
 - `(name := p)` takes the whole value, so a binding inside `p` must be `Copy`.
   An or-pattern may not leave a part with a drop unbound (its alternatives
   would drop different parts): split the arm or bind the part.

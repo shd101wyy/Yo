@@ -35,6 +35,7 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { snprintf } :: import("../libc/stdio.yo");
+{ replace } :: import("../mem.yo");
 { rune } :: import("./rune.yo");
 { String } :: import("./string.yo");
 utf8 :: import("../encoding/utf8.yo");
@@ -183,14 +184,14 @@ impl(
     // string O(N) to build and O(N) again to read out. Detaching is also what
     // keeps the returned `String` independent — a later `write_str` must never
     // mutate a `String` already handed to a caller
-    // (issues/fixed/writer-to-string-shares-its-buffer.md).
-    bytes := self._buf;
-    self._buf = match(
-      bytes.allocator(),
+    // (issues/fixed/writer-to-string-shares-its-buffer.md). `replace` moves
+    // the buffer out and the fresh one in, so the field is never copied.
+    fresh := match(
+      self._buf.allocator(),
       .Some(a) => ArrayList(u8).new_in(a),
       .None => ArrayList(u8).new()
     );
-    String.from_bytes(bytes)
+    String.from_bytes(replace(&mut self._buf, fresh))
   }),
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(self : &mut Self, n : u64) -> unit)({
