@@ -8536,6 +8536,26 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
 - **Then:** the allocators Zig ships become ordinary std additions, such as
   a fixed-buffer allocator, a pool, a page allocator, and a debug allocator
   that reports leaks and double frees.
+- **As built, Generation A (2026-10-24, branch `vbd/alloc-v2-gen-a`).**
+  The switch is `CodeGenContext.alloc_abi_v2`, set by `compile_module` from
+  the arity of the `alloc` field of the `AllocatorVTable` that std's prelude
+  declares (`std_allocator_abi_is_v2`, `src/codegen/utils/index.yo`;
+  lookahead D30). While std keeps version 1 the emitted C is byte-identical.
+  Under version 2 the runtime declares the new vtable, an allocator-placed
+  RC block (a `ref` constructor, a `dyn` box, a task, a cell primitive)
+  is allocated with `__yo_rc_alloc_scoped(s, sizeof(T), _Alignof(T))`, and
+  its prefix is `max(32, align)` bytes: the owner `{ctx, vtable}` in the
+  last 16, where version 1 keeps it (so `__yo_scope_of_object` and std's
+  `Allocator.owner_of` read one place), and the extent `{size, align}` in
+  the 16 before that (lookahead D14). `__yo_rc_free` reads the extent and
+  calls `free(ctx, raw, span + size, max(16, align))`, exactly the size and
+  alignment `alloc` was asked for. The mutation summary's allocator-slot
+  rule reads the block at argument 1 in both shapes. Generation B (v0.2.72)
+  moves `AllocatorVTable`, `std/allocator.yo`, `std/arena.yo`, `box` and
+  the three owned-buffer containers; a draft is on `vbd/alloc-v2-gen-b`.
+  No Yo type is aligned above 16 today, so "an over-aligned element in an
+  `ArrayList`" is tested through `Allocator.alloc(size, align)` directly;
+  the element-type form waits for a way to declare an over-aligned type.
 
 ### V4: the compiler's trees
 
