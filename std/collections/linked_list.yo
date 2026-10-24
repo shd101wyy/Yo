@@ -1,22 +1,31 @@
 //! Doubly-linked list with O(1) push/pop at both ends.
 //!
-//! Every node is a separate reference-counted allocation holding `next` and
-//! `prev` handles, so indexing is an O(n) walk and each element costs a
-//! pointer pair plus its own heap buffer on top of the value itself: reach
-//! for `ArrayList` unless the point is cheap splicing at the ends, and for
-//! `Deque` when both ends are what you want. Positional `insert`/`remove`
-//! report a bad index as a `Result` rather than panicking (D1) —
-//! deliberately unlike `ArrayList`, where the same mistake panics, because a
-//! list that has to walk to the index is already answering a question that
-//! can fail.
+//! Every node is a separate malloc'd allocation holding the element inline
+//! beside raw `next`/`prev` pointers, so indexing is an O(n) walk and each
+//! element costs a pointer pair and its own heap block on top of the value
+//! itself: reach for `ArrayList` unless the point is cheap splicing at the
+//! ends, and for `Deque` when both ends are what you want. Positional
+//! `insert`/`remove` report a bad index as a `Result` rather than panicking
+//! (D1) — deliberately unlike `ArrayList`, where the same mistake panics,
+//! because a list that has to walk to the index is already answering a
+//! question that can fail.
 //!
-//! The element lives in its own malloc'd buffer, pointed to by the node: a
-//! `pop_*`/`remove` moves the value out of that buffer bitwise
-//! (`__yo_ptr_read`) and frees it, which is why a move-only element — a
-//! `Drop` type, a `Box`, a plain type with neither `Copy` nor `Clone` — pops
-//! and clears. The node keeps the same neighbours an iterator may still
-//! hold, so the emptied slot is `.None`, never freed memory
-//! (`issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md`).
+//! The list OWNS its chain (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D23):
+//! the nodes are not reference-counted, so the `next`/`prev` pair forms no
+//! `Rc` cycle, and a `pop_*`/`remove` moves the element out of its node
+//! bitwise (`__yo_ptr_read`) and frees the node, which is why a move-only
+//! element — a `Drop` type, a `Box`, a plain type with neither `Copy` nor
+//! `Clone` — pops and clears. The list's own `Drop` frees whatever is left.
+//!
+//! An iterator (`into_iter()`, `iter()`) holds a raw pointer to the node it
+//! is parked on, so a removal that frees a node while one is live would leave
+//! it dangling. The list counts its removals instead, and every iterator
+//! records that count: a step that would follow a node pointer after a node
+//! was removed PANICS ("LinkedList: a node was removed while an iterator was
+//! live") rather than reading freed memory. Pushing and inserting free
+//! nothing and are allowed mid-walk. A borrowed `for(&mut list, …)` needs no count: the loop holds
+//! the list's borrow flag, so a removal through a second handle panics at
+//! the removing call.
 //!
 //! ## Stability
 //!
@@ -38,100 +47,113 @@ LinkedListError :: enum(
   EmptyList
 );
 derive(LinkedListError, Copy, Clone);
-/// Internal node for the linked list. Reference-counted via `object`.
+/// One node of the chain: the element inline, the neighbours as raw
+/// pointers. A plain value struct, never reference-counted: the list owns
+/// every node it links, allocates it in `_node_alloc` and frees it in
+/// `_node_take` or `clear` — nothing else holds a node.
 ///
-/// The element is NOT a field: it lives in its own malloc'd buffer and the
-/// node holds the raw pointer. That is what makes `pop_*`/`remove` work for a
-/// move-only element — the value moves out of the buffer bitwise and the
-/// buffer is freed, leaving `.None` behind — while the node itself stays
-/// alive for every handle that still shares it (the neighbours, an iterator).
-/// The node's own field drop releases only the raw pointer, never the value.
-Node :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      value : Option(*T),
-      next : Option(Self),
-      prev : Option(Self)
-    )
+/// The neighbour links are typed `?*void` and read and written only through
+/// `_next`/`_prev`/`_set_next`/`_set_prev`/`_join`, which cast them: a
+/// generic value struct that names itself cannot be used inside another
+/// generic type today — `?*Self` makes every generic impl on the holder
+/// unreachable
+/// (issues/2026-10-24-a-generic-struct-naming-itself-through-a-raw-pointer-hides-the-impls-of-a-generic-holder.md)
+/// and `?*_Node(T)` crashes the evaluator
+/// (issues/2026-10-24-a-generic-struct-naming-its-own-constructor-in-a-field-crashes-the-evaluator.md).
+/// The links are set by the helpers rather than passed as `.Some(node)`
+/// arguments for a third reason
+/// (issues/2026-10-24-an-enum-literal-argument-for-an-option-of-a-pointer-to-a-generic-parameter-is-rejected.md).
+_Node :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    value : T,
+    next : Option(*void),
+    prev : Option(*void)
   )
 );
-/// Allocate one element's buffer and move `v` into it bitwise. A zero-sized
-/// `T` takes the one-byte anchor `malloc(0)` would not promise.
-_node_value_alloc :: (fn(generic(T : Type), v : T) -> *T)({
-  bytes := cond((size_of(T) == usize(0)) => usize(1), true => size_of(T));
-  (p : *T) = match(
-    malloc(bytes),
-    .Some(q) => (*T)(q),
-    .None => __yo_panic("LinkedList: element allocation failed")
+/// The node after `p`. SAFETY (every link accessor): `p` is a node the list
+/// linked and has not freed.
+_next :: (fn(generic(T : Type), p : *_Node(T)) -> Option(*_Node(T)))(
+  match(
+    unsafe(p.*.next),
+    .Some(q) => .Some((*_Node(T))(q)),
+    .None => .None
+  )
+);
+/// The node before `p`.
+_prev :: (fn(generic(T : Type), p : *_Node(T)) -> Option(*_Node(T)))(
+  match(
+    unsafe(p.*.prev),
+    .Some(q) => .Some((*_Node(T))(q)),
+    .None => .None
+  )
+);
+/// Point `p`'s `next` link at `n`.
+_set_next :: (fn(generic(T : Type), p : *_Node(T), n : Option(*_Node(T))) -> unit)({
+  unsafe(
+    p.*.next = match(
+      n,
+      .Some(q) => .Some((*void)(q)),
+      .None => .None
+    )
   );
-  __yo_ptr_write(p, v);
+});
+/// Point `p`'s `prev` link at `n`.
+_set_prev :: (fn(generic(T : Type), p : *_Node(T), n : Option(*_Node(T))) -> unit)({
+  unsafe(
+    p.*.prev = match(
+      n,
+      .Some(q) => .Some((*void)(q)),
+      .None => .None
+    )
+  );
+});
+/// Make `b` the node right after `a`.
+_join :: (fn(generic(T : Type), a : *_Node(T), b : *_Node(T)) -> unit)({
+  unsafe(a.*.next = .Some((*void)(b)));
+  unsafe(b.*.prev = .Some((*void)(a)));
+});
+/// Allocate one unlinked node and move `value` into it bitwise.
+_node_alloc :: (fn(generic(T : Type), value : T) -> *_Node(T))({
+  (p : *_Node(T)) = match(
+    malloc(size_of(_Node(T))),
+    .Some(q) => (*_Node(T))(q),
+    .None => __yo_panic("LinkedList: node allocation failed")
+  );
+  __yo_ptr_write(p, _Node(T)(value : value, next : .None, prev : .None));
   p
 });
-/// The element's buffer, for the in-place readers (`Index`, `IndexMut`,
-/// `iter()`, the borrowed `for`). A free function of the node alone, as
-/// before: a method on the node does not resolve through a match binding
-/// while the node's fields mention `Self` (the same reason the old form was
-/// a free function). The node is in the chain, so the pointer is `.Some`; a
-/// popped node answers the panic.
-_node_value_ptr :: (fn(generic(T : Type), node : &Node(T)) -> *T)(
-  match(
-    node.value,
-    .Some(p) => p,
-    .None => __yo_panic("LinkedList: node holds no value")
-  )
+/// The element slot inside a node, for the in-place readers (`Index`,
+/// `IndexMut`, `iter()`, the borrowed `for`, the GC trace).
+_node_value_ptr :: (fn(generic(T : Type), p : *_Node(T)) -> *T)(
+  // SAFETY: `p` is a node the list linked and has not freed.
+  unsafe(addr_of(p.*.value))
 );
-/// Move the element out of its buffer and free the buffer — a bitwise move,
-/// so a move-only element is never copied and nothing is left that a later
-/// drop of the node could release twice. The caller has already copied the
-/// buffer pointer out of the node and left `.None` in the slot: a popped node
-/// may still be shared by an iterator or a neighbour, which is exactly why
-/// the emptied slot must stay a benign `.None`.
-_node_take_buffer :: (fn(generic(T : Type), p : *T) -> T)({
-  v := __yo_ptr_read(p);
+/// Move the element out of an UNLINKED node and free the node — a bitwise
+/// move, so a move-only element is never copied, and the node's raw
+/// neighbour pointers need no release.
+_node_take :: (fn(generic(T : Type), p : *_Node(T)) -> T)({
+  v := __yo_ptr_read(_node_value_ptr(p));
   free(.Some((*void)(p)));
   v
 });
-/// Cycle-GC tracing. The element lives in a malloc'd buffer the compiler's
-/// auto-derived field walk cannot reach, so the node traces it in place —
-/// `tracer.visit` reads the slot WITHOUT touching the element's reference
-/// count — beside the `next`/`prev` handle edges the auto walk used to cover
-/// (a hand-written `Trace` replaces that walk, so they are re-registered
-/// here). Mirrors the ArrayList/HashMap `Trace` impls. Each edge is visited
-/// through a slot of exactly the child's own type: a slot typed
-/// `Option(Node)` lowers to the nullable-pointer form, whose visit carries
-/// no child traverse function and the collector would not walk past it.
-impl(
-  generic(T : Type),
-  Node(T),
-  Trace(
-    trace : (fn(self : &Self, tracer : GcTracer) -> unit)({
-      match(
-        self.next,
-        .Some(n) => tracer.visit(unsafe(addr_of(n))),
-        .None => ()
-      );
-      match(
-        self.prev,
-        .Some(p) => tracer.visit(unsafe(addr_of(p))),
-        .None => ()
-      );
-      match(
-        self.value,
-        .Some(p) => tracer.visit(p),
-        .None => ()
-      );
-    })
-  )
-);
 /// Doubly-linked list with O(1) push/pop at both ends.
+///
+/// `_removed` counts the nodes this list has freed; an iterator compares it
+/// with the count it started from before following a node pointer (see the
+/// module notes).
 LinkedList :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
-      head : Option(Node(T)),
-      tail : Option(Node(T)),
-      length : usize
+      head : Option(*_Node(T)),
+      tail : Option(*_Node(T)),
+      length : usize,
+      _removed : usize
     )
   )
+);
+/// The panic every iterator raises when a node was freed after it started.
+_removed_mid_walk :: (fn() -> unit)(
+  __yo_panic("LinkedList: a node was removed while an iterator was live")
 );
 impl(
   generic(T : Type),
@@ -141,7 +163,8 @@ impl(
     Self(
       head : .None,
       tail : .None,
-      length : usize(0)
+      length : usize(0),
+      _removed : usize(0)
     )
   ),
   /// Number of elements. O(1) — the count is maintained, not walked.
@@ -156,18 +179,14 @@ impl(
   /// `push_front`. Existing element positions shift by one; no pointer or
   /// iterator into another node is disturbed.
   push_front : (fn(self : &mut Self, value : T) -> unit)({
-    new_node := Node(T)(
-      value : .Some(_node_value_alloc(value)),
-      next : self.head,
-      prev : .None
-    );
+    new_node := _node_alloc(value);
     match(
       self.head,
       .None => {
         self.tail = .Some(new_node);
       },
       .Some(old_head) => {
-        old_head.prev = .Some(new_node);
+        _join(new_node, old_head);
       }
     );
     self.head = .Some(new_node);
@@ -177,91 +196,66 @@ impl(
   /// `push_back`. This is the cheap append; `ArrayList.push` is cheaper
   /// still if you do not need stable node identity.
   push_back : (fn(self : &mut Self, value : T) -> unit)({
-    new_node := Node(T)(
-      value : .Some(_node_value_alloc(value)),
-      next : .None,
-      prev : self.tail
-    );
+    new_node := _node_alloc(value);
     match(
       self.tail,
       .None => {
         self.head = .Some(new_node);
       },
       .Some(old_tail) => {
-        old_tail.next = .Some(new_node);
+        _join(old_tail, new_node);
       }
     );
     self.tail = .Some(new_node);
     self.length = (self.length + usize(1));
   }),
+  /// Unlink the linked node `p` from the chain and account for its removal.
+  /// The node itself is left for the caller to take and free.
+  _unlink : (fn(self : &mut Self, p : *_Node(T)) -> unit)({
+    // SAFETY: `p` and its neighbours are linked, so they are live.
+    prev_opt := _prev(p);
+    next_opt := _next(p);
+    match(
+      prev_opt,
+      .Some(prev_node) => {
+        _set_next(prev_node, next_opt);
+      },
+      .None => {
+        self.head = next_opt;
+      }
+    );
+    match(
+      next_opt,
+      .Some(next_node) => {
+        _set_prev(next_node, prev_opt);
+      },
+      .None => {
+        self.tail = prev_opt;
+      }
+    );
+    self.length = (self.length - usize(1));
+    self._removed = (self._removed + usize(1));
+  }),
   /// Remove and return the first element, or `.None` when empty — O(1).
-  ///
-  /// Clears the new head's `prev` handle, which is what breaks the
-  /// reference cycle every adjacent node pair forms (see `dispose`).
   pop_front : (fn(self : &mut Self) -> Option(T))(
     match(
       self.head,
       .None => .None,
       .Some(old_head) => {
-        // The element moves out (and its buffer dies) BEFORE the unlink:
-        // dropping the list's own handle below can be the node's last
-        // reference, and everything after that would read freed memory.
-        taken := old_head.value;
-        old_head.value = .None;
-        (v : Option(T)) =
-          match(
-            taken,
-            .Some(p) => .Some(_node_take_buffer(p)),
-            .None => .None
-          );
-        new_head_opt := old_head.next;
-        match(
-          new_head_opt,
-          .None => {
-            self.head = .None;
-            self.tail = .None;
-          },
-          .Some(new_head) => {
-            new_head.prev = .None;
-            self.head = .Some(new_head);
-          }
-        );
-        self.length = (self.length - usize(1));
-        v
+        self._unlink(old_head);
+        .Some(_node_take(old_head))
       }
     )
   ),
   /// Remove and return the last element, or `.None` when empty — O(1),
-  /// because the list keeps a tail handle.
+  /// because the list keeps a tail pointer.
   pop_back : (fn(self : &mut Self) -> Option(T))(
     match(
       self.tail,
       .None => .None,
       .Some(old_tail) => {
-        // As `pop_front`: take the element out before the unlink can drop
-        // the node's last reference.
-        taken := old_tail.value;
-        old_tail.value = .None;
-        (v : Option(T)) =
-          match(
-            taken,
-            .Some(p) => .Some(_node_take_buffer(p)),
-            .None => .None
-          );
-        new_tail_opt := old_tail.prev;
-        match(
-          new_tail_opt,
-          .None => {
-            self.head = .None;
-            self.tail = .None;
-          },
-          .Some(new_tail) => {
-            new_tail.next = .None;
-            self.tail = .Some(new_tail);
-          }
-        );
-        self.length = (self.length - usize(1));
-        v
+        self._unlink(old_tail);
+        .Some(_node_take(old_tail))
       }
     )
   ),
@@ -272,12 +266,8 @@ impl(
     match(
       self.head,
       .None => .None,
-      .Some(head_node) =>
-        match(
-          head_node.value,
-          .Some(p) => .Some(p.*),
-          .None => .None
-        )
+      // SAFETY: the head is linked, so it is live.
+      .Some(head_node) => .Some(unsafe(head_node.*.value))
     )
   ),
   /// Copy of the last element without removing it, or `.None` — Rust's
@@ -286,48 +276,48 @@ impl(
     match(
       self.tail,
       .None => .None,
-      .Some(tail_node) =>
-        match(
-          tail_node.value,
-          .Some(p) => .Some(p.*),
-          .None => .None
-        )
+      // SAFETY: the tail is linked, so it is live.
+      .Some(tail_node) => .Some(unsafe(tail_node.*.value))
     )
   ),
+  /// The linked node at `index`, which the caller has checked is
+  /// `< length`. Walks from the nearer end.
+  _node_at : (fn(self : &Self, index : usize) -> *_Node(T))({
+    (current : Option(*_Node(T))) = .None;
+    cond(
+      (index < (self.length / usize(2))) => {
+        current = self.head;
+        i := usize(0);
+        while(i < index, i = (i + usize(1)), {
+          // SAFETY: fewer than `length` steps from the head stay linked.
+          current = _next(current.unwrap());
+        });
+      },
+      true => {
+        current = self.tail;
+        i := (self.length - usize(1));
+        while(i > index, i = (i - usize(1)), {
+          // SAFETY: fewer than `length` steps from the tail stay linked.
+          current = _prev(current.unwrap());
+        });
+      }
+    );
+    match(
+      current,
+      .Some(p) => p,
+      .None => __yo_panic("LinkedList: chain shorter than its length")
+    )
+  }),
   /// Copy of the element at `index`, or `.None` when out of range.
   ///
-  /// O(n): it walks from the head — there is no random access. Rust has no
-  /// `LinkedList::get` at all, for exactly this reason; a full traversal
-  /// belongs in `iter()`, and a `get` in a loop is quadratic.
+  /// O(n): it walks from the nearer end — there is no random access. Rust
+  /// has no `LinkedList::get` at all, for exactly this reason; a full
+  /// traversal belongs in `iter()`, and a `get` in a loop is quadratic.
   get : (fn(self : &Self, index : usize) -> Option(T))(
     cond(
       (index >= self.length) => .None,
-      true => {
-        current_opt := self.head;
-        i := usize(0);
-        while(i < index, i = (i + usize(1)), {
-          match(
-            current_opt,
-            .None => {
-              return(.None);
-            },
-            .Some(current) => {
-              current_opt = current.next;
-              ()
-            }
-          );
-        });
-        match(
-          current_opt,
-          .None => .None,
-          .Some(node) =>
-            match(
-              node.value,
-              .Some(p) => .Some(p.*),
-              .None => .None
-            )
-        )
-      }
+      // SAFETY: `_node_at` answers a linked node.
+      true => .Some(unsafe(self._node_at(index).*.value))
     )
   ),
   /// Insert `value` so that it ends up at `index`, shifting the rest along
@@ -349,43 +339,15 @@ impl(
         .Ok(())
       },
       true => {
-        current_opt := self.head;
-        i := usize(0);
-        while(i < index, i = (i + usize(1)), {
-          match(
-            current_opt,
-            .None => {
-              return(.Err(.IndexOutOfBounds(index : index, length : self.length)));
-            },
-            .Some(current) => {
-              current_opt = current.next;
-            }
-          );
-        });
-        match(
-          current_opt,
-          .None => .Err(.IndexOutOfBounds(index : index, length : self.length)),
-          .Some(current) => {
-            prev_opt := current.prev;
-            new_node := Node(T)(
-              value : .Some(_node_value_alloc(value)),
-              next : .Some(current),
-              prev : prev_opt
-            );
-            current.prev = .Some(new_node);
-            match(
-              prev_opt,
-              .None => {
-                self.head = .Some(new_node);
-              },
-              .Some(prev_node) => {
-                prev_node.next = .Some(new_node);
-              }
-            );
-            self.length = (self.length + usize(1));
-            .Ok(())
-          }
-        )
+        current := self._node_at(index);
+        // SAFETY: `current` is linked and not the head, so `prev` is a
+        // linked node.
+        prev_node := _prev(current).unwrap();
+        new_node := _node_alloc(value);
+        _join(prev_node, new_node);
+        _join(new_node, current);
+        self.length = (self.length + usize(1));
+        .Ok(())
       }
     )
   ),
@@ -393,88 +355,36 @@ impl(
   ///
   /// `.Err(.IndexOutOfBounds)` when `index >= len()`, where
   /// `ArrayList.remove` panics — the same deliberate D1 difference as
-  /// `insert`. The first and last indices are routed through
-  /// `pop_front`/`pop_back`.
+  /// `insert`.
   remove : (fn(self : &mut Self, index : usize) -> Result(T, LinkedListError))(
     cond(
       (index >= self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
-      (index == usize(0)) =>
-        match(
-          self.pop_front(),
-          .Some(value) => .Ok(value),
-          .None => .Err(.EmptyList)
-        ),
-      (index == (self.length - usize(1))) =>
-        match(
-          self.pop_back(),
-          .Some(value) => .Ok(value),
-          .None => .Err(.EmptyList)
-        ),
       true => {
-        current_opt := self.head;
-        i := usize(0);
-        while(i < index, i = (i + usize(1)), {
-          match(
-            current_opt,
-            .None => {
-              return(.Err(.IndexOutOfBounds(index : index, length : self.length)));
-            },
-            .Some(current) => {
-              current_opt = current.next;
-            }
-          );
-        });
-        match(
-          current_opt,
-          .None => .Err(.IndexOutOfBounds(index : index, length : self.length)),
-          .Some(node_to_remove) => {
-            // As `pop_front`: the element comes out before the unlink, which
-            // can drop the node's last reference.
-            taken := node_to_remove.value;
-            node_to_remove.value = .None;
-            (v : Result(T, LinkedListError)) =
-              match(
-                taken,
-                .Some(p) => .Ok(_node_take_buffer(p)),
-                .None => .Err(.EmptyList)
-              );
-            prev_opt := node_to_remove.prev;
-            next_opt := node_to_remove.next;
-            match(
-              prev_opt,
-              .Some(prev_node) => {
-                prev_node.next = next_opt;
-              },
-              .None => {
-                self.head = next_opt;
-              }
-            );
-            match(
-              next_opt,
-              .Some(next_node) => {
-                next_node.prev = prev_opt;
-              },
-              .None => {
-                self.tail = prev_opt;
-              }
-            );
-            self.length = (self.length - usize(1));
-            v
-          }
-        )
+        node := self._node_at(index);
+        self._unlink(node);
+        .Ok(_node_take(node))
       }
     )
   ),
-  /// Drop every element — O(n).
+  /// Drop every element and free every node — O(n).
   ///
-  /// Pops from the front rather than releasing the head handle, because each
-  /// adjacent node pair is a reference CYCLE (`a.next == b`, `b.prev == a`):
-  /// dropping the head alone would leave the whole chain with a nonzero
-  /// refcount. `pop_front` clears each new head's `prev`, which unlinks the
-  /// chain as it goes.
+  /// The chain is detached from the list BEFORE any element is dropped, so
+  /// an element whose `Drop` reaches this same list again sees it empty
+  /// instead of a half-freed chain.
   clear : (fn(self : &mut Self) -> unit)({
-    while(self.length > usize(0), {
-      self.pop_front();
+    current := self.head;
+    removed := self.length;
+    self.head = .None;
+    self.tail = .None;
+    self.length = usize(0);
+    self._removed = (self._removed + removed);
+    while(current.is_some(), {
+      p := current.unwrap();
+      // SAFETY: the detached chain is owned here alone; each node is read
+      // once, its element dropped in place, and then freed.
+      current = _next(p);
+      drop_in_place(_node_value_ptr(p));
+      free(.Some((*void)(p)));
     });
   }),
   /// Whether any element equals `value` — a walk from the head, O(n),
@@ -486,33 +396,18 @@ impl(
       where(T <: Eq(T))
     ) -> bool
   )({
-    current_opt := self.head;
-    i := usize(0);
-    while(i < self.length, i = (i + usize(1)), {
-      match(
-        current_opt,
-        .None => {
-          return(false);
+    current := self.head;
+    while(current.is_some(), {
+      p := current.unwrap();
+      // The element is compared in place through its node: no copy, so an
+      // `Eq` move-only element is found too.
+      // SAFETY: a node reached from the head is linked.
+      cond(
+        (_node_value_ptr(p).* == value) => {
+          return(true);
         },
-        .Some(current) => {
-          // The element is compared in place through its buffer: no copy,
-          // so an `Eq` move-only element is found too.
-          match(
-            current.value,
-            .Some(p) => {
-              cond(
-                (p.* == value) => {
-                  return(true);
-                },
-                true => {
-                  current_opt = current.next;
-                }
-              );
-            },
-            .None => {
-              current_opt = current.next;
-            }
-          );
+        true => {
+          current = _next(p);
         }
       );
     });
@@ -520,24 +415,17 @@ impl(
   }),
   /// Reverse the list in place — O(n).
   ///
-  /// Swaps each node's `next` and `prev` handles and then exchanges head and
+  /// Swaps each node's `next` and `prev` pointers and then exchanges head and
   /// tail, so no element is moved or copied and node identity is preserved.
   reverse : (fn(self : &mut Self) -> unit)({
-    current_opt := self.head;
-    i := usize(0);
-    while(i < self.length, i = (i + usize(1)), {
-      match(
-        current_opt,
-        .None => {
-          return;
-        },
-        .Some(current) => {
-          temp := current.next;
-          current.next = current.prev;
-          current.prev = temp;
-          current_opt = temp;
-        }
-      );
+    current := self.head;
+    while(current.is_some(), {
+      p := current.unwrap();
+      // SAFETY: a node reached from the head is linked.
+      temp := _next(p);
+      _set_next(p, _prev(p));
+      _set_prev(p, temp);
+      current = temp;
     });
     temp_head := self.head;
     self.head = self.tail;
@@ -548,24 +436,66 @@ impl(
   generic(T : Type),
   LinkedList(T),
   Drop(
-    /// Unlinks and drops every node when the last reference to the list goes
-    /// away. Delegates to `clear` because the `prev` handles make the chain
-    /// cyclic — see `clear`.
+    /// Drops every element and frees every node when the last reference to
+    /// the list goes away — the list owns its chain (`clear`).
     drop : (fn(self : &mut Self) -> unit)(
       self.clear()
     )
+  )
+);
+/// Cycle-GC tracing. The elements live in nodes the compiler's auto-derived
+/// field walk cannot reach (raw pointers), so the list visits each element
+/// slot in place — `tracer.visit` reads the slot WITHOUT touching the
+/// element's reference count. Mirrors the ArrayList/HashMap `Trace` impls.
+impl(
+  generic(T : Type),
+  LinkedList(T),
+  Trace(
+    trace : (fn(self : &Self, tracer : GcTracer) -> unit)({
+      current := self.head;
+      while(current.is_some(), {
+        p := current.unwrap();
+        tracer.visit(_node_value_ptr(p));
+        // SAFETY: a node reached from the head is linked.
+        current = _next(p);
+      });
+    })
+  )
+);
+/// `Clone` — a new list with a clone of every element, in order.
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  LinkedList(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      result := Self.new();
+      current := self.head;
+      while(current.is_some(), {
+        p := current.unwrap();
+        // Each element is cloned in place through its slot; copying it out
+        // first would be E0901 for a move-only `T`.
+        result.push_back(_node_value_ptr(p).*.clone());
+        // SAFETY: a node reached from the head is linked.
+        current = _next(p);
+      });
+      result
+    })
   )
 );
 /// Value iterator over a LinkedList — follows `next` from the head and
 /// yields each element BY VALUE (dup'd for a refcounted `T`). This is what
 /// `into_iter()`, and therefore `for(list, ...)`, returns.
 ///
-/// It holds only the current NODE, so the walk survives elements being
-/// removed behind it, but removing the node it is parked on cuts the walk
-/// short.
+/// It holds the list by handle, which keeps the chain alive, plus the node
+/// it is parked on. Pushes and inserts during the walk are seen if they land
+/// ahead of it; after a removal anywhere, the next step that would follow a
+/// node pointer panics (module notes).
 LinkedListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _current : Option(Node(T))
+    _list : LinkedList(T),
+    _current : Option(*_Node(T)),
+    _removed : usize
   )
 );
 impl(
@@ -578,12 +508,14 @@ impl(
         self._current,
         .None => .None,
         .Some(node) => {
-          self._current = node.next;
-          match(
-            node.value,
-            .Some(p) => .Some(p.*),
-            .None => .None
-          )
+          // A removal since the walk started may have freed `node`.
+          if(self._list._removed != self._removed, {
+            _removed_mid_walk();
+          });
+          // SAFETY: no node was freed since the walk started, so `node` is
+          // still linked.
+          self._current = _next(node);
+          .Some(unsafe(node.*.value))
         }
       )
     )
@@ -596,19 +528,22 @@ impl(
     Item : T,
     IntoIter : LinkedListIter(T),
     into_iter : (fn(self : &Self) -> LinkedListIter(T))(
-      LinkedListIter(T)(_current : self.head)
+      LinkedListIter(T)(_list : self, _current : self.head, _removed : self._removed)
     )
   )
 );
-/// Pointer iterator over a LinkedList — yields the `*T` buffer each element
+/// Pointer iterator over a LinkedList — yields the `*T` slot each element
 /// lives in, so nothing is dup'd and writing through the pointer updates the
 /// element in place. This is what `iter()` returns (D14).
 ///
-/// A yielded pointer is valid until its element is popped or the node dies:
-/// a pop frees the buffer even when an iterator keeps the node itself alive.
+/// A yielded pointer is valid until its element is removed. The iterator
+/// holds the list by handle and, once any node was removed, panics at the
+/// next step that would follow a node pointer, as `LinkedListIter` does.
 LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-    _current : Option(Node(T))
+    _list : LinkedList(T),
+    _current : Option(*_Node(T)),
+    _removed : usize
   )
 );
 impl(
@@ -621,8 +556,14 @@ impl(
         self._current,
         .None => .None,
         .Some(node) => {
-          self._current = node.next;
-          node.value
+          // A removal since the walk started may have freed `node`.
+          if(self._list._removed != self._removed, {
+            _removed_mid_walk();
+          });
+          // SAFETY: no node was freed since the walk started, so `node` is
+          // still linked.
+          self._current = _next(node);
+          .Some(_node_value_ptr(node))
         }
       )
     )
@@ -635,44 +576,43 @@ impl(
   /// the list intact — `for(list.iter(), p => ...)`, where `into_iter`
   /// moves the list and yields values (D14).
   iter : (fn(self : &Self) -> LinkedListIterPtr(T))(
-    LinkedListIterPtr(T)(_current : self.head)
+    LinkedListIterPtr(T)(_list : self, _current : self.head, _removed : self._removed)
   )
 );
 /// The borrowed `for`'s cursor (decision 39, plans/VALUES_BY_DEFAULT.md): the
-/// current node, which holds no handle to the list itself. The nodes are a
-/// shared `ref` graph today, so the cursor keeps its node alive; V2b's
-/// representation decision for `LinkedList` replaces it.
+/// node the walk is parked on. It holds no handle to the list; the walk
+/// functions get the list as `self`. No removal count is needed here: the
+/// body cannot name the borrowed list (E0911), and a removal through a second
+/// handle runs a mutating method, whose entry panics on the borrow flag the
+/// loop holds (`tests/cli-cases/linked-list-borrowed-for-removal-panics`).
 impl(
   generic(T : Type),
   LinkedList(T),
   BorrowedWalk(
-    WalkCursor : Option(Node(T)),
+    WalkCursor : Option(*_Node(T)),
     WalkElem : T,
-    walk_start : (fn(self : &Self) -> Option(Node(T)))(self.head),
-    walk_valid : (fn(self : &Self, cur : &Option(Node(T))) -> bool)(cur.is_some()),
-    walk_elem : (fn(self : &mut Self, cur : &Option(Node(T))) -> &mut T)(
+    walk_start : (fn(self : &Self) -> Option(*_Node(T)))(self.head),
+    walk_valid : (fn(self : &Self, cur : &Option(*_Node(T))) -> bool)(cur.is_some()),
+    walk_elem : (fn(self : &mut Self, cur : &Option(*_Node(T))) -> &mut T)(
       match(
-        // SAFETY: the node is held by the cursor and by the list's chain,
-        // which `self` keeps alive while it is borrowed, and the buffer it
-        // answers is freed only by a pop, which unlinks the node first.
         cur,
-        .Some(node) => _node_value_ptr(&node),
+        // SAFETY: the node is linked: nothing can unlink it while the loop
+        // holds the list's borrow flag.
+        .Some(node) => _node_value_ptr(node),
         .None => __yo_panic("LinkedList: walk cursor past the end")
       )
     ),
-    walk_next : (fn(self : &Self, cur : &Option(Node(T))) -> Option(Node(T)))(
+    walk_next : (fn(self : &Self, cur : &Option(*_Node(T))) -> Option(*_Node(T)))(
       match(
         cur,
-        .Some(node) => node.next,
+        .Some(node) => _next(node),
         .None => .None
       )
     )
   )
 );
-/// Index trait — `list(idx)` returns the element at `idx`. O(n) walk.
-/// The element's buffer is a valid heap pointer while `self` keeps the Rc
-/// chain alive — the dispatcher inlines and dereferences this before any
-/// drop runs. Same pattern as `LinkedListIterPtr.next`.
+/// Index trait — `list(idx)` returns the element at `idx`. O(n) walk from
+/// the nearer end. The slot stays valid until its element is removed.
 impl(
   generic(T : Type),
   LinkedList(T),
@@ -680,26 +620,7 @@ impl(
     Output : T,
     index : (fn(self : &Self, idx : usize) -> &Self.Output)({
       assert(idx < self.length, "LinkedList: index out of bounds");
-      (current : Option(Node(T))) = self.head;
-      i := usize(0);
-      while(runtime(true), {
-        match(
-          current,
-          .Some(node) => {
-            if(i == idx, {
-              // SAFETY: `node` is held in an Rc-managed chain rooted at
-              // `self.head`; while `self` is borrowed every node we've
-              // walked stays alive, and its element buffer is freed only by
-              // a pop, which unlinks the node first.
-              return(_node_value_ptr(&node));
-            });
-            current = node.next;
-            i = (i + usize(1));
-          },
-          .None => __yo_panic("LinkedList: unreachable past length check")
-        );
-      });
-      __yo_panic("LinkedList: index loop exited without return")
+      _node_value_ptr(self._node_at(idx))
     })
   )
 );
@@ -710,26 +631,7 @@ impl(
     Output : T,
     index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)({
       assert(idx < self.length, "LinkedList: index out of bounds");
-      (current : Option(Node(T))) = self.head;
-      i := usize(0);
-      while(runtime(true), {
-        match(
-          current,
-          .Some(node) => {
-            if(i == idx, {
-              // SAFETY: `node` is held in an Rc-managed chain rooted at
-              // `self.head`; while `self` is borrowed (`self : &mut Self`)
-              // every node we've walked stays alive, and its element buffer
-              // is freed only by a pop, which unlinks the node first.
-              return(_node_value_ptr(&node));
-            });
-            current = node.next;
-            i = (i + usize(1));
-          },
-          .None => __yo_panic("LinkedList: unreachable past length check")
-        );
-      });
-      __yo_panic("LinkedList: index loop exited without return")
+      _node_value_ptr(self._node_at(idx))
     })
   )
 );

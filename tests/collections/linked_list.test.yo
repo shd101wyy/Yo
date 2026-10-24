@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { LinkedList } :: import("std/collections/linked_list");
+{ String } :: import("std/string");
 // ===== Construction Tests =====
 test("LinkedList.new creates empty list", {
   list := LinkedList(i32).new();
@@ -669,4 +670,117 @@ test("LinkedList Default is the empty list", {
   assert(l.len() == usize(0), "default list is empty");
   l.push_back(i32(3));
   assert(l.len() == usize(1), "the default list is a usable list");
+});
+// ---- Owned raw-pointer nodes (P6, D23) ----
+// The list owns a chain of malloc'd nodes linked by raw pointers: no node is
+// reference-counted, so there is no prev/next Rc cycle, and every operation
+// that unlinks a node frees it. A refcounted element (`String`) makes a
+// missed or doubled release visible to the leak verdict and to ASan.
+test("LinkedList of String: push, insert, pop, remove, clear and drop release each element once", {
+  list := LinkedList(String).new();
+  list.push_back(String.from("b"));
+  list.push_front(String.from("a"));
+  list.push_back(String.from("d"));
+  assert(list.insert(usize(2), String.from("c")).is_ok(), "insert in the middle");
+  assert(list.len() == usize(4), "four elements");
+  assert(list(usize(2)) == String.from("c"), "the inserted element sits at index 2");
+  assert(list.front().unwrap() == String.from("a"), "front copies the first element");
+  assert(list.back().unwrap() == String.from("d"), "back copies the last element");
+  assert(list.get(usize(1)).unwrap() == String.from("b"), "get copies an element");
+  assert(list.pop_front().unwrap() == String.from("a"), "pop_front moves the first element out");
+  assert(list.pop_back().unwrap() == String.from("d"), "pop_back moves the last element out");
+  match(list.remove(usize(1)), .Ok(s) => assert(s == String.from("c"), "remove moves it out"), .Err(_) => assert(false, "in range"));
+  list.push_back(String.from("e"));
+  list.push_back(String.from("f"));
+  list.clear();
+  assert(list.is_empty(), "clear empties the list");
+  list.push_back(String.from("g"));
+  list.push_back(String.from("h"));
+  assert(list.len() == usize(2), "the list's death drops the two left");
+});
+test("LinkedList get and Index walk from the nearer end", {
+  list := LinkedList(i32).new();
+  mut(i) := i32(0);
+  while(i < i32(7), i = (i + i32(1)), {
+    list.push_back(i * i32(10));
+  });
+  mut(j) := usize(0);
+  while(j < usize(7), j = (j + usize(1)), {
+    assert(list.get(j).unwrap() == (i32(j) * i32(10)), "get at every index");
+    assert(list(j) == (i32(j) * i32(10)), "Index at every index");
+  });
+  list(usize(5)) = i32(-5);
+  assert(list.get(usize(5)).unwrap() == i32(-5), "IndexMut in the back half writes in place");
+  assert(list.insert(usize(6), i32(55)).is_ok(), "insert in the back half");
+  assert(list(usize(6)) == i32(55), "inserted before the old last element");
+  assert(list(usize(7)) == i32(60), "the old last element moved to the end");
+  match(list.remove(usize(5)), .Ok(v) => assert(v == i32(-5), "remove in the back half"), .Err(_) => assert(false, "in range"));
+  assert(list.len() == usize(7), "seven left");
+});
+test("LinkedList.reverse relinks the nodes and keeps both ends consistent", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  list.reverse();
+  list.push_front(i32(4));
+  list.push_back(i32(0));
+  mut(out) := i32(0);
+  for(list.into_iter(), x => {
+    out = ((out * i32(10)) + x);
+  });
+  assert(out == i32(43210), "4 3 2 1 0 after reverse and pushes at both ends");
+  assert(list.pop_back().unwrap() == i32(0), "tail after reverse");
+  assert(list.pop_front().unwrap() == i32(4), "head after reverse");
+  assert(list(usize(1)) == i32(2), "middle reachable from the tail side");
+});
+test("LinkedList.clone copies every element into new nodes", {
+  list := LinkedList(String).new();
+  list.push_back(String.from("x"));
+  list.push_back(String.from("y"));
+  copy := list.clone();
+  list.push_back(String.from("z"));
+  (copy(usize(0))).push_str("!");
+  assert(copy.len() == usize(2), "the clone does not see a later push");
+  assert(list(usize(0)) == String.from("x"), "writing the clone leaves the source alone");
+  assert(copy(usize(0)) == String.from("x!"), "the clone's element was written");
+  assert(copy(usize(1)) == String.from("y"), "elements cloned in order");
+  empty := LinkedList(i32).new();
+  assert(empty.clone().is_empty(), "the clone of an empty list is empty");
+});
+// An iterator reads a node's `next` when it yields that node, so a push
+// beyond the node it is parked on is visited, and one behind it is not.
+test("LinkedList iterators see pushes ahead of them", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  mut(sum) := i32(0);
+  for(list.into_iter(), x => {
+    if(x == i32(1), {
+      list.push_back(i32(3));
+    });
+    sum = (sum + x);
+  });
+  assert(sum == i32(6), "1 + 2 + 3: the push landed ahead of the iterator");
+  it := list.iter();
+  list.push_front(i32(0));
+  mut(count) := usize(0);
+  for(it, p => {
+    count = (count + usize(1));
+  });
+  assert(count == usize(3), "a push behind the iterator is not visited");
+});
+test("LinkedList iterator may finish after a removal on its last step", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  mut(seen) := i32(0);
+  for(list.into_iter(), x => {
+    seen = (seen + x);
+    if(x == i32(2), {
+      _ := list.pop_front();
+    });
+  });
+  assert(seen == i32(3), "both visited; the removal came after the last step");
+  assert(list.len() == usize(1), "one left");
 });

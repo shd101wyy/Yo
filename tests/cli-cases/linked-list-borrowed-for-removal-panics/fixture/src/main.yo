@@ -1,0 +1,28 @@
+{ LinkedList } :: import("std/collections/linked_list");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+g_lists := ArrayList(LinkedList(i32)).new();
+pop_first :: (fn() -> unit)({
+  match(
+    g_lists.get(usize(0)),
+    .Some(l) => {
+      _ := l.pop_back();
+    },
+    .None => ()
+  );
+});
+main :: (fn() -> unit)({
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  g_lists.push(list); // an alias the loop's static view cannot see
+  // The borrowed walk's cursor is a raw node pointer; the loop holds the
+  // list's borrow flag, so the pop through the second handle panics at its
+  // entry before it can free the node the cursor is parked on.
+  for(&mut list, x => {
+    pop_first();
+    x = i32(9);
+  });
+  assert(false, "unreachable: pop_back must panic first");
+});
+export(main);

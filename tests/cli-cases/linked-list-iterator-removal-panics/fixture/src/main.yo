@@ -1,0 +1,17 @@
+{ LinkedList } :: import("std/collections/linked_list");
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+  // The value iterator holds a raw pointer to the node it is parked on (the
+  // second one, after yielding the first); popping frees nodes, so its next
+  // step panics instead of reading a freed node.
+  for(list.into_iter(), x => {
+    _ := list.pop_front();
+    _ := list.pop_front();
+  });
+  assert(false, "unreachable: the iterator must panic first");
+});
+export(main);
