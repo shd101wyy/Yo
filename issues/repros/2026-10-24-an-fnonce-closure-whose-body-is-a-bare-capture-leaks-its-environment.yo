@@ -1,0 +1,10 @@
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+main :: (fn() -> unit)({
+  s := String.from("hello");
+  (cb : Impl(FnOnce(x : i32) -> String)) = ({ s }(x : i32) => s);
+  r := cb(i32(1));
+  assert(r.len() == usize(5), "bound first");
+  ()
+});
+export(main);

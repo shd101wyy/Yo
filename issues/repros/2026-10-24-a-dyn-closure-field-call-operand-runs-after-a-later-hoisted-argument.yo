@@ -1,0 +1,13 @@
+{ assert } :: import("std/assert");
+Tok :: struct(n : i32);
+Holder :: struct(cb : Dyn(Fn(x : i32) -> i32));
+eat :: (fn(sink(h) : Holder) -> i32)(h.cb(i32(0)));
+main :: (fn() -> unit)({
+  t := Tok(n : i32(3));
+  h := Holder(
+    cb : dyn({ t }(x : i32) => (x + t.n))
+  );
+  assert(h.cb(i32(1)) == (i32(1) + eat(h)), "operand order");
+  ()
+});
+export(main);
