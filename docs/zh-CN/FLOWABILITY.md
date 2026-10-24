@@ -180,7 +180,7 @@ an interior reference … borrows from it`），而不是让元素引用悬垂�
 
 在 `for(&mut m, e => …)` 中，普通的 `e` 会交出整个条目；请优先使用 `(k, v)`，
 它保持键不可变。可作为来源的是实现了 `BorrowedWalk` 的 std 集合（`ArrayList`、
-`Deque`、`LinkedList`、`HashMap`、`BTreeMap`、`OrderedMap`）；`HashSet` 与
+`Deque`、`HashMap`、`BTreeMap`、`OrderedMap`）；`HashSet` 与
 `PriorityQueue` 没有实现，因为原地改写一个按哈希或堆序存放的元素会破坏容器。
 用户类型实现 `BorrowedWalk` 即可成为来源：`walk_elem` 带调用点标记转发内层集合的
 投影（`&mut self.items(cur)`），安全代码即可；只有交出裸指针的写法

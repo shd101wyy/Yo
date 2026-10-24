@@ -113,13 +113,13 @@ now ─┬─ C1..C9, S1a/S1b, B7a ............................ → v0.2.69 seed
      ├─ B6-0 std/mem ─┬─ B6-a ─┬─ B6-b ── B6-c(std,tests)
      │                │        ├─ B7b (stacked draft)
      │                │        └─ B7c (stacked draft)
-     ├─ P1 channel move-out, P3 OrderedMap/TOML, P4 decision 28, P6 LinkedList nodes
+     ├─ P1 channel move-out, P3 OrderedMap/TOML, P4 decision 28 (P6: LinkedList removed instead)
      ├─ P5 decision 47 std (if D9 is accepted)
      ├─ V3a/b/c drafts; Z11; v0.2.71 Generation A drafts (§5, D12)
 B1 merges ── B4-0a ── B4-0b ── B4-1a/1b/2/3a..3e (3a..3e stacked on B1 now)
                                    └── last B4 ── B6-c(src half)
 B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
-                                               └──── B11 (with P6 landed)
+                                               └──── B11
 ```
 
 ### 4.1 B4: the `src/` hand edits (1,959 sites listed, 1,111 of them in `src/evaluator`)
@@ -311,10 +311,9 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
 
 - **Can start:** now.
 - **Seed:** none.
-- **The 17 `<name>_cloned` siblings**, each with `where(T <: Clone)`, cloning through the slot:
+- **The 14 `<name>_cloned` siblings**, each with `where(T <: Clone)`, cloning through the slot:
   - ArrayList: `get` :447, `first` :665, `last` :669.
   - Deque: `front` :217, `back` :221, `get` :232.
-  - LinkedList: `front` :271, `back` :285, `get` :302.
   - HashMap: `get` :669, `get_key_value` :719.
   - OrderedMap: `get` :203, `get_index` :327.
   - BTreeMap: `get` :91, `first_entry` :169, `last_entry` :176.
@@ -392,7 +391,7 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
   - `BorrowedWalk` (:10339) splits into a read trait (`WalkCursor`, `WalkElem`, `walk_start`, `walk_valid`, `walk_next`, and a new `walk_ref(self : &Self, cur) -> &Self.WalkElem`) and `BorrowedWalkMut` (`walk_elem` alone, `where(Self <: BorrowedWalk)`). A seed probe confirmed that a supertrait associated type in a method signature checks, compiles and runs.
   - Add the `is_imm_form` arm and a map read arm to `for` (:10621).
   - In both map arms, bind the key as `k := &entry.key`. Today it is the copy `k := entry.key` (:10752), which is E0901 for `String` keys after B8.
-- **std:** add `walk_ref` to the 6 impls (`array_list.yo:1275`, `btree_map.yo:273`, `deque.yo:391`, `hash_map.yo:1234`, `linked_list.yo:648`, `ordered_map.yo:547`), plus read-only impls for `HashSet` and `PriorityQueue`. No impl for `String` or `Array` (D19).
+- **std:** add `walk_ref` to the 5 impls (`array_list.yo:1275`, `btree_map.yo:273`, `deque.yo:391`, `hash_map.yo:1234`, `ordered_map.yo:547`), plus read-only impls for `HashSet` and `PriorityQueue`. No impl for `String` or `Array` (D19).
 - **The one src site** (`comptime_expect_error.yo:287`) becomes `for(saved_observed_msgs.indices(), i => …)`, which every seed accepts.
 - **The verifier:** `_for_term` (`src/verifier/vc.yo:3252`) learns the `walk_ref` expansion. It uses the same index model.
 - **Tests:**
@@ -421,10 +420,10 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
 - **Can start:** now, as a draft stacked on B6-a. It merges after B6-a.
 - **Seed:** none.
 - **`IntoIterator.into_iter`** (`std/prelude.yo:10313`) takes `self : Self`. So does every impl:
-  - `into_iter` on ArrayList :1185, BTreeMap :219, Deque :332, HashMap :1146, HashSet :418, LinkedList :598, OrderedMap :516, PriorityQueue :183, String :2293, `_ArrayIter` (`prelude.yo:10445`);
+  - `into_iter` on ArrayList :1185, BTreeMap :219, Deque :332, HashMap :1146, HashSet :418, OrderedMap :516, PriorityQueue :183, String :2293, `_ArrayIter` (`prelude.yo:10445`);
   - the 7 `SharedList` impls (`src/types/definitions.yo:91–211`).
 - **`chars`/`bytes`/`char_indices`/`lines`/`keys`/`values`/`chunks`/`windows` consume their receiver** (D20).
-- **The `*Ptr` `iter()`s** (ArrayList :1260, BTreeMap :263, Deque :375, HashMap :1203, HashSet :453, LinkedList :637, OrderedMap :536, PriorityQueue :228) hold a raw buffer pointer and a length, not the container. They stay under `pragma(Pragma.AllowUnsafe)`.
+- **The `*Ptr` `iter()`s** (ArrayList :1260, BTreeMap :263, Deque :375, HashMap :1203, HashSet :453, OrderedMap :536, PriorityQueue :228) hold a raw buffer pointer and a length, not the container. They stay under `pragma(Pragma.AllowUnsafe)`.
 - **The iterators keep copying elements out until each container flips** (D21, an "as built" deviation from the plan's move-out).
 - **Sweep:**
   - Tests: a value `for(xs, …)` whose source is used afterwards becomes `for(&xs, …)`. Teach the explicit-copy migration a `for`-source path that rewrites to `&`. First check that the dry run records those copies at all (`binding(macro)` is excluded today).
@@ -460,7 +459,7 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
 | P3 | `OrderedMap`'s position index and TOML's `_Parser.cur` stop writing through a copy. `_index_add` (`std/collections/ordered_map.yo:154–165`) pushes onto a list that it got from `self._index.get(&h)`, which is lost once `ArrayList` flips at B8 even though `HashMap` is still `ref`. TOML's `cur : root` alias is at `std/encoding/toml.yo:425–466`. | `_index_add`/`_index_drop`/`_index_bump` write through a projection or remove-edit-insert; `_Parser.cur` becomes a path that is re-resolved from `root` | now | `tests/collections/ordered_map.test.yo`, `tests/encoding/toml.test.yo`; cli-case `inout-for-nested-storage-insert-panics`; internal `toml_edit`, `manifest` |
 | P4 | Decision 28's value-root rule: a `&mut` argument that overlaps another argument rooted at the same value local is E0910 (`s.push_string(&s)`) | the tree evaluator; `tests/string/string.test.yo`'s self-push test becomes a `comptime_expect_error` | now | build; check (the tree must not contain the overlap); `tests/string/string.test.yo`, `tests/parameter_modes.test.yo`, `tests/local_borrows.test.yo`; cli-diff if a diagnostic moves |
 | P5 | Decision 47 locals Generation B, **std only** (D9, amendment) | `yo fix ./std --migrate mut-bindings` with the tree binary. The census lists 1,067 bindings on develop, a lower bound, because pattern bindings are under-counted. Drop the std half of `is_global_mut_rule_exempt` (`src/evaluator/memory_safety.yo:250`) for locals. | once D9 is accepted | build; check std; `yo test ./std`; the collection and string tests; tree fmt |
-| P6 | `LinkedList` gets raw-pointer nodes while the list itself stays `ref` (D23). This removes std's only intrinsic `Rc` cycle (prev/next, patched by #1486) before W6a measures. | `std/collections/linked_list.yo:49–134, 645–675` | now | `tests/collections/linked_list.test.yo`; the LinkedList cases in `tests/cycle_collector.test.yo`; ASan on both |
+| P6 | Replaced by the removal (#this PR, D23 amendment): `std/collections/linked_list.yo` is deleted rather than given raw-pointer nodes. That removes std's only intrinsic `Rc` cycle (prev/next, patched by #1486) before W6a measures, at zero migration cost. | — | done | — |
 | P7 | The `Send`/`Sync` opt-ins for raw-buffer collections, drafted on the probe: `impl(generic(T : Type), where(T <: Send), ArrayList(T), Send())` and `impl(generic(T : Type), where(T <: Sync), ArrayList(T), Sync())`, with a SAFETY comment, as `Box` does at `std/prelude.yo:10060–10061`. Without them, a value `ArrayList` is not `Send` (probed: a raw pointer is neither, `prelude.yo:6979–6983`), and Part A's replacement probe fails. They land INSIDE each flip PR, not before. | each flip's std file | now (on the probe) | the replacement probe (D25) |
 | P8 | `_IC_COLLECTIONS` gains `StringBuilder` and `HeaderMap` (`src/evaluator/utils.yo:3194`), so the explicit-copy listing covers their copies | tree only | now | build; the `fix-migrate-explicit-copy*` goldens if the listing grows |
 
@@ -559,16 +558,14 @@ Before opening each flip, run its probe: a never-merged branch rebased on the ti
   - cli-case `inout-for-nested-storage-insert-panics`;
   - the probe extended; check src.
 
-#### B11: `LinkedList`, `StringBuilder`, `HeaderMap` and `HttpHeader`
+#### B11: `StringBuilder`, `HeaderMap` and `HttpHeader`
 
-- **Needs:** B8 merged, and P6. It can run in parallel with B9.
-- **LinkedList:** drop `ref` (the nodes are already raw, from P6), plus P7's impls.
+- **Needs:** B8 merged. It can run in parallel with B9. (`LinkedList` left this step: it was removed, D23 amendment.)
 - **StringBuilder** (`string_builder.yo:81`) becomes `struct(_buf : ArrayList(u8))` with `derive(Clone)`. It keeps `to_string(self : &mut Self)` as the O(1) detach over `mem.replace`, and gains `into_string(self : Self)` (D24).
 - **`HeaderMap` and `HttpHeader`** (`std/http/http.yo:76/98`) become values with `derive(Clone)`. `entries()` (:185) returns `&ArrayList(HttpHeader)`.
 - **Tier 1:**
   - build (only if P8 has not landed);
-  - `tests/collections/linked_list.test.yo`, `tests/string/string_builder.test.yo`, `tests/http/*`;
-  - the LinkedList cases in `tests/cycle_collector.test.yo`;
+  - `tests/string/string_builder.test.yo`, `tests/http/*`;
   - internal `formatter` and `parser`.
 - **Surface:**
   - `StringBuilder` has 75/32/88 mentions. src has 48 `:= StringBuilder` locals and no by-value parameter or field.
@@ -892,6 +889,7 @@ The two list-identity tests become an explicit flag or an `Option`.
 - A hand-written `Drop` and `Clone`. The cursor is `?*_Node(T)`.
 - The nodes land as P6, before B8.
 - Rejected: an index slab (unstable capacity, and it deviates from the decided design), and `Weak` back edges (they need W3 and keep a counted cell per node).
+- **Amendment (2026-10-24): superseded by removal.** LinkedList removed 2026-10-24 rather than migrated. Grounds: no consumer in src/std/deps; a surface Deque and ArrayList already provide; it was std's only intrinsic Rc cycle, so removal is P6's goal at zero cost and leaves nothing for W6b to leak. A future list, if a use case appears (O(1) unlink with stable handles, LRU), is a value type over raw `?*_Node(T)` with a cursor API or an arena list, designed after VBD; `Weak` back-edges remain rejected. Its `cycle_collector.test.yo` cases are deleted without replacement, since W6b deletes the collector.
 
 **D24. `StringBuilder`.** A value `struct(_buf : ArrayList(u8))`, kept separate from `String`, because `write_byte` can build non-UTF-8 mid-way. Keep `to_string(&mut self)` (48 call sites) and add `into_string(self)`. A shared builder is spelled `Rc(RefCell(StringBuilder))`.
 

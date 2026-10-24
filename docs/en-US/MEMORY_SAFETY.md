@@ -19,7 +19,7 @@ That is the rule. It is enforced by removing UB-capable constructs from the user
 Everything you'd expect from a modern general-purpose language:
 
 - **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
-- **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`.
+- **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `String`.
 - **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.

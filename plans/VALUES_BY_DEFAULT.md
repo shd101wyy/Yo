@@ -8163,9 +8163,9 @@ heavy run, the command is given in item 2.
    - **B10 (e). `Deque`, `BTreeMap`, `OrderedMap`, `PriorityQueue`.** Few
      `src/` uses (4, 3, 2, 2); the surface is std and tests (113, 86, 47,
      48 mentions). One PR, or two if the probe is large.
-   - **B11 (e). `LinkedList`, `StringBuilder`, `HeaderMap`.** `LinkedList`'s
-     nodes are a shared `ref` graph (`prev`/`next`), so the list needs its
-     own representation decision (open question 5). `StringBuilder`'s docs
+   - **B11 (e). `StringBuilder`, `HeaderMap`.** (`LinkedList` left this
+     step: it was removed on 2026-10-24 instead of migrated; see open
+     question 5's amendment.) `StringBuilder`'s docs
      promise sharing (`std/string/string_builder.yo`); it becomes a value
      like Rust's `String`, and a shared builder is `Rc(RefCell(StringBuilder))`.
    - **B12 (f). `Dyn`, Generation A** (decision 7, §3.7). Codegen owns the
@@ -8292,6 +8292,16 @@ heavy run, the command is given in item 2.
         projection to the `MapEntry(K, V)`, not separate key and value
         projections. `LinkedList`'s cursor is its current `ref` node until
         B11 moves the nodes to raw pointers.
+      - **Amendment (2026-10-24): `LinkedList` removed rather than
+        migrated.** Grounds: no consumer in src/std/deps; a surface `Deque`
+        and `ArrayList` already provide; it was std's only intrinsic `Rc`
+        cycle, so removal is P6's goal at zero cost and leaves nothing for
+        W6b to leak. A future list, if a use case appears (O(1) unlink with
+        stable handles, LRU), is a value type over raw `?*_Node(T)` with a
+        cursor API or an arena list, designed after VBD; `Weak` back-edges
+        remain rejected. Its `cycle_collector.test.yo` cases are deleted
+        without replacement, since W6b deletes the collector
+        (`plans/handover/VBD_LOOKAHEAD_2026-10-23.md` D23).
    6. **Decision 27's lint timing.** Decision 27 puts the lint in "the
       first `yo fix` sweep". A2 inserts `.clone()` only where the source is
       used again, so the lint has nothing to find in B1's output; the clones
@@ -8360,7 +8370,8 @@ heavy run, the command is given in item 2.
      S1 doc to `fixed/` with its test.
    - **B9–B11 — the other collections.** Purpose: the same flip per
      collection. Steps: a probe per PR; representation notes for
-     `LinkedList` and `StringBuilder`; ratchet each. Pitfall: `HashSet` and
+     `StringBuilder` (`LinkedList` was removed, open question 5's
+     amendment); ratchet each. Pitfall: `HashSet` and
      `OrderedMap` hold a `HashMap`, so they flip with or after it.
    - **B12–B13 — `Dyn`.** Purpose: decision 7's unique `Dyn`. Steps:
      Generation A in codegen and the evaluator; Generation B after the next

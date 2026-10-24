@@ -319,7 +319,10 @@ API that promises not to leak — and a possible `yo check` lint under
 3. One release with `Off` as the default (W1's knob flipped), with the
    count of tracked types left in std and `src/` and the oracle's leak
    report over the test corpus recorded in this file. If what remains is
-   parent pointers, delete.
+   parent pointers, delete. std's only intrinsic `Rc` cycle, `LinkedList`'s
+   `prev`/`next` cells, is already gone: the list was removed on 2026-10-24
+   rather than migrated (`plans/handover/VBD_LOOKAHEAD_2026-10-23.md` D23
+   amendment), so W6a's std count starts without it.
 
 **What the deletion removes:**
 
