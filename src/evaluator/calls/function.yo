@@ -3406,7 +3406,6 @@ _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
           },
           (!ul_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)), .Some(ii) => expr_info_index_method_type(&ii).is_some(), .None => false)) => ul_callee,
           (!ul_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ul_callee)), .Some(ci) => is_array_type(&ci.ty), .None => false)) => ul_callee,
-          (!ul_infix && ast_expr_is_fn_call_of(&ul_callee, BF_DOT, Option(usize).Some(usize(2))) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ul_callee)), .Some(ci) => !is_function_type(&ci.ty), .None => false)) => ul_callee,
           true => return(false)
         );
       }
