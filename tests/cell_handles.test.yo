@@ -14,7 +14,7 @@ _P :: struct(x : i32, items : ArrayList(i32));
 _p :: (fn(x : i32) -> _P)(_P(x : x, items : ArrayList(i32).new()));
 impl(
   _P,
-  doubled : (fn(self : &Self) -> i32)((self.x * i32(2))),
+  doubled : (fn(self : &Self) -> i32)(self.x * i32(2)),
   bump : (fn(self : &mut Self) -> unit)({
     self.x = (self.x + i32(1));
   })
@@ -120,7 +120,7 @@ test("S13: a borrow of a place in a handle's payload pins the cell", {
 });
 _Area :: trait(area : (fn(self : &Self) -> i32));
 _Sq :: struct(s : i32);
-impl(_Sq, _Area(area : (fn(self : &Self) -> i32)((self.s * self.s))));
+impl(_Sq, _Area(area : (fn(self : &Self) -> i32)(self.s * self.s)));
 test("S20-S22: dyn of a cell handle dispatches to its payload", {
   (d : Dyn(_Area)) = dyn(trc(_Sq(s : i32(2))));
   assert(d.area() == i32(4), "dispatched to _Sq through the handle");
