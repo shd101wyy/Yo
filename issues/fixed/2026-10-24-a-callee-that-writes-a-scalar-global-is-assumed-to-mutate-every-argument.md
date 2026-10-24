@@ -6,7 +6,8 @@ counter gets the borrowed `for`'s entry invalidation assert. Called through a
 second handle inside `for(&mut bag, …)`, it panics with "container operation
 while an interior reference … borrows from it".
 
-**Status:** open. **Found:** 2026-10-24 by the review of
+**Status:** fixed 2026-10-24 on `fix/scalar-global-mask` (see "Fix" below).
+**Found:** 2026-10-24 by the review of
 `issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md`.
 The v0.2.68 seed, develop `f271ed005` and that fix all panic on the plain
 spelling below. The fix adds the constructor-argument spelling: before it,
@@ -60,3 +61,49 @@ global's store mutates only its own static. Check the other consumers of the
 mask walk before changing it: rule D3 (`plans/reference/PARALLELISM_RULES.md`)
 is answered in the same file, and the mutable-static half of rule D1
 (`d1_record_global_write`) must keep seeing the write.
+
+## Fix
+
+`_MsP.walk`'s whole-variable store to a module-level global sets `m.all`
+only when `_msp_type_may_root` holds for the global's type: an RC handle, a
+pointer, or a move-only value (the predicate `type_contains_rc_type` ∪
+pointer containment that `_msp_atom_root` already applies). A store to an
+inert global (`i32`, a `Copy` struct of scalars) contributes nothing to the
+mask. A non-`Copy` struct of scalars is a move-only value to
+`type_contains_rc_type` (decision 36), and a store to one runs its drop glue,
+which a `Drop` impl can make arbitrary code: that store keeps `all`.
+That is the verdict a FIELD store into the same global already got:
+`g.n = v` reaches `_msp_atom_root` through `_msp_store_prefix`, which answers
+NONE for an inert type, so only the whole-variable spelling was imprecise.
+
+Soundness, per consumer of the mask:
+
+- **Entry invalidation asserts** (`src/codegen/functions/generation.yo`) and
+  **E0908 / decision-18 local borrows / the explicit-copy migration**
+  (`d3_check_pending` in `src/evaluator/exprs/assignment.yo`) ask whether the
+  callee may write the storage an argument names. An inert global is its own
+  static: no RC handle and no pointer leads from it to an argument's storage,
+  and storing to it releases nothing. The reverse direction, an argument that
+  points into the global, cannot be written in safe code: lending a `mut`
+  global with `&` or `&mut` is E0916 (decision 18 rule 3, decision 47), and a
+  module-level local borrow is already rejected across any call
+  (`module_level_borrow_across_a_call_rejected` in
+  `tests/local_borrows.test.yo`).
+- **D3** asks the same about an argument rooted in an atomic object; an
+  `Arc`/`Mutex` payload is heap storage an inert static cannot alias.
+- **D1's mutable-static half** keeps seeing the write: the assignment itself
+  records it with `d1_record_global_write` (`_d1_record_write` in
+  `assignment.yo`), independently of any mask. The mask route only covered a
+  `&mut` argument rooted in a DIFFERENT global, which an inert store does not
+  write, so that route loses only a false "written" record.
+
+A global whose type can root storage still forces `all`, so a callee that
+reassigns a global `ArrayList` or `ref(struct)` keeps asserting every
+object argument.
+
+Regression test: "borrowed for: a callee that only writes a scalar global
+does not trip the flag through an alias" in
+`tests/for_macro_borrow_user_collection.test.yo` (the repro's `label_ctor` and
+`label_plain`, plus a `Copy` struct-of-scalars global written whole and by
+field).
+It panics on the v0.2.69 seed and passes with the fix.
