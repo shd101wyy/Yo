@@ -170,7 +170,7 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
 
 #### B4-0a: the S3 "every parameter of a module has one key" tool defect
 
-- **Issue:** `issues/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md`.
+- **Issue:** `issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md` (fixed by B4-0a; see "As built" below).
 - **Files and functions:**
   - `src/evaluator/utils.yo`: `_ic_decl_key` :2698, `record_copy_write` :2745, `record_copy_pointer` :2778.
   - `src/evaluator/calls/function_type.yo`: `_build_def_time_body_env` :655. Its `synthetic_token(&pn, …)` at :981 gives every parameter offset 0.

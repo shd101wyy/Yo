@@ -1,0 +1,47 @@
+//! A `&mut` capture-list entry is a second name for the captured variable's
+//! place: a write through it in the closure body is a write of that
+//! variable. Each copy below shares its buffer with a list a closure pushes
+//! through such a capture, so all four are listed; `read_only`'s closure
+//! only reads through a `&` capture, so its copy is cloned.
+{ ArrayList } :: import("std/collections/array_list");
+VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+local_capture :: (fn() -> usize)({
+  mut(entry) := VEntry(yes : ArrayList(i32).new(), no : ArrayList(i32).new());
+  x := entry.yes;
+  (bump : Impl(Fn() -> unit)) = ({ &mut entry }() => {
+    entry.yes.push(i32(1));
+  });
+  bump();
+  x.len()
+});
+param_capture :: (fn(entry : &mut VEntry) -> usize)({
+  x := entry.yes;
+  (bump : Impl(Fn() -> unit)) = ({ e : &mut entry }() => {
+    e.yes.push(i32(1));
+  });
+  bump();
+  x.len()
+});
+field_capture :: (fn(entry : &mut VEntry) -> usize)({
+  x := entry.yes;
+  (bump : Impl(Fn() -> unit)) = ({ ys : &mut entry.yes }() => {
+    ys.push(i32(1));
+  });
+  bump();
+  x.len()
+});
+copy_captured :: (fn(entry : &VEntry) -> usize)({
+  mut(x) := entry.yes;
+  (bump : Impl(Fn() -> unit)) = ({ &mut x }() => {
+    x.push(i32(1));
+  });
+  bump();
+  entry.yes.len()
+});
+read_only :: (fn(entry : &VEntry) -> usize)({
+  x := entry.yes;
+  (peek : Impl(Fn() -> usize)) = ({ &entry }() => entry.yes.len());
+  peek() + x.len()
+});
+main :: (fn() -> unit)(());
+export(main);
