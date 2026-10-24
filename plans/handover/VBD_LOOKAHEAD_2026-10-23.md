@@ -183,6 +183,30 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
   - build; check; the 13 `tests/cli-cases/fix-migrate-explicit-copy*` cases plus the new one.
   - **Extra:** one dry run, `yo fix ./src --migrate explicit-copy --dry-run --hot-path src/evaluator --hot-path src/lexer.yo --hot-path src/env.yo --std-path ./std` (7–11 min, 1.5 GB, one normal slot). Record the new counts. The raw-pointer and written-after counts outside the hot paths should fall by an estimated 250–300.
 - **Order:** after B1 merges (D3).
+- **As built (2026-10-24, branch `b4-0a`):**
+  - **The fix.** `_build_def_time_body_env` binds each parameter with its declaration token, the identifier its label is spelled with in the fn literal's `fn(...) -> R` (`_fn_literal_param_tokens`). Nothing is minted per binding: the tokens are the AST's own. `synthetic_token` remains the fallback for a parameter with no written declaration. The call-time binders keep it, because they bind generic bodies, whose copies are listed before any key is consulted.
+  - **The emitted C does not move.** `yo compile src/main.yo --emit-c-to` on develop `f1cfa553d` is byte-identical between the tree binary (`f271ed005`) and B4-0a's.
+  - **Two more bugs had the same cause or were exposed by it.** Both are fixed here:
+    - `yo lsp` references, definition and rename of a parameter matched every same-named parameter in the module (`issues/fixed/2026-10-24-lsp-references-of-a-parameter-match-every-same-named-parameter-of-the-module.md`, S2).
+    - A write through a `&mut` capture-list borrow was not a write of the captured variable (`issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-mut-capture-list-borrow.md`, S1). Locals were always cloned. Parameters were listed only through the shared key. src and std hold no such capture outside string literals, so the counts below do not depend on it.
+  - **The extra dry run,** on develop `f1cfa553d` with the flags above. The base is the tree binary at `f271ed005`, which has the same src. Both runs took 14 min wall at 1.52 GB max RSS.
+
+    | Reason | base | B4-0a |
+    | --- | ---: | ---: |
+    | inserted | 0 | 388 |
+    | returned from a borrowed root | 599 | 599 |
+    | source written afterwards | 521 | 72 |
+    | hot path | 494 | 770 |
+    | raw pointer taken | 216 | 1 |
+    | field of a dying temporary | 115 | 115 |
+    | copy written afterwards | 9 | 9 |
+    | source does not print back | 5 | 5 |
+    | inside a `Clone` impl | 4 | 4 |
+    | **listed** | **1,963** | **1,575** |
+
+  - **Written-after and raw-pointer sites fell from 746 to 82 (−664).** That is more than double the 250–300 estimated. Of the 664, 276 stay listed under the hot-path reason (in `src/evaluator`, `lexer.yo`, `env.yo`) and 388 outside the hot paths become insertions. The 388 are spread over `main.yo` 54, `codegen/` 53, `types/` 51, `expr_info.yo` 39, `build_runner.yo` 31, `doc/` 21 and others. The raw-pointer reason the table above attributed to `main.yo`'s argv (17) and `diagnostics_registry` was the collision too. Those `argv`s are `&ArrayList(String)` parameters. Only `verifier/z3.yo:170` remains: `b := contents`, whose copy has `b.ptr()` taken.
+  - **std** (`yo fix ./std --migrate explicit-copy --dry-run`): base 0 inserted and 33 listed, B4-0a 8 inserted and 25 listed.
+  - The B4 directory PRs re-run the dry run restricted to their directory on their own base, as planned. Their insertions now include these 388.
 
 #### B4-0b: D1 for the B5 capture copies
 
