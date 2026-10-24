@@ -1,12 +1,14 @@
 # A `Dyn(Fn)` field call used as an operand runs after a later argument's hoisted call (use after free)
 
-**Severity:** S1 — miscompile of evaluation order: an earlier operand's closure-field call runs after a later argument that frees the closure (ASan heap-use-after-free). The evaluator now rejects the known shapes with an E0910 stopgap, which in turn rejects programs the language rules accept.
+**Severity:** S1 — miscompile of evaluation order: an earlier operand's closure-field call runs after a later argument that frees the closure (ASan heap-use-after-free). The interim E0910 stopgap (#1590) rejected the known shapes, and with them programs the language rules accept.
 
-**Status:** open (codegen). Found while gating
+**Status:** FIXED 2026-10-25 (branch `fix/s1-closure-field-call-hoist`). Found while gating
 `issues/fixed/2026-10-24-calling-an-fnonce-closure-is-a-false-e0910-after-the-receiver-exclusivity-extension.md`.
 It is not a regression: seed v0.2.69 compiles every shape below and fails the same way. Develop after
 #1573 rejected only the one-argument shape, by accident of a heuristic; the zero- and two-argument
-shapes compiled and failed at run time on develop too.
+shapes compiled and failed at run time on develop too. #1590's stopgap then rejected every
+closure-field shape, but not a plain `fn`-pointer field on an `Rc` holder (`h.f(i32(1)) == eat(h)`),
+which develop accepted and miscompiled the same way.
 
 ## Reproducer
 
@@ -62,15 +64,56 @@ call, so it is spilled first and source order is kept. The general invariant tha
 later operand is spilled to a statement, every earlier operand whose value depends on state the later
 one can change must be spilled before it.
 
-## Stopgap in the evaluator
+## Stopgap in the evaluator (removed by the fix)
 
-`_is_unmarked_lent_place` (`src/evaluator/calls/function.yo`) treats a call through a closure-valued
-field (a dot-step callee whose type is not `.Func`, any arity) as lending its root, so a later argument
-that moves, overwrites or `&mut`-lends the holder is E0910. Tests: "FnOnce: a closure-field call as an
-operand or receiver lends the holder" in `tests/fn_once.test.yo`.
+#1590 made `_is_unmarked_lent_place` (`src/evaluator/calls/function.yo`) treat a call through a
+closure-valued field (a dot-step callee whose type is not `.Func`, any arity) as lending its root, so
+a later argument that moved, overwrote or `&mut`-lent the holder was E0910. It rejected programs the
+language accepts, and it did not cover `fn`-pointer fields.
 
-## Fix and test to add
+## Fix
 
-Fix the codegen ordering (spill the earlier operand, or classify a closure-field call like an atom
-closure call), then drop the stopgap arm and turn that test into runtime tests of the five shapes above
-under ASan, checking dispose counts.
+- **Codegen** (`generate_other_function_call`, `src/codegen/exprs/other_fn_call.yo`, the
+  function-pointer / closure tail). A call through a function pointer, a `Dyn(Fn …)` vtable or a
+  statically dispatched `Impl(Fn …)` capture struct now becomes its own statement,
+  `T tv = <call>;`, whenever the evaluator gave it a result temp. Before, that happened only when the
+  call may unwind. This is what the registered direct-call path already did, so the call runs where
+  it is written, before any later sibling argument's statement. Only a may-unwind call clears and
+  checks `__yo_effect_escaped`, so `_call_may_unwind`'s load-bearing atom fallback is unchanged. A call
+  with no temp, whose result flows straight out, stays inline.
+- **Evaluator** (`_call_lends`). The stopgap arm is gone. One case stays an error in every evaluation
+  order: `h.cb(eat(h))`, where an argument of the field call consumes the field's own holder. A call
+  through a closure- or fn-valued field now lends that field (`from` 0, tag `callee`) to its own
+  arguments, so it is E0910, like Rust's E0505. That lend is not judged as a rule-3 lend of a
+  module-level holder. Method calls (recorded callee) are excluded, and so are compile-time callees
+  (`m.f`, `E.Some`).
+
+## Tests
+
+`tests/fn_once.test.yo` checks values, the call order and the holder's dispose count. A module-level
+`g_once_order` records the order: the field call logs 1 and the consuming callee logs 2, so source
+order is `12`. The tests cover:
+
+- `h.cb1(1) < eat(h)`, the nested `h.cb1(1) < (0 + eat(h))`, `h.cb0()`, `h.cb2(0, 1)`, and an `eat`
+  that only reads the tag;
+- the receiver form `h.mk(1).plus(eat(h))`;
+- `w.h.cb1(1) < eat(w)`, an `Rc` holder, and a generic `_OnceGen(F)` holding an `Impl(Fn)` (the static
+  closure-call path);
+- a `fn`-pointer field on an `Rc` holder;
+- `h.cb1(eat(h))`, which is E0910 for a value holder and for an `Rc` holder.
+
+Run with the binary before the fix (the stopgap arm removed, codegen unchanged), the four ordering
+tests fail: `h.cb1(1) ran before eat(h)`, `h.mk(1) ran before eat(h)`, `w.h.cb1(1) ran before
+eat(w)`, and an ASan heap-use-after-free for the `fn`-pointer field. With the fix they pass. Every
+shape above, built standalone with `--sanitize address --allocator system`, runs clean.
+
+The same change fixes a leak: a closure-field call's owned result used as a `&self` receiver was an
+inline expression whose temp was never declared, so its drop was skipped
+(`issues/fixed/2026-10-25-a-closure-field-call-result-used-as-a-borrowed-receiver-is-never-released.md`).
+
+## Not fixed here (same root, different operand)
+
+A plain earlier operand that is no call stays inline after a later argument's statement:
+
+- `issues/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md` (S1);
+- `issues/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md` (S2).

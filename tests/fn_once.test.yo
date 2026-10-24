@@ -527,6 +527,25 @@ test("FnOnce: a fn-pointer field call on an Rc holder runs before a later argume
   assert(h.f(i32(1)) < _once_eat_fp(h), "1 < 2");
   assert(g_once_order == i32(12), "h.f(1) ran before eat(h)");
 });
+// A closure-field call's OWNED result used as a `&self` receiver is a temp the
+// call now declares, so its scope-end drop runs: it used to be an inline
+// expression whose temp was never declared, and the result leaked
+// (issues/fixed/2026-10-25-a-closure-field-call-result-used-as-a-borrowed-receiver-is-never-released.md).
+impl(_OnceTok, peek_n : (fn(self : &Self) -> i32)(self.n));
+_OnceTokHolder :: struct(mk : Dyn(Fn(x : i32) -> _OnceTok));
+test("FnOnce: a closure-field call's owned result as a borrowed receiver is released once", {
+  before := g_once_disposed;
+  {
+    h := _OnceTokHolder(mk : dyn((x : i32) => _OnceTok(n : x)));
+    assert(h.mk(i32(5)).peek_n() == i32(5), "Dyn(Fn) field");
+  };
+  {
+    (c : Impl(Fn(x : i32) -> _OnceTok)) = ((x : i32) => _OnceTok(n : x));
+    g := _OnceGen(type_of(c))(cb : c, tag : i32(1));
+    assert(g.cb(i32(6)).peek_n() == i32(6), "Impl(Fn) field");
+  };
+  assert(g_once_disposed == (before + i32(2)), "each receiver temp released once");
+});
 test("FnOnce: a closure-field call lends the holder to its own arguments", {
   comptime_expect_error({
     h := _once_holder();
