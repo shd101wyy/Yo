@@ -13,6 +13,8 @@
 //!      dispatches via `header->dispose_fn` instead, so pins 1-2 are asserted on
 //!      BOTH variants while pin 3 is lightweight-only, exactly like the TS test).
 //!   4. `__yo_worker_pool_init` is guarded (idempotent).
+//!   5. The allocator interface the runtime speaks follows the shape of std's
+//!      `AllocatorVTable` (version 1 unchanged, version 2 aligned and sized).
 { String } :: import("std/string");
 { Emitter } :: import("../../src/emitter.yo");
 { expr_info_table_new } :: import("../../src/expr_info.yo");
@@ -22,6 +24,11 @@
 { generate_atomic_gc_runtime_functions } :: import("../../src/codegen/functions/gc_runtime.yo");
 { generate_parallelism_runtime } :: import("../../src/codegen/parallelism/runtime.yo");
 { dispose_fn_thunk } :: import("../../src/codegen/functions/constructors.yo");
+{ _emit_type_runtime_preamble } :: import("../../src/codegen/types/generation.yo");
+{ allocator_vtable_type_is_v2 } :: import("../../src/codegen/utils/index.yo");
+{ TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
+{ t_func_simple, t_usize, t_unit, t_ptr, t_void } :: import("../../src/types/creators.yo");
+{ ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
 /// Build a fresh per-function generation context over an empty program,
 /// mirroring codegen_c.yo's construction (`Emitter.new()` → `CodeGenContext.new`
@@ -193,4 +200,88 @@ test("a pointer-receiver dispose_fn thunk passes the address of the handle", {
   em := ctx.base.emitter;
   c := em.print();
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_9(void* ptr) { struct yo_id_10* __yo_self = (struct yo_id_10*)ptr; yo_id_9(&__yo_self); }"), "the thunk passes the handle's address");
+});
+/// The type runtime preamble (the RC header, the allocator prefix and the
+/// allocation scope) as the allocator interface `alloc_abi_v2` selects it.
+emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
+  ctx := mk_context(false);
+  ctx.base.alloc_abi_v2 = alloc_abi_v2;
+  _emit_type_runtime_preamble(&ctx.base);
+  em := ctx.base.emitter;
+  em.print()
+});
+/// A stand-in for std's `AllocatorVTable` whose `alloc` takes `arity`
+/// parameters (`ctx, size` = version 1, `ctx, size, align` = version 2).
+mk_vtable_type :: (fn(arity : usize) -> TypeValue)({
+  labels := ArrayList(String).new();
+  types := ArrayList(TypeValue).new();
+  (mut(i) : usize) = usize(0);
+  while(i < arity, {
+    labels.push(String.from(cond((i == usize(0)) => "ctx", (i == usize(1)) => "size", true => "align")));
+    types.push(cond((i == usize(0)) => t_ptr(&t_void()), true => t_usize()));
+    i = (i + usize(1));
+  });
+  alloc_ty := t_func_simple(labels, types, &t_ptr(&t_void()));
+  free_ty := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), &t_unit());
+  field_labels := ArrayList(String).new();
+  field_labels.push(String.from("free"));
+  field_labels.push(String.from("alloc"));
+  field_types := ArrayList(TypeValue).new();
+  field_types.push(free_ty);
+  field_types.push(alloc_ty);
+  rc(
+    TypeValueNode.Struct(
+      id : String.from("struct_decl_std__prelude_1_1"),
+      name : String.from("AllocatorVTable"),
+      field_labels : shared_list(field_labels),
+      field_types : shared_list(field_types),
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.new(),
+      type_arguments : no_types(),
+      is_source_namespace : false
+    )
+  )
+});
+/// Pin: the switch is the arity of the `alloc` field, wherever it sits, and
+/// anything but a struct is version 1.
+test("the allocator interface version is read off AllocatorVTable.alloc's arity", {
+  assert(!allocator_vtable_type_is_v2(&mk_vtable_type(usize(2))), "alloc(ctx, size) is version 1");
+  assert(allocator_vtable_type_is_v2(&mk_vtable_type(usize(3))), "alloc(ctx, size, align) is version 2");
+  assert(!allocator_vtable_type_is_v2(&t_usize()), "a non-struct is version 1");
+});
+/// Pin: version 1 is today's runtime text, so a std that has not moved emits
+/// exactly the C it always did (the emit-diff gate of Generation A).
+test("allocator interface version 1 keeps the 16-byte prefix and the unsized vtable", {
+  c := emit_type_preamble(false);
+  assert(c.contains("void* (*alloc)(void* ctx, size_t size);"), "v1: alloc(ctx, size)");
+  assert(c.contains("void (*free)(void* ctx, void* ptr);"), "v1: free(ctx, ptr)");
+  assert(c.contains("((const __yo_alloc_vtable_t*)pre->vtable)->free(pre->ctx, raw);"), "v1: the release passes the raw block only");
+  assert(c.contains("static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size) {"), "v1: the scoped allocation takes no alignment");
+  assert(!c.contains("__yo_alloc_extent_t"), "v1: no extent record");
+  ctx := mk_context(false);
+  call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
+  assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T))", "v1: the call passes the size only");
+});
+/// Pin: version 2 passes the alignment to `alloc`, records the extent in
+/// the 16 bytes before the owner, and hands `free` the size and alignment
+/// `alloc` was asked for.
+test("allocator interface version 2 aligns, records the extent and frees by size", {
+  c := emit_type_preamble(true);
+  assert(c.contains("void* (*alloc)(void* ctx, size_t size, size_t align);"), "v2: alloc(ctx, size, align)");
+  assert(c.contains("void* (*realloc)(void* ctx, void* ptr, size_t old_size, size_t new_size, size_t align);"), "v2: realloc(ctx, ptr, old_size, new_size, align)");
+  assert(c.contains("void (*free)(void* ctx, void* ptr, size_t size, size_t align);"), "v2: free(ctx, ptr, size, align)");
+  assert(c.contains("#define __YO_RC_CELL_PREFIX_SIZE 32"), "v2: a 32-byte cell prefix");
+  assert(c.contains("return align > __YO_RC_CELL_PREFIX_SIZE ? align : __YO_RC_CELL_PREFIX_SIZE;"), "v2: the prefix spans max(32, align)");
+  assert(c.contains("return align > __YO_ALLOC_MIN_ALIGN ? align : __YO_ALLOC_MIN_ALIGN;"), "v2: the block is at least 16-aligned");
+  assert(c.contains("->alloc(s.ctx, span + size, __yo_rc_cell_block_align(align));"), "v2: alloc is told the block's alignment");
+  assert(c.contains("->free(pre->ctx, (char*)ptr - span, block_size, block_align);"), "v2: free is told the block's size and alignment");
+  assert(c.contains("static inline void* __yo_rc_alloc_scoped(__yo_alloc_scope_t s, size_t size, size_t align) {"), "v2: the scoped allocation takes the alignment");
+  // The owner stays where version 1 keeps it, so the scope lookup is shared.
+  assert(c.contains("return *(const __yo_alloc_prefix_t*)((char*)p - __YO_ALLOC_PREFIX_SIZE);"), "v2: the owner is the 16 bytes before the object");
+  ctx := mk_context(false);
+  ctx.base.alloc_abi_v2 = true;
+  call := ctx.base.rc_alloc_scoped_call(&String.from("__yo_sc"), &String.from("T"));
+  assert(call == "__yo_rc_alloc_scoped(__yo_sc, sizeof(T), _Alignof(T))", "v2: the call passes the alignment");
 });
