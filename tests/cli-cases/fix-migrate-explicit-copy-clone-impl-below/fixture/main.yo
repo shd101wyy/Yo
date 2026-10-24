@@ -2,7 +2,9 @@
 //! copy is evaluated first, so a `Clone` question asked when it is recorded
 //! answers "no", and the copy was dropped from the migration. It is listed:
 //! `Bag` has `Clone` by the end of the run, but a `.clone()` written at the
-//! copy does not resolve above the `derive`.
+//! copy does not resolve above the `derive`. `Sack`'s `Clone` is an `impl`
+//! below its copies: a `.clone()` lookup there forces it, so the copy of a
+//! `Sack` and of an `ArrayList(Sack)` are both cloned.
 { ArrayList } :: import("std/collections/array_list");
 Bag :: struct(items : ArrayList(i32), label : i32);
 count :: (fn(b : &Bag) -> usize)({
@@ -10,5 +12,15 @@ count :: (fn(b : &Bag) -> usize)({
   c.items.len()
 });
 derive(Bag, Clone);
+Sack :: struct(items : ArrayList(i32), label : i32);
+sack_count :: (fn(s : &Sack) -> usize)({
+  c := s;
+  c.items.len()
+});
+sacks_count :: (fn(ss : &ArrayList(Sack)) -> usize)({
+  c := ss;
+  c.len()
+});
+impl(Sack, Clone(clone : (fn(self : &Self) -> Self)(Sack(items : self.items.clone(), label : self.label))));
 main :: (fn() -> unit)(());
 export(main);

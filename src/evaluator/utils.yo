@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
   variable_inout_borrow_root_id
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
-{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook } :: import("./context.yo");
+{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
@@ -117,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
 :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
-{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags, no_types } :: import("../types/definitions.yo");
 { is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
@@ -2653,8 +2653,8 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 ///
 /// `ty_value` is the copied type itself, which the listing asks for `Clone`
 /// (`type_lacks_clone`) once the whole run is evaluated, and
-/// `lacks_clone_at_copy` the same question asked when the copy was
-/// recorded. A copy of a type without `Clone` at the end (a `StringBuilder`
+/// `lacks_clone_at_copy` whether a `.clone()` written at the copy would not
+/// resolve there (`_ic_clone_unresolved_here`). A copy of a type without `Clone` at the end (a `StringBuilder`
 /// or a `HeaderMap` before B11 derives one, a collection of such elements)
 /// is still E0901 under unique buffers, and no `.clone()` spells it, so it
 /// is listed for a move or a borrow
@@ -2664,9 +2664,11 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// pushing `self`, `std/string/string.yo`, about 2,700 lines above the
 /// impl). Such a copy used to be dropped
 /// (issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md).
-/// It is listed instead of cloned: a `derive(T, Clone)` below the copy is not
-/// forced by the method lookup, so a `.clone()` written there would not
-/// resolve (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
+/// An `impl` below the copy is forced by the `.clone()` lookup, so that copy
+/// is cloned. One whose `Clone` comes from a `derive(T, Clone)` below it is
+/// listed instead: the lookup does not force a `derive`, so a `.clone()`
+/// written there would not resolve
+/// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -3288,6 +3290,58 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// wrote). A copy of a type without `Clone` is kept as well: the listing
 /// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated
 /// (`ExplicitCopySite.lacks_clone_at_copy`).
+/// Whether a `.clone()` written at a copy of `ty` would not resolve there:
+/// the type has no `Clone` yet, even after the forcing a `.clone()` method
+/// lookup there does. A lookup that misses forces the pending `impl`s of the
+/// receiver's type (`force_pending_impls_for_type_name`), and a container's
+/// `Clone` impl asks its element types, whose own pending impls are forced in
+/// turn. So the same pending impls of `ty` and of its type arguments are forced
+/// here first: a `Clone` impl further down the module (`String`'s, about
+/// 2,700 lines below `String.split`) registers, and the copy is cloned like
+/// any other. A `derive(T, Clone)` further down is not forced by that lookup
+/// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md),
+/// so its type still lacks `Clone` here and the copy is listed.
+_ic_clone_unresolved_here :: (fn(ty : &TypeValue) -> bool)({
+  if(!type_lacks_clone(ty), {
+    return(false);
+  });
+  if(!_ic_force_pending_clone_impls(ty, u32(0)), {
+    return(true);
+  });
+  type_lacks_clone(ty)
+});
+/// Force the pending impls declaring `clone` of `ty`'s nominal head and,
+/// recursively, of its type arguments (`_ic_clone_unresolved_here`); true
+/// when one was forced.
+_ic_force_pending_clone_impls :: (fn(ty : &TypeValue, depth : u32) -> bool)({
+  head := type_head_name_for_impl_forcing(ty);
+  missed := Option(String).Some(String.from("clone"));
+  (forced : bool) = match(
+    force_pending_impls_for_type_name(&head, &missed),
+    .Forced => true,
+    _ => false
+  );
+  if(depth >= u32(4), {
+    return(forced);
+  });
+  targs := match(
+    ty,
+    Rc(.Struct({ type_arguments : sta })) => sta,
+    Rc(.EnumT({ type_arguments : eta })) => eta,
+    _ => no_types()
+  );
+  (i : usize) = usize(0);
+  while(i < targs.len(), i = (i + usize(1)), {
+    match(
+      targs.get(i),
+      .Some(ta) => if(recur(&ta, depth + u32(1)), {
+        forced = true;
+      }),
+      .None => ()
+    );
+  });
+  forced
+});
 /// What a copy site carries for `yo fix --migrate explicit-copy`: the
 /// copied expression's FIRST token as written (`p` of `p.name`, whose own
 /// token is the `.`), where the rewrite finds it in the source, and the
@@ -3318,7 +3372,7 @@ _ic_migrate_site :: (
         src_dying : m.src_dying.clone(),
         capture_label : m.capture_label.clone(),
         ty_value : ty.clone(),
-        lacks_clone_at_copy : type_lacks_clone(ty)
+        lacks_clone_at_copy : _ic_clone_unresolved_here(ty)
       )
     )
   )

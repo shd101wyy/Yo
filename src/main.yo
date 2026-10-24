@@ -3362,14 +3362,14 @@ _run_migrate_explicit_copy :: (
         println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
         continue;
       });
-      // The type has `Clone` by the end of the run but not where the copy
-      // was evaluated: its impl or `derive` sits further down the module. A
-      // `derive` there is not forced by the `.clone()` lookup
-      // (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md),
-      // so the copy is listed rather than spelled.
+      // The type has `Clone` by the end of the run, but a `.clone()` at the
+      // copy would not resolve (`ExplicitCopySite.lacks_clone_at_copy`): a
+      // `derive(T, Clone)` further down the module, which the lookup does not
+      // force (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
+      // So the copy is listed rather than spelled.
       if(st.lacks_clone_at_copy, {
         n_skipped = (n_skipped + usize(1));
-        println(`fix: ${at}: \`${st.expect}\` is copied above the \`Clone\` of \`${st.ty}\` in its module, where a \`.clone()\` may not resolve; left as written (spell \`.clone()\` by hand, after moving a \`derive(..., Clone)\` above the copy)`);
+        println(`fix: ${at}: \`${st.expect}\` is copied above the \`derive\` that gives \`${st.ty}\` its \`Clone\`, where a \`.clone()\` does not resolve; left as written (spell \`.clone()\` by hand, after moving the \`derive(..., Clone)\` above the copy)`);
         continue;
       });
       // A `return` of a place rooted in a borrow, a module-level binding or

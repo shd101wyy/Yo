@@ -37,25 +37,35 @@ where the impl was written. A "no" dropped the site.
 
 ## Fix
 
-The site keeps the copied type (`ExplicitCopySite.ty_value`) and the
-record-time answer (`lacks_clone_at_copy`). `_run_migrate_explicit_copy`
-(`src/main.yo`) asks `type_lacks_clone` again when it builds the listing, by
-which time every module is evaluated and every impl registered:
+The site keeps the copied type (`ExplicitCopySite.ty_value`) and whether a
+`.clone()` written at the copy would resolve there
+(`ExplicitCopySite.lacks_clone_at_copy`, `_ic_clone_unresolved_here` in
+`src/evaluator/utils.yo`). That second answer is asked as the `.clone()`
+method lookup would ask it: when the type has no `Clone` yet, the pending
+`impl`s of the type and of its type arguments that declare `clone` are
+forced first (`force_pending_impls_for_type_name`), and the type is asked
+again. `_run_migrate_explicit_copy` (`src/main.yo`) asks `type_lacks_clone`
+once more when it builds the listing, by which time every module is
+evaluated and every impl registered:
 
 - no `Clone` at the end: listed as clone-less
   (`issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`);
-- `Clone` at the end but not at the copy: listed as "copied above the
-  `Clone` of `T` in its module". It is not cloned, because a `.clone()` above
-  a `derive(T, Clone)` does not resolve
+- `Clone` from an `impl` further down the module: the forcing registers it,
+  and the copy is cloned like any other;
+- `Clone` at the end but a `.clone()` at the copy would not resolve: listed
+  as "copied above the `derive` that gives `T` its `Clone`". This is a
+  `derive(T, Clone)` below the copy, which the method lookup does not force
   (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`,
-  S2, open). Once that is fixed, these sites can be cloned;
-- `Clone` at the copy: unchanged.
+  S2, open). Once that is fixed, these sites can be cloned.
 
-On develop `f1cfa553d`'s tree this lists 8 std sites and 1 src site. In
-std they are `String.split` pushing `self`, and seven `JsonValue` and
+A first version listed every copy made above its type's `Clone`, an `impl`
+included. On develop `f1cfa553d`'s tree that was 8 std sites and 1 src site.
+The 8 std sites (`String.split` pushing `self`, and seven `JsonValue` and
 `ArrayList(JsonValue)` copies in `std/encoding/json.yo` above its
-`impl(JsonValue, Clone)`. In src it is `src/diagnostics.yo:88`, a
-`Diagnostic` copied about 280 lines above `derive(Diagnostic, Clone)`.
+`impl(JsonValue, Clone)`) have impls below them, and are now cloned. The src
+site, `src/diagnostics.yo:88`, copies a `Diagnostic` about 280 lines above
+`derive(Diagnostic, Clone)`, and stays listed.
 
-Test: `tests/cli-cases/fix-migrate-explicit-copy-clone-impl-below`. `c := b` is listed, and the
-file still checks.
+Test: `tests/cli-cases/fix-migrate-explicit-copy-clone-impl-below`. `c := b` above a `derive` is
+listed, the copies of a `Sack` and an `ArrayList(Sack)` above an `impl` are
+cloned, and the file still checks.
