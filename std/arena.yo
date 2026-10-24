@@ -177,7 +177,7 @@ _pad :: (fn(st : *_ArenaState, top : usize, align : usize) -> usize)(
     true => {
       // SAFETY: the caller holds the lock on the live state `st`.
       addr := (_word_of(.Some((*void)(unsafe(st.*.region).unwrap()))) + top);
-      ((align - (addr & (align - usize(1)))) & (align - usize(1)))
+      (align - (addr & (align - usize(1)))) & (align - usize(1))
     }
   )
 );
@@ -190,7 +190,7 @@ _bump :: (fn(st : *_ArenaState, gen : usize, size : usize, align : usize) -> ?*v
   cond(
     !_current(st, gen) => panic("Arena: allocation from an arena after deinit"),
     ((need < size) || (_pad(st, unsafe(st.*.top), align) > (unsafe(st.*.capacity) - unsafe(st.*.top)))) => .None,
-    (need > ((unsafe(st.*.capacity) - unsafe(st.*.top)) - _pad(st, unsafe(st.*.top), align))) => .None,
+    (need > (unsafe(st.*.capacity) - unsafe(st.*.top) - _pad(st, unsafe(st.*.top), align))) => .None,
     true => {
       at := (unsafe(st.*.top) + _pad(st, unsafe(st.*.top), align));
       unsafe(st.*.top = (at + need));
