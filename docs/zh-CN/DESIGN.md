@@ -110,7 +110,6 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
-  - [LinkedList](#linkedlist)
 - [闭包](#闭包)
   - [基本闭包语法](#基本闭包语法)
   - [闭包捕获语义](#闭包捕获语义)
@@ -2768,7 +2767,7 @@ Yo 在标准库中提供了高效的、引用计数的集合类型。
 ### 修改集合：修改方法接收 `&mut self`
 
 所有会改变集合的方法都接收 `self : &mut Self`：`ArrayList`、`HashMap`、
-`HashSet`、`Deque`、`BTreeMap`、`LinkedList`、`PriorityQueue`、`OrderedMap`、
+`HashSet`、`Deque`、`BTreeMap`、`PriorityQueue`、`OrderedMap`、
 `HeaderMap` 和 `StringBuilder` 的修改方法（`push`、`pop`、`insert`、`remove`、
 `clear`、`sort`、`retain`、`write_str` 等，也包括会取走缓冲区的
 `StringBuilder.to_string`）。只读方法（`len`、`get`、`contains`、`iter` 等）
@@ -2971,89 +2970,6 @@ cond(
   is_sub => printf("set1 is subset of set2\n"),
   true => printf("set1 is not subset of set2\n")
 );
-```
-
-### LinkedList
-
-双向链表。
-
-```yo
-{ LinkedList } :: import("std/collections/linked_list");
-
-// 创建新的 LinkedList
-list := LinkedList(i32).new();
-
-// 从前端和后端添加
-list.push_front(i32(1));
-list.push_back(i32(2));
-list.push_front(i32(0));
-
-printf("Length: %zu\n", list.len());
-
-// 访问前端和后端
-match(
-  list.front(),
-  .Some(v) => printf("Front: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-match(
-  list.back(),
-  .Some(v) => printf("Back: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-// 从前端和后端弹出
-match(
-  list.pop_front(),
-  .Some(v) => printf("Popped front: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-match(
-  list.pop_back(),
-  .Some(v) => printf("Popped back: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-// 通过索引获取
-match(
-  list.get(usize(0)),
-  .Some(v) => printf("At index 0: %d\n", v),
-  .None => printf("Index out of bounds\n")
-);
-
-// 在索引位置插入
-match(
-  list.set(usize(1), i32(20)),
-  .Ok(_) => printf("Inserted at index 1\n"),
-  .Error(err) => match(
-    err,
-    .IndexOutOfBounds => printf("Index out of bounds\n"),
-    .EmptyList => printf("List is empty\n")
-  )
-);
-
-// 按索引删除 —— remove(idx) 直接返回被删除的元素，索引越界会 panic
-// （与 Index 实现的约定一致）；按范围删除并取回元素用
-// drain(start .. end)，它返回一个全新的 ArrayList。不消耗列表的迭代用
-// iter()，into_iter() 会转移列表所有权。
-removed := list.remove(usize(0));
-printf("Removed: %d\n", removed);
-drained := list.drain(usize(1) .. usize(3));
-
-// 检查是否包含
-cond(
-  list.has(i32(20)) => printf("Contains 20\n"),
-  true => printf("Does not contain 20\n")
-);
-
-// 反转链表
-list.reverse();
-
-// 清空
-list.clear();
-assert(list.is_empty(), "List should be empty");
 ```
 
 ## 闭包

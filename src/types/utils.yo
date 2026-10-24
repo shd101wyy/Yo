@@ -1756,10 +1756,9 @@ _type_refs_back_to_cyclic :: (
   fn(ty_in : &TypeValue, original_id : &String, visited : &ArrayList(String)) -> bool
 )({
   // A self-referential declaration's shell can survive inside a nested
-  // instantiation — a ref holder of ref cells over `Self` reaches `Self`
-  // only through the cell's `?*Self` element buffer, behind the shell patch
-  // walk's shared-node guard (`_LlChain(Self)` in
-  // tests/cycle_collector.test.yo) — and a shell is an empty placeholder struct, so the
+  // instantiation — a list of ref cells over `Self` reaches `Self` only
+  // through the cell's `?*Self` element buffer, behind the shell patch walk's
+  // shared-node guard — and a shell is an empty placeholder struct, so the
   // walk read the path back to a re-rooted cycle as a dead end. Resolve it
   // through the finals registries first, as this file's other structural
   // walks do
