@@ -83,7 +83,12 @@ Soundness, per consumer of the mask:
   (`d3_check_pending` in `src/evaluator/exprs/assignment.yo`) ask whether the
   callee may write the storage an argument names. An inert global is its own
   static: no RC handle and no pointer leads from it to an argument's storage,
-  and storing to it releases nothing.
+  and storing to it releases nothing. The reverse direction, an argument that
+  points into the global, cannot be written in safe code: lending a `mut`
+  global with `&` or `&mut` is E0916 (decision 18 rule 3, decision 47), and a
+  module-level local borrow is already rejected across any call
+  (`module_level_borrow_across_a_call_rejected` in
+  `tests/local_borrows.test.yo`).
 - **D3** asks the same about an argument rooted in an atomic object; an
   `Arc`/`Mutex` payload is heap storage an inert static cannot alias.
 - **D1's mutable-static half** keeps seeing the write: the assignment itself
