@@ -30,10 +30,22 @@ error: call to '__yo_fs_5730035852166399889' declared with 'error' attribute: yo
 ```
 
 `__yo_fs_5730035852166399889` is the `(alloc, cap)` constructor that
-`ArrayList(..).new()` calls for this element type.
+`ArrayList(..).new()` calls for this element type. That is develop
+`ec701e967`. With the fixed issue's change, clang stops earlier, at the push:
+`fs.push(_fp_twice)` now passes the erased-signature thunk, without a cast, to
+`push`'s parameter, which is declared with `_fp_twice`'s concrete
+`<block>_sync_fut_t* (*)(..)`:
+
+```
+error: incompatible function pointer types passing '__yo_t_F *(int32_t, Io)' to parameter of type '…_sync_fut_t *(*)(int32_t, Io)'
+```
+
+(An `error` attribute fires only in clang's code generation, which a front-end
+error stops, so the first error no longer shows.)
 
 With a second function pushed (`fs.push(_fp_twice); fs.push(_fp_three);`) the
-build fails in `ArrayList`'s internals instead:
+build fails in `ArrayList`'s internals instead (and, with the fixed issue's
+change, at both push sites as well):
 
 ```
 error: incompatible function pointer types passing '…_sync_fut_t *(*)(int32_t, …)' (`_fp_twice`'s state machine)
