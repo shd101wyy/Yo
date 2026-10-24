@@ -50,6 +50,12 @@ other keeping the value (`{ take(f); }, { (); }`) fails the same way on the
 moving path. A straight-line move, and a move on a loop's `break` path, were
 correct.
 
+The emit-diff of the fix shows where it reached: `std/http/wire.yo`'s message
+read task (eleven arm moves of `result` into `_release_message`,
+`_split_into_carry` and `String.from_bytes`, so the compiler's own HTTP client
+had it) and `tests/async_await.test.yo`'s `if(flag, io.await(f1), …)` shapes,
+where an await in an arm moves the future into the await slot.
+
 ## Root cause
 
 An aborted task drops the values its slots still own. A read that moves a
