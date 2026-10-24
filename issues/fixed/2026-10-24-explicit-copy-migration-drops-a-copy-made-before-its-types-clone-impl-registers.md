@@ -51,10 +51,11 @@ which time every module is evaluated and every impl registered:
   S2, open). Once that is fixed, these sites can be cloned;
 - `Clone` at the copy: unchanged.
 
-On develop `f1cfa553d`'s tree this lists 6 std sites (`String.split`
-pushing `self`, five `JsonValue` copies above its `impl(JsonValue, Clone)`)
-and 1 src site (`src/diagnostics.yo:88`, a `Diagnostic` copied about 280
-lines above `derive(Diagnostic, Clone)`).
+On develop `f1cfa553d`'s tree this lists 8 std sites and 1 src site. In
+std they are `String.split` pushing `self`, and seven `JsonValue` and
+`ArrayList(JsonValue)` copies in `std/encoding/json.yo` above its
+`impl(JsonValue, Clone)`. In src it is `src/diagnostics.yo:88`, a
+`Diagnostic` copied about 280 lines above `derive(Diagnostic, Clone)`.
 
 Test: `tests/cli-cases/fix-migrate-explicit-copy-clone-impl-below`. `c := b` is listed, and the
 file still checks.

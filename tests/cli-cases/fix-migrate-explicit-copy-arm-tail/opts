@@ -5,6 +5,8 @@
 # (std/encoding/toml.yo's `TomlValue.insert` had this shape, and its parser
 # writes through a copy of the tree, so the migrated parser lost every key;
 # issues/fixed/2026-10-18-explicit-copy-migration-rewrites-an-arm-tail-copy-of-a-borrowed-binding.md).
+# `mut(cur) := t` copies a `Tbl`, which has no `Clone`, and is listed as such
+# (issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md).
 # The expected_tree pins main.yo unchanged, and the trailing `check` proves it
 # still evaluates.
 stdout_keep=^fix:

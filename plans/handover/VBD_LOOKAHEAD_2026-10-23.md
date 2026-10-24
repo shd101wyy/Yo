@@ -488,6 +488,22 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
 | P7 | The `Send`/`Sync` opt-ins for raw-buffer collections, drafted on the probe: `impl(generic(T : Type), where(T <: Send), ArrayList(T), Send())` and `impl(generic(T : Type), where(T <: Sync), ArrayList(T), Sync())`, with a SAFETY comment, as `Box` does at `std/prelude.yo:10060–10061`. Without them, a value `ArrayList` is not `Send` (probed: a raw pointer is neither, `prelude.yo:6979–6983`), and Part A's replacement probe fails. They land INSIDE each flip PR, not before. | each flip's std file | now (on the probe) | the replacement probe (D25) |
 | P8 | `_IC_COLLECTIONS` gains `StringBuilder` and `HeaderMap` (`src/evaluator/utils.yo:3194`), so the explicit-copy listing covers their copies | tree only | now | build; the `fix-migrate-explicit-copy*` goldens if the listing grows |
 
+**P8 as built (2026-10-24, branch `b4-0a-p8`, stacked on B4-0a).**
+
+- **The change as specified was a no-op for the listing.** `StringBuilder` and `HeaderMap` joined `_IC_COLLECTIONS`, but neither has `Clone` before B11. `_ic_migrate_site` dropped every copy of a type without `Clone`, so their copies would still have gone unreported. That drop was the open S3 `issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`, and P8 fixes it.
+- **How a copy without `Clone` is handled now.** The site is kept with its type (`ExplicitCopySite.ty_value`). The listing asks for `Clone` once the run is evaluated and lists such a copy as "`T` has no `Clone`". The check comes after the generic-body checks, because a generic body's type usually lacks `Clone` only because a parameter is open.
+- **A copy above its type's `Clone` in the same module.** The record-time answer was order-dependent, and it silently dropped these copies (`issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md`). They are now listed, not cloned: a `.clone()` above a `derive(T, Clone)` is E0610 (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`, S2, open).
+- **Dry runs** on develop `f1cfa553d`, B4-0a's binary against P8's, both rebased on `39c8723fe`:
+
+  | | src inserted / listed | std inserted / listed |
+  | --- | ---: | ---: |
+  | B4-0a | 388 / 1,575 | 8 / 25 |
+  | P8 | 388 / 1,951 | 8 / 107 |
+
+  - **src +376:** 373 copies without `Clone` and 1 above its `Clone` (`src/diagnostics.yo:88`). The other 2 are temporaries without `Clone` that die after the copy. Top types: `ArrayList(Self)` 28, `ArrayList(Variable)` 24, `ContextIndexEntry` 16, `ArrayList(DocFunction)` 16, `ArrayList(CapturedVariable)` 11. By directory: `evaluator/` 122, `doc/` 61, `codegen/` 52, `context_command.yo` 31. `HashSet(String)` has no `Clone` in std at all, which B9's `where(T <: Clone)` derive adds.
+  - **std +82:** 40 copies without `Clone` (`TomlValue` 20, `ArrayList(…)` 13, `GroupNameEntry` 2, `HeaderMap` 1, …), 8 above `JsonValue`'s and `String`'s `Clone`, and 34 generic-body copies that the drop had hidden.
+  - No `StringBuilder` copy is listed in src or std: none of src's 48 `:= StringBuilder` locals is copied while its source is still live. The one `HeaderMap` site is `std/http/client.yo:834`.
+
 ### 4.5 The flips (all std-only; the v0.2.69 seed is stage 1)
 
 Before opening each flip, run its probe: a never-merged branch rebased on the tip and checked with the SEED binary. Run `yo check ./std --std-path ./std`, then `yo check ./src --std-path ./std`, then the named tests. Every count is a lower bound.
