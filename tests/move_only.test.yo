@@ -13,6 +13,7 @@
 { yield } :: import("std/async");
 { VList } :: import("./fixtures/owned_buffer.yo");
 { RefCell } :: import("std/sync/refcell");
+{ replace, take, swap } :: import("std/mem");
 (mut(g_mo_disposed) : i32) = i32(0);
 (mut(g_mo_sum) : i32) = i32(0);
 _MoFd :: struct(n : i32);
@@ -2533,4 +2534,107 @@ test("move-only: a move in a match arm that breaks is moved on some ways out of 
     }),
     "moved on some ways out of the loop"
   );
+});
+// decision 19's `std/mem`: `replace`, `take` and `swap` move a value out of
+// a place that stays alive, bitwise, so a move-only value is neither copied
+// nor disposed twice.
+_MoSlot :: struct(fd : _MoFd, tag : i32);
+// A move-only value with a default, for `take`.
+_MoDef :: struct(n : i32);
+impl(
+  _MoDef,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_mo_disposed = (g_mo_disposed + i32(1));
+      g_mo_sum = (g_mo_sum + self.n);
+    })
+  ),
+  Default(
+    default : (fn() -> Self)(_MoDef(n : i32(0)))
+  )
+);
+_MoDefSlot :: struct(d : _MoDef);
+_mo_take_def :: (fn(sink(d) : _MoDef) -> i32)(d.n);
+test("std/mem: replace moves a move-only field out of a live holder", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(h) := _MoSlot(fd : _MoFd(n : i32(1)), tag : i32(7));
+  old := replace(&mut h.fd, _MoFd(n : i32(2)));
+  assert(g_mo_disposed == before, "nothing disposed by the replace");
+  assert((old.n == i32(1)) && (h.fd.n == i32(2)), "the old value out, the new one in");
+  assert(h.tag == i32(7), "the holder's other field is untouched");
+  assert(_mo_take(old) == i32(1), "the old value is owned");
+  assert(g_mo_disposed == (before + i32(1)), "the old value, once, by its callee");
+  mut(x) := _MoFd(n : i32(3));
+  y := replace(&mut x, _MoFd(n : i32(4)));
+  assert((y.n == i32(3)) && (x.n == i32(4)), "a whole local is a place too");
+  assert(_mo_take(y) == i32(3), "the replaced local moves out");
+  assert(_mo_take(x) == i32(4), "the stored local moves out");
+  assert(g_mo_disposed == (before + i32(3)), "three disposals, each once");
+  assert(g_mo_sum == i32(8), "each by its own value");
+});
+test("std/mem: take leaves the default in a move-only place", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(s) := _MoDefSlot(d : _MoDef(n : i32(5)));
+  t := take(&mut s.d);
+  assert(g_mo_disposed == before, "nothing disposed by the take");
+  assert((t.n == i32(5)) && (s.d.n == i32(0)), "the value out, the default in");
+  assert(_mo_take_def(t) == i32(5), "the taken value is owned");
+  mut(o) := Option(_MoFd).Some(_MoFd(n : i32(6)));
+  taken := take(&mut o);
+  assert(o.is_none(), "an Option place defaults to .None");
+  match(
+    taken,
+    .Some(f) => assert(_mo_take(f) == i32(6), "the payload moves out"),
+    .None => assert(false, "take of a .Some")
+  );
+  assert(g_mo_disposed == (before + i32(2)), "the two moved-out values, once each");
+  s = _MoDefSlot(d : _MoDef(n : i32(1)));
+  assert(g_mo_disposed == (before + i32(3)), "the default, by the reassignment");
+  assert(g_mo_sum == i32(11), "the default disposed with n = 0");
+});
+test("std/mem: swap exchanges two move-only places", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(a) := _MoSlot(fd : _MoFd(n : i32(1)), tag : i32(10));
+  mut(b) := _MoFd(n : i32(2));
+  swap(&mut a.fd, &mut b);
+  assert((a.fd.n == i32(2)) && (b.n == i32(1)), "the values traded places");
+  assert(a.tag == i32(10), "the holder's other field is untouched");
+  swap(&mut b, &mut a.fd);
+  assert((a.fd.n == i32(1)) && (b.n == i32(2)), "and back");
+  assert(g_mo_disposed == before, "nothing disposed by the swaps");
+  assert(_mo_take(b) == i32(2), "b moves out");
+  a = _MoSlot(fd : _MoFd(n : i32(3)), tag : i32(0));
+  assert(g_mo_disposed == (before + i32(2)), "b by its callee, a's old field by the reassignment");
+  assert(g_mo_sum == i32(3), "each by its own value");
+});
+test("std/mem: a unit place", {
+  (mut(u) : unit) = ();
+  r := replace(&mut u, ());
+  t := take(&mut u);
+  (mut(v) : unit) = ();
+  swap(&mut u, &mut v);
+  assert((r == ()) && (t == ()) && (u == ()), "unit has one value, and nothing moves");
+});
+test("std/mem: a Box", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(b) := box(_MoFd(n : i32(1)));
+  old := replace(&mut b, box(_MoFd(n : i32(2))));
+  assert((old.n == i32(1)) && (b.n == i32(2)), "the old box out, the new one in");
+  assert(g_mo_disposed == before, "neither payload disposed by the replace");
+  mut(c) := box(_MoFd(n : i32(3)));
+  swap(&mut b, &mut c);
+  assert((b.n == i32(3)) && (c.n == i32(2)), "the boxes traded places");
+  mut(d) := box(i32(4));
+  e := take(&mut d);
+  assert((e.* == i32(4)) && (d.* == i32(0)), "take leaves a box of the default");
+  drop(old);
+  assert(g_mo_disposed == (before + i32(1)), "the replaced box's payload, once");
+  drop(b);
+  drop(c);
+  assert(g_mo_disposed == (before + i32(3)), "every payload once");
+  assert(g_mo_sum == i32(6), "each by its own value");
 });

@@ -1,0 +1,95 @@
+//! Moving a value out of a place that stays alive: `replace`, `take` and
+//! `swap` (Rust's `std::mem`).
+//!
+//! A field of a move-only or explicit-copy value cannot be moved out of a
+//! holder that stays alive (plans/VALUES_BY_DEFAULT.md decision 19, "no
+//! partial moves"). These three functions are the way out without a copy:
+//! each moves the old contents out bitwise and something else in, so the
+//! place is never empty and nothing is copied or dropped twice.
+//!
+//! ```yo
+//! { replace, take } :: import("std/mem");
+//! { ArrayList } :: import("std/collections/array_list");
+//! { String } :: import("std/string");
+//! Job :: struct(name : String, log : ArrayList(String));
+//! (mut(job) : Job) = Job(name : `build`, log : ArrayList(String).new());
+//! job.log.push(`started`);
+//! done := take(&mut job.log); // `job.log` is a new empty list
+//! old := replace(&mut job.name, `test`); // `build`
+//! ```
+//!
+//! A `unit` place has no C storage; the three functions accept it all the
+//! same (its only value is `()`, so nothing moves).
+//!
+//! ## Stability
+//!
+//! unstable — decision 19's spelling (V2b B6-0). The names follow Rust's
+//! `std::mem` and live in their own module rather than the prelude, because
+//! a prelude export reserves its name in every module.
+pragma(Pragma.AllowUnsafe);
+
+/// Store `v` in `dst` and return the value it replaces — Rust's
+/// `mem::replace`. Neither value is copied or dropped.
+///
+/// ```yo
+/// { replace } :: import("std/mem");
+/// (mut(x) : i32) = i32(1);
+/// old := replace(&mut x, i32(2));
+/// assert((old == i32(1)) && (x == i32(2)), "replace hands back the old value");
+/// ```
+replace :: (fn(generic(T : Type), dst : &mut T, v : T) -> T)({
+  p := addr_of(dst);
+  // SAFETY: `p` is the caller's live, initialized place, borrowed
+  // exclusively for this call. The old contents move out bitwise before `v`
+  // moves in, so the place holds exactly one owned value when the call
+  // returns and the old one is owned by the result: nothing is copied and
+  // nothing is dropped. For a zero-sized `T` (`unit`) both moves are no-ops.
+  old := unsafe(__yo_ptr_read(p));
+  unsafe(__yo_ptr_write(p, v));
+  old
+});
+/// Store `T`'s default in `dst` and return the value it replaces — Rust's
+/// `mem::take`.
+///
+/// ```yo
+/// { take } :: import("std/mem");
+/// { ArrayList } :: import("std/collections/array_list");
+/// (mut(xs) : ArrayList(i32)) = ArrayList(i32).new();
+/// xs.push(i32(1));
+/// ys := take(&mut xs);
+/// assert((ys.len() == usize(1)) && (xs.len() == usize(0)), "take leaves the default");
+/// ```
+take :: (fn(generic(T : Type), dst : &mut T, where(T <: Default)) -> T)({
+  p := addr_of(dst);
+  // SAFETY: as in `replace`, with `T`'s default as the value moved in. The
+  // moves are spelled out rather than forwarded to `replace`: a generic
+  // body whose tail is a call to another generic function fails to compile
+  // when `T` is `unit`
+  // (issues/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
+  old := unsafe(__yo_ptr_read(p));
+  unsafe(__yo_ptr_write(p, (T <: Default).default()));
+  old
+});
+/// Exchange the values of `a` and `b` — Rust's `mem::swap`. Neither value is
+/// copied or dropped.
+///
+/// ```yo
+/// { swap } :: import("std/mem");
+/// (mut(a) : i32) = i32(1);
+/// (mut(b) : i32) = i32(2);
+/// swap(&mut a, &mut b);
+/// assert((a == i32(2)) && (b == i32(1)), "swap exchanges the values");
+/// ```
+swap :: (fn(generic(T : Type), a : &mut T, b : &mut T) -> unit)({
+  pa := addr_of(a);
+  pb := addr_of(b);
+  // SAFETY: `a` and `b` are the caller's live, initialized places, each
+  // borrowed exclusively, so they do not overlap. `a`'s value moves out
+  // bitwise, `b`'s moves into `a`, and the first moves into `b`: each place
+  // ends with exactly one owned value, and nothing is copied or dropped.
+  tmp := unsafe(__yo_ptr_read(pa));
+  unsafe(__yo_ptr_write(pa, __yo_ptr_read(pb)));
+  unsafe(__yo_ptr_write(pb, tmp));
+});
+
+export(replace, take, swap);

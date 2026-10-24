@@ -1145,11 +1145,12 @@ instead.
       await an already-aborted future" cases are unreachable and deleted.
     - **Open: a future in a field.** Awaiting a future held in a field
       moves it out of the field, which needs decision 19's
-      `take(&mut x.field)`/`replace(&mut x.field, v)`. Neither has landed
-      (`Option.take` copies `self`, E0901 for a move-only payload), so a
-      future stored in a struct is awaited only by moving the whole value
+      `take(&mut x.field)`/`replace(&mut x.field, v)`. Neither had landed
+      (`Option.take` copied `self`, E0901 for a move-only payload), so a
+      future stored in a struct was awaited only by moving the whole value
       (a non-generic struct pattern, `match(p, Park(_future : f) => f)`).
-      They land with V2b's non-copying access (decision 20).
+      They landed in `std/mem` (V2b B6-0, 2026-10-24), the first piece of
+      V2b's non-copying access (decision 20).
   - A result that several tasks need is joined ONCE and shared as `Rc(T)`,
     or sent through a channel (corrected 2026-10-07, second audit #1264 finding
     3; the first text said `Rc(JoinHandle(T))`). That spelling cannot
@@ -7764,8 +7765,8 @@ heavy run, the command is given in item 2.
              chooses between a by-value input and one copy per parse.
            - `fs/watch.yo:118` and `string_builder.yo:187`: both already
              have the take shape (copy the field, then reset it). They
-             need decision 19's `replace(&mut …)`, which has no prelude
-             form yet.
+             need decision 19's `replace(&mut …)`, which `std/mem` has
+             since B6-0 (2026-10-24); `string_builder.yo` uses it there.
            - `regex/match.yo:56`: every match of one search shares the
              haystack, and a copy per match would cost O(input) each time.
              B8 decides on an `Rc(String)` instead.
