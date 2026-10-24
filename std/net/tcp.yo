@@ -157,17 +157,20 @@ impl(
 TcpStream :: struct(_cell : Box(_TcpStreamState));
 impl(TcpStream, !Sync());
 /// Close the socket in `st` from an async body, at most once. The flag is set
-/// after the close, so a close future made and never awaited leaves the
-/// socket for the state's `Drop`. The caller keeps `st` alive until the
-/// future completes: `TcpStream.close`'s future borrows the stream, and
-/// `TlsStream.close`'s borrows the TLS stream that owns it.
+/// when the body starts, BEFORE the close is submitted: a task aborted while
+/// the close is in flight must not let the state's `Drop` close the
+/// (possibly reused) descriptor a second time. A close future made and never
+/// awaited never runs its body, so it leaves the socket for the `Drop`. The
+/// caller keeps `st` alive until the future completes: `TcpStream.close`'s
+/// future borrows the stream, and `TlsStream.close`'s borrows the TLS stream
+/// that owns it.
 _close_stream_state :: (fn(st : *_TcpStreamState, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     cond(
       unsafe(st.*._is_closed) => (),
       true => {
-        r := e.io.await(IO_tcp.close(unsafe(st.*._fd)), e.io);
         unsafe(consume(st.*._is_closed = true));
+        r := e.io.await(IO_tcp.close(unsafe(st.*._fd)), e.io);
         cond(
           (r < i32(0)) => {
             _throw_io(i32(0) - r, e.exn);
@@ -382,9 +385,13 @@ impl(
     })
   ),
   /// Accept an incoming connection, returning a new `TcpStream`.
-  accept : (fn(self : &Self, io : Io) -> Impl(Future(TcpStream, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  ///
+  /// The future borrows the listener until it is awaited: the descriptor is
+  /// read when the accept is submitted, so the listener cannot be dropped
+  /// (closing it, and freeing the number for reuse) in between.
+  accept : (fn(self : &Self, io : Io) -> Impl(Future(TcpStream, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
+      fd := self._cell._fd;
       // Allocate space for the peer address
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
@@ -415,7 +422,7 @@ impl(
       free(.Some((*void)(addr_len)));
       return(_new_stream(client_fd, peer_addr, _read_local_addr(client_fd, SocketAddr.any(u16(0)))));
     })
-  }),
+  ),
   /// The connections arriving at this listener, as a `Stream` of
   /// `Result(TcpStream, NetError)` — Rust's `TcpListener::incoming`.
   ///
@@ -448,8 +455,9 @@ impl(
         self._cell._is_closed => (),
         true => {
           st := addr_of(self._cell.*);
-          r := e.io.await(IO_tcp.close(self._cell._fd), e.io);
+          // Closed before the await: see `_close_stream_state`.
           unsafe(consume(st.*._is_closed = true));
+          r := e.io.await(IO_tcp.close(self._cell._fd), e.io);
           cond(
             (r < i32(0)) => {
               _throw_io(i32(0) - r, e.exn);
@@ -501,71 +509,38 @@ impl(
       return(_new_stream(fd, addr, _read_local_addr(fd, SocketAddr.any(u16(0)))));
     })
   ),
-  /// Read up to `size` bytes from the stream into `buf`, resolving to the
-  /// number actually read. `0` — and only `0` — means the peer closed its end;
-  /// a SHORT count is ordinary on a stream socket and says nothing about
-  /// end-of-stream, so a caller that needs `size` bytes loops. Awaiting parks
-  /// this task on the event loop until the kernel has bytes; a failure throws
-  /// `IoExn` rather than resolving to a negative count.
-  ///
-  /// `buf` must have room for `size` bytes, and raw pointers are unavailable
-  /// in safe code, so calling this directly needs
-  /// `pragma(Pragma.AllowUnsafe)`. Safe code uses the `Reader` defaults
-  /// (`read_to_end`, `read_to_string`) or wraps the stream in
-  /// `BufReader(TcpStream)`.
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
-      r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), e.io);
-      usize(NetError.check(r, e.exn))
-    })
-  }),
-  /// Write up to `size` raw bytes from `buf`, resolving to the number the
-  /// kernel accepted — which may be LESS than `size`. A caller that must
-  /// deliver everything loops, or takes the `Writer` trait's `write_all`.
-  /// Awaiting parks this task until the socket is writable; a failure throws
-  /// `IoExn`. Needs `pragma(Pragma.AllowUnsafe)` for the raw pointer —
-  /// `write_bytes` / `write_str` / `write_string` are the safe spellings.
-  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, buf, size), e.io);
-      usize(NetError.check(r, e.exn))
-    })
-  }),
   /// Write a `str` to the stream.
   /// Returns the number of bytes written.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
     s := String.from(data);
-    io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, s.ptr().unwrap(), s.len()), e.io);
+    io.async({ &self, s }(e : IoExn) => {
+      r := e.io.await(IO_tcp.stream_write(self._cell._fd, s.ptr().unwrap(), s.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Write a `String` to the stream.
   /// Returns the number of bytes written.
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
+      fd := self._cell._fd;
       r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Write raw bytes from an `ArrayList(u8)` to the stream.
   /// Returns the number of bytes written.
-  write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
+      fd := self._cell._fd;
       r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Shut down part or all of the connection.
-  shutdown : (fn(self : &Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._cell._fd;
-    raw_how := _shutdown_to_how(how);
-    io.async(e => {
+  shutdown : (fn(self : &Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, how }(e : IoExn) => {
+      fd := self._cell._fd;
+      raw_how := _shutdown_to_how(how);
       r := e.io.await(IO_tcp.shutdown(fd, raw_how), e.io);
       cond(
         (r < i32(0)) => {
@@ -574,7 +549,7 @@ impl(
         true => ()
       );
     })
-  }),
+  ),
   /// Close the stream.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ &self, io }(e : IoExn) => {
@@ -613,9 +588,9 @@ impl(
     self._cell._fd
   ),
   /// Enable or disable TCP_NODELAY (disables Nagle's algorithm).
-  set_nodelay : (fn(self : &Self, nodelay : bool, io : Io) -> Impl(Future(unit, IoExn)))({
-    sock_fd := self._cell._fd;
-    io.async(e => {
+  set_nodelay : (fn(self : &Self, nodelay : bool, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, nodelay }(e : IoExn) => {
+      sock_fd := self._cell._fd;
       val := cond(nodelay => i32(1), true => i32(0));
       val_ptr := addr_of(val);
       r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, (*u8)(val_ptr), u32(4)), e.io);
@@ -626,11 +601,11 @@ impl(
         true => ()
       );
     })
-  }),
+  ),
   /// Enable or disable SO_KEEPALIVE on the socket.
-  set_keepalive : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))({
-    sock_fd := self._cell._fd;
-    io.async(e => {
+  set_keepalive : (fn(self : &Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, enabled }(e : IoExn) => {
+      sock_fd := self._cell._fd;
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
       r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, (*u8)(val_ptr), u32(4)), e.io);
@@ -641,28 +616,56 @@ impl(
         true => ()
       );
     })
-  })
+  )
 );
 export(TcpStream, _close_stream_in_place);
 
 // === std/io async trait impls (STD_API_AUDIT D5) ===
 //
-// The trait methods DELEGATE to the inherent `read`/`write` above (inherent-
-// first resolution keeps direct calls on the fast path); `flush` resolves
-// immediately — a TCP socket has no userspace buffer here.
+// `read`/`write` live HERE, not as inherent methods the trait delegates to:
+// their futures borrow the stream, and a function cannot yet return another
+// call's borrowing future
+// (issues/2026-10-25-a-borrowing-future-returned-through-a-delegating-call-is-rejected.md).
+// `flush` resolves immediately — a TCP socket has no userspace buffer here.
 impl(
   TcpStream,
   IoTraits.Reader(
+    /// Read up to `size` bytes from the stream into `buf`, resolving to the
+    /// number actually read. `0` — and only `0` — means the peer closed its end;
+    /// a SHORT count is ordinary on a stream socket and says nothing about
+    /// end-of-stream, so a caller that needs `size` bytes loops. Awaiting parks
+    /// this task on the event loop until the kernel has bytes; a failure throws
+    /// `IoExn` rather than resolving to a negative count.
+    ///
+    /// `buf` must have room for `size` bytes, and raw pointers are unavailable
+    /// in safe code, so calling this directly needs
+    /// `pragma(Pragma.AllowUnsafe)`. Safe code uses the `Reader` defaults
+    /// (`read_to_end`, `read_to_string`) or wraps the stream in
+    /// `BufReader(TcpStream)`.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.read(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        fd := self._cell._fd;
+        r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), e.io);
+        usize(NetError.check(r, e.exn))
+      })
     )
   )
 );
 impl(
   TcpStream,
   IoTraits.Writer(
+    /// Write up to `size` raw bytes from `buf`, resolving to the number the
+    /// kernel accepted — which may be LESS than `size`. A caller that must
+    /// deliver everything loops, or takes the `Writer` trait's `write_all`.
+    /// Awaiting parks this task until the socket is writable; a failure throws
+    /// `IoExn`. Needs `pragma(Pragma.AllowUnsafe)` for the raw pointer —
+    /// `write_bytes` / `write_str` / `write_string` are the safe spellings.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.write(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        fd := self._cell._fd;
+        r := e.io.await(IO_tcp.stream_write(fd, buf, size), e.io);
+        usize(NetError.check(r, e.exn))
+      })
     ),
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())

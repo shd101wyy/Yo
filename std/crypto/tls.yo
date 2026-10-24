@@ -160,7 +160,9 @@ impl(
 TlsStream :: struct(_cell : Box(_TlsState));
 impl(TlsStream, !Sync());
 /// What the record pumps need, copied out of the state: the socket's fd, the
-/// session and its two BIOs. Plain words, so a pump future borrows nothing.
+/// session and its two BIOs. Plain words, so a pump future borrows nothing;
+/// every public future that runs one borrows the `TlsStream`, which keeps the
+/// session (freed by the state's `Drop`) alive until it completes.
 _TlsIo :: struct(
   _fd : i32,
   _ssl : *void,
@@ -286,32 +288,23 @@ impl(
   _io : (fn(self : &Self) -> _TlsIo)(
     _TlsIo(_fd : self._cell._tcp.fd(), _ssl : self._cell._ssl, _rbio : self._cell._rbio, _wbio : self._cell._wbio)
   ),
-  /// Read decrypted bytes into `buf`. 0 = the peer closed the session.
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-    _tls_read(self._io(), buf, size, io)
-  ),
-  /// Write plaintext; returns the byte count accepted (all of `size` on
-  /// success — SSL_write is all-or-nothing by default).
-  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-    _tls_write(self._io(), buf, size, io)
-  ),
-  /// Write a `str`; returns the byte count written.
+  /// Write a `str`; returns the byte count written. The future borrows the
+  /// stream, as every I/O future on it does: the session it drives is freed
+  /// when the stream drops.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
-    t := self._io();
     s := String.from(data);
-    io.async(e => {
-      n := e.io.await(_tls_write(t, s.ptr().unwrap(), s.len(), e.io), e);
+    io.async({ &self, s }(e : IoExn) => {
+      n := e.io.await(_tls_write(self._io(), s.ptr().unwrap(), s.len(), e.io), e);
       return(n);
     })
   }),
   /// Write a `String` (matches TcpStream.write_string); byte count written.
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-    t := self._io();
-    io.async(e => {
-      n := e.io.await(_tls_write(t, data.ptr().unwrap(), data.len(), e.io), e);
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
+      n := e.io.await(_tls_write(self._io(), data.ptr().unwrap(), data.len(), e.io), e);
       return(n);
     })
-  }),
+  ),
   /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
   /// objects — the stream must not be used afterwards.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -460,22 +453,31 @@ _tls_write :: (fn(t : _TlsIo, buf : *u8, size : usize, io : Io) -> Impl(Future(u
 });
 export(TlsStream);
 // === std/io async trait impls (D5) ===
+//
+// `read`/`write` live here rather than as inherent methods the traits
+// delegate to: their futures borrow the stream, and a function cannot yet
+// return another call's borrowing future
+// (issues/2026-10-25-a-borrowing-future-returned-through-a-delegating-call-is-rejected.md).
 impl(
   TlsStream,
   IoTraits.Reader(
+    /// Read decrypted bytes into `buf`. 0 = the peer closed the session.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.read(buf, size, io)
+      io.async({ &self, buf, size, io }(e : IoExn) => e.io.await(_tls_read(self._io(), buf, size, io), e))
     )
   )
 );
 impl(
   TlsStream,
   IoTraits.Writer(
+    /// Write plaintext; returns the byte count accepted (all of `size` on
+    /// success — SSL_write is all-or-nothing by default).
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.write(buf, size, io)
+      io.async({ &self, buf, size, io }(e : IoExn) => e.io.await(_tls_write(self._io(), buf, size, io), e))
     ),
+    /// Push the ciphertext OpenSSL has produced to the socket.
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      _flush_wbio(self._io(), io)
+      io.async({ &self, io }(e : IoExn) => e.io.await(_flush_wbio(self._io(), io), e))
     )
   )
 );

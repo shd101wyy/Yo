@@ -1305,17 +1305,16 @@ The resources in `std/` are move-only values: `File`, `TempDir`, `TempFile`, `Wa
 
 - **A copy is E0901.** `g := f` moves the file, and a use of `f` afterwards is E0901 (use of moved value). Storing one handle twice, or capturing it in two closures, is E0901 as well. Before this change a `File` was a reference handle, and a copy shared its descriptor and position.
 - **Lend it.** Every method takes `self : &Self`, so `f.read_to_string(io)` borrows `f`. A function that only uses a resource takes `&File`.
-- **Share it through a reference type.** On one thread, `rc(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
+- **Share it through a reference type.** On one thread, `rc(f)` gives an `Rc(File)` whose handles all reach the one file (`h.*.read_to_string(io)`). Across threads, use `Arc(Mutex(TcpStream))`; that needs a `Send` resource, which today are the sockets other than `UnixListener`, `Child` and its pipes, and `Thread`. `File`, the temporaries and `UnixListener` hold a `String` path and become `Send` with the collections (V2b); `Watcher`, `TlsStream` and `HttpClient` stay on their thread. A `ref` struct that holds a resource holds it as an `Rc` field for the same reason, as `HttpServer` holds its listener.
 - **Moving it out.** `Option(T).unwrap` reads through a borrow and cannot move a move-only payload out. Use a consuming match instead: `f := match(opt, .Some(x) => x, .None => …)`.
-- **Hand it over.** `BufReader(File).new(f)` and `TcpListener.incoming()` take ownership (`sink`); `get_ref()` and `Incoming.listener()` lend it back. To serve a socket from a spawned task, move it into the task.
+- **Hand it over.** `BufReader(File).new(f)` and `TcpListener.incoming()` take ownership (`sink`); `get_ref()` and `Incoming.listener()` lend it back, and `BufReader.into_inner()` / `BufWriter.into_parts()` give it back by value. To serve a socket from a spawned task, move it into the task.
+- **Dropping it releases it.** A `Child` dropped without `wait()` closes the pipe ends it still holds (it does not wait for the process).
 
-A method whose future reads or writes the resource's state across a suspension borrows the resource until the future completes. These are `File.read`, `File.write` and their conveniences, every `close`, `BufReader.read_line`, `Child.wait`, `HttpClient.fetch`, and the `Reader`/`Writer` defaults (`read_to_end`, `read_to_string`, `write_all`). A borrowing future follows the rules of §3.13 A2:
+Every I/O method's future borrows the resource until it completes, because the descriptor it uses is closed when the resource drops. That covers every read, write, `close`, `flush`, `set_len`, `metadata`, `accept`, `connect` (UDP), `send`/`recv`, `shutdown` and socket option on the resources above, `BufReader.read_line`, `Child.wait` and its pipe reads and writes, `HttpClient.fetch`, `Watcher.next`, the `Reader`/`Writer` defaults (`read_to_end`, `read_to_string`, `write_all`), and the free functions built on them (`io.copy`, `read_http_message`). A borrowing future follows the rules of §3.13 A2:
 
 - Await it where it is made. It cannot be bound to a name, spawned or returned (E0909).
 - Its effect bundle must be a place. Write `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)`; an inline `IoExn(...)` in the `io.await` is E0910.
 - The borrowed resource cannot live inside a `ref` object or a pointer dereference (E0909): hold it as an `Rc` field.
-
-A future that only needs the descriptor (`TcpStream.read`, `TcpListener.accept`, `UdpSocket.recv`) copies the descriptor and borrows nothing, so it can be spawned.
 
 For the same reason there is no `Dyn(Reader)` or `Dyn(Writer)` any more. The traits' defaults (`read_to_end`, `read_to_string`, `write_all`) return futures that borrow the reader or writer, and a vtable's future type carries no borrow, so `dyn(r)` as either trait object is E0909 for every implementor. Take one through a generic `Impl(Reader)` / `Impl(Writer)` parameter instead.
 

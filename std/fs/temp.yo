@@ -63,7 +63,9 @@ IO_file :: import("../sys/file");
 /// ignored and the removal is non-recursive (parity with `remove`) — use
 /// `remove(io)` to observe failures.
 _TempDirState :: struct(
-  _path : Path,
+  /// Rendered: a `String` rather than a `Path` (a `ref`, never `Send`), so the
+  /// handle becomes `Send` once `String` is (V2b).
+  _path : String,
   _removed : bool
 );
 impl(
@@ -73,7 +75,7 @@ impl(
       cond(
         self._removed => (),
         true => {
-          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr_bytes := self._path.to_cstr();
           path_cstr := path_cstr_bytes.ptr().unwrap();
           cond(
             (platform == Platform.Windows) => {
@@ -139,7 +141,8 @@ impl(
       );
       path_str := String.from_cstr(buf).unwrap();
       free(.Some((*void)(buf)));
-      TempDir(_cell : box(_TempDirState(_path : Path.new(&path_str), _removed : false)))
+      // Through `Path` once, so `path()` renders exactly what it did.
+      TempDir(_cell : box(_TempDirState(_path : Path.new(&path_str).to_string(), _removed : false)))
     })
   ),
   /// `new_in` against the system temporary directory (`env.temp_dir()` —
@@ -152,7 +155,7 @@ impl(
   /// life of the handle, and still returned after `remove` — the handle
   /// remembers the name it removed rather than emptying itself.
   path : (fn(self : &Self) -> Path)(
-    self._cell._path
+    Path.new(&self._cell._path)
   ),
   /// Remove the directory now and observe the outcome, instead of leaving it
   /// to `Drop`.
@@ -168,7 +171,7 @@ impl(
         self._cell._removed => (),
         true => {
           st := addr_of(self._cell.*);
-          e.io.await(_dir_mod.remove_dir(&self._cell._path, io), e);
+          e.io.await(_dir_mod.remove_dir(&Path.new(&self._cell._path), io), e);
           unsafe(consume(st.*._removed = true));
         }
       ))
@@ -182,7 +185,8 @@ export(TempDir);
 /// delete the file (POSIX allows unlinking an open file; Windows does not).
 _TempFileState :: struct(
   _file : _file_mod.File,
-  _path : Path,
+  /// Rendered, as `_TempDirState._path` is.
+  _path : String,
   _removed : bool
 );
 impl(
@@ -200,7 +204,7 @@ impl(
               IO_file.close_sync(self._file.into_fd());
             }
           );
-          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr_bytes := self._path.to_cstr();
           path_cstr := path_cstr_bytes.ptr().unwrap();
           cond(
             (platform == Platform.Windows) => {
@@ -262,8 +266,8 @@ impl(
       );
       path_str := String.from_cstr(buf).unwrap();
       free(.Some((*void)(buf)));
-      path := Path.new(&path_str);
-      file := _file_mod.File._new(fd, path);
+      path := Path.new(&path_str).to_string();
+      file := _file_mod.File._new(fd, path.clone());
       TempFile(_cell : box(_TempFileState(_file : file, _path : path, _removed : false)))
     })
   ),
@@ -284,7 +288,7 @@ impl(
   /// process is the reason a NAMED temporary exists; note the file is
   /// unlinked when this handle drops, so the path outlives nothing.
   path : (fn(self : &Self) -> Path)(
-    self._cell._path
+    Path.new(&self._cell._path)
   ),
   /// Close the descriptor and unlink the file now, observing the outcome,
   /// instead of leaving it to `Drop`. The close comes FIRST so that
@@ -301,7 +305,7 @@ impl(
           // The file's state sits inside this temporary's box: close it
           // through its address (this future borrows the temporary).
           e.io.await(_file_mod._close_file_state(addr_of(self._cell._file._cell.*), io), e);
-          e.io.await(_dir_mod.remove_file(&self._cell._path, io), e);
+          e.io.await(_dir_mod.remove_file(&Path.new(&self._cell._path), io), e);
           unsafe(consume(st.*._removed = true));
         }
       ))

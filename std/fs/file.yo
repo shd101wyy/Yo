@@ -38,8 +38,10 @@
 //! a `Box` (plans/VALUES_BY_DEFAULT.md V3). `f2 := f` moves the handle, and a
 //! copy that would leave two owners is error E0901. Lend it with `&f` (every
 //! method takes `self : &Self`), or share one handle as `Rc(File)` on one
-//! thread or `Arc(Mutex(File))` across threads. A method's future borrows the
-//! file until it is awaited: await it where it is made,
+//! thread. A `File` cannot cross threads yet (it is not `Send` until V2b; see
+//! the type's doc). A method's future borrows the file until it is awaited
+//! (`read`, `write_*`, `flush`, `set_len`, `metadata`, `close`): await it
+//! where it is made,
 //! `io.await(f.read_to_string(io), b)`, with the bundle `b` a variable.
 //!
 //! ## Stability
@@ -81,7 +83,9 @@ IoTraits :: import("../io");
 /// closes the descriptor unless `close` or `into_fd` retired it.
 _FileState :: struct(
   _fd : i32,
-  _path : Path,
+  /// The path as opened, rendered. A `String` rather than a `Path` (a `ref`,
+  /// never `Send`), so a `File` becomes `Send` once `String` is (V2b).
+  _path : String,
   _is_closed : bool,
   /// Byte offset for the NEXT `read`/`write_*` on this handle.
   ///
@@ -112,8 +116,10 @@ impl(
   )
 );
 /// Close the descriptor in `st` from an async body, at most once. The flag is
-/// set after the close, so a close future made and never awaited leaves the
-/// descriptor for the state's `Drop`. The caller keeps `st` alive until the
+/// set when the body starts, BEFORE the close is submitted, so a task aborted
+/// while the close is in flight cannot make the state's `Drop` close the
+/// (possibly reused) descriptor again; a close future made and never awaited
+/// never runs its body and leaves the descriptor for the `Drop`. The caller keeps `st` alive until the
 /// future completes (`File.close`'s future borrows the file; `TempFile.remove`'s
 /// borrows the temporary that owns it).
 _close_file_state :: (fn(st : *_FileState, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -122,8 +128,8 @@ _close_file_state :: (fn(st : *_FileState, io : Io) -> Impl(Future(unit, IoExn))
       cond(
         unsafe(st.*._is_closed) => (),
         true => {
-          result := e.io.await(IO_file.close(unsafe(st.*._fd)), e.io);
           unsafe(consume(st.*._is_closed = true));
+          result := e.io.await(IO_file.close(unsafe(st.*._fd)), e.io);
           IoError.check(result, e.exn);
           ()
         }
@@ -138,13 +144,16 @@ _close_file_state :: (fn(st : *_FileState, io : Io) -> Impl(Future(unit, IoExn))
 /// A move-only value (its state is a `Box(_FileState)`): moving it moves the
 /// descriptor, and a copy is E0901. Every method takes `self : &Self`; the
 /// position and the closed flag change inside the box, as Rust's `&File`
-/// reads and writes. That is why a `File` is `Send` but not `Sync`.
+/// reads and writes. That is why a `File` is never `Sync`. It is not `Send`
+/// yet either: its path is a `String`, whose buffer is a non-atomically
+/// counted cell until V2b (plans/VALUES_BY_DEFAULT.md), so it cannot cross
+/// threads, not even inside an `Arc(Mutex(File))`.
 File :: struct(_cell : Box(_FileState));
 impl(File, !Sync());
 impl(
   File,
   /// A handle owning `fd`, at position 0.
-  _new : (fn(fd : i32, path : Path) -> Self)(
+  _new : (fn(fd : i32, path : String) -> Self)(
     Self(_cell : box(_FileState(_fd : fd, _path : path, _is_closed : false, _pos : u64(0))))
   ),
   /// The state cell: written through `&File` (see the type's doc).
@@ -162,7 +171,7 @@ impl(
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
-      File._new(fd, path)
+      File._new(fd, path_str)
     })
   }),
   /// Open a file from a `str` path with the given mode and custom permissions.
@@ -209,7 +218,7 @@ impl(
       cstr := cstr_bytes.ptr().unwrap();
       result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
       fd := IoError.check(result, e.exn);
-      File._new(fd, path)
+      File._new(fd, path_str)
     })
   }),
   /// Open a file at `path` with an `OpenOptions` flag set and default
@@ -259,31 +268,31 @@ impl(
   /// the `io.Writer` impl below deliberately makes the trait's `flush` a
   /// no-op. Reach for this one only when durability is the point; it is by
   /// far the most expensive call on the type.
-  flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
+      fd := self._cell._fd;
       result := e.io.await(IO_file.fsync(fd), e.io);
       IoError.check(result, e.exn);
       ()
     })
-  }),
+  ),
   /// Truncate or extend the file to exactly `length` bytes (Rust's
   /// `File::set_len`). Extending pads with zeroes. Takes effect regardless of
   /// this handle's read/write position.
-  set_len : (fn(self : &Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  set_len : (fn(self : &Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async({ &self, length }(e : IoExn) => {
+      fd := self._cell._fd;
       result := e.io.await(IO_file.ftruncate(fd, length), e.io);
       IoError.check(result, e.exn);
       ()
     })
-  }),
+  ),
   /// Wrap an ALREADY-OPEN file descriptor without opening anything (Rust's
   /// `File::from` for raw fds). The handle starts at position 0 — use
   /// `seek()` if the descriptor's data should be read from elsewhere. The
   /// path is unknown, so `path()` reports an empty path.
   from_fd : (fn(fd : i32) -> Self)(
-    Self._new(fd, Path.new(String.new()))
+    Self._new(fd, String.new())
   ),
   /// Seek to a position relative to `from`. Returns the new absolute byte offset.
   seek : (fn(self : &Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)({
@@ -350,7 +359,7 @@ impl(
   }),
   /// Get the path this file was opened with.
   path : (fn(self : &Self) -> Path)(
-    self._cell._path
+    Path.new(&self._cell._path)
   ),
   /// Get file metadata (size, permissions, timestamps).
   ///
@@ -362,7 +371,7 @@ impl(
   /// A file renamed, replaced or unlinked after the open had the same
   /// problem. The descriptor names the inode; the path does not.
   metadata : (fn(self : &Self, io : Io) -> Impl(Future(Metadata, IoExn)))(
-    _metadata_mod.metadata_fd(self._cell._fd, io)
+    io.async({ &self, io }(e : IoExn) => e.io.await(_metadata_mod.metadata_fd(self._cell._fd, io), e))
   )
 );
 export(File, OpenMode, OpenOptions, FilePermission, SeekFrom, _close_file_state);

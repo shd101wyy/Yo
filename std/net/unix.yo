@@ -76,14 +76,16 @@ _UnixListenerState :: struct(
 /// `UnixStream` is; dropping it closes the socket (the socket FILE stays).
 UnixListener :: struct(_cell : Box(_UnixListenerState));
 impl(UnixListener, !Sync());
-/// Close `st`'s socket from an async body, at most once.
+/// Close `st`'s socket from an async body, at most once. The flag is set
+/// before the close is submitted, so a task aborted mid-close cannot make the
+/// state's `Drop` close a (possibly reused) descriptor again.
 _close_unix :: (fn(st : *_UnixSocketState, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     cond(
       unsafe(st.*._is_closed) => (),
       true => {
-        r := e.io.await(IO_unix.close(unsafe(st.*._fd)), e.io);
         unsafe(consume(st.*._is_closed = true));
+        r := e.io.await(IO_unix.close(unsafe(st.*._fd)), e.io);
         cond(
           (r < i32(0)) => {
             _throw_io(i32(0) - r, e.exn);
@@ -135,9 +137,9 @@ impl(
     })
   ),
   /// Accept an incoming connection, returning a new `UnixStream`.
-  accept : (fn(self : &Self, io : Io) -> Impl(Future(UnixStream, IoExn)))({
-    fd := self._cell._sock._fd;
-    io.async(e => {
+  accept : (fn(self : &Self, io : Io) -> Impl(Future(UnixStream, IoExn)))(
+    io.async({ &self }(e : IoExn) => {
+      fd := self._cell._sock._fd;
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
@@ -158,7 +160,7 @@ impl(
       );
       return(UnixStream(_cell : box(_UnixSocketState(_fd : client_fd, _is_closed : false))));
     })
-  }),
+  ),
   /// The filesystem path this listener is bound to.
   local_path : (fn(self : &Self) -> &String)(
     &self._cell._path
@@ -214,57 +216,30 @@ impl(
       return(UnixStream(_cell : box(_UnixSocketState(_fd : fd, _is_closed : false))));
     })
   ),
-  /// Read up to `size` bytes into `buf`, resolving to the number actually
-  /// read. `0` — and only `0` — means the peer closed; a SHORT count is
-  /// ordinary on a stream socket and is not end-of-stream, so a caller that
-  /// needs `size` bytes loops. Awaiting parks this task on the event loop
-  /// until the kernel has bytes; a failure throws `IoExn`. The raw pointer
-  /// needs `pragma(Pragma.AllowUnsafe)` — safe code uses the `Reader`
-  /// defaults (`read_to_end`, `read_to_string`) or `BufReader(UnixStream)`.
-  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
-      r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), e.io);
-      usize(NetError.check(r, e.exn))
-    })
-  }),
-  /// Write up to `size` raw bytes from `buf`, resolving to the number the
-  /// kernel accepted — which may be LESS than `size`, so a caller that must
-  /// deliver everything loops or takes the `Writer` trait's `write_all`.
-  /// Needs `pragma(Pragma.AllowUnsafe)`; `write_bytes` / `write_str` /
-  /// `write_string` are the safe spellings.
-  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
-      r := e.io.await(IO_unix.stream_write(fd, buf, size), e.io);
-      usize(NetError.check(r, e.exn))
-    })
-  }),
   /// Write a `str` to the stream. Returns the number of bytes written.
   write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
     s := String.from(data);
-    io.async(e => {
-      r := e.io.await(IO_unix.stream_write(fd, s.ptr().unwrap(), s.len()), e.io);
+    io.async({ &self, s }(e : IoExn) => {
+      r := e.io.await(IO_unix.stream_write(self._cell._fd, s.ptr().unwrap(), s.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Write a `String` to the stream. Returns the number of bytes written.
-  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
+      fd := self._cell._fd;
       r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Write raw bytes from an `ArrayList(u8)`. Returns the count written.
-  write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
-    fd := self._cell._fd;
-    io.async(e => {
+  write_bytes : (fn(self : &Self, data : &ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async({ &self, &data }(e : IoExn) => {
+      fd := self._cell._fd;
       r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
       usize(NetError.check(r, e.exn))
     })
-  }),
+  ),
   /// Close the stream.
   close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async({ &self, io }(e : IoExn) => {
@@ -281,16 +256,36 @@ export(UnixStream);
 impl(
   UnixStream,
   IoTraits.Reader(
+    /// Read up to `size` bytes into `buf`, resolving to the number actually
+    /// read. `0` — and only `0` — means the peer closed; a SHORT count is
+    /// ordinary on a stream socket and is not end-of-stream, so a caller that
+    /// needs `size` bytes loops. Awaiting parks this task on the event loop
+    /// until the kernel has bytes; a failure throws `IoExn`. The raw pointer
+    /// needs `pragma(Pragma.AllowUnsafe)` — safe code uses the `Reader`
+    /// defaults (`read_to_end`, `read_to_string`) or `BufReader(UnixStream)`.
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.read(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        fd := self._cell._fd;
+        r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), e.io);
+        usize(NetError.check(r, e.exn))
+      })
     )
   )
 );
 impl(
   UnixStream,
   IoTraits.Writer(
+    /// Write up to `size` raw bytes from `buf`, resolving to the number the
+    /// kernel accepted — which may be LESS than `size`, so a caller that must
+    /// deliver everything loops or takes the `Writer` trait's `write_all`.
+    /// Needs `pragma(Pragma.AllowUnsafe)`; `write_bytes` / `write_str` /
+    /// `write_string` are the safe spellings.
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-      self.write(buf, size, io)
+      io.async({ &self, buf, size }(e : IoExn) => {
+        fd := self._cell._fd;
+        r := e.io.await(IO_unix.stream_write(fd, buf, size), e.io);
+        usize(NetError.check(r, e.exn))
+      })
     ),
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())

@@ -108,6 +108,12 @@ impl(
   ),
   /// The inner reader, lent.
   get_ref : (fn(self : &Self) -> &R)(&self._inner),
+  /// Unwrap the reader, giving the inner one back by value (Rust's
+  /// `BufReader::into_inner`). Bytes already buffered and not yet read are
+  /// lost, as Rust's are: read `buffered()` bytes first to keep them.
+  into_inner : (fn(sink(self) : Self) -> R)(
+    match(self, Self(_inner : inner, _st : _) => inner)
+  ),
   /// The buffer state, written through `&Self`.
   _state : (fn(self : &Self) -> *_BufReaderState)(addr_of(self._st.*)),
   /// Number of buffered bytes available without touching the inner reader.
@@ -269,6 +275,22 @@ impl(
   ),
   /// The inner writer, lent.
   get_ref : (fn(self : &Self) -> &W)(&self._inner),
+  /// Unwrap the writer WITHOUT writing anything: the inner writer by value
+  /// and the bytes still buffered for it (Rust's `BufWriter::into_parts`).
+  /// `flush(io)` first to deliver them; a `Drop` cannot await, so there is no
+  /// flushing `into_inner`.
+  into_parts : (fn(sink(self) : Self) -> Tuple(W, ArrayList(u8)))(
+    match(
+      self,
+      Self(_inner : inner, _st : st) => {
+        // Bound first: a field moved straight into a tuple literal is
+        // dropped with its owner as well
+        // (issues/2026-10-25-a-tuple-literal-moving-a-field-out-of-a-parameter-double-frees-it.md).
+        pending := st.*._buf;
+        (inner, pending)
+      }
+    )
+  ),
   /// The pending bytes, written through `&Self`.
   _state : (fn(self : &Self) -> *_BufWriterState)(addr_of(self._st.*)),
   /// Number of bytes currently buffered.

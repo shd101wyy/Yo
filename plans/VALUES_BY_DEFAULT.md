@@ -5464,8 +5464,7 @@ lands after V1 step 2, because its resource cells are the unique `Box`
     `Drop` and marked `!Sync()` (writes go through `addr_of(self._cell.*)`,
     the async `Mutex` precedent). Methods take `&Self`; a future that needs
     the state across a suspension borrows the handle through a capture list
-    (A2), and a socket future that needs only the descriptor copies it, so it
-    can still be spawned. Riding along: `Stdin`/`Stdout`/`Stderr` are `Copy`
+    (A2). Riding along: `Stdin`/`Stdout`/`Stderr` are `Copy`
     value structs; `BufReader`/`BufWriter` own their inner value (`sink`) with
     a `Box`ed buffer; the `Stream` combinators and `TcpListener.incoming` take
     `sink(self)`; `HttpServer` (still a `ref`) holds an `Rc(TcpListener)`;
@@ -5478,7 +5477,6 @@ lands after V1 step 2, because its resource cells are the unique `Box`
     (`issues/questions/2026-10-23-option-unwrap-cannot-move-a-move-only-payload.md`)
     and the loss of `Dyn(Reader)`/`Dyn(Writer)`
     (`issues/questions/2026-10-23-a-move-only-file-cannot-be-a-dyn-reader.md`).
-    `Child` still has no `Drop` of its own.
     Completed 2026-10-24 on the same branch: a borrowing method future on a
     `ref` receiver is accepted (it was E0909, so a user `ref` reader could not
     call the now-borrowing `Reader` defaults;
@@ -5487,6 +5485,19 @@ lands after V1 step 2, because its resource cells are the unique `Box`
     P1 (#1584). Also open: an aborted task's by-value captures, which now
     include resources moved into a task
     (`issues/2026-10-24-an-aborted-task-never-drops-its-by-value-captures.md`).
+    Review round (2026-10-25): every I/O future borrows its handle (a future
+    that copied the descriptor ran on a closed, possibly reused one once the
+    handle moved and dropped), so `read`/`write` live in the `Reader`/`Writer`
+    impls (a function cannot yet return another call's borrowing future,
+    `issues/2026-10-25-a-borrowing-future-returned-through-a-delegating-call-is-rejected.md`);
+    the HTTP deadline's exchange is a scoped child; `Child` closes its pipe
+    ends on drop; close paths mark the state closed before the close is
+    submitted; `BufReader.into_inner` and `BufWriter.into_parts` give the
+    inner value back. `File`, the temporaries, `UnixListener`, `Watcher`,
+    `TlsStream` and `HttpClient` are not `Send` (a `String`/`Path`, raw
+    session pointers or the pool); `File`, the temporaries and
+    `UnixListener` hold `String` paths and follow `String` to `Send` with
+    V2b.
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`

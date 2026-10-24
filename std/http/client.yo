@@ -57,7 +57,8 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("../time/duration");
 { Instant } :: import("../time/instant");
 IO_timer :: import("../sys/timer");
-{ __yo_join_wait_new, __yo_join_wait_add } :: import("../sys/externs.yo");
+{ __yo_join_wait_new } :: import("../sys/externs.yo");
+{ _scope, _scoped_state, _scoped_abort, _scoped_wait_on, _scoped_join } :: import("../async/index");
 { Reader } :: import("../io");
 { HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, HttpError, parse_response } :: import("./http.yo");
 { read_http_message_buffered, MessageKind } :: import("./wire.yo");
@@ -903,31 +904,39 @@ _fetch_follow :: (
 /// the exchange needs this task's exception handler, which a closure cannot
 /// capture, so the request runs as a task spawned with this task's bundle
 /// and is raced here the way `timeout` races its operand.
+///
+/// The request task is a SCOPED child (`std/async`'s `_Scoped`), as
+/// `timeout`'s operand is: it holds a raw pointer to the client's pool and
+/// borrows the caller's URL and options, so it must never outlive this
+/// future. If the `fetch` future is itself aborted or dropped (a caller's own
+/// `timeout`), dropping this one aborts the request task instead of
+/// detaching it; a detached exchange went on to pool its connection into a
+/// client that had been dropped in the meantime (a heap use-after-free).
 _DeadlineOutcome :: enum(Done(response : HttpResponse), Elapsed, Aborted);
 _deadline_join :: (fn(h : JoinHandle(HttpResponse), limit : Duration, io : Io) -> Impl(Future(_DeadlineOutcome, Io)))({
   ms := Rc(u64)(u64(limit.as_millis()));
   io.async({ h, ms }(io : Io) => {
+    // Scoped before the first suspension: the future is awaited where it is
+    // made, so nothing can drop it between the spawn and this line.
+    child := _scope(h);
     deadline_fut := io.async((io : Io) => {
       io.await(IO_timer.sleep(ms.*), io);
       return(());
     });
-    dh := io.spawn(deadline_fut, io);
+    deadline := _scope(io.spawn(deadline_fut, io));
     w := unsafe(__yo_join_wait_new());
-    unsafe(__yo_join_wait_add(&w, h.as_ptr()));
-    unsafe(__yo_join_wait_add(&w, dh.as_ptr()));
+    _scoped_wait_on(&child, &w);
+    _scoped_wait_on(&deadline, &w);
     _w := io.await(w, io);
-    (mut(elapsed) : bool) = false;
-    cond(
-      h.is_finished() => (),
-      true => {
-        h.abort();
-        elapsed = true;
-      }
-    );
-    dh.abort();
-    _deadline_r := io.await(dh.join(io), io);
+    s := _scoped_state(&child);
+    elapsed := ((s != FutureState.Completed) && (s != FutureState.Aborted));
+    if(elapsed, {
+      _scoped_abort(&child);
+    });
+    _scoped_abort(&deadline);
+    _deadline_r := io.await(_scoped_join(&mut deadline, io), io);
     match(
-      io.await(h.join(io), io),
+      io.await(_scoped_join(&mut child, io), io),
       .Some(resp) => _DeadlineOutcome.Done(resp),
       .None => cond(
         elapsed => _DeadlineOutcome.Elapsed,

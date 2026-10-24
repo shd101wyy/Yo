@@ -260,16 +260,19 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
   and so does the same call outside the body
   (`issues/fixed/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
 - **A std resource's future borrows the resource** (`File`, the sockets,
-  `TlsStream`, `HttpClient`, `Child` and its pipes, `BufReader`/`BufWriter`
-  over them; plans/VALUES_BY_DEFAULT.md V3). `f.read_to_string(io)`,
-  `f.write_string(&s, io)`, every `close`, `child.wait(io)` and
-  `client.fetch(…)` must be awaited where they are made (binding, spawning or
+  `TlsStream`, `HttpClient`, `Child` and its pipes, `Watcher`,
+  `BufReader`/`BufWriter` over them; plans/VALUES_BY_DEFAULT.md V3). Every
+  I/O future on one does — `f.read_to_string(io)`, `s.read(buf, n, io)`,
+  `listener.accept(io)`, every `close`, `child.wait(io)`,
+  `client.fetch(…)`, `io.copy(&r, &w, io)` — and must be awaited where they are made (binding, spawning or
   returning one is E0909), and the bundle must be a place: write
   `b := IoExn(io : io, exn : exn); io.await(f.read_to_string(io), b)` (an
   inline `IoExn(...)` there is E0910). Inside your own `io.async` body, list
   the borrow: `io.async({ &f }(e : IoExn) => e.io.await(f.close(e.io), e))`.
-  A socket future that needs only the descriptor (`TcpStream.read`,
-  `TcpListener.accept`, `UdpSocket.recv`) borrows nothing and can be spawned.
+  To serve a socket from a spawned task, move the socket into the task. A
+  function cannot return another call's borrowing future yet: wrap it,
+  `io.async({ &s, io }(e : IoExn) => e.io.await(s.read(buf, n, io), e))`
+  (`issues/2026-10-25-a-borrowing-future-returned-through-a-delegating-call-is-rejected.md`).
 - **Do not bind a captured value to a local and then call a SUSPENDING method
   on the local** inside an async body: `local := captured_stream;` followed by
   `io.await(local.next(io), io)` emits invalid C (a state-machine field
