@@ -1604,6 +1604,11 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
     );
     Option(String).None
   }, {
+    // One member per name, as for a method: two traits declaring the same
+    // non-function member (the marker traits' `id`) gave the vtable a
+    // duplicate C member
+    // (issues/fixed/2026-10-24-a-dyn-listing-two-marker-traits-emits-a-duplicate-vtable-member.md).
+    processed.insert(label.clone());
     line := `  ${get_type_string(field_ty, context)} ${method_name}; // Non-function member ${label}`;
     Option(String).Some(line)
   })
@@ -1697,10 +1702,12 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   });
   em.emit_declaration_string_line(`typedef struct ${vtable_name}_s { // Vtable for ${type_to_string(type)}`);
   em.emit_declaration_line("  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)");
-  // The payload's RC functions, in `__yo_vtable_prefix_t`'s layout
-  // (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`.
+  // The payload's RC functions and its clone, in `__yo_vtable_prefix_t`'s
+  // layout (functions/gc_runtime.yo): `__yo_dyn_retain` / `__yo_dyn_release`
+  // / `__yo_dyn_clone`.
   em.emit_declaration_line("  void* (*__yo_retain)(void*); // payload retain: atomic for an atomically counted payload");
   em.emit_declaration_line("  void (*__yo_release)(void*); // payload release");
+  em.emit_declaration_line("  void* (*__yo_clone)(void*); // independent payload copy for a Dyn with Clone; NULL otherwise");
   (mi : usize) = usize(0);
   while(mi < members.len(), {
     match(members.get(mi), .Some(line) => em.emit_declaration_string_line(&line), .None => ());

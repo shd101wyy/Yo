@@ -4,16 +4,20 @@ import("std/string");
 
 main :: (fn() -> unit)({
   mut(x) := 1;
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    rc(y => {
-      x = (x + y);
-      return(x);
-    })
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = rc(
+    dyn(
+      rc(y => {
+        x = (x + y);
+        return(x);
+      })
+    )
   );
-  closure2 := closure; // Test dup on closure
-  closure(1); // 2
-  closure2(1); // 3
-  result := closure(2); // 5
+  // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
+  // two handles share one closure through an Rc.
+  closure2 := closure;
+  closure.*(1); // 2
+  closure2.*(1); // 3
+  result := closure.*(2); // 5
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
   println(`ok`);

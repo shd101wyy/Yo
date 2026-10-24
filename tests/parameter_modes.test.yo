@@ -324,7 +324,10 @@ test("Dyn(LogicalNot) over a by-value operator impl", {
 // original. A move-only payload has no copy, so it cannot be boxed behind a
 // by-value slot at all
 // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
+// A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): a call with
+// a by-value receiver moves the Dyn, so each call but the last gets a clone.
 _PmNamed :: struct(name : String);
+derive(_PmNamed, Clone);
 impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
 _PmHeld :: struct(n : i32);
 impl(
@@ -337,10 +340,10 @@ impl(
 );
 impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
 test("a by-value self called through a Dyn gets a copy of the payload", {
-  (e : Dyn(LogicalNot)) = dyn(_PmNamed(name : String.from("abc")));
-  assert(!!e, "first call: the name is non-empty");
-  assert(!!e, "second call reads the payload the first call did not free");
-  assert(!!e, "third call");
+  (e : Dyn(LogicalNot, Clone)) = dyn(_PmNamed(name : String.from("abc")));
+  assert(!!e.clone(), "first call, on a clone: the name is non-empty");
+  assert(!!e.clone(), "second call reads the payload the first call did not free");
+  assert(!!e, "third call, on the original");
   comptime_expect_error({
     (_h : Dyn(LogicalNot)) = dyn(_PmHeld(n : i32(1)));
   }, "cannot hold the move-only");

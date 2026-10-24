@@ -122,7 +122,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -586,6 +586,7 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
       `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
     ),
     .None => cond(
+      type_holds_dyn_by_value(ty) => Option(String).Some(_dyn_copy_note(name, ty)),
       (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
         `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
       ),
@@ -600,6 +601,16 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
       ),
       true => Option(String).None
     )
+  )
+);
+/// The E0901 note for a value named `name` holding a uniquely owned `Dyn`
+/// (plans/VALUES_BY_DEFAULT.md decision 7): with `Clone` in the trait list
+/// the copy is `.clone()`, through the vtable's clone slot; without it the
+/// `Dyn` is move-only, and sharing one payload is `Rc(Dyn(...))`.
+_dyn_copy_note :: (fn(name : &String, ty : &TypeValue) -> String)(
+  cond(
+    type_lacks_clone(ty) => `\`${name}\` holds a \`Dyn\`, which owns its payload alone (plans/VALUES_BY_DEFAULT.md decision 7) and copies only with \`Clone\` in its trait list, so \`${type_to_string(ty)}\` is move-only: move it (\`sink(${name})\`), lend it with \`&\`, list \`Clone\` in the \`Dyn\` (\`Dyn(Trait, Clone)\`) to copy it with \`.clone()\`, or share one payload through \`Rc(Dyn(...))\`.`,
+    true => `\`${name}\` holds a \`Dyn\`, which owns its payload alone (plans/VALUES_BY_DEFAULT.md decision 7): write \`${name}.clone()\` for an independent copy, move it (\`sink(${name})\`), lend it with \`&\`, or share one payload through \`Rc(Dyn(...))\`.`
   )
 );
 /// A closure's type: its identity, or its capture record.
@@ -619,6 +630,9 @@ _closure_copy_remedy :: (fn(ty : &TypeValue, name : String) -> String)(
 _clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
   cond(
     type_lacks_clone(ty) => String.new(),
+    // A `Dyn` is no `Deref` wrapper: its `clone` is a method call, which
+    // reaches the payload's through the vtable (decision 7).
+    is_dyn_type(ty) => ` It lists \`Clone\`: \`${name}.clone()\` copies its payload.`,
     true => ` It implements \`Clone\`: \`${_copy_derive_target(ty)}.clone(${name})\` copies it.`
   )
 );
@@ -632,6 +646,7 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
       `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
+      type_holds_dyn_by_value(ty) => Option(String).Some(_dyn_copy_note(String.from("the value"), ty)),
       (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
         `\`${type_to_string(ty)}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, String.from("the closure"))}`
       ),
@@ -950,6 +965,9 @@ _is_deref_place :: (fn(e : &AstExpr) -> bool)(
 _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
   cond(
     type_is_move_only(ty) => String.from("is move-only"),
+    // A uniquely owned `Dyn` (decision 7): `Clone` in its trait list makes it
+    // explicit-copy, its absence move-only.
+    (type_holds_dyn_by_value(ty) && type_lacks_clone(ty)) => String.from("is move-only (a `Dyn` copies only when `Clone` is in its trait list)"),
     // Decision 36: a plain-data type with neither `Copy` nor `Clone` is
     // move-only, with no `.clone()` to offer.
     type_lacks_clone(ty) => String.from("is move-only (it is neither `Copy` nor `Clone`)"),
@@ -3602,6 +3620,180 @@ audit_record_copy_trait :: (
 /// AFTER the transfer must not re-drop the moved value).
 (g_dup_use_site_tokens : RefCell(HashMap(usize, Token))) = RefCell(HashMap(usize, Token)).new(HashMap(usize, Token).new());
 get_dup_use_site_token :: (fn(id : usize) -> Option(Token))(g_dup_use_site_tokens.with(m => m.get(&id)));
+// ---------------------------------------------------------------------------
+// The unique `Dyn`, Generation A (plans/VALUES_BY_DEFAULT.md decision 7, B12)
+// ---------------------------------------------------------------------------
+/// One copy of a local holding a `Dyn` (`type_holds_dyn_by_value`), waiting
+/// for the epilogue of the frame that declares the local (`judge_dyn_copies`,
+/// exprs/begin.yo): the copy moves the local, so a read of it after `site`
+/// is the use of a moved value.
+DynCopyPending :: struct(site : ImplicitCopyPending, name : String, ty : TypeValue, site_tok : Token, seq : u64);
+/// The sequence number the next pending `Dyn` copy gets (`dyn_copy_mark`).
+(mut(g_dyn_copy_seq) : u64) = u64(0);
+/// Variable id → the pending `Dyn` copies of it.
+(g_dyn_copy_pending : RefCell(HashMap(usize, ArrayList(DynCopyPending)))) = RefCell(HashMap(usize, ArrayList(DynCopyPending))).new(HashMap(usize, ArrayList(DynCopyPending)).new());
+/// A `Dyn` owns its payload uniquely (decision 7): `Dyn(Trait, Clone)` is
+/// explicit-copy, any other `Dyn` move-only, and a value aggregate holding
+/// one follows it. Generation A enforces the rule on the copies a program
+/// makes outside the trees the seed builds (`is_global_mut_rule_exempt`:
+/// std, src, the build file, scripts, the store and macro expansions), whose
+/// copies still share the payload until Generation B (B13) sweeps them and
+/// makes the kind the type's own (`type_requires_explicit_copy`). The rule
+/// only rejects programs: every copy it accepts keeps today's representation
+/// (a counted share of the payload), so it changes no emitted C.
+/// True when the copy of a `ty` value at `tok` falls under the rule.
+dyn_copy_rule_applies :: (fn(ty : &TypeValue, tok : &Token, ctx : &EvalContext) -> bool)(
+  !is_global_mut_rule_exempt(&tok.module_path.*, &ctx.std_path) && type_holds_dyn_by_value(ty)
+);
+/// Check one copy (`rhs`, read through variable `variable_name`) of a value
+/// holding a `Dyn`, where the rule applies (`dyn_copy_rule_applies`). A copy
+/// out of storage it cannot move from is E0901 at once, exactly as
+/// `transfer_explicit_copy_value` rejects it for an explicit-copy type: a
+/// field, element or dereference, a module-level binding, a `&mut` borrow, a
+/// `&T` parameter and a closure's capture. Any other source (an owning local
+/// or parameter, a `match`/`for` binding) is held pending: Generation B moves
+/// it here, so it is E0901 only if it is read again (`judge_dyn_copies`). A
+/// binding of a `match` that Generation B makes consuming owns its payload,
+/// and one of a borrowing `match` cannot be moved at all; holding both
+/// pending rejects no program Generation B accepts.
+check_dyn_copy :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    find_variable_in_env(&ei.env, variable_name.clone()),
+    .None => (),
+    .Some(v) => cond(
+      is_temp_variable_name(&ei.env.module_path.*, variable_name) => if(!v.is_owning_the_rc_value, {
+        what := cond(
+          _is_deref_place(rhs) => String.from("it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves)."),
+          ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) => String.from("it is a field of another value, and moving it out would leave that value partly moved (Yo has no partial moves). Move the whole value instead."),
+          true => String.from("it is borrowed from the value that holds it (an element, or a binding into another value).")
+        );
+        _throw_explicit_copy_violation(rhs, &ei.ty, &what, ctx, exn);
+      }),
+      v.is_compile_time_only => (),
+      v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Lend it with `&` instead (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
+      v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, ctx, exn),
+      _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
+      (v.is_parameter && !v.is_owning_the_rc_value && _owning_param_binding_beside(&ei.env, &v).is_none()) => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&T` parameter, and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn),
+      true => {
+        tok := ast_expr_token(rhs);
+        entry := DynCopyPending(
+          site : ImplicitCopyPending(line : String.new(), module_path : tok.module_path.*.clone(), byte_offset : tok.byte_offset, migrate_site : Option(ExplicitCopySite).None),
+          name : v.name.clone(),
+          ty : ei.ty.clone(),
+          site_tok : tok,
+          seq : _next_dyn_copy_seq()
+        );
+        lst := match(g_dyn_copy_pending.with_mut(m => m.remove(&v.id)), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
+        lst.push(entry);
+        g_dyn_copy_pending.with_mut(m => m.insert(v.id, lst));
+      }
+    )
+  )
+);
+/// `check_dyn_copy` for the implicit capture of variable `v` by an escaping
+/// closure at `tok` (a closure that only borrows its captures copies
+/// nothing). A capture moves the variable in Generation B, so one that cannot
+/// be moved (a `&mut` borrow, a module-level binding, a `&T` parameter) is
+/// E0901 at once, and any other is held pending: read after the closure, it
+/// is the use of a moved value.
+check_dyn_capture :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  cond(
+    v.is_compile_time_only => (),
+    (v.is_ref || v.is_module_level || (v.is_parameter && !v.is_owning_the_rc_value && _owning_param_binding_beside(env, v).is_none())) => {
+      msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(&v.ty)}\` ${_explicit_copy_kind(&v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a \`&T\` parameter, a \`&mut\` borrow or a module-level binding).`;
+      raise_flow_violation(with_code(format_error_message_with_help(tok, &msg, move_only_help(v.name.clone(), &v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
+    },
+    true => {
+      entry := DynCopyPending(
+        site : ImplicitCopyPending(line : String.new(), module_path : tok.module_path.*.clone(), byte_offset : tok.byte_offset, migrate_site : Option(ExplicitCopySite).None),
+        name : v.name.clone(),
+        ty : v.ty.clone(),
+        site_tok : tok.clone(),
+        seq : _next_dyn_copy_seq()
+      );
+      lst := match(g_dyn_copy_pending.with_mut(m => m.remove(&v.id)), .Some(l) => l, .None => ArrayList(DynCopyPending).new());
+      lst.push(entry);
+      g_dyn_copy_pending.with_mut(m => m.insert(v.id, lst));
+    }
+  )
+);
+_next_dyn_copy_seq :: (fn() -> u64)({
+  n := g_dyn_copy_seq;
+  g_dyn_copy_seq = (n + u64(1));
+  n
+});
+/// A mark to roll the pending `Dyn` copies back to (`dyn_copy_rollback`).
+dyn_copy_mark :: (fn() -> u64)(g_dyn_copy_seq);
+/// Drop every pending `Dyn` copy recorded since `mark`: the evaluation that
+/// made them was abandoned (a `comptime_expect_error` argument), so none of
+/// those copies happens.
+dyn_copy_rollback :: (fn(mark : u64) -> unit)({
+  if(g_dyn_copy_pending.with(m => m.len()) == usize(0), {
+    return(());
+  });
+  ids := g_dyn_copy_pending.with(m => {
+    out := ArrayList(usize).new();
+    it := m.keys();
+    (more : bool) = true;
+    while(more, {
+      match(
+        it.next(),
+        .Some(k) => out.push(k),
+        .None => {
+          more = false;
+        }
+      );
+    });
+    out
+  });
+  (i : usize) = usize(0);
+  while(i < ids.len(), i = (i + usize(1)), {
+    id := match(ids.get(i), .Some(x) => x, .None => usize(0));
+    match(
+      g_dyn_copy_pending.with_mut(m => m.remove(&id)),
+      .Some(lst) => {
+        kept := ArrayList(DynCopyPending).new();
+        (j : usize) = usize(0);
+        while(j < lst.len(), j = (j + usize(1)), {
+          match(
+            lst.get(j),
+            .Some(e) => if(e.seq < mark, {
+              kept.push(e);
+            }),
+            .None => ()
+          );
+        });
+        if(kept.len() > usize(0), {
+          g_dyn_copy_pending.with_mut(m => m.insert(id, kept));
+        });
+      },
+      .None => ()
+    );
+  });
+});
+/// Whether any `Dyn` copy waits for its frame's epilogue.
+dyn_copy_pending_exists :: (fn() -> bool)(g_dyn_copy_pending.with(m => m.len()) > usize(0));
+/// Remove and return the pending `Dyn` copies of variable `id`, or none.
+take_dyn_copy_pending :: (fn(id : usize) -> Option(ArrayList(DynCopyPending)))(
+  cond(
+    (g_dyn_copy_pending.with(m => m.len()) == usize(0)) => Option(ArrayList(DynCopyPending)).None,
+    true => g_dyn_copy_pending.with_mut(m => m.remove(&id))
+  )
+);
+/// E0901 for a pending `Dyn` copy of `name` at `site_tok` whose source is
+/// read again at `use_tok` (`.None`: a loop runs the copy again).
+dyn_copy_used_again_error :: (fn(p : &DynCopyPending, use_tok : Option(Token)) -> YoError)(
+  match(
+    use_tok,
+    .Some(ut) => use_of_moved_value_error(&p.name, &p.ty, &ut, &p.site_tok),
+    .None => {
+      entries := ArrayList(TokenAndError).new();
+      entries.push(TokenAndError(token : p.site_tok.clone(), error_message : `use of moved value: \`${p.name}\` is moved here, and the loop runs this copy again`));
+      with_code(format_error_messages_with_help(&entries, move_only_help(&p.name, &p.ty)), E_USE_OF_MOVED_VALUE)
+    }
+  )
+);
 ///
 set_expr_as_needs_to_call_dup :: (
   fn(
@@ -3729,6 +3921,12 @@ set_expr_as_needs_to_call_dup :: (
         });
       });
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
+      // The unique `Dyn`, Generation A: a copy of a value holding a `Dyn`
+      // outside std and src (`check_dyn_copy`).
+      dyn_copy_tok := ast_expr_token(rhs);
+      if(dyn_copy_rule_applies(&ei.ty, &dyn_copy_tok, ctx), {
+        check_dyn_copy(rhs, &ei, &variable_name, ctx, exn);
+      });
       if(g_audit_implicit_copy || migrate_explicit_copy_on(), {
         audit_record_implicit_copy(
           ast_expr_token(rhs),
@@ -5706,6 +5904,7 @@ export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captu
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_report_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
+export(DynCopyPending, dyn_copy_rule_applies, check_dyn_copy, check_dyn_capture, dyn_copy_mark, dyn_copy_rollback, dyn_copy_pending_exists, take_dyn_copy_pending, dyn_copy_used_again_error);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_is_future_operand_parameter, variable_id_in_scope);

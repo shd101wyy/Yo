@@ -30,7 +30,8 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, no_types, no_levels } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_dyn, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
-{ type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type } :: import("../../types/utils.yo");
+{ resolve_cell_chain, is_closure_capture_struct, type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type, is_clone_trait_type } :: import("../../types/utils.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
@@ -40,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
+{ closure_identity_of } :: import("../utils/closure.yo");
 { get_type_trait_methods_for_type, type_id_or_empty, get_trait_default } :: import("./type_trait_methods.yo");
 { find_methods_from_generic_impls, MethodCandidate } :: import("./impl.yo");
 { Exception } :: import("std/error");
@@ -683,6 +685,76 @@ _generic_impl_method_for_dyn :: (
     .None => Option(EvalValue).None
   )
 });
+/// The function a `Dyn` that lists `Clone` puts in its vtable's clone slot
+/// (plans/VALUES_BY_DEFAULT.md decision 7) when the payload's `Clone` has no
+/// function of its own: a closure's clone is the structural expansion
+/// `v.clone()` makes at its call (`structural_clone_expansion`). The generic
+/// `(fn(generic(T : Type), v : &T, where(T <: Clone)) -> T)(v.clone())` is
+/// specialized for the payload type through a synthetic call, as
+/// `_generic_impl_method_for_dyn` does, which evaluates its body for `T` and
+/// records the specialization for codegen. `.None` when no specialization
+/// results.
+/// The type a `Dyn`'s synthesized clone is specialized for. A closure literal
+/// written straight into `dyn(...)` is typed by the `Dyn`'s nameless payload
+/// wrapper (`t_dyn_payload_wrapper`), which is no closure identity
+/// (`is_bound_closure_identity` wants an `Impl`), so `v.clone()` on it would
+/// not expand to the capture-record rebuild (`structural_clone_expansion`) and
+/// its body would fail to transpile. It is given the identity a typed binding
+/// (`(k : Impl(Fn(...))) = ...`) has: an `Impl` of the `Dyn`'s traits,
+/// resolved to the capture record. Any other payload is its own type.
+_dyn_clone_payload_identity :: (fn(payload_ty : &TypeValue, dyn_type : &TypeValue, frame_level : usize) -> TypeValue)({
+  concrete := resolve_cell_chain(payload_ty);
+  if(closure_identity_of(payload_ty).is_some() || !is_closure_capture_struct(&concrete), {
+    return(payload_ty.clone());
+  });
+  match(
+    t_dyn_payload_wrapper(dyn_type, frame_level),
+    .Some(w) => match(
+      w,
+      Rc(.SomeT(w_id, _, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => rc(TypeValueNode.SomeT(w_id, String.from("Impl"), w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, Option(TypeValue).Some(concrete))),
+      _ => payload_ty.clone()
+    ),
+    .None => payload_ty.clone()
+  )
+});
+_synthesize_dyn_clone_fn :: (fn(payload_in : &TypeValue, dyn_type : &TypeValue, caller_env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(EvalValue))({
+  payload_ty := _dyn_clone_payload_identity(payload_in, dyn_type, caller_env.frames.len());
+  fn_expr := generate_expr_from_code(`(fn(generic(T : Type), v : &T, where(T <: Clone)) -> T)(v.clone())`, exn);
+  saved_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  evaluated := evaluate_expression_raw(&fn_expr, caller_env, ctx, exn);
+  ctx.expected_type = saved_expected;
+  generic_fv := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
+    .Some(ei) => match(ei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None),
+    .None => Option(EvalValue).None
+  );
+  match(
+    generic_fv,
+    .Some(fv) => {
+      fid := match(fv, .FuncVal(sfd, _) => sfd.*.func_id.clone(), _ => String.new());
+      fn_ty := get_func_type(&fid);
+      recv_name := String.from("__yo_dyn_clone_source");
+      caller_env.push_frame(false);
+      recv_tok := synthetic_token(recv_name.clone(), &caller_env.module_path.*);
+      _recv_var := add_variable_to_env(caller_env, recv_name.clone(), payload_ty.clone(), Option(EvalValue).Some(create_unknown_val(payload_ty.clone())), false, true, false, false, recv_tok.clone());
+      recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
+      callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(String.from("__yo_dyn_clone"), &caller_env.module_path.*));
+      // The source is passed as a method receiver (`is_method_call`), which
+      // is written bare and lent to the `&T` parameter, as
+      // `_generic_impl_method_for_dyn` passes its receiver.
+      call_args := ArrayList(AstExpr).new();
+      call_args.push(recv_atom);
+      call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &fn_ty, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
+      ctx.expected_type = saved_expected;
+      caller_env.pop_frame();
+      res.specialized_function_value
+    },
+    .None => Option(EvalValue).None
+  )
+});
 /// `dyn(d)` of a value that is already a `Dyn` is an error: the payload
 /// behind `d` is erased, so there is no concrete type to build a vtable from.
 /// Converting to a `Dyn` with fewer traits is `upcast(d, Dyn(...))`
@@ -793,7 +865,16 @@ _resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue,
                     )
                   )
                 );
-                field_vals.push(resolved_field);
+                // A payload whose `Clone` has no function of its own (a
+                // closure's clone is a structural expansion at the call)
+                // gets one for the clone slot (`_synthesize_dyn_clone_fn`).
+                field_vals.push(
+                  match(
+                    resolved_field,
+                    .Some(rf) => Option(EvalValue).Some(rf),
+                    .None => if(is_clone_trait_type(&tt) && (fname == "clone"), _synthesize_dyn_clone_fn(&method_lookup_type, dyn_type, caller_env, ctx, exn), Option(EvalValue).None)
+                  )
+                );
                 j = (j + usize(1));
               });
               trait_vals.push(EvalValue.TraitVal(tname, field_names, field_vals));

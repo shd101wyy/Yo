@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { synthesize_types, TypePair, SynthesizeOptions } :: import("../types/synthesizer.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_flowable_expr, flow_options_default, FlowOptions }
+{ is_flowable_expr, flow_options_default, FlowOptions, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type } :: import("../../types/utils.yo");
@@ -110,6 +110,9 @@ pragma(Pragma.AllowUnsafe);
   ImplicitCopyPending,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
+  take_dyn_copy_pending,
+  dyn_copy_pending_exists,
+  dyn_copy_used_again_error,
   audit_report_implicit_copy,
   reject_second_class_return,
   reject_second_class_result_outliving,
@@ -1810,11 +1813,22 @@ _ICScan :: ref(
     later : bool,
     /// The path through the site has left the function (`return`, `unwind`,
     /// `panic`), so nothing after it reads the variable.
-    done : bool
+    done : bool,
+    /// The first read after the site, when `later` came from one (a loop that
+    /// runs the site again sets `later` with none).
+    later_tok : Option(Token),
+    /// An assignment to the variable after the site (or around it, `v =
+    /// f(v)`) ends the scan: what follows reads the new value. The unique
+    /// `Dyn` rule (`judge_dyn_copies`) sets it; the audit counts such reads.
+    stop_at_write : bool
   )
 );
 _ic_new_scan :: (fn() -> _ICScan)(
-  _ICScan(site_seen : false, reads : usize(0), later : false, done : false)
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, later_tok : Option(Token).None, stop_at_write : false)
+);
+/// A nested scan that keeps `acc`'s mode.
+_ic_sub_scan :: (fn(acc : &_ICScan) -> _ICScan)(
+  _ICScan(site_seen : false, reads : usize(0), later : false, done : false, later_tok : Option(Token).None, stop_at_write : acc.stop_at_write)
 );
 /// `e` ends by leaving the function: its last statement is `return`,
 /// `unwind` or `panic` (`break`/`continue` stay in the function).
@@ -1843,6 +1857,9 @@ _ic_merge :: (fn(acc : &_ICScan, sub : &_ICScan) -> unit)({
   });
   if(sub.later, {
     acc.later = true;
+    if(acc.later_tok.is_none(), {
+      acc.later_tok = sub.later_tok;
+    });
   });
   if(sub.done, {
     acc.done = true;
@@ -1852,6 +1869,9 @@ _ic_read :: (fn(tok : &Token, site : &ImplicitCopyPending, acc : &_ICScan) -> un
   acc.reads = (acc.reads + usize(1));
   if((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset), {
     acc.later = true;
+    if(acc.later_tok.is_none(), {
+      acc.later_tok = Option(Token).Some(tok.clone());
+    });
   });
 });
 /// Walk `e` in the declaring block for reads of `v` after `site`. A read is
@@ -1935,6 +1955,9 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       });
       if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(&first) && (ast_expr_token(&first).value == v.name), {
         recur(&second, v, site, acc, ctx);
+        if(acc.stop_at_write && (acc.site_seen || ((tok.module_path.* == site.module_path) && (tok.byte_offset > site.byte_offset))), {
+          acc.done = true;
+        });
         return(());
       });
       // A branch: an arm whose BODY holds the site excludes the arms after
@@ -1951,7 +1974,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
                 arm_head := match(arm_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
                 arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
                 recur(&arm_head, v, site, acc, ctx);
-                body_scan := _ic_new_scan();
+                body_scan := _ic_sub_scan(acc);
                 recur(&arm_body, v, site, &body_scan, ctx);
                 _ic_merge(acc, &body_scan);
                 if(body_scan.site_seen, {
@@ -1973,7 +1996,7 @@ _ic_scan :: (fn(e : &AstExpr, v : &Variable, site : &ImplicitCopyPending, acc : 
       // Leaving the function: nothing after a `return` holding the site runs.
       is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None));
       is_while := ast_expr_is_fn_call_of(e, "while", Option(usize).None);
-      scan := cond((is_while || is_exit) => _ic_new_scan(), true => acc);
+      scan := cond((is_while || is_exit) => _ic_sub_scan(acc), true => acc);
       recur(&f, v, site, &scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
@@ -2038,6 +2061,63 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
     i = (i + usize(1));
   });
 });
+/// The unique `Dyn`, Generation A (plans/VALUES_BY_DEFAULT.md decision 7):
+/// judge the pending `Dyn` copies of `frame`'s variables (`check_dyn_copy`,
+/// evaluator/utils.yo) against `scanned`, the block or arm body that declares
+/// them. A copy whose variable is read again after it is E0901, at the first
+/// such read (Generation B moves the variable at the copy); one with no later
+/// read is the last use, a move. An assignment to the variable after the copy
+/// ends the scan, since later reads see the new value.
+judge_dyn_copies :: (fn(frame : &Frame, scanned : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), i = (i + usize(1)), {
+    match(
+      fvars.get(i),
+      .Some(v) => match(
+        take_dyn_copy_pending(v.id),
+        .Some(sites) => {
+          (si : usize) = usize(0);
+          while(si < sites.len(), si = (si + usize(1)), {
+            match(
+              sites.get(si),
+              .Some(p) => {
+                acc := _ic_new_scan();
+                acc.stop_at_write = true;
+                (ci : usize) = usize(0);
+                while((ci < scanned.len()) && !acc.later && !acc.done, ci = (ci + usize(1)), {
+                  match(scanned.get(ci), .Some(c) => _ic_scan(&c, &v, &p.site, &acc, ctx), .None => ());
+                });
+                if(acc.later, {
+                  raise_flow_violation(dyn_copy_used_again_error(&p, acc.later_tok), ctx, exn);
+                });
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+});
+/// Drop, unjudged, the pending `Dyn` copies of `frame`'s variables: a copy a
+/// `match` guard makes is judged by no body (`judge_dyn_copies`), and the rule
+/// rejects only a copy it can see read again.
+discard_dyn_copies :: (fn(frame : &Frame) -> unit)({
+  fvars := frame.variables;
+  (i : usize) = usize(0);
+  while(i < fvars.len(), i = (i + usize(1)), {
+    match(
+      fvars.get(i),
+      .Some(v) => {
+        _ := take_dyn_copy_pending(v.id);
+      },
+      .None => ()
+    );
+  });
+});
 /// Judge, at the end of a `match` arm, the pending copies of the arm's
 /// pattern bindings (`frame`) against the arm's body (`scanned`): a binding
 /// of an owned temporary holds its copies pending for `yo fix --migrate
@@ -2070,7 +2150,7 @@ audit_commit_arm_copies :: (fn(frame : &Frame) -> unit)({
     );
   });
 });
-export(audit_judge_arm_copies, audit_commit_arm_copies);
+export(audit_judge_arm_copies, audit_commit_arm_copies, judge_dyn_copies, discard_dyn_copies);
 /// The body being evaluated is that of a closure typed `FnOnce(...)` with a
 /// capture list (`is_fnonce_closure_fn`).
 _evaluating_fnonce_closure_body :: (fn(ctx : &EvalContext) -> bool)(
@@ -3474,6 +3554,14 @@ _evaluate_begin_expression_impl :: (
     match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
       match(env.frames.get(env.frames.len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(&audit_pfr, &begin_args, ctx), .None => ());
+    });
+  });
+  // The unique `Dyn`, Generation A: judge the pending `Dyn` copies of this
+  // block's locals and, for a function body, of its parameters.
+  if(dyn_copy_pending_exists(), {
+    match(current_frame_opt, .Some(dyn_fr) => judge_dyn_copies(&dyn_fr, &begin_args, ctx, exn), .None => ());
+    if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
+      match(env.frames.get(env.frames.len() - usize(2)), .Some(dyn_pfr) => judge_dyn_copies(&dyn_pfr, &begin_args, ctx, exn), .None => ());
     });
   });
   // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate

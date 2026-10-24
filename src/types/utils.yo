@@ -774,6 +774,79 @@ is_drop_method_name :: (fn(name : &String) -> bool)(name == "drop");
 is_destructor_trait_member :: (fn(trait_ty : &TypeValue, label : &String) -> bool)(
   is_drop_method_name(label) && match(trait_ty, Rc(.TraitT({ name })) => is_drop_trait_name(&name), _ => false)
 );
+/// Is `trait_ty` the prelude `Clone` trait? Recognized by the name its prelude
+/// binding gave it, as `is_destructor_trait_member` recognizes `Drop`: codegen
+/// has no environment.
+is_clone_trait_type :: (fn(trait_ty : &TypeValue) -> bool)(
+  match(trait_ty, Rc(.TraitT({ name })) => (name == "Clone"), _ => false)
+);
+/// Does the `Dyn` type `ty` list `Clone` among its traits? Such a `Dyn` is
+/// explicit-copy (plans/VALUES_BY_DEFAULT.md decision 7): `d.clone()` copies
+/// its payload through the vtable's `__yo_clone` slot, which `Clone`
+/// contributes instead of a method slot (`clone` returns `Self`, which the
+/// `Dyn` erases, so it has no slot of its own).
+dyn_type_lists_clone :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    Rc(.DynT({ required_trait_types : rtt })) => {
+      (i : usize) = usize(0);
+      while(i < rtt.len(), {
+        if(match(rtt.get(i), .Some(t) => is_clone_trait_type(&t), .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    _ => false
+  )
+);
+/// Does a value of `ty` own a `Dyn` by value: a `Dyn`, or a value aggregate
+/// (struct, enum, tuple, array, closure capture record) holding one? A
+/// reference type, an `Rc`/`Arc` handle and a pointer stop the walk: copying
+/// one shares the `Dyn` instead of copying it. Such a value copies only
+/// explicitly once `Dyn` is uniquely owned (plans/VALUES_BY_DEFAULT.md
+/// decision 7), which Generation A enforces outside std and src
+/// (`check_dyn_copy`, evaluator/utils.yo).
+type_holds_dyn_by_value :: (fn(ty : &TypeValue) -> bool)(_holds_dyn_by_value_inner(ty, u32(0)));
+_any_holds_dyn_by_value :: (fn(fields : &ArrayList(TypeValue), depth : u32) -> bool)({
+  (i : usize) = usize(0);
+  while(i < fields.len(), {
+    if(match(fields.get(i), .Some(ft) => _holds_dyn_by_value_inner(&ft, depth), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+_holds_dyn_by_value_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
+  if(depth > u32(8), {
+    return(false);
+  });
+  ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  match(
+    ty,
+    Rc(.DynT(required_trait_types : _)) => true,
+    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && _any_holds_dyn_by_value(&fields.items, depth + u32(1))),
+    Rc(.EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref })) => {
+      if(e_is_ref, {
+        return(false);
+      });
+      (vi : usize) = usize(0);
+      while(vi < all_fields.len(), {
+        if(match(all_fields.get(vi), .Some(vf) => _any_holds_dyn_by_value(&vf.items, depth + u32(1)), .None => false), {
+          return(true);
+        });
+        vi = (vi + usize(1));
+      });
+      false
+    },
+    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_holds_dyn_by_value(&fields.items, depth + u32(1)),
+    Rc(.Array(element : elem, length : _)) => _holds_dyn_by_value_inner(&elem, depth + u32(1)),
+    Rc(.SomeT({ resolution : resolved })) => match(resolved, .Some(concrete) => _holds_dyn_by_value_inner(&concrete, depth + u32(1)), .None => false),
+    _ => false
+  )
+});
 /// A `Dyn(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37): its call
 /// consumes it, so it is move-only although a `Dyn` is reference counted —
 /// two handles to one payload would run a call-once body twice.
@@ -3642,7 +3715,7 @@ type_may_provide_slice_source :: (fn(ty : &TypeValue) -> bool)({
 export(enum_phantom_type_arg_somes, enum_phantom_type_args_masked);
 export(CaptureBorrow, register_capture_borrows, capture_struct_borrows, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, type_is_second_class, type_first_mut_borrow, type_pointee_second_class);
 export(set_target_pointer_size);
-export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member);
+export(is_drop_trait_name, is_drop_method_name, is_destructor_trait_member, is_clone_trait_type, dyn_type_lists_clone, type_holds_dyn_by_value);
 export(get_target_pointer_size_bits);
 export(get_target_pointer_size_bytes);
 export(get_integer_type_bits);

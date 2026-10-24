@@ -42,10 +42,13 @@ typedef struct {
 
 - `Dyn` is a **value type** - copied by value like a struct
 - `data` **must** point to an reference-semantics type (always has ref_header)
-- When you copy a `Dyn`, you retain the `data` pointer; when you drop it, you release it. Both go
-  through the vtable's `__yo_retain` / `__yo_release` slots (after `__yo_type_id`), which the
-  concrete payload type fills: the atomic RC operations for an atomic reference object (`Arc`,
-  an `atomic` struct), the plain ones otherwise
+- When std or the compiler copies a `Dyn`, it retains the `data` pointer; when a `Dyn` is
+  dropped, it releases it. Both go through the vtable's `__yo_retain` / `__yo_release` slots
+  (after `__yo_type_id`), which the concrete payload type fills: the atomic RC operations for an
+  atomic reference object (`Arc`, an `atomic` struct), the plain ones otherwise
+- The third prefix slot, `__yo_clone`, makes an independent payload for `d.clone()` on a
+  `Dyn(Trait, Clone)`; it is `NULL` for a `Dyn` without `Clone`. A program outside std and the
+  compiler copies a `Dyn` only through it (see [Ownership](#ownership-a-dyn-owns-its-payload))
 - The `Dyn` struct itself is not heap-allocated
 
 ### 2. Data Storage (Reference-Semantics Type Constraint)
@@ -366,6 +369,65 @@ This is how Rust implements `dyn Sub -> dyn Super`. The payload is shared, not c
 is an owned `Dyn` that retains the payload through the source vtable's RC slot, and `downcast` on
 it finds the original concrete type. A program with no `upcast` emits exactly what it did before.
 
+## Ownership: a `Dyn` owns its payload
+
+A `Dyn` owns its payload alone (`plans/VALUES_BY_DEFAULT.md` decision 7). `Dyn(Trait, Clone)` is
+explicit-copy: `d.clone()` is an independent copy. Any other `Dyn` is move-only. The same holds
+for a value that holds a `Dyn` by value, such as an `Option(Dyn(Trait))`, a tuple, or a struct
+or closure with a `Dyn` field. Sharing one payload is `Rc(Dyn(Trait))`, or
+`Arc(Dyn(Trait, Send))` across threads.
+
+```yo
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+derive(Cat, Clone);
+impl(Cat, Speak(speak : (self -> self.n)));
+main :: (fn() -> unit)({
+  (d : Dyn(Speak, Clone)) = dyn(Cat(n : i32(3)));
+  e := d.clone(); // an independent payload: d and e share nothing
+  println(d.speak() + e.speak());
+  f := d; // the last use of d: a move
+  println(f.speak());
+});
+export(main);
+```
+
+`Clone` in the trait list gives the `Dyn` no method slot of its own, because its `clone` returns
+the erased `Self`. Instead it fills the vtable prefix's `__yo_clone` slot with the impl's
+`__yo_dyn_clone_<impl>`. That function calls the payload's own `clone` and places the result in a
+new box. The new box, and everything the payload's `clone` allocates, lands in the allocator that
+placed the source (decision 12). `d.clone()` lowers to
+
+```c
+(Dyn){ .data = __yo_dyn_clone(d.data, d.vtable), .vtable = d.vtable }
+```
+
+Because `Clone` names the `clone` slot, a `Dyn` with `Clone` and another trait that declares a
+callable `clone` method is E0616, like any other method-name clash.
+
+**A copy whose source is used again is E0901.** A copy of a `Dyn` moves it, so using the source
+afterwards is the use of a moved value:
+
+```yo ignore
+(d : Dyn(Speak)) = dyn(Cat(n : i32(3)));
+e := d; // value moved here
+d.speak(); // error[E0901]: use of moved value: `d`
+```
+
+A copy out of storage that cannot give the value away is rejected where it is made. That storage
+is a field or element, a dereference, a module-level binding, a `&mut` borrow, a `&T` parameter,
+or a closure's capture. The note says which fix applies: `d.clone()` when the `Dyn` lists `Clone`.
+Otherwise it suggests moving the value, lending it with `&`, adding `Clone` to the trait list, or
+sharing it through `Rc(Dyn(...))`. An escaping closure that captures a `Dyn` moves it too. A
+closure passed to a `&Impl(Fn(...))` parameter only borrows its captures.
+
+**Generation A.** The rule applies to programs outside std and the compiler: the trees the
+seed compiler builds still copy a `Dyn` by sharing its payload (the `__yo_retain` slot) until
+Generation B sweeps them. The rule only rejects programs. Every copy it accepts is the last use of
+its source, and it keeps today's representation, so the emitted C does not change. Generation B
+removes the carve-out and makes the move the type's own.
+
 ## Reference Counting for Dyn
 
 Since `Dyn` is a value type, we need dup/drop functions that operate on the `data` pointer.
@@ -403,7 +465,9 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 
 ## Summary of Design
 
-1. **`Dyn` is a value type**: Simple struct with `{ void* data, vtable* }`, no ref_header
+1. **`Dyn` is a value type**: Simple struct with `{ void* data, vtable* }`, no ref_header. It owns
+   its payload: `Dyn(Trait, Clone)` copies with `.clone()` through the vtable's `__yo_clone` slot,
+   and any other `Dyn` is move-only
 2. **`data` must be reference-semantics type**: Enforces that data is always reference counted
 3. **Value types use `rc()`**: `dyn(rc(42))` wraps value in `Rc(T)` reference-semantics type
 4. **Reference-semantics types direct**: `dyn(Point(3, 4))` uses Point pointer directly

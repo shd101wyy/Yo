@@ -875,3 +875,135 @@ test("dyn of another module's function and of an Impl(Fn) parameter", {
   d := _dnf_box(_dnf_double);
   assert(d(i32(21)) == i32(42), "an Impl(Fn) parameter bound to a named fn, boxed in the callee");
 });
+// The unique `Dyn` (plans/VALUES_BY_DEFAULT.md decision 7, B12 Generation
+// A): `Clone` in a Dyn's trait list fills the vtable prefix's `__yo_clone`
+// slot, so `d.clone()` copies the payload into a new box, and outside std
+// and src a copy whose source is used again is E0901.
+_UdCounter :: trait(
+  bump : (fn(self : &mut Self) -> unit),
+  count : (fn(self : &Self) -> i32)
+);
+_UdTally :: struct(n : i32, label : String);
+derive(_UdTally, Clone);
+impl(
+  _UdTally,
+  _UdCounter(
+    bump : (fn(self : &mut Self) -> unit)({
+      self.n = (self.n + i32(1));
+    }),
+    count : (fn(self : &Self) -> i32)(self.n + i32(self.label.len()))
+  )
+);
+_ud_tally :: (fn(n : i32) -> Dyn(_UdCounter, Clone))(dyn(_UdTally(n : n, label : String.from("t"))));
+test("d.clone() on a Dyn with Clone copies the payload", {
+  (d : Dyn(_UdCounter, Clone)) = _ud_tally(i32(1));
+  (mut(e) : Dyn(_UdCounter, Clone)) = d.clone();
+  e.bump();
+  e.bump();
+  assert(d.count() == i32(2), "the source keeps its own payload");
+  assert(e.count() == i32(4), "the clone is written on its own");
+  (o : Option(Dyn(_UdCounter, Clone))) = Option(Dyn(_UdCounter, Clone)).Some(d.clone());
+  (p : Option(Dyn(_UdCounter, Clone))) = o.clone();
+  assert(match(p, .Some(x) => (x.count() == i32(2)), .None => false), "an Option of a Dyn with Clone clones it");
+  assert(match(o, .Some(x) => (x.count() == i32(2)), .None => false), "the original Option keeps its Dyn");
+});
+test("the last use of a Dyn moves it", {
+  (d : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(5), label : String.from("")));
+  e := d;
+  assert(e.count() == i32(5), "a copy at the source's last use is a move");
+  (mut(f) : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(6), label : String.from("")));
+  (mut(g) : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(0), label : String.from("")));
+  g = f;
+  f = dyn(_UdTally(n : i32(7), label : String.from("")));
+  assert((f.count() + g.count()) == i32(13), "a source assigned again after the copy holds a new value");
+});
+_UdHolder :: struct(d : Dyn(_UdCounter, Clone));
+(g_ud_held : Dyn(_UdCounter, Clone)) = _ud_tally(i32(0));
+test("a Dyn copy whose source is used again is E0901", {
+  comptime_expect_error({
+    (d : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(1), label : String.from("")));
+    e := d;
+    d.count() + e.count()
+  }, "use of moved value");
+  comptime_expect_error({
+    d := _ud_tally(i32(1));
+    (o : Option(Dyn(_UdCounter, Clone))) = Option(Dyn(_UdCounter, Clone)).Some(d);
+    d.count()
+  }, "use of moved value");
+  comptime_expect_error({
+    d := _ud_tally(i32(1));
+    (mut(i) : usize) = usize(0);
+    xs := ArrayList(Dyn(_UdCounter, Clone)).new();
+    while(runtime(i < usize(2)), {
+      xs.push(d);
+      i = (i + usize(1));
+    });
+  }, "the loop runs this copy again");
+  comptime_expect_error({
+    d := _ud_tally(i32(1));
+    (f : Impl(Fn() -> i32)) = (() => d.count());
+    f() + d.count()
+  }, "use of moved value");
+  assert(true, "rejected");
+});
+test("a Dyn copy out of storage that cannot give it away is E0901 at once", {
+  comptime_expect_error((fn(d : &Dyn(_UdCounter, Clone)) -> Dyn(_UdCounter, Clone))(d), "it is a `&T` parameter");
+  comptime_expect_error({
+    h := _UdHolder(d : _ud_tally(i32(1)));
+    e := h.d;
+    e.count()
+  }, "it is a field of another value");
+  comptime_expect_error({
+    e := g_ud_held;
+    e.count()
+  }, "it is a module-level binding");
+  comptime_expect_error({
+    (d : Dyn(_UdCounter)) = dyn(_UdTally(n : i32(1), label : String.from("")));
+    e := d;
+    d.count() + e.count()
+  }, "list `Clone` in the `Dyn`");
+  comptime_expect_error({
+    d := _ud_tally(i32(1));
+    e := d;
+    d.count() + e.count()
+  }, "write `d.clone()` for an independent copy");
+  assert(true, "rejected");
+});
+_ud_count :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f());
+test("a closure that borrows its captures copies no Dyn", {
+  d := _ud_tally(i32(2));
+  assert(_ud_count(() => d.count()) == i32(3), "a closure passed to a &Impl(Fn) borrows d");
+  assert(d.count() == i32(3), "d is still the caller's");
+  h := _UdHolder(d : d.clone());
+  assert((h.d.count() + _ud_borrowed(&h.d)) == i32(6), "a field is lent with &");
+});
+_ud_borrowed :: (fn(d : &Dyn(_UdCounter, Clone)) -> i32)(d.count());
+_UdCloneLike :: trait(clone : (fn(self : &Self) -> i32));
+test("Clone's slot clashes with a trait method named clone", {
+  comptime_expect_error(Dyn(_UdCloneLike, Clone), "two methods named");
+  assert(true, "rejected");
+});
+test("a Dyn(Fn(...), Clone) clones its closure", {
+  s := String.from("abc");
+  (f : Dyn(Fn(x : i32) -> i32, Clone)) = dyn((x : i32) => (x + i32(s.len())));
+  g := f.clone();
+  assert((f(i32(1)) + g(i32(2))) == i32(9), "the clone calls its own copy of the closure");
+  n := i32(3);
+  (h : Dyn(Fn(x : i32) -> i32, Clone)) = dyn((x : i32) => (x + n));
+  k := h.clone();
+  assert((h(i32(1)) + k(i32(2))) == i32(9), "a closure of Copy captures clones by copy");
+  (b : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(s.len())));
+  (e : Dyn(Fn(x : i32) -> i32, Clone)) = dyn(b);
+  e2 := e.clone();
+  assert((e(i32(1)) + e2(i32(2))) == i32(9), "a typed closure binding clones too");
+});
+// A Dyn listing two traits that declare the same non-function member (the
+// marker traits' `id`) gives its vtable one member of that name
+// (issues/fixed/2026-10-24-a-dyn-listing-two-marker-traits-emits-a-duplicate-vtable-member.md).
+test("a Dyn listing Send and Sync compiles one member per name", {
+  (k : Impl(Fn() -> i32)) = (() => i32(4));
+  (d : Dyn(Fn() -> i32, Send, Sync)) = dyn(k);
+  (a : Arc(Dyn(Fn() -> i32, Send, Sync))) = arc(dyn(() => i32(5)));
+  b := a;
+  assert((d() + (a.*() + b.*())) == i32(14), "a Send and Sync Dyn calls through its vtable, and through an Arc");
+});

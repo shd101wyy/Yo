@@ -42,7 +42,8 @@ typedef struct {
 
 - `Dyn` 是**值类型** — 像结构体一样按值复制
 - `data` **必须**指向引用语义类型（始终具有 ref_header）
-- 复制 `Dyn` 时 retain `data` 指针，销毁时 release 它。两者都经由虚表的 `__yo_retain` / `__yo_release` 槽位（位于 `__yo_type_id` 之后），由具体的载荷类型填写：原子引用对象（`Arc`、`atomic` 结构体）使用原子引用计数操作，其余使用普通操作
+- std 或编译器复制 `Dyn` 时 retain `data` 指针，销毁 `Dyn` 时 release 它。两者都经由虚表的 `__yo_retain` / `__yo_release` 槽位（位于 `__yo_type_id` 之后），由具体的载荷类型填写：原子引用对象（`Arc`、`atomic` 结构体）使用原子引用计数操作，其余使用普通操作
+- 前缀的第三个槽位 `__yo_clone` 为 `Dyn(Trait, Clone)` 上的 `d.clone()` 生成一份独立的载荷；不含 `Clone` 的 `Dyn` 中它是 `NULL`。std 和编译器之外的程序只能通过它复制 `Dyn`（见[所有权](#所有权dyn-独占其载荷)）
 - `Dyn` 结构体本身不在堆上分配
 
 ### 2. 数据存储（引用语义类型约束）
@@ -327,6 +328,46 @@ panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见�
 
 Rust 也是这样实现 `dyn Sub -> dyn Super` 的。载荷是共享的而不是复制的：结果是一个拥有所有权的 `Dyn`，它通过源 vtable 的 RC 槽位 retain 载荷，对它做 `downcast` 能找回原来的具体类型。不含 `upcast` 的程序生成的代码与以前完全相同。
 
+## 所有权：`Dyn` 独占其载荷
+
+`Dyn` 独自拥有它的载荷（`plans/VALUES_BY_DEFAULT.md` 决策 7）。`Dyn(Trait, Clone)` 是显式复制类型：`d.clone()` 得到一份独立的副本。其他 `Dyn` 都是仅移动类型。按值持有 `Dyn` 的值也是如此，例如 `Option(Dyn(Trait))`、元组，或含 `Dyn` 字段的结构体与闭包。共享同一份载荷要写 `Rc(Dyn(Trait))`，跨线程则写 `Arc(Dyn(Trait, Send))`。
+
+```yo
+{ println } :: import("std/fmt");
+Speak :: trait(speak : (fn(self : &Self) -> i32));
+Cat :: struct(n : i32);
+derive(Cat, Clone);
+impl(Cat, Speak(speak : (self -> self.n)));
+main :: (fn() -> unit)({
+  (d : Dyn(Speak, Clone)) = dyn(Cat(n : i32(3)));
+  e := d.clone(); // 独立的载荷：d 与 e 不共享任何东西
+  println(d.speak() + e.speak());
+  f := d; // d 的最后一次使用：移动
+  println(f.speak());
+});
+export(main);
+```
+
+特征列表中的 `Clone` 不会给 `Dyn` 增加自己的方法槽位，因为它的 `clone` 返回被擦除的 `Self`。它改为把实现对应的 `__yo_dyn_clone_<impl>` 填入虚表前缀的 `__yo_clone` 槽位。该函数调用载荷自己的 `clone`，并把结果放进一个新的盒子。新盒子以及载荷的 `clone` 分配的一切，都落在放置源值的分配器中（决策 12）。`d.clone()` 降级为
+
+```c
+(Dyn){ .data = __yo_dyn_clone(d.data, d.vtable), .vtable = d.vtable }
+```
+
+由于 `Clone` 占用了名为 `clone` 的槽位，同时含有 `Clone` 和另一个声明了可调用 `clone` 方法的特征的 `Dyn` 会报 E0616，与其他方法名冲突相同。
+
+**源值之后仍被使用的复制是 E0901。** 复制 `Dyn` 会移动它，因此之后再使用源值就是使用已移动的值：
+
+```yo ignore
+(d : Dyn(Speak)) = dyn(Cat(n : i32(3)));
+e := d; // 值在此处被移动
+d.speak(); // error[E0901]: use of moved value: `d`
+```
+
+从无法交出值的存储中复制，会在复制处直接被拒绝。这类存储包括字段或元素、解引用、模块级绑定、`&mut` 借用、`&T` 参数以及闭包的捕获。附注会说明适用的修复：若 `Dyn` 列出了 `Clone`，就用 `d.clone()`；否则建议移动该值、用 `&` 借出、在特征列表中加入 `Clone`，或通过 `Rc(Dyn(...))` 共享。捕获 `Dyn` 的逃逸闭包同样会移动它；传给 `&Impl(Fn(...))` 参数的闭包只借用其捕获。
+
+**第 A 代（Generation A）。** 该规则作用于 std 和编译器之外的程序：在第 B 代清理这些代码之前，种子编译器构建的代码树仍通过共享载荷（`__yo_retain` 槽位）复制 `Dyn`。该规则只会拒绝程序。它接受的每次复制都是源值的最后一次使用，并保持现有的表示，因此生成的 C 代码不变。第 B 代会移除这一例外，让移动成为类型本身的语义。
+
 ## Dyn 的引用计数
 
 由于 `Dyn` 是值类型，我们需要对 `data` 指针进行操作的 dup/drop 函数。
@@ -364,7 +405,7 @@ void __yo_drop_dyn_trait_Id(__yo_dyn_trait_id dyn) {
 
 ## 设计总结
 
-1. **`Dyn` 是值类型**：简单结构体 `{ void* data, vtable* }`，无 ref_header
+1. **`Dyn` 是值类型**：简单结构体 `{ void* data, vtable* }`，无 ref_header。它独占其载荷：`Dyn(Trait, Clone)` 通过虚表的 `__yo_clone` 槽位用 `.clone()` 复制，其他 `Dyn` 都是仅移动类型
 2. **`data` 必须是引用语义类型**：确保数据始终是引用计数的
 3. **值类型使用 `rc()`**：`dyn(rc(42))` 将值包装在 `Rc(T)` 引用语义类型中
 4. **引用语义类型直接使用**：`dyn(Point(3, 4))` 直接使用 Point 指针

@@ -702,6 +702,16 @@ The owner prefix (PR 2) and the cell header (PR 4) are separate layout diffs, re
 - Emit-diff: only the new slot line per vtable plus the clone functions.
 - cli-diff: `check-dyn-unresolved-payload`, `check-test-bodies-auto-boxed-dyn`, `dyn-vtables-registering-futures-are-each-defined-once`.
 
+**As built (2026-10-24, branch `feat/b12-dyn-gen-a`).** Where the build departs from the list above:
+
+- **The kind stays off the type predicates.** `type_requires_explicit_copy`/`type_is_move_only` still say a `Dyn` copies, so std and src keep sharing with no change to the ownership machinery or the C. The rule is a check on the copies themselves: `check_dyn_copy`/`check_dyn_capture` (`src/evaluator/utils.yo`) run at every dup site and implicit capture whose token is outside `is_global_mut_rule_exempt`, for any type `type_holds_dyn_by_value` (a `Dyn`, or a value aggregate holding one).
+  - A copy out of a field, element, dereference, module-level binding, `&mut` borrow, `&T` parameter or closure capture is E0901 at once. That is `transfer_explicit_copy_value`'s classification.
+  - A copy of any other source is held pending and judged at its frame's epilogue (`judge_dyn_copies`, `src/evaluator/exprs/begin.yo`, reusing the explicit-copy audit's `_ic_scan`): a read after the copy is E0901 at that read. A reassignment ends the scan, and a `comptime_expect_error` argument rolls its pending copies back.
+  - B13 moves the kind into the predicates and deletes these checks.
+- **Clone placement.** The clone slot sets the source's owner scope (`__yo_scope_of_object`) around the payload's `clone` and the box constructor (decision 12).
+- **Closure payloads.** A payload whose `Clone` has no function of its own (a closure's structural clone) gets the generic `(fn(generic(T : Type), v : &T, where(T <: Clone)) -> T)(v.clone())` specialized for it through a synthetic receiver call (`_synthesize_dyn_clone_fn`, `src/evaluator/values/dyn.yo`), as a blanket impl's method is.
+- **Sweep.** The tests' live-source copies became `Rc(Dyn(...))` (`tests/closure.test.yo`, `tests/codegen-bootstrap/dyn_box_closure_binding.yo`), `Arc(Dyn(..., Send, Sync))` (`tests/parallelism_soundness.test.yo`; `Arc` requires `Sync`, which surfaced the duplicate `__yo_v_id` vtable member, `issues/fixed/2026-10-24-a-dyn-listing-two-marker-traits-emits-a-duplicate-vtable-member.md`), `.clone()` (`tests/parameter_modes.test.yo`), or a payload built per call (`tests/error_source_chain.test.yo`).
+
 ### PR 2: allocator interface v2, Generation A
 
 **The runtime**, in `src/codegen/types/generation.yo:1062–1158`:

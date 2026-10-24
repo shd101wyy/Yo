@@ -94,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type, is_cell_primitive_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
+{ is_drop_method_name, is_clone_trait_type, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -379,7 +379,11 @@ _reject_dyn_uncallable_method_call :: (
           rtt.get(i),
           .Some(tt) => match(
             tt,
-            Rc(.TraitT({ name : tname, field_labels : fls, field_types : fts })) => {
+            // `Clone`'s `clone` returns the erased `Self`, yet a `Dyn` that
+            // lists `Clone` reaches it through the vtable prefix's clone slot,
+            // which returns a `Dyn` of the receiver's type
+            // (plans/VALUES_BY_DEFAULT.md decision 7).
+            Rc(.TraitT({ name : tname, field_labels : fls, field_types : fts })) => if(!is_clone_trait_type(&tt), {
               (j : usize) = usize(0);
               while(j < fls.len(), {
                 if(match(fls.get(j), .Some(l) => (l == name_tok.value), .None => false), {
@@ -403,7 +407,7 @@ _reject_dyn_uncallable_method_call :: (
                 });
                 j = (j + usize(1));
               });
-            },
+            }),
             _ => ()
           ),
           .None => ()
@@ -979,6 +983,37 @@ _try_structural_copy_clone :: (
   expr_info_set_macro_expansion(&out_info, Option(AstExpr).Some(recv));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   Option(AstExpr).Some(expr)
+});
+/// `x.clone()` where `x` is an `Impl` listing `Clone` itself
+/// (`Impl(Fn(...), Clone)`) over a structural type, a closure's capture record
+/// or an anonymous record: the method lookup finds `clone` as the `Impl`'s own
+/// required-trait method, which no impl implements, and the call failed to
+/// transpile (issues/fixed/2026-10-24-clone-of-a-closure-typed-impl-fn-clone-fails-to-transpile.md).
+/// Such a receiver clones structurally whatever its `Impl` lists (decision
+/// 36), so `_try_structural_copy_clone` runs before the lookup. Every other
+/// receiver, a tuple or an array (the prelude's element-wise impl) included,
+/// keeps the lookup.
+_structural_clone_precedes_lookup :: (fn(callee : &AstExpr, arg_count : usize, ctx : &EvalContext) -> bool)({
+  if((arg_count != usize(0)) || !ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(false);
+  });
+  (recv_ty : Option(TypeValue)) = match(
+    callee,
+    .FnCall(_, _, sp_args, _, _) => match(
+      sp_args.get(usize(0)),
+      .Some(sp_recv) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&sp_recv)), .Some(sp_ri) => Option(TypeValue).Some(sp_ri.ty), .None => Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  );
+  match(
+    recv_ty,
+    .Some(rt) => {
+      sp_target := resolve_cell_chain(&rt);
+      is_some_type(&rt) && match(sp_target, Rc(.Struct({ field_types : _ })) => copy_structural_parts(&sp_target).is_some(), _ => false)
+    },
+    .None => false
+  )
 });
 _try_find_receiver_method :: (
   fn(
@@ -11248,6 +11283,15 @@ Fix: wrap the call:
       // `G.m(x, ...)` through an unapplied type constructor: the receiver
       // becomes `G(A, ...)`, inferred from `x` (decision 32).
       uc_arg0_id := _infer_unapplied_ctor_receiver(&evaluated_callee, &args, &callee_env, ctx, exn);
+      if(_structural_clone_precedes_lookup(&evaluated_callee, args.len(), ctx), {
+        match(
+          _try_structural_copy_clone(expr, &evaluated_callee, args.len(), &callee_env, ctx, exn),
+          .Some(sc_first) => {
+            return(sc_first);
+          },
+          .None => ()
+        );
+      });
       method_info_opt0 := _try_find_receiver_method(&evaluated_callee, &callee_env, ctx);
       // Overload resolution: when the method name has multiple candidate
       // overloads, pick the one whose parameters match the arguments (the first

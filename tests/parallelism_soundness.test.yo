@@ -738,10 +738,12 @@ _d9_tick :: (fn() -> unit)({
 _d9_take_own :: (fn(sink(cb) : Impl(Fn() -> unit)) -> unit)({
   cb();
 });
-// Canary for the atomic Dyn box: one `Dyn(Fn, Send)` held by two threads at
-// once and by the spawning thread; every copy retains and releases the same
-// box. TSan (scripts/tsan-thread-corpus.sh) reported the
-// plain-box version as a race on the box's reference count.
+// Canary for a `Dyn(Fn, Send, Sync)` shared by two threads at once and by the
+// spawning thread. A `Dyn` owns its payload (plans/VALUES_BY_DEFAULT.md
+// decision 7), so the three share it through an `Arc`, whose count every copy
+// retains and releases atomically. TSan (scripts/tsan-thread-corpus.sh)
+// reported the plain-box version, when the copies shared the Dyn's own box, as
+// a race on the box's reference count.
 (dsend_hits : AtomicI32) = AtomicI32.new(i32(0));
 test("a Dyn(Fn, Send) shared by two threads and the spawner", {
   (k : Impl(Fn() -> unit)) = (
@@ -750,16 +752,16 @@ test("a Dyn(Fn, Send) shared by two threads and the spawner", {
       ();
     }
   );
-  (d : Dyn(Fn() -> unit, Send)) = dyn(k);
+  (d : Arc(Dyn(Fn() -> unit, Send, Sync))) = arc(dyn(k));
   ta := Thread(unit).spawn((io : Io) => {
-    d();
+    d.*();
     ()
   });
   tb := Thread(unit).spawn((io : Io) => {
-    d();
+    d.*();
     ()
   });
-  d();
+  d.*();
   ta.join();
   tb.join();
   assert(dsend_hits.load(MemoryOrder.Acquire) == i32(3), "both threads and the spawner called the closure");

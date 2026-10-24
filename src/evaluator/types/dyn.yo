@@ -40,7 +40,7 @@ import("std/fmt");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
 { E_AMBIGUOUS_METHOD } :: import("../../diagnostics.yo");
-{ dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
+{ dyn_member_is_method, dyn_member_unsafe_reason, is_clone_trait_type } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -60,10 +60,16 @@ trait_id_for_dedup :: (fn(t : &TypeValue) -> String)(
   )
 );
 /// The vtable slot names one trait gives a `Dyn`: `call` for an `Fn` trait,
-/// else every member a `Dyn` can call (`dyn_member_is_method` and no
-/// `dyn_member_unsafe_reason`) — exactly the members codegen gives a slot.
+/// `clone` for `Clone` (the vtable prefix's `__yo_clone` slot, which `d.clone()`
+/// reaches: plans/VALUES_BY_DEFAULT.md decision 7), else every member a `Dyn`
+/// can call (`dyn_member_is_method` and no `dyn_member_unsafe_reason`) —
+/// exactly the members codegen gives a slot.
 _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   out := ArrayList(String).new();
+  if(is_clone_trait_type(t), {
+    out.push(String.from("clone"));
+    return(out);
+  });
   match(
     t,
     Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => out.push(String.from("call")),

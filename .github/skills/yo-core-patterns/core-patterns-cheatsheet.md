@@ -472,6 +472,11 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   `Dyn`): `upcast(err, Dyn(ToString))` from an `AnyError`. Flow never does it implicitly, and
   `dyn(d)` of a value that is already a `Dyn` is an error. Two traits of one `Dyn` may not share
   a method name (E0616).
+- A `Dyn` owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): `Dyn(Trait, Clone)` copies
+  with `d.clone()` (an independent payload, through the vtable's clone slot), any other `Dyn` is
+  move-only, and so is a value holding one (`Option(Dyn(...))`, a struct field). A copy whose
+  source is used again is E0901 outside std and src (Generation A); share one payload with
+  `Rc(Dyn(Trait))` (`r.*.method()`, `r.*(args)` for a `Dyn(Fn)`) or `Arc(Dyn(Trait, Send))`.
 - For exception-style control flow, see [yo-async-effects](../yo-async-effects/SKILL.md)
 
 ## Closures as values

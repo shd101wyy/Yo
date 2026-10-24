@@ -19,9 +19,9 @@
 { get_func_type, is_fnonce_closure_fn } :: import("../../function_value.yo");
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ type_key, get_type_string, dyn_slot_param_type_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
+{ type_key, get_type_string, dyn_slot_param_type_string, dyn_concrete_func_type, dyn_concrete_c_name, sanitize_for_c_identifier, ImplClosureCallInfo, CodegenFunctionEntry } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
-{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member, fn_abi_param_is_ptr, is_clone_trait_type, dyn_type_lists_clone } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
@@ -343,6 +343,100 @@ _wrapper_params :: (fn(param_types : &ArrayList(TypeValue), param_is_ref : &Arra
     j = (j + usize(1));
   });
   out
+});
+/// The `__yo_clone` slot's function for one impl of a `Dyn` that lists
+/// `Clone` (plans/VALUES_BY_DEFAULT.md decision 7).
+_dyn_clone_fn_name :: (fn(impl_key : &String) -> String)(`__yo_dyn_clone_${impl_key}`);
+/// Emit `__yo_dyn_clone_<impl>(void* self_ptr)`, which `d.clone()` reaches
+/// through the vtable (`__yo_dyn_clone`, functions/gc_runtime.yo): it returns
+/// a fresh payload holding the impl's `clone` of this one, so the two `Dyn`s
+/// share nothing. The fresh payload and everything the impl's `clone`
+/// allocates land where the source lives (decision 12, §3.11): the source's
+/// owner scope (`__yo_scope_of_object`) is current for the call. A boxed
+/// payload (`Rc(T)`, the auto-boxed `dyn(v)`) gets a new box through the
+/// box's own constructor; a reference payload is the impl's result itself.
+/// The impl's `clone` comes from the `Clone` evidence the evaluator resolved
+/// for this `dyn(...)` (`_resolve_dyn_trait_values`), which it guarantees for
+/// a payload put into a `Dyn` that lists `Clone`.
+_emit_dyn_clone_function :: (
+  fn(impl_key : &String, req_traits : &ArrayList(TypeValue), trait_values : &ArrayList(EvalValue), data_type : &TypeValue, concrete_type : &TypeValue, context : &FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  // The impl's `clone`: the `clone` field of the `Clone` trait's evidence.
+  (clone_fid : String) = String.new();
+  (ti : usize) = usize(0);
+  while((ti < req_traits.len()) && clone_fid.is_empty(), {
+    if(match(req_traits.get(ti), .Some(rt) => is_clone_trait_type(&rt), .None => false), {
+      match(
+        trait_values.get(ti),
+        .Some(.TraitVal(_, cl_names, cl_vals)) => {
+          (fi : usize) = usize(0);
+          while(fi < cl_names.len(), {
+            if(match(cl_names.get(fi), .Some(l) => (l == "clone"), .None => false), {
+              match(
+                cl_vals.get(fi),
+                .Some(.Some(fv)) => if(is_func_val(&fv), {
+                  clone_fid = _func_val_id(&fv);
+                }),
+                _ => ()
+              );
+            });
+            fi = (fi + usize(1));
+          });
+        },
+        _ => ()
+      );
+    });
+    ti = (ti + usize(1));
+  });
+  is_boxed := is_boxed_type(data_type.clone());
+  em.emit_declaration_string_line(`static void* ${_dyn_clone_fn_name(impl_key)}(void* self_ptr) {`);
+  (clone_entry : Option(CodegenFunctionEntry)) = if(clone_fid.is_empty(), Option(CodegenFunctionEntry).None, context.base.get_function_entry(clone_fid.clone()));
+  match(
+    clone_entry,
+    .Some(entry) => if(should_skip_function_codegen(clone_fid.clone(), entry.c_name.clone(), &entry.value, &context.base), {
+      em.emit_declaration_line("  (void)self_ptr;");
+      em.emit_declaration_line("  __yo_abort(); /* dyn clone unavailable: impl fn skipped (degraded type) */");
+      em.emit_declaration_line("  return NULL;");
+    }, {
+      // `self : &Self` reaches the impl as `T` or as `T*` (`fn_abi_param_is_ptr`).
+      (self_by_ptr : bool) = match(
+        get_func_type(clone_fid.clone()),
+        Rc(.Func({ param_types : cpts, meta : cfm })) => (match(cpts.get(usize(0)), .Some(p0) => is_pointer_type(&p0), .None => false) || match(cfm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false)),
+        _ => false
+      );
+      (receiver : String) = String.new();
+      if(is_boxed, {
+        boxed_cname := _boxed_c_name(data_type.clone(), context);
+        field_name := _box_field_name(data_type.clone());
+        em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
+        receiver = if(self_by_ptr, `&box->${field_name}`, `box->${field_name}`);
+      }, {
+        concrete_str := get_type_string(concrete_type.clone(), &context.base);
+        em.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
+        receiver = if(self_by_ptr, String.from("&concrete_value"), String.from("concrete_value"));
+      });
+      em.emit_declaration_line("  __yo_alloc_scope_t __yo_saved_scope = __yo_scope_current();");
+      em.emit_declaration_line("  __yo_alloc_scope_t __yo_owner_scope = __yo_scope_of_object(self_ptr);");
+      em.emit_declaration_line("  __yo_scope_set(__yo_owner_scope.ctx, (void*)__yo_owner_scope.vtable);");
+      if(is_boxed, {
+        boxed_cname := _boxed_c_name(data_type.clone(), context);
+        em.emit_declaration_string_line(`  ${boxed_cname}* out = __yo_new_${boxed_cname}(${entry.c_name}(${receiver}));`);
+      }, {
+        concrete_str := get_type_string(concrete_type.clone(), &context.base);
+        em.emit_declaration_string_line(`  ${concrete_str} out = ${entry.c_name}(${receiver});`);
+      });
+      em.emit_declaration_line("  __yo_scope_set(__yo_saved_scope.ctx, (void*)__yo_saved_scope.vtable);");
+      em.emit_declaration_line("  return (void*)out;");
+    }),
+    .None => {
+      em.emit_declaration_line("  (void)self_ptr;");
+      em.emit_declaration_line("  __yo_abort(); /* __yo_MISSING_CLONE: no clone function for this Dyn payload */");
+      em.emit_declaration_line("  return NULL;");
+    }
+  );
+  em.emit_declaration_line("}");
+  em.emit_declaration_line("");
 });
 /// Generate wrapper functions for dyn method dispatch. Each wrapper takes
 /// `void* self_ptr`, unwraps it to the boxed value (is_boxed_type) or casts to
@@ -730,6 +824,10 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
           });
           mi = (mi + usize(1));
         });
+        // Pass 3: the clone slot of a Dyn that lists Clone.
+        if(dyn_type_lists_clone(impl_entry.dyn_type.clone()), {
+          _emit_dyn_clone_function(&impl_key, &req_traits.items, &impl_entry.trait_values, &data_type, &impl_entry.concrete_type, context);
+        });
       },
       .None => ()
     );
@@ -821,6 +919,10 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
         data_atomic := _dyn_data_is_atomic(impl_entry.data_type.clone());
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_retain = __yo_incr_rc_atomic,`, `  .__yo_retain = __yo_incr_rc,`));
         em.emit_declaration_string_line(if(data_atomic, `  .__yo_release = __yo_decr_rc_atomic,`, `  .__yo_release = __yo_decr_rc,`));
+        // The clone slot: this impl's `__yo_dyn_clone_<impl>` for a Dyn that
+        // lists Clone (emitted with the wrappers), NULL for any other Dyn,
+        // which is never copied through it (decision 7).
+        em.emit_declaration_string_line(if(dyn_type_lists_clone(impl_entry.dyn_type.clone()), `  .__yo_clone = ${_dyn_clone_fn_name(&impl_key)},`, String.from("  .__yo_clone = NULL,")));
         req_traits := match(impl_entry.dyn_type.clone(), Rc(.DynT({ required_trait_types })) => required_trait_types, _ => no_types());
         nt := req_traits.len();
         processed := HashSet(String).new();

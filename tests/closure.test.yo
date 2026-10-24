@@ -130,16 +130,20 @@ test("Test multiple expected errors", {
 });
 test("Test closure with Dyn", {
   mut(x) := 1;
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    rc(y => {
-      x = (x + y);
-      return(x);
-    })
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = rc(
+    dyn(
+      rc(y => {
+        x = (x + y);
+        return(x);
+      })
+    )
   );
-  closure2 := closure; // Test dup on closure
-  closure(1); // 2
-  closure2(1); // 3
-  result := closure(2); // 5
+  // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
+  // two handles share one closure through an Rc.
+  closure2 := closure;
+  closure.*(1); // 2
+  closure2.*(1); // 3
+  result := closure.*(2); // 5
   unsafe(printf("Final result: %d\n", result));
   assert(x == 1, "Captured variable x should remain unchanged outside closure");
   assert(result == 5, "Expected final result to be 5");
@@ -223,31 +227,39 @@ test("Test anonymous closure value with Impl that captures Rc object", {
 });
 test("Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    rc(y => {
-      x.* = (x.* + y);
-      return(x.*);
-    })
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = rc(
+    dyn(
+      rc(y => {
+        x.* = (x.* + y);
+        return(x.*);
+      })
+    )
   );
-  closure2 := closure; // Test dup on closure
-  closure(1); // 2
-  closure2(1); // 3
-  result := closure(2); // 5
+  // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
+  // two handles share one closure through an Rc.
+  closure2 := closure;
+  closure.*(1); // 2
+  closure2.*(1); // 3
+  result := closure.*(2); // 5
   unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
 });
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(y => {
-    // without explicitly calling `box`
-    x.* = (x.* + y);
-    return(x.*);
-  });
-  closure2 := closure; // Test dup on closure
-  closure(1); // 2
-  closure2(1); // 3
-  result := closure(2); // 5
+  (closure : Rc(Dyn(Fn(y : i32) -> i32))) = rc(
+    dyn(y => {
+      // without explicitly calling `box`
+      x.* = (x.* + y);
+      return(x.*);
+    })
+  );
+  // A Dyn owns its payload (plans/VALUES_BY_DEFAULT.md decision 7): the
+  // two handles share one closure through an Rc.
+  closure2 := closure;
+  closure.*(1); // 2
+  closure2.*(1); // 3
+  result := closure.*(2); // 5
   unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
@@ -909,4 +921,18 @@ test("decision 44: an Impl(Fn) slot still takes a closure bare", {
   (f : Impl(Fn() -> i32)) = (() => n);
   (g : Impl(Fn() -> i32)) = f;
   assert(g() == i32(5), "Impl(Fn) binding");
+});
+// `k.clone()` on a closure whose `Impl` lists `Clone` itself clones the
+// capture record (decision 36) instead of calling the `Impl`'s own `clone`
+// requirement, which no impl implements
+// (issues/fixed/2026-10-24-clone-of-a-closure-typed-impl-fn-clone-fails-to-transpile.md).
+test("a closure typed Impl(Fn(...), Clone) clones structurally", {
+  s := String.from("abc");
+  (k : Impl(Fn(x : i32) -> i32, Clone)) = ((x : i32) => (x + i32(s.len())));
+  g := k.clone();
+  assert((k(i32(1)) + g(i32(2))) == i32(9), "the clone calls its own copy of the closure");
+  n := i32(4);
+  (c : Impl(Fn() -> i32, Clone)) = (() => n);
+  d := c.clone();
+  assert((c() + d()) == i32(8), "a closure of Copy captures clones by copy");
 });
