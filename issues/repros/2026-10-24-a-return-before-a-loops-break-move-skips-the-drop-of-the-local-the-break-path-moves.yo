@@ -1,0 +1,70 @@
+// issues/2026-10-24-a-return-before-a-loops-break-move-skips-the-drop-of-the-local-the-break-path-moves.md
+// Expected: prints `made=2 drops=2` and exits 0.
+// Actual (develop f1cfa553d, and with the match-join fix): prints
+// `made=2 drops=0` and the assert fails (rc 134):
+// neither `return(i32(-2))` drops `f`, though `f` is moved only on the
+// `break` path, at a later iteration.
+{ println } :: import("std/fmt");
+{ assert } :: import("std/assert");
+(mut(g_d) : i32) = i32(0);
+(mut(g_m) : i32) = i32(0);
+Fd :: struct(n : i32);
+impl(
+  Fd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_d = (g_d + i32(1));
+    })
+  )
+);
+mk :: (fn(n : i32) -> Fd)({
+  g_m = (g_m + i32(1));
+  Fd(n : n)
+});
+take :: (fn(sink(f) : Fd) -> i32)(f.n);
+// A `match` arm moves and breaks; the return comes earlier on the path.
+via_match :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := mk(k);
+  while(true, {
+    i = (i + i32(1));
+    match(
+      i == k,
+      true => {
+        take(f);
+        break;
+      },
+      false => ()
+    );
+    if(i == i32(2), {
+      return(i32(-2));
+    });
+  });
+  i32(0)
+});
+// The same with an `if`.
+via_if :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := mk(k);
+  while(true, {
+    i = (i + i32(1));
+    if(i == k, {
+      take(f);
+      break;
+    });
+    if(i == i32(2), {
+      return(i32(-2));
+    });
+  });
+  i32(0)
+});
+main :: (fn() -> unit)({
+  a := via_match(i32(3));
+  b := via_if(i32(3));
+  m := g_m;
+  d := g_d;
+  println(`made=${m} drops=${d}`);
+  assert((a == i32(-2)) && (b == i32(-2)), "both return at i == 2");
+  assert(d == m, "each `return(i32(-2))` drops `f`");
+});
+export(main);

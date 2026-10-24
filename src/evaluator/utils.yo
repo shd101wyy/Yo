@@ -87,6 +87,7 @@ pragma(Pragma.AllowUnsafe);
   snapshot_env,
   UndoneMove,
   variable_record_undone_move,
+  variable_has_undone_move,
   is_fn_capture_value_binding,
   is_capture_list_value_binding,
   is_macro_pattern_binding,
@@ -4300,18 +4301,119 @@ _last_token_of :: (fn(e : &AstExpr, root : &Token) -> Token)({
 /// Keep the move `v` has now, made by the arm `arm`, when the flow log
 /// undoes it back to `before`: codegen's cleanup points inside `arm` still
 /// see it (see `reset_sibling_flow_state`).
+///
+/// A move made inside a nested `cond`/`match` of `arm` is on the path of the
+/// nested arm that made it only, so the kept move covers exactly the code
+/// that runs after the move on that path: from the move to the end of the
+/// innermost arm body holding it, then, for each enclosing nested branch,
+/// from that branch's end to the end of the arm body holding it, up to
+/// `arm`'s end. A sibling arm of a nested branch is never covered. The
+/// record does not lean on the nested branch's own arms: a `cond` folded at
+/// compile time forms no branch group and records nothing
+/// (issues/fixed/2026-10-23-an-exit-in-a-nested-branchs-other-arm-skips-the-drop-of-a-local-the-branch-moves.md).
 _keep_undone_move :: (fn(v : &Variable, before : &Option(Token), arm : &AstExpr) -> unit)(
   match(
     v.consumed_at_token,
     .Some(ct) => {
       same := match(before, .Some(b) => ((b.module_path == ct.module_path) && (b.character == ct.character)), .None => false);
       if(!same, {
-        variable_record_undone_move(v, UndoneMove(moved_at : ct.clone(), until : _last_token_of(arm, &ct), inclusive : true));
+        (region : AstExpr) = arm;
+        (walking : bool) = true;
+        while(walking, {
+          match(
+            _outer_branch_holding(&region, &ct),
+            .Some(nb) => match(
+              _arm_body_holding(&nb, &ct),
+              .Some(inner) => {
+                nb_tok := ast_expr_token(&nb);
+                _record_kept_move(v, UndoneMove(moved_at : _last_token_of(&nb, &nb_tok), until : _last_token_of(&region, &ct), inclusive : true, after : true));
+                region = inner;
+              },
+              .None => {
+                walking = false;
+              }
+            ),
+            .None => {
+              walking = false;
+            }
+          );
+        });
+        _record_kept_move(v, UndoneMove(moved_at : ct.clone(), until : _last_token_of(&region, &ct), inclusive : true));
       });
     },
     .None => ()
   )
 );
+/// Record the kept move `m` once (a loop body is evaluated more than once).
+_record_kept_move :: (fn(v : &Variable, m : UndoneMove) -> unit)(
+  if(!variable_has_undone_move(v, &m), {
+    variable_record_undone_move(v, &m);
+  })
+);
+/// The arm body of the `cond`/`match` `b` whose source span holds `t`.
+_arm_body_holding :: (fn(b : &AstExpr, t : &Token) -> Option(AstExpr))(
+  match(
+    b,
+    .FnCall(_, _, args, _, _) => {
+      (ai : usize) = usize(0);
+      while(ai < args.len(), {
+        match(
+          args.get(ai),
+          .Some(a) => if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2))), {
+            match(
+              a,
+              .FnCall(_, _, bargs, _, _) => match(
+                bargs.get(usize(1)),
+                .Some(body) => if(_span_holds(&body, t), {
+                  return(Option(AstExpr).Some(body));
+                }),
+                .None => ()
+              ),
+              .Atom(_, _) => ()
+            );
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      Option(AstExpr).None
+    },
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// The outermost `cond`/`match` in `e` (itself included) with an arm body
+/// whose source span holds `t`: a move at `t` made there is on that arm's
+/// path only.
+_outer_branch_holding :: (fn(e : &AstExpr, t : &Token) -> Option(AstExpr))(
+  match(
+    e,
+    .FnCall(_, callee, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None), {
+        if(_arm_body_holding(e, t).is_some(), {
+          return(Option(AstExpr).Some(e));
+        });
+      });
+      match(recur(&callee, t), .Some(x) => return(Option(AstExpr).Some(x)), .None => ());
+      (ci : usize) = usize(0);
+      while(ci < args.len(), {
+        match(args.get(ci), .Some(c) => match(recur(&c, t), .Some(x) => return(Option(AstExpr).Some(x)), .None => ()), .None => ());
+        ci = (ci + usize(1));
+      });
+      Option(AstExpr).None
+    },
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// Does `node`'s source span hold the token `t`?
+_span_holds :: (fn(node : &AstExpr, t : &Token) -> bool)({
+  nt := ast_expr_token(node);
+  if(nt.module_path != t.module_path, {
+    return(false);
+  });
+  lo := _first_token_of(node, &nt);
+  hi := _last_token_of(node, &nt);
+  (lo.character <= t.character) && (t.character <= hi.character)
+});
 /// After the last arm of a `cond`/`match`, before the join: keep the moves
 /// that arm made. The join restores the state from the arms that reach it,
 /// and a diverging last arm is not one of them.

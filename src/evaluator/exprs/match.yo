@@ -2002,6 +2002,8 @@ evaluate_match :: (
       nrem_i = (nrem_i + usize(1));
     });
     (matched_body_val : Option(EvalValue)) = Option(EvalValue).None;
+    // The one arm reaching the join that Cases 1-3 pick (see below them).
+    (join_arm_em : Option(AstExpr)) = Option(AstExpr).None;
     // Case 1: concrete scrutinee with matched_body_idx set
     (did_use_matched_body : bool) = false;
     if(matched_body_idx.is_some() && ct_known, {
@@ -2015,6 +2017,10 @@ evaluate_match :: (
             env_adopt(&env, &mbi.env);
             matched_body_val = mbi.value;
             did_use_matched_body = true;
+            // A diverging matched arm never reaches the join.
+            if(!(has_any_control_flow(mbi.control_flow)), {
+              join_arm_em = Option(AstExpr).Some(mb);
+            });
           }
         );
       });
@@ -2035,6 +2041,7 @@ evaluate_match :: (
                 env_adopt(&env, &bi.env);
                 matched_body_val = bi.value;
                 did_use_single = true;
+                join_arm_em = Option(AstExpr).Some(first_nrem);
               }
             );
           });
@@ -2047,6 +2054,7 @@ evaluate_match :: (
               .Some(bi) => {
                 env_adopt(&env, &bi.env);
                 did_use_single = true;
+                join_arm_em = Option(AstExpr).Some(first_nrem2);
               }
             );
           });
@@ -2058,6 +2066,23 @@ evaluate_match :: (
         env = merge_and_check_envs(&env, &non_return_em, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
       });
     });
+    // Cases 1-3 adopt the picked arm's env, but the move state lives on the
+    // shared `Variable` objects, left as the arm evaluated LAST put them (each
+    // arm's moves are undone before the next one starts). A move in a later
+    // arm that returns would reach the code after the match, and a move the
+    // picked arm made would be lost there, so the local is dropped again.
+    // Join the picked arm alone, as Case 4 joins the arms that reach it
+    // (issues/fixed/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md,
+    // issues/fixed/2026-10-23-a-match-whose-other-arm-breaks-drops-the-moved-local-again-after-the-match.md).
+    match(
+      join_arm_em,
+      .Some(ja) => {
+        join_one_em := ArrayList(AstExpr).new();
+        join_one_em.push(ja);
+        env = merge_and_check_envs(&env, &join_one_em, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
+      },
+      .None => ()
+    );
     // Determine output value
     out_val_em := cond(
       scrutinee_val_opt.is_none() => Option(EvalValue).None,

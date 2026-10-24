@@ -8,6 +8,7 @@
 // exactly once. `g_mo_disposed` counts the `dispose` runs of `_MoFd` and
 // `_MoLate`, and `g_mo_sum` adds up the disposed `_MoFd`s' `n`.
 { assert } :: import("std/assert");
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
 { VList } :: import("./fixtures/owned_buffer.yo");
@@ -249,6 +250,126 @@ test("move-only: a returning arm beside arms that move a value drops it at the r
   assert(_mo_some_move_or_return(i32(1)) == i32(77), "returned");
   assert(_mo_some_move_or_return(i32(2)) == i32(0), "kept, then dropped at the arm's end");
   assert(g_mo_disposed == (before + i32(6)), "and again for a move in some arms");
+});
+// A `match` arm that moves a value and returns never reaches the code after
+// the `match`, whatever the scrutinee: a call result (a value unknown at
+// compile time) or a compile-time-known value, and whichever arm comes last
+// (issues/fixed/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md).
+_mo_id_opt :: (fn(o : Option(i32)) -> Option(i32))(o);
+_mo_id_str :: (fn(o : Option(String)) -> Option(String))(o);
+_mo_call_scrutinee_return_last :: (fn(o : Option(i32)) -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    _mo_id_opt(o),
+    .Some(x) => x,
+    .None => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+_mo_call_scrutinee_return_first :: (fn(o : Option(i32)) -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    _mo_id_opt(o),
+    .None => {
+      return(_mo_take(bad) - i32(100));
+    },
+    .Some(x) => x
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+_mo_call_scrutinee_statement :: (fn(o : Option(i32)) -> i32)({
+  bad := _MoFd(n : i32(1));
+  match(
+    _mo_id_opt(o),
+    .Some(_) => (),
+    .None => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  _mo_take(bad)
+});
+_mo_call_scrutinee_string :: (fn(o : Option(String)) -> String)({
+  bad := String.from("bad");
+  s := match(
+    _mo_id_str(o),
+    .Some(x) => x,
+    .None => {
+      return(bad);
+    }
+  );
+  cond((s.len() > usize(0)) => s, true => bad)
+});
+_mo_known_enum_scrutinee :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    Option(i32).Some(i32(3)),
+    .Some(x) => x,
+    _ => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+_mo_known_int_scrutinee :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(
+    i32(4),
+    i32(4) => i32(4),
+    _ => {
+      return(_mo_take(bad) - i32(100));
+    }
+  );
+  cond((v > i32(0)) => v, true => _mo_take(bad))
+});
+test("move-only: a move in a returning match arm does not reach the code after the match", {
+  before := g_mo_disposed;
+  assert(_mo_call_scrutinee_return_last(.Some(i32(3))) == i32(3), "kept, dropped at the scope end");
+  assert(_mo_call_scrutinee_return_last(.Some(i32(-3))) == i32(1), "moved after the match");
+  assert(_mo_call_scrutinee_return_last(.None) == i32(-99), "moved by the returning arm");
+  assert(g_mo_disposed == (before + i32(3)), "returning arm last: disposed once on every path");
+  assert(_mo_call_scrutinee_return_first(.Some(i32(3))) == i32(3), "kept, dropped at the scope end");
+  assert(_mo_call_scrutinee_return_first(.Some(i32(-3))) == i32(1), "moved after the match");
+  assert(_mo_call_scrutinee_return_first(.None) == i32(-99), "moved by the returning arm");
+  assert(g_mo_disposed == (before + i32(6)), "returning arm first: disposed once on every path");
+  assert(_mo_call_scrutinee_statement(.Some(i32(3))) == i32(1), "moved after the match");
+  assert(_mo_call_scrutinee_statement(.None) == i32(-99), "moved by the returning arm");
+  assert(g_mo_disposed == (before + i32(8)), "statement match: disposed once on every path");
+  assert(_mo_known_enum_scrutinee() == i32(3), "a known enum selects the first arm");
+  assert(_mo_known_int_scrutinee() == i32(4), "a known integer selects the first arm");
+  assert(g_mo_disposed == (before + i32(10)), "known scrutinee: kept, dropped at the scope end");
+  assert(_mo_call_scrutinee_string(.Some(String.from("ok"))) == String.from("ok"), "the payload");
+  assert(_mo_call_scrutinee_string(.Some(String.from(""))) == String.from("bad"), "moved after the match");
+  assert(_mo_call_scrutinee_string(.None) == String.from("bad"), "moved by the returning arm");
+});
+// The other direction of the same join: a compile-time-known scrutinee whose
+// SELECTED arm moves a value, beside a later arm that reaches the join without
+// moving it. The scope end must not drop the moved value a second time
+// (issues/fixed/2026-10-24-a-known-scrutinee-match-drops-a-value-its-selected-arm-moved-twice.md).
+_mo_known_int_selected_moves :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(i32(4), i32(4) => _mo_take(bad), _ => i32(0));
+  v
+});
+_mo_known_enum_selected_moves :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(Option(i32).Some(i32(2)), .Some(x) => (_mo_take(bad) + x), _ => i32(0));
+  v
+});
+_mo_known_int_selected_keeps :: (fn() -> i32)({
+  bad := _MoFd(n : i32(1));
+  v := match(i32(5), i32(4) => _mo_take(bad), _ => i32(0));
+  v
+});
+test("move-only: a known-scrutinee match drops a value its selected arm moved exactly once", {
+  before := g_mo_disposed;
+  assert(_mo_known_int_selected_moves() == i32(1), "a known integer selects the moving arm");
+  assert(g_mo_disposed == (before + i32(1)), "known integer: disposed once, by the arm");
+  assert(_mo_known_enum_selected_moves() == i32(3), "a known enum selects the moving arm");
+  assert(g_mo_disposed == (before + i32(2)), "known enum: disposed once, by the arm");
+  assert(_mo_known_int_selected_keeps() == i32(0), "a known integer selects the `_` arm");
+  assert(g_mo_disposed == (before + i32(3)), "kept, disposed once at the scope end");
 });
 _MoPair :: struct(fd : _MoFd, tag : i32);
 test("move-only: an assignment statement drops the old value at the assignment", {
@@ -1576,9 +1697,8 @@ test("move-only: in an io.async loop, an exit inside a binding's own initializer
   assert(g_mo_sum == i32(3), "nothing disposed twice");
 });
 // An exit in a later arm than the move: the move is not on the exit's path,
-// so the exit drops the local. (A `match` whose other arm breaks or continues
-// still drops the moved local after the match:
-// issues/2026-10-23-a-match-whose-other-arm-breaks-drops-the-moved-local-again-after-the-match.md.)
+// so the exit drops the local. The `match` form of this shape is tested
+// further down
 // (issues/fixed/2026-10-23-an-exit-in-a-later-arm-than-the-move-skips-the-drop-of-the-moved-local.md).
 _mo_break_in_later_arm :: (fn(k : i32) -> i32)({
   (mut(i) : i32) = i32(0);
@@ -1663,4 +1783,754 @@ test("move-only: a `break` in a later argument than a by-value argument drops it
   assert(_mo_break_in_later_argument(i32(2)) == i32(1), "1 moved, the break at 2");
   assert(g_mo_disposed == (before + i32(2)), "1 by the callee, 2 at the break");
   assert(g_mo_sum == i32(3), "nothing disposed twice");
+});
+// A `match` with one arm that moves and another that always leaves (`break`,
+// `continue`, `return`): the join keeps the moving arm's move, so the local is
+// not dropped again after the match, and a nested branch's move covers only
+// the exits after that branch, not the ones in its other arms
+// (issues/fixed/2026-10-23-a-match-whose-other-arm-breaks-drops-the-moved-local-again-after-the-match.md).
+// Each helper returns its result; `_mo_shape` checks it with the disposals
+// and their `n` sum since `_mo_counts_reset`.
+_mo_counts_reset :: (fn() -> i32)({
+  g_mo_sum = i32(0);
+  g_mo_disposed
+});
+_mo_shape :: (fn(r : i32, want : i32, d0 : i32, drops : i32, sum : i32) -> bool)(
+  (r == want) && (((g_mo_disposed - d0) == drops) && (g_mo_sum == sum))
+);
+// `.None` at `k`, else `.Some(n)`.
+_mo_some_unless :: (fn(n : i32, k : i32) -> Option(i32))(cond((n == k) => .None, true => .Some(n)));
+_MoPick :: enum(Take, Stop, Skip);
+_mo_pick :: (fn(n : i32) -> _MoPick)(cond((n == i32(1)) => .Skip, (n == i32(2)) => .Take, true => .Stop));
+_MO_TAKE_FLAG :: true;
+_mo_mb_break :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      i == k,
+      false => {
+        total = (total + _mo_take(f));
+      },
+      true => {
+        break;
+      }
+    );
+  });
+  total
+});
+_mo_mb_continue :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      i == k,
+      false => {
+        total = (total + _mo_take(f));
+      },
+      true => {
+        continue;
+      }
+    );
+  });
+  total
+});
+_mo_mb_return :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      i == k,
+      false => {
+        total = (total + _mo_take(f));
+      },
+      true => {
+        return(i32(-1));
+      }
+    );
+  });
+  total
+});
+_mo_mb_option_break :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      _mo_some_unless(i, k),
+      .Some(_) => {
+        total = (total + _mo_take(f));
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  total
+});
+_mo_mb_enum :: (fn() -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      _mo_pick(i),
+      .Take => {
+        total = (total + _mo_take(f));
+      },
+      .Stop => {
+        break;
+      },
+      .Skip => {
+        continue;
+      }
+    );
+  });
+  total
+});
+_mo_mb_for :: (fn(k : i32) -> i32)({
+  ns := ArrayList(i32).new();
+  ns.push(i32(1));
+  ns.push(i32(2));
+  ns.push(i32(3));
+  (mut(total) : i32) = i32(0);
+  for(&ns, n => {
+    f := _MoFd(n : n);
+    match(
+      n == k,
+      false => {
+        total = (total + _mo_take(f));
+      },
+      true => {
+        continue;
+      }
+    );
+  });
+  total
+});
+// No loop: the other arm returns.
+_mo_mb_option_return :: (fn(k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  match(
+    _mo_some_unless(k, i32(0)),
+    .Some(_) => {
+      total = (total + _mo_take(f));
+    },
+    .None => {
+      return(i32(-1));
+    }
+  );
+  total
+});
+_mo_mb_option_value_return :: (fn(k : i32) -> i32)({
+  f := _MoFd(n : k);
+  x := match(
+    _mo_some_unless(k, i32(0)),
+    .Some(_) => _mo_take(f),
+    .None => return(i32(-1))
+  );
+  x
+});
+// A comptime-known scrutinee: the matched arm's move stands after the match.
+_mo_mb_comptime :: (fn(k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  match(
+    _MO_TAKE_FLAG,
+    true => {
+      total = (total + _mo_take(f));
+    },
+    false => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
+_mo_mb_comptime_loop :: (fn() -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      _MO_TAKE_FLAG,
+      true => {
+        total = (total + _mo_take(f));
+      },
+      false => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+test("move-only: a match arm's move stands when another arm breaks, continues or returns", {
+  d0 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_break(i32(2)), i32(1), d0, i32(2), i32(3)), "move, then break");
+  d1 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_continue(i32(2)), i32(4), d1, i32(3), i32(6)), "move, then continue");
+  d2 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_return(i32(2)), i32(-1), d2, i32(2), i32(3)), "move, then return");
+  d3 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_option_break(i32(2)), i32(1), d3, i32(2), i32(3)), "Option: .Some moves, .None breaks");
+  d4 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_option_break(i32(0)), i32(6), d4, i32(3), i32(6)), "Option: every iteration moves");
+  d5 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_enum(), i32(2), d5, i32(3), i32(6)), "enum: move, break and continue arms");
+  d6 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_for(i32(2)), i32(4), d6, i32(3), i32(6)), "a `for` body");
+  d7 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_option_return(i32(5)), i32(5), d7, i32(1), i32(5)), "no loop: the moving arm");
+  d8 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_option_return(i32(0)), i32(-1), d8, i32(1), i32(0)), "no loop: the returning arm");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_option_value_return(i32(5)), i32(5), d9, i32(1), i32(5)), "a match value: the moving arm");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_option_value_return(i32(0)), i32(-1), d10, i32(1), i32(0)), "a match value: the returning arm");
+  d11 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_comptime(i32(5)), i32(5), d11, i32(1), i32(5)), "a comptime scrutinee");
+  d12 := _mo_counts_reset();
+  assert(_mo_shape(_mo_mb_comptime_loop(), i32(6), d12, i32(3), i32(6)), "a comptime scrutinee in a loop");
+});
+// A nested branch inside an outer arm: its move is on its own arm's path
+// only, so the exit in its other arm still drops the local.
+_mo_nb_option_cond :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      _mo_some_unless(i, i32(0)),
+      .Some(_) => cond(
+        (i != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          continue;
+        }
+      ),
+      .None => {
+        break;
+      }
+    );
+  });
+  total
+});
+_mo_nb_option_cond_exit_first :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      _mo_some_unless(i, i32(0)),
+      .Some(_) => cond(
+        (i == k) => {
+          continue;
+        },
+        true => {
+          total = (total + _mo_take(f));
+        }
+      ),
+      .None => {
+        break;
+      }
+    );
+  });
+  total
+});
+_mo_nb_option_cond_keep :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      _mo_some_unless(i, i32(0)),
+      .Some(x) => cond(
+        (x != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          continue;
+        }
+      ),
+      .None => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+_mo_nb_cond_first_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => cond(
+        (i != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          continue;
+        }
+      ),
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+_mo_nb_cond_last_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i > i32(100)) => {
+        total = (total + i32(100));
+      },
+      true => cond(
+        (i != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          continue;
+        }
+      )
+    );
+  });
+  total
+});
+_mo_nb_cond_break :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => cond(
+        (i != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          break;
+        }
+      ),
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+_mo_nb_cond_return :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => cond(
+        (i != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          return(i32(-1));
+        }
+      ),
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+_mo_nb_match_cond :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    match(
+      i > i32(100),
+      false => cond(
+        (i != k) => {
+          total = (total + _mo_take(f));
+        },
+        true => {
+          continue;
+        }
+      ),
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+_mo_nb_three_levels :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => cond(
+        (i < i32(50)) => match(
+          i != k,
+          true => {
+            total = (total + _mo_take(f));
+          },
+          false => {
+            continue;
+          }
+        ),
+        true => {
+          break;
+        }
+      ),
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+// A nested match with one arm reaching its join, in a first or last outer arm.
+_mo_nb_cond_match_first :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => match(
+        i != k,
+        true => {
+          total = (total + _mo_take(f));
+        },
+        false => {
+          continue;
+        }
+      ),
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+_mo_nb_cond_match_last :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i > i32(100)) => {
+        total = (total + i32(100));
+      },
+      true => match(
+        i != k,
+        true => {
+          total = (total + _mo_take(f));
+        },
+        false => {
+          continue;
+        }
+      )
+    );
+  });
+  total
+});
+// An exit after the nested branch, in the same outer arm, sees its move.
+_mo_nb_return_after :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => {
+        match(
+          i != k,
+          true => {
+            total = (total + _mo_take(f));
+          },
+          false => {
+            continue;
+          }
+        );
+        if(i == i32(3), {
+          return(total);
+        });
+      },
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+// A move in a nested scrutinee is on every path of that match.
+_mo_nb_scrutinee_move :: (fn() -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => {
+        match(
+          _mo_take(f),
+          2 => {
+            return(i32(-5));
+          },
+          _ => {
+            total = (total + i32(1));
+          }
+        );
+      },
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+test("move-only: a nested branch's move does not cover the exits in its other arms", {
+  d0 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_option_cond(i32(2)), i32(4), d0, i32(3), i32(6)), "match > cond: move, then continue");
+  d1 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_option_cond_exit_first(i32(2)), i32(4), d1, i32(3), i32(6)), "match > cond: continue, then move");
+  d2 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_option_cond_keep(i32(2)), i32(4), d2, i32(3), i32(6)), "match > cond, the other arm keeps it");
+  d3 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_cond_first_arm(i32(2)), i32(4), d3, i32(3), i32(6)), "cond > cond in the first arm");
+  d4 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_cond_last_arm(i32(2)), i32(4), d4, i32(3), i32(6)), "cond > cond in the last arm");
+  d5 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_cond_break(i32(2)), i32(1), d5, i32(2), i32(3)), "cond > cond: break");
+  d6 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_cond_return(i32(2)), i32(-1), d6, i32(2), i32(3)), "cond > cond: return");
+  d7 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_match_cond(i32(2)), i32(4), d7, i32(3), i32(6)), "match > cond");
+  d8 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_three_levels(i32(2)), i32(4), d8, i32(3), i32(6)), "cond > cond > match");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_cond_match_first(i32(2)), i32(4), d9, i32(3), i32(6)), "cond > match in the first arm");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_cond_match_last(i32(2)), i32(4), d10, i32(3), i32(6)), "cond > match in the last arm");
+  d11 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_return_after(i32(2)), i32(4), d11, i32(3), i32(6)), "a return after the nested match");
+  d12 := _mo_counts_reset();
+  assert(_mo_shape(_mo_nb_scrutinee_move(), i32(-5), d12, i32(2), i32(3)), "a move in a nested scrutinee");
+});
+// A nested `cond` decided at compile time forms no branch: its taken arm
+// records no move of its own, so the outer arm's kept move must cover the
+// exits after the move inside it (a `return`, a `continue`, an effect escape
+// through a `sink` callee), or they drop the moved local a second time.
+_MO_NO_FLAG :: false;
+_mo_fold_return :: (fn(k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  match(
+    _mo_some_unless(k, i32(0)),
+    .Some(_) => {
+      cond(
+        _MO_TAKE_FLAG => {
+          total = (total + _mo_take(f));
+          if(k == i32(2), {
+            return(i32(-2));
+          });
+        },
+        true => ()
+      );
+    },
+    .None => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
+_mo_fold_later_clause :: (fn(k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  match(
+    _mo_some_unless(k, i32(0)),
+    .Some(_) => {
+      cond(
+        _MO_NO_FLAG => (),
+        _MO_TAKE_FLAG => {
+          total = (total + _mo_take(f));
+          if(k == i32(2), {
+            return(i32(-2));
+          });
+        },
+        true => ()
+      );
+    },
+    .None => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
+_mo_fold_then_more :: (fn(k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  cond(
+    (k > i32(0)) => {
+      cond(
+        _MO_TAKE_FLAG => {
+          total = (total + _mo_take(f));
+          if(k == i32(2), {
+            return(i32(-2));
+          });
+        },
+        true => ()
+      );
+      total = (total + i32(10));
+    },
+    true => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
+_mo_fold_continue :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  while(i < i32(3), {
+    i = (i + i32(1));
+    f := _MoFd(n : i);
+    cond(
+      (i < i32(100)) => {
+        cond(
+          _MO_TAKE_FLAG => {
+            total = (total + _mo_take(f));
+            if(i == k, {
+              continue;
+            });
+          },
+          true => ()
+        );
+        total = (total + i32(10));
+      },
+      true => {
+        total = (total + i32(100));
+      }
+    );
+  });
+  total
+});
+// A comptime type test in a generic instance folds the same way.
+_mo_fold_impls :: (fn(comptime(T) : Type, k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  match(
+    _mo_some_unless(k, i32(0)),
+    .Some(_) => {
+      cond(
+        Type.impls(T, Drop) => {
+          total = (total + _mo_take(f));
+          if(k == i32(2), {
+            return(i32(-2));
+          });
+        },
+        true => ()
+      );
+    },
+    .None => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
+_mo_take_maybe_raise :: (fn(sink(f) : _MoFd, raise : _MoRaise) -> i32)(cond((f.n == i32(2)) => raise(f.n), true => f.n));
+_mo_fold_unwind :: (fn(k : i32) -> i32)({
+  (raise : _MoRaise) = (n -> unwind(i32(100)));
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  cond(
+    (k > i32(0)) => {
+      cond(
+        _MO_TAKE_FLAG => {
+          total = (total + _mo_take_maybe_raise(f, raise));
+        },
+        true => ()
+      );
+      total = (total + i32(10));
+    },
+    true => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
+test("move-only: a move in a compile-time-folded nested cond is dropped once at a later exit", {
+  d0 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_return(i32(2)), i32(-2), d0, i32(1), i32(2)), "match > folded cond: move, then return");
+  d1 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_return(i32(3)), i32(3), d1, i32(1), i32(3)), "match > folded cond: move, no return");
+  d2 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_return(i32(0)), i32(100), d2, i32(1), i32(0)), "match > folded cond: the other arm keeps it");
+  d3 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_later_clause(i32(2)), i32(-2), d3, i32(1), i32(2)), "a later clause taken at compile time");
+  d4 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_then_more(i32(2)), i32(-2), d4, i32(1), i32(2)), "cond > folded cond: return");
+  d5 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_then_more(i32(3)), i32(13), d5, i32(1), i32(3)), "cond > folded cond: past it");
+  d6 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_then_more(i32(0)), i32(100), d6, i32(1), i32(0)), "cond > folded cond: the other arm");
+  d7 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_continue(i32(2)), i32(26), d7, i32(3), i32(6)), "in a loop: continue");
+  d8 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_unwind(i32(2)), i32(100), d8, i32(1), i32(2)), "an effect escape through the sink callee");
+  d9 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_unwind(i32(3)), i32(13), d9, i32(1), i32(3)), "no escape");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_impls(_MoFd, i32(2)), i32(-2), d10, i32(1), i32(2)), "`Type.impls` in a generic instance: return");
+  d11 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_impls(_MoFd, i32(3)), i32(3), d11, i32(1), i32(3)), "`Type.impls` in a generic instance: no return");
+});
+// A value declared outside the loop and moved only in a match arm that
+// `break`s is moved on some ways out of the loop: E0907, as for `if`. (The
+// match join used to read the arm's move back as a move on every iteration
+// and report E0901.)
+test("move-only: a move in a match arm that breaks is moved on some ways out of the loop", {
+  (mut(i) : i32) = i32(0);
+  (mut(total) : i32) = i32(0);
+  g := _MoFd(n : i32(7));
+  comptime_expect_error(
+    while(i < i32(3), {
+      i = (i + i32(1));
+      match(
+        i == i32(2),
+        false => {
+          total = (total + i32(100));
+        },
+        true => {
+          total = (total + _mo_take(g));
+          break;
+        }
+      );
+    }),
+    "moved on some ways out of the loop"
+  );
 });
