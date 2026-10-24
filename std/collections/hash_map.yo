@@ -1225,8 +1225,8 @@ impl(
 );
 /// The borrowed `for`'s cursor (decision 39): an occupied bucket's index, so
 /// the walk order is the bucket order `iter()` has. The element is the
-/// bucket's `MapEntry(K, V)`; the map form copies its key and borrows its
-/// value.
+/// bucket's `MapEntry(K, V)`; the map forms borrow its key read-only and its
+/// value in the loop's mode.
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
@@ -1236,13 +1236,26 @@ impl(
     WalkElem : MapEntry(K, V),
     walk_start : (fn(self : &Self) -> usize)(self._walk_from(usize(0))),
     walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.capacity),
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
+    walk_ref : (fn(self : &Self, cur : &usize) -> &MapEntry(K, V))({
       if(cur >= self.capacity, {
         __yo_panic("HashMap: walk cursor out of bounds");
       });
       Self._data_ptr(self).add(cur)
     }),
     walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._walk_from(cur + usize(1)))
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  BorrowedWalkMut(
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut MapEntry(K, V))({
+      if(cur >= self.capacity, {
+        __yo_panic("HashMap: walk cursor out of bounds");
+      });
+      Self._data_ptr(self).add(cur)
+    })
   )
 );
 // NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated

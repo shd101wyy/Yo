@@ -229,6 +229,28 @@ impl(
     PriorityQueueIterPtr(T)(_data : self._data, _index : usize(0))
   )
 );
+/// The read walk `for(&pq, x => …)` (decision 39, plans/VALUES_BY_DEFAULT.md
+/// B7a): a `usize` index into the heap array, re-checked against its live
+/// length at each step, so the walk order is the unsorted heap order `iter()`
+/// has. A queue has no `BorrowedWalkMut`: writing an element in place would
+/// break the heap order, so `for(&mut pq, …)` is an error.
+impl(
+  generic(T : Type),
+  PriorityQueue(T),
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : T,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._data.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
+      if(cur >= self._data.len(), {
+        __yo_panic("PriorityQueue: walk cursor out of bounds");
+      });
+      self._data._ptr.unwrap().add(cur)
+    }),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
 /// `Default` — the empty queue.
 impl(
   generic(T : Type),

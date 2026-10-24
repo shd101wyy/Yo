@@ -132,6 +132,13 @@ test("lending a mut global, or a place under it, to a call is E0916", {
       _gl_count = x;
     });
   }, "is declared `mut(_gl_mlist)`");
+  // The in-place walk lends it the same way; its loop body needs no call
+  // (issues/fixed/2026-10-23-a-borrowed-for-over-a-mut-global-is-not-e0916.md).
+  comptime_expect_error({
+    for(&mut _gl_mlist, x => {
+      x = i64(0);
+    });
+  }, "is declared `mut(_gl_mlist)`");
   // A closure and a function value lend it the same way.
   comptime_expect_error({
     (f : Impl(Fn(g : &Gauge) -> i64)) = ((g : &Gauge) => g.n);

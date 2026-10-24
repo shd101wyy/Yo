@@ -1,0 +1,56 @@
+// issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md
+// Run: yo compile issues/repros/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.yo \
+//        --optimize 1 --sanitize address --allocator system -o repro && ./repro
+// Expected today: AddressSanitizer heap-use-after-free in `println(x)`.
+// Expected once fixed: a deterministic borrow panic, or a compile error.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+// A VALUE wrapper forwarding the inner list's read projection: safe code, no pragma.
+ValBag :: struct(items : ArrayList(String));
+impl(
+  ValBag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : String,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &String)(&self.items(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+// A `ref` wrapper of the same shape: the guard holds the WRAPPER's flag only.
+RefBag :: ref(struct(items : ArrayList(String)));
+impl(
+  RefBag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : String,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &String)(&self.items(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+grow :: (fn(h : ArrayList(String)) -> unit)({
+  (mut(i) : i32) = i32(0);
+  while(i < i32(100), {
+    h.push(String.from("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+    i = (i + i32(1));
+  });
+});
+main :: (fn() -> unit)({
+  vb := ValBag(items : ArrayList(String).new());
+  vb.items.push(String.from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+  for(&vb, x => {
+    grow(vb.items); // shares the inner list's handle and reallocates its buffer
+    println(x); // reads freed memory
+  });
+  rb := RefBag(items : ArrayList(String).new());
+  rb.items.push(String.from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+  for(&rb, x => {
+    grow(rb.items);
+    println(x);
+  });
+});
+export(main);

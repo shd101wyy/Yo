@@ -1,0 +1,15 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  xs := ArrayList(String).new();
+  xs.push(String.from("first"));
+  for(&xs, x => {
+    h := xs; // the read walk's body may read `xs`, so it can share the handle
+    h.push(String.from("second")); // panics: the loop's guard holds `xs`'s flag
+    println(x);
+  });
+  assert(false, "unreachable: push must panic first");
+});
+export(main);

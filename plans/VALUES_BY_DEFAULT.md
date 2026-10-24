@@ -3512,8 +3512,19 @@ and in git, not a silent edit.
           and the alias and global cases are unchanged.
       - **Generation B** is B7 proper, after B6:
         - `for(&xs, x => …)` becomes the read walk over `c := &xs` with a
-          `walk_ref` projection (`x : &T`). Today `src/expr.yo` rewrites it
-          to the value form, which copies through `into_iter`;
+          `walk_ref` projection (`x : &T`). Before B7a `src/expr.yo`
+          rewrote it to the value form, which copies through `into_iter`.
+          **As built (B7a, 2026-10-23, split out by the lookahead's D7):**
+          `BorrowedWalk` is the read trait (`walk_ref`) and
+          `BorrowedWalkMut` holds `walk_elem` with
+          `where(Self <: BorrowedWalk)`; every std collection has the
+          read walk (`HashSet` and `PriorityQueue` only that); both map
+          forms borrow the key; a borrowed `for` over a `mut(G)` global is
+          E0916. A Generation A: `src/`/`std/` write `for(&xs, …)` only once
+          `SEED_VERSION` carries it. Open gap until Generation B's value
+          collections: a walk forwarded into an inner `ref` collection
+          guards the wrapper, not the inner list
+          (`issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md`);
         - `into_iter(self : Self)` consumes, with decision 42's sweep of the
           `for(xs, …)` sources used afterwards;
         - `iter()` and the `*Ptr` iterators move under
@@ -8072,7 +8083,7 @@ heavy run, the command is given in item 2.
          sketch's `&mut c(i)`, which is still rejected.
        - What B7 keeps:
          - the read walk for `for(&xs, …)` (a `walk_ref` projection and
-           the `src/expr.yo` rewrite);
+           the `src/expr.yo` rewrite; landed as B7a, 2026-10-23);
          - `into_iter(self : Self)`;
          - the `*Ptr` iterators under the pragma;
          - `HashMapEntry`;

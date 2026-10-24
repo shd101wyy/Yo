@@ -33,7 +33,11 @@ import("std/fmt");
 { format_error_message, YoError } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("./expr.yo");
-{ local_borrow_info_of_variable } :: import("../utils.yo");
+{ local_borrow_info_of_variable, LocalBorrowInfo, LocalBorrowPlace } :: import("../utils.yo");
+{ is_mut_global } :: import("../../expr_info.yo");
+{ format_error_message_with_help, with_code } :: import("../../error.yo");
+{ E_GLOBAL_LENT_TO_CALL } :: import("../../diagnostics.yo");
+{ raise_flow_violation } :: import("../../types/flowability.yo");
 { expr_info_adopt_env } :: import("../../expr_info.yo");
 /// Evaluate `runtime(expr)`. Side-effects only: writes an `ExprInfo` for the
 /// outer call into `ctx.expr_info_table` with `value = .None` (runtime value)
@@ -120,6 +124,37 @@ evaluate_runtime :: (
 // Unused fallback used to satisfy the type system for the impossible
 // `.None` arm above. The match is guarded by the preceding `if`-throw,
 // so this branch is unreachable.
+/// Decision 18 rule 3 with decision 47 at the borrowed `for`: the loop lends
+/// its source to the cursor methods (`walk_start`, `walk_ref`/`walk_elem`, …)
+/// for its whole extent, so a source rooted in a `mut(G)` module-level binding
+/// is E0916, as `f(&G)` is. The macro's own calls are in the prelude's module,
+/// outside the caller's live range of the borrow, so rule 3's per-call check
+/// (`local_borrow_note_call`) never sees them
+/// (issues/fixed/2026-10-23-a-borrowed-for-over-a-mut-global-is-not-e0916.md).
+_reject_borrowed_for_over_mut_global :: (
+  fn(info : &LocalBorrowInfo, pl : &LocalBorrowPlace, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+)(
+  match(
+    get_variables_from_env(env, &pl.root_name).last(),
+    .Some(rv) => if(rv.is_module_level && is_mut_global(&rv.token.module_path.*, &rv.name), {
+      at := match(info.macro_site, .Some(t) => t.clone(), .None => info.decl.clone());
+      form := cond(info.is_mut => "for(&mut ...)", true => "for(&...)");
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            &at,
+            `Cannot walk \`${pl.text}\` with a borrowed \`${form}\`: \`${rv.name}\` is declared \`mut(${rv.name})\`, a mutable module-level binding, which has no run-time borrow flag. The loop lends it to the walk's cursor methods for its whole extent, and any function can write it by name, so an element could be read after it was released (plans/VALUES_BY_DEFAULT.md decision 18 rule 3, decision 47).`,
+            Option(String).Some(`copy it into a local and walk the local (\`v := ${rv.name}.clone();\` then \`for(&v, x => ...)\`; after \`for(&mut v, ...)\` write it back, \`${rv.name} = v;\`), or keep \`${rv.name}\` immutable (no \`mut\`)`)
+          ),
+          E_GLOBAL_LENT_TO_CALL
+        ),
+        ctx,
+        exn
+      );
+    }),
+    .None => ()
+  )
+);
 /// `__yo_borrow_check(coll, loop)` — emitted by the prelude's borrowed `for`
 /// around the loop it expands to. Evaluates `loop` transparently (the outer
 /// node takes its type and env, like `runtime(x)`), then, for calls in the
@@ -194,15 +229,20 @@ evaluate_borrow_check :: (
               local_borrow_info_of_variable(&v0),
               .Some(info) => match(
                 info.places.get(usize(0)),
-                .Some(pl) => if(pl.steps.len() == usize(0), {
-                  match(
-                    get_variables_from_env(&ci.env, &pl.root_name).last(),
-                    .Some(rv) => {
-                      v = rv;
-                    },
-                    .None => ()
-                  );
-                }),
+                .Some(pl) => {
+                  if(pl.module_root, {
+                    _reject_borrowed_for_over_mut_global(&info, &pl, &ci.env, ctx, exn);
+                  });
+                  if(pl.steps.len() == usize(0), {
+                    match(
+                      get_variables_from_env(&ci.env, &pl.root_name).last(),
+                      .Some(rv) => {
+                        v = rv;
+                      },
+                      .None => ()
+                    );
+                  });
+                },
                 .None => ()
               ),
               .None => ()

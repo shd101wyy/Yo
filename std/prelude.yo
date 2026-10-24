@@ -10318,20 +10318,29 @@ IntoIterator :: trait(
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
-/// BorrowedWalk trait — the cursor the borrowed `for(&mut coll, x => body)`
-/// walks (plans/VALUES_BY_DEFAULT.md decision 39, "the cursor protocol").
+/// BorrowedWalk trait — the cursor the borrowed `for` walks
+/// (plans/VALUES_BY_DEFAULT.md decision 39, "the cursor protocol"): the READ
+/// walk `for(&coll, x => body)` through `walk_ref`, and, with
+/// `BorrowedWalkMut`, the in-place walk `for(&mut coll, x => body)`.
 ///
 /// The cursor holds NO handle to the collection: it is a position (a `usize`
 /// index for the array-backed collections and the hash maps), and every step
-/// re-derives the element from the collection through `walk_elem`, a mutable
-/// projection. The `for` macro takes a local borrow `c := &mut coll` for the
-/// whole loop, so the body cannot reach `coll` by name (decision 18, E0911),
+/// re-derives the element from the collection through a projection. The
+/// `for` macro takes a local borrow of the collection for the whole loop
+/// (`c := &coll` to read, `c := &mut coll` to write), so the body cannot
+/// write `coll` (decision 18, E0911; under `&mut` it cannot name it at all),
 /// and no copy of the collection is made.
 ///
 /// `walk_start` returns the first position, `walk_valid` says whether a
-/// position names an element, and `walk_next` returns the position after one.
-/// A map's element is its `MapEntry(K, V)`; the map form
-/// `for(&mut map, (k, v) => body)` copies the key and borrows the value.
+/// position names an element, `walk_ref` reads the element at a position, and
+/// `walk_next` returns the position after one. A map's element is its
+/// `MapEntry(K, V)`; the map forms `for(&map, (k, v) => body)` and
+/// `for(&mut map, (k, v) => body)` borrow the key read-only and the value in
+/// the loop's mode.
+///
+/// A collection whose elements may not be written in place (`HashSet`,
+/// `PriorityQueue`: a write would break the hash or heap order) implements
+/// only this trait, so `for(&mut set, …)` is an error.
 ///
 /// The associated types are named `WalkCursor` and `WalkElem`, not `Cursor`
 /// and `Item`: the associated-type registry is keyed by (type, label), so an
@@ -10339,19 +10348,29 @@ export(IntoIterator);
 BorrowedWalk :: trait(
   /// The position type. It must not hold the collection.
   WalkCursor : Type,
-  /// The element type `walk_elem` projects to.
+  /// The element type `walk_ref` (and `BorrowedWalkMut.walk_elem`) project to.
   WalkElem : Type,
   /// The first position (equal to the end for an empty collection).
   walk_start : (fn(self : &Self) -> Self.WalkCursor),
   /// Whether `cur` names an element.
   walk_valid : (fn(self : &Self, cur : &Self.WalkCursor) -> bool),
-  /// The element at `cur`, written in place (a mutable projection). Panics
-  /// if `cur` names no element.
-  walk_elem : (fn(self : &mut Self, cur : &Self.WalkCursor) -> &mut Self.WalkElem),
+  /// The element at `cur`, read in place (a read projection). Panics if `cur`
+  /// names no element.
+  walk_ref : (fn(self : &Self, cur : &Self.WalkCursor) -> &Self.WalkElem),
   /// The position after `cur`.
   walk_next : (fn(self : &Self, cur : &Self.WalkCursor) -> Self.WalkCursor)
 );
 export(BorrowedWalk);
+/// BorrowedWalkMut trait — the write half of the borrowed `for`: the cursor
+/// of `BorrowedWalk` yields each element as a mutable projection, so
+/// `for(&mut coll, x => body)` writes the elements in place.
+BorrowedWalkMut :: trait(
+  /// The element at `cur`, written in place (a mutable projection). Panics
+  /// if `cur` names no element.
+  walk_elem : (fn(self : &mut Self, cur : &Self.WalkCursor) -> &mut Self.WalkElem),
+  where(Self <: BorrowedWalk)
+);
+export(BorrowedWalkMut);
 /// FromIterator trait — build `Self` from a sequence of `Self.Elem` values.
 ///
 /// The iteration loop lives in the blanket `collect` below, not here, so this
@@ -10587,17 +10606,27 @@ __for_source_is_place :: (fn(comptime(e) : Expr) -> comptime(bool))(
 ///     borrow `c := &mut coll` for its whole extent and walks a cursor that
 ///     holds no handle to the collection (`BorrowedWalk`); each element is
 ///     bound in place as a `&mut` local through the `walk_elem` projection
-///     (no per-element dup; struct elements mutate in place). The body
+///     (`BorrowedWalkMut`; no per-element dup; struct elements mutate in
+///     place). The body
 ///     reaches the collection only through `x`: naming `coll` in it is
 ///     decision 18's E0911. A collection reached through ANOTHER handle is
 ///     still guarded by its runtime borrow flag, so growing, shrinking or
 ///     removing from it that way panics instead of leaving `x` dangling.
 ///     To read or grow the collection inside the loop, walk its positions:
 ///     `for(coll.indices(), i => ...)` with `coll(i)`.
-///     Maps take `for(&mut map, (k, v) => body)`: the key by value, only
-///     the value borrowed, so a body can never rewrite a key in place.
-///     Value-type collections (`Array(T, N)`) and combinator chains have no
-///     `BorrowedWalk`; use the value form.
+///     Maps take `for(&mut map, (k, v) => body)`: the key borrowed
+///     read-only, the value borrowed in place, so a body can never rewrite a
+///     key in place. The source must implement `BorrowedWalkMut`.
+///
+///   `for(&coll, x => body)` — the read walk (B7a): the same cursor over a
+///     read borrow `c := &coll`; each element is bound as a `&` local borrow
+///     through the `walk_ref` projection, so nothing is copied, and a write
+///     through `x` is E0908. The body may READ `coll` (`coll.len()`, a nested
+///     read walk) but not write it (E0911). Maps take
+///     `for(&map, (k, v) => body)`, both borrowed read-only. Every std
+///     collection is a source (`BorrowedWalk`), `HashSet` and
+///     `PriorityQueue` included; `String` (walk `s.chars()`), `Array(T, N)`
+///     and combinator chains take the value form.
 ///
 /// Combinator chains (`coll.into_iter().map(f)`, etc.) work
 /// transparently: a blanket `into_iter` impl on `Iterator` (below)
@@ -10617,6 +10646,9 @@ __for_source_is_place :: (fn(comptime(e) : Expr) -> comptime(bool))(
 /// for(&mut enemies, e => {
 ///   e.hp = (e.hp - i32(1));
 /// });
+///
+/// // Read each element in place; nothing is copied.
+/// for(&enemies, e => print(&e.hp));
 /// ```
 for :: (
   fn(
@@ -10635,11 +10667,13 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect the borrow form: `for(&mut coll, name => body)` reaches
-            // the macro as `for(coll, __yo_mut(name) => body)` (the parse-time
-            // rewrite of decision 42). Otherwise it's the value form
-            // `(name) => body`. The deleted mode words `mut(name)` /
-            // `inout(name)` / `imm(name)` are rejected naming the sigil.
+            // Detect the borrow forms: `for(&mut coll, name => body)` reaches
+            // the macro as `for(coll, __yo_mut(name) => body)` and the read
+            // walk `for(&coll, name => body)` as `for(coll, __yo_imm(name) =>
+            // body)` (the parse-time rewrite of decision 42). Otherwise it's
+            // the value form `(name) => body`. The deleted mode words
+            // `mut(name)` / `inout(name)` / `imm(name)` are rejected naming
+            // the sigil.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
@@ -10647,13 +10681,22 @@ for :: (
                   !(v_callee.is_atom() && ((v_callee == quote(mut)) || (v_callee == quote(inout)) || (v_callee == quote(imm)))),
                   "`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                 );
-                v_callee.is_atom() && (v_callee == quote(__yo_mut))
+                v_callee.is_atom() && ((v_callee == quote(__yo_mut)) || (v_callee == quote(__yo_imm)))
               },
               true => false
             );
-            // Map form `for(&mut map, (k, v) => body)`, here
-            // `(k, __yo_mut(v)) => body`: the key by value, the value
-            // borrowed — so a loop body can never rewrite a key in place.
+            // The read walk (plans/VALUES_BY_DEFAULT.md B7a): `c := &coll`
+            // and the `walk_ref` projection instead of `c := &mut coll` and
+            // `walk_elem`.
+            is_imm_form :: cond(
+              is_ref_form => (variable.get_callee() == quote(__yo_imm)),
+              true => false
+            );
+            // Map forms `for(&mut map, (k, v) => body)` and
+            // `for(&map, (k, v) => body)`, here `(k, __yo_mut(v)) => body`
+            // and `(k, __yo_imm(v)) => body`: the key borrowed read-only, the
+            // value in the loop's mode — so a loop body can never rewrite a
+            // key in place.
             is_map_ref_form :: cond(
               variable.is_fn_call() => {
                 mv_callee :: variable.get_callee();
@@ -10668,9 +10711,44 @@ for :: (
                             mv_second_callee :: mv_second.get_callee();
                             comptime_assert(
                               !(mv_second_callee.is_atom() && ((mv_second_callee == quote(mut)) || (mv_second_callee == quote(inout)) || (mv_second_callee == quote(imm)))),
-                              "`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                              "`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (`for(&map, (k, v) => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                             );
-                            mv_second_callee.is_atom() && (mv_second_callee == quote(__yo_mut))
+                            mv_second_callee.is_atom() && ((mv_second_callee == quote(__yo_mut)) || (mv_second_callee == quote(__yo_imm)))
+                          },
+                          true => false
+                        )
+                      },
+                      true => false
+                    )
+                  },
+                  true => false
+                )
+              },
+              true => false
+            );
+            is_map_imm_form :: cond(
+              is_map_ref_form => (variable.get_args().cdr().car().get_callee() == quote(__yo_imm)),
+              true => false
+            );
+            // A leading `invariant(...)` in the body is the LOOP's
+            // (R2 task 4: a verified `for` over a list, with
+            // `produced(xs)` naming the elements consumed so far). It is
+            // hoisted to the front of the generated `while` body, where
+            // an invariant must stand; the rest of the body stays after the
+            // element binding.
+            has_inv :: cond(
+              body.is_fn_call() => {
+                b_callee :: body.get_callee();
+                cond(
+                  (b_callee.is_atom() && (b_callee == quote(begin))) => {
+                    b_args :: body.get_args();
+                    cond(
+                      (b_args.len() > 1) => {
+                        b_first :: b_args.car();
+                        cond(
+                          b_first.is_fn_call() => {
+                            bf_callee :: b_first.get_callee();
+                            bf_callee.is_atom() && (bf_callee == quote(invariant))
                           },
                           true => false
                         )
@@ -10685,21 +10763,25 @@ for :: (
             );
             cond(
               is_ref_form => {
-                // Borrowed form (plans/VALUES_BY_DEFAULT.md decision 39, the
-                // cursor protocol): a local borrow `c := &mut coll` is live for
-                // the whole loop, so the body reaching `coll` by name is
+                // Borrowed forms (plans/VALUES_BY_DEFAULT.md decision 39, the
+                // cursor protocol): a local borrow `c := &mut coll` (or the
+                // read walk's `c := &coll`) is live for the whole loop, so the
+                // body writing `coll` (under `&mut`, naming it at all) is
                 // decision 18's static error (E0911), and no copy of the
                 // collection is made. The cursor is a position with no handle
                 // to the collection; each step re-derives the element through
-                // the `walk_elem` projection (`BorrowedWalk`). A source that is
+                // the `walk_elem` projection (`BorrowedWalkMut`) or the
+                // `walk_ref` read projection (`BorrowedWalk`). A source that is
                 // not a place is first bound to a hidden owning local, which
                 // keeps the temporary alive for the loop. The runtime borrow
                 // flag is still held by a guard whose Drop releases it on every
                 // exit (fall-through, `break`, `return`, effect `unwind`): a
                 // `ref` collection can be reached through another handle the
-                // static rule cannot see, and growing it that way panics.
+                // static rule cannot see, and growing it that way panics —
+                // under the read walk too, since the element is a borrow into
+                // the collection's storage.
                 elem_args :: variable.get_args();
-                comptime_assert(elem_args.len() == 1, "'for(&mut coll, x => ...)' binds exactly one name");
+                comptime_assert(elem_args.len() == 1, "'for(&coll, x => ...)' / 'for(&mut coll, x => ...)' binds exactly one name");
                 elem :: elem_args.car();
                 src_var :: gensym("for_src");
                 c_var :: gensym("for_coll");
@@ -10708,29 +10790,50 @@ for :: (
                 src_is_place :: __for_source_is_place(coll);
                 src_stmt :: cond(src_is_place => quote(()), true => quote(unquote(src_var) := unquote(coll)));
                 src_place :: cond(src_is_place => coll, true => src_var);
+                borrow_stmt :: cond(
+                  is_imm_form => quote(unquote(c_var) := &unquote(src_place)),
+                  true => quote(unquote(c_var) := &mut unquote(src_place))
+                );
+                elem_stmt :: cond(
+                  is_imm_form => quote(unquote(elem) := unquote(c_var).walk_ref(&unquote(cur_var))),
+                  true => quote(unquote(elem) := unquote(c_var).walk_elem(&unquote(cur_var)))
+                );
+                walk_body :: cond(
+                  has_inv => {
+                    inv_stmt :: body.get_args().car();
+                    rest_stmts :: body.get_args().cdr();
+                    quote({
+                      unquote(inv_stmt);
+                      unquote(elem_stmt);
+                      unquote_splicing(rest_stmts);
+                    })
+                  },
+                  true => quote({
+                    unquote(elem_stmt);
+                    unquote(body)
+                  })
+                );
                 quote({
                   unquote(src_stmt);
-                  unquote(c_var) := &mut unquote(src_place);
+                  unquote(borrow_stmt);
                   unquote(guard_var) := __borrow_guard(unquote(c_var));
                   unquote(cur_var) := unquote(c_var).walk_start();
                   __yo_borrow_check(
                     unquote(c_var),
-                    while(unquote(c_var).walk_valid(&unquote(cur_var)), unquote(cur_var) = unquote(c_var).walk_next(&unquote(cur_var)), {
-                      unquote(elem) := unquote(c_var).walk_elem(&unquote(cur_var));
-                      unquote(body)
-                    })
+                    while(unquote(c_var).walk_valid(&unquote(cur_var)), unquote(cur_var) = unquote(c_var).walk_next(&unquote(cur_var)), unquote(walk_body))
                   );
                 })
               },
               is_map_ref_form => {
-                // The map form walks the same cursor; the element is the
-                // map's `MapEntry(K, V)`, whose key is copied and whose value
-                // is borrowed, so a body can never rewrite a key in place.
+                // The map forms walk the same cursor; the element is the
+                // map's `MapEntry(K, V)`, whose key is borrowed read-only and
+                // whose value is borrowed in the loop's mode, so a body can
+                // never rewrite a key in place, and a key is never copied.
                 mv_args2 :: variable.get_args();
                 key_name :: mv_args2.car();
-                val_inout :: mv_args2.cdr().car();
-                val_args :: val_inout.get_args();
-                comptime_assert(val_args.len() == 1, "'for(&mut map, (k, v) => ...)' binds exactly one value name");
+                val_mode :: mv_args2.cdr().car();
+                val_args :: val_mode.get_args();
+                comptime_assert(val_args.len() == 1, "'for(&map, (k, v) => ...)' / 'for(&mut map, (k, v) => ...)' binds exactly one value name");
                 val_name :: val_args.car();
                 src_var :: gensym("for_src");
                 c_var :: gensym("for_coll");
@@ -10740,56 +10843,51 @@ for :: (
                 src_is_place :: __for_source_is_place(coll);
                 src_stmt :: cond(src_is_place => quote(()), true => quote(unquote(src_var) := unquote(coll)));
                 src_place :: cond(src_is_place => coll, true => src_var);
+                borrow_stmt :: cond(
+                  is_map_imm_form => quote(unquote(c_var) := &unquote(src_place)),
+                  true => quote(unquote(c_var) := &mut unquote(src_place))
+                );
+                entry_stmt :: cond(
+                  is_map_imm_form => quote(unquote(entry_var) := unquote(c_var).walk_ref(&unquote(cur_var))),
+                  true => quote(unquote(entry_var) := unquote(c_var).walk_elem(&unquote(cur_var)))
+                );
+                val_stmt :: cond(
+                  is_map_imm_form => quote(unquote(val_name) := &unquote(entry_var).value),
+                  true => quote(unquote(val_name) := &mut unquote(entry_var).value)
+                );
+                walk_body :: cond(
+                  has_inv => {
+                    inv_stmt :: body.get_args().car();
+                    rest_stmts :: body.get_args().cdr();
+                    quote({
+                      unquote(inv_stmt);
+                      unquote(entry_stmt);
+                      unquote(key_name) := &unquote(entry_var).key;
+                      unquote(val_stmt);
+                      unquote_splicing(rest_stmts);
+                    })
+                  },
+                  true => quote({
+                    unquote(entry_stmt);
+                    unquote(key_name) := &unquote(entry_var).key;
+                    unquote(val_stmt);
+                    unquote(body)
+                  })
+                );
                 quote({
                   unquote(src_stmt);
-                  unquote(c_var) := &mut unquote(src_place);
+                  unquote(borrow_stmt);
                   unquote(guard_var) := __borrow_guard(unquote(c_var));
                   unquote(cur_var) := unquote(c_var).walk_start();
                   __yo_borrow_check(
                     unquote(c_var),
-                    while(unquote(c_var).walk_valid(&unquote(cur_var)), unquote(cur_var) = unquote(c_var).walk_next(&unquote(cur_var)), {
-                      unquote(entry_var) := unquote(c_var).walk_elem(&unquote(cur_var));
-                      unquote(key_name) := unquote(entry_var).key;
-                      unquote(val_name) := &mut unquote(entry_var).value;
-                      unquote(body)
-                    })
+                    while(unquote(c_var).walk_valid(&unquote(cur_var)), unquote(cur_var) = unquote(c_var).walk_next(&unquote(cur_var)), unquote(walk_body))
                   );
                 })
               },
               true => {
                 iter_var :: gensym("for_iter_var");
                 temp_var :: gensym("for_temp_var");
-                // A leading `invariant(...)` in the body is the LOOP's
-                // (R2 task 4: a verified `for` over a list, with
-                // `produced(xs)` naming the elements consumed so far). It is
-                // hoisted to the front of the generated `while` body, where
-                // an invariant must stand; the rest of the body stays in the
-                // element arm.
-                has_inv :: cond(
-                  body.is_fn_call() => {
-                    b_callee :: body.get_callee();
-                    cond(
-                      (b_callee.is_atom() && (b_callee == quote(begin))) => {
-                        b_args :: body.get_args();
-                        cond(
-                          (b_args.len() > 1) => {
-                            b_first :: b_args.car();
-                            cond(
-                              b_first.is_fn_call() => {
-                                bf_callee :: b_first.get_callee();
-                                bf_callee.is_atom() && (bf_callee == quote(invariant))
-                              },
-                              true => false
-                            )
-                          },
-                          true => false
-                        )
-                      },
-                      true => false
-                    )
-                  },
-                  true => false
-                );
                 cond(
                   has_inv => {
                     inv_stmt :: body.get_args().car();
