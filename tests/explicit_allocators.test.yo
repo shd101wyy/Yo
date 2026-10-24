@@ -376,6 +376,7 @@ test("Allocator.alloc places an over-aligned block and keeps it aligned across r
   assert((_addr(.Some(r)) % usize(4096)) == usize(0), "arena: 4096-aligned");
   Allocator.free(.Some(r), usize(10), usize(4096));
   assert(arena.live_blocks() == usize(0), "arena: released");
+  GlobalAllocator.free(ledger.recs);
 });
 // A header-free pool: size classes of 64/128/256/512 bytes, each a free list
 // threaded through the free blocks themselves. It keeps no per-block header:
@@ -477,4 +478,15 @@ test("A header-free pool allocator frees by the size it is given", {
     c = (c + usize(1));
   });
   assert(pool.allocs(usize(0)) > usize(0), "the small objects took the smallest class");
+  // Return the pooled blocks to the global allocator.
+  mut(d) := usize(0);
+  while(runtime(d < _POOL_CLASSES), {
+    while(runtime(pool.heads(d).is_some()), {
+      h := pool.heads(d);
+      // SAFETY: a free block's first word is the next free block.
+      pool.heads(d) = unsafe((*?*void)(h.unwrap()).*);
+      GlobalAllocator.free(h);
+    });
+    d = (d + usize(1));
+  });
 });
