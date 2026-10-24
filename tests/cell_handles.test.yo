@@ -168,3 +168,51 @@ test("S5: a pattern does not look through a cell handle implicitly", {
   n := match(h, g => g.*.x);
   assert(n == i32(1), "a binding binds the handle");
 });
+// A receiver or `&` argument reached through a cell handle keeps the handle
+// alive for its call, as through an `Rc` (#1573): the caller's share is taken
+// on the handle, so a closure argument that drops every other handle leaves
+// the cell alive until the call returns. The payload has a destructor, so no
+// copy of it could keep it; `peek` returns how many payloads were destroyed
+// while its closure ran.
+mut(_hd_drops) := i32(0);
+_HdCell :: struct(n : i32);
+impl(
+  _HdCell,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      _hd_drops = (_hd_drops + i32(1));
+    })
+  )
+);
+impl(
+  _HdCell,
+  peek : (fn(self : &Self, act : &Impl(Fn() -> unit)) -> i32)({
+    act();
+    _hd_drops + (self.n - self.n)
+  })
+);
+_hd_peek :: (fn(c : &_HdCell, act : &Impl(Fn() -> unit)) -> i32)({
+  act();
+  _hd_drops + (c.n - c.n)
+});
+test("a receiver reached through a cell handle element outlives a closure that drops the last other handle", {
+  _hd_drops = i32(0);
+  hs := ArrayList(TRc(_HdCell)).new();
+  hs.push(trc(_HdCell(n : i32(1))));
+  hs2 := hs;
+  assert(
+    hs(usize(0)).peek(() => {
+      hs2.clear();
+    }) == i32(0),
+    "auto-dereferenced receiver: the cell outlives the call"
+  );
+  assert(_hd_drops == i32(1), "and is destroyed once, after it");
+  hs.push(trc(_HdCell(n : i32(2))));
+  assert(
+    _hd_peek(&hs(usize(0)).*, () => {
+      hs2.clear();
+    }) == i32(1),
+    "a `&` argument through the handle"
+  );
+  assert(_hd_drops == i32(2), "destroyed once");
+});
