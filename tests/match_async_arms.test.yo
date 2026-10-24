@@ -8,7 +8,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { args } :: import("std/env");
 { yield } :: import("std/async");
-{ Stream, for_await } :: import("std/async/stream");
+{ Stream } :: import("std/async/stream");
 { RefCell } :: import("std/sync/refcell");
 runtime_int :: (fn() -> i32)(i32(args().len()));
 Shape :: enum(Circle(radius : i32), Rect(width : i32, height : i32));
@@ -743,8 +743,8 @@ test("a mut place and a local borrow release the old value an awaited one replac
   assert(ref_count(old_p) == usize(1), "the place's old value was released");
   assert(ref_count(old_y) == usize(1), "the borrow's old value was released");
 });
-// A `mut` place lives across the awaits a macro expands to (`for_await`); each
-// `next` yields first, so every await really suspends.
+// A `mut` place lives across the awaits of a stream loop written inside its
+// arm; each `next` yields first, so every await really suspends.
 _Countdown :: struct(_n : i32);
 impl(
   _Countdown,
@@ -765,15 +765,25 @@ impl(
     )
   )
 );
-test("a mut place lives across the awaits of a for_await loop", {
+test("a mut place lives across the awaits of a stream loop", {
   result := rc(RefCell(i32).new(0));
   task := io.async((e : Io) => {
     (mut(o) : Option(i32)) = .Some(i32(100));
     match(
       &mut o,
       .Some(n) => {
-        for_await(_Countdown(_n : i32(3)), e, x => {
-          n = (n + x);
+        mut(s) := _Countdown(_n : i32(3));
+        while(runtime(true), {
+          nx := e.await(s.next(e), e);
+          match(
+            nx,
+            .Some(x) => {
+              n = (n + x);
+            },
+            .None => {
+              break;
+            }
+          );
         });
       },
       .None => ()

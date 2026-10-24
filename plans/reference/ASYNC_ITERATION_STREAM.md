@@ -14,6 +14,9 @@
 >
 > **Parked, with reasons measured rather than guessed:**
 >
+> - **`for_await` (item 4) was DELETED 2026-10-24** (verdict under "A
+>   `for`-equivalent" below): async iteration is the written-out `while` +
+>   `io.await(s.next(io), io)` + `match` loop.
 > - **`for_await` (item 4) landed 2026-09-29** (`std/async/stream.yo`, tests in
 >   `tests/async/combinators.test.yo` S8), after the single-pass async lowering
 >   made an await inside a macro expansion a real suspension point
@@ -125,6 +128,29 @@ the SomeT resolution-cell channel; `flat_map`'s doubly-derived item type is
 still broken there, so `flat_map` should be LAST).
 
 ### A `for`-equivalent
+
+> **Verdict 2026-10-24 (maintainer; advisor concurred): `for_await` is DELETED,
+> with no desugar and no replacement name.** Yo's await is not an algebraic
+> effect: a suspension point is an `io.await` written in the `io.async` body,
+> and an `io.await` inside a function the task calls BLOCKS instead of
+> suspending (probed: an `Iterator.next` that awaits, driven by a plain `for`
+> inside a task, compiles silently and runs serialised or deadlocks,
+> `issues/2026-10-24-yo-async-strict-misses-a-blocking-await-during-a-spawns-cold-start.md`).
+> `for_await` was pure sugar for the written-out loop and the only std
+> construct that hid a suspension point behind a name, which is its whole bug
+> history. The loop is written out:
+>
+> ```yo ignore
+> mut(s) := stream;
+> while(runtime(true), {
+>   n := io.await(s.next(io), io);
+>   match(n, .Some(x) => body, .None => { break; })
+> });
+> ```
+>
+> Option (2) below (a `for` polymorphic over `Stream`) is rejected for the
+> same reason. Same reasoning as `plans/backlog/MACRO_AND_ISO_REMOVAL.md` B3's
+> deletion of the collection literals.
 
 `for(iter, body)` desugars to `next()` + `match` in a loop. The async form
 needs the loop body to `io.await` each `next()`, which means it must expand

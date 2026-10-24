@@ -8,7 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { join_all, race, race_first, any, any_first, timeout, TimeoutError, select, Selected, yield } :: import("std/async");
-{ Stream, for_await } :: import("std/async/stream");
+{ Stream } :: import("std/async/stream");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 { IoExn, Exception } :: import("std/error");
@@ -686,8 +686,7 @@ test("Test Stream for_each inside a spawned task", {
   assert(seen.len() == usize(4), "every item reached the body");
 });
 // ---------------------------------------------------------------------------
-// S7. The hand-written consumer loop — what `for_await` (S8) expands to
-// (issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md)
+// S7. The hand-written consumer loop with a `done` flag
 // ---------------------------------------------------------------------------
 test("Test a hand-written consumer loop inside a spawned task", {
   seen := ArrayList(i32).new();
@@ -732,48 +731,79 @@ test("Test a hand-written consumer loop over an empty stream", {
   assert(seen.len() == usize(0), "no items, no body");
 });
 // ---------------------------------------------------------------------------
-// S8. `for_await`: the loop of async iteration. Its await comes from a macro
-// expansion, which is a real suspension point since the single-pass lowering
-// (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
+// S8. The loop of async iteration, written out (std's `for_await` macro was
+// deleted 2026-10-24, plans/reference/ASYNC_ITERATION_STREAM.md): `while` +
+// `io.await(s.next(io), io)` + `match`, with loop control in the `.Some` arm.
+// The await is written in the task body, so it suspends the task.
 // ---------------------------------------------------------------------------
-test("Test for_await from main", {
+test("Test a stream loop from main", {
   seen := ArrayList(i32).new();
-  for_await(Countdown(_n : i32(3)), io, x => {
-    seen.push(x);
+  mut(s) := Countdown(_n : i32(3));
+  while(runtime(true), {
+    n := io.await(s.next(io), io);
+    match(
+      n,
+      .Some(x) => {
+        seen.push(x);
+      },
+      .None => {
+        break;
+      }
+    );
   });
   assert(seen.len() == usize(3), "the body ran once per item");
   assert(seen(usize(0)) == i32(3), "in order");
 });
-test("Test for_await inside a spawned task, with continue and break", {
+test("Test a stream loop inside a spawned task, with continue and break", {
   seen := ArrayList(i32).new();
   c := Countdown(_n : i32(6));
   task := io.async({ c, seen }(io : Io) => {
-    for_await(c, io, x => {
-      if(x == i32(5), {
-        continue;
-      });
-      if(x == i32(2), {
-        break;
-      });
-      seen.push(x);
+    mut(s) := c;
+    while(runtime(true), {
+      n := io.await(s.next(io), io);
+      match(
+        n,
+        .Some(x) => {
+          if(x == i32(5), {
+            continue;
+          });
+          if(x == i32(2), {
+            break;
+          });
+          seen.push(x);
+        },
+        .None => {
+          break;
+        }
+      );
     });
   });
   r := io.await(timeout(task, Duration.from_millis(i64(5000)), io), io);
-  assert(r.is_ok(), "for_await finished inside the deadline");
+  assert(r.is_ok(), "the loop finished inside the deadline");
   assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
   assert((seen(usize(0)) == i32(6)) && ((seen(usize(1)) == i32(4)) && (seen(usize(2)) == i32(3))), "6 4 3");
 });
 _first_even :: (fn(c : Countdown, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ c }(io : Io) => {
-    for_await(c, io, x => {
-      if((x % i32(2)) == i32(0), {
-        return(x);
-      });
+    mut(s) := c;
+    while(runtime(true), {
+      n := io.await(s.next(io), io);
+      match(
+        n,
+        .Some(x) => {
+          if((x % i32(2)) == i32(0), {
+            return(x);
+          });
+        },
+        .None => {
+          break;
+        }
+      );
     });
     i32(-1)
   })
 );
-test("Test for_await with a return from the enclosing task", {
+test("Test a stream loop with a return from the enclosing task", {
   assert(io.await(_first_even(Countdown(_n : i32(5)), io), io) == i32(4), "the first even item is returned");
   assert(io.await(_first_even(Countdown(_n : i32(1)), io), io) == i32(-1), "no even item: the loop ends");
 });
@@ -798,13 +828,23 @@ impl(
     )
   )
 );
-test("Test for_await suspends its task between items", {
+test("Test a stream loop suspends its task between items", {
   ticks := rc(RefCell(i32).new(0));
   seen := ArrayList(i32).new();
   t := Ticker(_n : i32(3));
   task := io.async({ t, seen, ticks }(io : Io) => {
-    for_await(t, io, x => {
-      seen.push(ticks.with(cur => cur));
+    mut(s) := t;
+    while(runtime(true), {
+      n := io.await(s.next(io), io);
+      match(
+        n,
+        .Some(_) => {
+          seen.push(ticks.with(cur => cur));
+        },
+        .None => {
+          break;
+        }
+      );
     });
   });
   h := io.spawn(task, io);

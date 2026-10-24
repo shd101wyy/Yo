@@ -1078,6 +1078,9 @@ as `issues/repros/async-shape-*.yo`, with expected vs actual on line 1.
   `issues/fixed/a-local-copied-from-a-captured-value-in-an-io-async-body-does-not-compile.md`
   (the seed has it too): a local sharing a captured value's RC was sent to
   the owner's slot, which a capture does not have (`sm_storage_id`).
+  (2026-10-24: `for_await` was deleted again, this time by decision and with
+  no replacement: an `io.await` hidden behind a name hides the suspension
+  point; `plans/reference/ASYNC_ITERATION_STREAM.md`.)
 - 2026-09-29: phase 3 item 5, left undone by #991, lands on `async-sm-p7`:
   a whole effect bundle is copied through the vtable's bundle slot.
 - 2026-09-30: #1018 merges phases 1 (rest), 5, 6 and 7 into develop

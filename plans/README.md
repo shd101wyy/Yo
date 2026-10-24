@@ -66,8 +66,8 @@ verifier's design, V1–V7 landed),
 and [`LLM_AUTHORING_AUDIT_2026-09-19`](backlog/LLM_AUTHORING_AUDIT_2026-09-19.md).
 [`MACRO_AND_ISO_REMOVAL`](backlog/MACRO_AND_ISO_REMOVAL.md) is the 2026-10-20
 maintainer decision record and campaign, revised after review and scheduled
-inside the VBD campaign, for deleting the macro layer (`for`/`for_await`
-become parse-time desugars following the `if` → `cond` precedent,
+inside the VBD campaign, for deleting the macro layer (`for` becomes a parse-time desugar following
+the `if` → `cond` precedent, `for_await` is deleted with no desugar,
 `unsafe.drop` becomes a direct `___drop` call, and the three collection
 literals are replaced by ordinary `from` constructors — LLM authoring does
 not need the sugar) and the builtin isolated-transfer type with its `^`

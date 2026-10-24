@@ -72,7 +72,8 @@ These are the decisions the audit confirms and that no phase below changes.
   argued correctly in `std/async/waker.yo`, and `Channel` and `Mutex` are
   built on it (FIFO, cancellation-aware through `is_woken`).
 - **`Stream`** (`for_await`, `Item = Result(T, E)` for fallible sources, `Io`
-  bundle only) — landed, not re-audited here.
+  bundle only) — landed, not re-audited here. (2026-10-24: `for_await` was
+  deleted; the loop is written out, `plans/reference/ASYNC_ITERATION_STREAM.md`.)
 - **`timeout` returns `Result(T, TimeoutError)`** with `Elapsed` and
   `Aborted` distinguished (D18), and `race_first`/`any_first` do the loser
   cleanup the index-returning forms leave to the caller.

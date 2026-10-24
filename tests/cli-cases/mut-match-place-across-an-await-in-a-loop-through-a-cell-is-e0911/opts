@@ -1,7 +1,8 @@
 # plans/VALUES_BY_DEFAULT.md decision 26 + decision 18 rule 4: a `mut` match
 # place bound over a local borrow through a reference cell may not be live
-# across an `await`, here one `for_await` expands to: the arm spells no
-# `.await(`, and the expansion's await is judged at the `for_await` call
+# across an `await`, here the await of a stream loop inside the arm, which
+# the place's later writes follow on every iteration (the loop was std's
+# `for_await` macro until its deletion on 2026-10-24)
 # (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md,
 # issues/fixed/2026-10-17-a-local-borrow-is-not-checked-across-an-await-a-macro-expands-to.md).
 stdout_keep_match=error(\[E[0-9]+\])?: .*|--> main\.yo:[0-9]+:[0-9]+

@@ -43,8 +43,8 @@ behind `MACRO_POLICY.md` §1.5 has since changed direction:
   (`plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md` §2.3) never landed.
   Part C closes that backlog item as rejected.
 - "Zig pays with builtin `if`/`for` syntax" — we accept exactly that price
-  (maintainer, 2026-10-20). `if` already pays it; `for` and `for_await` join
-  it in Part B.
+  (maintainer, 2026-10-20). `if` already pays it; `for` joins it in Part B
+  (`for_await` was deleted outright on 2026-10-24, B2).
 - The forwarder the policy called irreducible is not needed: `unsafe.drop`
   is a pure rename — its whole body is `quote(___drop(unquote(value)))`
   (`std/prelude.yo:248`) — and every caller is a std file or test fixture
@@ -210,7 +210,7 @@ be mutated in place, so the existing macro_expansion mechanism carries it"
 | Macro | Definition | Callers | Fate |
 | ----- | ---------- | ------- | ---- |
 | `for` | `std/prelude.yo:10645` | **6 in src**: `src/doc/builder.yo:2212`, `src/evaluator/builtins/comptime_expect_error.yo:287` (`for(&saved_observed_msgs, …)`, which today's sigil rewrite turns into the value form and V2b's B7 Generation B turns into the read walk), `src/evaluator/shared/suspension_analysis.yo:668`, `src/lsp/server.yo:876, :1242, :1260`; 0 std; ~190 in tests/ | desugar (B1) |
-| `for_await` | `std/async/stream.yo:446` | tests only (`tests/async/combinators.test.yo:10` also imports it by name) | desugar (B2) |
+| `for_await` | `std/async/stream.yo:446` (deleted 2026-10-24) | tests only (`tests/async/combinators.test.yo:10` also imported it by name); rewritten to the explicit loop | deleted, no desugar (B2, 2026-10-24) |
 | `(^)` | `std/prelude.yo:10076-10132` | 0 src, 0 std; the Iso test files (A6) | deleted with Iso (A1) |
 | `Var.is_owning_the_rc_value` / `Var.has_other_aliases` | `std/prelude.yo:8240-8257` | 2, inside `(^)` itself | deleted with Iso (A1) |
 | `unsafe.drop` | `std/prelude.yo:248` | 12 in std — `array_list.yo:513, :584, :609`, `deque.yo:256`, `hash_map.yo:812, :878, :959`, `sync/channel.yo:270, :324, :381`, `prelude.yo:9991`, and `prelude.yo:10120` inside `(^)`'s quoted body (planned to go with A1; B4 rewrote it to `___drop` since A1 had not landed) — plus `tests/fixtures/owned_buffer.yo:50` | rewritten to `___drop` (B4) |
@@ -442,12 +442,12 @@ dup/drop emit-diff gate and canary for A5; the §1.3 grep gate; `yo fmt`
 ## Part B — de-macro the remaining constructs (Generation A)
 
 **Principle: each desugar emits exactly the AST the macro emits today.**
-This covers B1, B2 and B4. Their call sites keep their spelling (`for(...)`,
-`for_await(...)` still parse; the desugar rewrites the call before name
-resolution, so the std names stop mattering). B3 is the exception: it
-deletes the literal surface and migrates every caller.
+This covers B1 and B4. Their call sites keep their spelling (`for(...)` still
+parses; the desugar rewrites the call before name resolution, so the std name
+stops mattering). B2 and B3 are the exceptions: they delete the surface and
+migrate every caller.
 
-**Acceptance gate per desugar** (B1, B2):
+**Acceptance gate per desugar** (B1):
 
 - The C emit-diff over the language corpus AND over the compiler's own
   stage-2 C is empty **modulo ExprIds and hidden-local names**. Macro
@@ -462,13 +462,13 @@ deletes the literal surface and migrates every caller.
   retained, a missed desugar fails silently: `desugar_if_calls` returns a
   subtree unchanged unless `_contains_desugar_target` (`src/expr.yo:1748`)
   knows the target (:1867), and the prelude macro then expands the call, so
-  the emit-diff reads clean. B1/B2 add `for`/`for_await` predicates to
-  `_contains_desugar_target`, and add a debug assertion (or counter,
+  the emit-diff reads clean. B1 adds a `for` predicate to
+  `_contains_desugar_target`, and adds a debug assertion (or counter,
   `YO_DEBUG_*`) at the macro dispatch
   (`src/evaluator/calls/function.yo:10569` path) that fails when a macro
-  named `for` or `for_await` is dispatched. The corpus runs with it on. No
+  named `for` is dispatched. The corpus runs with it on. No
   `unsafe.drop` predicate is needed: B4 has no desugar, its sites call
-  `___drop` directly, and the assertion covers `for`/`for_await` only.
+  `___drop` directly, and the assertion covers `for` only.
 - Token synthesis reuses `_synth_desugar_tok` (`src/expr.yo:1212`) and never
   clones `Token.input`: the first `if` desugar did, and cost 4× wall time
   and 2.8× RSS (`issues/desugar-token-clones-evaluator-regression.md`).
@@ -524,7 +524,7 @@ Part C deletes the macros.
   parser-side equivalent of the macro's `gensym`. `break`/`continue`/`return`
   keep working because the expansion is an ordinary `while` whose body is a
   block containing real `break` AST nodes (`BK_BREAK`, `src/expr.yo:357`) —
-  exactly how the `for_await` macro's output works today. The protocol
+  exactly how the `for_await` macro's output worked before its deletion. The protocol
   stays in prelude functions and methods (`walk_*`, `__borrow_guard`,
   `__BorrowGuard`), so decision 43's later retarget of the borrowed `for`
   edits std, not the parser. One semantic note, accepted with the decision:
@@ -584,18 +584,24 @@ Part C deletes the macros.
   after step 3 settles that protocol, so the lowering is written once.
   `REFERENCES_AND_ORIGINS.md:63` says the borrowed `for` is "unchanged (a
   loop, not a value)"; that is the rule, while its lowering moves at N3.
-- **B2 — `for_await` → desugar.** The macro body (`std/async/stream.yo:446-471`)
-  is the whole template — bind the stream to a fresh local,
-  `while(runtime(true))` around `next` + `io.await`, `match` with
-  `.Some(x) => body` and `.None => break`. It consults nothing semantic.
-  After the desugar its awaits carry caller-module tokens and are checked by
-  the ordinary rule 4, which REMOVES a macro-awareness requirement rather
-  than adding one. Synthesized tokens follow B1's placement rule, and the
-  for_await E0911 cli-cases
-  (`local-borrow-across-a-for-await-through-a-cell-is-e0911`,
-  `mut-match-place-across-a-for-await-through-a-cell-is-e0911`, whose opts
-  say the await "is judged at the `for_await` call") must keep firing; their
-  wording or anchor may move, read the GOLDEN-DIFF.
+- **B2 — `for_await`: DELETED 2026-10-24, no desugar** (maintainer decision,
+  advisor concurred; as B3 deleted the collection literals). Yo's await is
+  not an algebraic effect: a suspension point is an `io.await` written in
+  the `io.async` body, and an `io.await` inside a function the task calls
+  blocks instead of suspending. `for_await` was pure sugar for the written-out
+  loop and the only std construct hiding a suspension point behind a name
+  (its whole bug history), so the macro, its export and
+  `std/async/stream.yo`'s `pragma(Pragma.AllowMacroDef)` went, with no
+  replacement name. Every caller was rewritten to
+  `mut(s) := stream; while(runtime(true), { n := io.await(s.next(io), io); match(n, .Some(x) => body, .None => { break; }) });`
+  (the `mut` is decision 47's: `next` takes `self : &mut Self`; the macro's
+  gensym local was std-token and exempt). The two E0911 cli-cases were kept
+  as regressions of "a borrow / `mut` match place live across an await in a
+  loop" and renamed to
+  `local-borrow-across-an-await-in-a-loop-through-a-cell-is-e0911` and
+  `mut-match-place-across-an-await-in-a-loop-through-a-cell-is-e0911`; both
+  still fire E0911. Record: `plans/reference/ASYNC_ITERATION_STREAM.md`
+  ("A `for`-equivalent", verdict 2026-10-24).
 - **B3 — replace the collection literals with constructors** (maintainer,
   2026-10-20: Yo is written by LLMs, not humans; terse literals are human
   ergonomics). Delete the three macros AND the call surface — no desugar.
@@ -731,8 +737,8 @@ stream/channel tests, the collections suites, `tests/rc.test.yo`,
 tree binary, `tests/spec/contracts_phase0.test.yo`, and every
 `tests/internal/verifier*.test.yo` file (21 files: one in-process run under
 `exclusive`, `YO_TEST_IN_PROCESS=1`, per AGENTS.md's more-than-~8 rule);
-`scripts/cli-diff-test.sh` for B1, B2 and B4 (read every GOLDEN-DIFF before
-`--record`); the emit-diff gate proving desugar ≡ macro output (B1/B2 only,
+`scripts/cli-diff-test.sh` for B1 and B4 (read every GOLDEN-DIFF before
+`--record`); the emit-diff gate proving desugar ≡ macro output (B1 only,
 modulo ExprIds and hidden-local names, corpus and stage-2 C); the
 never-reached assertion; the `check ./src` time and RSS measurement;
 `yo fmt` with the tree binary. Full fast suite before merge for B1 (it
@@ -769,19 +775,19 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
   - the macro-site borrow machinery (`g_lb_macro_sites`, `_lb_macro_site_of`,
     `LocalBorrowMacroSite`, `local_borrow_enter/leave_macro_site`). B1
     already moved the help text to its desugar-site marker;
-  - the remaining std macro definitions (`for`, `for_await`, and their
-    exports; the literals went in B3, `(^)` and `Var.*` in Part A,
+  - the remaining std macro definition (`for` and its export;
+    `for_await` was deleted in B2, the literals went in B3, `(^)` and `Var.*` in Part A,
     `unsafe.drop` in B4) and the commented-out `fill` block
     (`std/prelude.yo:7116-7122`);
   - `derive_rule`'s result is restricted to items (§0.1), with a diagnostic
     naming this doc for any other result.
 
-  **Malformed `for`/`for_await` after C.** `desugar_if_calls` has no error
+  **Malformed `for` after C.** `desugar_if_calls` has no error
   channel, so a shape the desugar leaves alone would surface as "variable
-  `for` not found". C2 adds a dedicated evaluator diagnostic for a `for` or
-  `for_await` call the desugar did not rewrite (wrong arity, a handle that
+  `for` not found". C2 adds a dedicated evaluator diagnostic for a `for`
+  call the desugar did not rewrite (wrong arity, a handle that
   is not `x => body` or `(k, v) => body`), naming the accepted forms, with a
-  cli-case. With C the names are builtin forms: add `for` and `for_await`
+  cli-case. With C the name is a builtin form: add `for`
   to the LSP keyword list (`src/lsp/completion.yo`) and the editor grammars.
 - **C3 — the lowering channel.** The PLANNED outcome is a renamed
   builtin-lowering channel: `ExprInfo.macro_expansion`,
@@ -809,8 +815,8 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
 - **C5 — tests, fixtures, docs.**
   - **Done early, 2026-10-24** (maintainer decision, branch
     `tests/delete-macro-fixtures-early`; the machinery itself stays until C2
-    because std's `for`, `for_await` and `unsafe.drop` are still macros the
-    seed expands):
+    because std's `for` and `unsafe.drop` are still macros the seed expands;
+    `for_await` was deleted the same day, B2):
     - deleted `tests/macro_def_pragma.test.yo`, `tests/macro_def_gate.test.yo`,
       `tests/internal/macro_expansion.test.yo`,
       `tests/internal/macro_registry.test.yo` and
@@ -843,8 +849,9 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
       files (`AGENTS.md`, `testing.instructions.md`, `scripts/heavy-lock.sh`,
       DESIGN's `try` note in both languages) were updated.
   - **Still C5's:** rewrite `tests/async/channel.test.yo:417`'s `_recv_one`
-    as plain code; drop the `for_await` name from
-    `tests/async/combinators.test.yo:10`'s import; trim the gate-path section
+    as plain code (the `for_await` import of
+    `tests/async/combinators.test.yo:10` went with B2, 2026-10-24); trim the
+    gate-path section
     of `tests/internal/memory_safety_paths.test.yo` (it pins the live gate
     until C2); decide the origins-corpus row
     `tests/origins/corpus/macro-ret-local.yo` (a user macro; its manifest row
@@ -863,7 +870,7 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
     parses.
   - `tests/cli-cases/lsp-analysis-resilience`: `for` stays but changes
     kind (a prelude function becomes a keyword entry, from C2's keyword-list
-    addition), `for_await` appears as a keyword, and `__for_source_is_place`
+    addition), and `__for_source_is_place`
     and (if they become private) `__borrow_guard` / `__BorrowGuard` drop
     out; re-record with the GOLDEN-DIFF read.
   - Docs, as grep gates in BOTH languages (`docs/en-US/`, `docs/zh-CN/`),
@@ -895,7 +902,7 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
     (`issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md`) is
     retired only with evidence that no AST-duplicating path is left: a probe
     showing that neither a derive rule nor a comptime `Expr` splice can
-    place one user argument twice, and that the B1/B2 desugars never
+    place one user argument twice, and that the B1 desugar never
     duplicate a user subexpression. Better, fix it as its own doc proposes
     (key the exemption on the call NODE, not its token) with its reproducer
     as a test, and move it to `issues/fixed/`. Update
@@ -943,7 +950,7 @@ of its own:
 
   Part A needs no release boundary: it is deletion only.
 - **B3 and B4** can land any time; neither depends on another phase.
-- **B1 and B2** land after decision 43 step 3 (N2, first-class storage)
+- **B1** lands after decision 43 step 3 (N2, first-class storage)
   settles the borrowed-`for` protocol (`BorrowedWalk` versus
   `impl(&C, IntoIterator)`, REFERENCES_AND_ORIGINS N3; the protocol
   itself lands in step 4). The protocol stays in prelude functions, so the
@@ -953,7 +960,7 @@ of its own:
   boundary, whichever comes first after B5's release is the seed).
 
 Within the plan: A (one PR, or A1-A5 + A6/A7 split); B3 and B4 (one PR
-each, any time); B1 → B2 (B1 is the only large one); B5; C1+C2 → C3 →
+each, any time); B1 (the only large one; B2 was a deletion, landed 2026-10-24); B5; C1+C2 → C3 →
 C4-C6. Heavy steps (`yo build`, `tests/internal`, the sweeps) take a
 machine-wide heavy-lock slot. Every PR follows `.github/pull_request_template.md`
 and merges on its Tier 1; develop's battery covers the rest.

@@ -429,12 +429,16 @@ Four rules to keep when extending it or implementing it on a new type:
   `Stream` and `Iterator` must give them the SAME `Item`. (`FromIterator` chose
   `Elem` to dodge this; here no std type implements both.)
 
-The loop is **`for_await(s, io, x => body)`**, a macro over the hand-written
-`while` + `io.await(s.next(io), io)` + `match`, so `break`, `continue` and
-`return` work in its body. Its await suspends the task: an await reached
-through a macro expansion is a real suspension point since the single-pass
-lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
-`src/` and `std/` do not use it until `SEED_VERSION` carries that lowering.
+The loop is written out: `mut(s) := stream;` then `while(runtime(true), …)`
+around `n := io.await(s.next(io), io);` and a `match(n, .Some(x) => body,
+.None => { break; })`, so `break`, `continue` and `return` work in its body.
+There is deliberately no named loop form (std's `for_await` macro was deleted
+on 2026-10-24, maintainer decision, `plans/reference/ASYNC_ITERATION_STREAM.md`):
+**a suspension point is an `io.await` written in the `io.async` body; an
+`io.await` inside a function the task calls blocks instead of suspending.** A
+name that hides the await hides the suspension point, which is the whole bug
+history of `for_await` (an `Iterator.next` that awaits, driven by a plain `for`
+inside a task, compiles silently and serialises or deadlocks).
 
 ## JoinHandle(T) — spawned task handle
 
