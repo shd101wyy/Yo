@@ -9,12 +9,12 @@
 // `g_mc_sum` adds up the dropped `_McFd`s' `n`, so each test checks that
 // every value is dropped exactly once.
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { BTreeMap } :: import("std/collections/btree_map");
 { OrderedMap } :: import("std/collections/ordered_map");
 { Deque } :: import("std/collections/deque");
-{ LinkedList } :: import("std/collections/linked_list");
 { PriorityQueue } :: import("std/collections/priority_queue");
 { MapEntry } :: import("std/collections/entry");
 (mut(g_mc_dropped) : i32) = i32(0);
@@ -346,58 +346,18 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
   };
   assert(g_mc_kdropped == (before2 + i32(12)), "12 keys made, 12 dropped");
 });
-// LinkedList: the element lives in its own malloc'd buffer the node points
-// to, so pop_*/remove/clear move it out bitwise and free the buffer — a
-// move-only element pops and clears, and the emptied node leaves `.None`
-// behind for every iterator or neighbour still sharing it
-// (issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md).
-test("LinkedList of a move-only element: push, pop both ends, remove, clear", {
-  before := g_mc_dropped;
-  sum_before := g_mc_sum;
-  {
-    d := LinkedList(_McFd).new();
-    d.push_back(_McFd(n : i32(1)));
-    d.push_front(_McFd(n : i32(2)));
-    assert(d.len() == usize(2), "two elements");
-    assert(g_mc_dropped == before, "pushing drops nothing");
-    // In-place reads and writes never copy the element.
-    assert(d(usize(1)).n == i32(1), "Index reads through the buffer");
-    (d(usize(0))).n = i32(20);
-    assert(d(usize(0)).n == i32(20), "IndexMut writes through the buffer");
-    mut(walked) := i32(0);
-    for(&mut d, e => {
-      walked = (walked + e.n);
-    });
-    assert(walked == i32(21), "the borrowed for reads in place");
-    match(d.pop_front(), .Some(v) => assert(v.n == i32(20), "pop_front moves it out"), .None => assert(false, "was non-empty"));
-    match(d.pop_back(), .Some(v) => assert(v.n == i32(1), "pop_back moves it out"), .None => assert(false, "was non-empty"));
-    assert(d.is_empty(), "empty after both pops");
-    d.push_back(_McFd(n : i32(3)));
-    d.push_back(_McFd(n : i32(4)));
-    match(d.remove(usize(0)), .Ok(v) => assert(v.n == i32(3), "remove moves it out"), .Err(_) => assert(false, "in range"));
-    d.clear();
-    assert(g_mc_dropped == (before + i32(4)), "every element dropped exactly once: two by the caller, remove's, clear's");
-  };
-  assert(g_mc_sum == (sum_before + i32(28)), "2 + 20 + 1 + 3 + 4 (the last two via remove and clear)");
-});
-test("LinkedList of a move-only element: the list's death drops what is left", {
-  before := g_mc_dropped;
-  {
-    d := LinkedList(_McFd).new();
-    d.push_back(_McFd(n : i32(7)));
-    d.push_back(_McFd(n : i32(8)));
-  };
-  assert(g_mc_dropped == (before + i32(2)), "Drop clears, and each element drops once");
-});
-test("LinkedList of a plain type with neither Copy nor Clone: contains compares in place", {
+// A plain element with neither `Copy` nor `Clone`: `contains` compares each
+// slot in place through the buffer, so no element is copied (this case lived
+// on std's linked list until its removal, 2026-10-24).
+test("ArrayList of a plain type with neither Copy nor Clone: contains compares in place", {
   p := _McTok(id : i32(5));
-  d := LinkedList(_McTok).new();
-  d.push_back(_McTok(id : i32(3)));
-  d.push_back(_McTok(id : i32(5)));
-  assert(d.contains(&p), "found without copying any element");
+  xs := ArrayList(_McTok).new();
+  xs.push(_McTok(id : i32(3)));
+  xs.push(_McTok(id : i32(5)));
+  assert(xs.contains(&p), "found without copying any element");
   p2 := _McTok(id : i32(9));
-  assert(!d.contains(&p2), "not found");
-  match(d.pop_back(), .Some(v) => assert(v.id == i32(5), "the last element"), .None => assert(false, "non-empty"));
+  assert(!xs.contains(&p2), "not found");
+  match(xs.pop(), .Some(v) => assert(v.id == i32(5), "the last element"), .None => assert(false, "non-empty"));
 });
 
 // OrderedMap: each key is stored ONCE, in the entry list; the hash index

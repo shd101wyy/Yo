@@ -3,7 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
 Gc :: import("std/gc");
 { ArrayList } :: import("std/collections/array_list");
-{ LinkedList } :: import("std/collections/linked_list");
+{ GlobalAllocator } :: import("std/allocator");
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
 { VList } :: import("./fixtures/owned_buffer.yo");
@@ -400,32 +400,147 @@ test("ArrayList(Self) two-node cycle collected", {
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "ArrayList(Self) cycle collected");
 });
-// --- the same through LinkedList(Self): the element sits one cell deeper ---
-// LinkedList(LLNode) holds Node(LLNode) cells whose `?*LLNode` element buffer
-// is the edge back, so the cycle analysis has to re-root at the Node, see
-// through its buffer and recognise the declaration's shell there. It read that
-// shell as a dead end, so neither LLNode nor the list cell registered and the
-// cycle leaked; Node's own Trace impl was already the right traversal
+// --- the same one cell deeper: a ref chain of ref cells over `?*T` buffers ---
+// `_LlChain(LLNode)` holds `_LlCell(LLNode)` cells whose `?*LLNode` element
+// buffer is the edge back, so the cycle analysis has to re-root twice (at the
+// chain, then at the cell), see through the cell's buffer and recognise the
+// declaration's shell there. It read that shell as a dead end, so neither
+// LLNode nor the chain registered and the cycle leaked; the cell's own Trace
+// impl was already the right traversal
 // (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
+// The std list that showed it was removed on 2026-10-24; this chain keeps its
+// shape: a doubly linked ref cell owning its element through a malloc'd
+// buffer, a hand-written Trace over both handles and the buffer, and a
+// holder whose Drop unlinks from the front.
+_LlCell :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      value : Option(*T),
+      next : Option(Self),
+      prev : Option(Self)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  _LlCell(T),
+  Trace(
+    trace : (fn(self : &Self, tracer : GcTracer) -> unit)({
+      match(
+        self.next,
+        .Some(n) => tracer.visit(unsafe(addr_of(n))),
+        .None => ()
+      );
+      match(
+        self.prev,
+        .Some(p) => tracer.visit(unsafe(addr_of(p))),
+        .None => ()
+      );
+      match(
+        self.value,
+        .Some(p) => tracer.visit(p),
+        .None => ()
+      );
+    })
+  )
+);
+_LlChain :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      head : Option(_LlCell(T)),
+      tail : Option(_LlCell(T)),
+      length : usize
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  _LlChain(T),
+  new : (fn() -> Self)(Self(head : .None, tail : .None, length : usize(0))),
+  push_back : (fn(self : &mut Self, value : T) -> unit)({
+    (p : *T) = match(
+      GlobalAllocator.malloc(size_of(T)),
+      .Some(q) => (*T)(q),
+      .None => __yo_panic("_LlChain: element allocation failed")
+    );
+    __yo_ptr_write(p, value);
+    cell := _LlCell(T)(value : .Some(p), next : .None, prev : self.tail);
+    match(
+      self.tail,
+      .None => {
+        self.head = .Some(cell);
+      },
+      .Some(old_tail) => {
+        old_tail.next = .Some(cell);
+      }
+    );
+    self.tail = .Some(cell);
+    self.length = (self.length + usize(1));
+  }),
+  pop_front : (fn(self : &mut Self) -> Option(T))(
+    match(
+      self.head,
+      .None => .None,
+      .Some(old_head) => {
+        taken := old_head.value;
+        old_head.value = .None;
+        (v : Option(T)) =
+          match(
+            taken,
+            .Some(p) => {
+              x := __yo_ptr_read(p);
+              GlobalAllocator.free(.Some((*void)(p)));
+              .Some(x)
+            },
+            .None => .None
+          );
+        match(
+          old_head.next,
+          .None => {
+            self.head = .None;
+            self.tail = .None;
+          },
+          .Some(new_head) => {
+            new_head.prev = .None;
+            self.head = .Some(new_head);
+          }
+        );
+        self.length = (self.length - usize(1));
+        v
+      }
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  _LlChain(T),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      while(self.length > usize(0), {
+        self.pop_front();
+      });
+    })
+  )
+);
 LLNode :: ref(
   struct(
     value : i32,
-    children : LinkedList(Self)
+    children : _LlChain(Self)
   )
 );
-test("LinkedList(Self) two-node cycle collected", {
+test("a two-level ref chain of Self: two-node cycle collected", {
   do_test :: (fn() -> unit)({
-    a := LLNode(1, LinkedList(LLNode).new());
-    b := LLNode(2, LinkedList(LLNode).new());
-    consume(a.children.push_back(b)); // a -> list -> node -> b
-    consume(b.children.push_back(a)); // b -> list -> node -> a : the cycle
+    a := LLNode(1, _LlChain(LLNode).new());
+    b := LLNode(2, _LlChain(LLNode).new());
+    consume(a.children.push_back(b)); // a -> chain -> cell -> b
+    consume(b.children.push_back(a)); // b -> chain -> cell -> a : the cycle
   });
   do_test();
   Gc.collect();
-  assert(Gc.tracked_count() == u64(0), "LinkedList(Self) cycle collected");
+  assert(Gc.tracked_count() == u64(0), "_LlChain(Self) cycle collected");
   assert(Type.can_form_rc_cycle(LLNode), "LLNode is cycle-capable");
-  assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "the list cell sits on the cycle");
-  assert(!Type.can_form_rc_cycle(LinkedList(i32)), "a list of plain values is no cycle root");
+  assert(Type.can_form_rc_cycle(_LlChain(LLNode)), "the chain cell sits on the cycle");
+  assert(!Type.can_form_rc_cycle(_LlChain(i32)), "a chain of plain values is no cycle root");
 });
 // A ref(enum) whose only way back to itself runs through a ref(struct):
 // `KNode`'s `Kids` payload is an `ArrayList(Self)` and no variant holds `Self`
@@ -757,11 +872,11 @@ test("declared-Acyclic compiler trees keep their containers and holders off the 
   comptime_assert(Type.can_form_rc_cycle(RTermTwin), "the undeclared term twin can form a cycle");
   comptime_assert(Type.can_form_rc_cycle(ArrayList(RTermTwin)), "and its list sits on that cycle (VcTerm shape)");
   comptime_assert(Type.can_form_rc_cycle(RQueryTwin), "and so does its query");
-  // The LinkedList controls stay cycle roots: no declaration covers them.
+  // The `_LlChain` controls stay cycle roots: no declaration covers them.
   comptime_assert(Type.can_form_rc_cycle(LLNode), "LLNode");
-  comptime_assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "LinkedList(LLNode)");
+  comptime_assert(Type.can_form_rc_cycle(_LlChain(LLNode)), "_LlChain(LLNode)");
   comptime_assert(Type.can_form_rc_cycle(ArrayList(LLNode)), "ArrayList(LLNode)");
-  comptime_assert(!Type.can_form_rc_cycle(LinkedList(i32)), "LinkedList(i32)");
+  comptime_assert(!Type.can_form_rc_cycle(_LlChain(i32)), "_LlChain(i32)");
   // At run time a declared node and its list never register.
   before := Gc.tracked_count();
   e := RExpr.FnCall(RExpr.Atom(1), ArrayList(RExpr).new());

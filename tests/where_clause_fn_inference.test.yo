@@ -72,12 +72,14 @@ test("where-clause inference with bool callback return type", {
 // --- where-bound generic over two collections: GC trace must not go
 // abstract-keyed (issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md).
 // A user IntoIterator-shaped trait (assoc Item/IntoIter + a where-clause tying
-// them) implemented on LinkedList and BTreeMap; instantiating one where-bound
-// generic at LinkedList and then a second at BTreeMap minted ERA-COPY
+// them) implemented on Deque and BTreeMap; instantiating one where-bound
+// generic at one collection and then a second at BTreeMap minted ERA-COPY
 // ArrayList(MapEntry(K',V')) identities from the failed impl-match trials,
 // whose GC traverse delegated to a never-emitted hard-generic trace spec —
 // "call to undeclared function yo_id_..._<raw SomeT ids>_..." at C compile.
-{ LinkedList, LinkedListIter } :: import("std/collections/linked_list");
+// The first collection was std's linked list until its removal (2026-10-24);
+// Deque keeps the same two-instantiation shape.
+{ Deque, DequeIter } :: import("std/collections/deque");
 { BTreeMap, BTreeMapIter, MapEntry } :: import("std/collections/btree_map");
 __WbInto :: trait(
   Item : Type,
@@ -87,11 +89,11 @@ __WbInto :: trait(
 );
 impl(
   generic(T : Type),
-  LinkedList(T),
+  Deque(T),
   __WbInto(
     Item : T,
-    IntoIter : LinkedListIter(T),
-    wb_into : (fn(self : &Self) -> LinkedListIter(T))(self.into_iter())
+    IntoIter : DequeIter(T),
+    wb_into : (fn(self : &Self) -> DequeIter(T))(self.into_iter())
   )
 );
 impl(
@@ -113,11 +115,11 @@ __wb_count :: (
 )(
   c.wb_into().count()
 );
-test("where-bound generic over LinkedList then BTreeMap compiles and runs", {
-  ll := LinkedList(i32).new();
-  ll.push_back(i32(10));
-  ll.push_back(i32(20));
-  assert(__wb_sum(&ll) == i32(30), "LinkedList through the Item-bound generic");
+test("where-bound generic over Deque then BTreeMap compiles and runs", {
+  dq := Deque(i32).new();
+  dq.push_back(i32(10));
+  dq.push_back(i32(20));
+  assert(__wb_sum(&dq) == i32(30), "Deque through the Item-bound generic");
   bt := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
   assert(__wb_count(&bt) == usize(1), "BTreeMap through the bare bound");
