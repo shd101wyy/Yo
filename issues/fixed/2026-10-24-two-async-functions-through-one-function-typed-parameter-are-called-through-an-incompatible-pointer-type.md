@@ -80,6 +80,7 @@ yo_id_1475…((void*)(yo_id_1719…), __yo_v_io);
 | `(mut(h) : (fn(…) -> Impl(Future(i32, Io)))) = _fp_twice; if(c, { h = _fp_three; }); h(…)` with `c == false` | UBSan abort: the call casts `h` to `_fp_three`'s concrete signature while `h` holds `_fp_twice` |
 | the same local reassigned unconditionally | clean, but only by accident: each call casts to the function assigned last |
 | a fn type taking an `Impl(Future(i32, Io))` PARAMETER, given a function with a `sink(fut) : Impl(Future(i32, Io))` parameter | clean |
+| a SPECIALIZED callee's parameter, `f : Impl(Fn(x : i32, io : Io) -> Impl(Future(i32, Io)))` or `generic(F : Type), f : F` | clean: the callee is specialized per argument, and its parameter is declared and called with that argument's own concrete prototype |
 
 ## Root cause
 
@@ -177,9 +178,20 @@ direct async call emit the same C as before.
    - an effect handler injected into a future's capture struct
      (`await.yo`).
 2. **A call through a function pointer casts to the erased result**
-   (`generate_other_function_call`'s function-pointer arm). Before, the cast
-   used the call's own type, which for a reassigned mutable local named the
-   last function the evaluator saw assigned.
+   (`generate_other_function_call`'s function-pointer arm). Before, the
+   function-pointer cast used the call's own type, which for a reassigned
+   mutable local named the last function the evaluator saw assigned. Only
+   that cast changed: the call's result is still converted to the future
+   struct the call's type names, and the await that follows reads it through
+   that struct. That is sound only because every future struct starts with
+   `__YO_FUTURE_PREFIX` followed by `result`, which is all the await reads.
+   A callee that is a PARAMETER of a specialized function (the last row of
+   the table) is cast with the parameter's own declarator
+   (`_callee_param_fn_type`), which names the argument's concrete state
+   machine. Since the value passed in is now the thunk, that cast spells the
+   erased result too (`generate_function_prototype`'s return override). The
+   first version of this fix missed that cast, so the two specialized shapes
+   went from clean to a UBSan abort; the review caught it.
 3. **An async function stored in a struct field is no longer an
    effect-record member.** `collect_effect_record_members`
    (`src/codegen/functions/collection.yo`) marked every function in a
@@ -202,7 +214,10 @@ one function-typed parameter" fails under `YO_TEST_SANITIZE=undefined` before
 the fix. The fix adds one test for each shape in the table above: a parameter
 captured by an async closure, a returned function, a struct field (also called
 directly, and reached only through the field), and a conditionally reassigned
-local. It also adds a test for an awaiting (`_state_t`) function and a
-delegate. "an async function reached only through a struct field" fails to
+local (once between two sync futures, once between a sync future and an
+awaiting `_state_t` function). It also adds a test for an awaiting function
+and a delegate through the parameter, and one for specialized callees: an
+`Impl(Fn(..))` parameter, a `generic(F : Type)` parameter, and a generic
+identity whose result is called. "an async function reached only through a struct field" fails to
 compile without the fix, with or without a sanitizer. The weekly UBSan job is
 the standing gate.
