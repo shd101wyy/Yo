@@ -107,7 +107,6 @@ pragma(Pragma.AllowUnsafe);
   set_expr_as_needs_to_call_dup,
   get_dup_use_site_token,
   snapshot_loop_flow,
-  keep_break_path_moves,
   ImplicitCopyPending,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
@@ -2876,7 +2875,6 @@ _evaluate_begin_expression_impl :: (
           .Some(brk_lc) => {
             snap := snapshot_loop_flow(&brk_lc, &env, ast_expr_token(&expr_to_eval));
             brk_lc.break_states.push(snap);
-            keep_break_path_moves(&brk_lc, &env, ast_expr_token(&expr_to_eval));
           },
           .None => ()
         );

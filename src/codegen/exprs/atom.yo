@@ -847,8 +847,9 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
-  // A move on a `break` path is the variable's move only up to its `break`
-  // (`keep_break_path_moves`): the loop marks the value moved where it ends.
+  // A move in a branch arm, or on a loop's `break` path, is not the
+  // variable's `consumed_at_token`: the join marks the value moved where the
+  // branch or the loop ends, and the flow log keeps the move itself.
   is_move := (match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false) || _is_kept_move_site(&v, &tok));
   if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
     return(sm_code);
