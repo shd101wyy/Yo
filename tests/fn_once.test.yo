@@ -421,3 +421,46 @@ test("FnOnce: an element read as an operand still lends its container", {
     xs(usize(0)) == _once_first(xs)
   }, "an earlier argument of the same call lends to it");
 });
+// A call through a closure-valued FIELD still lends the field's root: codegen
+// leaves that call inline while it spills a later argument, so `eat(h)` would
+// free the closure before `h.cb(…)` ran
+// (issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
+_OnceCbHolder :: struct(cb0 : Dyn(Fn() -> i32), cb1 : Dyn(Fn(x : i32) -> i32), cb2 : Dyn(Fn(x : i32, y : i32) -> i32), mk : Dyn(Fn(x : i32) -> _OnceSum), tag : i32);
+impl(_OnceCbHolder, tag_of : (fn(self : &Self) -> i32)(self.tag));
+_once_eat_holder :: (fn(sink(h) : _OnceCbHolder) -> i32)(h.tag);
+_once_holder :: (fn() -> _OnceCbHolder)({
+  t := _OnceTok(n : i32(1));
+  _OnceCbHolder(
+    cb0 : dyn({ t }() => t.n),
+    cb1 : dyn((x : i32) => x),
+    cb2 : dyn((x : i32, y : i32) => (x + y)),
+    mk : dyn((x : i32) => _OnceSum(n : x)),
+    tag : i32(1)
+  )
+});
+test("FnOnce: a closure-field call as an operand or receiver lends the holder", {
+  comptime_expect_error({
+    h := _once_holder();
+    h.cb1(i32(1)) == _once_eat_holder(h)
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    h := _once_holder();
+    h.cb0() == _once_eat_holder(h)
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    h := _once_holder();
+    h.cb2(i32(0), i32(1)) == _once_eat_holder(h)
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    h := _once_holder();
+    h.mk(i32(1)).plus(_once_eat_holder(h))
+  }, "an earlier argument of the same call lends to it");
+});
+test("FnOnce: a method call's result as an operand lends nothing of the receiver", {
+  before := g_once_disposed;
+  {
+    h := _once_holder();
+    assert(h.tag_of() == _once_eat_holder(h), "the method result is a temporary");
+  };
+  assert(g_once_disposed == (before + i32(1)), "the holder's capture released once");
+});
