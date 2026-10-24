@@ -56,3 +56,61 @@ test("two async functions through one function-typed parameter", {
   assert(_fp_run(_fp_twice, io) == i32(42), "first function");
   assert(_fp_run(_fp_plus, io) == i32(24), "second function");
 });
+// Every other way a future-returning function becomes a function-pointer
+// VALUE. The function's own C prototype returns its concrete state machine;
+// the value must be called through the slot's erased signature (a thunk), not
+// through a cast, or `-fsanitize=function` aborts at the call
+// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
+_fp_wrap :: (fn(f : (fn(x : i32, io : Io) -> Impl(Future(i32, Io))), io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ f }(e : Io) => e.await(f(i32(21), e), e))
+);
+test("a function-typed parameter captured by an async closure", {
+  r := io.await(_fp_wrap(_fp_twice, io), io);
+  assert(r == i32(42), `expected 42, got ${r.to_string()}`);
+});
+_fp_get :: (fn() -> (fn(x : i32, io : Io) -> Impl(Future(i32, Io))))(_fp_twice);
+test("an async function returned as a function value", {
+  g := _fp_get();
+  r := io.await(g(i32(21), io), io);
+  assert(r == i32(42), `expected 42, got ${r.to_string()}`);
+});
+_FpHolder :: struct(f : (fn(x : i32, io : Io) -> Impl(Future(i32, Io))));
+_fp_only_in_field :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => (x + i32(1))));
+test("an async function stored in a struct field", {
+  direct := io.await(_fp_twice(i32(1), io), io);
+  h := _FpHolder(f : _fp_twice);
+  r := io.await(h.f(i32(21), io), io);
+  assert((direct + r) == i32(44), `expected 44, got ${(direct + r).to_string()}`);
+});
+test("an async function reached only through a struct field", {
+  h := _FpHolder(f : _fp_only_in_field);
+  r := io.await(h.f(i32(41), io), io);
+  assert(r == i32(42), `expected 42, got ${r.to_string()}`);
+});
+_fp_three :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => (x * i32(3))));
+_fp_pick :: (fn(c : bool, io : Io) -> i32)({
+  (mut(h) : (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))) = _fp_twice;
+  if(c, {
+    h = _fp_three;
+  });
+  io.await(h(i32(21), io), io)
+});
+test("a function-typed local conditionally reassigned", {
+  a := _fp_pick(false, io);
+  b := _fp_pick(true, io);
+  assert(a == i32(42), `expected 42, got ${a.to_string()}`);
+  assert(b == i32(63), `expected 63, got ${b.to_string()}`);
+});
+// A body with an await is a full state machine (`_state_t`), not a sync future;
+// a delegate returns another async function's future and has no block of its own.
+_fp_awaiting :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((e : Io) => {
+    y := e.await(_fp_twice(x, e), e);
+    y + i32(1)
+  })
+);
+_fp_delegate :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(_fp_twice(x, io));
+test("an awaiting async function and a delegate through one function-typed parameter", {
+  assert(_fp_run(_fp_awaiting, io) == i32(43), "awaiting function");
+  assert(_fp_run(_fp_delegate, io) == i32(42), "delegate function");
+});

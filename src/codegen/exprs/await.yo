@@ -56,6 +56,7 @@
 { _call_emit_inline_await } :: import("../async/_fsm.yo");
 { generate_pending_deferred_drops } :: import("./return.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ fn_value_c_name } :: import("../functions/declarations.yo");
 { unwind_catch_condition } :: import("./async_completion.yo");
 /// One effect on a Future trait (the first — `FutureTraitT` carries effect
 /// arrays).
@@ -157,8 +158,8 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
                   match(
                     fv,
                     .FuncVal(__fvd1, _) => match(
-                      context.base.get_function_entry(&__fvd1.*.func_id),
-                      .Some(e) => return(Option(String).Some(e.c_name.clone())),
+                      fn_value_c_name(&__fvd1.*.func_id, &context.base),
+                      .Some(cn) => return(Option(String).Some(cn)),
                       .None => ()
                     ),
                     _ => ()
