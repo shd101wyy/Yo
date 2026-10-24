@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate explicit-copy` lists a unique-buffer copy whose type
+# has no `Clone`, instead of dropping it
+# (issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md),
+# and counts `StringBuilder` and `HeaderMap` as unique buffers
+# (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.4 P8). main.yo is the issue's
+# four-setter program: `set_a` and `set_d` are cloned, `set_b` and `set_c`
+# (element types without `Clone`) are listed. builders.yo stores a borrowed
+# `StringBuilder` and `HeaderMap` into fields; both are listed. The trailing
+# checks prove both files still evaluate.
+stdout_keep=^fix:
+timeout=240
