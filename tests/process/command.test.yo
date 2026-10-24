@@ -12,6 +12,13 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/time/sleep");
 { Thread } :: import("std/thread");
+// Every I/O future on a child pipe borrows the handle (VBD V3 review,
+// 2026-10-25): a read that copied the fd outlived a handle moved into the
+// function that made it.
+comptime_expect_error(
+  _child_read_escapes :: (fn(r : ChildStdout, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(r.read(buf, usize(1), io)),
+  "cannot be returned"
+);
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
@@ -470,6 +477,44 @@ test("take_stdin/take_stdout give Writer/Reader handles over the child's pipes",
   assert(text == `handles héllo`, `cat echoed it back: ${text}`);
   st := io.await(child.wait(io), e);
   assert(st.success(), "cat exits 0");
+});
+// A `Child` dropped without `wait()` used to keep every pipe end it still
+// held open (VBD V3 review, 2026-10-25): no `Drop` closed them, so a child
+// waiting for EOF on its stdin never got it.
+test("dropping a Child closes the pipe ends it still holds", {
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/cat`.to_string());
+  cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  r := match(child.take_stdout(), .Some(h) => h, .None => __yo_panic("take_stdout: the stream was not piped"));
+  // The child still holds the write end of cat's stdin. Dropping it closes
+  // that end: cat sees EOF, exits, and its stdout reaches EOF.
+  drop(child);
+  got := io.await(
+    timeout(
+      io.async({ &r }(io : Io) => {
+        rexn := Exception(throw : (err -> unwind(`<threw>`)));
+        rb := IoExn(io : io, exn : rexn);
+        io.await(r.read_to_string(io), rb)
+      }),
+      Duration.from_secs(i64(5)),
+      io
+    ),
+    io
+  );
+  assert(match(got, .Ok(s) => s.is_empty(), .Err(_) => false), "cat saw EOF on its stdin once the Child dropped");
 });
 test("taking a stream moves the fd out of the Child", {
   if(platform == Platform.Windows, {

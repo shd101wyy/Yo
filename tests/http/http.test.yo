@@ -264,7 +264,10 @@ _serve_scripted :: (
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_read_request(&s, e.io), e);
       seen.with_mut(xs => xs.push(req.clone()));
-      _w := e.io.await(s.write_string(&responses(k), e.io), e);
+      // `write_string`'s future borrows its argument, which therefore
+      // cannot be an element of a list: copy it out first.
+      reply := responses(k).clone();
+      _w := e.io.await(s.write_string(&reply, e.io), e);
       e.io.await(s.close(e.io), e);
       k = (k + usize(1));
     });
@@ -1673,4 +1676,67 @@ test("wire: a HEAD response ignores its Content-Length and carries the tail", {
     as_get.len() == (String.from(_PHEAD).len() + usize(3)),
     `read as a GET response the same bytes frame a 3-byte body, got ${as_get.len()}`
   );
+});
+// Dropping an `HttpClient` whose `fetch` future was aborted mid-exchange (a
+// caller's own `timeout`) used to DETACH the exchange task: it kept the
+// connection open, and when the response arrived it pooled the connection
+// into the dropped client (a heap use-after-free; VBD V3 review,
+// 2026-10-25). The exchange is now a scoped child of the fetch, aborted with
+// it, so the server sees the connection close.
+_serve_until_hangup :: (fn(sink(listener) : TcpListener, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async({ listener }(e : IoExn) => {
+    stream := e.io.await(listener.accept(e.io), e);
+    buf := ArrayList(u8).with_capacity(usize(4096));
+    buf.resize_with_byte(usize(4096), int(0));
+    _req := e.io.await(stream.read(buf.ptr().unwrap(), usize(4096), e.io), e);
+    // 0: the client hung up; 1: the connection was still open after 2 s.
+    r := e.io.await(
+      timeout(
+        e.io.async({ &stream, &buf }(io : Io) => {
+          rexn := Exception(throw : (err -> unwind(usize(1))));
+          rb := IoExn(io : io, exn : rexn);
+          io.await(stream.read(buf.ptr().unwrap(), usize(4096), io), rb)
+        }),
+        Duration.from_secs(i64(2)),
+        e.io
+      ),
+      e.io
+    );
+    match(r, .Ok(n) => cond((n == usize(0)) => i32(0), true => i32(2)), .Err(_) => i32(1))
+  })
+);
+test("an aborted HttpClient fetch takes its exchange down with it", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  ioe := IoExn(io : io, exn : exn);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), ioe);
+  port := listener.local_addr().port;
+  srv := io.spawn(_serve_until_hangup(listener, io), ioe);
+  url := `http://127.0.0.1:${port}/x`;
+  opts := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
+  {
+    client := HttpClient.new();
+    r := io.await(
+      timeout(
+        io.async({ &client, &url, &opts }(io : Io) => {
+          wexn := Exception(throw : (err -> unwind(false)));
+          wb := IoExn(io : io, exn : wexn);
+          _r := io.await(client.fetch_with(&url, &opts, io), wb);
+          true
+        }),
+        Duration.from_millis(i64(100)),
+        io
+      ),
+      io
+    );
+    assert(r.is_err(), "the server never answers, so the caller's timeout fires");
+  };
+  saw := srv.await(io);
+  assert(match(saw, .Some(v) => (v == i32(0)), .None => false), `the exchange closed its connection when the fetch was aborted (server saw ${saw})`);
 });

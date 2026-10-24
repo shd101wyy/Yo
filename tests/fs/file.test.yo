@@ -10,11 +10,35 @@ pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not availabl
 { Error, AnyError, Exception, IoExn } :: import("std/error");
 fs_file :: import("std/fs/file");
 { File, OpenMode, OpenOptions, FilePermission, SeekFrom } :: import("std/fs/file");
+{ Metadata } :: import("std/fs/metadata");
 IoTraits :: import("std/io");
 { O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_EXCL, O_CLOEXEC } :: import("std/sys/constants");
 { temp_dir, path_join } :: import("../helper");
 fs_dir :: import("std/fs/dir");
 { println, eprintln } :: import("std/fmt");
+
+// Every I/O future on a `File` borrows the file (VBD V3 review, 2026-10-25).
+// `flush`, `set_len` and `metadata` used to copy the descriptor, so a function
+// that took the file by value could return the future; the file dropped (and
+// closed its descriptor) on return, and the await then truncated whatever
+// file had reused the number.
+comptime_expect_error(
+  _file_set_len_escapes :: (fn(f : File, io : Io) -> Impl(Future(unit, IoExn)))(f.set_len(i64(0), io)),
+  "cannot be returned"
+);
+comptime_expect_error(
+  _file_flush_escapes :: (fn(f : File, io : Io) -> Impl(Future(unit, IoExn)))(f.flush(io)),
+  "cannot be returned"
+);
+comptime_expect_error(
+  _file_metadata_escapes :: (fn(f : File, io : Io) -> Impl(Future(Metadata, IoExn)))(f.metadata(io)),
+  "cannot be returned"
+);
+// A `File` is never `Sync` (its methods write the state through `&Self`),
+// and not `Send` until `String`, which holds its path, is (V2b). The docs
+// claimed `Send` and `Arc(Mutex(File))` sharing (VBD V3 review, 2026-10-25).
+comptime_assert(!Type.impls(File, Sync), "a File is not Sync");
+comptime_assert(!Type.impls(File, Send), "a File is not Send until String is (V2b)");
 // ============================================================================
 // Convenience function tests
 // ============================================================================

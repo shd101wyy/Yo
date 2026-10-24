@@ -15,6 +15,12 @@ import("std/fmt");
 IO_tcp :: import("std/sys/tcp");
 { sleep } :: import("std/sys/timer");
 { Instant } :: import("std/time/instant");
+
+// Every I/O future on a socket borrows it (VBD V3 review, 2026-10-25).
+comptime_expect_error(
+  _udp_recv_escapes :: (fn(s : UdpSocket, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(s.recv(buf, usize(1), io)),
+  "cannot be returned"
+);
 // ============================================================================
 // UdpSocket tests
 // ============================================================================
@@ -305,7 +311,10 @@ test("a quiet recv_from parks the task, not the event loop", {
         )
       );
       recv_buf := (*u8)(malloc(usize(64)).unwrap());
-      got := io.await(server.recv_from(recv_buf, usize(64), io), IoExn(io : io, exn : task_exn));
+      // `recv_from`'s future borrows the socket (moved into this task), so
+      // its bundle must be a place.
+      task_ioe := IoExn(io : io, exn : task_exn);
+      got := io.await(server.recv_from(recv_buf, usize(64), io), task_ioe);
       (n, from) := got;
       assert(n == usize(5), "the datagram arrived whole");
       assert(from.ip.is_loopback(), "the sender address was decoded");

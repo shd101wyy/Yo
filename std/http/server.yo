@@ -93,7 +93,10 @@ impl(
   /// (issues/fixed/one-malformed-request-killed-http-server-serve.md).
   _accept_request : (fn(self : &Self, io : Io) -> Impl(Future(Tuple(TcpStream, Result(HttpRequest, HttpResponse)), IoExn)))(
     io.async(e => {
-      stream := e.io.await(self.listener.*.accept(e.io), e);
+      // Through a local handle: `accept`'s future borrows the listener, and a
+      // borrow may cross an `Rc` deref but not the `ref` server holding it.
+      listener := self.listener;
+      stream := e.io.await(listener.*.accept(e.io), e);
       framed := e.io.await(read_http_message(&stream, self.max_request_bytes, MessageKind.Request, e.io), e);
       parsed := match(
         framed,

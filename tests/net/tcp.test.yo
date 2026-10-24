@@ -18,6 +18,26 @@ pragma(Pragma.AllowUnsafe);
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 { Instant } :: import("std/time/instant");
+
+// Every I/O future on a socket borrows it (VBD V3 review, 2026-10-25): a
+// future that copied the descriptor outlived a stream moved into the
+// function that made it, and ran on a closed, possibly reused descriptor.
+comptime_expect_error(
+  _tcp_read_escapes :: (fn(s : TcpStream, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(s.read(buf, usize(1), io)),
+  "cannot be returned"
+);
+comptime_expect_error(
+  _tcp_write_str_escapes :: (fn(s : TcpStream, io : Io) -> Impl(Future(usize, IoExn)))(s.write_str("x", io)),
+  "cannot be returned"
+);
+comptime_expect_error(
+  _tcp_accept_escapes :: (fn(l : TcpListener, io : Io) -> Impl(Future(TcpStream, IoExn)))(l.accept(io)),
+  "cannot be returned"
+);
+// A stream can move to another thread (it holds a descriptor and two
+// addresses) but is never `Sync`: its methods write the state through `&Self`.
+comptime_assert(Type.impls(TcpStream, Send), "a TcpStream is Send");
+comptime_assert(!Type.impls(TcpStream, Sync), "a TcpStream is not Sync");
 // ============================================================================
 // TcpListener tests
 // ============================================================================

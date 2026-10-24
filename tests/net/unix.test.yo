@@ -17,6 +17,12 @@ pragma(Pragma.SkipWasm32Wasi); // no AF_UNIX in standalone WASI
 { sleep } :: import("std/sys/timer");
 { yield } :: import("std/async");
 
+// Every I/O future on a socket borrows it (VBD V3 review, 2026-10-25).
+comptime_expect_error(
+  _unix_write_escapes :: (fn(s : UnixStream, io : Io) -> Impl(Future(usize, IoExn)))(s.write_str("x", io)),
+  "cannot be returned"
+);
+
 _sock :: (fn(name : str) -> Path)(
   Path.new(temp_dir() + `/yo_unix_`.to_string() + String.from(name))
 );

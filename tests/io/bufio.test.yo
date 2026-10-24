@@ -380,3 +380,36 @@ test("BufWriter write_string of an empty String is a no-op", {
   io.await(bw.get_ref().close(io), t_e);
   io.await(remove_file(&p, io), t_e);
 });
+// The constructors take the inner value (`sink`), so the wrappers give it
+// back by value: `BufReader.into_inner` (buffered bytes are dropped, as
+// Rust's are) and `BufWriter.into_parts` (the pending bytes come back
+// unwritten). Before these, `get_ref` was the only way back, and only as a
+// borrow (VBD V3 review, 2026-10-25).
+test("BufReader.into_inner and BufWriter.into_parts give the inner value back", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("into_parts.txt");
+  f := io.await(File.open(&path, OpenMode.Write, io), t_e);
+  bw := BufWriter(File).new(f);
+  io.await(bw.write_string(&`pending`, io), t_e);
+  (f2, pending) := bw.into_parts();
+  assert(pending.len() == usize(7), "the unwritten bytes come back");
+  assert(f2.size() == i64(0), "and were not written");
+  _n := io.await(f2.write_bytes(&pending, io), t_e);
+  io.await(f2.close(io), t_e);
+  g := io.await(File.open(&path, OpenMode.Read, io), t_e);
+  br := BufReader(File).with_capacity(g, usize(4));
+  first := io.await(br.read_line(io), t_e);
+  assert(match(first, .Some(l) => (l == `pending`), .None => false), "the written bytes read back");
+  g2 := br.into_inner();
+  assert(g2.position() == i64(7), "the File comes back at the position the buffer reached");
+  io.await(g2.close(io), t_e);
+  io.await(remove_file(&path, io), t_e);
+});
