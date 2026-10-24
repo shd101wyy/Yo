@@ -2742,6 +2742,27 @@ _ic_place_root_var :: (fn(place : &AstExpr, env : &Environment, (stop_ctx : Opti
 _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
   match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
 );
+/// The declaration key of the variable a pattern binding declared at
+/// `binding` takes a part of, while the migration runs: the variable `place`
+/// (a `match` scrutinee, a destructuring's right-hand side, evaluated in
+/// `env`) is a place of, or empty. A call's own result is rooted in no
+/// variable (`_ic_place_root_var`'s `stop_ctx`), and neither is a variable of
+/// another module than the binding's: a `for` expansion's
+/// `match(iter.next(), .Some(x) => …)` binds the user's `x` from the
+/// template's iterator, whose writes advance it and touch no element.
+_ic_binding_source_decl :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, binding : &Token) -> String)({
+  if(!g_migrate_explicit_copy, {
+    return(String.new());
+  });
+  match(
+    _ic_place_root_var(place, env, stop_ctx : Option(EvalContext).Some(ctx)),
+    .Some(v) => cond(
+      (canonical_module_path(&v.token.module_path.*) == canonical_module_path(&binding.module_path.*)) => _ic_decl_key(&v.token),
+      true => String.new()
+    ),
+    .None => String.new()
+  )
+});
 /// Record a write to the variable `place` is rooted in, at `at`, while the
 /// migration runs.
 record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
@@ -3050,7 +3071,7 @@ take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl);
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.

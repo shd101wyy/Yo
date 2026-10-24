@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { unknown_field_message, unknown_field_code } :: import("../../types/utils.yo");
-{ is_valid_variable_name, strip_mut_marker, migrate_explicit_copy_on, _ic_decl_key, _ic_place_root_decl, record_copy_flow_decl } :: import("../utils.yo");
+{ is_valid_variable_name, strip_mut_marker, migrate_explicit_copy_on, _ic_decl_key, _ic_binding_source_decl, record_copy_flow_decl } :: import("../utils.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
 { panic, assert } :: import("std/assert");
@@ -714,8 +714,10 @@ evaluate_destructuring_assignment :: (
   rhs_value := rhs_info.value;
   is_rhs_atom := ast_expr_is_atom(rhs);
   // `yo fix --migrate explicit-copy`: the variable the right-hand side is a
-  // place of. Each name bound below holds a part of it, sharing its buffer.
-  ds_src_decl := if(migrate_explicit_copy_on() && !is_compile_time_only, _ic_place_root_decl(rhs, env), String.new());
+  // place of (`_ic_binding_source_decl`). Each name bound below holds a part
+  // of it, sharing its buffer.
+  ds_lhs_tok := ast_expr_token(lhs);
+  ds_src_decl := if(migrate_explicit_copy_on() && !is_compile_time_only, _ic_binding_source_decl(rhs, env, ctx, &ds_lhs_tok), String.new());
   // -------------------------------------------------------------------
   // Struct / union / module destructuring
   // -------------------------------------------------------------------
