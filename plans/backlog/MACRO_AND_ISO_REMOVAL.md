@@ -244,7 +244,11 @@ Gated user-macro fixtures (deleted or rewritten in C5): `tests/macro_def_pragma.
 `tests/macro_def_gate.test.yo`, `tests/internal/macro_expansion.test.yo`,
 `tests/internal/macro_registry.test.yo`, parts of `tests/internal/ast_reflection.test.yo`
 and `tests/internal/macro_helpers.test.yo`, `tests/codegen-bootstrap/try_macro_assign.yo`,
-and the local `_recv_one` macro at `tests/async/channel.test.yo:417`. A
+and the local `_recv_one` macro at `tests/async/channel.test.yo:417`. **All but
+`_recv_one` were deleted or rewritten early, on 2026-10-24** (maintainer
+decision; branch `tests/delete-macro-fixtures-early`; what C5 still owes is
+listed under C5). Not in this list before: the origins-corpus row
+`tests/origins/corpus/macro-ret-local.yo` also defines a user macro. A
 commented-out `fill` macro sits at `std/prelude.yo:7116-7122` ("NOTE: Macro
 doesn't work yet").
 
@@ -801,15 +805,44 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
   `:3287` moved to B1's desugar-site marker) all keep it. Same emit-diff
   gate.
 - **C5 — tests, fixtures, docs.**
-  - Delete `tests/macro_def_pragma.test.yo`, `tests/macro_def_gate.test.yo`,
-    `tests/internal/macro_expansion.test.yo`, `tests/internal/macro_registry.test.yo`,
-    `tests/codegen-bootstrap/try_macro_assign.yo`; trim the gated-definition
-    cases from `tests/internal/ast_reflection.test.yo` and
-    `tests/internal/macro_helpers.test.yo` (KEEP the quote-value, `gensym`
-    and `__yo_expr_*` reflection cases — that layer stays); rewrite
-    `tests/async/channel.test.yo:417`'s `_recv_one` as plain code; drop the
-    `for_await` name from `tests/async/combinators.test.yo:10`'s import;
-    trim the gate-path section of `tests/internal/memory_safety_paths.test.yo`.
+  - **Done early, 2026-10-24** (maintainer decision, branch
+    `tests/delete-macro-fixtures-early`; the machinery itself stays until C2
+    because std's `for`, `for_await` and `unsafe.drop` are still macros the
+    seed expands):
+    - deleted `tests/macro_def_pragma.test.yo`, `tests/macro_def_gate.test.yo`,
+      `tests/internal/macro_expansion.test.yo`,
+      `tests/internal/macro_registry.test.yo` and
+      `tests/codegen-bootstrap/try_macro_assign.yo` with its golden;
+    - every case of `tests/internal/ast_reflection.test.yo` and the three
+      module-source cases of `tests/internal/macro_helpers.test.yo` reached
+      the reflection builtins through a gated macro definition. They were
+      REWRITTEN, not dropped: each now evaluates `__yo_expr_is_atom`,
+      `__yo_expr_is_fn_call`, `__yo_expr_get_callee`/`get_args`,
+      `__yo_expr_eq`, `gensym` and the comptime-list `car`/`cdr` over
+      `quote(...)` values in module-level comptime bindings, with a negative
+      control in each `cond`. The direct `evaluate_gensym` token-sharing case
+      and all of `tests/internal/quote_macro_eval.test.yo` were already
+      macro-free and stay; the `MACRO_DISPATCH_ENABLED` guards are gone from
+      these files, so C2 need not touch them;
+    - `macro_def_gate`'s third case ("quote/Expr values stay ungated") pins
+      surviving behaviour and moved to `tests/comptime.test.yo`;
+    - CI's `tests/internal` shard map lost its fourth heavy file
+      (`.github/workflows/test.yml`), and the docs that named the deleted
+      files (`AGENTS.md`, `testing.instructions.md`, `scripts/heavy-lock.sh`,
+      DESIGN's `try` note in both languages) were updated.
+  - **Still C5's:** rewrite `tests/async/channel.test.yo:417`'s `_recv_one`
+    as plain code; drop the `for_await` name from
+    `tests/async/combinators.test.yo:10`'s import; trim the gate-path section
+    of `tests/internal/memory_safety_paths.test.yo` (it pins the live gate
+    until C2); decide the origins-corpus row
+    `tests/origins/corpus/macro-ret-local.yo` (a user macro; its manifest row
+    is `tests/origins/corpus.tsv` and its model case is in
+    `tests/origins/model_corpus.test.yo`) — delete the row once C1 makes the
+    definition an error. Comments in `src/`/`std/` still name the deleted
+    files (`src/evaluator/builtins/quote.yo`, `src/evaluator/calls/function.yo`'s
+    quoted-variadic binding, `std/prelude.yo`'s removed-`try` note,
+    `src/README.md`'s macro-test paragraph); C2 deletes or rewrites those
+    sites with the machinery.
   - KEEP `tests/for_macro_borrow*.test.yo` (they pin `for` semantics, which
     the desugar preserves). KEEP the formatter fixtures at
     `tests/internal/formatter.test.yo:498/:524`: they are macro SIGNATURES

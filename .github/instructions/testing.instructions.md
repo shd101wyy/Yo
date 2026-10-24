@@ -952,8 +952,6 @@ verified nothing.
     collided on shared `/tmp` fixtures and reported false watch and
     module_invalidation failures. The full directory is develop's battery's job.
     Watch that battery and fix forward.
-  - `macro_expansion.test.yo` (6.5 GB) runs only when the parser, macros or
-    `quote` change, and always `exclusive`.
 - **cli-diff** only when the diff can move CLI output: std (line-pinned LSP
   goldens), diagnostics prose, a CLI command, `.github/skills/`, a `yo fix`
   migration. Read each GOLDEN-DIFF before `--record`.
@@ -986,11 +984,11 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   test files, `fmt`, `check` of one small module.
 - **Take `exclusive`** for anything timed (a timing or A/B comparison) and,
   on a machine with little headroom, for steps that grow past ~5 GB, such as
-  `tests/internal/macro_expansion.test.yo` (6.5 GB). Only the `exclusive`
+  a compiler-sized `tests/internal` file (up to ~6.5 GB). Only the `exclusive`
   argument makes a job exclusive: the label is free text, and words like
   `A/B` or `measure` in it no longer serialize the machine (2026-10-21). On a
   64 GB box, memory-heavy test runs (`YO_TEST_IN_PROCESS=1` with
-  `YO_TEST_MAX_RSS_MB=12000`, `macro_expansion`) take an ordinary slot: the
+  `YO_TEST_MAX_RSS_MB=12000`, a compiler-sized file) take an ordinary slot: the
   admission check (`HEAVY_MIN_AVAIL_MB`) covers them, and exclusive tickets
   behind single-core jobs left 32 cores idle for hours. The free-memory check (`HEAVY_MIN_AVAIL_MB`, 6 GB) only runs when a
   job is admitted beside another, so it cannot catch a job that grows later.
@@ -1061,8 +1059,8 @@ yo test ./tests/internal/parser.test.yo --parallel 1
   peaking at 8.8 GB resident. (An older 2026-08-05 figure of 22.2 min was
   over 58 files and predates most of the current corpus; the 40.5 min /
   63 min TS-era numbers are historical, no longer runnable.)
-- **Use `--parallel 1`, and run one at a time.** `macro_expansion` alone
-  peaks at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
+- **Use `--parallel 1`, and run one at a time.** One compiler-sized file
+  can peak at ~6.5 GB, so two concurrent children on a 16 GB machine swap — and the
   swapping trips the runner's own 600 s evaluator deadline, MANUFACTURING failures
   that do not reproduce in isolation. (The runner ignores `--parallel`
   regardless: "Accepted for CLI compatibility; v1 runs sequentially".)

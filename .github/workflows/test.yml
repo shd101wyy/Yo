@@ -2400,7 +2400,7 @@ jobs:
   #   MEASURED 2026-08-05, M4, --parallel 1: 40.5 min under the TS compiler,
   #   22.2 min under the self-hosted binary (it is ~2x faster).
   #
-  # --parallel 1 is REQUIRED, not conservative: macro_expansion alone peaks at
+  # --parallel 1 is REQUIRED, not conservative: one compiler-sized file peaks at
   # ~6.5 GB, so two concurrent children on a 16 GB box swap, and the swapping
   # trips the runner's own 600 s evaluator deadline — manufacturing failures that
   # do not reproduce in isolation.
@@ -2533,10 +2533,12 @@ jobs:
           # (UAF/double-free) stays fully armed — only detect_leaks is off.
           YO_TEST_LEAK_VERDICT: "0"
         run: |
-          # Shard selection (same as the retired TS arm): the four heavy
-          # macro/reflection files (each compiles the whole evaluator,
-          # ~6.5 GB peak) go one per shard (shards 0-3; 4 and 5 get none);
-          # the rest stripe round-robin over the sorted glob order.
+          # Shard selection (same as the retired TS arm): the three heavy
+          # quote/reflection files (each compiles the whole evaluator) go
+          # one per shard (shards 0-2; 3-5 get none); the rest stripe
+          # round-robin over the sorted glob order. The fourth heavy,
+          # macro_expansion, was deleted with the user-macro fixtures
+          # (2026-10-24, plans/backlog/MACRO_AND_ISO_REMOVAL.md C5).
           #
           # A shard number alone does not say WHICH file failed, and the job
           # log is unavailable until the whole run completes — so when four
@@ -2545,7 +2547,7 @@ jobs:
           # instead (`shard N files:` below already does, once the job runs);
           # to get it WITHOUT waiting for CI, run the same selection locally:
           #
-          #   heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          #   heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
           #   for shard in 0 1 2 3 4 5; do
           #     echo "== shard $shard =="
           #     echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p"
@@ -2560,7 +2562,7 @@ jobs:
           # Do NOT hardcode the resulting map: it is round-robin over the
           # sorted glob, so adding ONE file to tests/internal/ reshuffles
           # every shard after it.
-          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
+          heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
           shard=${{ matrix.shard }}
           files=$(echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p")
           i=0

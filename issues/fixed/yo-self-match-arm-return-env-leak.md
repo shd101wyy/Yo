@@ -86,7 +86,9 @@ pattern variable, so a leaked frame carries no conflicting name — verified cle
 ## Validation
 
 - `tests/codegen-bootstrap/try_macro_assign.yo`, `match_return_arm_block_rhs.yo`
-  added; both differential-match TS.
+  added; both differential-match TS. (2026-10-24: `try_macro_assign.yo` was
+  deleted with the user-macro fixtures, `plans/backlog/MACRO_AND_ISO_REMOVAL.md`
+  C5; `match_return_arm_block_rhs.yo` keeps pinning the returning-arm path.)
 - corpus 92/93 (the 1 failure, `recursive_enum_nested_match`, is a PRE-EXISTING
   2nd-level recursive-enum self-shell bug — confirmed identical on the pre-fix
   binary, not a regression).

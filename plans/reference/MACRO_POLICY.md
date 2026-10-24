@@ -245,7 +245,10 @@ who wants it can define it locally in three lines under
 `pragma(Pragma.AllowMacroDef);` — `tests/codegen-bootstrap/try_macro_assign.yo`
 keeps a working copy (which doubles as corpus coverage of a gated user
 macro), and `tests/macro_def_pragma.test.yo` re-creates it to preserve
-coverage of caller-frame early return through the macro machinery.
+coverage of caller-frame early return through the macro machinery. (Both,
+with `tests/macro_def_gate.test.yo` and the internal `macro_expansion` and
+`macro_registry` files, were deleted on 2026-10-24:
+`plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5.)
 
 The live std macro set was then 9: `if` (spec/fallback only — see 3.2),
 `for`, `^`, `unsafe.drop`, the three `Var.*` introspectors, and the three

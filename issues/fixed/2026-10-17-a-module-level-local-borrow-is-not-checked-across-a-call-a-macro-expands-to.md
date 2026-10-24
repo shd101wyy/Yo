@@ -89,3 +89,9 @@ but the invariant this verification rests on (a macro call with a runtime call
 inside its expansion is itself a runtime call) now has a guard, so a change
 that makes macro calls comptime-skippable trips it instead of silently
 reopening the hole.
+
+**2026-10-24:** the pin test was deleted with the rest of the user-macro
+fixtures (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5, done early). User
+macro definitions are being removed, so no user macro call can reach this
+path any more. The `for`/`for_await` cases above are std macros that Part B
+desugars; they were probed here, not pinned by that test.
