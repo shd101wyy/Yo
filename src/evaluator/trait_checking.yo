@@ -30,7 +30,8 @@ pragma(Pragma.AllowUnsafe);
   is_reference_struct_type,
   is_reference_enum_type,
   is_primitive_type,
-  unique_box_payload_type
+  unique_box_payload_type,
+  cell_handle_view
 } :: import("../types/guards.yo");
 { enum_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
 {
@@ -2263,7 +2264,10 @@ type_implements_acyclic :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
 /// `.None` (plans/VALUES_BY_DEFAULT.md §3.3). Only a concrete struct can be a
 /// wrapper — a SomeT, pointer, Dyn or type value never auto-dereferences —
 /// and `Deref` is implementable only in the prelude (impl.yo), so a hit is
-/// always one of the known cells.
+/// always one of the known cells. A cell handle (`cell_handle_view`), which
+/// an unsafe-capable file may also give `Deref` (V5 decision D2), forwards to
+/// its cell's payload, whatever `Target` its impl names: the payload is the
+/// place `h.*` reads.
 deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValue))({
   if(!is_struct_type(ty), {
     return(Option(TypeValue).None);
@@ -2272,7 +2276,11 @@ deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValu
     get_trait_type_from_env(env, String.from("Deref")),
     .None => Option(TypeValue).None,
     .Some(deref_trait) => cond(
-      type_implements_trait_bool(ty, &deref_trait, env) => resolve_assoc_type_for_target(ty, String.from("Target"), env),
+      type_implements_trait_bool(ty, &deref_trait, env) => match(
+        cell_handle_view(ty),
+        .Some(hv) => Option(TypeValue).Some(hv.payload),
+        .None => resolve_assoc_type_for_target(ty, String.from("Target"), env)
+      ),
       true => Option(TypeValue).None
     )
   )
