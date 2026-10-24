@@ -5,7 +5,7 @@ a move-only value (`Thread(V).join()` with `V` implementing `Drop`, or holding
 a `Box`), and a `Channel(V)` cannot carry one, so the value has to be wrapped
 in a reference type to cross a thread.
 
-**Status:** fixed on branch `fix/thread-join-move-only` (2026-10-24).
+**Status:** FIXED 2026-10-24 (branch `fix/thread-join-move-only`).
 
 ## Reproducer
 
