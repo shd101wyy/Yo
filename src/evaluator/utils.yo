@@ -2650,6 +2650,12 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// which names the capture and its source together: the `.clone()` belongs on
 /// the source, so the rewrite expands the entry to `x : x.clone()` (a bare
 /// `{ x.clone() }` does not parse). Empty for every other copy.
+///
+/// `lacks_clone` is set when the copied type has no `Clone` (a
+/// `StringBuilder` or a `HeaderMap` before B11 derives one, a collection of
+/// such elements). Unique buffers still make the copy E0901, and no
+/// `.clone()` can spell it, so the site is listed for a move or a borrow
+/// instead of being dropped from the listing.
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2664,7 +2670,8 @@ ExplicitCopySite :: struct(
   src_borrow : String,
   in_generic : bool,
   src_dying : String,
-  capture_label : String
+  capture_label : String,
+  lacks_clone : bool
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -3253,7 +3260,8 @@ _ic_leftmost_token :: (fn(e : &AstExpr) -> Token)(
   )
 );
 /// The categories unique buffers make explicit-copy (V2b, Generation B):
-/// `String`, the std collections, and a value aggregate holding one.
+/// `String`, the std collections (`_IC_COLLECTIONS`), and a value aggregate
+/// holding one.
 _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
   base := cond(
     category.starts_with("via:") => category.substring(usize(4), category.len()),
@@ -3263,9 +3271,10 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 });
 /// The insertion `yo fix --migrate explicit-copy` makes for a copy, or none:
 /// only a copy unique buffers turn into E0901 (`_ic_category_is_unique_buffer`)
-/// of a type with `Clone`, at a point where `.clone()` on the copied
-/// expression is the copy (not a capture, whose copy is made by the closure,
-/// and not a binding a macro wrote).
+/// at a point where `.clone()` on the copied expression is the copy (not a
+/// capture, whose copy is made by the closure, and not a binding a macro
+/// wrote). A copy of a type without `Clone` is kept with `lacks_clone` set:
+/// no `.clone()` spells it, so it is listed for a hand edit.
 /// What a copy site carries for `yo fix --migrate explicit-copy`: the
 /// copied expression's FIRST token as written (`p` of `p.name`, whose own
 /// token is the `.`), where the rewrite finds it in the source, and the
@@ -3279,7 +3288,6 @@ _ic_migrate_site :: (
     !migrate_explicit_copy_on() => Option(ExplicitCopySite).None,
     !_ic_category_is_unique_buffer(category) => Option(ExplicitCopySite).None,
     ((copy_path == "capture") || (copy_path == "binding(macro)")) => Option(ExplicitCopySite).None,
-    type_lacks_clone(ty) => Option(ExplicitCopySite).None,
     true => Option(ExplicitCopySite).Some(
       ExplicitCopySite(
         path : m.leftmost.module_path.*.clone(),
@@ -3295,12 +3303,17 @@ _ic_migrate_site :: (
         src_borrow : m.src_borrow.clone(),
         in_generic : m.in_generic,
         src_dying : m.src_dying.clone(),
-        capture_label : m.capture_label.clone()
+        capture_label : m.capture_label.clone(),
+        lacks_clone : type_lacks_clone(ty)
       )
     )
   )
 );
-_IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|LinkedList|OrderedMap|PriorityQueue";
+/// The std collections and buffer wrappers unique buffers make
+/// explicit-copy (plans/VALUES_BY_DEFAULT.md V2b): the collections, and
+/// `StringBuilder` and `HeaderMap`, which become values holding one
+/// `ArrayList` at B11 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.4 P8).
+_IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|LinkedList|OrderedMap|PriorityQueue|StringBuilder|HeaderMap";
 /// The std collection a struct type name denotes (`ArrayList` or
 /// `ArrayList(String)` → `ArrayList`), or none.
 _implicit_copy_collection_name :: (fn(name : &String) -> Option(String))({
