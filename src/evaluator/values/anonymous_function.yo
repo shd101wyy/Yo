@@ -806,7 +806,7 @@ _CapListEntry :: struct(
   /// The borrowed place's root variable as `yo fix --migrate explicit-copy`
   /// keys it (`_ic_decl_key`); empty for a by-value entry and outside the
   /// migration.
-  (root_decl : String) ?= String.new()
+  root_decl : String
 );
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
   _raise_capture_rejection(ctx, exn, tok, msg)
@@ -1090,7 +1090,8 @@ _evaluate_capture_list :: (
           root_id : usize(0),
           root_name : String.new(),
           path : ArrayList(String).new(),
-          root_is_value_param : false
+          root_is_value_param : false,
+          root_decl : String.new()
         )
       );
     });
