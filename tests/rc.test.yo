@@ -43,6 +43,9 @@ _COUNT_VTABLE := AllocatorVTable(alloc : _count_alloc, realloc : _count_realloc,
 _counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
 // An `Allocator` over `c`, which must outlive every block it hands out.
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
+// The live count of a counting allocator, read through the allocator value: a
+// closure that captured the `_Counts` itself would read its own copy.
+_live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.live));
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
@@ -2819,7 +2822,7 @@ test("rc alloc : .Some(a) inside another scope wins, and the outer scope survive
     x := with_allocator(outer, () => {
       placed := rc(i32(7), alloc : .Some(inner));
       scoped := rc(i32(8));
-      assert(outer_counts.live == usize(1), `the default rc after it still follows the scope: ${outer_counts.live}`);
+      assert(_live_of(outer) == usize(1), `the default rc after it still follows the scope: ${_live_of(outer)}`);
       assert(scoped.* == i32(8), "the scoped payload");
       placed
     });
