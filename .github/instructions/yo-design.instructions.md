@@ -437,8 +437,9 @@ on 2026-10-24, maintainer decision, `plans/reference/ASYNC_ITERATION_STREAM.md`)
 **a suspension point is an `io.await` written in the `io.async` body; an
 `io.await` inside a function the task calls blocks instead of suspending.** A
 name that hides the await hides the suspension point, which is the whole bug
-history of `for_await` (an `Iterator.next` that awaits, driven by a plain `for`
-inside a task, compiles silently and serialises or deadlocks).
+history of `for_await` (awaits inside its expansion emitted as blocking). The
+same rule is why an `Iterator.next` that awaits, driven by a plain `for` inside
+a task, compiles silently and serialises or deadlocks (2026-10-24 probe).
 
 ## JoinHandle(T) — spawned task handle
 

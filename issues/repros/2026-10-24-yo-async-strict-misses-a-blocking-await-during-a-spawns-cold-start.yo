@@ -3,7 +3,9 @@
 //!   yo compile issues/repros/2026-10-24-yo-async-strict-misses-a-blocking-await-during-a-spawns-cold-start.yo -o /tmp/r && timeout 10 /tmp/r; echo $?
 //!   YO_ASYNC_STRICT=1 timeout 10 /tmp/r; echo $?
 //!
-//! Today both print nothing and exit 124 (deadlock). Expected after the fix:
+//! Today both exit 124 (deadlock). Through a pipe they print nothing (the
+//! buffered "spawning" line dies with the process); on a terminal "spawning"
+//! appears and nothing after it. Expected after the fix:
 //! the second panics ("a blocking await ran inside an async task", rc 134) at
 //! the first blocking await. The first may still deadlock: the blocking await
 //! is the program's bug, the guard is what names it.
