@@ -2631,6 +2631,9 @@ _ro_read :: (fn(x : &i32) -> i32)(x);
 _ro_run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 _ro_make :: (fn() -> Rc(_RoShared))(rc(_RoShared(n : i32(1), items : ArrayList(i32).new(), node : _RoNode(n : i32(2)))));
 _RoHolder :: struct(h : Rc(_RoShared));
+_ro_set_gen :: (fn(generic(T : Type), dst : &mut T, v : T) -> unit)({
+  dst = v;
+});
 test("a write through an Rc handle is E0919, naming the doors", {
   h := _ro_make();
   // An assignment to the payload, to a field under it, to an element under it.
@@ -2659,6 +2662,9 @@ test("a write through an Rc handle is E0919, naming the doors", {
   // A `&mut` argument, whether or not the callee writes it, as in Rust.
   comptime_expect_error(_ro_bump(&mut h.n), "read-only through the handle");
   comptime_expect_error(_ro_peek(&mut h.n), "read-only through the handle");
+  // A generic `&mut T` parameter: a place under the handle is still the payload.
+  comptime_expect_error(_ro_set_gen(&mut h.n, i32(3)), "read-only through the handle");
+  comptime_expect_error(_ro_set_gen(&mut h.*, _RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))), "read-only through the handle");
   // A local `&mut` borrow of a place in the payload.
   comptime_expect_error({
     r := &mut h.n;
@@ -2704,6 +2710,15 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   mut(holder) := _RoHolder(h : h);
   holder.h = _ro_make();
   assert(holder.h.n == i32(1), "a field holding a handle is rebound");
+  // A generic `&mut T` parameter binds `T` to the handle's own type, so the
+  // handle itself is lent and rebound, not its payload
+  // (issues/fixed/2026-10-24-an-rc-handle-cannot-be-lent-as-mut-to-a-generic-parameter.md).
+  mut(g) := rc(i32(1));
+  other_g := g;
+  _ro_set_gen(&mut g, rc(i32(3)));
+  assert((g.* == i32(3)) && (other_g.* == i32(1)), "the handle is rebound; the other handle still sees the old cell");
+  _ro_set_gen(&mut holder.h, _ro_make());
+  assert(holder.h.n == i32(1), "a field holding a handle, through a generic parameter");
   // A `ref(struct)` handle is not an `Rc`: its own fields are written through it.
   node := _RoNode(n : i32(0));
   node.n = i32(7);
