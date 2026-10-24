@@ -94,7 +94,7 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
-{ is_builtin_yo_inline_function } :: import("../constants.yo");
+{ is_builtin_yo_inline_function, codegen_fatal } :: import("../constants.yo");
 { panic, assert } :: import("std/assert");
 // ===========================================================================
 // CodeGenContext — the BASE generation context; the FunctionGenerationContext
@@ -204,7 +204,7 @@ CodeGenContext :: ref(
     cycle_collector_off : bool,
     /// The allocator interface the runtime speaks: version 2 (aligned
     /// `alloc`/`realloc`, a sized `free`, the 32-byte cell prefix) when
-    /// std's `AllocatorVTable.alloc` takes three parameters, else version 1.
+    /// std's `AllocatorVTable` has version 2's shape, else version 1.
     /// Derived from that shape, never a flag (`std_allocator_abi_is_v2`;
     /// plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30). Set by
     /// `compile_module` after construction (default false = version 1).
@@ -697,41 +697,84 @@ impl(
 // evaluator/types/struct.yo). A struct with no side-table entry is treated as
 // all-runtime. See issues/retired/codegen-port-type-model-gaps.md Gap 1.
 // ===========================================================================
-/// Whether `vt`, std's `AllocatorVTable`, is allocator interface version 2:
-/// its `alloc` field is `fn(ctx, size, align)`, three parameters, where
-/// version 1's is `fn(ctx, size)` (plans/VALUES_BY_DEFAULT.md "After V2b: the
-/// allocator interface, version 2"). The emitted runtime calls through this
-/// vtable, so its field types ARE the contract, and a switch read off them
-/// cannot disagree with them (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30).
-allocator_vtable_type_is_v2 :: (fn(vt : &TypeValue) -> bool)(
+/// The allocator interface version `vt`, std's `AllocatorVTable`, speaks:
+/// 1 for `alloc(ctx, size)`, `realloc(ctx, ptr, new_size)`, `free(ctx, ptr)`;
+/// 2 for `alloc(ctx, size, align)`, `realloc(ctx, ptr, old_size, new_size,
+/// align)`, `free(ctx, ptr, size, align)` (plans/VALUES_BY_DEFAULT.md "After
+/// V2b: the allocator interface, version 2"); 0 for any other shape. The
+/// emitted runtime casts the vtable to `__yo_alloc_vtable_t`, which mirrors
+/// the struct field for field, so the fields' order and arities ARE the
+/// contract, and a version read off them cannot disagree with them
+/// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30).
+allocator_vtable_abi_version :: (fn(vt : &TypeValue) -> usize)(
   match(
     resolve_struct_shell(vt),
     Rc(.Struct({ field_labels, field_types })) => {
-      (found : bool) = false;
+      (alloc_n : usize) = usize(0);
+      (realloc_n : usize) = usize(0);
+      (free_n : usize) = usize(0);
       (fi : usize) = usize(0);
       while(fi < field_labels.len(), {
-        if(match(field_labels.get(fi), .Some(l) => (l == "alloc"), .None => false), {
-          found = match(
-            field_types.get(fi),
-            .Some(ft) => match(ft, Rc(.Func({ param_types })) => (param_types.len() == usize(3)), _ => false),
-            .None => false
-          );
-        });
+        n := match(
+          field_types.get(fi),
+          .Some(ft) => match(ft, Rc(.Func({ param_types })) => param_types.len(), _ => usize(0)),
+          .None => usize(0)
+        );
+        match(
+          field_labels.get(fi),
+          .Some(l) => cond(
+            ((fi == usize(0)) && (l == "alloc")) => {
+              alloc_n = n;
+            },
+            ((fi == usize(1)) && (l == "realloc")) => {
+              realloc_n = n;
+            },
+            ((fi == usize(2)) && (l == "free")) => {
+              free_n = n;
+            },
+            true => ()
+          ),
+          .None => ()
+        );
         fi = (fi + usize(1));
       });
-      found
+      cond(
+        (field_labels.len() != usize(3)) => usize(0),
+        ((alloc_n == usize(2)) && (realloc_n == usize(3)) && (free_n == usize(2))) => usize(1),
+        ((alloc_n == usize(3)) && (realloc_n == usize(5)) && (free_n == usize(4))) => usize(2),
+        true => usize(0)
+      )
     },
-    _ => false
+    _ => usize(0)
   )
 );
-/// Whether the std `env` sees speaks allocator interface version 2: the shape
-/// of its prelude's `AllocatorVTable` (`allocator_vtable_type_is_v2`). A
-/// program shadowing the name does not count: only the struct std declares
-/// (in `std/prelude.yo`, or `std/allocator.yo` should it move back) decides.
-/// No such binding (a prelude-less compile) is version 1.
+/// Whether a struct id is std's own `AllocatorVTable`: a struct id carries the
+/// declaring module's stem and an anchored position, not the struct's name
+/// (`stable_position_id`, utils.yo). It is declared in `std/prelude.yo`, or
+/// `std/allocator.yo` should it move back; the evaluator's vtable-call
+/// recognizer (`evaluator/effects/mutation_summary.yo`) names the same pair.
+_is_std_allocator_vtable_id :: (fn(sid : &String) -> bool)(
+  sid.starts_with("struct_decl_std__prelude_") || sid.starts_with("struct_decl_std__allocator_")
+);
+/// Whether the std `env` sees speaks allocator interface version 2
+/// (`allocator_vtable_abi_version` of its `AllocatorVTable`). A program
+/// shadowing the name does not count: only the struct std declares decides,
+/// and no such binding (a `SkipPrelude` compile) is version 1. Every way the
+/// switch could silently pick the wrong runtime is an internal compiler error
+/// instead: the emitted runtime reaches the vtable through `void*`, so a
+/// mismatch would compile cleanly and call `free` with the wrong arguments.
+/// - std's struct has neither version's shape;
+/// - two visible std copies disagree;
+/// - no std declaration is recognized, but a visible struct named
+///   `AllocatorVTable` has version 2's shape: std moved the struct out of the
+///   modules `_is_std_allocator_vtable_id` knows (a `SkipPrelude` program
+///   declaring a version-2-shaped `AllocatorVTable` of its own is the one
+///   false positive, and is not a program anyone writes).
 std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
   vars := get_variables_from_env(env, &String.from("AllocatorVTable"));
-  (v2 : bool) = false;
+  // 0 until a std declaration is seen.
+  (version : usize) = usize(0);
+  (stray_v2 : bool) = false;
   (vi : usize) = usize(0);
   while(vi < vars.len(), {
     match(
@@ -740,9 +783,26 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
         var.value.get(usize(0)),
         .Some(.TypeVal(t)) => match(
           resolve_struct_shell(&t),
-          Rc(.Struct({ id : sid })) => if(sid.starts_with("struct_decl_std__prelude_") || sid.starts_with("struct_decl_std__allocator_"), {
-            v2 = allocator_vtable_type_is_v2(&t);
-          }),
+          Rc(.Struct({ id : sid, name : sname })) => {
+            v := allocator_vtable_abi_version(&t);
+            cond(
+              _is_std_allocator_vtable_id(&sid) => cond(
+                (v == usize(0)) => codegen_fatal(
+                  &`std's AllocatorVTable (${sid}) has neither allocator interface shape the runtime knows: version 1 is alloc(ctx, size), realloc(ctx, ptr, new_size), free(ctx, ptr); version 2 is alloc(ctx, size, align), realloc(ctx, ptr, old_size, new_size, align), free(ctx, ptr, size, align), in that field order`
+                ),
+                ((version != usize(0)) && (version != v)) => codegen_fatal(
+                  &`two visible copies of std's AllocatorVTable disagree on the allocator interface (version ${version.to_string()} and version ${v.to_string()}, the second ${sid})`
+                ),
+                true => {
+                  version = v;
+                }
+              ),
+              ((sname == "AllocatorVTable") && (v == usize(2))) => {
+                stray_v2 = true;
+              },
+              true => ()
+            )
+          },
           _ => ()
         ),
         _ => ()
@@ -751,7 +811,12 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
     );
     vi = (vi + usize(1));
   });
-  v2
+  if((version == usize(0)) && stray_v2, {
+    codegen_fatal(
+      &`an AllocatorVTable with allocator interface version 2's shape is visible, but no std declaration of it is recognized: if std moved the struct, _is_std_allocator_vtable_id (src/codegen/utils/index.yo) and the vtable-call recognizer in src/evaluator/effects/mutation_summary.yo must name its new module`
+    );
+  });
+  version == usize(2)
 });
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order.
@@ -2475,7 +2540,7 @@ export(
   ArrayStructInfo,
   RuntimeStructField,
   get_runtime_struct_fields,
-  allocator_vtable_type_is_v2,
+  allocator_vtable_abi_version,
   std_allocator_abi_is_v2,
   type_key,
   get_type_string,
