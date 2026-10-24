@@ -50,8 +50,10 @@ test("S1/S9/S10: a write through a cell handle is E0919", {
   comptime_expect_error(h.*.bump(), "read-only through the handle");
   comptime_expect_error(h.bump(), "read-only through the handle");
   comptime_expect_error(h.x = i32(3), "read-only through the handle");
+  // A safe file's local borrow names the payload's field through
+  // auto-dereference (a `*` hop in a local borrow is unsafe-only).
   comptime_expect_error({
-    m := &mut h.*;
+    m := &mut h.x;
     ()
   }, "read-only through the handle");
   assert(h.*.x == i32(1), "nothing wrote the payload");
@@ -91,12 +93,12 @@ test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one,
   some := Option(TRc(i32)).Some(trc(i32(7)));
   assert(match(some, .Some(h) => (h.* == i32(7)), .None => false), "the payload through the folded Option");
 });
-test("S13: a borrow of a handle's payload pins the cell", {
+test("S13: a borrow of a place in a handle's payload pins the cell", {
   h := trc(_p(i32(2)));
   {
-    x := &h.*;
+    x := &h.x;
     assert(ref_count(h) == usize(2), `the borrow's pin holds the cell: ${ref_count(h)}`);
-    assert(x.x == i32(2), "read through the borrow");
+    assert(x == i32(2), "read through the borrow");
   };
   assert(ref_count(h) == usize(1), "the pin was released at the borrow's scope end");
 });
