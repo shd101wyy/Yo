@@ -2638,7 +2638,11 @@ test("std/mem: an Rc place", {
   drop(old);
   drop(o2);
   assert(g_mo_disposed == (before + i32(2)), "each replaced payload once, with its last handle");
+  // `r2` is an `Rc`, a reference type: passing it copied the handle, so
+  // `h.r` and `r2` share the cell, and it dies with the second of them.
   drop(h);
+  assert(g_mo_disposed == (before + i32(2)), "r2 still holds h.r's cell");
+  drop(r2);
   drop(r);
   assert(g_mo_disposed == (before + i32(4)), "every payload once");
   assert(g_mo_sum == i32(10), "each by its own value");

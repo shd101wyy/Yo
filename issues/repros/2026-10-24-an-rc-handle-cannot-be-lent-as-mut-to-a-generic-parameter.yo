@@ -1,0 +1,15 @@
+{ println } :: import("std/fmt");
+set_mono :: (fn(dst : &mut Rc(i32), v : Rc(i32)) -> unit)({
+  dst = v;
+});
+set_gen :: (fn(generic(T : Type), dst : &mut T, v : T) -> unit)({
+  dst = v;
+});
+main :: (fn() -> unit)({
+  mut(r) := rc(i32(1));
+  set_mono(&mut r, rc(i32(2)));
+  println(&r.*);
+  set_gen(&mut r, rc(i32(3)));
+  println(&r.*);
+});
+export(main);
