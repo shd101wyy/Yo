@@ -11,7 +11,7 @@ The seed (0.2.69) fails the same way, so the hard-error change did not cause it.
 ## Reproducer
 
 ```yo
-add :: (fn(a : i32, b : i32) -> i32)((a + b));
+add :: (fn(a : i32, b : i32) -> i32)(a + b);
 export(add);
 ```
 

@@ -120,19 +120,19 @@ ordered_c_includes :: (
 /// A compiler without __has_include fails at the #include instead. Pinned by
 /// tests/internal/c_include_order.test.yo.
 emit_mimalloc_allocator_defines :: (fn(emitter : &Emitter) -> unit)({
-    emitter.emit_header_line("// mimalloc allocator (--allocator mimalloc): compile with -I<vendor>/mimalloc/include and link <vendor>/mimalloc/src/static.c");
-    emitter.emit_header_line("#ifdef __has_include");
-    emitter.emit_header_line("  #if !__has_include(<mimalloc.h>)");
-    emitter.emit_header_line("    #error \"--allocator mimalloc: mimalloc.h not found. Compile with -I vendor/mimalloc/include -DMI_BUILD_RELEASE and add vendor/mimalloc/src/static.c (in a source checkout: git -c protocol.file.allow=always submodule update --init), or emit the C with --allocator system.\"");
-    emitter.emit_header_line("  #endif");
-    emitter.emit_header_line("#endif");
-    emitter.emit_header_line("#include <mimalloc.h>");
-    emitter.emit_header_line("#define __yo_malloc mi_malloc");
-    emitter.emit_header_line("#define __yo_calloc mi_calloc");
-    emitter.emit_header_line("#define __yo_realloc mi_realloc");
-    emitter.emit_header_line("#define __yo_free mi_free");
-    emitter.emit_header_line("#define __yo_aligned_alloc mi_aligned_alloc");
-    emitter.emit_header_line("#define __yo_aligned_free mi_free");
+  emitter.emit_header_line("// mimalloc allocator (--allocator mimalloc): compile with -I<vendor>/mimalloc/include and link <vendor>/mimalloc/src/static.c");
+  emitter.emit_header_line("#ifdef __has_include");
+  emitter.emit_header_line("  #if !__has_include(<mimalloc.h>)");
+  emitter.emit_header_line("    #error \"--allocator mimalloc: mimalloc.h not found. Compile with -I vendor/mimalloc/include -DMI_BUILD_RELEASE and add vendor/mimalloc/src/static.c (in a source checkout: git -c protocol.file.allow=always submodule update --init), or emit the C with --allocator system.\"");
+  emitter.emit_header_line("  #endif");
+  emitter.emit_header_line("#endif");
+  emitter.emit_header_line("#include <mimalloc.h>");
+  emitter.emit_header_line("#define __yo_malloc mi_malloc");
+  emitter.emit_header_line("#define __yo_calloc mi_calloc");
+  emitter.emit_header_line("#define __yo_realloc mi_realloc");
+  emitter.emit_header_line("#define __yo_free mi_free");
+  emitter.emit_header_line("#define __yo_aligned_alloc mi_aligned_alloc");
+  emitter.emit_header_line("#define __yo_aligned_free mi_free");
 });
 /// Emit C include headers (platform feature macros, the collected includes
 /// with platform-incompatible headers filtered out, platform-specific file-op
@@ -522,4 +522,4 @@ static inline void* __yo_rc_alloc(size_t size) {
   );
   context.emitter.emit_header_line("");
 });
-export(collect_c_includes, emit_c_includes, ordered_c_includes);
+export(collect_c_includes, emit_c_includes, emit_mimalloc_allocator_defines, ordered_c_includes);
