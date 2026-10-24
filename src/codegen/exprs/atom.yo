@@ -32,7 +32,8 @@
 { deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point } :: import("../../env.yo");
+{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point, variable_undone_moves } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -817,6 +818,23 @@ _is_ref_binding :: (fn(expr : &AstExpr, name : &String, context : &FunctionGener
 /// parameter before an await was released again when the task was aborted —
 /// a use-after-free once the new owner freed it. Any other read renders the
 /// slot itself.
+/// Whether a move the flow log kept for one path (`UndoneMove`) was made at
+/// `tok`.
+_is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
+  moves := variable_undone_moves(v);
+  (i : usize) = usize(0);
+  while(i < moves.len(), {
+    match(
+      moves.get(i),
+      .Some(m) => if(!m.arm_drop && !m.after && (m.moved_at.module_path == tok.module_path) && (m.moved_at.row == tok.row) && (m.moved_at.column == tok.column), {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
 _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, context : &FunctionGenerationContext) -> String)({
   low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code));
   if(low.rc_operand || !sm_code.starts_with("sm->"), {
@@ -828,7 +846,9 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
-  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false);
+  // A move on a `break` path is the variable's move only up to its `break`
+  // (`keep_break_path_moves`): the loop marks the value moved where it ends.
+  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false) || _is_kept_move_site(&v, &tok);
   if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
     return(sm_code);
   });

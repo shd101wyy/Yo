@@ -4463,6 +4463,61 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
   });
   LoopFlowSnapshot(site : site, var_ids : ids, consumed : states)
 });
+/// At a `break`: keep each move the path made since the loop began, from the
+/// move to the `break`, for a variable declared outside the loop that was
+/// live when the loop began. The loop's join marks such a value moved where
+/// the loop ends (`_mark_moved_at_loop_end`), so a cleanup point inside the
+/// body runs with the value it owned before the jump, except on this path
+/// between the move and the jump. A move a branch join placed at its end
+/// (`variable_move_note`) takes effect only after that token.
+keep_break_path_moves :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) -> unit)({
+  recs := first_flow_records_in(lc.log_start, branch_init_log_len());
+  (ri : usize) = usize(0);
+  while(ri < recs.len(), {
+    match(
+      recs.get(ri),
+      .Some(r) => match(
+        find_variable_by_id(env, r.var_id),
+        .Some(v) => if((v.frame_level < lc.entry_frame_count) && r.before_consumed.is_none(), {
+          match(
+            v.consumed_at_token,
+            .Some(ct) => if((ct.module_path == site.module_path) && (ct.input == site.input) && (ct.character <= site.character), {
+              note := variable_move_note(&v, &ct);
+              joined := ((note.row != ct.row) || (note.column != ct.column));
+              _record_kept_move(&v, UndoneMove(moved_at : ct.clone(), until : site.clone(), inclusive : true, after : joined));
+            }),
+            .None => ()
+          );
+        }),
+        .None => ()
+      ),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+});
+/// A value live when the loop began and moved on every way out of it is
+/// moved by the `break`s, so it is gone only where the loop ends: mark it
+/// moved just past the loop's last token, as a branch join marks a move in
+/// its arms at the branch end. A cleanup point inside the body (an early
+/// `return`, an `unwind`, an effect escape) then still owns it, except on a
+/// break path after its move (`keep_break_path_moves`). The move a user
+/// wrote stays the "value moved here" note (`variable_note_arm_move`).
+_mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExpr) -> unit)({
+  last := _last_token_of(loop_expr, site);
+  end := Token(
+    kind : last.kind,
+    value : last.value.clone(),
+    row : last.row,
+    column : (last.column + u32(1)),
+    character : (last.character + u32(1)),
+    byte_offset : (last.byte_offset + u32(1)),
+    module_path : last.module_path,
+    input : last.input
+  );
+  v.consumed_at_token = Option(Token).Some(end.clone());
+  variable_note_arm_move(v, &end, &Option(Token).Some(site.clone()));
+});
 /// A variable's move state at a `break`/`continue` snapshot (`pre` when the
 /// body had not touched it yet there).
 _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
@@ -4489,7 +4544,7 @@ _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(To
 /// Afterwards the variable is in the state the ways out agree on, and a join
 /// record gives an enclosing branch or loop the loop's net effect.
 check_loop_flow :: (
-  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, exn : Exception) -> unit
+  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, loop_expr : &AstExpr, exn : Exception) -> unit
 )({
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   (ri : usize) = usize(0);
@@ -4567,6 +4622,9 @@ check_loop_flow :: (
           final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
           if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
             v.consumed_at_token = match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None);
+          });
+          if(pre.is_none() && (exit_live.len() == usize(0)), {
+            match(final, .Some(ft) => _mark_moved_at_loop_end(&v, &ft, loop_expr), .None => ());
           });
           record_flow_event(v.id, rc(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
         }),
@@ -5712,7 +5770,7 @@ export(variable_is_borrow_parameter, variable_is_future_operand_parameter, varia
 export(capture_place_crosses_cell, place_rc_handle, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(_last_token_of);
-export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
+export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, keep_break_path_moves, check_loop_flow);
 export(are_values_equal);
 /// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
 /// The naive `v.to_string()` is C `%g` — SIX significant digits — and

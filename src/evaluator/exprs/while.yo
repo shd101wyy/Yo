@@ -469,7 +469,7 @@ evaluate_while :: (
   if(has_any_control_flow(body_info.control_flow), {
     // The body never completes normally: its back edges are the `continue`s.
     if(is_runtime_loop, {
-      check_loop_flow(&loop_ctx, false, loop_has_normal_exit, &env, exn);
+      check_loop_flow(&loop_ctx, false, loop_has_normal_exit, &env, expr, exn);
     });
     // --- return / unwind ---
     if(has_control_flow(body_info.control_flow, .Return) || has_control_flow(body_info.control_flow, .Unwind), {
@@ -606,7 +606,7 @@ evaluate_while :: (
     if(!guaranteed && possible, {
       // Conditional terminator exists — emit as a runtime loop.
       if(is_runtime_loop, {
-        check_loop_flow(&loop_ctx, true, loop_has_normal_exit, &env, exn);
+        check_loop_flow(&loop_ctx, true, loop_has_normal_exit, &env, expr, exn);
       });
       out_info := new_expr_info(&body_info.env, t_unit());
       out_info.value = Option(EvalValue).None;
@@ -649,7 +649,7 @@ evaluate_while :: (
     }
   );
   if(is_runtime_loop, {
-    check_loop_flow(&loop_ctx, true, loop_has_normal_exit, &env, exn);
+    check_loop_flow(&loop_ctx, true, loop_has_normal_exit, &env, expr, exn);
   });
   // Comptime while loop unrolling with a RUNTIME body. When the condition is
   // compile-time TRUE but the body
