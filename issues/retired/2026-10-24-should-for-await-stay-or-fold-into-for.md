@@ -15,7 +15,7 @@ asked: why do we need it, given that `for` exists and the algebraic effect syste
 The macro was a fixed template, and its whole expansion is this loop:
 
 ```yo ignore
-s := stream;
+mut(s) := stream;
 while(runtime(true), {
   n := io.await(s.next(io), io);
   match(n, .Some(x) => body, .None => { break; });
@@ -78,7 +78,6 @@ A related finding is filed separately:
 
 ## Recommendation
 
-Delete `for_await`, and write `while(runtime(true), { n := io.await(s.next(io), io); match(n, .Some(x) => …,
-.None => { break; }) })` instead (maintainer decision of 2026-10-24; implemented by branch
-`refactor/delete-for-await`). Whether `for` itself should stay is recorded in
+Delete `for_await`, and write `mut(s) := stream; while(runtime(true), { n := io.await(s.next(io), io); match(n, .Some(x) => …,
+.None => { break; }) })` instead (the stream binding must be `mut`: `s :=` is E0917) (maintainer decision of 2026-10-24; implemented by #1578). Whether `for` itself should stay is recorded in
 `issues/retired/2026-10-24-should-for-be-deleted-as-sugar.md`.
