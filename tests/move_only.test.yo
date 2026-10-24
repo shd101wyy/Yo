@@ -2439,6 +2439,29 @@ _mo_fold_continue :: (fn(k : i32) -> i32)({
   });
   total
 });
+// A comptime type test in a generic instance folds the same way.
+_mo_fold_impls :: (fn(comptime(T) : Type, k : i32) -> i32)({
+  (mut(total) : i32) = i32(0);
+  f := _MoFd(n : k);
+  match(
+    _mo_some_unless(k, i32(0)),
+    .Some(_) => {
+      cond(
+        Type.impls(T, Drop) => {
+          total = (total + _mo_take(f));
+          if(k == i32(2), {
+            return(i32(-2));
+          });
+        },
+        true => ()
+      );
+    },
+    .None => {
+      total = (total + i32(100));
+    }
+  );
+  total
+});
 _mo_take_maybe_raise :: (fn(sink(f) : _MoFd, raise : _MoRaise) -> i32)(cond((f.n == i32(2)) => raise(f.n), true => f.n));
 _mo_fold_unwind :: (fn(k : i32) -> i32)({
   (raise : _MoRaise) = (n -> unwind(i32(100)));
@@ -2481,6 +2504,10 @@ test("move-only: a move in a compile-time-folded nested cond is dropped once at 
   assert(_mo_shape(_mo_fold_unwind(i32(2)), i32(100), d8, i32(1), i32(2)), "an effect escape through the sink callee");
   d9 := _mo_counts_reset();
   assert(_mo_shape(_mo_fold_unwind(i32(3)), i32(13), d9, i32(1), i32(3)), "no escape");
+  d10 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_impls(_MoFd, i32(2)), i32(-2), d10, i32(1), i32(2)), "`Type.impls` in a generic instance: return");
+  d11 := _mo_counts_reset();
+  assert(_mo_shape(_mo_fold_impls(_MoFd, i32(3)), i32(3), d11, i32(1), i32(3)), "`Type.impls` in a generic instance: no return");
 });
 // A value declared outside the loop and moved only in a match arm that
 // `break`s is moved on some ways out of the loop: E0907, as for `if`. (The
