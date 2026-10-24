@@ -72,13 +72,24 @@ which never made the move, so they emit no drop.
 
 ## Fix
 
-`_keep_undone_move` (`src/evaluator/utils.yo`) finds the outermost `cond` or
-`match` inside the outer arm with an arm BODY holding the move
-(`_outer_branch_holding`; a move in a scrutinee or a condition is on every
-path and keeps the old record). The kept move then starts AFTER that branch's
-last token: `UndoneMove.after` (`src/env.yo`) makes the interval's start
-exclusive. The nested branch's own arms record their own moves, so only the
-exits after it in the same outer arm see the outer arm's move.
+`_keep_undone_move` (`src/evaluator/utils.yo`) walks down from the outer arm
+through each nested `cond`/`match` with an arm BODY holding the move
+(`_outer_branch_holding`, `_arm_body_holding`; a move in a scrutinee or a
+condition is on every path and keeps the old record). It keeps the move as
+one interval per level: from the move to the end of the innermost arm body
+holding it, then, for each enclosing nested branch, from just after that
+branch's last token to the end of the arm body holding the branch.
+`UndoneMove.after` (`src/env.yo`) makes those later intervals' start
+exclusive. No interval covers a nested branch's other arms.
+
+The first version of this fix kept only the outermost interval, after the
+outermost nested branch, and relied on the nested branch's own arms to record
+the move inside it. A nested `cond` folded at compile time (the taken
+condition comptime-true, every earlier one comptime-false, `cond.yo`'s
+`done_eval`) forms no branch group and records nothing, so an exit after the
+move inside it dropped the local a second time (ASan heap-use-after-free;
+found in review, 2026-10-24). The per-level record does not depend on the
+nested branch recording anything.
 
 Tests: `tests/move_only.test.yo`, "a nested branch's move does not cover the
 exits in its other arms" (`match` > `cond` in both orders and with a keeping
@@ -87,3 +98,8 @@ and `return`; `match` > `cond`; three levels; `cond` > `match` with one
 reaching arm, the shapes the join fix alone broke; a `return` after the
 nested match; a move in a nested scrutinee). The test fails on develop
 `54e94f11e` and passes with the fix.
+
+The folded-`cond` shapes (a `return`, a `continue` in a loop, a later clause
+taken at compile time, an effect escape through a `sink` callee) are in
+"a move in a compile-time-folded nested cond is dropped once at a later
+exit".

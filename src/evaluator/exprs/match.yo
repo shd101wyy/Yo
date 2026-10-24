@@ -2015,17 +2015,9 @@ evaluate_match :: (
           .None => (),
           .Some(mbi) => {
             env_adopt(&env, &mbi.env);
-            // The adopted env shows the move state the LAST evaluated arm left
-            // (each arm's moves are undone before the next one starts): restore
-            // the matched arm's own from the flow log. A diverging matched arm
-            // never reaches the join.
-            if(!(has_any_control_flow(mbi.control_flow)), {
-              only_mb := ArrayList(AstExpr).new();
-              only_mb.push(mb);
-              env = merge_and_check_envs(&env, &only_mb, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
-            });
             matched_body_val = mbi.value;
             did_use_matched_body = true;
+            // A diverging matched arm never reaches the join.
             if(!(has_any_control_flow(mbi.control_flow)), {
               join_arm_em = Option(AstExpr).Some(mb);
             });
@@ -2047,9 +2039,6 @@ evaluate_match :: (
               .None => (),
               .Some(bi) => {
                 env_adopt(&env, &bi.env);
-                // The adopted env holds the last evaluated arm's move state, not
-                // this arm's: the join restores it from the flow log.
-                env = merge_and_check_envs(&env, &non_return_em, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
                 matched_body_val = bi.value;
                 did_use_single = true;
                 join_arm_em = Option(AstExpr).Some(first_nrem);
@@ -2064,7 +2053,6 @@ evaluate_match :: (
               .None => (),
               .Some(bi) => {
                 env_adopt(&env, &bi.env);
-                env = merge_and_check_envs(&env, &non_return_em, group_log_start, &arm_ranges, ctx, exn, Option(AstExpr).Some(expr));
                 did_use_single = true;
                 join_arm_em = Option(AstExpr).Some(first_nrem2);
               }
@@ -2079,10 +2067,13 @@ evaluate_match :: (
       });
     });
     // Cases 1-3 adopt the picked arm's env, but the move state lives on the
-    // shared `Variable` objects, left as the arm evaluated LAST put them: a
-    // move in a later arm that returns would reach the code after the match.
+    // shared `Variable` objects, left as the arm evaluated LAST put them (each
+    // arm's moves are undone before the next one starts). A move in a later
+    // arm that returns would reach the code after the match, and a move the
+    // picked arm made would be lost there, so the local is dropped again.
     // Join the picked arm alone, as Case 4 joins the arms that reach it
-    // (issues/fixed/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md).
+    // (issues/fixed/2026-10-22-a-move-in-a-returning-match-arm-leaks-into-the-continuation-when-the-scrutinee-is-a-call.md,
+    // issues/fixed/2026-10-23-a-match-whose-other-arm-breaks-drops-the-moved-local-again-after-the-match.md).
     match(
       join_arm_em,
       .Some(ja) => {
