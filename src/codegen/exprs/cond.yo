@@ -26,7 +26,7 @@ import("std/fmt");
 { _call_generate_expr } :: import("./_expr.yo");
 { Environment } :: import("../../env.yo");
 { generate_dup_code_for_value, generate_deferred_dup_expressions, generate_deferred_drop_expressions, has_pending_emittable_drop } :: import("./drop_dup.yo");
-{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at, push_declared_scope, scope_stack_contains } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_self_named_atom, get_variable_name_for_codegen, fresh_local_name, note_line_position, get_variable_name_for_codegen_at, push_declared_scope, scope_stack_contains, element_wise_dup_target } :: import("../utils/index.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -524,13 +524,15 @@ _emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : 
             );
             generate_deferred_dup_expressions(&final_expr, value_indent.clone(), context);
             // Use the dup result temp when the dup call carries one
-            //; else assign the generated final expr.
+            //; else assign the generated final expr. An element-wise dup's
+            // temp is one element (`element_wise_dup_target`): the final
+            // expr, retained in place, is the value then.
             (dup_result_used : bool) = false;
             f_dup_list := match(expr_info_deferred_dup_expressions(&fei), .Some(d) => d, .None => ArrayList(AstExpr).new());
             match(
               f_dup_list.get(usize(0)),
               .Some(fdup0) => if(
-                ast_expr_is_fn_call(&fdup0),
+                ast_expr_is_fn_call(&fdup0) && element_wise_dup_target(&fdup0).is_none(),
                 match(
                   context.base.get_expr_info(&fdup0),
                   .Some(fdup_info) => match(

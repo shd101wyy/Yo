@@ -373,7 +373,7 @@ Two more scoping facts:
   0 times across `check ./std`, `check ./yo-self`, and a full self-emit). The twin
   cap in `_type_is_control_bound_inner` fired **181,325,397 times in one self-emit**
   — a _performance_ lever, not a correctness one.
-  [`issues/yo-self-rc-depth-cap-skips-deep-teardown.md`](../../issues/yo-self-rc-depth-cap-skips-deep-teardown.md)
+  [`issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md`](../../issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md)
 - Coverage gaps worth knowing: yo-self is built and exercised on **ubuntu-x86_64
   only**; the stage-2 binary is never run against any test (byte-identity only);
   TSan covers 6 files; there is no UBSan job.

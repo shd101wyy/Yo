@@ -764,7 +764,7 @@ x :: 12;                           // a true constant
 | `issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
 | `issues/self-hosted-emit-leaks-remaining-classes.md` | Memory track |
 | `issues/fixed/vendor-markdown-punycode-encode-reads-past-the-buffer.md` | **Fixed**: shd101wyy/markdown_yo#18, released as markdown_yo v0.0.17; `yo.toml` raised to `^0.0.17` in #1400 |
-| `issues/yo-self-rc-depth-cap-skips-deep-teardown.md` | Older; RC teardown |
+| `issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md` | Older; RC teardown |
 | `issues/fixed/2026-10-16-a-yo-version-dispatched-command-exits-0-when-it-fails.md` | **Fixed** by `fix/version-dispatch-exit-code`. Filed by #1400: a `.yo-version`-pinned project's failing command exited 0 (raw `waitpid` status passed to `exit`); cli-case `version-dispatch-exit-code` |
 
 ### 6.2 Filed this cycle and still open (S2/S3)

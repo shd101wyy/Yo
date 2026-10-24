@@ -3007,3 +3007,305 @@ test("a compile-time-collapsed cond in a wrapper awaited twice by one task", {
   assert(io.await(_cond_ct_fused_twice(&r, io), io) == i32(20), "each await reads the handle twice");
   assert(ref_count(r) == usize(1), "every collapsed copy released its count");
 });
+
+// Teardown at any nesting depth (issues/fixed/yo-self-rc-depth-cap-skips-deep-teardown.md).
+// The "does this type hold anything to drop" walk once answered "no" past 8
+// aggregate levels, so a value nested 9 or more deep was never torn down:
+// a `Drop` leaf's `drop` never ran and its counted cell leaked. Each case
+// below holds one `_DeepTracked` (a `ref` with `Drop`) or one `_DeepDropV`
+// (a value type with `Drop`) under N wrapper levels and checks it is
+// dropped exactly once when the scope ends.
+(mut(g_deep_drops) : i32) = i32(0);
+_DeepTracked :: ref(struct(v : i32));
+impl(
+  _DeepTracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_deep_drops = (g_deep_drops + self.v);
+    })
+  )
+);
+_DeepDropV :: struct(v : i32);
+impl(
+  _DeepDropV,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_deep_drops = (g_deep_drops + self.v);
+    })
+  )
+);
+_DeepS0 :: struct(f : _DeepS1);
+_DeepS1 :: struct(f : _DeepS2);
+_DeepS2 :: struct(f : _DeepS3);
+_DeepS3 :: struct(f : _DeepS4);
+_DeepS4 :: struct(f : _DeepS5);
+_DeepS5 :: struct(f : _DeepS6);
+_DeepS6 :: struct(f : _DeepS7);
+_DeepS7 :: struct(f : _DeepS8);
+_DeepS8 :: struct(f : _DeepS9);
+_DeepS9 :: struct(f : _DeepS10);
+_DeepS10 :: struct(f : _DeepS11);
+_DeepS11 :: struct(f : _DeepS12);
+_DeepS12 :: struct(f : _DeepS13);
+_DeepS13 :: struct(f : _DeepS14);
+_DeepS14 :: struct(f : _DeepS15);
+_DeepS15 :: struct(f : _DeepS16);
+_DeepS16 :: struct(f : _DeepS17);
+_DeepS17 :: struct(f : _DeepS18);
+_DeepS18 :: struct(f : _DeepS19);
+_DeepS19 :: struct(f : _DeepS20);
+_DeepS20 :: struct(f : _DeepS21);
+_DeepS21 :: struct(f : _DeepS22);
+_DeepS22 :: struct(f : _DeepS23);
+_DeepS23 :: struct(f : _DeepS24);
+_DeepS24 :: struct(f : _DeepS25);
+_DeepS25 :: struct(f : _DeepS26);
+_DeepS26 :: struct(f : _DeepS27);
+_DeepS27 :: struct(f : _DeepS28);
+_DeepS28 :: struct(f : _DeepS29);
+_DeepS29 :: struct(f : _DeepS30);
+_DeepS30 :: struct(f : _DeepS31);
+_DeepS31 :: struct(f : _DeepS32);
+_DeepS32 :: struct(f : _DeepS33);
+_DeepS33 :: struct(f : _DeepS34);
+_DeepS34 :: struct(f : _DeepS35);
+_DeepS35 :: struct(f : _DeepS36);
+_DeepS36 :: struct(f : _DeepS37);
+_DeepS37 :: struct(f : _DeepS38);
+_DeepS38 :: struct(f : _DeepS39);
+_DeepS39 :: struct(f : _DeepTracked);
+_DeepE0 :: enum(A(f : _DeepE1), B);
+_DeepE1 :: enum(A(f : _DeepE2), B);
+_DeepE2 :: enum(A(f : _DeepE3), B);
+_DeepE3 :: enum(A(f : _DeepE4), B);
+_DeepE4 :: enum(A(f : _DeepE5), B);
+_DeepE5 :: enum(A(f : _DeepE6), B);
+_DeepE6 :: enum(A(f : _DeepE7), B);
+_DeepE7 :: enum(A(f : _DeepE8), B);
+_DeepE8 :: enum(A(f : _DeepE9), B);
+_DeepE9 :: enum(A(f : _DeepE10), B);
+_DeepE10 :: enum(A(f : _DeepE11), B);
+_DeepE11 :: enum(A(f : _DeepE12), B);
+_DeepE12 :: enum(A(f : _DeepE13), B);
+_DeepE13 :: enum(A(f : _DeepE14), B);
+_DeepE14 :: enum(A(f : _DeepE15), B);
+_DeepE15 :: enum(A(f : _DeepTracked), B);
+_DeepV0 :: struct(f : _DeepV1);
+_DeepV1 :: struct(f : _DeepV2);
+_DeepV2 :: struct(f : _DeepV3);
+_DeepV3 :: struct(f : _DeepV4);
+_DeepV4 :: struct(f : _DeepV5);
+_DeepV5 :: struct(f : _DeepV6);
+_DeepV6 :: struct(f : _DeepV7);
+_DeepV7 :: struct(f : _DeepV8);
+_DeepV8 :: struct(f : _DeepV9);
+_DeepV9 :: struct(f : _DeepV10);
+_DeepV10 :: struct(f : _DeepV11);
+_DeepV11 :: struct(f : _DeepDropV);
+_DeepList :: enum(Nil, Cons(h : _DeepTracked, t : Box(Self)));
+_DeepGList :: (fn(comptime(T) : Type) -> comptime(Type))(enum(Nil, Cons(h : T, t : Box(Self))));
+_DeepR0 :: struct(f : _DeepR1);
+_DeepR1 :: struct(f : _DeepR2);
+_DeepR2 :: struct(f : _DeepR3);
+_DeepR3 :: struct(f : _DeepR4);
+_DeepR4 :: struct(f : _DeepR5);
+_DeepR5 :: struct(f : _DeepR6);
+_DeepR6 :: struct(f : _DeepR7);
+_DeepR7 :: struct(f : _DeepR8);
+_DeepR8 :: struct(f : _DeepR9);
+_DeepR9 :: struct(f : _DeepR10);
+_DeepR10 :: struct(f : _DeepR11);
+_DeepR11 :: struct(f : _DeepList);
+_DeepG0 :: struct(f : _DeepG1);
+_DeepG1 :: struct(f : _DeepG2);
+_DeepG2 :: struct(f : _DeepG3);
+_DeepG3 :: struct(f : _DeepG4);
+_DeepG4 :: struct(f : _DeepG5);
+_DeepG5 :: struct(f : _DeepG6);
+_DeepG6 :: struct(f : _DeepG7);
+_DeepG7 :: struct(f : _DeepG8);
+_DeepG8 :: struct(f : _DeepG9);
+_DeepG9 :: struct(f : _DeepG10);
+_DeepG10 :: struct(f : _DeepG11);
+_DeepG11 :: struct(f : _DeepGList(_DeepTracked));
+test("a ref with Drop nested 9 struct levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(9)))))))))));
+  };
+  assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 16 struct levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(16))))))))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(16)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 40 struct levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepS0(f : _DeepS1(f : _DeepS2(f : _DeepS3(f : _DeepS4(f : _DeepS5(f : _DeepS6(f : _DeepS7(f : _DeepS8(f : _DeepS9(f : _DeepS10(f : _DeepS11(f : _DeepS12(f : _DeepS13(f : _DeepS14(f : _DeepS15(f : _DeepS16(f : _DeepS17(f : _DeepS18(f : _DeepS19(f : _DeepS20(f : _DeepS21(f : _DeepS22(f : _DeepS23(f : _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(40))))))))))))))))))))))))))))))))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(40)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 9 enum levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepE7.A(f : _DeepE8.A(f : _DeepE9.A(f : _DeepE10.A(f : _DeepE11.A(f : _DeepE12.A(f : _DeepE13.A(f : _DeepE14.A(f : _DeepE15.A(f : _DeepTracked(v : i32(9)))))))))));
+  };
+  assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 16 enum levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepE0.A(f : _DeepE1.A(f : _DeepE2.A(f : _DeepE3.A(f : _DeepE4.A(f : _DeepE5.A(f : _DeepE6.A(f : _DeepE7.A(f : _DeepE8.A(f : _DeepE9.A(f : _DeepE10.A(f : _DeepE11.A(f : _DeepE12.A(f : _DeepE13.A(f : _DeepE14.A(f : _DeepE15.A(f : _DeepTracked(v : i32(16))))))))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(16)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 10 Option levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := Option(Option(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked)))))))))).Some(Option(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked))))))))).Some(Option(Option(Option(Option(Option(Option(Option(Option(_DeepTracked)))))))).Some(Option(Option(Option(Option(Option(Option(Option(_DeepTracked))))))).Some(Option(Option(Option(Option(Option(Option(_DeepTracked)))))).Some(Option(Option(Option(Option(Option(_DeepTracked))))).Some(Option(Option(Option(Option(_DeepTracked)))).Some(Option(Option(Option(_DeepTracked))).Some(Option(Option(_DeepTracked)).Some(Option(_DeepTracked).Some(_DeepTracked(v : i32(10))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(10)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a value type with Drop nested 12 struct levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepV0(f : _DeepV1(f : _DeepV2(f : _DeepV3(f : _DeepV4(f : _DeepV5(f : _DeepV6(f : _DeepV7(f : _DeepV8(f : _DeepV9(f : _DeepV10(f : _DeepV11(f : _DeepDropV(v : i32(1000))))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(1000)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 9 tuple levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := (((((((((_DeepTracked(v : i32(9)), i32(0)), i32(1)), i32(2)), i32(3)), i32(4)), i32(5)), i32(6)), i32(7)), i32(8));
+  };
+  assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a ref with Drop nested 40 struct and tuple levels deep is dropped once", {
+  before := g_deep_drops;
+  {
+    deep := ((((((((((((_DeepS12(f : _DeepS13(f : _DeepS14(f : _DeepS15(f : _DeepS16(f : _DeepS17(f : _DeepS18(f : _DeepS19(f : _DeepS20(f : _DeepS21(f : _DeepS22(f : _DeepS23(f : _DeepS24(f : _DeepS25(f : _DeepS26(f : _DeepS27(f : _DeepS28(f : _DeepS29(f : _DeepS30(f : _DeepS31(f : _DeepS32(f : _DeepS33(f : _DeepS34(f : _DeepS35(f : _DeepS36(f : _DeepS37(f : _DeepS38(f : _DeepS39(f : _DeepTracked(v : i32(40)))))))))))))))))))))))))))))), i32(0)), i32(1)), i32(2)), i32(3)), i32(4)), i32(5)), i32(6)), i32(7)), i32(8)), i32(9)), i32(10)), i32(11));
+  };
+  assert(g_deep_drops == (before + i32(40)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a recursive enum held 12 struct levels deep drops every node once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepR0(f : _DeepR1(f : _DeepR2(f : _DeepR3(f : _DeepR4(f : _DeepR5(f : _DeepR6(f : _DeepR7(f : _DeepR8(f : _DeepR9(f : _DeepR10(f : _DeepR11(f : _DeepList.Cons(h : _DeepTracked(v : i32(1)), t : box(_DeepList.Cons(h : _DeepTracked(v : i32(2)), t : box(_DeepList.Nil))))))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(3)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+test("a generic recursive enum held 12 struct levels deep drops every node once", {
+  before := g_deep_drops;
+  {
+    deep := _DeepG0(f : _DeepG1(f : _DeepG2(f : _DeepG3(f : _DeepG4(f : _DeepG5(f : _DeepG6(f : _DeepG7(f : _DeepG8(f : _DeepG9(f : _DeepG10(f : _DeepG11(f : _DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(4)), t : box(_DeepGList(_DeepTracked).Cons(h : _DeepTracked(v : i32(5)), t : box(_DeepGList(_DeepTracked).Nil))))))))))))))));
+  };
+  assert(g_deep_drops == (before + i32(9)), `dropped once, got ${(g_deep_drops - before).to_string()}`);
+});
+
+// A named tuple copied whole into another aggregate
+// (issues/fixed/2026-10-23-a-tuple-copied-into-an-aggregate-keeps-only-its-last-counted-field.md).
+// The copy of a tuple (or array) holding counted fields is element-wise: it
+// retains each field of the source in place, and its result temp is the LAST
+// field. Literal elements, `recur` arguments and closure captures took that
+// temp as the copy, so the new aggregate held one field where the tuple
+// belonged (the other fields zero: a crash on read, a leak at teardown), and a
+// captured tuple was never retained. Each `_TupCopyT` adds its `v` to the
+// counter when dropped, so a sum checks every cell is dropped exactly once.
+(mut(g_tup_copy_drops) : i32) = i32(0);
+_TupCopyT :: ref(struct(v : i32));
+impl(
+  _TupCopyT,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_tup_copy_drops = (g_tup_copy_drops + self.v);
+    })
+  )
+);
+_tup_copy_sum :: (fn(p : Tuple(_TupCopyT, _TupCopyT), n : i32) -> i32)(
+  cond((n == i32(0)) => (p.0.v + p.1.v), true => recur(p, n - i32(1)))
+);
+test("a named tuple copied into a tuple literal keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    x2 := (x1, i32(0));
+    assert((x2.0.0.v == i32(1)) && (x2.0.1.v == i32(2)), "both fields of the copy");
+    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a tuple holding one cell twice, copied into a tuple literal, drops it once", {
+  before := g_tup_copy_drops;
+  {
+    x0 := _TupCopyT(v : i32(4));
+    x1 := (x0, x0);
+    x2 := (x1, i32(0));
+    assert((x2.0.0.v + x2.0.1.v) == i32(8), "both fields of the copy");
+  };
+  assert(g_tup_copy_drops == (before + i32(4)), `the cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a named tuple copied into an array literal keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    a := [x1, x1];
+    assert((a(usize(0)).0.v + a(usize(1)).1.v) == i32(3), "fields of both copies");
+    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a named tuple passed to recur keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (_TupCopyT(v : i32(5)), _TupCopyT(v : i32(6)));
+    assert(_tup_copy_sum(x1, i32(3)) == i32(11), "recur saw both fields");
+    assert(_tup_copy_sum(x1, i32(2)) == i32(11), "the source is intact");
+  };
+  assert(g_tup_copy_drops == (before + i32(11)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a closure capturing a named tuple retains it", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    {
+      (f : Impl(Fn() -> i32)) = (() => (x1.0.v + x1.1.v));
+      assert(f() == i32(3), "the closure reads both fields");
+    };
+    assert((x1.0.v + x1.1.v) == i32(3), "the source outlives the closure");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a closure capturing a nested tuple and an array retains every cell", {
+  before := g_tup_copy_drops;
+  {
+    x1 := ((_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2))), _TupCopyT(v : i32(4)));
+    a := [_TupCopyT(v : i32(8)), _TupCopyT(v : i32(16))];
+    {
+      (f : Impl(Fn() -> i32)) = (() => (x1.0.0.v + x1.0.1.v + x1.1.v + (a(usize(0)).v + a(usize(1)).v)));
+      assert(f() == i32(31), "the closure reads every field");
+    };
+    assert((x1.1.v + a(usize(1)).v) == i32(20), "the sources outlive the closure");
+  };
+  assert(g_tup_copy_drops == (before + i32(31)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});
+test("a named tuple copied as a block's last expression in a cond arm keeps every counted field", {
+  before := g_tup_copy_drops;
+  {
+    x1 := (_TupCopyT(v : i32(1)), _TupCopyT(v : i32(2)));
+    c := (g_tup_copy_drops >= i32(0));
+    y := cond(
+      c => {
+        k := i32(1);
+        x1
+      },
+      true => x1
+    );
+    assert((y.0.v + y.1.v) == i32(3), "both fields of the copy");
+    assert((x1.0.v + x1.1.v) == i32(3), "the source is intact");
+  };
+  assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
+});

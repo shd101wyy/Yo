@@ -1,0 +1,21 @@
+// issues/2026-10-23-value-struct-drops-are-inlined-per-counted-leaf.md
+// `P(T)` doubles its argument, so `D14` holds 2^14 = 16384 `Tracked` handles
+// (128 KiB of pointers) and its drop is 16384 inline `__yo_decr_rc` lines at
+// EVERY drop site. Measure: yo compile <this> --emit-c --skip-c-compiler
+{ println } :: import("std/fmt");
+Tracked :: ref(struct(v : i32));
+impl(
+  Tracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`drop`);
+    })
+  )
+);
+P :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
+D14 :: P(P(P(P(P(P(P(P(P(P(P(P(P(P(Tracked))))))))))))));
+main :: (fn() -> unit)({
+  x := Option(D14).None;
+  println(`none ${x.is_none().to_string()}`);
+});
+export(main);
