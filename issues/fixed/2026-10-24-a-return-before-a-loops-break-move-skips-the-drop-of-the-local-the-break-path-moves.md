@@ -37,15 +37,15 @@ path skipped the drop, as long as a `break` moves the value out of the loop:
   or not, after a `continue`, between two moving `break`s, in an inner loop
   whose `break` moves the value);
 - an effect escape (`unwind` from a handler) later in the body;
-- a `return` in a sibling arm after the moving one (`if(c, { take(f); … },
-  { return(…); })`, `match(k, 1 => { take(f); }, _ => { return(…); })`, an
-  arm that holds an inner loop that moves the value);
 - a `return` in the arm that keeps the value of a later branch whose other
   arm moves it;
 - the same shapes inside an `io.async` body across an await.
 
 An exit before the move and an exit on the move's own path were already
-correct, and so was a branch with no loop.
+correct, and so was a branch with no loop. A `return` in a sibling arm of the
+moving one also leaks when the loop body's last statement is a `return`, with
+or without a move; that is a separate defect, open:
+`issues/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md`.
 
 ## Root cause
 
@@ -104,7 +104,8 @@ The readers are unchanged: they still consult `consumed_at_token` and
 
 `tests/move_only.test.yo`: "a move on a loop's `break` path stands only on
 the paths after it" (the repro's two functions plus the escape, nested-loop,
-two-break, `continue`, not-last, sibling-arm and keeping-arm shapes, and the
-exits on the move's own path that must drop nothing) and "in an io.async loop, a `return` before the `break`
+two-break, `continue`, not-last and keeping-arm shapes, the sibling-arm shapes
+the body-end window must leave alone, and the exits on the move's own path
+that must drop nothing) and "in an io.async loop, a `return` before the `break`
 path moves a slot local drops it". Both fail on develop `48b8e93a1` and pass
 with the fix. The repro prints `made=2 drops=2`.

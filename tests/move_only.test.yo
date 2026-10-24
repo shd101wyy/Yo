@@ -2843,7 +2843,10 @@ _mo_rb_escape_before_move :: (fn(k : i32) -> i32)({
 });
 // The move stands on every path after it until the path leaves the loop:
 // an exit after a conditional `break` on the move's own path drops nothing,
-// and an exit in a sibling arm of the moving one still drops the local.
+// and an exit in a sibling arm of the moving one still drops the local. (The
+// bodies end in `break`: an early `return` in a loop body whose last
+// statement is a `return` skips every drop,
+// issues/2026-10-25-an-early-return-in-a-loop-body-that-ends-in-a-return-skips-the-drops-of-the-functions-locals.md.)
 _mo_rb_move_then_choose :: (fn(k : i32) -> i32)({
   (mut(i) : i32) = i32(0);
   f := _MoFd(n : k);
@@ -2871,7 +2874,10 @@ _mo_rb_arm_then_tail :: (fn(k : i32) -> i32)({
     }, {
       return(i32(-2));
     });
-    return(i32(-1));
+    if(i < i32(100), {
+      return(i32(-1));
+    });
+    break;
   });
   i
 });
@@ -2892,7 +2898,10 @@ _mo_rb_match_other_arm :: (fn(k : i32) -> i32)({
     if(i == k, {
       break;
     });
-    return(i32(-1));
+    if(i < i32(100), {
+      return(i32(-1));
+    });
+    break;
   });
   i
 });
@@ -2950,7 +2959,10 @@ _mo_rb_inner_loop_in_arm :: (fn(k : i32) -> i32)({
     if(i == k, {
       break;
     });
-    return(i32(-1));
+    if(i < i32(100), {
+      return(i32(-1));
+    });
+    break;
   });
   i
 });
