@@ -5,7 +5,7 @@ pragma(Pragma.AllowUnsafe);
 import("std/libc/stdio");
 { Thread } :: import("std/thread");
 { yield } :: import("std/async");
-{ Channel } :: import("std/sync/channel");
+{ Channel, TryRecvError } :: import("std/sync/channel");
 { rand_u64 } :: import("std/rand");
 { AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
@@ -535,4 +535,55 @@ test("Thread.spawn: an Fn body is still accepted", {
   k := i32(3);
   th := Thread(i32).spawn((io : Io) => (k * i32(2)));
   assert(th.join() == i32(6), "Fn implies FnOnce");
+});
+// ============================================================================
+// Move-only results and channel values
+// (issues/fixed/2026-10-24-thread-join-rejects-a-move-only-result.md)
+// ============================================================================
+// `join` reads the body's result out of a `Channel(T)`, and the channel moves
+// a value in and out of its ring buffer bitwise, so a move-only `T` crosses a
+// thread without a copy. `g_th_once_disposed` checks each value is dropped
+// exactly once.
+_th_disposed :: (fn() -> usize)(g_th_once_disposed.load(MemoryOrder.Acquire));
+test("Thread(V).join returns a move-only result", {
+  before := _th_disposed();
+  {
+    th := Thread(_ThOnceTok).spawn((io : Io) => _ThOnceTok(n : i32(5)));
+    v := th.join();
+    assert(v.n == i32(5), "the body's value");
+    assert(_th_disposed() == before, "nothing dropped while the result is alive");
+  };
+  assert(_th_disposed() == (before + usize(1)), "the result is dropped once, by its owner");
+});
+test("Channel(V) of a move-only value: send, try_send, recv, try_recv, a rejected send", {
+  before := _th_disposed();
+  {
+    ch := Channel(_ThOnceTok).new(usize(3));
+    _ := ch.send(_ThOnceTok(n : i32(1)));
+    _ := ch.try_send(_ThOnceTok(n : i32(2)));
+    match(ch.recv(), .Some(a) => assert(a.n == i32(1), "recv: oldest first"), .None => assert(false, "recv: missing"));
+    assert(_th_disposed() == (before + usize(1)), "the received value is dropped once, at its arm's end");
+    match(ch.try_recv(), .Ok(b) => assert(b.n == i32(2), "try_recv"), .Err(_) => assert(false, "try_recv: missing"));
+    assert(_th_disposed() == (before + usize(2)), "try_recv's value is dropped once");
+    _ := ch.send(_ThOnceTok(n : i32(3)));
+    _ := ch.send(_ThOnceTok(n : i32(4)));
+    ch.close();
+    match(ch.send(_ThOnceTok(n : i32(5))), .Ok(_) => assert(false, "a closed channel takes nothing"), .Err(t) => assert(t.n == i32(5), "the rejected value comes back"));
+    assert(_th_disposed() == (before + usize(3)), "the rejected value is dropped once, by the caller");
+  };
+  assert(_th_disposed() == (before + usize(5)), "the two buffered values are dropped once, with the channel");
+});
+test("Sender(V)/Receiver(V) carry a move-only value across a thread", {
+  before := _th_disposed();
+  rx := Channel(_ThOnceTok).receiver(usize(4));
+  {
+    tx := rx.sender();
+    w := Thread(unit).spawn({ tx }(io : Io) => {
+      _ := tx.send(_ThOnceTok(n : i32(7)));
+    });
+    w.join();
+  };
+  match(rx.recv(), .Ok(t) => assert(t.n == i32(7), "the sent value"), .Err(_) => assert(false, "the value is missing"));
+  assert(_th_disposed() == (before + usize(1)), "the value is dropped once, by the receiver");
+  match(rx.recv(), .Ok(_) => assert(false, "only one value was sent"), .Err(e) => assert(e == TryRecvError.Disconnected, "the last sender closed the channel"));
 });
