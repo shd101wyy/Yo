@@ -81,10 +81,19 @@ Regression tests, in `tests/fn_once.test.yo`:
 - "FnOnce: an Fn closure's call result is a temporary a later argument may move the closure past":
   `g(i32(1)) == _once_eat_fn(g)`, and the same through `Dyn(Fn)`.
 - "FnOnce: a closure call's result as a borrowed receiver lends nothing of the closure":
-  `mk(i32(1)).plus(_once_eat_mk(mk))` and `cb(i32(1)).len()`.
-- "FnOnce: a closure field's call result is a temporary": `h.cb(i32(1)) == (i32(1) + _once_eat_holder(h))`.
+  `mk(i32(1)).plus(_once_eat_mk(mk))`.
 - "FnOnce: an element read as an operand still lends its container", a negative control that stays
   E0910: `xs(usize(0)) == _once_first(xs)`.
 
-The develop binary fails the first four with the E0910 above and passes the control. All five pass after
-the fix, and each checks dispose counts. The two existing tests that turned develop red pass as well.
+The develop binary fails the first three with the E0910 above and passes the control. All four pass
+after the fix, and each checks dispose counts. The two existing tests that turned develop red pass as well.
+
+Two more shapes that the fix accepts were dropped from the tests. They fail at run time, under seed
+v0.2.69 as well, so these are pre-existing bugs that the false E0910 had been hiding. Each is filed
+with a repro:
+
+- `cb(i32(1)).len()`, where `cb`'s `FnOnce` body is the bare capture `s`, leaks the environment:
+  `issues/2026-10-24-an-fnonce-closure-whose-body-is-a-bare-capture-leaks-its-environment.md`.
+- `h.cb(i32(1)) == (i32(1) + eat(h))` on a `Dyn(Fn)` field is a use after free, because the later
+  argument's call is hoisted above the inline field call:
+  `issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`.
