@@ -1,0 +1,11 @@
+# `yo fix <path> --migrate explicit-copy` counts a write a loop, a closure
+# called again or a function called again makes ABOVE a copy as a write after
+# it, when the copy outlives one run of that region
+# (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
+# The guard compared byte offsets only, so the four copies below (a
+# parameter and a local in a `while`, a `for`, a closure called twice) were
+# cloned, and the next iteration's push no longer reached them.
+# `fresh_each_iteration`'s copy dies with its iteration and is still cloned.
+# The trailing check proves main.yo still evaluates.
+stdout_keep=^fix:
+timeout=240

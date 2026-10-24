@@ -1,0 +1,9 @@
+# `yo fix <path> --migrate explicit-copy` judges a copy's source together
+# with the variables it already shared a buffer with when the copy was made
+# (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-buffer-its-source-already-shared.md).
+# `alias_before`'s `y := t` was cloned although `t` shares `x`'s buffer and
+# `x` is pushed afterwards; it is listed with `t := x`. `fresh_before`'s `t`
+# owns its buffer, and its copy is cloned. The trailing check proves main.yo
+# still evaluates.
+stdout_keep=^fix:
+timeout=240
