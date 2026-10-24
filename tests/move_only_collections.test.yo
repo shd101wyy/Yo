@@ -346,10 +346,9 @@ test("HashSet and BTreeMap of a Drop key drop each key once", {
   };
   assert(g_mc_kdropped == (before2 + i32(12)), "12 keys made, 12 dropped");
 });
-// LinkedList: the element lives in its own malloc'd buffer the node points
-// to, so pop_*/remove/clear move it out bitwise and free the buffer — a
-// move-only element pops and clears, and the emptied node leaves `.None`
-// behind for every iterator or neighbour still sharing it
+// LinkedList: the element is stored inline in an owned, malloc'd node, so
+// pop_*/remove/clear move it out bitwise (`__yo_ptr_read`) and free the node
+// without dropping the moved-out value — a move-only element pops and clears
 // (issues/fixed/2026-10-16-a-linkedlist-of-a-move-only-element-cannot-pop-or-clear.md).
 test("LinkedList of a move-only element: push, pop both ends, remove, clear", {
   before := g_mc_dropped;
