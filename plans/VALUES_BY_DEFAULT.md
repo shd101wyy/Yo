@@ -8540,9 +8540,11 @@ plugs in. Two of its signatures stop Zig-style allocators from fitting.
   The switch is `CodeGenContext.alloc_abi_v2`, set by `compile_module` from
   the shape (field order and arities) of the `AllocatorVTable` that std's
   prelude declares (`std_allocator_abi_is_v2`, `src/codegen/utils/index.yo`;
-  lookahead D30). A shape that is neither version, two std copies that
-  disagree, or a version-2-shaped vtable outside the modules the switch
-  recognizes is an internal compiler error rather than a silent version 1. While std keeps version 1 the emitted C is byte-identical.
+  lookahead D30). std's struct is recognized by the module that minted its
+  id (under the std path), so a move inside std or a `--std-path` directory
+  not called `std` does not hide it. A shape that is neither version, two
+  std copies that disagree, or a version-2-shaped vtable std did not declare
+  is an internal compiler error rather than a silent version 1. While std keeps version 1 the emitted C is byte-identical.
   Under version 2 the runtime declares the new vtable, an allocator-placed
   RC block (a `ref` constructor, a `dyn` box, a task, a cell primitive)
   is allocated with `__yo_rc_alloc_scoped(s, sizeof(T), _Alignof(T))`, and

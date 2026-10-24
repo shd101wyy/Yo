@@ -28,7 +28,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { RefCell } :: import("std/sync/refcell");
 { HashMap } :: import("std/collections/hash_map");
-{ fnv1a64 } :: import("../../utils.yo");
+{ fnv1a64, stable_id_module_path } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
 { TypeValue, TypeValueNode, get_struct_field_comptime_flags, no_labels } :: import("../../types/definitions.yo");
 {
@@ -45,6 +45,7 @@
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 { Emitter } :: import("../../emitter.yo");
 { guard_site_is_proved } :: import("../../evaluator/builtins/contracts.yo");
+{ is_std_module_path } :: import("../../evaluator/memory_safety.yo");
 { TargetInfo } :: import("../../target.yo");
 // Module-level mirror of `needs_intel_asm_syntax` (the per-run context flag):
 // main.yo builds the C-compiler command AFTER compile_module returns only the
@@ -748,29 +749,30 @@ allocator_vtable_abi_version :: (fn(vt : &TypeValue) -> usize)(
     _ => usize(0)
   )
 );
-/// Whether a struct id is std's own `AllocatorVTable`: a struct id carries the
-/// declaring module's stem and an anchored position, not the struct's name
-/// (`stable_position_id`, utils.yo). It is declared in `std/prelude.yo`, or
-/// `std/allocator.yo` should it move back; the evaluator's vtable-call
-/// recognizer (`evaluator/effects/mutation_summary.yo`) names the same pair.
-_is_std_allocator_vtable_id :: (fn(sid : &String) -> bool)(
-  sid.starts_with("struct_decl_std__prelude_") || sid.starts_with("struct_decl_std__allocator_")
+/// Whether the struct id `sid` was declared in a module of the std tree at
+/// `std_path` (`stable_id_module_path`). A struct id carries only the last
+/// two path segments of its module, so an id prefix would miss std's
+/// `AllocatorVTable` once std moves it, or when `--std-path` names a directory
+/// not called `std`; the minting module's path does not.
+_is_std_declared_struct :: (fn(sid : &String, std_path : &String) -> bool)(
+  match(stable_id_module_path(sid), .Some(mp) => is_std_module_path(&mp, std_path), .None => false)
 );
 /// Whether the std `env` sees speaks allocator interface version 2
-/// (`allocator_vtable_abi_version` of its `AllocatorVTable`). A program
-/// shadowing the name does not count: only the struct std declares decides,
-/// and no such binding (a `SkipPrelude` compile) is version 1. Every way the
-/// switch could silently pick the wrong runtime is an internal compiler error
-/// instead: the emitted runtime reaches the vtable through `void*`, so a
-/// mismatch would compile cleanly and call `free` with the wrong arguments.
+/// (`allocator_vtable_abi_version` of its `AllocatorVTable`). Only a struct
+/// declared in the std tree at `std_path` decides: a program shadowing the
+/// name does not count, and no such binding (a `SkipPrelude` compile) is
+/// version 1. Every way the switch could silently pick the wrong runtime is
+/// an internal compiler error instead, because the emitted runtime reaches
+/// the vtable through `void*`: a mismatch would compile cleanly and call
+/// `free` with the wrong arguments.
 /// - std's struct has neither version's shape;
 /// - two visible std copies disagree;
 /// - no std declaration is recognized, but a visible struct named
-///   `AllocatorVTable` has version 2's shape: std moved the struct out of the
-///   modules `_is_std_allocator_vtable_id` knows (a `SkipPrelude` program
-///   declaring a version-2-shaped `AllocatorVTable` of its own is the one
-///   false positive, and is not a program anyone writes).
-std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
+///   `AllocatorVTable` has version 2's shape (std's declaration was not
+///   recognized as std's; a `SkipPrelude` program declaring a
+///   version-2-shaped `AllocatorVTable` of its own is the one false
+///   positive).
+std_allocator_abi_is_v2 :: (fn(env : &Environment, std_path : &String) -> bool)({
   vars := get_variables_from_env(env, &String.from("AllocatorVTable"));
   // 0 until a std declaration is seen.
   (version : usize) = usize(0);
@@ -786,7 +788,7 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
           Rc(.Struct({ id : sid, name : sname })) => {
             v := allocator_vtable_abi_version(&t);
             cond(
-              _is_std_allocator_vtable_id(&sid) => cond(
+              _is_std_declared_struct(&sid, std_path) => cond(
                 (v == usize(0)) => codegen_fatal(
                   &`std's AllocatorVTable (${sid}) has neither allocator interface shape the runtime knows: version 1 is alloc(ctx, size), realloc(ctx, ptr, new_size), free(ctx, ptr); version 2 is alloc(ctx, size, align), realloc(ctx, ptr, old_size, new_size, align), free(ctx, ptr, size, align), in that field order`
                 ),
@@ -813,7 +815,7 @@ std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
   });
   if((version == usize(0)) && stray_v2, {
     codegen_fatal(
-      &`an AllocatorVTable with allocator interface version 2's shape is visible, but no std declaration of it is recognized: if std moved the struct, _is_std_allocator_vtable_id (src/codegen/utils/index.yo) and the vtable-call recognizer in src/evaluator/effects/mutation_summary.yo must name its new module`
+      &`an AllocatorVTable with allocator interface version 2's shape is visible, but none declared under the std path ${std_path} is: the allocator interface switch (std_allocator_abi_is_v2) cannot tell which runtime std needs`
     );
   });
   version == usize(2)

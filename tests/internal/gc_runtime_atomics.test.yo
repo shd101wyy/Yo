@@ -29,6 +29,7 @@
 { TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_usize, t_ptr, t_void } :: import("../../src/types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
+{ stable_position_id, stable_id_module_path } :: import("../../src/utils.yo");
 { assert, panic } :: import("std/assert");
 /// Build a fresh per-function generation context over an empty program,
 /// mirroring codegen_c.yo's construction (`Emitter.new()` → `CodeGenContext.new`
@@ -270,6 +271,15 @@ test("the allocator interface version is read off AllocatorVTable's shape", {
   assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(3), usize(4), false)) == usize(0), "an aligned alloc with version 1's realloc is neither version");
   assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(4), true)) == usize(0), "the slots out of the runtime's field order are neither version");
   assert(allocator_vtable_abi_version(&t_usize()) == usize(0), "a non-struct is neither version");
+});
+/// Pin: the switch recognizes std's `AllocatorVTable` by the module that
+/// minted its struct id, which survives std moving the struct and a std
+/// directory not called `std` (an id keeps only two path segments).
+test("a stable id maps back to the module that minted it", {
+  mp := String.from("file:///opt/yo-lib/prelude.yo");
+  id := stable_position_id(&String.from("struct_decl_"), &mp, usize(7), usize(1));
+  assert(match(stable_id_module_path(&id), .Some(m) => (m == mp), .None => false), "the minting module's path comes back");
+  assert(match(stable_id_module_path(&String.from("struct_decl_never_minted_r1c1")), .Some(_) => false, .None => true), "an id this process never minted has no module");
 });
 /// Pin: version 1 is today's runtime text, so a std that has not moved emits
 /// exactly the C it always did (the emit-diff gate of Generation A).
