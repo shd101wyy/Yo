@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type, type_is_second_class } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
+{ get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent, type_mentions_impl_fn_or_future } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, get_assoc_type_entries, MethodEntry } :: import("../values/type_trait_methods.yo");
 { evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
@@ -4460,11 +4460,20 @@ _fv_synthesize_arg_into :: (fn(declared_pt : &TypeValue, scratch_env : &Environm
 ///   `rc((x) => ...)` with expected `Rc(Impl(Fn...))` binds `V` to that
 ///   SomeT (arg-driven V := <fn type>/unit produced `Rc(fn(...))`/`Rc(unit)`
 ///   with a void*/void payload — the Dyn(Fn) family).
+/// - Outside the definition-time trial a `unit` argument is a genuine `unit`,
+///   not a stand-in, so it takes the expected type only when that is an
+///   `Impl(Fn …)`/`Impl(Future …)` SomeT. A plain binder SomeT is the
+///   CALLER's unsubstituted result type (a specialization's tail call is
+///   evaluated against its generic declared result), and binding to it left
+///   the callee's specialization abstract: `outer(())` with
+///   `outer :: fn(generic(T), v : T) -> T)(inner(v))` emitted an abort stub
+///   (issues/fixed/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
 _funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)(
   cond(
     is_comptime_string_type(arg_ty) => rc(TypeValueNode.Str),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
-    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty) || is_unit_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
+    ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
+    (is_unit_type(arg_ty) && is_some_type(exp_pt) && (in_def_time_trial() || type_mentions_impl_fn_or_future(exp_pt))) => exp_pt,
     true => arg_ty
   )
 );

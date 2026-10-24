@@ -418,3 +418,33 @@ test("unit has a Default", {
   assert(u == (), "unit.default() is the one unit value");
   assert(_takes_unit(unit.default()) == i32(7), "it is accepted where a unit is expected");
 });
+// A generic function whose tail is a call to another generic function binds
+// the callee's `T` from the argument, `unit` included: the tail call is checked
+// against the caller's generic declared result, and a `unit` argument used to
+// bind the callee's `T` to that abstract binder, so the specialization was an
+// abort stub and the C build failed
+// (issues/fixed/2026-10-24-a-generic-tail-call-forwarding-t-fails-to-transpile-for-unit.md).
+_fwd_inner :: (fn(generic(T : Type), v : T) -> T)(v);
+_fwd_outer :: (fn(generic(T : Type), v : T) -> T)(_fwd_inner(v));
+_fwd_outer_block :: (fn(generic(T : Type), v : T) -> T)({
+  w := v;
+  _fwd_inner(w)
+});
+_fwd_default :: (fn(generic(T : Type), dst : &mut T, where(T <: Default)) -> T)({
+  d := (T <: Default).default();
+  _fwd_swap_in(dst, d)
+});
+_fwd_swap_in :: (fn(generic(T : Type), dst : &mut T, v : T) -> T)({
+  old := dst;
+  dst = v;
+  old
+});
+test("a generic tail call forwards T = unit", {
+  assert(_fwd_outer(()) == (), "an expression body");
+  assert(_fwd_outer_block(()) == (), "a block body");
+  assert(_fwd_outer(i32(3)) == i32(3), "and still i32");
+  (mut(u) : unit) = ();
+  assert(_fwd_default(&mut u) == (), "a defaulted value forwarded through a place");
+  (mut(n) : i32) = i32(4);
+  assert((_fwd_default(&mut n) == i32(4)) && (n == i32(0)), "the same at i32");
+});
