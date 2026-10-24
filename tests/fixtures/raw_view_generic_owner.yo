@@ -1,0 +1,63 @@
+//! Value types for tests/raw_view_generic_owner.test.yo
+//! (issues/fixed/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md),
+//! declared in an unsafe-capable file so a safe test file can name them.
+//! `Buf(T)` owns its buffer outright (a `?*T` field and a `Drop` impl);
+//! `View(T)` holds a `?*T` into someone else's buffer and has no `Drop` (an
+//! iterator-like view); `CBuf(T)` owns its buffer but declares `Drop` only
+//! `where(T <: Clone)`; `HMap(K, V)` declares it `where(K <: (Eq(K), Hash))`.
+pragma(Pragma.AllowUnsafe);
+Buf :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _ptr : ?*T,
+    _len : usize
+  )
+);
+impl(
+  generic(T : Type),
+  Buf(T),
+  new : (fn() -> Self)(Self(_ptr : .None, _len : usize(0))),
+  len : (fn(self : &Self) -> usize)(self._len)
+);
+impl(generic(T : Type), Buf(T), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+View :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _ptr : ?*T,
+    _len : usize
+  )
+);
+impl(
+  generic(T : Type),
+  View(T),
+  new : (fn() -> Self)(Self(_ptr : .None, _len : usize(0))),
+  len : (fn(self : &Self) -> usize)(self._len)
+);
+CBuf :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _ptr : ?*T,
+    _len : usize
+  )
+);
+impl(
+  generic(T : Type),
+  CBuf(T),
+  new : (fn() -> Self)(Self(_ptr : .None, _len : usize(0))),
+  len : (fn(self : &Self) -> usize)(self._len)
+);
+impl(generic(T : Type), where(T <: Clone), CBuf(T), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+// `HMap(K, V)` declares `Drop` under `HashMap`'s own bound, which names the
+// impl's parameter (`Eq(K)`).
+HMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _keys : ?*K,
+    _vals : ?*V,
+    _len : usize
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  HMap(K, V),
+  new : (fn() -> Self)(Self(_keys : .None, _vals : .None, _len : usize(0))),
+  len : (fn(self : &Self) -> usize)(self._len)
+);
+impl(generic(K : Type, V : Type), where(K <: (Eq(K), Hash)), HMap(K, V), Drop(drop : (fn(self : &mut Self) -> unit)(())));
+export(Buf, View, CBuf, HMap);

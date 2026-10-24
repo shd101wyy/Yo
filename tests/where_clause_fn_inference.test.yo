@@ -140,6 +140,12 @@ impl(_WcBoth, _WcFoo(wc_foo : (self -> self.x)), _WcBar(wc_bar : (self -> (self.
 _wc_need_both :: (fn(generic(T : Type), x : &T, where(T <: (_WcFoo, _WcBar))) -> i32)(
   x.wc_foo() + x.wc_bar()
 );
+// The same bounds in two `where` clauses: each clause is checked at a call,
+// not only the last one
+// (issues/fixed/2026-10-23-only-the-last-where-clause-of-a-signature-is-checked-at-a-call.md).
+_wc_need_both_split :: (fn(generic(T : Type), x : &T, where(T <: _WcBar), where(T <: _WcFoo)) -> i32)(
+  x.wc_foo() + x.wc_bar()
+);
 _WcBox :: (fn(comptime(T) : Type, where(T <: _WcBar)) -> comptime(Type))(struct(v : T));
 derive(generic(T : Type), where(T <: Clone), _WcBox(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _WcBox(T), Copy);
@@ -151,6 +157,7 @@ impl(_WcKey, Eq(_WcKey)((==) : ((a, b) -> (a.x == b.x))));
 
 test("where-clause bounds are enforced at the call site", {
   comptime_expect_error(_wc_need_both(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
+  comptime_expect_error(_wc_need_both_split(_WcQ(x : i32(1))), "does not implement required trait _WcBar");
   comptime_expect_error(_WcBox(_WcQ), "does not implement required trait _WcBar");
   comptime_expect_error(_wc_fwd(ArrayList(i32).new()), "does not implement required trait Send");
   comptime_expect_error(HashMap(_WcKey, i32).new(), "does not implement required trait Hash");
@@ -158,6 +165,7 @@ test("where-clause bounds are enforced at the call site", {
 
 test("where-clause bounds accept the types that satisfy them", {
   assert(_wc_need_both(_WcBoth(x : i32(2))) == i32(5), "both traits");
+  assert(_wc_need_both_split(_WcBoth(x : i32(2))) == i32(5), "both traits, two where clauses");
   b := _WcBox(_WcBoth)(v : _WcBoth(x : i32(4)));
   assert(b.v.wc_bar() == i32(5), "the type constructor's bound holds");
   _wc_fwd(i32(1));

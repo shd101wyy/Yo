@@ -1,0 +1,61 @@
+// The safe-code raw-view gate and a generic buffer-owning value
+// (issues/fixed/2026-10-22-the-raw-view-gate-rejects-a-generic-buffer-owning-value-parameter.md).
+// A value that owns its buffer outright (a `?*T` field and a `Drop` impl of
+// its own) is not a raw view, whether its type argument is concrete
+// (`Buf(i32)`) or a generic parameter (`Buf(T)`). A raw pointer at a type
+// variable (`*T`) and a view holding a `?*T` without a `Drop` (`View(T)`)
+// stay rejected in a safe file.
+{ assert } :: import("std/assert");
+{ Buf, View, CBuf, HMap } :: import("./fixtures/raw_view_generic_owner.yo");
+_rv_count :: (fn(generic(T : Type), b : &Buf(T)) -> usize)(b.len());
+_rv_count_i32 :: (fn(b : &Buf(i32)) -> usize)(b.len());
+_rv_take :: (fn(generic(T : Type), b : Buf(T)) -> usize)(b.len());
+_rv_nested :: (fn(generic(K : Type, V : Type), a : &Buf(K), b : &Buf(Buf(V))) -> usize)(a.len() + b.len());
+// The `Drop` declared `where(T <: Clone)` covers a `T` that declares `Clone`.
+_rv_cloned :: (fn(generic(T : Type), b : &CBuf(T), where(T <: Clone)) -> usize)(b.len());
+// The same, with the bound in one of two `where` clauses, in either order.
+_rv_cloned_split :: (fn(generic(T : Type), b : &CBuf(T), where(T <: Clone), where(T <: Send)) -> usize)(b.len());
+_rv_cloned_split_rev :: (fn(generic(T : Type), b : &CBuf(T), where(T <: Send), where(T <: Clone)) -> usize)(b.len());
+// A `Drop` bound naming the impl's own parameter (`HashMap`'s
+// `where(K <: (Eq(K), Hash))`) covers the same bound on the signature's
+// parameter, whatever it is called.
+_rv_map :: (fn(generic(K : Type, V : Type), m : &HMap(K, V), where(K <: (Eq(K), Hash))) -> usize)(m.len());
+_rv_map_renamed :: (fn(generic(A : Type, B : Type), m : &HMap(A, B), where(A <: (Hash, Eq(A)))) -> usize)(m.len());
+test("raw view: a generic and a concrete buffer-owning parameter are both accepted", {
+  b := Buf(i32).new();
+  assert(_rv_count_i32(&b) == usize(0), "concrete Buf(i32)");
+  assert(_rv_count(&b) == usize(0), "generic Buf(T)");
+  assert(_rv_take(Buf(u8).new()) == usize(0), "generic Buf(T) by value");
+  n := Buf(Buf(u8)).new();
+  assert(_rv_nested(&b, &n) == usize(0), "two parameters, one nested");
+  c := CBuf(i32).new();
+  assert(_rv_cloned(&c) == usize(0), "a where-bounded Drop under the same bound");
+  assert(_rv_cloned_split(&c) == usize(0), "the bound in the first of two where clauses");
+  assert(_rv_cloned_split_rev(&c) == usize(0), "the bound in the last of two where clauses");
+  m := HMap(i32, u8).new();
+  assert(_rv_map(&m) == usize(0), "a Drop bound naming the impl's parameter");
+  assert(_rv_map_renamed(&m) == usize(0), "the same bound, renamed and reordered");
+});
+// A raw pointer at a type variable stays a raw view.
+comptime_expect_error(
+  _rv_ptr :: (fn(generic(T : Type), p : *T) -> unit)(())
+);
+// A view over someone else's buffer (`?*T`, no `Drop`) stays a raw view.
+comptime_expect_error(
+  _rv_view :: (fn(generic(T : Type), v : &View(T)) -> usize)(v.len())
+);
+// A `Drop` declared only `where(T <: Clone)` covers neither an unbounded `T`
+// nor one bounded by an unrelated trait.
+comptime_expect_error(
+  _rv_cbuf :: (fn(generic(T : Type), b : &CBuf(T)) -> usize)(b.len())
+);
+comptime_expect_error(
+  _rv_cbuf_send :: (fn(generic(T : Type), b : &CBuf(T), where(T <: Send)) -> usize)(b.len())
+);
+// `Eq(K)` is not implied by `Hash` alone, nor by `Eq` at another parameter.
+comptime_expect_error(
+  _rv_map_hash :: (fn(generic(K : Type, V : Type), m : &HMap(K, V), where(K <: Hash)) -> usize)(m.len())
+);
+comptime_expect_error(
+  _rv_map_eq_v :: (fn(generic(K : Type, V : Type), m : &HMap(K, V), where(K <: (Eq(V), Hash))) -> usize)(m.len())
+);

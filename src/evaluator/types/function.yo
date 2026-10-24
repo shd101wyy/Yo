@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
   BF_ASSUMED
 }
 :: import("../../expr.yo");
-{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid } :: import("../../expr_info.yo");
+{ record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
@@ -1176,34 +1176,6 @@ _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
     _ => String.from("")
   )
 );
-/// The type arguments a parameterized trait was instantiated with, by trait
-/// id (the companion of `expr_info.yo`'s `g_trait_ctor_fids`). A constructor
-/// call whose arguments mention a `SomeT` is not memoized
-/// (`evaluate_comptime_fn_call`'s checking-phase guard), so every evaluation of
-/// `Ord(K)` mints a TraitT with a FRESH id; (constructor funcId, arguments) is
-/// the identity those mints share (`_wcc_same_instantiation`). First stamp wins.
-(g_trait_type_args : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
-/// Record the instantiation arguments of the trait with `trait_id` (first wins).
-register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
-  match(
-    g_trait_type_args.with(m => m.get(trait_id.clone())),
-    .Some(_) => (),
-    .None => {
-      g_trait_type_args.with_mut(m => m.insert(trait_id, args));
-    }
-  );
-});
-/// Forget every recorded instantiation. Called where a COLD compile resets
-/// the id counters (`stable_occurrence_reset`, `run_compile`): trait ids are
-/// occurrence-shaped, so a later compile in the same process (the LSP,
-/// `check --watch`) can re-mint an id this table already holds, and first
-/// stamp wins would answer it with the earlier compile's arguments. A trait
-/// minted before the reset and compared after it finds no entry, which only
-/// keeps a duplicate bound (`_wcc_same_instantiation` answers false).
-reset_trait_type_args :: (fn() -> unit)({
-  g_trait_type_args.with_mut(m => m.clear());
-  ()
-});
 /// Whether the traits with ids `a` and `b` are one instantiation of one
 /// parameterized trait: the same constructor funcId and pairwise equal
 /// (`type_key`) arguments. Every evaluation of `Ord(K)` with `K` a `SomeT`
@@ -1218,14 +1190,14 @@ _wcc_same_instantiation :: (fn(a : &String, b : &String) -> bool)({
     return(false);
   });
   a_args := match(
-    g_trait_type_args.with(m => m.get(a)),
+    lookup_trait_type_args(a),
     .Some(l) => l,
     .None => {
       return(false);
     }
   );
   b_args := match(
-    g_trait_type_args.with(m => m.get(b)),
+    lookup_trait_type_args(b),
     .Some(l) => l,
     .None => {
       return(false);
@@ -3639,49 +3611,34 @@ evaluate_function_parameters :: (
   // Pass 4 — scan where clause and try constraints (with pending retry)
   // --------------------------------------------------------------------------
   (pending_constraints : ArrayList(PendingConstraint)) = ArrayList(PendingConstraint).new();
-  if(param_exprs.len() > usize(0), {
-    // `where` must come at the end of the signature, but Phase-0 contract
-    // clauses (requires/ensures) may follow it. Scan from the end past any
-    // trailing contract clauses to find the where clause.
-    (where_idx : usize) = (param_exprs.len() - usize(1));
-    (where_scanning : bool) = true;
-    while(where_scanning, {
-      cand := match(param_exprs.get(where_idx), .Some(e) => e, .None => make_err_expr());
-      cond(
-        !_is_contract_clause(&cand) => {
-          where_scanning = false;
-        },
-        (where_idx == usize(0)) => {
-          where_scanning = false;
-        },
-        true => {
-          where_idx = (where_idx - usize(1));
-        }
-      );
-    });
-    last_param := match(param_exprs.get(where_idx), .Some(e) => e, .None => make_err_expr());
-    if(ast_expr_is_fn_call_of(&last_param, BK_WHERE, Option(usize).None), {
-      where_args := _fn_call_args(&last_param);
-      // Copy where_args to where_clause_exprs
-      (wai : usize) = usize(0);
-      while(wai < where_args.len(), {
-        we := match(where_args.get(wai), .Some(a) => a, .None => make_err_expr());
-        where_clause_exprs.push(we);
-        wai = (wai + usize(1));
-      });
-      if(where_clause_exprs.len() == usize(0), {
+  // Every `where(...)` clause contributes its constraints: the zone check
+  // (pass 2b) admits several, and reading only the last one dropped the
+  // others' bounds from the signature, so a call never checked them
+  // (issues/fixed/2026-10-23-only-the-last-where-clause-of-a-signature-is-checked-at-a-call.md).
+  (wpi : usize) = usize(0);
+  while(wpi < param_exprs.len(), wpi = (wpi + usize(1)), {
+    where_param := match(param_exprs.get(wpi), .Some(e) => e, .None => make_err_expr());
+    if(ast_expr_is_fn_call_of(&where_param, BK_WHERE, Option(usize).None), {
+      where_args := _fn_call_args(&where_param);
+      if(where_args.len() == usize(0), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(&last_param),
+              ast_expr_token(&where_param),
               String.from("The where clause must have at least one constraint.")
             )
           )
         );
       });
-      // First pass of where clause: create SomeTypes and try constraints
-      pending_constraints = prepare_where_clause_variables(&where_clause_exprs, env_mut, ctx, exn);
+      (wai : usize) = usize(0);
+      while(wai < where_args.len(), wai = (wai + usize(1)), {
+        match(where_args.get(wai), .Some(we) => where_clause_exprs.push(we), .None => ());
+      });
     });
+  });
+  if(where_clause_exprs.len() > usize(0), {
+    // First pass of where clause: create SomeTypes and try constraints
+    pending_constraints = prepare_where_clause_variables(&where_clause_exprs, env_mut, ctx, exn);
   });
   // --------------------------------------------------------------------------
   // Pass 5 — process regular parameters
@@ -5467,7 +5424,7 @@ export(evaluate_function_return_type_again);
 export(_collect_type_arg_somes);
 export(collect_wrapper_trait_somes, _substitute_wrapper_carriers, _resolve_wrapper_carriers_from_env);
 export(FuncParam, FuncParamsResult, PendingConstraint, ExtractComptimeResult);
-export(_add_where_clause_constraint, _trait_has_receiver, register_trait_type_args, reset_trait_type_args);
+export(_add_where_clause_constraint, _trait_has_receiver);
 export(
   register_macro_quoted_params,
   register_macro_return_is_unquote,

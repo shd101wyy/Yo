@@ -2369,6 +2369,40 @@ register_trait_ctor_fid :: (fn(trait_id : &String, ctor_fid : &String) -> unit)(
 lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
   g_trait_ctor_fids.with(m => m.get(trait_id))
 );
+/// The type arguments a parameterized trait was instantiated with, by trait
+/// id (the companion of `g_trait_ctor_fids` above). A constructor
+/// call whose arguments mention a `SomeT` is not memoized
+/// (`evaluate_comptime_fn_call`'s checking-phase guard), so every evaluation of
+/// `Ord(K)` mints a TraitT with a FRESH id; (constructor funcId, arguments) is
+/// the identity those mints share (`function.yo`'s `_wcc_same_instantiation`,
+/// `values/impl.yo`'s `_same_trait_under_renaming`). First stamp wins.
+(g_trait_type_args : RefCell(HashMap(String, ArrayList(TypeValue)))) = RefCell(HashMap(String, ArrayList(TypeValue))).new(HashMap(String, ArrayList(TypeValue)).new());
+/// Record the instantiation arguments of the trait with `trait_id` (first wins).
+register_trait_type_args :: (fn(trait_id : &String, args : &ArrayList(TypeValue)) -> unit)({
+  match(
+    g_trait_type_args.with(m => m.get(trait_id.clone())),
+    .Some(_) => (),
+    .None => {
+      g_trait_type_args.with_mut(m => m.insert(trait_id, args));
+    }
+  );
+});
+/// The type arguments the trait with id `trait_id` was instantiated with
+/// (`register_trait_type_args`), when it is a parameterized trait's mint.
+lookup_trait_type_args :: (fn(trait_id : &String) -> Option(ArrayList(TypeValue)))(
+  g_trait_type_args.with(m => m.get(trait_id))
+);
+/// Forget every recorded instantiation. Called where a COLD compile resets
+/// the id counters (`stable_occurrence_reset`, `run_compile`): trait ids are
+/// occurrence-shaped, so a later compile in the same process (the LSP,
+/// `check --watch`) can re-mint an id this table already holds, and first
+/// stamp wins would answer it with the earlier compile's arguments. A trait
+/// minted before the reset and compared after it finds no entry, which only
+/// keeps a duplicate bound (`_wcc_same_instantiation` answers false).
+reset_trait_type_args :: (fn() -> unit)({
+  g_trait_type_args.with_mut(m => m.clear());
+  ()
+});
 /// Effective constructor func_id of a struct type: the carried
 /// `constructor_func_id`, falling back to the id-keyed stamp table (a
 /// self-recursive shell or memoized instantiation may predate the ctor
@@ -2719,6 +2753,9 @@ export(
   BranchInitRecord,
   register_trait_ctor_fid,
   lookup_trait_ctor_fid,
+  register_trait_type_args,
+  lookup_trait_type_args,
+  reset_trait_type_args,
   lookup_struct_ctor_fid,
   struct_effective_ctor_fid,
   struct_fully_concrete_instance,
