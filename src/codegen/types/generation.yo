@@ -1229,14 +1229,6 @@ static inline void __yo_scope_set(void* ctx, void* vtable) {
   __yo_current_allocator.vtable = vtable;
 }`
   );
-  // std/arena.yo's hook: under --debug-heap every live or abandoned arena is
-  // listed in the exit report (plans/archive/EXPLICIT_ALLOCATORS.md P4).
-  em.emit_declaration_line(
-    cond(
-      context.debug_heap => "static inline bool __yo_debug_heap_on(void) { return true; }",
-      true => "static inline bool __yo_debug_heap_on(void) { return false; }"
-    )
-  );
   // Whether the program runs on `--allocator debug` (allocator_debug.yo), as
   // the program can read it (extern "Yo"): tests/debug_allocator.test.yo
   // checks the allocator's aborts only when they are armed.
