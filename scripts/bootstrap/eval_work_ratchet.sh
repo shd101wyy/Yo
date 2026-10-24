@@ -14,10 +14,11 @@
 #
 # The binary must call the C library's malloc DYNAMICALLY so the LD_PRELOAD
 # counter (alloc_count.c) sees the calls. CI's stage-2 binary links the
-# vendored mimalloc statically, so the job recompiles the stage-2 C without the
-# mimalloc include path: the emitted `__has_include(<mimalloc.h>)` fails and
-# __yo_malloc becomes malloc. The script refuses a binary that does not import
-# malloc, and a count below a floor (a wrong binary measures ~nothing).
+# vendored mimalloc statically, so the job recompiles the stage-2 C with
+# `-I scripts/bootstrap/libc_mimalloc`, whose stand-in <mimalloc.h> maps the
+# mi_* calls onto malloc/free (the emitted C has no silent fallback: without a
+# <mimalloc.h> it stops at #error). The script refuses a binary that does not
+# import malloc, and a count below a floor (a wrong binary measures ~nothing).
 #
 # Fails BOTH ways like memory_ratchet.sh: more than TOL_PCT above the baseline
 # is a regression; more than TOL_PCT below means the baseline must be lowered
@@ -41,7 +42,7 @@ if [ -z "$base" ]; then
 fi
 if ! nm -D --undefined-only "$BIN" | awk '{ print $NF }' | grep -Eq '^malloc(@|$)'; then
   echo "FAIL: $BIN does not import malloc dynamically; the LD_PRELOAD counter would see nothing."
-  echo "      Build it without the mimalloc include path (see the memory-ratchet job)."
+  echo "      Build it with -I scripts/bootstrap/libc_mimalloc (see the memory-ratchet job)."
   exit 1
 fi
 SHIM="$(cd "$(dirname "$SHIM")" && pwd)/$(basename "$SHIM")"

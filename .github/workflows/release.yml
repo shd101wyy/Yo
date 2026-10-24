@@ -644,11 +644,10 @@ jobs:
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "portable-arm/${{ matrix.target }}" > /dev/null
           # Travel the allocator WITH the C rather than repeating it in the
-          # seed-bundles-cross matrix. The link line must match the emit, and
-          # a mismatch does not fail loudly: the emitted mimalloc block is
-          # `#if __has_include(<mimalloc.h>)` with a malloc/free `#else`, so a
-          # drifted pair silently ships the wrong heap. One source of truth
-          # cannot drift.
+          # seed-bundles-cross matrix. The link line must match the emit: a
+          # mimalloc emit compiled without the vendored include path stops at
+          # the emitted C's #error, and a system emit linked with static.c
+          # carries a dead mimalloc. One source of truth cannot drift.
           echo -n "${{ matrix.bundle_allocator }}" > "cross/allocator-${{ matrix.target }}.txt"
           ( cd cross && sha256sum "yo-${{ matrix.target }}.c" > "yo-${{ matrix.target }}.c.sha256" )
           ls -la cross/ portable-arm/
@@ -797,11 +796,10 @@ jobs:
       # The PE assertion below is what actually proves it.
       # The allocator is matrix-driven rather than hardcoded, and follows the
       # `bundle_allocator` this target was EMITTED with in seed-cross-emit
-      # (via cross/allocator-<target>.txt below): the emitted C guards its
-      # mimalloc block behind `#if __has_include(<mimalloc.h>)`, so a mimalloc
-      # emit compiled without the include path silently degrades to malloc
-      # instead of failing — which is precisely the outcome an assertion has to
-      # catch rather than a link error. (Since the v3.5.1 vendored bump, BOTH
+      # (via cross/allocator-<target>.txt below): a mimalloc emit compiled
+      # without the include path stops at the emitted C's #error (until
+      # 2026-10-24 it silently degraded to malloc, which is why the
+      # assertion below exists). (Since the v3.5.1 vendored bump, BOTH
       # Windows triples can link mimalloc under plain C11; the matrix row
       # chooses `system` on measured-cost grounds —
       # plans/reference/WINDOWS_ALLOCATOR_DECISION.md.)
@@ -824,12 +822,11 @@ jobs:
             -o yo-seed.exe
           ./yo-seed.exe --version
 
-      # Assert the binary got the allocator it ASKED for. The emitted mimalloc
-      # block is `#if __has_include(<mimalloc.h>)` with a malloc/free `#else`,
-      # so a mis-linked mimalloc build compiles, links, runs and smoke-tests
-      # green while quietly using the CRT heap. Nothing on any Windows leg has
-      # ever checked this, so whether the shipped windows-x64 bundle actually
-      # contains mimalloc is, as of this commit, unverified.
+      # Assert the binary got the allocator it ASKED for. Until 2026-10-24 the
+      # emitted mimalloc block was `#if __has_include(<mimalloc.h>)` with a
+      # malloc/free `#else`, so a mis-linked mimalloc build compiled, linked,
+      # ran and smoke-tested green while quietly using the CRT heap. The block
+      # is an #error now; this check stays as the end-to-end proof.
       - name: "Assert the bundle got the allocator it asked for (Windows)"
         if: runner.os == 'Windows'
         shell: bash
@@ -852,7 +849,7 @@ jobs:
           echo "requested=$ALLOC  'mimalloc: ' literal hits=$HITS  size=$BYTES bytes"
           if [ "$ALLOC" = "mimalloc" ]; then
             [ "$HITS" -gt 0 ] || {
-              echo "::error::asked for mimalloc but the binary carries no mimalloc literals — the __has_include guard silently fell back to the CRT heap"
+              echo "::error::asked for mimalloc but the binary carries no mimalloc literals — static.c is missing from the link line"
               exit 1; }
             echo "mimalloc confirmed linked in."
           else
@@ -1306,11 +1303,10 @@ jobs:
 
       # This leg's arm of the single portable `yo.c`, rehomed from the removed
       # glibc legs (plans/reference/PORTABLE_C_DISTRIBUTION.md). A SEPARATE emit rather
-      # than reusing yo-musl.c, because that one is mimalloc-flavored: its
-      # mimalloc use is behind `#if __has_include(<mimalloc.h>)`, so it
-      # MIS-LINKS on a box that has the headers and no -lmimalloc. The
-      # published file must not depend on what the user happens to have
-      # installed, so the arm is libc-flavored (--allocator system).
+      # than reusing yo-musl.c, because that one is mimalloc-flavored: it
+      # needs mimalloc's headers and static.c, and stops at #error without
+      # them. The published file must not depend on what the user happens to
+      # have installed, so the arm is libc-flavored (--allocator system).
       # Emitted by the SHIPPED gen-2 binary, not the seed — same bootstrap
       # veil as the bundle: a seed-emitted yo.c compiles into a compiler
       # whose own `yo build` machinery hangs on the first poll-yield.

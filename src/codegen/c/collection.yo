@@ -200,43 +200,25 @@ _Noreturn static inline void __yo_abort(void) {
       emit_debug_allocator_impl(context);
     },
     (context.allocator == "mimalloc") => {
-      context.emitter.emit_header_line("// Mimalloc compatibility layer - try mimalloc first, fallback to stdlib");
+      // No fallback to the system allocator: C emitted for mimalloc that is
+      // compiled without mimalloc's headers stops at `#error`, the way
+      // `yo compile` itself refuses a missing vendor/mimalloc (maintainer
+      // decision 2026-10-24,
+      // issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md).
+      // A compiler without __has_include fails at the #include instead.
+      context.emitter.emit_header_line("// mimalloc allocator (--allocator mimalloc): compile with -I<vendor>/mimalloc/include and link <vendor>/mimalloc/src/static.c");
       context.emitter.emit_header_line("#ifdef __has_include");
-      context.emitter.emit_header_line("  #if __has_include(<mimalloc.h>)");
-      context.emitter.emit_header_line("    #include <mimalloc.h>");
-      context.emitter.emit_header_line("    #define __yo_malloc mi_malloc");
-      context.emitter.emit_header_line("    #define __yo_calloc mi_calloc");
-      context.emitter.emit_header_line("    #define __yo_realloc mi_realloc");
-      context.emitter.emit_header_line("    #define __yo_free mi_free");
-      context.emitter.emit_header_line("    #define __yo_aligned_alloc mi_aligned_alloc");
-      context.emitter.emit_header_line("    #define __yo_aligned_free mi_free");
-      context.emitter.emit_header_line("  #else");
-      context.emitter.emit_header_line("    #define __yo_malloc malloc");
-      context.emitter.emit_header_line("    #define __yo_calloc calloc");
-      context.emitter.emit_header_line("    #define __yo_realloc realloc");
-      context.emitter.emit_header_line("    #define __yo_free free");
-      if(is_windows, {
-        context.emitter.emit_header_line("    static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }");
-        context.emitter.emit_header_line("    #define __yo_aligned_free _aligned_free");
-      }, {
-        context.emitter.emit_header_line("    #define __yo_aligned_alloc aligned_alloc");
-        context.emitter.emit_header_line("    #define __yo_aligned_free free");
-      });
+      context.emitter.emit_header_line("  #if !__has_include(<mimalloc.h>)");
+      context.emitter.emit_header_line("    #error \"--allocator mimalloc: mimalloc.h not found. Compile with -I vendor/mimalloc/include -DMI_BUILD_RELEASE and add vendor/mimalloc/src/static.c (in a source checkout: git -c protocol.file.allow=always submodule update --init), or emit the C with --allocator system.\"");
       context.emitter.emit_header_line("  #endif");
-      context.emitter.emit_header_line("#else");
-      context.emitter.emit_header_line("  // Fallback for older compilers without __has_include");
-      context.emitter.emit_header_line("  #define __yo_malloc malloc");
-      context.emitter.emit_header_line("  #define __yo_calloc calloc");
-      context.emitter.emit_header_line("  #define __yo_realloc realloc");
-      context.emitter.emit_header_line("  #define __yo_free free");
-      if(is_windows, {
-        context.emitter.emit_header_line("  static inline void* __yo_aligned_alloc(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }");
-        context.emitter.emit_header_line("  #define __yo_aligned_free _aligned_free");
-      }, {
-        context.emitter.emit_header_line("  #define __yo_aligned_alloc aligned_alloc");
-        context.emitter.emit_header_line("  #define __yo_aligned_free free");
-      });
       context.emitter.emit_header_line("#endif");
+      context.emitter.emit_header_line("#include <mimalloc.h>");
+      context.emitter.emit_header_line("#define __yo_malloc mi_malloc");
+      context.emitter.emit_header_line("#define __yo_calloc mi_calloc");
+      context.emitter.emit_header_line("#define __yo_realloc mi_realloc");
+      context.emitter.emit_header_line("#define __yo_free mi_free");
+      context.emitter.emit_header_line("#define __yo_aligned_alloc mi_aligned_alloc");
+      context.emitter.emit_header_line("#define __yo_aligned_free mi_free");
     },
     true => {
       context.emitter.emit_header_line("// Using system allocator");

@@ -5863,7 +5863,26 @@ _compile_fail :: (fn(watch_mode : bool, code : int) -> unit)({
   });
   unsafe(exit(code));
 });
-run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
+/// The bundled mimalloc's directory: release bundles ship it as
+/// `vendor/mimalloc` beside `std/`, and a source checkout carries it as a git
+/// submodule at the same place.
+_bundled_mimalloc_dir :: (fn(std_root : &String) -> String)(`${std_root}/../vendor/mimalloc`);
+/// `--allocator mimalloc` is honoured or the command fails. There is no
+/// fallback to the system allocator: mimalloc is never the implicit choice, so
+/// a fallback always overrides an explicit request, and one measured "mimalloc"
+/// A/B turned out to be glibc against glibc (maintainer decision 2026-10-24,
+/// issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md).
+_require_bundled_mimalloc :: (fn(command : String, std_root : &String, exn : Exception) -> unit)({
+  mim_static := `${_bundled_mimalloc_dir(std_root)}/src/static.c`;
+  if(!file_exists_sync(mim_static.clone()), {
+    exn.throw(
+      dyn(
+        `${command}: --allocator mimalloc needs the bundled mimalloc, and ${mim_static} does not exist. In a source checkout, run \`git -c protocol.file.allow=always submodule update --init\`; otherwise pass \`--allocator system\`.`
+      )
+    );
+  });
+});
+run_warm_selfcheck_compile ::(fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   input := match(
     argv.get(usize(2)),
     .Some(x) => x.clone(),
@@ -7164,10 +7183,10 @@ run_compile :: (
     );
     output = if(output.ends_with(&so_ext), output.clone(), `${output}${so_ext}`);
   });
-  // mimalloc isn't available on wasm — downgrade
-  // BEFORE codegen so the emitted runtime matches the link line.
+  // mimalloc does not build for wasm. An explicit request for it is an error,
+  // not a silent switch to the system allocator (see `_require_bundled_mimalloc`).
   if((allocator == "mimalloc") && is_target_wasm(&target), {
-    allocator = String.from("system");
+    exn.throw(dyn(`compile: --allocator mimalloc is not available on wasm targets (${target.triple}); pass --allocator system`));
   });
   // Same rule as `check`: compiling a module that lives inside a std tree
   // must resolve std to THAT tree, not the bundle an installed binary finds
@@ -7178,6 +7197,12 @@ run_compile :: (
   compile_entries.push(input_path.clone());
   prefer_entry_std_root(&compile_entries);
   std_path := resolve_std_path();
+  // Before any evaluation: a compile that will link mimalloc fails here, not
+  // after minutes of codegen. `--skip-c-compiler` links nothing; the C it
+  // writes stops at an `#error` when compiled without mimalloc's headers.
+  if((allocator == "mimalloc") && !skip_cc, {
+    _require_bundled_mimalloc(String.from("compile"), &std_path, exn);
+  });
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
   // via g_shared_expr_info_table now (not after the prelude load). The prelude
   // is def-eval'd inside check_single_file; routing its per-expression metadata
@@ -7812,27 +7837,23 @@ run_compile :: (
       ci = (ci + usize(1));
     });
   });
-  // Bundled mimalloc allocator (else system): add static.c + its include path,
-  // guarded by existence with a fallback warning.
+  // Bundled mimalloc allocator: add static.c + its include path. Its presence
+  // was required before evaluation (`_require_bundled_mimalloc`).
   if(allocator == "mimalloc", {
-    mim_static := `${std_root}/../vendor/mimalloc/src/static.c`;
-    mim_found := io.await(exists(Path.new(mim_static.clone()), io), io);
-    if(mim_found, {
-      cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
-      // mimalloc picks its build mode from the preprocessor: without
-      // MI_BUILD_RELEASE (or NDEBUG) it compiles with MI_DEBUG=2 and MI_STAT=2,
-      // internal assertions and per-allocation statistics, and `check ./src`
-      // took 292 s against 202 s
-      // (issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md).
-      // MI_BUILD_RELEASE rather than NDEBUG: NDEBUG would also reach the
-      // program's own C and any linked C that uses assert().
-      cmd.arg(String.from("-DMI_BUILD_RELEASE"));
-      cmd.arg(mim_static.clone());
-      link_only_sources.push(mim_static.clone());
-      println(String.from("Using bundled mimalloc"));
-    }, {
-      eprintln(String.from("Bundled mimalloc not found, falling back to standard malloc"));
-    });
+    mim_dir := _bundled_mimalloc_dir(&std_root);
+    mim_static := `${mim_dir}/src/static.c`;
+    cmd.arg(`-I${mim_dir}/include`);
+    // mimalloc picks its build mode from the preprocessor: without
+    // MI_BUILD_RELEASE (or NDEBUG) it compiles with MI_DEBUG=2 and MI_STAT=2,
+    // internal assertions and per-allocation statistics, and `check ./src`
+    // took 292 s against 202 s
+    // (issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md).
+    // MI_BUILD_RELEASE rather than NDEBUG: NDEBUG would also reach the
+    // program's own C and any linked C that uses assert().
+    cmd.arg(String.from("-DMI_BUILD_RELEASE"));
+    cmd.arg(mim_static.clone());
+    link_only_sources.push(mim_static.clone());
+    println(String.from("Using bundled mimalloc"));
   }, {
     if(allocator == "fixed", {
       // The region is a static .bss array inside the emitted C — nothing
@@ -9389,6 +9410,14 @@ run_test :: (
   // child below as an explicit `--std-path`, so the runner and its children
   // cannot disagree.
   prefer_entry_std_root(&files);
+  // The batch compiles would each fail on these; fail once, before any runs.
+  if(test_allocator == "mimalloc", {
+    if(wasm_target_kind != "", {
+      exn.throw(dyn(`test: --allocator mimalloc is not available on wasm targets (${wasm_target_kind}); pass --allocator system`));
+    });
+    test_std_root := resolve_std_path();
+    _require_bundled_mimalloc(String.from("test"), &test_std_root, exn);
+  });
   // §7 items 3+4: the counts START from the restart's forwarded totals when
   // the RSS valve resumed this process (see --resume-from).
   (passed : usize) = accum_passed;

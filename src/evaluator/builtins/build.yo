@@ -1225,7 +1225,9 @@ evaluate_yo_build_functions :: (
         _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
         _build_extract_string_or(&args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
-        _build_extract_string_or(&args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
+        // `system`, as `build.Executable`'s own default: mimalloc is never
+        // the implicit choice, since a missing vendor/mimalloc fails the compile.
+        _build_extract_string_or(&args, usize(4), "allocator", String.from("system"), expr, ctx, exn),
         _build_extract_usize_or(&args, usize(8), usize(16777216), ctx),
         _build_extract_string_or(&args, usize(9), "cycle_collector", String.from("auto"), expr, ctx, exn),
         _build_extract_string_or(&args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
