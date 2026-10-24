@@ -811,13 +811,6 @@ _is_ref_binding :: (fn(expr : &AstExpr, name : &String, context : &FunctionGener
     .None => false
   )
 );
-/// A read of a state-machine field that MOVES its value out (the evaluator
-/// records the move as the variable's `consumed_at_token`): take the value
-/// into a C temp and zero the slot, so the abort dispose never releases a
-/// value the slot no longer owns. Without it, a local moved into an `own`
-/// parameter before an await was released again when the task was aborted —
-/// a use-after-free once the new owner freed it. Any other read renders the
-/// slot itself.
 /// Whether a move the flow log kept for one path (`UndoneMove`) was made at
 /// `tok`.
 _is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
@@ -835,6 +828,14 @@ _is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
   });
   false
 });
+/// A read of a state-machine field that MOVES its value out (the evaluator
+/// records the move as the variable's `consumed_at_token`, or keeps it for
+/// one path, `_is_kept_move_site`): take the value
+/// into a C temp and zero the slot, so the abort dispose never releases a
+/// value the slot no longer owns. Without it, a local moved into an `own`
+/// parameter before an await was released again when the task was aborted —
+/// a use-after-free once the new owner freed it. Any other read renders the
+/// slot itself.
 _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, context : &FunctionGenerationContext) -> String)({
   low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(sm_code));
   if(low.rc_operand || !sm_code.starts_with("sm->"), {
