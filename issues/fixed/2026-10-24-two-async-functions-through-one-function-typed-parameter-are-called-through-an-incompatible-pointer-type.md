@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a function returning `Impl(Future(...))` stored in a `fn(...) -> Impl(Future(...))` slot (parameter, field, result, mutable local) is called through a function-pointer type it was not defined with: C undefined behavior that `--sanitize undefined` aborts on (Promise A), and the field-only shape is rejected by the C compiler; no wrong value observed (the two pointer types share an ABI and a common initial layout).
 
-**Status:** open. Found 2026-10-24 by the scheduled UBSan workflow
+**Status:** fixed 2026-10-24 (branch `fix/ubsan-async-fn-param`; see Fix). Found 2026-10-24 by the scheduled UBSan workflow
 (`ubsan.yml`, job `UBSan (language suite, Linux/Clang)`): run 40066504401 on
 develop `c0cd51a30` and run 39006429120 on `4d7c15caa` (2026-10-17).
 
@@ -153,10 +153,56 @@ Direct calls keep the concrete prototype.
   if the interface prototype stands, a return cast, so the field-only shape
   compiles.
 
+## Fix
+
+Codegen now holds the invariant from the fix direction: **a function-pointer
+value whose result is `Impl(Future(...))` has the erased signature.** Direct
+calls keep the concrete prototype, so `io.await(f(x, io))` and every other
+direct async call emit the same C as before.
+
+1. **One thunk per function, used wherever a function becomes a value.**
+   `fn_value_c_name` (`src/codegen/functions/declarations.yo`) compares the
+   function's emitted result (`emitted_return_type_string`) with the erased one
+   (`erased_future_result_type_string`, `src/codegen/utils/index.yo`, which
+   spells any non-extern future SomeT as its generic Future interface pointer).
+   When they differ, it emits
+   `static inline <iface>* __yo_fnval_thunk_<fn>(<params>) { return (<iface>*)<fn>(<args>); }`
+   once into the declarations section, after every prototype, and returns the
+   thunk's name. Otherwise it returns the function's own name. Three sites now
+   go through it:
+   - a function-typed argument (`_arg_fn_value_c_name`, `other_fn_call.yo`);
+   - every other `FuncVal` value: the `FuncVal` arm of `generate_comptime_value`,
+     which covers struct fields, a returned function, and local initializers
+     and assignments;
+   - an effect handler injected into a future's capture struct
+     (`await.yo`).
+2. **A call through a function pointer casts to the erased result**
+   (`generate_other_function_call`'s function-pointer arm). Before, the cast
+   used the call's own type, which for a reassigned mutable local named the
+   last function the evaluator saw assigned.
+3. **An async function stored in a struct field is no longer an
+   effect-record member.** `collect_effect_record_members`
+   (`src/codegen/functions/collection.yo`) marked every function in a
+   compile-time struct value as a handler, unless something had already
+   collected it through a direct call. As a member, its prototype was
+   declared without its body, so it got the interface result, while the body
+   still returned the state machine. That was the field-only compile error.
+   A non-`ctl` function whose result is a future is now registered without the
+   mark.
+
+The `void*` argument cast in `_per_arg_cast` stays. Spelling a function-typed
+parameter with its declarator instead would turn any future mismatch into a C
+compile error, but it would also change the emitted C of every function-pointer
+argument in the compiler. That belongs in its own change.
+
 ## Test
 
-`tests/async_future_parameter.test.yo` ("two async functions through one
-function-typed parameter") already fails under `YO_TEST_SANITIZE=undefined`.
-The fix should add the field, result, captured-parameter and
-conditionally-reassigned-local shapes above to the same file. The weekly
-UBSan job is the standing gate.
+`tests/async_future_parameter.test.yo`. The test "two async functions through
+one function-typed parameter" fails under `YO_TEST_SANITIZE=undefined` before
+the fix. The fix adds one test for each shape in the table above: a parameter
+captured by an async closure, a returned function, a struct field (also called
+directly, and reached only through the field), and a conditionally reassigned
+local. It also adds a test for an awaiting (`_state_t`) function and a
+delegate. "an async function reached only through a struct field" fails to
+compile without the fix, with or without a sanitizer. The weekly UBSan job is
+the standing gate.
