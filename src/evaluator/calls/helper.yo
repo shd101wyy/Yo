@@ -202,6 +202,8 @@ pragma(Pragma.AllowUnsafe);
   default_param_eval_env,
   get_func_param_type_exprs,
   get_func_param_comptime,
+  get_func_param_decl_tokens,
+  func_param_decl_token,
   get_func_param_assigned_values,
   get_func_return_type_expr,
   get_func_where_constraints,
@@ -1501,7 +1503,11 @@ check_if_function_parameter_matches_argument :: (
     (param_is_ptr_borrow : bool) ?= false,
     /// A by-value slot that accepts a second-class body or future
     /// (`_param_accepts_second_class`, decision 37, §3.13 A2 and A4).
-    (second_class_slot : bool) ?= false
+    (second_class_slot : bool) ?= false,
+    /// The callee's parameter declaration tokens
+    /// (`get_func_param_decl_tokens`): the parameter binds with its own,
+    /// or with the interned `synthetic_token` when none is known.
+    (param_decl_tokens : ArrayList(Token)) ?= ArrayList(Token).new()
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -1786,7 +1792,7 @@ ${ast_expr_to_string(&actual_arg)}`
     },
     .None => ()
   );
-  param_tok := synthetic_token(param_label, &callee_env_r.module_path.*);
+  param_tok := func_param_decl_token(&param_decl_tokens, param_label, &callee_env_r.module_path.*);
   // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T` flag —
   // exactly as the def-time body env binds it (function_type.yo's
   // `add_parameter_to_env(..., p_own, ...)`). The callee owns the reference an
@@ -2980,6 +2986,8 @@ create_specialized_function_inline :: (
       // later per-param loop in this fn relies on; the REGISTERED spec type
       // filters these indices out (see the spec_param_types loop below).
       spec_param_ct_flags := get_func_param_comptime(func_id.clone());
+      // The parameters rebind below with their declaration tokens.
+      spec_param_toks := get_func_param_decl_tokens(&func_id);
       (ai : usize) = usize(0);
       n_a := arg_values.args.len();
       while(ai < n_a, {
@@ -3063,7 +3071,7 @@ create_specialized_function_inline :: (
                     false,
                     false,
                     false,
-                    synthetic_token(&ectp_label, &callee_env.module_path.*)
+                    func_param_decl_token(&spec_param_toks, &ectp_label, &callee_env.module_path.*)
                   );
                   // This binds a PARAMETER label — flag it (see the
                   // check_if_function_parameter_matches_argument bind).
@@ -4034,7 +4042,7 @@ create_specialized_function_inline :: (
                   false,
                   match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                   false,
-                  synthetic_token(&p_label, &callee_env.module_path.*)
+                  func_param_decl_token(&spec_param_toks, &p_label, &callee_env.module_path.*)
                 );
               },
               .None => ()
@@ -4242,7 +4250,7 @@ create_specialized_function_inline :: (
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                 false,
-                synthetic_token(&p_label, &callee_env.module_path.*)
+                func_param_decl_token(&spec_param_toks, &p_label, &callee_env.module_path.*)
               );
             }, if(cur_is_folded_const, {
               match(
@@ -4256,7 +4264,7 @@ create_specialized_function_inline :: (
                     false,
                     match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
                     false,
-                    synthetic_token(&p_label, &callee_env.module_path.*)
+                    func_param_decl_token(&spec_param_toks, &p_label, &callee_env.module_path.*)
                   );
                 },
                 .None => ()
@@ -7046,6 +7054,14 @@ try_to_call_function_with_arguments :: (
         .Some(_) => ArrayList(bool).new(),
         .None => ArrayList(bool).new()
       );
+      // The callee's parameter declaration tokens: a deferred body's
+      // parameters bind with them below (`get_func_param_decl_tokens`).
+      call_param_decl_toks := match(
+        func_val,
+        .Some(.FuncVal(__fvdpt, _)) => get_func_param_decl_tokens(&__fvdpt.*.func_id),
+        .Some(_) => ArrayList(Token).new(),
+        .None => ArrayList(Token).new()
+      );
       // Parallel to call_param_comptime: the per-param `= <value>` ASSIGNED
       // values, so Step 5b can reject a mismatching argument.
       call_param_assigned := match(
@@ -8135,7 +8151,8 @@ try_to_call_function_with_arguments :: (
                 &de_env,
                 ctx,
                 &mut rt_args,
-                exn
+                exn,
+                param_decl_tokens : call_param_decl_toks.clone()
               );
               callee_env_m = dpr.callee_env;
               arg_vals.push(
@@ -8169,7 +8186,7 @@ try_to_call_function_with_arguments :: (
                 false,
                 false,
                 false,
-                synthetic_token(&plabel, &callee_env_m.module_path.*)
+                func_param_decl_token(&call_param_decl_toks, &plabel, &callee_env_m.module_path.*)
               );
               arg_vals.push(
                 ArgEntry(
@@ -8214,7 +8231,8 @@ try_to_call_function_with_arguments :: (
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
-          _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx)
+          _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx),
+          param_decl_tokens : call_param_decl_toks.clone()
         );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {

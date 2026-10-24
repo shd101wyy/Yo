@@ -29,7 +29,7 @@
   expr_info_set_comptime_unrolled_bodies,
   branch_init_log_len
 } :: import("../../expr_info.yo");
-{ check_loop_flow } :: import("../utils.yo");
+{ check_loop_flow, record_copy_loop } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment, snapshot_env, env_adopt } :: import("../../env.yo");
 { Variable } :: import("../../env.yo");
@@ -438,6 +438,11 @@ evaluate_while :: (
     continue_states : ArrayList(LoopFlowSnapshot).new()
   );
   ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(loop_ctx);
+  // `yo fix --migrate explicit-copy`: a runtime loop runs its writes again
+  // after a copy it makes below them (`record_copy_loop`).
+  if(effective_condition_value.is_none(), {
+    record_copy_loop(expr);
+  });
   evaluated_body := evaluate_begin_expression(&body_expr, &env, ctx, ArrayList(Variable).new(), false, exn);
   ctx.is_evaluating_loop_body = old_loop_body;
   // A RUNTIME loop's move-state rules (`check_loop_flow`, evaluator/utils.yo):

@@ -2976,7 +2976,80 @@ take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
   g_clone_impl_body_keys.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
+/// The source span of a region whose code runs more than once, by byte
+/// offset in its module (`start`..`end`, inclusive, over the region's
+/// tokens): a runtime `while` (a `for` is one after expansion) or a fn
+/// literal (a closure a caller may call again, a function called twice).
+CopyLoop :: struct(at_module : String, start : u32, end : u32);
+(g_copy_loops : RefCell(ArrayList(CopyLoop))) = RefCell(ArrayList(CopyLoop)).new(ArrayList(CopyLoop).new());
+(g_copy_loop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+/// Record, while the migration runs, that `region` (a runtime `while`, a fn
+/// literal) runs more than once. A write the region makes ABOVE a copy in it
+/// runs again after the copy on the next iteration or call, so the
+/// written-after guard counts it as after the copy whenever the copy
+/// outlives one run of the region
+/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
+/// One span per module the region's tokens come from: a `for`'s expansion
+/// mixes the prelude's template tokens with the body's own.
+record_copy_loop :: (fn(region : &AstExpr) -> unit)({
+  if(!g_migrate_explicit_copy, {
+    return(());
+  });
+  if(!g_copy_loop_ids.with_mut(s => s.insert(ast_expr_id(region))), {
+    return(());
+  });
+  heads := ArrayList(Token).new();
+  los := ArrayList(u32).new();
+  his := ArrayList(u32).new();
+  stack := ArrayList(AstExpr).new();
+  stack.push(region.clone());
+  while(stack.len() > usize(0), {
+    e := match(stack.pop(), .Some(x) => x, .None => make_err_expr());
+    tok := ast_expr_token(&e);
+    (gi : usize) = usize(0);
+    (searching : bool) = true;
+    while(searching && (gi < heads.len()), {
+      if(heads(gi).module_path == tok.module_path, {
+        searching = false;
+      }, {
+        gi = (gi + usize(1));
+      });
+    });
+    if(searching, {
+      heads.push(tok.clone());
+      los.push(tok.byte_offset);
+      his.push(tok.byte_offset);
+    }, {
+      if(tok.byte_offset < los(gi), {
+        los(gi) = tok.byte_offset;
+      });
+      if(tok.byte_offset > his(gi), {
+        his(gi) = tok.byte_offset;
+      });
+    });
+    match(
+      e,
+      .FnCall(_, callee, args, _, _) => {
+        stack.push(callee);
+        (k : usize) = usize(0);
+        while(k < args.len(), k = (k + usize(1)), {
+          stack.push(args(k));
+        });
+      },
+      .Atom(_, _) => ()
+    );
+  });
+  (hk : usize) = usize(0);
+  while(hk < heads.len(), hk = (hk + usize(1)), {
+    g_copy_loops.with_mut(xs => xs.push(CopyLoop(at_module : canonical_module_path(&heads(hk).module_path.*), start : los(hk), end : his(hk))));
+  });
+});
+take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
+  out := g_copy_loops.with_mut(xs => xs.split_off(usize(0)));
+  g_copy_loop_ids.with_mut(s => s.clear());
+  out
+});
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.

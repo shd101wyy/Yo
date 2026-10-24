@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 }
 :: import("../../expr.yo");
 { record_borrow_param_migration, migrate_param_modes_on, ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, adopt_receiver_struct_instance, some_resolution, lookup_trait_ctor_fid, lookup_trait_type_args } :: import("../../expr_info.yo");
-{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames, env_adopt, synthetic_token } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
@@ -364,6 +364,50 @@ copy_func_param_comptime :: (fn(from_id : &String, to_id : &String) -> unit)({
     },
     .None => ()
   );
+});
+// Side-table: each parameter's DECLARATION TOKEN (the identifier its label
+// is spelled with in the fn literal, `_fn_literal_param_tokens`), keyed by
+// FuncVal id. The def-time body env binds a parameter with it; a function
+// whose body is deferred to its calls (`generic`/`comptime` parameters) is
+// bound again at each call (`check_if_function_parameter_matches_argument`,
+// `create_specialized_function_inline`, the runtime FuncVal call), and those
+// binders read it here, so a parameter's `Variable.token` names its own
+// declaration there too. The interned `synthetic_token` sits at row 0,
+// column 0 for every name in a module: `yo lsp` answered references on such
+// a parameter with every same-named parameter's uses
+// (issues/fixed/2026-10-24-lsp-references-of-a-parameter-match-every-same-named-parameter-of-the-module.md).
+// Sparse: registered only for a deferred body.
+(g_func_param_decl_tokens : RefCell(HashMap(String, ArrayList(Token)))) = RefCell(HashMap(String, ArrayList(Token))).new(HashMap(String, ArrayList(Token)).new());
+register_func_param_decl_tokens :: (fn(func_id : &String, tokens : &ArrayList(Token)) -> unit)({
+  if(tokens.len() > usize(0), {
+    record_owned_func_id(func_id.clone());
+    g_func_param_decl_tokens.with_mut(m => m.insert(func_id, tokens));
+  });
+});
+copy_func_param_decl_tokens :: (fn(from_id : &String, to_id : &String) -> unit)({
+  match(
+    g_func_param_decl_tokens.with(m => m.get(from_id.clone())),
+    .Some(toks) => {
+      g_func_param_decl_tokens.with_mut(m => m.insert(to_id.clone(), toks));
+    },
+    .None => ()
+  );
+});
+get_func_param_decl_tokens :: (fn(func_id : &String) -> ArrayList(Token))(
+  match(g_func_param_decl_tokens.with(m => m.get(func_id.clone())), .Some(t) => t, .None => ArrayList(Token).new())
+);
+/// The declaration token of the parameter `label` among `tokens`
+/// (`get_func_param_decl_tokens`), or the interned `synthetic_token` in
+/// `module_path` when its declaration is not known.
+func_param_decl_token :: (fn(tokens : &ArrayList(Token), label : &String, module_path : &String) -> Token)({
+  (ti : usize) = usize(0);
+  while(ti < tokens.len(), ti = (ti + usize(1)), {
+    t := tokens(ti);
+    if(t.value == label, {
+      return(t);
+    });
+  });
+  synthetic_token(label, module_path)
 });
 // Side-table: the declared RETURN TYPE EXPRESSION (the normalized `-> RET`
 // AST), keyed/copied like the defaults (fn-type-expr id → FuncVal id).
@@ -5407,6 +5451,7 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
         _r14 := g_func_assumed_body.with_mut(m => m.remove(id.clone()));
         _r15 := g_func_refined_params.with_mut(m => m.remove(id.clone()));
         _r16 := g_func_return_label.with_mut(m => m.remove(id.clone()));
+        _r17 := g_func_param_decl_tokens.with_mut(m => m.remove(id.clone()));
       },
       .None => ()
     );
@@ -5415,7 +5460,7 @@ purge_function_side_tables :: (fn(ids : &ArrayList(String)) -> unit)({
 });
 export(evaluate_function_type, _resolve_some_types_deep);
 /// Total entries across the per-function side tables (the B2 plateau test's probe).
-function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(m => m.len()) + g_macro_return_is_unquote.with(m => m.len()) + g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()));
+function_side_table_entry_count :: (fn() -> usize)(g_macro_quoted_param_indices.with(m => m.len()) + g_macro_return_is_unquote.with(m => m.len()) + g_func_param_defaults.with(m => m.len()) + g_func_variadic_params.with(m => m.len()) + g_func_param_assigned_values.with(m => m.len()) + g_func_param_comptime.with(m => m.len()) + g_func_return_type_expr.with(m => m.len()) + g_func_param_default_exprs.with(m => m.len()) + g_func_param_type_exprs.with(m => m.len()) + g_func_where_constraints.with(m => m.len()) + g_func_where_clause_exprs.with(m => m.len()) + g_func_requires_exprs.with(m => m.len()) + g_func_ensures_exprs.with(m => m.len()) + g_func_decreases_expr.with(m => m.len()) + g_func_assumed_body.with(m => m.len()) + g_func_refined_params.with(m => m.len()) + g_func_return_label.with(m => m.len()) + g_func_param_decl_tokens.with(m => m.len()));
 export(purge_function_side_tables, function_side_table_entry_count);
 export(evaluate_function_parameters);
 export(apply_where_clause_constraints);
@@ -5441,6 +5486,10 @@ export(
   register_func_param_comptime,
   copy_func_param_comptime,
   get_func_param_comptime,
+  register_func_param_decl_tokens,
+  copy_func_param_decl_tokens,
+  get_func_param_decl_tokens,
+  func_param_decl_token,
   register_func_param_assigned_values,
   copy_func_param_assigned_values,
   get_func_param_assigned_values,

@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { unknown_field_message, unknown_field_code } :: import("../../types/utils.yo");
-{ is_valid_variable_name, strip_mut_marker } :: import("../utils.yo");
+{ is_valid_variable_name, strip_mut_marker, migrate_explicit_copy_on, _ic_decl_key, _ic_place_root_decl, record_copy_flow_decl } :: import("../utils.yo");
 { clone_value } :: import("../values/clone_value.yo");
 { Exception } :: import("std/error");
 { panic, assert } :: import("std/assert");
@@ -258,7 +258,12 @@ handle_member_destructuring :: (
     ctx : &EvalContext,
     is_compile_time_only : bool,
     is_destructuring_atom_variable : bool,
-    exn : Exception
+    exn : Exception,
+    /// The declaration key (`_ic_decl_key`) of the variable the right-hand
+    /// side is a place of, while `yo fix --migrate explicit-copy` runs: each
+    /// bound name records a flow from it (`record_copy_flow_decl`). Empty
+    /// otherwise.
+    (copy_src_decl : String) ?= String.new()
   ) -> DestructuringResult
 )({
   require_underscore := !is_tuple_type(rhs_type);
@@ -399,7 +404,7 @@ handle_member_destructuring :: (
           // An adopted C type is already bound under this name — leave it.
           if(!_is_adopted_extern_c_field(rhs_type, &fval_opt), {
             _reject_shadowing(env, flab.clone(), ast_expr_token(&lhs_field), ctx, exn);
-            add_variable_to_env(
+            _spread_added := add_variable_to_env(
               env,
               flab.clone(),
               &fty,
@@ -413,6 +418,8 @@ handle_member_destructuring :: (
               // is_implicit
               ast_expr_token(&lhs_field)
             );
+            spread_tok := ast_expr_token(&lhs_field);
+            record_copy_flow_decl(copy_src_decl.clone(), _ic_decl_key(&spread_tok), &spread_tok);
           });
         });
         j = (j + usize(1));
@@ -622,6 +629,12 @@ handle_member_destructuring :: (
               // is_implicit
               ast_expr_token(&var_tok_expr)
             );
+            // The bound name holds a part of the right-hand side's
+            // variable, sharing its buffer: a write through it is a write
+            // of that variable
+            // (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-pattern-binding.md).
+            bound_tok := ast_expr_token(&var_tok_expr);
+            record_copy_flow_decl(copy_src_decl.clone(), _ic_decl_key(&bound_tok), &bound_tok);
             // Patch is_created_from_destructuring_atom_variable.
             match(
               added_var_opt,
@@ -700,6 +713,9 @@ evaluate_destructuring_assignment :: (
   rhs_type := rhs_info.ty;
   rhs_value := rhs_info.value;
   is_rhs_atom := ast_expr_is_atom(rhs);
+  // `yo fix --migrate explicit-copy`: the variable the right-hand side is a
+  // place of. Each name bound below holds a part of it, sharing its buffer.
+  ds_src_decl := if(migrate_explicit_copy_on() && !is_compile_time_only, _ic_place_root_decl(rhs, env), String.new());
   // -------------------------------------------------------------------
   // Struct / union / module destructuring
   // -------------------------------------------------------------------
@@ -734,7 +750,8 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
-        exn
+        exn,
+        copy_src_decl : ds_src_decl.clone()
       )
     );
   });
@@ -759,7 +776,8 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
-        exn
+        exn,
+        copy_src_decl : ds_src_decl.clone()
       )
     );
   });
@@ -836,7 +854,8 @@ evaluate_destructuring_assignment :: (
         ctx,
         is_compile_time_only,
         is_rhs_atom,
-        exn
+        exn,
+        copy_src_decl : ds_src_decl.clone()
       )
     );
   });

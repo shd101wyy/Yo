@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids, rewrite_projection_tails } :: import("../../expr.yo");
-{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
+{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, register_func_param_decl_tokens, func_param_decl_token, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error, migrate_dyn_spelling_on } :: import("../../expr_info.yo");
 {
   Environment,
@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue, TypeValueNode, shared_list, no_types, no_labels } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
-{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text } :: import("../utils.yo");
+{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, projection_call_mode_of, local_borrow_place_text, record_copy_loop } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -717,19 +717,6 @@ _fn_literal_param_tokens :: (fn(fn_literal : &AstExpr) -> ArrayList(Token))({
   });
   out
 });
-/// The token of the parameter `label` among `tokens`
-/// (`_fn_literal_param_tokens`), or `synthetic_token` in `module_path` when the
-/// declaration was not found.
-_param_decl_token :: (fn(tokens : &ArrayList(Token), label : &String, module_path : &String) -> Token)({
-  (ti : usize) = usize(0);
-  while(ti < tokens.len(), ti = (ti + usize(1)), {
-    t := tokens(ti);
-    if(t.value == label, {
-      return(t);
-    });
-  });
-  synthetic_token(label, module_path)
-});
 _build_def_time_body_env :: (
   fn(
     caller_env : &Environment,
@@ -1060,7 +1047,7 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, _param_decl_token(param_decl_tokens, &pn, &caller_env.module_path.*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, func_param_decl_token(param_decl_tokens, &pn, &caller_env.module_path.*), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
     pi = (pi + usize(1));
   });
   fresh_env
@@ -1546,6 +1533,15 @@ Result type: ${type_to_string(&result_box)}`
       // random_id func_id and previously skipped registration — leaving
       // get_func_type → t_unit → a wrong `void f(void)` prototype.
       register_func_type(fn_val_id.clone(), function_type.clone());
+      // `yo fix --migrate explicit-copy`: a function runs again on its next
+      // call, after a copy it stored outside itself (`record_copy_loop`).
+      record_copy_loop(expr);
+      // A deferred body binds its parameters again at each call, with their
+      // declaration tokens (`register_func_param_decl_tokens`).
+      if(should_defer_ft, {
+        deferred_param_toks := _fn_literal_param_tokens(expr);
+        register_func_param_decl_tokens(&fn_val_id, &deferred_param_toks);
+      });
       // Re-key the per-parameter optional-flags side-table (registered by
       // `evaluate_function_type` under the `fn(...)` type-expression id)
       // under this FuncVal's id, which is what the call site sees. The

@@ -93,6 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
+{ migrate_explicit_copy_on, _ic_decl_key, _ic_place_root_decl, record_copy_flow_decl } :: import("../utils.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut } :: import("../utils.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies } :: import("./begin.yo");
@@ -1067,6 +1068,10 @@ evaluate_match :: (
   match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn);
   consuming := (match_mode == MATCH_MODE_CONSUME);
   mut_places := (match_mode == MATCH_MODE_MUT);
+  // `yo fix --migrate explicit-copy`: the variable the scrutinee is a place
+  // of (`_ic_place_root_decl`). An arm's binding holds a part of it, sharing
+  // its buffer, so the binding records a flow from it below.
+  scr_copy_root := if(migrate_explicit_copy_on(), _ic_place_root_decl(&scrutinee_expr, &env), String.new());
   // Decision 47 step 2: a `&mut` scrutinee lends its place exclusively, so
   // the binding at its root needs `mut(name)`.
   if(mut_places, {
@@ -1247,6 +1252,19 @@ evaluate_match :: (
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
           // A `mut(name)` pattern binding may be reassigned (decision 47).
           b_tok := ast_expr_token(&b.atom);
+          // A binding into the scrutinee's variable shares that variable's
+          // buffer, so a write through the binding is a write of the
+          // variable (`record_copy_flow_decl`). A `&mut` match's binding is
+          // the scrutinee's place itself, so a value stored through it is
+          // stored in the variable too: the flow runs both ways
+          // (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-pattern-binding.md).
+          if(!scr_copy_root.is_empty() && !ct_known, {
+            b_copy_key := _ic_decl_key(&b_tok);
+            record_copy_flow_decl(scr_copy_root.clone(), b_copy_key.clone(), &b_tok);
+            if(mut_places, {
+              record_copy_flow_decl(b_copy_key, scr_copy_root.clone(), &b_tok);
+            });
+          });
           if(is_mut_binding(&b_tok, &b.name), {
             match(
               _added,

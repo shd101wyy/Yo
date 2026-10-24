@@ -70,6 +70,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_param_type_exprs,
   copy_func_param_comptime,
   get_func_param_comptime,
+  register_func_param_decl_tokens,
   copy_func_param_assigned_values,
   copy_func_return_type_expr,
   copy_func_variadic_param,
@@ -143,7 +144,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, _ic_decl_key, record_copy_flow_decl, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -326,6 +327,22 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
       ),
       .FnCall(_, _, _, _, _) => fallback.clone()
     )
+  )
+);
+/// The token of the identifier `name` is spelled with in the parameter
+/// expression `param_expr` (`x`, `x : T`, `__yo_imm(x) : T`), or none.
+_param_name_token :: (fn(param_expr : &AstExpr, name : &String) -> Option(Token))(
+  match(
+    param_expr,
+    .Atom(_, ptok) => if(ptok.value == name, Option(Token).Some(ptok), Option(Token).None),
+    .FnCall(_, _, args, _, _) => {
+      (found : Option(Token)) = Option(Token).None;
+      (k : usize) = usize(0);
+      while((k < args.len()) && found.is_none(), k = (k + usize(1)), {
+        found = recur(&args(k), name);
+      });
+      found
+    }
   )
 );
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
@@ -1125,6 +1142,9 @@ evaluate_anonymous_function_implementation :: (
       )
     );
   });
+  // `yo fix --migrate explicit-copy`: a closure may be called again, after
+  // a copy it stored through a capture (`record_copy_loop`).
+  record_copy_loop(expr);
   param_decl := _get_arg(expr, usize(0));
   body_expr := _get_arg(expr, usize(1));
   // A capture list `{ … }(params) => body` (decision 35): the parser's
@@ -1601,9 +1621,12 @@ evaluate_anonymous_function_implementation :: (
               if(ce.is_borrow, {
                 cv.is_ref = true;
                 // A write through a `&mut` capture is a write of the
-                // captured variable (`record_copy_flow_decl`).
+                // captured variable (`record_copy_flow_decl`), and a value
+                // stored through it is stored in that variable: the two
+                // names are one place, so the flow runs both ways.
                 if(ce.is_mut && !ce.root_decl.is_empty(), {
                   record_copy_flow_decl(ce.root_decl.clone(), _ic_decl_key(&ce.label_tok), &ce.label_tok);
+                  record_copy_flow_decl(_ic_decl_key(&ce.label_tok), ce.root_decl.clone(), &ce.label_tok);
                 });
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id);
@@ -1746,6 +1769,9 @@ evaluate_anonymous_function_implementation :: (
   // The type each regular parameter is BOUND to in the body env (`rp_ty`
   // below): Channel 3's abstract test judges these, not the raw `param_types`.
   bound_param_types := ArrayList(TypeValue).new();
+  // Each parameter's declaration token, for a deferred body's call-time
+  // binding (`register_func_param_decl_tokens`).
+  closure_param_toks := ArrayList(Token).new();
   (rp_i : usize) = usize(0);
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
@@ -1791,6 +1817,7 @@ evaluate_anonymous_function_implementation :: (
     actual_param_labels.push(param_name.clone());
     bound_param_types.push(rp_ty.clone());
     rp_tok := ast_expr_token(&rpe);
+    match(_param_name_token(&rpe, &param_name), .Some(pn_tok) => closure_param_toks.push(pn_tok), .None => ());
     rp_v_opt := add_variable_to_env(
       env,
       &param_name,
@@ -2212,6 +2239,11 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // dropped).
   if(ctl_force && !propagate_def_time_errors(), {
     should_defer_body = false;
+  });
+  // A deferred body binds its parameters at each call, with their
+  // declaration tokens (`register_func_param_decl_tokens`).
+  if(should_defer_body, {
+    register_func_param_decl_tokens(&func_id, &closure_param_toks);
   });
   // The def-time evaluated body, kept for rule D1's reachability walk below.
   (anon_d1_body : Option(AstExpr)) = Option(AstExpr).None;
