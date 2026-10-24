@@ -19,6 +19,12 @@ tarc :: (fn(generic(V : Type), sink(v) : V) -> TArc(V))(TArc(V)(__yo_atomic_cell
 // `Deref`, as the prelude's cells do.
 impl(generic(T : Type), TRc(T), Deref(Target : T));
 impl(generic(T : Type), TArc(T), Deref(Target : T));
+/// Replaces the handle's cell: a write to the handle's own field `_cell`, not
+/// through the handle (V5's `make_mut` writes it), so it is not E0919, and
+/// the method-entry borrow assert reads the cell behind `h`.
+treset :: (fn(generic(V : Type), h : &mut TRc(V), sink(v) : V) -> unit)({
+  h._cell = __yo_cell(V)(v, .None);
+});
 /// A plain struct over an atomic cell is not a handle (decision D3: the
 /// non-handle atomic types are `struct`s, so their state is not a read-only
 /// payload).
@@ -26,4 +32,4 @@ TLocked :: (fn(comptime(V) : Type) -> comptime(Type))(
   struct(_cell : __yo_atomic_cell(V))
 );
 tlocked :: (fn(generic(V : Type), sink(v) : V) -> TLocked(V))(TLocked(V)(_cell : __yo_atomic_cell(V)(v, .None)));
-export(TRc, TArc, trc, tarc, TLocked, tlocked);
+export(TRc, TArc, trc, tarc, treset, TLocked, tlocked);
