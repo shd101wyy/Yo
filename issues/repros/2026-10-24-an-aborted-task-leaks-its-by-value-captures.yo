@@ -1,0 +1,19 @@
+{ println } :: import("std/fmt");
+{ yield } :: import("std/async");
+V :: struct(b : Box(i32));
+_task :: (fn(sink(v) : V, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ v }(io : Io) => {
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    println(`${v.b.*}`);
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  h := io.spawn(_task(V(b : box(i32(7))), io), io);
+  io.await(yield(io), io);
+  h.abort();
+  _r := h.await(io);
+  println("done");
+});
+export(main);

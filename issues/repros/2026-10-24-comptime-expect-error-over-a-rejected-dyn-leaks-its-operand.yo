@@ -1,0 +1,21 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+Src :: trait(get : (fn(self : &Self, io : Io) -> Impl(Future(usize, Io))));
+Mem :: ref(struct(data : ArrayList(u8)));
+impl(
+  Mem,
+  Src(
+    get : (fn(self : &Self, io : Io) -> Impl(Future(usize, Io)))(
+      io.async({ &self }(io : Io) => self.data.len())
+    )
+  )
+);
+_take :: (fn(r : Dyn(Src)) -> bool)(true);
+main :: (fn() -> unit)({
+  data := ArrayList(u8).new();
+  data.push(u8(1));
+  m := Mem(data : data);
+  comptime_expect_error(_take(dyn(m)), "cannot be made a");
+  println("done");
+});
+export(main);
