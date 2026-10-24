@@ -50,8 +50,7 @@ test("S1/S9/S10: a write through a cell handle is E0919", {
   comptime_expect_error(h.*.bump(), "read-only through the handle");
   comptime_expect_error(h.bump(), "read-only through the handle");
   comptime_expect_error(h.x = i32(3), "read-only through the handle");
-  // A safe file's local borrow names the payload's field through
-  // auto-dereference (a `*` hop in a local borrow is unsafe-only).
+  // Spelled through auto-dereference, as the S13 test below explains.
   comptime_expect_error({
     m := &mut h.x;
     ()
@@ -107,6 +106,9 @@ test("S3: Option of a cell handle keeps the one-pointer niche; of an atomic one,
   some := Option(TRc(i32)).Some(trc(i32(7)));
   assert(match(some, .Some(h) => (h.* == i32(7)), .None => false), "the payload through the folded Option");
 });
+// A safe file spells the borrow through auto-dereference: a written `*` hop
+// in a local borrow is rejected there for every handle
+// (issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md).
 test("S13: a borrow of a place in a handle's payload pins the cell", {
   h := trc(_p(i32(2)));
   {
