@@ -848,7 +848,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   tok := ast_expr_token(expr);
   // A move on a `break` path is the variable's move only up to its `break`
   // (`keep_break_path_moves`): the loop marks the value moved where it ends.
-  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false) || _is_kept_move_site(&v, &tok);
+  is_move := (match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false) || _is_kept_move_site(&v, &tok));
   if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
     return(sm_code);
   });
