@@ -2634,6 +2634,16 @@ test("s.push_string(&s) is E0910; a copy of s appends", {
   s.push_string(&t);
   assert(s == "abab", "a copy of itself appends");
 });
+// A `ref` root is outside the value-root rule, so a string can still be
+// pushed onto itself through one: `push_string` grows `self` before it reads
+// `other` (issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md).
+_StrCell :: ref(struct(s : String));
+test("a string pushed onto itself through a ref root appends a copy of itself", {
+  o := _StrCell(s : String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  o.s.push_string(&o.s);
+  t := String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+  assert(o.s == `${t}${t}`, "the argument is read after the write grew the buffer");
+});
 test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list", {
   s := String.from("xyz");
   l := s.to_bytes();

@@ -2,7 +2,7 @@
 
 **Severity:** S1: silently wrong result in safe code. `s.push_string(s)` appends garbage bytes instead of a second copy of `s`, and nothing reports it. The bytes come from the buffer `s` just released while growing.
 
-**Status: FIXED** in String S3a (`plans/STRING_VALUE_SEMANTICS.md` §0). `push_string` grows `self` before it reads `other`'s pointer. Test: `tests/string/string.test.yo`, "s.push_string(s) appends a copy of itself". Before the fix, with `push_string` as it is on develop, the test fails with exit code 6. It passes after the fix.
+**Status: FIXED** in String S3a (`plans/STRING_VALUE_SEMANTICS.md` §0). `push_string` grows `self` before it reads `other`'s pointer. Test: `tests/string/string.test.yo`, "a string pushed onto itself through a ref root appends a copy of itself" (until 2026-10-25 "s.push_string(s) appends a copy of itself", on a local; decision 28's value-root rule now makes that spelling E0910, so the regression runs through a `ref` root, which the rule does not cover). Before the fix, with `push_string` as it is on develop, the test fails with exit code 6. It passes after the fix.
 
 Found 2026-10-05, while reworking String S3 into S3a. The copy-on-write version of S3 had hidden the bug: its uniqueness step cloned the shared buffer before the write.
 

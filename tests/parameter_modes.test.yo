@@ -810,6 +810,22 @@ impl(
     self.n
   })
 );
+// A closure-valued field's call yields a temporary, which overlaps no
+// argument: lending it beside `&mut` of its holder, or using it as the
+// `&mut self` receiver beside `&` of its holder, passes.
+_PmCbHolder :: struct(n : i32, cb : Dyn(Fn(x : i32) -> i32));
+_pm_cb_apply :: (fn(p : &mut _PmCbHolder, k : &i32) -> i32)({
+  p.n = (p.n + k);
+  p.n
+});
+_PmMk :: struct(tag : i32, mk : Dyn(Fn(x : i32) -> _PmRes));
+impl(
+  _PmRes,
+  absorb_tag : (fn(self : &mut Self, h : &_PmMk) -> i32)({
+    self.n = (self.n + h.tag);
+    self.n
+  })
+);
 test("a `&mut` argument may not overlap another argument rooted at the same value", {
   comptime_expect_error({
     mut(a) := _PmRes(n : i32(1));
@@ -849,6 +865,10 @@ test("a `&mut` argument may not overlap another argument rooted at the same valu
   assert(_pm_peek(&a, _pm_peek(&a, i32(0))) == i32(6), "two `&` lends may overlap");
   c := _PmObj(n : i32(2));
   assert(c.absorb(&c) == i32(4), "a root that is a reference cell is decision 28's `Rc` arm, not this rule");
+  mut(cbh) := _PmCbHolder(n : i32(1), cb : dyn((x : i32) => (x + i32(1))));
+  assert(_pm_cb_apply(&mut cbh, &cbh.cb(i32(2))) == i32(4), "a closure field's call result is a temporary");
+  mkh := _PmMk(tag : i32(5), mk : dyn((x : i32) => _PmRes(n : x)));
+  assert(mkh.mk(i32(1)).absorb_tag(&mkh) == i32(6), "a receiver made by a closure field's call is a temporary");
 });
 
 // An operator whose method borrows its operands (Eq's and Ord's
