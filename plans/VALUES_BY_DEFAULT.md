@@ -746,7 +746,10 @@ cannot be copied.
       - a borrow of `h.*` pins the handle (the local-borrow pin), a future
         may hold a `&` place through it, the global-lend and `ref` argument
         checks and the method-entry borrow asserts treat it as a handle,
-        and the local-borrow place model leaves at it (`_lb_is_cell_type`);
+        the local-borrow place model leaves at it (`_lb_is_cell_type`), and
+        decision 47's walks (`place_root_binding`, `_place_root_variable`)
+        count `h.*` as a step through the handle, not a write of the
+        binding;
       - `dyn(h)` dispatches to the payload and is not boxed a second time; a
         `Dyn(…, Send)` takes only the atomic view; the wrappers, the
         vtable's retain/release and `downcast` read the cell behind the
@@ -761,7 +764,10 @@ cannot be copied.
       one test per predicate, and `tests/internal/types_guards.test.yo`
       covers the predicates on hand-built types. A test file cannot declare
       its own `Rc` (a prelude name cannot be shadowed), which is why the
-      recognition is by shape.
+      recognition is by shape. A safe file spells a local borrow of the
+      payload through auto-dereference (`&h.x`): a written `*` hop there is
+      rejected for every handle
+      (`issues/2026-10-24-a-local-borrow-through-a-written-rc-deref-is-rejected-as-a-pointer-dereference.md`).
     - **The private `_cell` shadows a payload field of the same name:**
       `w._cell` names the wrapper's field before auto-dereference runs. This
       is already true for `Box`, and E0405 rejects the access outside the
