@@ -488,60 +488,6 @@ _arg_fn_value_c_name :: (fn(key : ExprId, env : &Environment, name : &String, co
   m := vars.len();
   if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)), .Some(v) => match(v.value.get(usize(0)), .Some(val) => if(is_func_val(&val), match(val, .FuncVal(__fvd1, _) => fn_value_c_name(&__fvd1.*.func_id, &context.base), _ => Option(String).None), Option(String).None), .None => Option(String).None), .None => Option(String).None))
 });
-/// The func id of an atom argument naming a function: its ExprInfo value, else
-/// the last binding of its name (as `_arg_fn_value_c_name` reads it).
-_arg_atom_func_id :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
-  if(
-    !ast_expr_is_atom(arg),
-    Option(String).None,
-    match(
-      context.base.get_expr_info(arg),
-      .Some(aei) => match(
-        aei.value,
-        .Some(.FuncVal(__fva, _)) => Option(String).Some(__fva.*.func_id.clone()),
-        _ => match(
-          aei.variable_name,
-          .Some(vn) => {
-            vars := scope_variables(ast_expr_id(arg), &aei.env, &vn);
-            m := vars.len();
-            if(m == usize(0), Option(String).None, match(vars.get(m - usize(1)), .Some(v) => match(v.value.get(usize(0)), .Some(.FuncVal(__fvb, _)) => Option(String).Some(__fvb.*.func_id.clone()), _ => Option(String).None), .None => Option(String).None))
-          },
-          .None => Option(String).None
-        )
-      ),
-      .None => Option(String).None
-    )
-  )
-);
-/// The code of argument `arg`, generated as `code`, bound to a parameter of
-/// type `slot`. A function value comes out of `fn_value_c_name` as its
-/// erased-signature thunk, which is what a `fn(..) -> Impl(Future(T, E))`
-/// parameter spells. A SPECIALIZED callee's parameter (an
-/// `Impl(Fn(..) -> Impl(Future(..)))` or `generic(F : Type)` one, a generic
-/// container's element) instead carries the state machine the argument's own
-/// result resolved to, and the callee calls through that concrete type. When
-/// the slot spells the result exactly as the function's prototype does, the
-/// function itself is passed; any other `code` is returned unchanged
-/// (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
-_fn_value_arg_for_slot :: (fn(arg : &AstExpr, code : String, slot : Option(TypeValue), context : &FunctionGenerationContext) -> String)(
-  match(
-    _arg_atom_func_id(arg, context),
-    .None => code,
-    .Some(fid) => match(
-      slot,
-      .None => code,
-      .Some(st) => match(
-        resolve_some_type_to_concrete(&st),
-        Rc(.Func({ result : sr })) => match(
-          emitted_return_type_string(&fid, &context.base),
-          .Some(own) => if((get_type_string(&sr, &context.base) == own) && match(fn_value_c_name(&fid, &context.base), .Some(fv) => (fv == code), .None => false), match(_c_func_name(&fid, context), .Some(cn) => cn, .None => code), code),
-          .None => code
-        ),
-        _ => code
-      )
-    )
-  )
-);
 /// Whether the last binding for `name` (in node `key`'s recorded scope `env`)
 /// is compile-time-only.
 _last_is_comptime_only :: (fn(key : ExprId, env : &Environment, name : &String) -> bool)({
@@ -1709,7 +1655,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 dm_runtime.get(cmi),
                 .Some(a) => {
                   cm_arg_list.push({
-                    mc := _fn_value_arg_for_slot(&a, _dispatch_arg_code(&a, match(cm_abi_ptr.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context), cm_ptypes.get(cmi), context);
+                    mc := _dispatch_arg_code(&a, match(cm_abi_ptr.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1865,7 +1811,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 rm_runtime.get(rmi),
                 .Some(a) => {
                   rm_args.push({
-                    mc := _fn_value_arg_for_slot(&a, _dispatch_arg_code(&a, match(rm_abi_ptr.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context), rm_ptypes.get(rmi), context);
+                    mc := _dispatch_arg_code(&a, match(rm_abi_ptr.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -2432,7 +2378,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     match(
       runtime_args.get(ai),
       .Some(arg) => {
-        mc := _fn_value_arg_for_slot(&arg, _materialize_arg(&arg, pref, expr, indent.clone(), context), param_types.get(ai), context);
+        mc := _materialize_arg(&arg, pref, expr, indent.clone(), context);
         args.push(if((mc.len() == usize(0)) && has_slot, String.from("0"), mc));
       },
       .None => ()
@@ -2872,7 +2818,18 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           sig_fn,
           .Some(sf) => {
-            cast = `(${generate_function_prototype(&sf, String.from("(*)"), &context.base, Option(String).None, false)})`;
+            // The parameter's own declarator, except for a future result: a
+            // SPECIALIZED callee's parameter (`Impl(Fn(..) -> Impl(Future(..)))`,
+            // `generic(F : Type)`) carries the argument's resolved state
+            // machine, but the value passed in is `fn_value_c_name`'s
+            // erased-signature thunk, so it is called through the erased
+            // result like every other function pointer.
+            sig_ret_override := if(
+              ctl_generic_ret,
+              Option(String).None,
+              match(sf, Rc(.Func({ result : sfr })) => erased_future_result_type_string(&sfr, &context.base), _ => Option(String).None)
+            );
+            cast = `(${generate_function_prototype(&sf, String.from("(*)"), &context.base, sig_ret_override, false)})`;
           },
           .None => ()
         );

@@ -101,6 +101,21 @@ test("a function-typed local conditionally reassigned", {
   assert(a == i32(42), `expected 42, got ${a.to_string()}`);
   assert(b == i32(63), `expected 63, got ${b.to_string()}`);
 });
+// The two functions have different state machines: a sync future and a
+// `_state_t` that awaits. The local's C type names one of them.
+_fp_pick_shapes :: (fn(c : bool, io : Io) -> i32)({
+  (mut(h) : (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))) = _fp_awaiting;
+  if(c, {
+    h = _fp_twice;
+  });
+  io.await(h(i32(21), io), io)
+});
+test("a function-typed local reassigned between two state-machine shapes", {
+  a := _fp_pick_shapes(false, io);
+  b := _fp_pick_shapes(true, io);
+  assert(a == i32(43), `expected 43, got ${a.to_string()}`);
+  assert(b == i32(42), `expected 42, got ${b.to_string()}`);
+});
 // A body with an await is a full state machine (`_state_t`), not a sync future;
 // a delegate returns another async function's future and has no block of its own.
 _fp_awaiting :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
@@ -113,4 +128,20 @@ _fp_delegate :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(_fp_twice(x, io)
 test("an awaiting async function and a delegate through one function-typed parameter", {
   assert(_fp_run(_fp_awaiting, io) == i32(43), "awaiting function");
   assert(_fp_run(_fp_delegate, io) == i32(42), "delegate function");
+});
+// A SPECIALIZED callee's parameter (`Impl(Fn(..))`, `generic(F : Type)`)
+// is declared with the argument's own resolved state machine. The value passed
+// is still the erased-signature thunk, so the callee must call through the
+// erased result too, as must a caller of a function value a generic returns.
+_fp_run_impl :: (fn(f : Impl(Fn(x : i32, io : Io) -> Impl(Future(i32, Io))), io : Io) -> i32)(io.await(f(i32(21), io), io));
+_fp_run_generic :: (fn(generic(F : Type), f : F, io : Io) -> i32)(io.await(f(i32(21), io), io));
+_fp_id :: (fn(generic(F : Type), f : F) -> F)(f);
+test("an async function passed to a specialized higher-order callee", {
+  assert(_fp_run_impl(_fp_twice, io) == i32(42), "Impl(Fn) parameter, sync future");
+  assert(_fp_run_impl(_fp_awaiting, io) == i32(43), "Impl(Fn) parameter, awaiting function");
+  assert(_fp_run_generic(_fp_twice, io) == i32(42), "generic parameter, sync future");
+  assert(_fp_run_generic(_fp_plus, io) == i32(24), "generic parameter, second function");
+  g := _fp_id(_fp_twice);
+  r := io.await(g(i32(21), io), io);
+  assert(r == i32(42), `generic identity: expected 42, got ${r.to_string()}`);
 });
