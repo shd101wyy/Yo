@@ -25,9 +25,9 @@
 { generate_parallelism_runtime } :: import("../../src/codegen/parallelism/runtime.yo");
 { dispose_fn_thunk } :: import("../../src/codegen/functions/constructors.yo");
 { _emit_type_runtime_preamble } :: import("../../src/codegen/types/generation.yo");
-{ allocator_vtable_type_is_v2 } :: import("../../src/codegen/utils/index.yo");
+{ allocator_vtable_abi_version } :: import("../../src/codegen/utils/index.yo");
 { TypeValue, TypeValueNode, shared_list, no_types } :: import("../../src/types/definitions.yo");
-{ t_func_simple, t_usize, t_unit, t_ptr, t_void } :: import("../../src/types/creators.yo");
+{ t_func_simple, t_usize, t_ptr, t_void } :: import("../../src/types/creators.yo");
 { ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
 /// Build a fresh per-function generation context over an empty program,
@@ -210,25 +210,40 @@ emit_type_preamble :: (fn(alloc_abi_v2 : bool) -> String)({
   em := ctx.base.emitter;
   em.print()
 });
-/// A stand-in for std's `AllocatorVTable` whose `alloc` takes `arity`
-/// parameters (`ctx, size` = version 1, `ctx, size, align` = version 2).
-mk_vtable_type :: (fn(arity : usize) -> TypeValue)({
+/// A function type of `arity` pointer-sized parameters (the vtable slots'
+/// parameter types do not decide the version; their count does).
+mk_slot_type :: (fn(arity : usize) -> TypeValue)({
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   (mut(i) : usize) = usize(0);
   while(i < arity, {
-    labels.push(String.from(cond((i == usize(0)) => "ctx", (i == usize(1)) => "size", true => "align")));
-    types.push(cond((i == usize(0)) => t_ptr(&t_void()), true => t_usize()));
+    labels.push(`p${i.to_string()}`);
+    types.push(t_usize());
     i = (i + usize(1));
   });
-  alloc_ty := t_func_simple(labels, types, &t_ptr(&t_void()));
-  free_ty := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), &t_unit());
+  t_func_simple(labels, types, &t_ptr(&t_void()))
+});
+/// A stand-in for std's `AllocatorVTable` whose `alloc`, `realloc` and `free`
+/// take `alloc_n`, `realloc_n` and `free_n` parameters, declared in that
+/// order, or in the reverse order when `reversed`.
+mk_vtable_type :: (fn(alloc_n : usize, realloc_n : usize, free_n : usize, reversed : bool) -> TypeValue)({
   field_labels := ArrayList(String).new();
-  field_labels.push(String.from("free"));
-  field_labels.push(String.from("alloc"));
   field_types := ArrayList(TypeValue).new();
-  field_types.push(free_ty);
-  field_types.push(alloc_ty);
+  if(reversed, {
+    field_labels.push(String.from("free"));
+    field_types.push(mk_slot_type(free_n));
+    field_labels.push(String.from("realloc"));
+    field_types.push(mk_slot_type(realloc_n));
+    field_labels.push(String.from("alloc"));
+    field_types.push(mk_slot_type(alloc_n));
+  }, {
+    field_labels.push(String.from("alloc"));
+    field_types.push(mk_slot_type(alloc_n));
+    field_labels.push(String.from("realloc"));
+    field_types.push(mk_slot_type(realloc_n));
+    field_labels.push(String.from("free"));
+    field_types.push(mk_slot_type(free_n));
+  });
   rc(
     TypeValueNode.Struct(
       id : String.from("struct_decl_std__prelude_1_1"),
@@ -244,12 +259,17 @@ mk_vtable_type :: (fn(arity : usize) -> TypeValue)({
     )
   )
 });
-/// Pin: the switch is the arity of the `alloc` field, wherever it sits, and
-/// anything but a struct is version 1.
-test("the allocator interface version is read off AllocatorVTable.alloc's arity", {
-  assert(!allocator_vtable_type_is_v2(&mk_vtable_type(usize(2))), "alloc(ctx, size) is version 1");
-  assert(allocator_vtable_type_is_v2(&mk_vtable_type(usize(3))), "alloc(ctx, size, align) is version 2");
-  assert(!allocator_vtable_type_is_v2(&t_usize()), "a non-struct is version 1");
+/// Pin: the version is read off the whole vtable the runtime mirrors (field
+/// order and every slot's arity), and every other shape is 0, which
+/// `std_allocator_abi_is_v2` reports as an internal compiler error instead of
+/// silently emitting version 1.
+test("the allocator interface version is read off AllocatorVTable's shape", {
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(2), usize(3), usize(2), false)) == usize(1), "alloc(ctx, size), realloc(ctx, ptr, new_size), free(ctx, ptr) is version 1");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(4), false)) == usize(2), "the aligned alloc/realloc and the sized free are version 2");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(2), false)) == usize(0), "an aligned alloc with an unsized free is neither version");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(3), usize(4), false)) == usize(0), "an aligned alloc with version 1's realloc is neither version");
+  assert(allocator_vtable_abi_version(&mk_vtable_type(usize(3), usize(5), usize(4), true)) == usize(0), "the slots out of the runtime's field order are neither version");
+  assert(allocator_vtable_abi_version(&t_usize()) == usize(0), "a non-struct is neither version");
 });
 /// Pin: version 1 is today's runtime text, so a std that has not moved emits
 /// exactly the C it always did (the emit-diff gate of Generation A).
