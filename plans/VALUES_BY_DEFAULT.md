@@ -5361,10 +5361,10 @@ lands after V1 step 2, because its resource cells are the unique `Box`
     `ref` receiver is accepted (it was E0909, so a user `ref` reader could not
     call the now-borrowing `Reader` defaults;
     `issues/fixed/2026-10-24-a-borrowing-method-future-on-a-ref-receiver-is-rejected-as-a-cell-lend.md`).
-    Also open: `Thread(V).join()` on a move-only `V` (lookahead P1,
-    `issues/2026-10-24-thread-join-fails-on-a-move-only-result-type.md`) and an
-    aborted task's by-value captures, which now include resources moved into
-    a task (`issues/2026-10-24-an-aborted-task-never-drops-its-by-value-captures.md`).
+    `Thread(V).join()` on a move-only `V` works through the boxed state since
+    P1 (#1584). Also open: an aborted task's by-value captures, which now
+    include resources moved into a task
+    (`issues/2026-10-24-an-aborted-task-never-drops-its-by-value-captures.md`).
 - **Resources become move-only values.** Each resource of §2's third job
   becomes a value `struct` whose state lives in a move-only cell:
   `Mutex(T) :: struct(_cell : Box(_MutexState(T)))`, where `_MutexState`
