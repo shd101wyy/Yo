@@ -3305,8 +3305,8 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
   if(is_box_type(&t), {
     return(String.from("Rc"));
   });
-  // An atomic cell handle (`cell_handle_view`) is V5's `Arc`.
-  if(is_atomic_counted_handle_type(&t) && cell_handle_view(&t).is_some(), {
+  // Any other cell handle (`cell_handle_view`) is the atomic one, V5's `Arc`.
+  if(cell_handle_view(&t).is_some(), {
     return(String.from("Arc"));
   });
   match(

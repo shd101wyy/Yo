@@ -5,7 +5,7 @@ pragma(Pragma.SkipWasm32Wasi); // the atomic handle's thread test needs pthreads
 //! treats it as those cells by structure, so the wrappers of
 //! tests/fixtures/cell_handles.yo stand in for them here. This file is SAFE:
 //! E0919 and D3 must fire where user code runs.
-{ TRc, TArc, trc, tarc, TLocked, tlocked } :: import("./fixtures/cell_handles.yo");
+{ TRc, TArc, trc, tarc, treset, TLocked, tlocked } :: import("./fixtures/cell_handles.yo");
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
@@ -58,6 +58,14 @@ test("S1/S9/S10: a write through a cell handle is E0919", {
   }, "read-only through the handle");
   assert(h.*.x == i32(1), "nothing wrote the payload");
 });
+test("the handle's own field is not behind it: replacing the cell is no write through the handle", {
+  mut(h) := trc(i32(1));
+  g := h;
+  treset(&mut h, i32(5));
+  assert(h.* == i32(5), "the new cell");
+  assert(g.* == i32(1), "the old cell lives on in the other handle");
+  assert((ref_count(g) == usize(1)) && (ref_count(h) == usize(1)), "each cell has one handle");
+});
 _HoldsArc :: struct(a : TArc(_P));
 test("S11/S12: a write through an atomic cell handle is D3 in safe code", {
   a := tarc(_p(i32(1)));
@@ -77,6 +85,12 @@ test("S19: ref_count counts the handles, not the constant 1", {
   b := a;
   assert(ref_count(a) == usize(2), `two atomic handles: ${ref_count(a)}`);
   assert(b.* == i32(2), "the copy");
+});
+test("an atomic cell handle is shared with another thread", {
+  a := tarc(_Sq(s : i32(7)));
+  t := Thread(i32).spawn(io => a.s);
+  assert(t.join() == i32(7), "the worker read the payload");
+  assert(ref_count(a) == usize(1), `the worker's handle was released: ${ref_count(a)}`);
 });
 test("D3: a struct over an atomic cell is not a handle", {
   l := tlocked(i32(1));
