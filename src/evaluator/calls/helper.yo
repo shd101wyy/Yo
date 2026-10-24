@@ -1507,7 +1507,7 @@ check_if_function_parameter_matches_argument :: (
     /// The callee's parameter declaration tokens
     /// (`get_func_param_decl_tokens`): the parameter binds with its own,
     /// or with the interned `synthetic_token` when none is known.
-    (param_decl_tokens : ArrayList(Token)) ?= ArrayList(Token).new()
+    (param_decl_tokens : Option(ArrayList(Token))) ?= .None
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -1792,7 +1792,11 @@ ${ast_expr_to_string(&actual_arg)}`
     },
     .None => ()
   );
-  param_tok := func_param_decl_token(&param_decl_tokens, param_label, &callee_env_r.module_path.*);
+  param_tok := match(
+    param_decl_tokens,
+    .Some(pdt) => func_param_decl_token(&pdt, param_label, &callee_env_r.module_path.*),
+    .None => synthetic_token(param_label, &callee_env_r.module_path.*)
+  );
   // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T` flag —
   // exactly as the def-time body env binds it (function_type.yo's
   // `add_parameter_to_env(..., p_own, ...)`). The callee owns the reference an
@@ -8152,7 +8156,7 @@ try_to_call_function_with_arguments :: (
                 ctx,
                 &mut rt_args,
                 exn,
-                param_decl_tokens : call_param_decl_toks.clone()
+                param_decl_tokens : Option(ArrayList(Token)).Some(call_param_decl_toks.clone())
               );
               callee_env_m = dpr.callee_env;
               arg_vals.push(
@@ -8232,7 +8236,7 @@ try_to_call_function_with_arguments :: (
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
           _param_accepts_second_class(expr, &ptype, &ret_b, ft.len() > usize(0), ctx),
-          param_decl_tokens : call_param_decl_toks.clone()
+          param_decl_tokens : Option(ArrayList(Token)).Some(call_param_decl_toks.clone())
         );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {
