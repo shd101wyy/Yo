@@ -4,5 +4,8 @@
 # blocks. The test binary's stderr rides the runner's `-v` output with its
 # build chatter, so stdout keeps only the verdict lines and the leak counts
 # (not the allocation numbers, which move with the runtime).
+# Pin the verdict on: CI sets YO_TEST_LEAK_VERDICT=0 job-wide, and that
+# switch also turns off the debug allocator's verdict, which this case asserts.
+env=YO_TEST_LEAK_VERDICT=1
 stdout_keep_match=(✓ .*|✗ .*|Memory leak detected:|live at exit: [0-9]+ blocks / [0-9]+ bytes|[0-9]+ passed|[0-9]+ failed)
 timeout=600
