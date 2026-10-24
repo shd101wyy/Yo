@@ -1,0 +1,16 @@
+// issues/2026-10-24-a-generic-struct-naming-its-own-constructor-in-a-field-crashes-the-evaluator.md
+// Expected: prints false (or a diagnostic). Actual (v0.2.68 seed and develop
+// f1cfa553d): `yo check` and `yo compile` die with SIGSEGV (rc 139).
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+Link :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    value : T,
+    next : Option(*Link(T))
+  )
+);
+main :: (fn() -> unit)({
+  (x : Option(*Link(i32))) = .None;
+  println(&x.is_some());
+});
+export(main);

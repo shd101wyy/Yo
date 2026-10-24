@@ -1,0 +1,15 @@
+// issues/2026-10-24-an-enum-literal-argument-for-an-option-of-a-pointer-to-a-generic-parameter-is-rejected.md
+// Expected: prints 8 twice. Actual (v0.2.68 seed and develop f1cfa553d): E0601
+// `Incompatible types for field "value": Expected *(T), Given *(i64)` at the
+// first `.Some(px)`.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+only_opt :: (fn(generic(T : Type), n : Option(*T)) -> usize)(size_of(T));
+ptr_and_opt :: (fn(generic(T : Type), p : *T, n : Option(*T)) -> usize)(size_of(T));
+main :: (fn() -> unit)({
+  x := i64(3);
+  px := addr_of(x);
+  println(&only_opt(.Some(px)));
+  println(&ptr_and_opt(px, .Some(px)));
+});
+export(main);

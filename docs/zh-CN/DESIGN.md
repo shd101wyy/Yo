@@ -2975,7 +2975,11 @@ cond(
 
 ### LinkedList
 
-双向链表。
+双向链表。链表拥有自己的节点：每个元素内联存放在自己的堆节点里，节点之间用裸指针
+相连，因此链表自身的链接永远不会形成引用环；弹出一个只能移动（move-only）的元素时，
+元素被移出节点。迭代器记住它所在的节点：迭代器存活期间删除任何元素，都会让该迭代器
+的下一步 panic（`LinkedList: a node was removed while an iterator was live`），而不是
+读取已释放的节点。迭代过程中允许 push 和 insert。
 
 ```yo
 { LinkedList } :: import("std/collections/linked_list");
@@ -2990,7 +2994,7 @@ list.push_front(i32(0));
 
 printf("Length: %zu\n", list.len());
 
-// 访问前端和后端
+// front、back 和 get 复制出元素；没有元素时为 .None
 match(
   list.front(),
   .Some(v) => printf("Front: %d\n", v),
@@ -2998,55 +3002,46 @@ match(
 );
 
 match(
-  list.back(),
-  .Some(v) => printf("Back: %d\n", v),
-  .None => printf("List is empty\n")
+  list.get(usize(1)),
+  .Some(v) => printf("At index 1: %d\n", v),
+  .None => printf("Index out of bounds\n")
 );
 
-// 从前端和后端弹出
-match(
-  list.pop_front(),
-  .Some(v) => printf("Popped front: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
+// 从后端弹出
 match(
   list.pop_back(),
   .Some(v) => printf("Popped back: %d\n", v),
   .None => printf("List is empty\n")
 );
 
-// 通过索引获取
+// 按位置 insert 和 remove 会走到该索引，索引越界以 Result 报告
+// （ArrayList 对同样的错误会 panic）
 match(
-  list.get(usize(0)),
-  .Some(v) => printf("At index 0: %d\n", v),
-  .None => printf("Index out of bounds\n")
-);
-
-// 在索引位置插入
-match(
-  list.set(usize(1), i32(20)),
+  list.insert(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
-  .Error(err) => match(
-    err,
-    .IndexOutOfBounds => printf("Index out of bounds\n"),
-    .EmptyList => printf("List is empty\n")
-  )
+  .Err(_) => printf("Index out of bounds\n")
 );
 
-// 按索引删除 —— remove(idx) 直接返回被删除的元素，索引越界会 panic
-// （与 Index 实现的约定一致）；按范围删除并取回元素用
-// drain(start .. end)，它返回一个全新的 ArrayList。不消耗列表的迭代用
-// iter()，into_iter() 会转移列表所有权。
-removed := list.remove(usize(0));
-printf("Removed: %d\n", removed);
-drained := list.drain(usize(1) .. usize(3));
+match(
+  list.remove(usize(0)),
+  .Ok(v) => printf("Removed: %d\n", v),
+  .Err(_) => printf("Index out of bounds\n")
+);
 
-// 检查是否包含
+// 原地比较，检查是否包含
+twenty := i32(20);
 cond(
-  list.has(i32(20)) => printf("Contains 20\n"),
+  list.contains(&twenty) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
+
+// 按值迭代；for(&mut list, x => ...) 原地写入每个元素
+for(list.into_iter(), v => {
+  printf("%d\n", v);
+});
+for(&mut list, x => {
+  x = (x * i32(2));
+});
 
 // 反转链表
 list.reverse();

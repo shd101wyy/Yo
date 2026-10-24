@@ -1,0 +1,29 @@
+// issues/2026-10-24-a-generic-struct-naming-itself-through-a-raw-pointer-hides-the-impls-of-a-generic-holder.md
+// Expected: prints 0. Actual (v0.2.68 seed and develop f1cfa553d): E0610
+// `No method "new" on Holder(i32)`.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+Link :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    value : T,
+    next : Option(*Self)
+  )
+);
+Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      head : Option(*Link(T)),
+      length : usize
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  Holder(T),
+  new : (fn() -> Self)(Self(head : .None, length : usize(0)))
+);
+main :: (fn() -> unit)({
+  h := Holder(i32).new();
+  println(&h.length);
+});
+export(main);

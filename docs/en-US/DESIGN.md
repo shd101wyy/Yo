@@ -3107,7 +3107,13 @@ cond(
 
 ### LinkedList
 
-Doubly-linked list.
+Doubly-linked list. The list owns its nodes: each element lives inline in its
+own heap node, linked to its neighbours by raw pointers, so a list never forms
+a reference cycle through its own links, and popping a move-only element moves
+it out of its node. An iterator remembers the node it stands on: removing any
+element while an iterator is live makes that iterator's next step panic
+(`LinkedList: a node was removed while an iterator was live`) instead of
+reading a freed node. Pushing and inserting during an iteration are allowed.
 
 ```yo
 { LinkedList } :: import("std/collections/linked_list");
@@ -3122,7 +3128,7 @@ list.push_front(i32(0));
 
 printf("Length: %zu\n", list.len());
 
-// Access front and back
+// front, back and get copy the element out; .None when there is none
 match(
   list.front(),
   .Some(v) => printf("Front: %d\n", v),
@@ -3130,55 +3136,46 @@ match(
 );
 
 match(
-  list.back(),
-  .Some(v) => printf("Back: %d\n", v),
-  .None => printf("List is empty\n")
+  list.get(usize(1)),
+  .Some(v) => printf("At index 1: %d\n", v),
+  .None => printf("Index out of bounds\n")
 );
 
 // Pop from front and back
-match(
-  list.pop_front(),
-  .Some(v) => printf("Popped front: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
 match(
   list.pop_back(),
   .Some(v) => printf("Popped back: %d\n", v),
   .None => printf("List is empty\n")
 );
 
-// Get by index
-match(
-  list.get(usize(0)),
-  .Some(v) => printf("At index 0: %d\n", v),
-  .None => printf("Index out of bounds\n")
-);
-
-// Insert at index
+// Positional insert and remove walk to the index and report a bad index as a
+// Result (ArrayList panics on the same mistake)
 match(
   list.insert(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
-  .Error(err) => match(
-    err,
-    .IndexOutOfBounds => printf("Index out of bounds\n"),
-    .EmptyList => printf("List is empty\n")
-  )
+  .Err(_) => printf("Index out of bounds\n")
 );
 
-// Remove at index — remove(idx) returns the element directly and panics on
-// an out-of-bounds index (the Index impl's contract); a RANGE removal that
-// hands the elements back is drain(start .. end), which returns them as a
-// fresh ArrayList. Non-consuming iteration is iter(), into_iter() moves.
-removed := list.remove(usize(0));
-printf("Removed: %d\n", removed);
-drained := list.drain(usize(1) .. usize(3));
+match(
+  list.remove(usize(0)),
+  .Ok(v) => printf("Removed: %d\n", v),
+  .Err(_) => printf("Index out of bounds\n")
+);
 
-// Check if has
+// Membership compares in place
+twenty := i32(20);
 cond(
-  list.contains(i32(20)) => printf("Contains 20\n"),
+  list.contains(&twenty) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
+
+// Iterate by value; for(&mut list, x => ...) writes each element in place
+for(list.into_iter(), v => {
+  printf("%d\n", v);
+});
+for(&mut list, x => {
+  x = (x * i32(2));
+});
 
 // Reverse the list
 list.reverse();
