@@ -30,14 +30,22 @@ count is right.
 
 ## Scope, as measured at the fix
 
-Every exit that can run in the loop body on an iteration that did not take
-the moving `break` arm, and lies after that arm in the source, skipped the
-drop: a `return` (the body's last statement or not, after a `continue`, in an
-inner loop whose `break` moves the value), an effect escape (`unwind` from a
-handler) later in the body, a `return` between two moving `break`s, and the
-same shapes inside an `io.async` body across an await. An exit before the
-moving arm, an exit inside the moving arm after the move, and a branch with
-no loop were already correct.
+Every exit that lies after the move in the source but is not on the move's
+path skipped the drop, as long as a `break` moves the value out of the loop:
+
+- a `return` after an arm that moves and `break`s (the body's last statement
+  or not, after a `continue`, between two moving `break`s, in an inner loop
+  whose `break` moves the value);
+- an effect escape (`unwind` from a handler) later in the body;
+- a `return` in a sibling arm after the moving one (`if(c, { take(f); … },
+  { return(…); })`, `match(k, 1 => { take(f); }, _ => { return(…); })`, an
+  arm that holds an inner loop that moves the value);
+- a `return` in the arm that keeps the value of a later branch whose other
+  arm moves it;
+- the same shapes inside an `io.async` body across an await.
+
+An exit before the move and an exit on the move's own path were already
+correct, and so was a branch with no loop.
 
 ## Root cause
 
@@ -61,8 +69,8 @@ join never did.
 
 ## Fix
 
-The loop join works like the branch join (`src/evaluator/utils.yo`,
-`src/evaluator/exprs/begin.yo`, `src/evaluator/exprs/while.yo`):
+The loop join works like the branch join (`check_loop_flow`,
+`src/evaluator/utils.yo`; `src/evaluator/exprs/while.yo` passes it the loop):
 
 - A value live when the loop began and moved on every way out of it
   (`pre` is none, no live exit) is marked moved just past the loop's last
@@ -70,12 +78,17 @@ The loop join works like the branch join (`src/evaluator/utils.yo`,
   the body's last statement has the loop's last token as its cleanup point.
   The user's move stays the "value moved here" note of a later E0901
   (`variable_note_arm_move`).
-- At each `break`, each move the path made since the loop began, of a value
-  declared outside the loop and live at entry, is kept as an `UndoneMove`
-  window from the move to the `break` (`keep_break_path_moves`). That keeps
-  the exits on the break path itself correct: a straight-line
-  `take(f); escape; break;` and a `return` after the move in the moving arm
-  still drop nothing.
+- A move made inside an arm that leaves the loop is already kept by the
+  branch join as a window over that arm (`UndoneMove`). A move the body's
+  end still shows (the body never completes, so every path after it leaves
+  the loop) is kept from the move to the end of the loop, along the paths
+  after it only (`_keep_body_end_move`): the window enters each branch that
+  holds the move and covers the arm holding it, then the code after the
+  branch. That keeps `take(f); if(c, { break; }, { return(…); })` and
+  `take(f); maybe_raise(); break;` from dropping the moved value again. A
+  join's end token is located by the move a user wrote
+  (`variable_move_note`), so a nested loop's end, which no arm span holds,
+  still enters its branch.
 - Codegen's task-slot move (`_sm_consuming_read`, `src/codegen/exprs/atom.yo`)
   treats a read at a kept window's move site as a move too
   (`_is_kept_move_site`). Without it, a `break`-path move inside an
@@ -89,9 +102,9 @@ The readers are unchanged: they still consult `consumed_at_token` and
 
 ## Test
 
-`tests/move_only.test.yo`: "an exit before a loop's `break` path moves the
-local drops it" (the repro's two functions plus the escape, nested-loop, two-
-break, `continue` and not-last shapes, and the exits on the break path that
-must drop nothing) and "in an io.async loop, a `return` before the `break`
+`tests/move_only.test.yo`: "a move on a loop's `break` path stands only on
+the paths after it" (the repro's two functions plus the escape, nested-loop,
+two-break, `continue`, not-last, sibling-arm and keeping-arm shapes, and the
+exits on the move's own path that must drop nothing) and "in an io.async loop, a `return` before the `break`
 path moves a slot local drops it". Both fail on develop `48b8e93a1` and pass
 with the fix. The repro prints `made=2 drops=2`.
