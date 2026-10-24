@@ -1,0 +1,10 @@
+// `runtime(e)` is the verifier's identity marker: the term of `runtime(e)`
+// is the term of `e` (src/verifier/vc.yo). A `while` condition needs no
+// marker (`loop_break.yo` walks a literal `true` head,
+// issues/fixed/2026-10-24-the-verifier-rejects-a-literal-true-while-condition.md);
+// this pins the identity rule in a value position.
+pragma(Pragma.Verify);
+
+pass_through :: (fn(x : i32, ensures(result == x)) -> (result : i32))(
+  runtime(x)
+);

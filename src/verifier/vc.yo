@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_to_string,
   make_err_expr
 } :: import("../expr.yo");
+{ TokenKind } :: import("../token.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
 { TypeValue, TypeValueNode, t_refine_inner, no_types, no_labels, SharedList } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
@@ -2018,7 +2019,15 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   // unification between a match-tail and a return-tail block is a unit
   // trap; see the V2 notes in issues/async-closure-*).
   if(ast_expr_is_atom(e), {
-    name := ast_expr_token(e).value;
+    tok := ast_expr_token(e);
+    // A boolean literal is its own constant. The evaluator leaves it
+    // unfolded where the position is runtime by definition — a `while`
+    // condition, so the infinite-loop head of `while(true, { … break … })`
+    // carries no comptime value — and the literal is no bound name.
+    if(tok.kind == TokenKind.Bool, {
+      return(Option(VcTerm).Some(rc(VcTermNode.BoolLit(tok.value == "true"))));
+    });
+    name := tok.value;
     return(
       match(
         ctx.vars.get(name.clone()),
