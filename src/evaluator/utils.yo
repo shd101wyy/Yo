@@ -2651,16 +2651,22 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// the source, so the rewrite expands the entry to `x : x.clone()` (a bare
 /// `{ x.clone() }` does not parse). Empty for every other copy.
 ///
-/// `ty_value` is the copied type itself. The listing asks it for `Clone`
-/// (`type_lacks_clone`) once the whole run is evaluated, not when the copy
-/// is recorded: impls register in evaluation order, so a copy that a body
-/// makes before its module reaches the type's `Clone` impl (`String.split`
-/// pushing `self`, `std/string/string.yo`, whose impl is ~2,700 lines below)
-/// would otherwise look clone-less. A copy of a type without `Clone` (a
-/// `StringBuilder` or a `HeaderMap` before B11 derives one, a collection of
-/// such elements) is still E0901 under unique buffers, and no `.clone()`
-/// spells it, so it is listed for a move or a borrow
+/// `ty_value` is the copied type itself, which the listing asks for `Clone`
+/// (`type_lacks_clone`) once the whole run is evaluated, and
+/// `lacks_clone_at_copy` the same question asked when the copy was
+/// recorded. A copy of a type without `Clone` at the end (a `StringBuilder`
+/// or a `HeaderMap` before B11 derives one, a collection of such elements)
+/// is still E0901 under unique buffers, and no `.clone()` spells it, so it
+/// is listed for a move or a borrow
 /// (issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md).
+/// Impls register in evaluation order, so the two answers differ for a copy
+/// a body makes above its type's `Clone` in the same module (`String.split`
+/// pushing `self`, `std/string/string.yo`, about 2,700 lines above the
+/// impl). Such a copy used to be dropped
+/// (issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md).
+/// It is listed instead of cloned: a `derive(T, Clone)` below the copy is not
+/// forced by the method lookup, so a `.clone()` written there would not
+/// resolve (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2676,7 +2682,8 @@ ExplicitCopySite :: struct(
   in_generic : bool,
   src_dying : String,
   capture_label : String,
-  ty_value : TypeValue
+  ty_value : TypeValue,
+  lacks_clone_at_copy : bool
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -3279,7 +3286,8 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// at a point where `.clone()` on the copied expression is the copy (not a
 /// capture, whose copy is made by the closure, and not a binding a macro
 /// wrote). A copy of a type without `Clone` is kept as well: the listing
-/// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated.
+/// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated
+/// (`ExplicitCopySite.lacks_clone_at_copy`).
 /// What a copy site carries for `yo fix --migrate explicit-copy`: the
 /// copied expression's FIRST token as written (`p` of `p.name`, whose own
 /// token is the `.`), where the rewrite finds it in the source, and the
@@ -3309,7 +3317,8 @@ _ic_migrate_site :: (
         in_generic : m.in_generic,
         src_dying : m.src_dying.clone(),
         capture_label : m.capture_label.clone(),
-        ty_value : ty.clone()
+        ty_value : ty.clone(),
+        lacks_clone_at_copy : type_lacks_clone(ty)
       )
     )
   )

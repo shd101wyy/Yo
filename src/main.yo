@@ -3362,6 +3362,16 @@ _run_migrate_explicit_copy :: (
         println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
         continue;
       });
+      // The type has `Clone` by the end of the run but not where the copy
+      // was evaluated: its impl or `derive` sits further down the module. A
+      // `derive` there is not forced by the `.clone()` lookup
+      // (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md),
+      // so the copy is listed rather than spelled.
+      if(st.lacks_clone_at_copy, {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied above the \`Clone\` of \`${st.ty}\` in its module, where a \`.clone()\` may not resolve; left as written (spell \`.clone()\` by hand, after moving a \`derive(..., Clone)\` above the copy)`);
+        continue;
+      });
       // A `return` of a place rooted in a borrow, a module-level binding or
       // a borrowed binding leaves its block sharing that root's buffer: a
       // write through it (by a caller, or through the binding an arm tail
