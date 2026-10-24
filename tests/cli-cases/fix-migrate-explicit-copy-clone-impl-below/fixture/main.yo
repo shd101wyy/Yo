@@ -1,0 +1,13 @@
+//! `Bag`'s `Clone` is derived below the function that copies a `Bag`. The
+//! copy is evaluated first, so a `Clone` question asked when it is recorded
+//! answers "no", and the copy was dropped from the migration. It is asked
+//! once the module is evaluated, so `c := b` is cloned.
+{ ArrayList } :: import("std/collections/array_list");
+Bag :: struct(items : ArrayList(i32), label : i32);
+count :: (fn(b : &Bag) -> usize)({
+  c := b;
+  c.items.len()
+});
+derive(Bag, Clone);
+main :: (fn() -> unit)(());
+export(main);

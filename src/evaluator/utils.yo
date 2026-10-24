@@ -2651,11 +2651,16 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// the source, so the rewrite expands the entry to `x : x.clone()` (a bare
 /// `{ x.clone() }` does not parse). Empty for every other copy.
 ///
-/// `lacks_clone` is set when the copied type has no `Clone` (a
+/// `ty_value` is the copied type itself. The listing asks it for `Clone`
+/// (`type_lacks_clone`) once the whole run is evaluated, not when the copy
+/// is recorded: impls register in evaluation order, so a copy that a body
+/// makes before its module reaches the type's `Clone` impl (`String.split`
+/// pushing `self`, `std/string/string.yo`, whose impl is ~2,700 lines below)
+/// would otherwise look clone-less. A copy of a type without `Clone` (a
 /// `StringBuilder` or a `HeaderMap` before B11 derives one, a collection of
-/// such elements). Unique buffers still make the copy E0901, and no
-/// `.clone()` can spell it, so the site is listed for a move or a borrow
-/// instead of being dropped from the listing.
+/// such elements) is still E0901 under unique buffers, and no `.clone()`
+/// spells it, so it is listed for a move or a borrow
+/// (issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2671,7 +2676,7 @@ ExplicitCopySite :: struct(
   in_generic : bool,
   src_dying : String,
   capture_label : String,
-  lacks_clone : bool
+  ty_value : TypeValue
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -3273,8 +3278,8 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// only a copy unique buffers turn into E0901 (`_ic_category_is_unique_buffer`)
 /// at a point where `.clone()` on the copied expression is the copy (not a
 /// capture, whose copy is made by the closure, and not a binding a macro
-/// wrote). A copy of a type without `Clone` is kept with `lacks_clone` set:
-/// no `.clone()` spells it, so it is listed for a hand edit.
+/// wrote). A copy of a type without `Clone` is kept as well: the listing
+/// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated.
 /// What a copy site carries for `yo fix --migrate explicit-copy`: the
 /// copied expression's FIRST token as written (`p` of `p.name`, whose own
 /// token is the `.`), where the rewrite finds it in the source, and the
@@ -3304,7 +3309,7 @@ _ic_migrate_site :: (
         in_generic : m.in_generic,
         src_dying : m.src_dying.clone(),
         capture_label : m.capture_label.clone(),
-        lacks_clone : type_lacks_clone(ty)
+        ty_value : ty.clone()
       )
     )
   )

@@ -1,0 +1,8 @@
+# `yo fix <path> --migrate explicit-copy` asks a copied type for `Clone` once
+# the run is evaluated, not when the copy is recorded
+# (issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md).
+# `count` copies a `Bag` above `derive(Bag, Clone)`. The copy used to be
+# dropped from the migration (neither cloned nor listed); it is cloned. The
+# trailing check proves main.yo still evaluates.
+stdout_keep=^fix:
+timeout=240

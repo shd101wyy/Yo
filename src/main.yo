@@ -173,7 +173,7 @@ json :: import("std/encoding/json");
 } :: import("./diagnostics_registry.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
-{ set_target_pointer_size } :: import("./types/utils.yo");
+{ set_target_pointer_size, type_lacks_clone } :: import("./types/utils.yo");
 { TypeValue, TypeValueNode, SharedList, no_types, no_labels } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
@@ -3336,7 +3336,7 @@ _run_migrate_explicit_copy :: (
           n_skipped = (n_skipped + usize(1));
           // A type without `Clone` cannot take `.clone()`: a value read
           // again is borrowed instead.
-          dying_hint := if(st.lacks_clone, String.from("borrow it by hand if the value is read again"), String.from("spell `.clone()` by hand if the value is read again"));
+          dying_hint := if(type_lacks_clone(&st.ty_value), String.from("borrow it by hand if the value is read again"), String.from("spell `.clone()` by hand if the value is read again"));
           println(`fix: ${at}: \`${st.expect}\` is ${what} that dies after the copy, so the copy is usually a move; left as written (${dying_hint})`);
           continue;
         },
@@ -3352,11 +3352,12 @@ _run_migrate_explicit_copy :: (
         println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where \`.clone()\` would demand \`Clone\` of every instantiation; left as written`);
         continue;
       });
-      // A copy of a type without `Clone` (`ExplicitCopySite.lacks_clone`):
-      // unique buffers still make it E0901, and no `.clone()` spells it. A
-      // generic body's copy is listed as one above: its type usually lacks
-      // `Clone` only because a parameter is open.
-      if(st.lacks_clone, {
+      // A copy of a type without `Clone`, asked now that every impl is
+      // registered (`ExplicitCopySite.ty_value`): unique buffers still make
+      // it E0901, and no `.clone()` spells it. A generic body's copy is
+      // listed as one above: its type usually lacks `Clone` only because a
+      // parameter is open.
+      if(type_lacks_clone(&st.ty_value), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
         continue;
