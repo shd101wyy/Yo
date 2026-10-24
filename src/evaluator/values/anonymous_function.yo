@@ -70,7 +70,6 @@ pragma(Pragma.AllowUnsafe);
   copy_func_param_type_exprs,
   copy_func_param_comptime,
   get_func_param_comptime,
-  register_func_param_decl_tokens,
   copy_func_param_assigned_values,
   copy_func_return_type_expr,
   copy_func_variadic_param,
@@ -327,22 +326,6 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
       ),
       .FnCall(_, _, _, _, _) => fallback.clone()
     )
-  )
-);
-/// The token of the identifier `name` is spelled with in the parameter
-/// expression `param_expr` (`x`, `x : T`, `__yo_imm(x) : T`), or none.
-_param_name_token :: (fn(param_expr : &AstExpr, name : &String) -> Option(Token))(
-  match(
-    param_expr,
-    .Atom(_, ptok) => if(ptok.value == name, Option(Token).Some(ptok), Option(Token).None),
-    .FnCall(_, _, args, _, _) => {
-      (found : Option(Token)) = Option(Token).None;
-      (k : usize) = usize(0);
-      while((k < args.len()) && found.is_none(), k = (k + usize(1)), {
-        found = recur(&args(k), name);
-      });
-      found
-    }
   )
 );
 /// Helper: build a Func TypeValue from a FnTraitT TypeValue.
@@ -1769,9 +1752,6 @@ evaluate_anonymous_function_implementation :: (
   // The type each regular parameter is BOUND to in the body env (`rp_ty`
   // below): Channel 3's abstract test judges these, not the raw `param_types`.
   bound_param_types := ArrayList(TypeValue).new();
-  // Each parameter's declaration token, for a deferred body's call-time
-  // binding (`register_func_param_decl_tokens`).
-  closure_param_toks := ArrayList(Token).new();
   (rp_i : usize) = usize(0);
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
@@ -1817,7 +1797,6 @@ evaluate_anonymous_function_implementation :: (
     actual_param_labels.push(param_name.clone());
     bound_param_types.push(rp_ty.clone());
     rp_tok := ast_expr_token(&rpe);
-    match(_param_name_token(&rpe, &param_name), .Some(pn_tok) => closure_param_toks.push(pn_tok), .None => ());
     rp_v_opt := add_variable_to_env(
       env,
       &param_name,
@@ -2239,11 +2218,6 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // dropped).
   if(ctl_force && !propagate_def_time_errors(), {
     should_defer_body = false;
-  });
-  // A deferred body binds its parameters at each call, with their
-  // declaration tokens (`register_func_param_decl_tokens`).
-  if(should_defer_body, {
-    register_func_param_decl_tokens(&func_id, &closure_param_toks);
   });
   // The def-time evaluated body, kept for rule D1's reachability walk below.
   (anon_d1_body : Option(AstExpr)) = Option(AstExpr).None;

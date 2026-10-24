@@ -43,24 +43,36 @@ identifier its label is spelled with in the fn literal's `fn(...) -> R`
 (`_fn_literal_param_tokens`). The fix and its scope are described in
 `issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md`.
 
-A function whose body is deferred to its calls (a `generic` or `comptime`
-parameter, or a closure with an untyped parameter) binds its parameters
-again at each call, and those binders used the synthetic token too
-(`check_if_function_parameter_matches_argument` and
-`create_specialized_function_inline` in `src/evaluator/calls/helper.yo`, the
-runtime FuncVal call in `src/evaluator/calls/function.yo`). A first version
-of this fix left them alone, and the review of B4-0a found references on
-`f`'s `x` in `f :: (fn(comptime(n) : usize, x : i32) -> i32)(x + i32(n))`
-still returning `g`'s `x`. A deferred function now registers its
-parameters' declaration tokens under its FuncVal id
-(`register_func_param_decl_tokens`, `src/evaluator/types/function.yo`; a
-closure's from `evaluate_anonymous_function_implementation`), and every
-call-time binder looks a parameter's token up there
-(`func_param_decl_token`). The interned token stays the fallback for a
-parameter with no written declaration.
+That covers a function whose body is evaluated at its definition. A body
+deferred to its calls (a `generic` or `comptime` parameter, a closure with
+an untyped parameter) has no ExprInfo on its atoms: a call evaluates a copy
+of it. `src/lsp/references.yo` kept such an atom by name, so the review of
+B4-0a found, for
 
-Tests: `tests/cli-cases/lsp-parameter-identity` runs the program above. References now
-answer `f`'s declaration (0:9) and use, definition answers 0:9, and the rename
-edits `g`'s declaration and use only.
-`tests/cli-cases/lsp-parameter-identity-deferred` runs the same requests on a
-`f` with a `comptime` parameter.
+```yo
+f :: (fn(comptime(n) : usize, x : i32) -> i32)(x + i32(n));
+g :: (fn(x : i32) -> i32)(x * i32(2));
+```
+
+references on `f`'s `x` (0:47) answering `g`'s declaration and use too,
+definition answering nothing, and a rename of `g`'s `x` rewriting `f`'s body
+but not `f`'s declaration. Calling `f` changes nothing, and neither would
+binding the call's parameters with their declaration tokens: the
+specialized copy's atoms are not the document's.
+
+An atom with no ExprInfo is now judged by its syntactic scope
+(`_scoped_atoms`, `src/lsp/references.yo`): the innermost fn literal or
+closure declaring the name as a parameter, the `match` arm whose pattern
+binds it, or a `name := v` above it in its block. References and rename
+drop it when that declaration is not the target's, a target in a deferred
+body takes its scope's declaration (`syntactic_decl_at`), and definition
+answers it (`handle_definition`, `src/lsp/definition.yo`). An atom no scope
+declares (a module-level name used in a deferred body) is still kept by
+name.
+
+Tests: `tests/cli-cases/lsp-parameter-identity` runs the first program above.
+References now answer `f`'s declaration (0:9) and use, definition answers
+0:9, and the rename edits `g`'s declaration and use only.
+`tests/cli-cases/lsp-parameter-identity-deferred` runs the second: references
+on `f`'s `x` answer 0:30 and 0:47, definition 0:30, and the rename of `g`'s
+`x` edits 1:9 and 1:26 only.

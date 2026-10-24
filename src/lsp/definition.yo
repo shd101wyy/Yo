@@ -49,6 +49,7 @@
   _select_best_variable
 } :: import("./hover.yo");
 { _receiver_at } :: import("./completion.yo");
+{ syntactic_decl_at } :: import("./references.yo");
 
 /// The lines of the file a definition token points into: the open document's
 /// own lines when it is this document, else the target module's current
@@ -816,7 +817,9 @@ handle_definition :: (
     expr_info_table_get(info_table, ast_expr_id(&expr)),
     .Some(i) => i,
     .None => {
-      return(Option(JsonValue).None);
+      // An atom the evaluator never reached (a deferred body): its
+      // syntactic scope's declaration (`syntactic_decl_at`).
+      return(match(syntactic_decl_at(exprs, &target), .Some(sd) => Option(JsonValue).Some(_location_of(&sd, doc_abs, lines)), .None => Option(JsonValue).None));
     }
   );
   vars := get_variables_from_env(&info.env, target.value.clone());
