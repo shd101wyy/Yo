@@ -1,0 +1,29 @@
+//! Cell handles: newtypes over the private cell primitives, the shape V5
+//! gives `Rc` and `Arc` (plans/VALUES_BY_DEFAULT.md §3.5, "V5's seed
+//! predicates"). The compiler recognizes the shape by structure
+//! (`cell_handle_view`, decision D1), so these test-local wrappers get the
+//! prelude cells' semantics without std: `h.*`, `ref_count`, the `Option`
+//! niche, the read-only payload (E0919, D3), `dyn` and auto-dereference.
+//! Only an unsafe-capable file can spell the field type; a safe file names
+//! the wrappers (tests/cell_handles.test.yo).
+pragma(Pragma.AllowUnsafe);
+TRc :: (fn(comptime(V) : Type) -> comptime(Type))(
+  newtype(_cell : __yo_cell(V))
+);
+TArc :: (fn(comptime(V) : Type) -> comptime(Type))(
+  newtype(_cell : __yo_atomic_cell(V))
+);
+trc :: (fn(generic(V : Type), sink(v) : V) -> TRc(V))(TRc(V)(__yo_cell(V)(v, .None)));
+tarc :: (fn(generic(V : Type), sink(v) : V) -> TArc(V))(TArc(V)(__yo_atomic_cell(V)(v, .None)));
+// Decision D2: a cell handle in an unsafe-capable file may implement
+// `Deref`, as the prelude's cells do.
+impl(generic(T : Type), TRc(T), Deref(Target : T));
+impl(generic(T : Type), TArc(T), Deref(Target : T));
+/// A plain struct over an atomic cell is not a handle (decision D3: the
+/// non-handle atomic types are `struct`s, so their state is not a read-only
+/// payload).
+TLocked :: (fn(comptime(V) : Type) -> comptime(Type))(
+  struct(_cell : __yo_atomic_cell(V))
+);
+tlocked :: (fn(generic(V : Type), sink(v) : V) -> TLocked(V))(TLocked(V)(_cell : __yo_atomic_cell(V)(v, .None)));
+export(TRc, TArc, trc, tarc, TLocked, tlocked);

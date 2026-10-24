@@ -13,7 +13,7 @@
 { AstExpr, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type } :: import("../../types/guards.yo");
+{ is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -465,11 +465,13 @@ generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &Fun
   arg_expr := match(_arg(expr, usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("ref_count requires exactly 1 argument"))));
   arg_type := _ty(&arg_expr, context);
   arg_code := _call_generate_expr(&arg_expr, indent.clone(), context);
+  // A cell handle (`cell_handle_view`) is counted by its cell, and its C
+  // value is the cell pointer, so the header read is the same.
   if(
-    is_rc_type(&arg_type),
+    is_rc_type(&arg_type) || cell_handle_view(&arg_type).is_some(),
     // Every handle whose count the RC ops update atomically (an atomic
-    // struct, an atomic enum) is read atomically too.
-    if(is_atomically_counted_rc_type(&arg_type), {
+    // struct, an atomic enum, an atomic cell handle) is read atomically too.
+    if(is_atomically_counted_rc_type(&arg_type) || is_atomic_counted_handle_type(&arg_type), {
       // `_Atomic uint32_t*`, NOT `size_t*`: `ref_count` is a `uint32_t` at offset 0
       // of `__yo_ref_header_t` (followed by `type_id` and `borrow_count`), so an
       // 8-byte atomic load reads those two fields into the high bits AND is only

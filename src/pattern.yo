@@ -21,7 +21,7 @@
 { Token } :: import("./token.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
-{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
+{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type, cell_handle_view } :: import("./types/guards.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
@@ -320,9 +320,10 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
 // ---------------------------------------------------------------------------
 /// A cell a wrapper pattern looks through (plans/VALUES_BY_DEFAULT.md
 /// decision 31): an `Rc(T)`, an `Arc(T)` (the atomic cell of the same
-/// one-field `*` shape), or a unique `Box(T)` (V1 step 2).
+/// one-field `*` shape), or a unique `Box(T)` (V1 step 2). A cell handle
+/// (`cell_handle_view`, V5's `Rc`/`Arc`) is one, atomic or not.
 is_pattern_cell_type :: (fn(t : &TypeValue) -> bool)(
-  is_box_type(t) || is_unique_box_type(t) || (is_atomic_reference_struct_type(t) && box_inner_type(t).is_some())
+  is_box_type(t) || is_unique_box_type(t) || (is_atomic_reference_struct_type(t) && box_inner_type(t).is_some()) || cell_handle_view(t).is_some()
 );
 /// The type a pattern at a position is compiled against: one pointer level
 /// and one `Rc(T)`/`Arc(T)` cell looked through, a leaked recursive-enum
@@ -346,14 +347,19 @@ _box_shaped :: (fn(fls : &ArrayList(String), fts : &ArrayList(TypeValue)) -> boo
   )
 );
 /// `Rc(T)` → `T` (the field the `*` label names), the unique `Box(T)` → `T`
-/// (its cell's pointee); anything else → `.None`.
+/// (its cell's pointee), a cell handle → its cell's payload
+/// (`cell_handle_view`); anything else → `.None`.
 /// NOTE: a case whose pattern carries a curly `{…}` destructuring cannot
 /// take a brace-block body (E0007) — the body stays an expression.
 box_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     unique_box_payload_type(t),
     .Some(p) => Option(TypeValue).Some(p),
-    .None => _rc_inner_type(t)
+    .None => match(
+      cell_handle_view(t),
+      .Some(v) => Option(TypeValue).Some(v.payload),
+      .None => _rc_inner_type(t)
+    )
   )
 );
 _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
@@ -1521,6 +1527,7 @@ _useful :: (
 _witness_cell_name :: (fn(t : &TypeValue) -> Option(String))({
   inner := match(t, Rc(.Pointer(p)) => p, _ => t);
   cond(
+    match(cell_handle_view(&inner), .Some(v) => v.is_atomic, .None => false) => Option(String).Some(String.from("Arc")),
     is_box_type(&inner) => Option(String).Some(String.from("Rc")),
     (is_atomic_reference_struct_type(&inner) && box_inner_type(&inner).is_some()) => Option(String).Some(String.from("Arc")),
     true => Option(String).None
@@ -2079,4 +2086,4 @@ export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, register_match_mod
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, is_pattern_cell_type, variant_field_types);
-export(box_inner_type, _struct_field_tys, _struct_field_labels, _tuple_elem_tys);
+export(box_inner_type, _witness_cell_name, _struct_field_tys, _struct_field_labels, _tuple_elem_tys);

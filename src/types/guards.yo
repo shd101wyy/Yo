@@ -450,11 +450,13 @@ _is_shared_cell_instance_name :: (fn(name : &String) -> bool)({
 /// stamped name is a shared-cell instance name and whose only field is
 /// labeled `*`. Used by RC and downcast codegen, and by the pattern compiler,
 /// to look through the cell.
+///
+/// A non-atomic cell handle (`cell_handle_view`, V5's `Rc`) is one too.
 is_box_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref })) => cond(
-      !is_ref => false,
+      !is_ref => match(cell_handle_view(t), .Some(v) => !v.is_atomic, .None => false),
       (field_labels.len() != usize(1)) => false,
       !_is_shared_cell_instance_name(&name) => false,
       true => match(
@@ -501,6 +503,57 @@ is_cell_primitive_type :: (fn(t : &TypeValue) -> bool)(
     Rc(.Struct({ constructor_func_id : cfid, is_reference_semantics : is_ref })) => (is_ref && ((cfid == BK_YO_CELL) || (cfid == BK_YO_ATOMIC_CELL))),
     _ => false
   )
+);
+/// A cell handle: what V5 makes `Rc` and `Arc` (plans/VALUES_BY_DEFAULT.md
+/// §3.5), a newtype whose one field `_cell` is a cell primitive
+/// (`newtype(_cell : __yo_cell(V))`, `newtype(_cell : __yo_atomic_cell(V))`).
+/// `cell` is the field's type, `payload` the cell's `V` (a self-shell is the
+/// caller's to resolve), `is_atomic` whether the cell is the atomic one.
+CellHandleView :: struct(cell : TypeValue, payload : TypeValue, is_atomic : bool);
+/// The cell-handle view of `t` (`CellHandleView`), `.None` for any other
+/// type. The recognition is by shape, not by name (V5 decision D1): only a
+/// `pragma(Pragma.AllowUnsafe)` file can spell a cell primitive, so any
+/// newtype over one is a shared, counted handle, and treating it as `Rc`
+/// (`Arc` for the atomic cell) is sound. Its C value is the cell pointer: a
+/// newtype lowers to its field.
+cell_handle_view :: (fn(t : &TypeValue) -> Option(CellHandleView))(
+  match(
+    t_refine_inner(t),
+    Rc(.Struct({ field_labels, field_types, is_reference_semantics : is_ref, is_newtype : is_nt })) => cond(
+      (is_ref || !is_nt) => .None,
+      (field_labels.len() != usize(1)) => .None,
+      !match(field_labels.get(usize(0)), .Some(l) => (l == "_cell"), .None => false) => .None,
+      true => match(
+        field_types.get(usize(0)),
+        .Some(cell) => cond(
+          !is_cell_primitive_type(&cell) => .None,
+          true => match(
+            t_refine_inner(&cell),
+            Rc(.Struct({ field_types : cell_fts, is_atomic_rc : cell_atomic })) => match(
+              cell_fts.get(usize(0)),
+              .Some(p) => .Some(CellHandleView(cell : cell, payload : p, is_atomic : cell_atomic)),
+              .None => .None
+            ),
+            _ => .None
+          )
+        ),
+        .None => .None
+      )
+    ),
+    _ => .None
+  )
+);
+/// A handle a place reaches its storage through: a `ref` object, an atomic
+/// object or a cell handle (`cell_handle_view`). The question the borrow
+/// pins, the future-lend and global-lend checks and the borrow asserts ask.
+is_counted_handle_type :: (fn(t : &TypeValue) -> bool)(
+  is_reference_struct_type(t) || is_atomic_reference_struct_type(t) || cell_handle_view(t).is_some()
+);
+/// A handle whose count other threads update: an atomic object, or a cell
+/// handle over the atomic cell (V5's `Arc`). D3 names such a handle, and its
+/// borrow counter is read atomically.
+is_atomic_counted_handle_type :: (fn(t : &TypeValue) -> bool)(
+  is_atomic_reference_struct_type(t) || match(cell_handle_view(t), .Some(v) => v.is_atomic, .None => false)
 );
 is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), Rc(.FnTraitT(base_name : _)) => true, _ => false)
@@ -870,7 +923,18 @@ is_function_specializable :: (fn(t : &TypeValue) -> bool)(false);
 // struct with exactly one field labeled `*` whose typeName is a shared-cell
 // instance name (`Rc(T)`: `shared_cell_names_at`), or an `Arc` of a
 // non-object.
+///
+/// A cell handle (`cell_handle_view`) is a box by the same rule: a
+/// non-atomic one always, an atomic one unless its payload is an object (a
+/// `ref` struct or enum, or another cell handle).
 is_boxed_type :: (fn(t : &TypeValue) -> bool)(
+  match(
+    cell_handle_view(t),
+    .Some(v) => (!v.is_atomic || !(is_reference_struct_type(&v.payload) || is_reference_enum_type(&v.payload) || cell_handle_view(&v.payload).is_some())),
+    .None => _is_boxed_cell_object_type(t)
+  )
+);
+_is_boxed_cell_object_type :: (fn(t : &TypeValue) -> bool)(
   if(
     !is_reference_struct_type(t),
     false,
@@ -902,6 +966,11 @@ _is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
     // A `Box` is a C-transparent newtype over its never-NULL cell pointer
     // (§3.2: `Option(Box(T))` keeps the one-pointer niche).
     is_unique_box_type(t) => true,
+    // So is a cell handle (`cell_handle_view`) over its cell: the non-atomic
+    // one folds as a `ref` object does, the atomic one stays tagged as an
+    // atomic object does. Only cell handles: another newtype over a pointer
+    // keeps its tagged layout.
+    cell_handle_view(t).is_some() => !is_atomic_counted_handle_type(t),
     is_atomic_reference_struct_type(t) => false,
     is_atomic_reference_enum_type(t) => false,
     is_reference_struct_type(t) => true,
@@ -1102,6 +1171,10 @@ export(
   is_str_type,
   is_box_type,
   is_cell_primitive_type,
+  CellHandleView,
+  cell_handle_view,
+  is_counted_handle_type,
+  is_atomic_counted_handle_type,
   unique_box_payload_type,
   is_unique_box_type,
   SharedCellNames,

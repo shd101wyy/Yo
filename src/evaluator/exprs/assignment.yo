@@ -59,7 +59,6 @@ pragma(Pragma.AllowUnsafe);
   is_comptime_int_type,
   is_comptime_float_type,
   is_comptime_string_type,
-  is_atomic_reference_struct_type,
   is_some_type,
   is_tuple_type,
   is_array_type,
@@ -69,7 +68,8 @@ pragma(Pragma.AllowUnsafe);
   is_reference_enum_type,
   is_function_type,
   is_function_type_generic,
-  type_decl_module
+  type_decl_module,
+  is_atomic_counted_handle_type
 } :: import("../../types/guards.yo");
 {
   convert_comptime_type_to_runtime_type,
@@ -1250,8 +1250,9 @@ get_atomic_object_root_type :: (
   if(is_some_type(&root_type), {
     root_type = get_value_of_some_type_from_env(env, &root_type);
   });
+  // An atomic cell handle (`cell_handle_view`, V5's `Arc`) is one too.
   if(
-    is_atomic_reference_struct_type(&root_type),
+    is_atomic_counted_handle_type(&root_type),
     Option(TypeValue).Some(root_type),
     Option(TypeValue).None
   )

@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_types, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module, unique_box_payload_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module, unique_box_payload_type, cell_handle_view } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -718,6 +718,52 @@ evaluate_property_access :: (
     match(
       obj_ty_deref,
       .Some(ot) => {
+        // `h.*` on a cell handle (`cell_handle_view`, V5's `Rc`/`Arc`) names
+        // its payload: the handle is a newtype over its cell, so this is the
+        // cell's `*` field, read through the handle's C value, the cell
+        // pointer. It is safe, and a run-time place as the old `Rc`'s `*`
+        // field is (a write there is E0919, `reject_write_through_rc`).
+        match(
+          cell_handle_view(&ot),
+          .Some(hv) => {
+            (hv_payload : TypeValue) = cond(
+              is_some_type(&hv.payload) => get_value_of_some_type_from_env(&env, &hv.payload),
+              true => hv.payload
+            );
+            hv_origin := match(
+              match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
+              .Some(o) => o,
+              .None => ot
+            );
+            hv_pc := build_field_path_collection(
+              match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
+              match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
+              &String.from("*")
+            );
+            out_hv := new_expr_info(&env, &hv_payload);
+            expr_info_set_origin_type(&out_hv, Option(TypeValue).Some(hv_origin));
+            out_hv.is_accessing_property = Option(bool).Some(true);
+            out_hv.path_collection = hv_pc;
+            // A compile-time handle is the handle's struct value over the
+            // cell's: the payload is the cell's field.
+            out_hv.value = match(
+              match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None),
+              .Some(.UnknownVal(_, hv_ro)) => Option(EvalValue).Some(if(hv_ro, create_runtime_unknown_val(&hv_payload), create_unknown_val(&hv_payload))),
+              .Some(.StructVal(_, _, hv_wf)) => match(
+                hv_wf.get(usize(0)),
+                .Some(.StructVal(_, _, hv_cf)) => match(hv_cf.get(usize(0)), .Some(hv_v) => Option(EvalValue).Some(hv_v), .None => Option(EvalValue).Some(create_unknown_val(&hv_payload))),
+                _ => Option(EvalValue).Some(create_unknown_val(&hv_payload))
+              ),
+              .Some(_) => Option(EvalValue).Some(create_unknown_val(&hv_payload)),
+              .None => Option(EvalValue).None
+            );
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_hv);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_hv);
+            attach_temp_variable_to_expr(expr, false, ctx);
+            return(expr);
+          },
+          .None => ()
+        );
         // `b.*` on the unique `Box` (V1 step 2) names its payload place: the
         // box is a newtype over its cell pointer, so this is that pointer's
         // dereference. It is safe: the box owns a live cell.

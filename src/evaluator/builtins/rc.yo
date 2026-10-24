@@ -17,7 +17,7 @@
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
-{ is_rc_type, is_unique_box_type } :: import("../../types/guards.yo");
+{ is_rc_type, is_unique_box_type, cell_handle_view } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -77,7 +77,9 @@ evaluate_ref_count :: (
   });
   cur_env := expr_info_adopt_env(&arg_info);
   out_info := new_expr_info(&cur_env, t_usize());
-  if(is_rc_type(&arg_info.ty), {
+  // A cell handle (`cell_handle_view`, V5's `Rc`/`Arc`) is counted by its
+  // cell: `is_rc_type` stays false for it, its copies being field-wise.
+  if(is_rc_type(&arg_info.ty) || cell_handle_view(&arg_info.ty).is_some(), {
     // RC type: count is only known at runtime → unknown value
     out_info.value = Option(EvalValue).None;
     attach_temp_variable_to_expr(expr, true, ctx);

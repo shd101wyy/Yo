@@ -48,7 +48,7 @@
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode, no_labels, SharedList } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
-{ is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type } :: import("../../types/guards.yo");
+{ is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1448,11 +1448,11 @@ compile_pattern :: (
         .Some(i) => resolve_enum_shell(&i),
         .None => cell_ty
       );
-      // A unique `Box`'s one field is its cell pointer, not the payload: its
-      // payload has no compile-time value here.
+      // A unique `Box`'s one field is its cell pointer, and a cell handle's
+      // its cell, not the payload: the payload has no compile-time value here.
       inner_val := match(
         value_opt,
-        .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(&cell_ty), Option(EvalValue).None, fvs.get(usize(0))),
+        .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(&cell_ty) || cell_handle_view(&cell_ty).is_some(), Option(EvalValue).None, fvs.get(usize(0))),
         .Some(_) => Option(EvalValue).None,
         .None => Option(EvalValue).None
       );
@@ -1482,11 +1482,11 @@ compile_pattern :: (
       .Some(i) => resolve_enum_shell(&i),
       .None => position_ty
     );
-    // A `Box`'s one field is its cell pointer, not the payload: its payload
-    // has no compile-time value here.
+    // A `Box`'s one field is its cell pointer, and a cell handle's its cell,
+    // not the payload: the payload has no compile-time value here.
     inner_val := match(
       value_opt,
-      .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(position_ty), Option(EvalValue).None, fvs.get(usize(0))),
+      .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(position_ty) || cell_handle_view(position_ty).is_some(), Option(EvalValue).None, fvs.get(usize(0))),
       .Some(_) => Option(EvalValue).None,
       .None => Option(EvalValue).None
     );
