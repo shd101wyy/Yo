@@ -739,7 +739,7 @@ test("Test a hand-written consumer loop over an empty stream", {
 test("Test a stream loop from main", {
   seen := ArrayList(i32).new();
   mut(s) := Countdown(_n : i32(3));
-  while(runtime(true), {
+  while(true, {
     n := io.await(s.next(io), io);
     match(
       n,
@@ -759,7 +759,7 @@ test("Test a stream loop inside a spawned task, with continue and break", {
   c := Countdown(_n : i32(6));
   task := io.async({ c, seen }(io : Io) => {
     mut(s) := c;
-    while(runtime(true), {
+    while(true, {
       n := io.await(s.next(io), io);
       match(
         n,
@@ -786,7 +786,7 @@ test("Test a stream loop inside a spawned task, with continue and break", {
 _first_even :: (fn(c : Countdown, io : Io) -> Impl(Future(i32, Io)))(
   io.async({ c }(io : Io) => {
     mut(s) := c;
-    while(runtime(true), {
+    while(true, {
       n := io.await(s.next(io), io);
       match(
         n,
@@ -834,7 +834,7 @@ test("Test a stream loop suspends its task between items", {
   t := Ticker(_n : i32(3));
   task := io.async({ t, seen, ticks }(io : Io) => {
     mut(s) := t;
-    while(runtime(true), {
+    while(true, {
       n := io.await(s.next(io), io);
       match(
         n,

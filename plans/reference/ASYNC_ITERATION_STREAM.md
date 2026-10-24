@@ -142,7 +142,7 @@ still broken there, so `flat_map` should be LAST).
 >
 > ```yo ignore
 > mut(s) := stream;
-> while(runtime(true), {
+> while(true, {
 >   n := io.await(s.next(io), io);
 >   match(n, .Some(x) => body, .None => { break; })
 > });

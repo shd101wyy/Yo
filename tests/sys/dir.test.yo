@@ -234,7 +234,7 @@ test("async getdents lists directory entries", {
   mut(entry_count) := i32(0);
   mut(dir_count) := i32(0);
   mut(file_count) := i32(0);
-  while(runtime(true), {
+  while(true, {
     n := io.await(dir.getdents(dir_fd, buf, u32(4096)), io);
     unsafe(printf("  getdents = %d\n", n));
     cond(
@@ -243,7 +243,7 @@ test("async getdents lists directory entries", {
       },
       true => {
         mut(offset) := u32(0);
-        while(runtime(true), {
+        while(true, {
           cond(
             (offset >= u32(n)) => {
               break;

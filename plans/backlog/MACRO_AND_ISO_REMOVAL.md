@@ -572,7 +572,7 @@ Part C deletes the macros.
     name, element name, loop node id) for the begin node it emits, and
     `_for_term` keys on that record instead of the `for` head; or
   - **shape recognition**: `_for_term` matches
-    `begin(it := xs.into_iter(); while(runtime(true), { [invariant(...)]; tmp := it.next(); match(...) }))`
+    `begin(it := xs.into_iter(); while(true, { [invariant(...)]; tmp := it.next(); match(...) }))`
     directly.
 
   Either way the invariant-hoist form must verify as it does today
@@ -593,7 +593,7 @@ Part C deletes the macros.
   (its whole bug history), so the macro, its export and
   `std/async/stream.yo`'s `pragma(Pragma.AllowMacroDef)` went, with no
   replacement name. Every caller was rewritten to
-  `mut(s) := stream; while(runtime(true), { n := io.await(s.next(io), io); match(n, .Some(x) => body, .None => { break; }) });`
+  `mut(s) := stream; while(true, { n := io.await(s.next(io), io); match(n, .Some(x) => body, .None => { break; }) });`
   (the `mut` is decision 47's: `next` takes `self : &mut Self`; the macro's
   gensym local was std-token and exempt). The two E0911 cli-cases were kept
   as regressions of "a borrow / `mut` match place live across an await in a

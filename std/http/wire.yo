@@ -306,7 +306,7 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
   out := ArrayList(u8).new();
   n := body.len();
   i := body_start;
-  while(runtime(true), {
+  while(true, {
     // chunk-size: at least one hex digit, then optional ";ext" up to CRLF.
     size := usize(0);
     digits := usize(0);
@@ -348,7 +348,7 @@ dechunk :: (fn(body : &ArrayList(u8), body_start : usize) -> Dechunk)({
       (size == usize(0)) => {
         // Last chunk. Trailers (if any) run to an empty line; we need the
         // final CRLF to be present to call the body complete.
-        while(runtime(true), {
+        while(true, {
           cond(
             ((i + usize(1)) >= n) => {
               return(Dechunk.Incomplete);

@@ -1,5 +1,5 @@
 // The V4.2 break exit-path disjunction: the loop can only leave through
-// the break (the head cond is runtime(true) — the identity marker), and
+// the break (the head cond is the literal `true`), and
 // the break site's snapshot state — where the invariant gives i == n —
 // is one disjunct of the exit state. The bitvector bounds keep the
 // arithmetic overflow-free, as in loop_invariant.yo.
@@ -14,7 +14,7 @@ break_sum :: (
 )({
   mut(i) := i32(0);
   mut(acc) := i32(0);
-  while(runtime(true), {
+  while(true, {
     invariant(i >= i32(0), i <= n, acc == ((i * (i + i32(1))) / i32(2)));
     cond(
       (i == n) => {
