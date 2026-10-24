@@ -364,3 +364,74 @@ test("FnOnce: a consuming match moves the closure out of its holder and calls it
   assert(_fnonce_match_moves_out() == i32(6), "the arm called the moved-out closure");
   assert(g_once_disposed == (before + i32(1)), "its capture was released exactly once");
 });
+
+// --- a closure call inside an operand or receiver lends nothing of the closure ---
+// An unmarked lend (an operand `==` borrows, a `&Self` receiver) names a place
+// only for a name, field steps, dereferences and element reads; a closure
+// call's result is a temporary. Calling an `FnOnce` local there consumed it and
+// was reported as the same argument lending and moving it (E0910), and a later
+// argument moving an `Fn` closure was flagged the same way
+// (issues/fixed/2026-10-24-calling-an-fnonce-closure-is-a-false-e0910-after-the-receiver-exclusivity-extension.md).
+_once_eat_fn :: (fn(sink(g) : Impl(Fn(x : i32) -> i32)) -> i32)(g(i32(1)));
+_once_eat_dyn_fn :: (fn(sink(g) : Dyn(Fn(x : i32) -> i32)) -> i32)(g(i32(1)));
+_OnceSum :: struct(n : i32);
+impl(_OnceSum, plus : (fn(self : &Self, k : i32) -> i32)(self.n + k));
+_once_eat_mk :: (fn(sink(mk) : Impl(Fn(x : i32) -> _OnceSum)) -> i32)(mk(i32(0)).n);
+_OnceCbHolder :: struct(cb : Dyn(Fn(x : i32) -> i32));
+_once_eat_holder :: (fn(sink(h) : _OnceCbHolder) -> i32)(h.cb(i32(0)));
+_once_first :: (fn(sink(xs) : ArrayList(i32)) -> i32)(match(xs.get(usize(0)), .Some(v) => v, .None => i32(0)));
+test("FnOnce: a one-argument call of an FnOnce local is either operand of ==", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(5));
+    (f : Impl(FnOnce(go : bool) -> i32)) = ({ t }(go : bool) => _once_take(t));
+    assert(i32(5) == f(true), "the right operand consumed f");
+    u := _OnceTok(n : i32(6));
+    (d : Dyn(FnOnce(go : bool) -> i32)) = dyn({ u }(go : bool) => _once_take(u));
+    assert(d(true) == i32(6), "a Dyn(FnOnce) call as the left operand");
+    w := _OnceTok(n : i32(7));
+    (e : Dyn(FnOnce(go : bool) -> i32)) = dyn({ w }(go : bool) => _once_take(w));
+    assert(i32(7) == e(true), "a Dyn(FnOnce) call as the right operand");
+  };
+  assert(g_once_disposed == (before + i32(3)), "each capture disposed exactly once");
+});
+test("FnOnce: an Fn closure's call result is a temporary a later argument may move the closure past", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(2));
+    (g : Impl(Fn(x : i32) -> i32)) = ({ t }(x : i32) => (x + t.n));
+    assert(g(i32(1)) == _once_eat_fn(g), "the operand lends nothing of g");
+    u := _OnceTok(n : i32(3));
+    (dg : Dyn(Fn(x : i32) -> i32)) = dyn({ u }(x : i32) => (x + u.n));
+    assert(dg(i32(1)) == _once_eat_dyn_fn(dg), "the same through Dyn(Fn)");
+  };
+  assert(g_once_disposed == (before + i32(2)), "each moved closure released its capture once");
+});
+test("FnOnce: a closure call's result as a borrowed receiver lends nothing of the closure", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(4));
+    (mk : Impl(Fn(x : i32) -> _OnceSum)) = ({ t }(x : i32) => _OnceSum(n : (x + t.n)));
+    assert(mk(i32(1)).plus(_once_eat_mk(mk)) == i32(9), "5 + 4");
+    s := String.from("hello");
+    (cb : Impl(FnOnce(x : i32) -> String)) = ({ s }(x : i32) => s);
+    assert(cb(i32(1)).len() == usize(5), "an FnOnce call as a &Self receiver");
+  };
+  assert(g_once_disposed == (before + i32(1)), "mk's capture released once");
+});
+test("FnOnce: a closure field's call result is a temporary", {
+  before := g_once_disposed;
+  {
+    t := _OnceTok(n : i32(3));
+    h := _OnceCbHolder(cb : dyn({ t }(x : i32) => (x + t.n)));
+    assert(h.cb(i32(1)) == (i32(1) + _once_eat_holder(h)), "the operand lends nothing of h");
+  };
+  assert(g_once_disposed == (before + i32(1)), "the holder's closure released its capture once");
+});
+test("FnOnce: an element read as an operand still lends its container", {
+  comptime_expect_error({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    xs(usize(0)) == _once_first(xs)
+  }, "an earlier argument of the same call lends to it");
+});
