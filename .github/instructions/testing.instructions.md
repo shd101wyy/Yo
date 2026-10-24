@@ -474,12 +474,12 @@ while the tree was broken. Four classes of call site are structurally invisible:
 | macro `quote(...)` bodies | not evaluated until expansion, so nothing type-checks them at definition time |
 | generic trait-impl bodies | `check` never instantiates them (e.g. `FromIterator.from_iter_add`) |
 | generic helpers in the defining module | same — the six `result_set.add` sites inside hash_set's own set-ops |
-| **async closure bodies** (`io.async((e) => {...})`) | the evaluator's deferred trial SWALLOWS the error and codegen emits `// Failed to transpile` — **no error anywhere** |
+| **async closure bodies** (`io.async((e) => {...})`) | was: the evaluator's deferred trial SWALLOWED the error and codegen emitted `// Failed to transpile` — **no error anywhere**. Now `compile` and `check` both report it; only a body inside a GENERIC fn whose `io` is itself a type variable is still checked only at specialization |
 
-The last row is the dangerous one. A missed call in `std/fs/walker.yo`'s
+The last row was the dangerous one. A missed call in `std/fs/walker.yo`'s
 symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
 and both report lints kept building and traversed nothing. See
-`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
+`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 
 ### `usize` is 32 bits on wasm32 — the native suite cannot see width bugs
 
@@ -1125,7 +1125,7 @@ Use `scripts/count-transpile-failures.sh <emitted.c>` — do not hand-roll a
   `return // Failed to transpile <expr>;` and
   `__yo_tN tmp = // Failed to transpile <expr>;`, and anchoring calls those
   clean. That is the mistake that let a hollow `io.async` closure body ship
-  green (`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
+  green (`issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
 - **Invisible since PR #275.** When the untranspilable body sits in a
   **value-returning** function, codegen no longer emits markers at all — the
   whole body becomes

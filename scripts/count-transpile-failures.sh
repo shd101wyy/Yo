@@ -23,7 +23,7 @@
 # `return // Failed to transpile <expr>;` and
 # `__yo_tN tmp = // Failed to transpile <expr>;`. Anchoring silently scores
 # those as clean — the same mistake that let a hollow `io.async` closure body
-# ship green (issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
+# ship green (issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md).
 #
 # Usage: scripts/count-transpile-failures.sh <emitted.c>
 #   Prints "<real> real (<floor> string-literal floor) — <f>" and exits

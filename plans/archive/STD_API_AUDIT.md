@@ -686,7 +686,7 @@ One-line records; decisions embedded in them stay binding:
 classes are structurally invisible to check (macro `quote` bodies, generic
 trait-impl bodies, generic helpers in the defining module, async closure
 bodies — the last becomes a silent `// Failed to transpile` stub,
-issues/ftt-stub-in-live-closure-falls-off-non-void-function.md). The gate for a
+issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md). The gate for a
 rename chunk is the FULL suite plus a READ golden diff, and grep inside
 `quote(`, `impl(` and `io.async(` bodies by hand.
 

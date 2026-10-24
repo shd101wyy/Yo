@@ -22,7 +22,7 @@ error; they fired with or without the list.
 
 The real fix is one word: the blanket flag is now `-Wno-everything`, which later
 `-W…` flags DO override. Found while adding `-Werror=return-type` for
-issues/ftt-stub-in-live-closure-falls-off-non-void-function.md — that flag was
+issues/fixed/ftt-stub-in-live-closure-falls-off-non-void-function.md — that flag was
 also silently doing nothing behind `-w`.
 **Found:** 2026-08-25, while fixing
 issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md, where `-w`
