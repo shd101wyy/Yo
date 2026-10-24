@@ -22,18 +22,28 @@
 //! each wraps the upstream stream and pulls one item per `next`. The
 //! consumers (`for_each`, `collect`) drive the stream to `.None`.
 //!
-//! ## `for_await`
+//! ## Looping over a stream
 //!
-//! The loop of async iteration, whose body is ordinary loop code — `break`,
-//! `continue` and `return` work in it:
+//! The loop of async iteration is written out: `while` + `io.await(s.next(io), io)`
+//! + `match`, and its body is ordinary loop code — `break`, `continue` and
+//! `return` work in it:
 //!
 //! ```yo
 //! io.async((io : Io) => {
-//!   for_await(conns, io, c => {
+//!   mut(s) := conns;
+//!   while(runtime(true), {
+//!     n := io.await(s.next(io), io);
 //!     match(
-//!       c,
-//!       .Ok(s) => serve(s, io),
-//!       .Err(_) => {
+//!       n,
+//!       .Some(c) =>
+//!         match(
+//!           c,
+//!           .Ok(st) => serve(st, io),
+//!           .Err(_) => {
+//!             break;
+//!           }
+//!         ),
+//!       .None => {
 //!         break;
 //!       }
 //!     );
@@ -41,11 +51,12 @@
 //! })
 //! ```
 //!
-//! It expands to the hand-written loop (`while` + `io.await(s.next(io), io)`
-//! + `match`), and its await suspends the enclosing task like any other: an
-//! await reached through a macro expansion is a real suspension point
-//! (`issues/fixed/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`).
-//! `for_each(f, io)` stays for the combinator style.
+//! The `io.await` is written in the `io.async` body, so it suspends the task.
+//! A suspension point is an `io.await` written in the `io.async` body; an
+//! `io.await` inside a function the task calls blocks instead of suspending,
+//! which is why std has no named loop form that hides the await
+//! (`plans/reference/ASYNC_ITERATION_STREAM.md`). `for_each(f, io)` stays for
+//! the combinator style.
 //!
 //! ## Implementing it
 //!
@@ -104,9 +115,7 @@
 //! unstable — new in v0.2.27; the API may still change until the next release.
 //! Two things are most likely to move: the combinator SET (`flat_map` is
 //! deliberately absent — its doubly-derived item type is the shape a
-//! var-bound combinator receiver still resolves wrongly), and `for_await`,
-//! which is new.
-pragma(Pragma.AllowMacroDef);
+//! var-bound combinator receiver still resolves wrongly).
 { ArrayList } :: import("../collections/array_list");
 
 /// Something that yields values asynchronously: `next(io)` resolves to the
@@ -438,39 +447,3 @@ impl(
     })
   )
 );
-/// `for_await(stream, io, x => body)` — run `body` for each item of an async
-/// `Stream`, with the item bound to `x`, until the stream answers `.None`.
-/// The body is loop code: `break` leaves the loop, `continue` fetches the next
-/// item, and `return` returns from the enclosing function. Inside an
-/// `io.async` body the await suspends the task.
-for_await :: (
-  fn(
-    quote(stream) : Expr,
-    quote(io) : Expr,
-    quote(handle) : Expr
-  ) -> unquote(Expr)
-)({
-  comptime_assert(handle.is_fn_call(), "for_await takes `x => body` as its third argument");
-  callee :: handle.get_callee();
-  comptime_assert(callee.is_atom() && (callee == quote(=>)), "for_await takes `x => body` as its third argument");
-  args :: handle.get_args();
-  comptime_assert(args.len() == 2, "for_await's `x => body` takes one name and a body");
-  variable :: args.car();
-  body :: args.cdr().car();
-  stream_var :: gensym("for_await_stream");
-  next_var :: gensym("for_await_next");
-  quote({
-    unquote(stream_var) := unquote(stream);
-    while(runtime(true), {
-      unquote(next_var) := unquote(io).await(unquote(stream_var).next(unquote(io)), unquote(io));
-      match(
-        unquote(next_var),
-        .Some(unquote(variable)) => unquote(body),
-        .None => {
-          break;
-        }
-      )
-    });
-  })
-});
-export(for_await);

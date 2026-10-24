@@ -1,4 +1,4 @@
-{ Stream, for_await } :: import("std/async/stream");
+{ Stream } :: import("std/async/stream");
 Countdown :: struct(_n : i32);
 impl(
   Countdown,
@@ -22,8 +22,18 @@ main :: (fn(io : Io) -> unit)({
   h := Holder(o : .Some(i32(1)));
   t := io.async((e : Io) => {
     cur := &mut h.o;
-    for_await(Countdown(_n : i32(3)), e, x => {
-      cur = .Some(x);
+    mut(s) := Countdown(_n : i32(3));
+    while(runtime(true), {
+      n := e.await(s.next(e), e);
+      match(
+        n,
+        .Some(x) => {
+          cur = .Some(x);
+        },
+        .None => {
+          break;
+        }
+      );
     });
   });
   io.await(t, io);

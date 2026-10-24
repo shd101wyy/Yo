@@ -203,7 +203,7 @@ yield(io)                     // Create a pending Future completed by the next l
 2. `io.await(future)` starts a cold future and runs it sequentially to completion
 3. `io.state(&future)` returns the current `FutureState` without blocking or starting the Future
 4. `io.spawn(future)` consumes a cold future and starts it without waiting — returns `JoinHandle(T)` for later awaiting
-5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort). A `JoinHandle` is move-only: `await` and `join` consume it, and `state`, `is_finished`, `abort` and `as_ptr` borrow it
+5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort). A `JoinHandle` is move-only: `await` and `join` consume it, and `state`, `is_finished`, `abort` and `as_ptr` borrow it. A suspension point is an `io.await` written in the `io.async` body; an `io.await` inside a function the task calls blocks instead of suspending
 6. A Future is **move-only**: `io.await` and `io.spawn` consume it, so an aborted task is reachable only through its `JoinHandle`, which reads `.None`
 7. All async code runs on the **same thread** — no thread spawning
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
@@ -1347,7 +1347,9 @@ future they return owns it, and a task may own that future
 | --- | --- |
 | `for_each(f, io)` | drive the stream to its end, calling `f` on each item |
 | `collect(io)` | drive it to its end, gathering the items into an `ArrayList` |
-| `for_await(s, io, x => body)` | the loop form (a macro): `body` runs per item, and `break`, `continue` and `return` work in it |
+
+The loop over a stream is written out — `while` + `io.await(s.next(io), io)` +
+`match` — so `break`, `continue` and `return` work in its body:
 
 ```yo
 // Every third event's name, at most five of them.
@@ -1356,11 +1358,21 @@ io.await(names.for_each(n => println(&n), io), io);
 
 // Or as a loop over a chain built the same way, which can stop early: here at
 // the first empty name.
-for_await(names2, io, n => {
-  if(n.len() == usize(0), {
-    break;
-  });
-  println(&n);
+mut(s) := names2;
+while(runtime(true), {
+  nx := io.await(s.next(io), io);
+  match(
+    nx,
+    .Some(n) => {
+      if(n.len() == usize(0), {
+        break;
+      });
+      println(&n);
+    },
+    .None => {
+      break;
+    }
+  );
 });
 ```
 
@@ -1413,19 +1425,22 @@ consumer needs no `Exception` handler.
    task := io.async({ chain }(io : Io) => io.await(chain.collect(io), io)); // awaited in there
    ```
 
-2. **`for_await` is the hand-written loop.** Its expansion is this, and its
-   await suspends the enclosing task like any other, so it works inside a
-   spawned task as well as from `main`:
+2. **The loop is written out, in the task body.** Its `io.await` suspends the
+   enclosing task like any other, so it works inside a spawned task as well as
+   from `main`. A suspension point is an `io.await` written in the `io.async`
+   body; an `io.await` inside a function the task calls blocks instead of
+   suspending, so std has no named loop form that would hide the await (the
+   `for_await` macro was deleted on 2026-10-24):
 
    ```yo
-   (done : bool) = false;
-   while(done == false, {
-     nx := io.await(stream.next(io), io);
+   mut(s) := stream;
+   while(runtime(true), {
+     nx := io.await(s.next(io), io);
      match(
        nx,
        .Some(x) => { … },
        .None => {
-         done = true;
+         break;
        }
      );
    });

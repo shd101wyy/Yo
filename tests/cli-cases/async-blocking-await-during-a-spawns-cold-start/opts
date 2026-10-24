@@ -1,0 +1,10 @@
+# PINS AN OPEN S2 (issues/2026-10-24-yo-async-strict-misses-a-blocking-await-during-a-spawns-cold-start.md):
+# YO_ASYNC_STRICT=1 should panic here, the way it does in
+# async-blocking-await-inside-task, but the task's blocking await runs during
+# io.spawn's inline cold start, where __yo_async_task_depth is still 0, so the
+# guard stays silent and the program prints "guard silent" with rc 0. The fix
+# re-records this golden to the panic line and rc 1 (read the GOLDEN-DIFF);
+# until then the case records today's behaviour so that the fix shows up here.
+env=YO_ASYNC_STRICT=1
+stdout_keep_match=panic: a blocking await ran inside an async task.*|guard silent.*
+timeout=300

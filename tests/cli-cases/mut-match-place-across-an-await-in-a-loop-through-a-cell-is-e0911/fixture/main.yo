@@ -1,4 +1,4 @@
-{ Stream, for_await } :: import("std/async/stream");
+{ Stream } :: import("std/async/stream");
 Countdown :: struct(_n : i32);
 impl(
   Countdown,
@@ -25,8 +25,18 @@ main :: (fn(io : Io) -> unit)({
     match(
       cur,
       .Some(n) => {
-        for_await(Countdown(_n : i32(3)), e, x => {
-          n = (n + x);
+        mut(s) := Countdown(_n : i32(3));
+        while(runtime(true), {
+          nx := e.await(s.next(e), e);
+          match(
+            nx,
+            .Some(x) => {
+              n = (n + x);
+            },
+            .None => {
+              break;
+            }
+          );
         });
       },
       .None => ()

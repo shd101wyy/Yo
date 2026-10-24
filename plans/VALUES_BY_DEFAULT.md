@@ -4675,8 +4675,9 @@ and in git, not a silent edit.
      2026-10-20 for between B11 and B12; pulled forward on 2026-10-21 by the
      maintainer): Part A of `plans/backlog/MACRO_AND_ISO_REMOVAL.md`, before
      V2c, decision 46 step 3, decision 43 step 2 and V5. B8 carries its
-     replacement probe. That plan's B1/B2 (`for`/`for_await` as
-     parse-time desugars) follow decision 43 step 3, its release is decision
+     replacement probe. That plan's B1 (`for` as a parse-time
+     desugar; B2's `for_await` was deleted outright on 2026-10-24, no
+     desugar) follows decision 43 step 3, its release is decision
      43's step-2→4 release, and its Part C rides with step 4's Generation B.
 8. **V4** (the compiler's trees), then **V5** (remove `ref`/`atomic`).
 

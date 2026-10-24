@@ -1,0 +1,57 @@
+//! Repro for issues/2026-10-24-yo-async-strict-misses-a-blocking-await-during-a-spawns-cold-start.md (OPEN, S2).
+//!
+//!   yo compile issues/repros/2026-10-24-yo-async-strict-misses-a-blocking-await-during-a-spawns-cold-start.yo -o /tmp/r && timeout 10 /tmp/r; echo $?
+//!   YO_ASYNC_STRICT=1 timeout 10 /tmp/r; echo $?
+//!
+//! Today both exit 124 (deadlock). Through a pipe they print nothing (the
+//! buffered "spawning" line dies with the process); on a terminal "spawning"
+//! appears and nothing after it. Expected after the fix:
+//! the second panics ("a blocking await ran inside an async task", rc 134) at
+//! the first blocking await. The first may still deadlock: the blocking await
+//! is the program's bug, the guard is what names it.
+//!
+//! An `Iterator` whose `next` awaits (through an `Io` stored in a field),
+//! driven by a plain `for` inside a spawned task, while `main` feeds the
+//! channel `next` waits on. The task never suspends before `next`'s first
+//! blocking await, so that await runs during `io.spawn`'s inline cold start:
+//! `main` is frozen underneath it and never sends.
+{ Channel } :: import("std/async/channel");
+{ println } :: import("std/fmt");
+Feed :: struct(ch : Channel(i32), io : Io, left : i32);
+impl(
+  Feed,
+  Iterator(
+    Item : i32,
+    next : (fn(self : &mut Self) -> Option(i32))(
+      cond(
+        (self.left <= i32(0)) => Option(i32).None,
+        true => {
+          self.left = (self.left - i32(1));
+          // A blocking await: `next` is not an `io.async` body.
+          self.io.await(self.ch.recv(self.io), self.io)
+        }
+      )
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  ch := Channel(i32).new(usize(1));
+  task := io.async({ ch }(io : Io) => {
+    (mut(sum) : i32) = i32(0);
+    for(Feed(ch : ch, io : io, left : i32(3)), x => {
+      sum = (sum + x);
+    });
+    sum
+  });
+  println("spawning");
+  h := io.spawn(task, io);
+  println("spawned; feeding");
+  (mut(i) : i32) = i32(1);
+  while(i <= i32(3), {
+    _r := io.await(ch.send(i, io), io);
+    i = (i + i32(1));
+  });
+  r := h.await(io);
+  println(`sum ${match(r, .Some(s) => s, .None => i32(-1))}`);
+});
+export(main);

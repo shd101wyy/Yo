@@ -197,7 +197,7 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 2. `io.await(future)` 启动冷 Future 并顺序运行至完成
 3. `io.state(&future)` 返回当前 `FutureState`，不会阻塞或启动 Future
 4. `io.spawn(future)` 消耗冷 Future 并启动但不等待——返回 `JoinHandle(T)` 以便后续 await
-5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`。`JoinHandle` 是只可移动的值：`await` 和 `join` 消耗它，`state`、`is_finished`、`abort` 和 `as_ptr` 借用它
+5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`。`JoinHandle` 是只可移动的值：`await` 和 `join` 消耗它，`state`、`is_finished`、`abort` 和 `as_ptr` 借用它。挂起点是写在 `io.async` 体里的 `io.await`；任务所调用的函数内部的 `io.await` 会阻塞，而不是挂起
 6. Future 是**只可移动**的值：`io.await` 和 `io.spawn` 消耗它，因此已中止的任务只能通过它的 `JoinHandle` 访问，读出 `.None`
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
@@ -1218,7 +1218,9 @@ future（`io.spawn(chain.collect(io), io)`）。
 | --- | --- |
 | `for_each(f, io)` | 驱动流直到结束，对每一项调用 `f` |
 | `collect(io)` | 驱动流直到结束，把所有项收集进 `ArrayList` |
-| `for_await(s, io, x => body)` | 循环形式（一个宏）：每一项运行一次 `body`，其中可以使用 `break`、`continue` 和 `return` |
+
+对流的循环直接写出来 —— `while` + `io.await(s.next(io), io)` + `match` —— 因此
+循环体里可以使用 `break`、`continue` 和 `return`：
 
 ```yo
 // 最多取五个“内容变更”事件的名字。
@@ -1226,11 +1228,21 @@ names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).ta
 io.await(names.for_each(n => println(&n), io), io);
 
 // 或者对一条同样构造的链写成可以提前结束的循环：这里遇到第一个空名字就停。
-for_await(names2, io, n => {
-  if(n.len() == usize(0), {
-    break;
-  });
-  println(&n);
+mut(s) := names2;
+while(runtime(true), {
+  nx := io.await(s.next(io), io);
+  match(
+    nx,
+    .Some(n) => {
+      if(n.len() == usize(0), {
+        break;
+      });
+      println(&n);
+    },
+    .None => {
+      break;
+    }
+  );
 });
 ```
 
@@ -1279,18 +1291,20 @@ impl(
    task := io.async({ chain }(io : Io) => io.await(chain.collect(io), io)); // 在里面 await
    ```
 
-2. **`for_await` 就是这个手写循环。** 它展开成下面的代码，其中的 await 和其他
-   await 一样会挂起所在的任务，所以在 spawn 出去的任务里和在 `main` 里都能用：
+2. **循环直接写在任务体里。** 其中的 `io.await` 和其他 await 一样会挂起所在的
+   任务，所以在 spawn 出去的任务里和在 `main` 里都能用。挂起点是写在 `io.async`
+   体里的 `io.await`；任务所调用的函数内部的 `io.await` 会阻塞，而不是挂起，因此
+   std 不提供把 await 藏在名字后面的循环形式（`for_await` 宏已于 2026-10-24 删除）：
 
    ```yo
-   (done : bool) = false;
-   while(done == false, {
-     nx := io.await(stream.next(io), io);
+   mut(s) := stream;
+   while(runtime(true), {
+     nx := io.await(s.next(io), io);
      match(
        nx,
        .Some(x) => { … },
        .None => {
-         done = true;
+         break;
        }
      );
    });

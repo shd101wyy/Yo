@@ -15,8 +15,9 @@ broken Lisp program fails the Yo build.
 complete): every declared type is a value, runtime copies are explicit
 (`.clone()`), bindings are immutable unless `mut(...)`-marked, sharing is
 `Rc(T)`/`Arc(T)`, references are first-class with origins at runtime, and the
-macro machinery is deleted (the `if`/`for`/`for_await` spellings remain, as
-builtin parse-time desugars). Every Yo example below uses post-VBD spellings.
+macro machinery is deleted (the `if`/`for` spellings remain, as
+builtin parse-time desugars; `for_await` was deleted on 2026-10-24 with no
+desugar, its loop written out). Every Yo example below uses post-VBD spellings.
 None of the additions reopen a VBD decision; §5 states the couplings
 (spelling, the `Comptime` auto-derivation, which loses its only storage
 exclusion when `ref` goes, and two V4 data-structure rewrites).
@@ -38,7 +39,7 @@ std macros' jobs returns as a user need:
 
 | Macro-only power | Post-removal coverage |
 | --- | --- |
-| Auto-splice at the call site | Builtin desugars (`if`→`cond` since 2026-08-21; `for`/`for_await` in B1/B2); `derive_rule` for items; `comptime_eval` for declarations from strings |
+| Auto-splice at the call site | Builtin desugars (`if`→`cond` since 2026-08-21; `for` in B1; `for_await` deleted 2026-10-24, B2); `derive_rule` for items; `comptime_eval` for declarations from strings |
 | Introducing bindings into caller scope | The desugars mint hidden locals in the parser (B1); no user-facing construct needs it |
 | Caller-frame control flow (`try`'s early return) | Deleted 2026-08-21 (policy §3.1); effects and `Result` are the answer |
 | Reifying a caller lvalue's identity (`Var.*`, `^`) | Deleted with `Iso` (Part A); `Rc.try_unwrap` is the bridge |

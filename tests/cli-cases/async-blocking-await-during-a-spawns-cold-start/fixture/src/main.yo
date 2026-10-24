@@ -1,0 +1,20 @@
+{ println } :: import("std/fmt");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+// A plain function that awaits: a blocking poll loop.
+_blocking_helper :: (fn(io : Io) -> unit)({
+  io.await(sleep(Duration.from_millis(i64(5)), io), io);
+  ()
+});
+main :: (fn(io : Io) -> unit)({
+  // No suspension before the helper: it runs during `io.spawn`'s inline cold
+  // start, with `main` frozen underneath it.
+  task := io.async((io : Io) => {
+    _blocking_helper(io);
+    i32(1)
+  });
+  h := io.spawn(task, io);
+  r := h.await(io);
+  println(`guard silent: the cold start's blocking await ran (${match(r, .Some(v) => v, .None => i32(-1))})`);
+});
+export(main);

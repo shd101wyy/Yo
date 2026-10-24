@@ -1,0 +1,10 @@
+# plans/VALUES_BY_DEFAULT.md decision 18 rule 4: a local borrow through a
+# reference cell may not be live across an `await`, including the await of a
+# stream loop (`while` + `e.await(s.next(e), e)`) that runs after the borrow
+# is made and that the borrow's later writes follow, where `cur` is live
+# (issues/fixed/2026-10-17-a-local-borrow-is-not-checked-across-an-await-a-macro-expands-to.md;
+# the loop was std's `for_await` macro until its deletion on 2026-10-24).
+# A whole-program error inside an `io.async` body, so a language test cannot
+# pin it.
+stdout_keep_match=error(\[E[0-9]+\])?: .*|--> main\.yo:[0-9]+:[0-9]+
+timeout=120

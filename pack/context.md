@@ -279,8 +279,11 @@ read :: (fn(p : Path, io : Io) -> String)({
   async-runtime state; use `spawn_blocking` for CPU/blocking work.
 - Inside an `io.async` body, `io.await(...)` may appear anywhere an
   expression may — a scrutinee, a condition, an operand, a `while` step, a
-  `cond`/`match` arm — and suspends at that point in source order. Async
-  iteration over a `Stream` is `for_await(stream, io, x => body)`.
+  `cond`/`match` arm — and suspends at that point in source order. An
+  `io.await` inside a function the task calls BLOCKS instead of suspending.
+  Async iteration over a `Stream` is the written-out loop: `mut(s) := stream;`
+  then `while(runtime(true), …)` around `io.await(s.next(io), io)` and a
+  `match` whose `.None` arm breaks.
 - Effects: a handler's `return(expr)` RESUMES the awaited continuation;
   `unwind(expr)` DISCARDS it and exits the enclosing fn. An unwound async
   task enters the Aborted state. C's `abort()` (panic) is a different,

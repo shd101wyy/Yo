@@ -1,5 +1,9 @@
 # Async iteration — a `Stream` trait
 
+> **2026-10-24:** the authoritative copy is
+> `plans/reference/ASYNC_ITERATION_STREAM.md`; its "A `for`-equivalent"
+> verdict deleted `for_await` (option 1 below) with no replacement.
+
 **Status:** BACKLOG — designed here, not started. Written 2026-09-10 because
 `TcpListener.incoming` is deferred on it, and because four std APIs have
 independently invented the same shape by hand.

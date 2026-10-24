@@ -6308,7 +6308,7 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
 /// binds over such a borrow (`match(cur, .Some(n) => …)`, which points into
 /// the borrow's place while it lives).
 ///
-/// An `await` a macro expansion evaluates (`for_await`) carries a token of
+/// An `await` a macro expansion evaluates carries a token of
 /// the macro's own source, so it is also judged at each macro call being
 /// expanded: a borrow live at the call is taken as live across every await
 /// the expansion makes
@@ -6437,7 +6437,7 @@ local_borrow_leave_macro_site :: (fn() -> unit)({
   ()
 });
 /// The call `id` is an `await` written in a macro expansion being evaluated.
-/// Such a call carries the macro's tokens (std's, for `for_await`), and a
+/// Such a call carries the macro's tokens (std's, for a std macro), and a
 /// call in std skips the local-borrow rules, so its caller checks rule 4 for
 /// it (`evaluate_function_call`).
 local_borrow_is_macro_await :: (fn(id : usize) -> bool)({
