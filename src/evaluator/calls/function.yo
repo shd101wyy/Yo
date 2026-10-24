@@ -3365,12 +3365,42 @@ _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLen
   while(li < lends.len(), li = (li + usize(1)), {
     match(
       lends.get(li),
-      .Some(l) => if(l.marked || _is_plain_place_expr(&l.place), {
+      .Some(l) => if(l.marked || _is_unmarked_lent_place(&l.place, ctx), {
         _check_call_lent_place(&l.place, &l.lent_arg, &op_args, l.from, moved_before, env, ctx, exn);
       }),
       .None => ()
     );
   });
+});
+/// An unmarked lend (a borrowed receiver, an operand its operator borrows)
+/// names a place whose evaluation runs no code: a name, and field steps,
+/// dereferences (`h.*`, the auto-dereferenced receiver of `h.m(...)` through
+/// an `Rc`) and element reads (`xs(i)`) on it. It lends that place as the
+/// written `&` of the same place does, so a later argument that moves,
+/// overwrites or lends `&mut` its root is E0910 in both spellings
+/// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
+/// Any other receiver (a call's result) is a temporary no argument can reach.
+_is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
+  (cur : AstExpr) = e;
+  while(true, {
+    match(
+      cur,
+      .Atom(_, _) => return(true),
+      .FnCall(_, ul_callee, ul_args, ul_infix, _) => {
+        cur = cond(
+          ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
+            if(!match(ul_args.get(usize(1)), .Some(f) => ast_expr_is_atom(&f), .None => false), {
+              return(false);
+            });
+            match(ul_args.get(usize(0)), .Some(b) => b, .None => return(false))
+          },
+          (!ul_infix && (ul_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ul_callee)), .Some(ci) => !is_function_type(&ci.ty), .None => false)) => ul_callee,
+          true => return(false)
+        );
+      }
+    );
+  });
+  false
 });
 /// One place a call lends for its whole duration (decision 28): the receiver
 /// of a method whose `self` is a borrow (`self : &Self`, `self : &mut Self`),
@@ -9798,8 +9828,8 @@ Fix: wrap the call:
                   )
                 ),
                 .Some(fv_s0d) => {
-                  fv_s0_drops.push(fv_s0d);
-                  fv_s0_marked_args.push(evaled_arg);
+                  fv_s0_drops.push(fv_s0d.0);
+                  fv_s0_marked_args.push(fv_s0d.1);
                 },
                 .None => ()
               );

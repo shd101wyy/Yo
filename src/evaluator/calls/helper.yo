@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -1159,7 +1159,11 @@ _mark_by_value_param_shares :: (fn(arg : &AstExpr, ctx : &EvalContext) -> unit)(
 ///   trial call runs against the REAL caller env, and a trial consumption
 ///   leaked into the real pass.
 /// - 4c: an RC-typed field PROJECTION passed to a BORROWING parameter gets a
-///   caller-owned +1 for the call (Aliasing Stage 0). Returns that drop.
+///   caller-owned +1 for the call (Aliasing Stage 0). A place in the payload
+///   of an `Rc`/`Arc` (`xs(i).*`, an auto-dereferenced receiver
+///   `xs(i).m(...)`) takes that +1 on the HANDLE instead
+///   (`borrowed_place_read_only_handle`). Returns the share: its balancing
+///   drop, and the node whose deferred dup takes it (what Stage 1 elides).
 consume_argument_for_parameter :: (
   fn(
     evaled_arg : &AstExpr,
@@ -1180,7 +1184,7 @@ consume_argument_for_parameter :: (
     /// The slot accepts a second-class argument (`_param_accepts_second_class`:
     /// `io.async`'s body, `io.await`'s future, a combinator's future operand).
     (second_class_slot : bool) ?= false
-  ) -> Option(AstExpr)
+  ) -> Option(Tuple(AstExpr, AstExpr))
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
   // Decision 38 A: a second-class value is never moved into a by-value
@@ -1251,10 +1255,34 @@ consume_argument_for_parameter :: (
       }
     );
   });
-  if(!param_is_owning && !param_is_ct && (!param_is_ref && !ctx.is_in_function_call_checking_phase) && !callee_is_extern && (aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env)), {
-    return(set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn, aliased_by_inout));
+  if(!param_is_owning && !param_is_ct && (!param_is_ref && !ctx.is_in_function_call_checking_phase) && !callee_is_extern, {
+    // A place in an `Rc`/`Arc` payload lives while the cell does: the share
+    // goes on the handle, which a closure argument dropping the last other
+    // handle would otherwise free under the callee. A payload share cannot
+    // do that for a move-only payload (a `RefCell`), which has no +1
+    // (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
+    match(
+      borrowed_place_read_only_handle(evaled_arg, ctx),
+      .Some(handle) => if(!ast_expr_is_atom(&handle) && arg_is_rc_projection_place(&handle, caller_env), {
+        match(
+          set_expr_as_needs_to_call_dup_for_borrowed_projection(&handle, ctx, exn, aliased_by_inout),
+          .Some(handle_drop) => return(Option(Tuple(AstExpr, AstExpr)).Some((handle_drop, handle))),
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    if(aliased_by_inout || arg_is_rc_projection_place(actual_arg, caller_env), {
+      return(
+        match(
+          set_expr_as_needs_to_call_dup_for_borrowed_projection(evaled_arg, ctx, exn, aliased_by_inout),
+          .Some(payload_drop) => Option(Tuple(AstExpr, AstExpr)).Some((payload_drop, evaled_arg.clone())),
+          .None => Option(Tuple(AstExpr, AstExpr)).None
+        )
+      );
+    });
   });
-  Option(AstExpr).None
+  Option(Tuple(AstExpr, AstExpr)).None
 });
 /// The parameter slot accepts a second-class argument (decision 38 A's
 /// exceptions):
@@ -1556,8 +1584,9 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
-  s0_drop_captured := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot);
-  s0_marked_arg_captured := if(s0_drop_captured.is_some(), Option(AstExpr).Some(evaled_arg), Option(AstExpr).None);
+  s0_share := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot);
+  s0_drop_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(sh.0), .None => Option(AstExpr).None);
+  s0_marked_arg_captured := match(s0_share, .Some(sh) => Option(AstExpr).Some(sh.1), .None => Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
   // resolution based on value matching (e.g., TryInto(i32) vs TryInto(i64)).

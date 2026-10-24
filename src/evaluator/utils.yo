@@ -68,7 +68,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_deferred_dup_expressions,
   expr_info_index_trait_ptr_type,
   lookup_method_callee_type,
-  mark_call_scoped_share_dup
+  mark_call_scoped_share_dup,
+  mark_call_scoped_share_drop
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -116,7 +117,7 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
@@ -3927,6 +3928,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           // Synthesize the balancing `___drop(dup_temp)` for the CALLER to
           // attach to the call node's deferred drops.
           s0_drop_expr := generate_expr_from_code(`${BF_DROP}(${dup_temp})`, exn);
+          mark_call_scoped_share_drop(ast_expr_id(&s0_drop_expr));
           s0_drop_info := new_expr_info(&ei.env, &ei.ty);
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&s0_drop_expr), &s0_drop_info);
           match(
@@ -3958,26 +3960,39 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
   );
   s0_result
 });
-/// Aliasing Stage 0 predicate: a bare field-access chain (`w.b`, `a.b.c`)
-/// rooted at a RUNTIME variable — a PROJECTION place. A bare atom is NOT a
-/// projection (the caller's binding keeps a plain local alive for the call,
-/// +0). A method call (`x.f()`) is not a 2-arg dot call — its `func` is the
-/// dot — and produces an owned temp anyway.
-/// True when walking `e`'s dot chain reaches an ATOM bound to a RUNTIME
-/// variable — the root of a place expression. Shared by the field and index
-/// forms of `arg_is_rc_projection_place`.
+/// True when walking `e`'s place steps reaches an ATOM bound to a RUNTIME
+/// variable — the root of a place expression. A step is a field or deref
+/// (`w.b`, `h.*`) or a call `c(...)`, whose callee is the place (an element
+/// read `xs(i)`), so a field after an index (`xs(i).f`, `xs(i).*`) is a
+/// projection like `w.xs(i)`. A method call (`x.f()`, its callee the method
+/// `x.f`) is walked too: its result temp OWNS its value, which the Stage 0
+/// marker skips, and a projection call's (decision 24) is a place.
 _place_root_is_runtime_variable :: (fn(e : &AstExpr, env : &Environment) -> bool)({
   (root : AstExpr) = e;
-  while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root, .FnCall(_, _, __prv_ra, _, _) => __prv_ra, .Atom(_, _) => ArrayList(AstExpr).new());
-    r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!ast_expr_is_atom(&r_a1), {
-      return(false);
-    });
-    root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
-  });
-  if(!ast_expr_is_atom(&root), {
-    return(false);
+  (walking : bool) = true;
+  while(walking, {
+    cond(
+      ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))) => {
+        r_args := match(root, .FnCall(_, _, __prv_ra, _, _) => __prv_ra, .Atom(_, _) => ArrayList(AstExpr).new());
+        r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
+        if(!ast_expr_is_atom(&r_a1), {
+          return(false);
+        });
+        root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
+      },
+      true => match(
+        root,
+        .FnCall(_, __prv_callee, _, __prv_infix, _) => {
+          if(__prv_infix, {
+            return(false);
+          });
+          root = __prv_callee;
+        },
+        .Atom(_, _) => {
+          walking = false;
+        }
+      )
+    );
   });
   vars := get_variables_from_env(env, ast_expr_token(&root).value);
   if(vars.len() == usize(0), {
@@ -3989,43 +4004,69 @@ _place_root_is_runtime_variable :: (fn(e : &AstExpr, env : &Environment) -> bool
     .None => false
   )
 });
-arg_is_rc_projection_place :: (fn(e : &AstExpr, env : &Environment) -> bool)({
-  // INDEX projection: `arr(i)`, `w.items(i)`. An element read is a view into
-  // container storage exactly as a field read is, and a callee can release it
-  // the same way — a callee replacing the container in a loop freed the
-  // borrowed box and the caller read the recycled allocation. Requiring a
-  // 2-arg dot missed every one of these. Widening is safe by construction:
-  // the marker no-ops when the argument's temp already OWNS its value.
-  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
-    if(ast_expr_is_atom(e), {
-      return(false);
+/// Aliasing Stage 0 predicate: a PROJECTION place rooted at a RUNTIME
+/// variable — a field or deref chain (`w.b`, `a.b.c`, `r.*`), an element read
+/// (`arr(i)`, `w.items(i)`), or any mix (`xs(i).f`, `xs(i).*`). A bare atom is
+/// NOT a projection (the caller's binding keeps a plain local alive for the
+/// call, +0).
+///
+/// An element read is a view into container storage exactly as a field read
+/// is, and a callee can release it the same way — a callee replacing the
+/// container in a loop freed the borrowed box and the caller read the
+/// recycled allocation. A field or deref AFTER an element read (`xs(i).f`)
+/// is in that storage too: the predicate used to stop at the first non-atom
+/// dot base, so `peek(&xs(i).f, () => xs2.clear())` read the freed element
+/// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
+/// Widening is safe by construction: the marker no-ops when the argument's
+/// temp already OWNS its value.
+arg_is_rc_projection_place :: (fn(e : &AstExpr, env : &Environment) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, _, _, e_infix, _) => ((!e_infix || ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))) && _place_root_is_runtime_variable(e, env))
+  )
+);
+/// Aliasing Stage 0 through a read-only handle: the `Rc`/`Arc` whose payload
+/// holds the evaluated place `ev` (`h` in `h.*`, `h.*.f`), or `.None`.
+///
+/// The walk follows `.*` and value-field steps outwards from `ev` and stops at
+/// the first `.*` whose base is a handle with a read-only payload
+/// (`handle_payload_is_read_only`). Through such a handle the place changes
+/// only when the cell is freed: no safe code writes the payload (decision 46),
+/// so the +1 that keeps the CELL alive for a call keeps the place valid, and it
+/// works for a move-only payload (a `RefCell`), which has no +1 of its own. A
+/// `Box` deref is part of the storage that owns it, so the walk goes on. Any
+/// other cell (a field of a `ref` object, a pointer deref, an element read)
+/// can be overwritten in place while the handle lives, so it ends the walk
+/// with `.None` and the payload keeps its own Stage 0 share.
+borrowed_place_read_only_handle :: (fn(ev : &AstExpr, ctx : &EvalContext) -> Option(AstExpr))({
+  (cur : AstExpr) = ev;
+  while(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+    d_args := match(cur, .FnCall(_, _, __bh_a, _, _) => __bh_a, .Atom(_, _) => ArrayList(AstExpr).new());
+    base := match(d_args.get(usize(0)), .Some(b) => b, .None => return(Option(AstExpr).None));
+    fld := match(d_args.get(usize(1)), .Some(f) => f, .None => return(Option(AstExpr).None));
+    if(!ast_expr_is_atom(&fld), {
+      return(Option(AstExpr).None);
     });
-    e_func := match(e, .FnCall(_, __aipp_f, _, _, _) => __aipp_f, .Atom(_, _) => return(false));
-    return(_place_root_is_runtime_variable(&e_func, env));
+    base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => bi.ty, .None => return(Option(AstExpr).None));
+    is_deref := ast_expr_is_atom_of(&fld, "*");
+    cond(
+      (is_deref && handle_payload_is_read_only(&base_ty)) => {
+        return(Option(AstExpr).Some(base));
+      },
+      (is_deref && is_unique_box_type(&base_ty)) => (),
+      is_deref => {
+        return(Option(AstExpr).None);
+      },
+      (is_struct_type(&base_ty) && !is_reference_struct_type(&base_ty) && !is_atomic_reference_struct_type(&base_ty)) => (),
+      is_tuple_type(&base_ty) => (),
+      true => {
+        return(Option(AstExpr).None);
+      }
+    );
+    cur = base;
   });
-  e_args := match(e, .FnCall(_, _, __aipp_a, _, _) => __aipp_a, .Atom(_, _) => ArrayList(AstExpr).new());
-  e_a1 := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
-  if(!ast_expr_is_atom(&e_a1), {
-    return(false);
-  });
-  (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
-  while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
-    r_args := match(root, .FnCall(_, _, __aipp_ra, _, _) => __aipp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
-    r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!ast_expr_is_atom(&r_a1), {
-      return(false);
-    });
-    root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
-  });
-  if(!ast_expr_is_atom(&root), {
-    return(false);
-  });
-  vars := get_variables_from_env(env, ast_expr_token(&root).value);
-  if(vars.len() == usize(0), {
-    return(false);
-  });
-  v := match(vars.last(), .Some(x) => x, .None => return(false));
-  !v.is_compile_time_only
+  Option(AstExpr).None
 });
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
@@ -5556,7 +5597,7 @@ export(in_compile_time_fn_body);
 export(throw_expr_is_implicit_variable_error);
 export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, consume_called_fnonce_closure, transfer_explicit_copy_value);
-export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
+export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle);
 export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_report_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);

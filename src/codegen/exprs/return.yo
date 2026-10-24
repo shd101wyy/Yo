@@ -12,7 +12,7 @@
 { Token } :: import("../../token.yo");
 { Variable, Environment, variable_moved_at_cleanup_point, get_variables_from_env } :: import("../../env.yo");
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
-{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop } :: import("../../expr_info.yo");
+{ expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { FunctionGenerationContext, resolve_var_name_in_context, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -284,6 +284,15 @@ _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &Hash
   guard_cn := sanitize_for_c_identifier(var_name.clone(), false);
   if(guard_cn.contains(String.from("_temp_")) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(guard_cn.clone())), {
     return(false);
+  });
+  // A call-scoped share's drop is pending only while its call's arguments
+  // are generated (`_generate_expr`, generation.yo). Its temp is consumed at
+  // the dup by design (the post-call flush owns the release), so the move,
+  // env and position filters below do not apply: it holds its +1 exactly when
+  // the dup's C declaration is in an open block
+  // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
+  if(is_call_scoped_share_drop(ast_expr_id(drop_expr)), {
+    return(context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, guard_cn.clone())));
   });
   if(!use_env, {
     // Escape path (skip_env_check=true): the recorded env is END-of-scope,

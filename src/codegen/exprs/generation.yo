@@ -94,7 +94,7 @@
   ast_expr_is_local_borrow_mode_call,
   ast_call_args_unmarked
 } :: import("../../expr.yo");
-{ has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ has_any_control_flow, ExprInfo, lookup_macro_expansion, is_call_scoped_share_drop, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -997,11 +997,81 @@ _calls_a_never_function :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
     _ => false
   )
 );
+/// The balancing drops of the call-scoped shares (Aliasing Stage 0,
+/// `is_call_scoped_share_drop`) the call `expr` carries and no enclosing
+/// generation has pending or emitted yet.
+_call_share_drops_to_pend :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  drops := match(
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(ei.deferred_drop_expressions, .Some(d) => d, .None => return(out)),
+    .None => return(out)
+  );
+  (i : usize) = usize(0);
+  while(i < drops.len(), {
+    match(
+      drops.get(i),
+      .Some(d) => {
+        did := ast_expr_id(&d);
+        on_pending := match(
+          context.pending_deferred_drops,
+          .Some(p) => {
+            (found : bool) = false;
+            (j : usize) = usize(0);
+            while(!found && (j < p.len()), {
+              found = match(p.get(j), .Some(pd) => (ast_expr_id(&pd) == did), .None => false);
+              j = (j + usize(1));
+            });
+            found
+          },
+          .None => false
+        );
+        if(is_call_scoped_share_drop(did) && !on_pending && !context.emitted_deferred_drop_ids.contains(&did), {
+          out.push(d);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 _generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     expr,
     .FnCall(_, _, _, _, _) => {
+      // A share the call takes for an argument is released by the post-call
+      // flush, which an exit inside a LATER argument (`return`, `break`, an
+      // unwind) skips. Its drop is pending while the call is generated, so
+      // such an exit releases it once its dup is in scope
+      // (issues/fixed/2026-10-24-a-caller-owned-share-leaks-when-a-later-argument-exits-early.md).
+      share_drops := _call_share_drops_to_pend(expr, context);
+      prev_pending := context.pending_deferred_drops;
+      if(share_drops.len() > usize(0), {
+        with_shares := share_drops.clone();
+        match(
+          prev_pending,
+          .Some(pp) => {
+            (k : usize) = usize(0);
+            while(k < pp.len(), {
+              match(
+                pp.get(k),
+                .Some(pd) => {
+                  with_shares.push(pd);
+                },
+                .None => ()
+              );
+              k = (k + usize(1));
+            });
+          },
+          .None => ()
+        );
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(with_shares);
+      });
       code := generate_func_call(expr, indent.clone(), context);
+      if(share_drops.len() > usize(0), {
+        context.pending_deferred_drops = prev_pending;
+      });
       cond(
         // A call to a `-> never` function returns `void` in C and does not
         // come back: it runs as a statement, and the slot it stands in
