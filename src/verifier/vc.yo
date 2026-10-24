@@ -3652,7 +3652,7 @@ _for_term :: (fn(ctx : &mut VcCtx, e : &AstExpr, args : &ArrayList(AstExpr)) -> 
   });
   // The body is walked in the macro expansion the evaluator typed (the
   // source-form arguments carry no types): `{ it := xs.into_iter();
-  // while(runtime(true), { [invariant(...);] tmp := it.next();
+  // while(true, { [invariant(...);] tmp := it.next();
   // match(tmp, .Some(x) => body, .None => { break; }) }) }`.
   a_opt := match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
@@ -4385,9 +4385,9 @@ _call_term :: (
   // (`iter.next()` — an uncontracted trait call over collection state);
   // that needs the collection model of the later phases, so it stays
   // outside the subset with a precise error (the idiomatic replacement —
-  // `while(runtime(true), { invariant(...); ...; if(done, {break;}) })` —
-  // IS verifiable: `runtime` is the identity, below, and break is the
-  // V4.2 exit-path disjunction).
+  // `while(true, { invariant(...); ...; if(done, {break;}) })` —
+  // IS verifiable: the literal `true` head is an ordinary condition, and
+  // break is the V4.2 exit-path disjunction).
   if(head == "while", {
     return(_while_term(ctx, e, args));
   });
@@ -4627,9 +4627,10 @@ _call_term :: (
     return(t);
   });
   // --- runtime(...): identity ------------------------------------------------
-  // The comptime/runtime barrier marker: `runtime(e)` IS `e` at runtime.
-  // This is what makes the infinite-loop idiom `while(runtime(true),
-  // { invariant(...); ...; if(done, { break; }) })` walkable.
+  // The comptime/runtime barrier marker: `runtime(e)` IS `e` at runtime,
+  // so a condition spelled `runtime(c)` walks exactly like `c`. (A `while`
+  // condition is always a runtime expression: the infinite-loop idiom is
+  // `while(true, { invariant(...); ...; if(done, { break; }) })`.)
   if((head == "runtime") && (n == usize(1)), {
     return(_expr_term(ctx, args.get(usize(0)).unwrap()));
   });

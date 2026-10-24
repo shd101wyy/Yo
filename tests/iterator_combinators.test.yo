@@ -29,7 +29,7 @@ my_range :: (fn(start : i32, end_ : i32) -> MyRange)(MyRange(start, end_));
 test("iter.map doubles every element", {
   mut(it) := my_range(i32(1), i32(4)).map(x => (x * i32(2)));
   out := ArrayList(i32).new();
-  while(runtime(true), {
+  while(true, {
     match(
       it.next(),
       .Some(v) => {
@@ -49,7 +49,7 @@ test("iter.map doubles every element", {
 test("iter.filter keeps only even values", {
   mut(it) := my_range(i32(0), i32(6)).filter(x => ((x % i32(2)) == i32(0)));
   out := ArrayList(i32).new();
-  while(runtime(true), {
+  while(true, {
     match(
       it.next(),
       .Some(v) => {
@@ -69,7 +69,7 @@ test("iter.filter keeps only even values", {
 test("iter.take limits the iterator", {
   mut(it) := my_range(i32(0), i32(100)).take(usize(3));
   out := ArrayList(i32).new();
-  while(runtime(true), {
+  while(true, {
     match(
       it.next(),
       .Some(v) => {
@@ -86,7 +86,7 @@ test("iter.take limits the iterator", {
 test("iter.skip drops leading elements", {
   mut(it) := my_range(i32(0), i32(5)).skip(usize(3));
   out := ArrayList(i32).new();
-  while(runtime(true), {
+  while(true, {
     match(
       it.next(),
       .Some(v) => {
@@ -145,7 +145,7 @@ test("iter.zip pairs two iterators", {
 test("iter.zip stops at shorter iterator", {
   mut(it) := my_range(i32(0), i32(5)).zip(my_range(i32(10), i32(12)));
   mut(count) := i32(0);
-  while(runtime(true), {
+  while(true, {
     match(
       it.next(),
       .Some(_) => {

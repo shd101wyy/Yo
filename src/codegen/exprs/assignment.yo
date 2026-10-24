@@ -54,7 +54,7 @@ _last_is_compile_time_only :: (fn(key : ExprId, env : &Environment, name : &Stri
 /// release, plans/CODEGEN_MEMORY_REDUCTION.md §6).
 _lhs_root_binder :: (fn(lhs : &AstExpr, name : &String, context : &FunctionGenerationContext) -> AstExpr)({
   (cur : AstExpr) = lhs;
-  while(runtime(true), {
+  while(true, {
     binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
     if(binds, {
       return(cur);

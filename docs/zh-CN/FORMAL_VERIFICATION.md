@@ -581,7 +581,7 @@ refuted  fn@src/math.yo:8 [verify]
 | 带 `invariant(...)` 的 `while`（havoc 规则） | ✅ 已支持（V4） |
 | `decreases(M)` —— 循环语句变体 + 递归度量 | ✅ 已支持（V4） |
 | `cond` 分支内赋值（phi 合并）；`continue` 作为循环体最后一条语句 | ✅ 已支持（V4.1） |
-| `break`（退出路径析取）；任意位置的 `continue`（在位点处证明）；`while(runtime(true), ...)` | ✅ 已支持（V4.2） |
+| `break`（退出路径析取）；任意位置的 `continue`（在位点处证明）；`while(true, ...)` | ✅ 已支持（V4.2） |
 | 提前 `return(...)`（不建模返回路径；`issues/fixed/2026-10-23-the-verifier-walk-ignores-an-early-return.md`） | 子集之外 |
 | 对 `ArrayList` 变量的 `for`，开头的 `invariant(...)` 中可用 `produced(xs)`（§可验证的 `for` 循环）；对其他集合的 `for` | ✅ 已支持（R2）；其他为后续阶段 |
 | 契约中的 `forall`/`exists`/`==>`（仅限幽灵上下文；SMT 量词，MBQI 实例化） | ✅ 已支持（V5） |
@@ -620,9 +620,10 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 退出析取支：一个新布尔量为 break 位点的状态快照（含完整路径
 条件）做选择，循环之后的代码在析取下证明。任意位置的
 `continue` 在该语句处就地证明不变式（和度量步）。
-`runtime(e)` 是恒等标记 —— `while(runtime(true),
+`while` 的条件总是运行时表达式，因此 `while(true,
 { invariant(...); ...; if(done, { break; }) })` 是"循环直到
-完成"的可验证写法。
+完成"的可验证写法；`runtime(e)` 是恒等标记（写成 `runtime(c)`
+的条件与 `c` 走法相同）。
 `forall((k : T), P)`/`exists((k : T), P)` 降级为带注解
 绑定器的 SMT 量词（这些小目标由 z3 的基于模型的实例化求解；
 显式 `:pattern` 触发器推迟到有基准需要时），`a ==> b` 是布尔

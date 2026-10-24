@@ -585,7 +585,7 @@ impl(
   /// is NOT whitespace and stops the scan, so it surfaces as
   /// `UnexpectedChar` rather than being skipped.
   skip_ws : (fn(self : &Self) -> unit)({
-    while(runtime(true), {
+    while(true, {
       match(
         self.peek(),
         .None => break,
@@ -663,7 +663,7 @@ impl(
   parse_string : (fn(self : &Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
-    while(runtime(true), {
+    while(true, {
       match(
         self.peek(),
         .None => {
@@ -829,7 +829,7 @@ impl(
       .None => return(.Err(.InvalidNumber))
     );
     if(leading_zero == false, {
-      while(runtime(true), {
+      while(true, {
         match(
           self.peek(),
           .Some(d) => {
@@ -872,7 +872,7 @@ impl(
                 return(.Err(.InvalidNumber));
               }
             );
-            while(runtime(true), {
+            while(true, {
               match(
                 self.peek(),
                 .Some(d) => {
@@ -919,7 +919,7 @@ impl(
                 return(.Err(.InvalidNumber));
               }
             );
-            while(runtime(true), {
+            while(true, {
               match(
                 self.peek(),
                 .Some(d) => {
@@ -1032,7 +1032,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
             },
             .None => ()
           );
-          while(runtime(true), {
+          while(true, {
             p.skip_ws();
             match(
               p.peek(),
@@ -1117,7 +1117,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(JsonValue, JsonError))({
             },
             .None => ()
           );
-          while(runtime(true), {
+          while(true, {
             match(
               recur(p),
               .Err(e) => {

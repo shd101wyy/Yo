@@ -394,7 +394,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     raw := ArrayList(struct(name : String, dt : u8, ino : u64)).new();
     buf_size := u32(4096);
     buf := (*u8)(malloc(usize(buf_size)).unwrap());
-    while(runtime(true), {
+    while(true, {
       n := e.io.await(IO_dir.getdents(fd, buf, buf_size), e.io);
       cond(
         (n < i32(0)) => {

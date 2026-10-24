@@ -1229,7 +1229,7 @@ io.await(names.for_each(n => println(&n), io), io);
 
 // 或者对一条同样构造的链写成可以提前结束的循环：这里遇到第一个空名字就停。
 mut(s) := names2;
-while(runtime(true), {
+while(true, {
   nx := io.await(s.next(io), io);
   match(
     nx,
@@ -1298,7 +1298,7 @@ impl(
 
    ```yo
    mut(s) := stream;
-   while(runtime(true), {
+   while(true, {
      nx := io.await(s.next(io), io);
      match(
        nx,

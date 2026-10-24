@@ -279,7 +279,7 @@ test("range yields the half-open key window in order", {
   });
   seen := ArrayList(i32).new();
   mut(it) := m.range(i32(3) .. i32(6));
-  while(runtime(true), {
+  while(true, {
     match(
       it.next(),
       .None => {
@@ -305,7 +305,7 @@ test("range bounds need not be present in the map", {
   count := (fn(mm : &BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
     mut(it) := mm.range(lo .. hi);
     (mut(n) : usize) = usize(0);
-    while(runtime(true), {
+    while(true, {
       match(
         it.next(),
         .None => {
@@ -334,7 +334,7 @@ test("adjacent ranges partition without overlap", {
   drain := (fn(mm : &BTreeMap(i32, i32), lo : i32, hi : i32) -> ArrayList(i32))({
     out := ArrayList(i32).new();
     mut(it) := mm.range(lo .. hi);
-    while(runtime(true), {
+    while(true, {
       match(
         it.next(),
         .None => {

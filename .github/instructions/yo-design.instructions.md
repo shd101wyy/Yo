@@ -429,7 +429,7 @@ Four rules to keep when extending it or implementing it on a new type:
   `Stream` and `Iterator` must give them the SAME `Item`. (`FromIterator` chose
   `Elem` to dodge this; here no std type implements both.)
 
-The loop is written out: `mut(s) := stream;` then `while(runtime(true), …)`
+The loop is written out: `mut(s) := stream;` then `while(true, …)`
 around `n := io.await(s.next(io), io);` and a `match(n, .Some(x) => body,
 .None => { break; })`, so `break`, `continue` and `return` work in its body.
 There is deliberately no named loop form (std's `for_await` macro was deleted

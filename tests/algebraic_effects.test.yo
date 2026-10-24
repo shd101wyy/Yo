@@ -324,7 +324,7 @@ test("Test while loop with break after fn resume", {
         return(i32(1));
       }
     );
-    while(runtime(true), {
+    while(true, {
       result := raise(`msg1`, `msg2`);
       counter.with_mut(cur => {
         cur = (cur + result);
@@ -386,7 +386,7 @@ test("Test break from cond after fn resume", {
         return(i32(1));
       }
     );
-    while(runtime(true), {
+    while(true, {
       raise(`msg1`, `msg2`);
       counter.with_mut(cur => {
         cur = (cur + 1);
@@ -418,7 +418,7 @@ test("Test break drops local allocations after fn resume", {
         return(i32(1));
       }
     );
-    while(runtime(true), {
+    while(true, {
       temp := Rc(i32)(counter.with(cur => cur));
       raise(`msg1`, `msg2`);
       counter.with_mut(cur => {
@@ -447,7 +447,7 @@ test("Test mixed continue then break after fn resume", {
         return(i32(1));
       }
     );
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -1107,7 +1107,7 @@ test("Transitive SM while loop with break", {
   )({
     counter := rc(RefCell(i32).new(0));
     sum := rc(RefCell(i32).new(0));
-    while(runtime(true), {
+    while(true, {
       result := e.yield(counter.with(cur => cur));
       sum.with_mut(cur => {
         cur = (cur + result);
@@ -1184,7 +1184,7 @@ test("Transitive SM while loop with mixed continue and break", {
   )({
     counter := rc(RefCell(i32).new(0));
     sum := rc(RefCell(i32).new(0));
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -1389,7 +1389,7 @@ test("Struct-record effect with generic handler — break after resume in while 
         }
       )
     );
-    while(runtime(true), {
+    while(true, {
       result := safe_op(counter.with(cur => cur) - i32(2), exn);
       counter.with_mut(cur => {
         cur = (cur + 1);
@@ -1505,7 +1505,7 @@ test("Test break in Option match arm after fn resume", {
         return(i32(1));
       }
     );
-    while(runtime(true), {
+    while(true, {
       get_value();
       counter.with_mut(cur => {
         cur = (cur + 1);
@@ -1580,7 +1580,7 @@ test("Test mixed break and continue in Option match after fn resume", {
         return(i32(1));
       }
     );
-    while(runtime(true), {
+    while(true, {
       get_value();
       counter.with_mut(cur => {
         cur = (cur + 1);

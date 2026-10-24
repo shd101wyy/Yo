@@ -427,7 +427,7 @@ test("Test while loop with await", {
 test("Test while loop with break after await", {
   counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -742,7 +742,7 @@ test("Test break from cond in async while loop", {
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       io.await(yield(io), io);
       counter.with_mut(cur => {
         cur = (cur + 1);
@@ -799,7 +799,7 @@ test("Test continue skips body after await", {
 test("Test break drops local allocations in async while loop", {
   counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       temp := Rc(i32)(counter.with(cur => cur));
       io.await(yield(io), io);
       counter.with_mut(cur => {
@@ -853,7 +853,7 @@ test("Test break before first await in async while loop", {
   counter := rc(RefCell(i32).new(0));
   resumed := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       temp := Rc(i32)(counter.with(cur => cur));
       cond(
         (counter.with(cur => cur) >= i32(3)) => {
@@ -941,7 +941,7 @@ test("Test mixed continue then break in async while loop", {
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -977,7 +977,7 @@ test("Test nested async while with inner break", {
   task := io.async((io : Io) => {
     while(runtime(outer_counter.with(cur => cur) < i32(3)), {
       inner_counter := rc(RefCell(i32).new(0));
-      while(runtime(true), {
+      while(true, {
         inner_counter.with_mut(cur => {
           cur = (cur + 1);
         });
@@ -1046,7 +1046,7 @@ test("Test match branches with continue and break in async loop", {
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -1149,7 +1149,7 @@ test("Test mixed pre-await break and post-await continue", {
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       temp := Rc(i32)(counter.with(cur => cur));
       cond(
         (counter.with(cur => cur) >= i32(4)) => {
@@ -1190,7 +1190,7 @@ test("Test non-async inner while with break inside async while", {
         cur = (cur + 1);
       });
       inner := rc(RefCell(i32).new(0));
-      while(runtime(true), {
+      while(true, {
         inner.with_mut(cur => {
           cur = (cur + 1);
         });
@@ -1414,7 +1414,7 @@ test("Test while-with-await break on first iteration", {
   counter := rc(RefCell(i32).new(0));
   done := rc(RefCell(bool).new(false));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -1443,7 +1443,7 @@ test("Test nested async while with code after outer loop", {
   task := io.async((io : Io) => {
     while(runtime(outer.with(cur => cur) < i32(2)), {
       inner_counter := rc(RefCell(i32).new(0));
-      while(runtime(true), {
+      while(true, {
         inner_counter.with_mut(cur => {
           cur = (cur + 1);
         });
@@ -1488,7 +1488,7 @@ test("Test multiple captured variables in nested while-with-await", {
         cur = (cur - i32(10));
       });
       inner := rc(RefCell(i32).new(0));
-      while(runtime(true), {
+      while(true, {
         inner.with_mut(cur => {
           cur = (cur + 1);
         });
@@ -2420,7 +2420,7 @@ test("Test break in Option match arm in async while loop", {
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -2483,7 +2483,7 @@ test("Test mixed break and continue in Option match in async while loop", {
   counter := rc(RefCell(i32).new(0));
   sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + 1);
       });
@@ -2671,7 +2671,7 @@ test("Test effect resume in async while loop with break", {
   sum := rc(RefCell(i32).new(0));
   counter := rc(RefCell(i32).new(0));
   task := io.async((ctx : Ctx) => {
-    while(runtime(true), {
+    while(true, {
       counter.with_mut(cur => {
         cur = (cur + i32(1));
       });

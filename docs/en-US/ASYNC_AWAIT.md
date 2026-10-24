@@ -1359,7 +1359,7 @@ io.await(names.for_each(n => println(&n), io), io);
 // Or as a loop over a chain built the same way, which can stop early: here at
 // the first empty name.
 mut(s) := names2;
-while(runtime(true), {
+while(true, {
   nx := io.await(s.next(io), io);
   match(
     nx,
@@ -1434,7 +1434,7 @@ consumer needs no `Exception` handler.
 
    ```yo
    mut(s) := stream;
-   while(runtime(true), {
+   while(true, {
      nx := io.await(s.next(io), io);
      match(
        nx,
