@@ -1,0 +1,34 @@
+//! Four identical stores of a `&` collection parameter into a field; only the
+//! element type differs. `F` and `E` have no `Clone`, so `ArrayList(F)` and
+//! `ArrayList(E)` have none either: their copies used to be dropped from the
+//! listing. `set_a` and `set_d` are cloned; `set_b` and `set_c` are listed.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+E :: struct(name : String, depth : u32);
+F :: struct(depth : u32);
+Prog :: ref(struct(a : ArrayList(u32), b : ArrayList(F), c : ArrayList(E), d : ArrayList(String)));
+set_a :: (fn(prog : &Prog, xs : &ArrayList(u32)) -> unit)({
+  prog.a = xs;
+});
+set_b :: (fn(prog : &Prog, xs : &ArrayList(F)) -> unit)({
+  prog.b = xs;
+});
+set_c :: (fn(prog : &Prog, xs : &ArrayList(E)) -> unit)({
+  prog.c = xs;
+});
+set_d :: (fn(prog : &Prog, xs : &ArrayList(String)) -> unit)({
+  prog.d = xs;
+});
+main :: (fn() -> unit)({
+  prog := Prog(a : ArrayList(u32).new(), b : ArrayList(F).new(), c : ArrayList(E).new(), d : ArrayList(String).new());
+  a := ArrayList(u32).new();
+  b := ArrayList(F).new();
+  c := ArrayList(E).new();
+  d := ArrayList(String).new();
+  set_a(&prog, &a);
+  set_b(&prog, &b);
+  set_c(&prog, &c);
+  set_d(&prog, &d);
+  a.push(u32(1));
+});
+export(main);

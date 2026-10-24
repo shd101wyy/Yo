@@ -7779,8 +7779,8 @@ heavy run, the command is given in item 2.
              helpers, which B8's newtype rewrites.
        - **The listing undercounts.** A copy of a collection whose element
          type has no `Clone` is neither rewritten nor listed
-         (`issues/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`,
-         S3). Two such sites were found next to listed ones:
+         (`issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`,
+         S3; fixed by P8, which lists them). Two such sites were found next to listed ones:
          - `fs/walker.yo`'s `return(results)`. `_filter_by_pattern` now
            takes `results` by value, and its one caller passes a dead
            local.
