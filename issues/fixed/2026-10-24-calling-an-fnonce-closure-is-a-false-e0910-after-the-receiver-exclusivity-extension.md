@@ -2,7 +2,7 @@
 
 **Severity:** S2 — valid code rejected: a one-argument call of a closure local used as an operator operand or a borrowed receiver is E0910, so the whole `tests/fn_once.test.yo` batch fails to compile on every platform (develop red).
 
-**Status:** open. Regression from #1573 (`27431e4be`, "a receiver or & argument reached through an Rc/Arc keeps the handle alive for its call; … E0910 checks deref and element receivers").
+**Status:** FIXED 2026-10-24 (branch `fix/fixdev-fnonce-e0910`). Regression from #1573 (`27431e4be`, "a receiver or & argument reached through an Rc/Arc keeps the handle alive for its call; … E0910 checks deref and element receivers").
 
 ## Symptom
 
@@ -62,3 +62,29 @@ flagged instead.
 The sibling walker `_global_lend_root` in the same file already uses the exact positive test: the call's
 own ExprInfo carries `expr_info_index_method_type` (set by Index-trait dispatch, which also covers
 `Array`), or the callee is array-typed. Codegen is not involved; the predicate gates only a diagnostic.
+
+## Fix
+
+`_is_unmarked_lent_place` now recognises an element read the way `_global_lend_root` does: the call's
+own ExprInfo carries the Index dispatch marker (`expr_info_index_method_type`), or the callee is
+array-typed. The one-argument / not-a-function-type heuristic is gone. Every other call (a closure,
+`Dyn(Fn*)` or `Dyn(FnOnce)` call, a closure-typed field `h.cb(x)`, a constructor) yields a temporary that
+no later argument can reach, so it lends nothing. The #1573 protections are unchanged: their receivers
+(`hs(usize(0)).peek`, `fs(usize(0)).r.peek`, `ts(usize(0)).peek_len`) are Index-dispatched, so they keep
+the marker, and the `r.peek` case is a plain name. The predicate gates only a diagnostic, so no emitted C
+changes.
+
+Regression tests, in `tests/fn_once.test.yo`:
+
+- "FnOnce: a one-argument call of an FnOnce local is either operand of ==": `Impl(FnOnce)` on the right,
+  `Dyn(FnOnce)` on both sides.
+- "FnOnce: an Fn closure's call result is a temporary a later argument may move the closure past":
+  `g(i32(1)) == _once_eat_fn(g)`, and the same through `Dyn(Fn)`.
+- "FnOnce: a closure call's result as a borrowed receiver lends nothing of the closure":
+  `mk(i32(1)).plus(_once_eat_mk(mk))` and `cb(i32(1)).len()`.
+- "FnOnce: a closure field's call result is a temporary": `h.cb(i32(1)) == (i32(1) + _once_eat_holder(h))`.
+- "FnOnce: an element read as an operand still lends its container", a negative control that stays
+  E0910: `xs(usize(0)) == _once_first(xs)`.
+
+The develop binary fails the first four with the E0910 above and passes the control. All five pass after
+the fix, and each checks dispose counts. The two existing tests that turned develop red pass as well.
