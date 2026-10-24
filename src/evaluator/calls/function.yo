@@ -3379,7 +3379,12 @@ _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLen
 /// written `&` of the same place does, so a later argument that moves,
 /// overwrites or lends `&mut` its root is E0910 in both spellings
 /// (issues/fixed/2026-10-23-a-receiver-reached-through-an-rc-auto-deref-is-not-kept-alive-across-its-closure-argument.md).
-/// Any other receiver (a call's result) is a temporary no argument can reach.
+/// An element read is recognised as `_global_lend_root` does: by the Index
+/// dispatch marker on the call, or an array-typed callee. Any other call (a
+/// closure or `Dyn(Fn*)` call, a fn-typed field, a constructor) yields a
+/// temporary no argument can reach, so calling an `FnOnce` local inside an
+/// operand is not a lend of it
+/// (issues/fixed/2026-10-24-calling-an-fnonce-closure-is-a-false-e0910-after-the-receiver-exclusivity-extension.md).
 _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
   (cur : AstExpr) = e;
   while(true, {
@@ -3394,7 +3399,8 @@ _is_unmarked_lent_place :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)({
             });
             match(ul_args.get(usize(0)), .Some(b) => b, .None => return(false))
           },
-          (!ul_infix && (ul_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ul_callee)), .Some(ci) => !is_function_type(&ci.ty), .None => false)) => ul_callee,
+          (!ul_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)), .Some(ii) => expr_info_index_method_type(&ii).is_some(), .None => false)) => ul_callee,
+          (!ul_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ul_callee)), .Some(ci) => is_array_type(&ci.ty), .None => false)) => ul_callee,
           true => return(false)
         );
       }
