@@ -68,17 +68,35 @@ test("the handle's own field is not behind it: replacing the cell is no write th
 _HoldsArc :: struct(a : TArc(_P));
 test("a `&mut` match scrutinee through a cell handle is E0919 / D3: the arms may write it", {
   h := trc(_p(i32(1)));
-  comptime_expect_error(match(&mut h.*, p => {
-    p.x = i32(5);
-  }), "read-only through the handle");
+  comptime_expect_error(
+    match(
+      &mut h.*,
+      p => {
+        p.x = i32(5);
+      }
+    ),
+    "read-only through the handle"
+  );
   comptime_expect_error(match(&mut h.items, l => l.push(i32(5))), "read-only through the handle");
-  comptime_expect_error(match(&mut h.x, x => {
-    x = i32(5);
-  }), "read-only through the handle");
+  comptime_expect_error(
+    match(
+      &mut h.x,
+      x => {
+        x = i32(5);
+      }
+    ),
+    "read-only through the handle"
+  );
   a := tarc(_p(i32(1)));
-  comptime_expect_error(match(&mut a.*, p => {
-    p.x = i32(5);
-  }), "atomic object");
+  comptime_expect_error(
+    match(
+      &mut a.*,
+      p => {
+        p.x = i32(5);
+      }
+    ),
+    "atomic object"
+  );
   comptime_expect_error({
     m := &mut a.x;
     ()
