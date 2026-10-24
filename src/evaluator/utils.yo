@@ -3016,6 +3016,9 @@ take_copy_tail_dests :: (fn() -> ArrayList(CopyWrite))({
 CloneImplBody :: struct(at_module : String, start : u32, end : u32, receiver : String);
 (g_clone_impl_bodies : RefCell(ArrayList(CloneImplBody))) = RefCell(ArrayList(CloneImplBody)).new(ArrayList(CloneImplBody).new());
 (g_clone_impl_body_keys : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// The nominal types a `derive(T, …, Clone, …)` gave `Clone` while the
+/// migration ran, by head name (`type_head_name_for_impl_forcing`).
+(g_clone_derived_heads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Record, while the migration runs, that `member` (the value of a member of
 /// an `impl(receiver, Clone(...))`) is where `receiver` defines its copy.
 /// A copy of a field of `self` there is the impl's chosen depth, not an
@@ -3335,16 +3338,6 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
   );
   (base == "String") || _implicit_copy_collection_name(&base).is_some()
 });
-/// The insertion `yo fix --migrate explicit-copy` makes for a copy, or none:
-/// only a copy unique buffers turn into E0901 (`_ic_category_is_unique_buffer`)
-/// at a point where `.clone()` on the copied expression is the copy (not a
-/// capture, whose copy is made by the closure, and not a binding a macro
-/// wrote). A copy of a type without `Clone` is kept as well: the listing
-/// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated
-/// (`ExplicitCopySite.lacks_clone_at_copy`).
-/// The nominal types a `derive(T, …, Clone, …)` gave `Clone` while the
-/// migration ran, by head name (`type_head_name_for_impl_forcing`).
-(g_clone_derived_heads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
 /// Record, while the migration runs, that a `derive` gave `target` `Clone`
 /// (`process_trait_arg`, evaluator/builtins/derive.yo).
 record_clone_derive :: (fn(target : &TypeValue) -> unit)({
@@ -3386,6 +3379,13 @@ ic_clone_comes_from_derive :: (fn(ty : &TypeValue, (depth : u32) ?= u32(0)) -> b
   });
   false
 });
+/// The insertion `yo fix --migrate explicit-copy` makes for a copy, or none:
+/// only a copy unique buffers turn into E0901 (`_ic_category_is_unique_buffer`)
+/// at a point where `.clone()` on the copied expression is the copy (not a
+/// capture, whose copy is made by the closure, and not a binding a macro
+/// wrote). A copy of a type without `Clone` is kept as well: the listing
+/// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated
+/// (`ExplicitCopySite.lacks_clone_at_copy`).
 /// What a copy site carries for `yo fix --migrate explicit-copy`: the
 /// copied expression's FIRST token as written (`p` of `p.name`, whose own
 /// token is the `.`), where the rewrite finds it in the source, and the
