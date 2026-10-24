@@ -717,7 +717,7 @@ The owner prefix (PR 2) and the cell header (PR 4) are separate layout diffs, re
 - So an allocator-placed cell's prefix records `size` and `align` beside `{ctx, vtable}`: 32 bytes, or `max(32, align)`.
 - Global-heap cells carry no prefix, so the common case pays nothing.
 
-**The switch (D30).** Codegen picks the ABI from the shape of std's `AllocatorVTable` (the arity of its `alloc` field), so the contract and its switch cannot disagree. Generation B (v0.2.72) moves `std/allocator.yo` (`AllocatorVTable`, `_GLOBAL_VTABLE` :195, `_stamp` :207) and `std/arena.yo`. The v1 path is deleted once no supported seed needs it.
+**The switch (D30).** Codegen picks the ABI from the shape of std's `AllocatorVTable` (the arity of its `alloc` field), so the contract and its switch cannot disagree. Generation B (v0.2.72) moves `std/allocator.yo` (`AllocatorVTable`, `_GLOBAL_VTABLE` :195, `_stamp` :207) and `std/arena.yo` (deleted 2026-10-24, so `std/allocator.yo` and the test files' counting allocators only). The v1 path is deleted once no supported seed needs it.
 
 **Tests:**
 
@@ -725,14 +725,14 @@ The owner prefix (PR 2) and the cell header (PR 4) are separate layout diffs, re
 - A header-free pool that frees by the size it is given.
 - Every existing arena and counting-allocator test.
 
-These go in `tests/explicit_allocators.test.yo` and `tests/arena.test.yo`, not in new files.
+These go in `tests/explicit_allocators.test.yo` (`tests/arena.test.yo` was deleted with `std/arena` on 2026-10-24; its vtable tests moved there), not in new files.
 
 **Seed:** this IS the Generation A.
 
 **Gate:**
 
 - build; check.
-- Tests: `tests/allocator.test.yo`, `tests/arena.test.yo`, `tests/explicit_allocators.test.yo`, `tests/rc.test.yo`, `tests/arc.test.yo`.
+- Tests: `tests/allocator.test.yo`, `tests/explicit_allocators.test.yo`, `tests/rc.test.yo`, `tests/arc.test.yo`.
 - Internal `gc_runtime_atomics`.
 - The `--allocator fixed` cli-cases.
 - Emit-diff: the runtime text and the call arity only.

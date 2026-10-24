@@ -173,10 +173,11 @@ test("A spawned thread does not inherit the scope", {
 test("A task keeps its scope across a suspension", {
   counts := _counts();
   heap := _counting(addr_of(counts));
-  task := with_allocator(heap, 
+  task := with_allocator(
+    heap,
     () => io.async((io : Io) => {
       io.await(yield(io), io);
-      // Resumed from the event loop, after `scoped` has returned.
+      // Resumed from the event loop, after `with_allocator` has returned.
       _Point(x : i32(8), y : i32(9))
     })
   );
