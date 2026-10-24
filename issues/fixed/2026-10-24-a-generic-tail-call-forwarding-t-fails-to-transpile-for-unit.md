@@ -73,11 +73,26 @@ Its doc comment says the `unit` case is meant for definition-time evaluation
 but the arm is not gated on it. In a real specialization a `unit` argument is a
 genuine `unit`, and binding `T` to the abstract SomeT instead leaves the callee
 specialization abstract, so `should_skip_function_codegen` drops it and the
-caller degrades to the `// Failed to transpile` stub. Not yet confirmed by a
-fix.
+caller degrades to the `// Failed to transpile` stub. Confirmed by the fix
+below.
 
-## Workaround in the tree
+## Fix
 
-`std/mem.yo`'s `take` spells its two bitwise moves out instead of forwarding to
-`replace`, so `take(&mut u)` on a `unit` place builds with today's compiler and
-with the v0.2.68 seed.
+**Status:** FIXED 2026-10-24 (`fix/generic-tail-forward-unit`).
+
+`_funcval_infer_forall_ty` keeps the `unit` → expected-type arm only where
+`unit` can be a stand-in: inside the definition-time trial
+(`in_def_time_trial()`), or when the expected type is an `Impl(Fn …)` /
+`Impl(Future …)` SomeT (`type_mentions_impl_fn_or_future`), the Dyn(Fn) family
+the arm was written for. Outside both, a `unit` argument binds the callee's
+binder to `unit`, like any other argument type.
+
+Test: `tests/unit_as_value_type.test.yo`, "a generic tail call forwards T =
+unit" (an expression body, a block body, and a defaulted value forwarded
+through a `&mut` place, each at `unit` and `i32`). It fails to build before the
+fix ("initializing 'void *' with an expression of incompatible type 'void'")
+and passes after.
+
+`std/mem.yo`'s `take` still spells its two bitwise moves out instead of
+forwarding to `replace`, so that the v0.2.68 seed, which lacks this fix, builds
+`take(&mut u)` on a `unit` place too.

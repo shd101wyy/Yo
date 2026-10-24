@@ -2618,6 +2618,35 @@ test("std/mem: a unit place", {
   swap(&mut u, &mut v);
   assert((r == ()) && (t == ()) && (u == ()), "unit has one value, and nothing moves");
 });
+// An `Rc` place: the generic `&mut T` binds `T` to the handle's type, so the
+// handle moves, not its payload
+// (issues/fixed/2026-10-24-an-rc-handle-cannot-be-lent-as-mut-to-a-generic-parameter.md).
+_MoRcSlot :: struct(r : Rc(_MoFd), tag : i32);
+test("std/mem: an Rc place", {
+  g_mo_sum = i32(0);
+  before := g_mo_disposed;
+  mut(r) := rc(_MoFd(n : i32(1)));
+  old := replace(&mut r, rc(_MoFd(n : i32(2))));
+  assert((old.n == i32(1)) && (r.n == i32(2)), "the old handle out, the new one in");
+  mut(r2) := rc(_MoFd(n : i32(3)));
+  swap(&mut r, &mut r2);
+  assert((r.n == i32(3)) && (r2.n == i32(2)), "the handles traded places");
+  mut(h) := _MoRcSlot(r : rc(_MoFd(n : i32(4))), tag : i32(9));
+  o2 := replace(&mut h.r, r2);
+  assert((o2.n == i32(4)) && (h.r.n == i32(2)) && (h.tag == i32(9)), "a handle field");
+  assert(g_mo_disposed == before, "no payload disposed by the moves");
+  drop(old);
+  drop(o2);
+  assert(g_mo_disposed == (before + i32(2)), "each replaced payload once, with its last handle");
+  // `r2` is an `Rc`, a reference type: passing it copied the handle, so
+  // `h.r` and `r2` share the cell, and it dies with the second of them.
+  drop(h);
+  assert(g_mo_disposed == (before + i32(2)), "r2 still holds h.r's cell");
+  drop(r2);
+  drop(r);
+  assert(g_mo_disposed == (before + i32(4)), "every payload once");
+  assert(g_mo_sum == i32(10), "each by its own value");
+});
 test("std/mem: a Box", {
   g_mo_sum = i32(0);
   before := g_mo_disposed;
