@@ -491,7 +491,7 @@ c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
     (2026-10-22) takes the same swap and has the same limitation.
     `__yo_cell`/`__yo_atomic_cell` taking the allocator removes the
     difference
-    (`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+    (`issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
 
 **`ref_count(x)`** reads the count of the cell `x` holds (decision 11, which
 renamed the builtin from `rc`, #1186).
@@ -669,7 +669,7 @@ cannot be copied.
     scope does not recurse. Built inside `with_allocator(a, …)`, the
     callback's allocation goes to `a` again and the stack overflows, exactly
     as `box(v, alloc : .Some(a))` does there; the contract stays option 1 of
-    `issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`
+    `issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`
     (a callback must not allocate through the scope).
     `.None` is the current `with_allocator` scope, else the global
     allocator. The block layout is the one `Rc` cells use: the tag bit in
@@ -999,6 +999,9 @@ and every free routes through the owner prefix.
   - `box`/`rc`/`arc`;
   - a collection or `String` buffer (through `current_allocator()`);
   - a `Dyn` cell or an async state machine.
+  - **(2026-10-24, reversed by the maintainer)** There is no scope: a
+    creation without `alloc :` goes to the global allocator
+    (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1/B2).
 - **An explicit `clone()` lands where its source lives**, not in the
   current scope. This is today's `ArrayList.clone` rule
   (`std/collections/array_list.yo`), as in Rust's `Vec<T, A>: Clone`, and
@@ -1016,11 +1019,16 @@ and every free routes through the owner prefix.
   - **(2026-10-09, std/arena kept after review)** Follow-up: `scoped` and
     `with_allocator` should take an `FnOnce` body (decision 37), so a body
     can move a captured value out.
+    - **(2026-10-24)** Moot: `scoped` and `with_allocator` are deleted
+      (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1).
 - **Placing one cell** uses the constructors' `alloc` parameter (§3.2), an
   ordinary defaulted parameter rather than D2's rejected `alloc_in`
   keyword.
   Containers keep `new_in`/`with_capacity_in` for now; moving them to the
   same `alloc` parameter is a separate decision.
+  - **(2026-10-24, decided)** They move: `plans/backlog/ALLOCATOR_PLACEMENT.md`
+    B2 (v0.2.72) gives the containers the defaulted `alloc` parameter,
+    deletes `new_in`/`with_capacity_in`, and adds `clone_in`.
 - **`Allocator` and `AllocatorVTable` live in the prelude** (done in two
   generations, #1188 and #1207). `std/allocator.yo` keeps the methods,
   `with_allocator`, `current_allocator` and the global vtable.
@@ -1746,6 +1754,10 @@ and in git, not a silent edit.
     no `new_in`. The count reader is `ref_count(x)` (§3.2).
 12. **Allocators.** The scope places cells and buffers, and an explicit
     clone inherits its source's owner (§3.11).
+    - **(2026-10-24, reversed by the maintainer)** There is no scope: a
+      creation without `alloc :` goes to the global allocator
+      (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1/B2). The clone rule
+      stands.
 13. **A future is move-only** (§3.13 A1).
     - Rejected: Swift's copyable `Task` handle, a type whose copies alias
       without saying so.
@@ -3339,6 +3351,10 @@ and in git, not a silent edit.
 - **Allocator placement.** The `alloc` parameter is the explicit form, and
   `with_allocator` places everything a call tree creates (§3.11). Both
   stay.
+  - **(2026-10-24, reversed by the maintainer)** `with_allocator` goes: it is
+    dynamic scoping. Placement is only the `alloc` argument at the creation
+    site (`plans/backlog/ALLOCATOR_PLACEMENT.md`; B1 at v0.2.71, B2 at
+    v0.2.72).
 - **A closure's capture mode, when no capture list is written,** follows
   the parameter the closure is passed to (`f : &Impl(…)` or a by-value `f`,
   decision 22), which the callee's signature spells. The explicit form is
@@ -9420,5 +9436,6 @@ inside a settled design:
   the others wait on the result), now that `Rc(JoinHandle(T))` is known
   not to work. Decided in V3's async work.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
-  the constructors' `alloc` parameter. Decided after V2b.
+  the constructors' `alloc` parameter. Decided after V2b. *(Decided
+  2026-10-24: they move, `plans/backlog/ALLOCATOR_PLACEMENT.md` B2.)*
 - *(Decided as decision 35, 2026-10-05: the capture list.)*

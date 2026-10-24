@@ -173,6 +173,20 @@ of scope. The second part, on a seed carrying the rule, replaces the
 prelude's `box`/`rc`/`arc` with `Box.new`/`Rc.new`/`Arc.new` through one
 `yo fix --migrate handle-ctors` sweep, then deletes the builtins a release
 later.
+[`ALLOCATOR_PLACEMENT`](backlog/ALLOCATOR_PLACEMENT.md) (maintainer,
+2026-10-24, adopting the advisor's verdict) deletes the thread allocation
+scope (`with_allocator`, `current_allocator`, `Arena.scoped` and the
+codegen thread-local): a creation without `alloc :` goes to the global
+allocator, placement is the one defaulted `alloc : Option(Allocator)`
+argument at the creation site (containers included, so
+`new_in`/`with_capacity_in` go), `clone()` still lands where its source
+lives, and frees route by owner prefix. Steps A1 (#1572), A2 (a safe
+file may name `Allocator` as a parameter type), B1 and B2 ride VBD from
+v0.2.70 to v0.2.72; step C, after v0.2.75, makes the process heap
+a `global_allocator` declaration in the root module over a `std/heap`
+catalog and leaves `yo test --allocator debug` as the one `--allocator`
+spelling. It rejects Zig's allocator parameter, a declared or `ctl`
+`Alloc` effect, the same-day scoped-handler "hybrid" and `Dyn.new`.
 [`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md) is the
 2026-10-14 F\* audit, written when the maintainer asked whether Yo could
 support dependent types "like F\* does": the verdict (F\* pays the costs

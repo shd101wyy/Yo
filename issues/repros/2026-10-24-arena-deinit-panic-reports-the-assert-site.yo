@@ -1,0 +1,12 @@
+{ Arena } :: import("std/arena");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+
+main :: (fn() -> unit)({
+  arena := Arena.new(usize(1) << usize(16));
+  xs := ArrayList(i32).new_in(arena.allocator());
+  xs.push(i32(1));
+  arena.deinit();
+  println(xs.len());
+});
+export(main);

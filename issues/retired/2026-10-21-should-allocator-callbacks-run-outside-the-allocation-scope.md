@@ -1,8 +1,17 @@
-# Should an allocator's callbacks run outside the allocation scope? (OPEN-DESIGN)
+# Should an allocator's callbacks run outside the allocation scope?
 
-**Kind:** design question: an open decision, not a defect. Filed 2026-10-21
-from the adversarial review of `feat/arc-alloc-parameter` (`arc` gaining the
-`alloc` parameter, `plans/VALUES_BY_DEFAULT.md` §3.2).
+**Kind:** design question. **Retired 2026-10-24 as moot (maintainer adopted the allocator verdict,
+`plans/backlog/ALLOCATOR_PLACEMENT.md`).** The question assumes a thread allocation scope, and that design deletes
+it: a creation without `alloc :` goes to the global allocator, and placement is an argument at the site. B1
+(v0.2.71) deletes `with_allocator`, so the only remaining scope setter is the swap `rc`/`arc` do around one cell
+construction. V5 Generation A (v0.2.72) moves `rc`/`arc` onto `__yo_cell`/`__yo_atomic_cell`, which take the
+allocator with no swap (#1572). B2 (v0.2.72, after V5 Generation A) then deletes the thread-local. From then on an
+allocator's callbacks have no scope to run inside, and their allocations go to the global allocator. Until then,
+option 1's documented contract stays in force for `rc(v, alloc : .Some(a))` and `arc(v, alloc : .Some(a))`. The
+analysis below is the record the question was opened on.
+
+Filed 2026-10-21 from the adversarial review of `feat/arc-alloc-parameter` (`arc` gaining the `alloc` parameter,
+`plans/VALUES_BY_DEFAULT.md` §3.2).
 
 ## What happens today
 

@@ -15,6 +15,32 @@ kind), which is what makes the real arena typeable. It supersedes the
 and §4.3 (Option C′), whose analysis stays the record of why the DYNAMIC
 forms cannot drop reference counting.
 
+**Amended 2026-10-24 (maintainer adopted the allocator verdict,
+[`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md)):**
+
+- **No scope.** `with_allocator`, `current_allocator` and `Arena.scoped`
+  are deleted in that plan's B1 (v0.2.71), and the thread-local in its B2
+  (v0.2.72). A creation without `alloc :` goes to the global allocator.
+- **Placement by argument.** Every allocator in §3 is used through the one
+  defaulted `alloc : Option(Allocator)` argument that `rc`/`box`/`arc`
+  have; the containers gain it in B2, which deletes
+  `new_in`/`with_capacity_in`. Where a section below says "usable with
+  `with_allocator`" or "through the scope", or spells `new_in(a)`, read
+  `alloc : .Some(a)`.
+- **The process heap is a root declaration** (that plan's step C, after
+  v0.2.75): `global_allocator :: heap.Mimalloc;`, `heap.System` when
+  absent. `std/heap/{system,mimalloc,tlsf,debug}` are the catalog's first
+  modules, each with a global face and a value face (§3.4's `CAllocator`
+  is `system`'s value face, §3.9's `TlsfAllocator` is `tlsf`'s, §3.5's
+  `DebugAllocator` is `debug`'s). `--allocator` on compile and build,
+  `--heap-size`, `--debug-heap` and `build.AllocatorKind` are deleted
+  there. `yo test --allocator debug` is the one surviving flag.
+- **Rejected:** a `ctl` `Alloc` effect (§6), and the same-day "hybrid"
+  draft that kept `with_allocator` as a scoped handler
+  (`ALLOCATOR_PLACEMENT.md` §8).
+
+The sections below keep their 2026-10-21 text otherwise.
+
 ## 0. Verdict
 
 1. **Every allocator in Zig's `std.heap` is buildable in Yo**, as a std
@@ -180,6 +206,13 @@ the alignment.
 
 ### 3.5 `DebugAllocator`, `--allocator debug` and `yo test --allocator debug`
 
+*2026-10-24:* the global face landed as `--allocator debug` (#1580). At
+`ALLOCATOR_PLACEMENT.md` step C, `yo compile`/`yo build` lose the flag (a
+program that wants the tracker declares `global_allocator ::
+heap.Debug(…)` over a backing heap), and `yo test --allocator debug`
+stays as the one surviving `--allocator` spelling, wrapping whatever the
+root declares.
+
 `ZIG_ADOPTION_CANDIDATES.md` Z11, adopted there with a "medium, high
 value" verdict; it is listed here because it is the allocator most users
 of the catalog reach for first. Two faces of one thing: a `DebugAllocator`
@@ -231,7 +264,9 @@ a global free list for cross-thread frees, no locks on the fast path. Yo's
 frees already route by owner prefix, so a remote free can push onto the
 owning thread's list without the vtable knowing. The honest position: Yo
 has mimalloc, which is this design done by a team that benchmarks it for a
-living, and `--allocator mimalloc` is one flag. A Yo-written `SmpAllocator`
+living, and selecting it is one flag today (`--allocator mimalloc`) and,
+from `ALLOCATOR_PLACEMENT.md` step C on (after v0.2.75), one declaration
+in the root module: `global_allocator :: heap.Mimalloc;`. A Yo-written `SmpAllocator`
 is justified only if it wins on a measured workload where mimalloc cannot
 be used (a freestanding target, where `fixed` is today's answer) or if it
 beats mimalloc on the compiler's own allocation profile (CP0's counters).
@@ -340,7 +375,9 @@ section, in both languages, per phase.
 
 - **`std/heap/` or flat `std/`?** Position: `std/heap/`, Zig's name, with
   `std/arena` re-exported for one seed.
-- **Should `with_allocator` scopes accept the real arena?** No: the scope
+- **Should `with_allocator` scopes accept the real arena?** *(Moot since
+  2026-10-24: the scope is deleted, `ALLOCATOR_PLACEMENT.md`; the
+  position below still holds for the `alloc :` argument.)* No: the scope
   places counted cells, the real arena holds uncounted values; mixing them
   through one `Allocator` value would reintroduce the §2 hazard. The real
   arena has no `.allocator()` method.
@@ -357,3 +394,16 @@ section, in both languages, per phase.
 - **Does the real arena need `Send`?** No: `&(T, arena)` is never `Send`
   (O4), and the arena state is move-only and not shared. A per-thread
   arena is one arena per thread.
+- **Should allocation be a `ctl` algebraic effect (`Alloc`)?** No
+  (maintainer, 2026-10-24). A control-bound value may not be a
+  heap-allocation type parameter or a module-level binding
+  (`plans/archive/EXPLICIT_EFFECTS.md` §4, "Handler value unwind-escape
+  restrictions"), so a growable container could not keep the allocator its
+  growth needs. Allocation also never discards its continuation, so `ctl`
+  buys nothing. Nor is it a resuming handler: the same decision deletes
+  `with_allocator`, because a scoped handler is dynamic scoping. Placement
+  is the `alloc :` argument at the creation site, the program's heap a
+  root declaration, and frees go by owner prefix. The design and the other
+  rejected alternatives (Zig's allocator parameter, a declared or inferred
+  effect, the hybrid, `Vec<T, A>`, an implicit context) are in
+  [`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md) §8.

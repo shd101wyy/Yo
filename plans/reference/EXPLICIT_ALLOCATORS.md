@@ -4,6 +4,12 @@
 > phase-by-phase record, measurements and corrections are in the closed plan
 > [`plans/archive/EXPLICIT_ALLOCATORS.md`](../archive/EXPLICIT_ALLOCATORS.md).
 > This page is the short authoritative list of what was decided.
+>
+> **Amended 2026-10-24 (decided by the maintainer, not yet built):**
+> [`plans/backlog/ALLOCATOR_PLACEMENT.md`](../backlog/ALLOCATOR_PLACEMENT.md) deletes the allocation scope below:
+> `with_allocator`, `current_allocator`, a task keeping its scope, and containers following the scope. A creation
+> without `alloc :` goes to the global allocator, and the containers take `alloc :` instead of `new_in`. That is B1
+> at v0.2.71 and B2 at v0.2.72. This page is rewritten when B2 lands.
 
 ## The model
 

@@ -133,7 +133,7 @@ the evaluator gap is open as `issues/2026-10-23-a-generic-constructors-specializ
 Unlike `box`'s
 explicit path, it runs `a`'s callbacks with `a` current (as `with_allocator` does), so an
 allocator whose callbacks allocate through the scope recurses until the stack overflows
-(`issues/questions/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
+(`issues/retired/2026-10-21-should-allocator-callbacks-run-outside-the-allocation-scope.md`).
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
