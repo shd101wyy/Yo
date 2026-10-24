@@ -80,7 +80,7 @@
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string, register_type_display_name, type_display_name } :: import("../../types/string.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type, is_comptime_int_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_comptime_int_type, is_counted_handle_type } :: import("../../types/guards.yo");
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
@@ -443,7 +443,7 @@ _evaluate_inout_local_binding :: (
       ),
       root_var.ty
     );
-    if(is_reference_struct_type(&recv_type) || is_atomic_reference_struct_type(&recv_type), {
+    if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
       pin_type = recv_type;
     });
@@ -886,7 +886,7 @@ evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx
       root_atom
     );
     recv_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv_expr)), .Some(ri) => ri.ty, .None => root_var.ty);
-    if(is_reference_struct_type(&recv_type) || is_atomic_reference_struct_type(&recv_type), {
+    if(is_counted_handle_type(&recv_type), {
       pin_expr = Option(AstExpr).Some(recv_expr);
       pin_type = recv_type;
     });

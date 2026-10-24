@@ -25,7 +25,7 @@
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix, is_thread_local, expr_info_capture_type, expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 { HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation } :: import("../../expr_info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
-{ is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_counted_handle_type, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
 { function_param_mutation_mask, param_mutation_mask_hits, rc_write_audit_enabled, audit_rc_writes } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
@@ -615,7 +615,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       while(pi < pts.len(), {
         match(
           pts.get(pi),
-          .Some(t) => if(is_reference_struct_type(&t) || is_atomic_reference_struct_type(&t), {
+          .Some(t) => if(is_counted_handle_type(&t), {
             has_object_param = true;
           }),
           .None => ()
@@ -637,7 +637,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
       (i : usize) = usize(0);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => t_unit());
-        is_object := (is_reference_struct_type(&pt) || is_atomic_reference_struct_type(&pt));
+        is_object := is_counted_handle_type(&pt);
         label := match(__fm.*.param_labels.get(i), .Some(l) => l, .None => String.new());
         if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
@@ -645,7 +645,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
           is_ref := match(__fm.*.param_is_ref.get(i), .Some(b) => b, .None => false);
           pname := sanitize_for_c_identifier(label.clone(), false);
           // An atomic object's counter is shared across threads: read it atomically.
-          line := if(is_atomic_reference_struct_type(&pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
+          line := if(is_atomic_counted_handle_type(&pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
           if(is_ref, {
             line.push_str("(*");
             line.push_string(&pname);

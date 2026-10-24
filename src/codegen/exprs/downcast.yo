@@ -21,7 +21,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ is_dyn_type, is_enum_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ is_dyn_type, is_enum_type, is_reference_struct_type, cell_handle_view } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, c_symbol_name, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, fresh_local_name } :: import("../utils/index.yo");
@@ -117,7 +117,9 @@ _downcast_value :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
           // still matches. Without that, the miss below would report "never
           // dyn'd" for a type that is.
           .Some(de) => if((type_key(&de.dyn_type) == dyn_tkey) && (type_key(resolve_some_type_to_concrete(&de.concrete_type)) == tkey), {
-            box_opt = Option(TypeValue).Some(de.data_type);
+            // A cell handle's data is its cell (`cell_handle_view`): the
+            // handle is a C-transparent newtype over the cell pointer.
+            box_opt = Option(TypeValue).Some(match(cell_handle_view(&de.data_type), .Some(v) => v.cell, .None => de.data_type));
             scan_done = true;
           }),
           .None => ()

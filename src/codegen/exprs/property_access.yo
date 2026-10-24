@@ -21,7 +21,7 @@
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type, cell_handle_view } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -384,6 +384,21 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
     out.push_string(object_code.clone());
     out.push_str(")");
     return(out);
+  });
+  // `h.*` on a cell handle (`cell_handle_view`): the handle is a
+  // C-transparent newtype over its cell, so its value is the cell pointer and
+  // the payload is the cell's `*` field behind it.
+  if(field_name == "*", {
+    match(
+      cell_handle_view(&object_type),
+      .Some(hv) => {
+        out := object_code.clone();
+        out.push_str("->");
+        out.push_string(c_field_name(&hv.cell, &field_name));
+        return(out);
+      },
+      .None => ()
+    );
   });
   // Newtype: accessing the single field returns the value itself (zero-cost).
   // A by-`ref` receiver is already dereferenced by generate_atom (`(*self)`), so

@@ -4,7 +4,7 @@
 //! Phase 2b stubs (returning false) are tested to confirm they return false —
 //! so a future implementation landing out of order gets caught.
 { String } :: import("std/string");
-{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_flags, no_discriminants, no_type_lists, no_label_lists } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_flags, no_discriminants, no_type_lists, no_label_lists, SharedList } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
 { is_int_type, is_float_type } :: import("../../src/types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -76,8 +76,15 @@
   is_array_type,
   is_signed_int_type,
   is_numeric_type,
-  is_comptime_only_type_simple
+  is_comptime_only_type_simple,
+  cell_handle_view,
+  is_box_type,
+  is_unique_box_type,
+  is_counted_handle_type,
+  is_atomic_counted_handle_type,
+  can_optimize_as_nullable_pointer
 } :: import("../../src/types/guards.yo");
+{ box_inner_type, is_pattern_cell_type, _witness_cell_name } :: import("../../src/pattern.yo");
 // Helper constructors for types not exposed by type.yo
 t_cchar :: (fn() -> TypeValue)(rc(TypeValueNode.CChar));
 t_cshort :: (fn() -> TypeValue)(rc(TypeValueNode.CShort));
@@ -528,4 +535,106 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
     )
   );
   assert(is_rc_type(&some_ty), "SomeT with Future → true");
+});
+// ---------------------------------------------------------------------------
+// Cell handles (plans/VALUES_BY_DEFAULT.md §3.5, V5's seed predicates): a
+// newtype whose one field `_cell` is a cell primitive is the shape V5 gives
+// `Rc`/`Arc`. Built by hand: the primitive is a `ref` struct with one `*`
+// field whose constructor id is the builtin's name.
+// ---------------------------------------------------------------------------
+_one_field_struct :: (fn(name : str, label : str, field : TypeValue, is_ref : bool, is_atomic : bool, is_newtype : bool, cfid : str) -> TypeValue)({
+  labels := ArrayList(String).new();
+  labels.push(String.from(label));
+  types := ArrayList(TypeValue).new();
+  types.push(field);
+  rc(
+    TypeValueNode.Struct(
+      id : String.from(name),
+      name : String.from(name),
+      field_labels : shared_list(labels),
+      field_types : shared_list(types),
+      is_reference_semantics : is_ref,
+      is_atomic_rc : is_atomic,
+      is_newtype : is_newtype,
+      constructor_func_id : String.from(cfid),
+      type_arguments : no_types(),
+      is_source_namespace : false
+    )
+  )
+});
+_cell_of :: (fn(payload : TypeValue, is_atomic : bool) -> TypeValue)(
+  _one_field_struct(if(is_atomic, "__yo_atomic_cell#i32", "__yo_cell#i32"), "*", payload, true, is_atomic, false, if(is_atomic, "__yo_atomic_cell", "__yo_cell"))
+);
+_view_of :: (fn(name : str, payload : TypeValue, is_atomic : bool) -> TypeValue)(
+  _one_field_struct(name, "_cell", _cell_of(payload, is_atomic), false, false, true, "")
+);
+/// `enum(None, Some(payload))`, the `Option` shape.
+_option_of :: (fn(payload : TypeValue) -> TypeValue)({
+  names := ArrayList(String).new();
+  names.push(String.from("None"));
+  names.push(String.from("Some"));
+  none_fields := ArrayList(TypeValue).new();
+  some_fields := ArrayList(TypeValue).new();
+  some_fields.push(payload);
+  fields := ArrayList(SharedList(TypeValue)).new();
+  fields.push(shared_list(none_fields));
+  fields.push(shared_list(some_fields));
+  rc(TypeValueNode.EnumT(String.from("opt"), String.from("Option"), shared_list(names), shared_list(fields), Option(String).None, no_label_lists(), no_discriminants(), false, false, no_types()))
+});
+test("cell_handle_view: a newtype over a cell primitive, atomic or not, and nothing else", {
+  v := _view_of("Rc(i32)", t_i32(), false);
+  a := _view_of("Arc(i32)", t_i32(), true);
+  match(
+    cell_handle_view(&v),
+    .Some(hv) => {
+      assert(is_i32_type(&hv.payload), "the payload is the cell's field");
+      assert(!hv.is_atomic, "the non-atomic cell");
+      assert(is_reference_struct_type(&hv.cell), "the cell is a ref struct");
+    },
+    .None => panic("a view")
+  );
+  assert(match(cell_handle_view(&a), .Some(hv) => hv.is_atomic, .None => false), "the atomic cell");
+  // Decision D3: a plain struct over a cell is not a handle.
+  plain := _one_field_struct("Locked(i32)", "_cell", _cell_of(t_i32(), true), false, false, false, "");
+  assert(cell_handle_view(&plain).is_none(), "a struct, not a newtype");
+  // Another label, or a field that is a plain `ref` struct, is not one.
+  other_label := _one_field_struct("W(i32)", "inner", _cell_of(t_i32(), false), false, false, true, "");
+  assert(cell_handle_view(&other_label).is_none(), "the field must be `_cell`");
+  plain_ref := _one_field_struct("R", "*", t_i32(), true, false, false, "");
+  over_ref := _one_field_struct("W2(i32)", "_cell", plain_ref, false, false, true, "");
+  assert(cell_handle_view(&over_ref).is_none(), "a ref struct that is not a cell primitive");
+  // S4: Box (`newtype(_cell : *V)`) is disjoint from the views.
+  bx := _one_field_struct("Box(i32)", "_cell", t_ptr(t_i32()), false, false, true, "");
+  assert(is_unique_box_type(&bx), "Box");
+  assert(cell_handle_view(&bx).is_none(), "Box is not a cell handle");
+  assert(!is_box_type(&bx) && !is_boxed_type(&bx), "nor a shared cell");
+});
+test("the shared-cell predicates accept a cell handle (S1-S3)", {
+  v := _view_of("Rc(i32)", t_i32(), false);
+  a := _view_of("Arc(i32)", t_i32(), true);
+  assert(is_box_type(&v), "S1: a non-atomic handle is the shared cell");
+  assert(!is_box_type(&a), "S1: an atomic one is not");
+  assert(is_boxed_type(&v), "S2: a non-atomic handle boxes its payload");
+  assert(is_boxed_type(&a), "S2: an atomic handle of a value boxes it");
+  obj := _one_field_struct("Obj", "n", t_i32(), true, false, false, "");
+  a_obj := _view_of("Arc(Obj)", obj, true);
+  assert(!is_boxed_type(&a_obj), "S2: an atomic handle of an object is an object");
+  assert(is_counted_handle_type(&v) && is_counted_handle_type(&a), "both are counted handles");
+  assert(!is_atomic_counted_handle_type(&v) && is_atomic_counted_handle_type(&a), "only the atomic one counts atomically");
+  assert(!is_rc_type(&v), "field-wise: the newtype itself is not an RC type");
+  // S3: `Option` of a non-atomic handle folds to the cell pointer; of an
+  // atomic one it keeps the tag.
+  assert(can_optimize_as_nullable_pointer(&_option_of(v)).is_some(), "S3: the niche");
+  assert(can_optimize_as_nullable_pointer(&_option_of(a)).is_none(), "S3: tagged");
+});
+test("the pattern helpers look through a cell handle (S5, S6)", {
+  v := _view_of("Rc(i32)", t_i32(), false);
+  a := _view_of("Arc(i32)", t_i32(), true);
+  assert(match(box_inner_type(&v), .Some(p) => is_i32_type(&p), .None => false), "S5: the payload");
+  assert(match(box_inner_type(&a), .Some(p) => is_i32_type(&p), .None => false), "S5: the atomic payload");
+  assert(is_pattern_cell_type(&v) && is_pattern_cell_type(&a), "S5: both are cells a pattern names");
+  assert(match(_witness_cell_name(&v), .Some(n) => (n == "Rc"), .None => false), "S6: Rc");
+  assert(match(_witness_cell_name(&a), .Some(n) => (n == "Arc"), .None => false), "S6: Arc");
+  plain := _one_field_struct("Locked(i32)", "_cell", _cell_of(t_i32(), true), false, false, false, "");
+  assert(!is_pattern_cell_type(&plain), "D3: a struct over a cell is not");
 });
