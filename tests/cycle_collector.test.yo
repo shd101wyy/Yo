@@ -3,7 +3,6 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
 Gc :: import("std/gc");
 { ArrayList } :: import("std/collections/array_list");
-{ LinkedList } :: import("std/collections/linked_list");
 { HashMap } :: import("std/collections/hash_map");
 { String } :: import("std/string");
 { VList } :: import("./fixtures/owned_buffer.yo");
@@ -400,33 +399,6 @@ test("ArrayList(Self) two-node cycle collected", {
   Gc.collect();
   assert(Gc.tracked_count() == u64(0), "ArrayList(Self) cycle collected");
 });
-// --- the same through LinkedList(Self): the element sits one cell deeper ---
-// LinkedList(LLNode) holds Node(LLNode) cells whose `?*LLNode` element buffer
-// is the edge back, so the cycle analysis has to re-root at the Node, see
-// through its buffer and recognise the declaration's shell there. It read that
-// shell as a dead end, so neither LLNode nor the list cell registered and the
-// cycle leaked; Node's own Trace impl was already the right traversal
-// (issues/fixed/2026-10-18-a-linkedlist-of-managed-elements-forms-uncollected-cycles.md).
-LLNode :: ref(
-  struct(
-    value : i32,
-    children : LinkedList(Self)
-  )
-);
-test("LinkedList(Self) two-node cycle collected", {
-  do_test :: (fn() -> unit)({
-    a := LLNode(1, LinkedList(LLNode).new());
-    b := LLNode(2, LinkedList(LLNode).new());
-    consume(a.children.push_back(b)); // a -> list -> node -> b
-    consume(b.children.push_back(a)); // b -> list -> node -> a : the cycle
-  });
-  do_test();
-  Gc.collect();
-  assert(Gc.tracked_count() == u64(0), "LinkedList(Self) cycle collected");
-  assert(Type.can_form_rc_cycle(LLNode), "LLNode is cycle-capable");
-  assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "the list cell sits on the cycle");
-  assert(!Type.can_form_rc_cycle(LinkedList(i32)), "a list of plain values is no cycle root");
-});
 // A ref(enum) whose only way back to itself runs through a ref(struct):
 // `KNode`'s `Kids` payload is an `ArrayList(Self)` and no variant holds `Self`
 // directly. The cycle walk re-roots at the list, so it meets the enum again
@@ -757,11 +729,6 @@ test("declared-Acyclic compiler trees keep their containers and holders off the 
   comptime_assert(Type.can_form_rc_cycle(RTermTwin), "the undeclared term twin can form a cycle");
   comptime_assert(Type.can_form_rc_cycle(ArrayList(RTermTwin)), "and its list sits on that cycle (VcTerm shape)");
   comptime_assert(Type.can_form_rc_cycle(RQueryTwin), "and so does its query");
-  // The LinkedList controls stay cycle roots: no declaration covers them.
-  comptime_assert(Type.can_form_rc_cycle(LLNode), "LLNode");
-  comptime_assert(Type.can_form_rc_cycle(LinkedList(LLNode)), "LinkedList(LLNode)");
-  comptime_assert(Type.can_form_rc_cycle(ArrayList(LLNode)), "ArrayList(LLNode)");
-  comptime_assert(!Type.can_form_rc_cycle(LinkedList(i32)), "LinkedList(i32)");
   // At run time a declared node and its list never register.
   before := Gc.tracked_count();
   e := RExpr.FnCall(RExpr.Atom(1), ArrayList(RExpr).new());

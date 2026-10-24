@@ -19,7 +19,7 @@ Yo **默认是内存安全的**。作为普通用户编写的代码无法解引�
 任何你期望一个现代通用语言提供的能力：
 
 - **值类型。** `i32`、`bool`、`str`（指向**静态**字符串字节的视图 —— 背后存储永生）、struct、enum、tuple、`Array(T, N)`。
-- **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`LinkedList(T)`、`String`。
+- **堆管理的集合。** `ArrayList(T)`、`HashMap(K, V)`、`HashSet(T)`、`Deque(T)`、`String`。
 - **共享所有权。** 引用语义类型（`ref(struct(...))`/`ref(enum(...))`，单线程 Rc）、`Arc(T)`（跨线程共享的原子 Rc）。
 - **和类型 / Option / Result 类型。** `Option(T)`、`Result(T, E)`，以及你自定义的 `enum`。
 - **闭包和高阶函数** —— 在安全类型上。

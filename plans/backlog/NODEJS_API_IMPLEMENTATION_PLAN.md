@@ -12,7 +12,6 @@ This document outlines the plan to implement Node.js-like APIs in Yo, making it 
 | `std/collections/array_list.yo`  | Dynamic arrays   | ✅ Complete | Similar to `Buffer`          |
 | `std/collections/hash_map.yo`    | Hash maps        | ✅ Complete |                              |
 | `std/collections/hash_set.yo`    | Hash sets        | ✅ Complete |                              |
-| `std/collections/linked_list.yo` | Linked lists     | ✅ Complete |                              |
 | `std/string/string.yo`           | UTF-8 strings    | ✅ Basic    | Immutable strings            |
 | `std/string/rune.yo`             | Unicode chars    | ✅ Complete |                              |
 | `std/async.yo`                   | Async primitives | ✅ Basic    | `yield`                      |

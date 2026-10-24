@@ -218,8 +218,8 @@ microbenchmark, unmeasurable elsewhere). Once the collections are values
 
 A plain `e` in `for(&mut m, e => …)` yields the whole entry; prefer
 `(k, v)`, which keeps keys immutable. The sources are the std collections
-that implement `BorrowedWalk` (`ArrayList`, `Deque`, `LinkedList`,
-`HashMap`, `BTreeMap`, `OrderedMap`); `HashSet` and `PriorityQueue` have
+that implement `BorrowedWalk` (`ArrayList`, `Deque`, `HashMap`,
+`BTreeMap`, `OrderedMap`); `HashSet` and `PriorityQueue` have
 none, because writing a hashed or heap-ordered element in place would break
 the container. A user type becomes a source by implementing `BorrowedWalk`;
 `walk_elem` forwards the inner collection's projection with its call-site

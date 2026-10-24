@@ -110,7 +110,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
-  - [LinkedList](#linkedlist)
 - [Closure](#closure)
   - [Basic Closure Syntax](#basic-closure-syntax)
   - [Closure Capture Semantics](#closure-capture-semantics)
@@ -2896,7 +2895,7 @@ Yo provides efficient, reference-counted collection types in the standard librar
 
 Every method that changes a collection takes `self : &mut Self`: the
 mutators of `ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`,
-`LinkedList`, `PriorityQueue`, `OrderedMap`, `HeaderMap` and `StringBuilder`
+`PriorityQueue`, `OrderedMap`, `HeaderMap` and `StringBuilder`
 (`push`, `pop`, `insert`, `remove`, `clear`, `sort`, `retain`, `write_str`, …,
 including `StringBuilder.to_string`, which detaches the buffer). Read-only
 methods (`len`, `get`, `contains`, `iter`, …) take `self : Self`.
@@ -3103,89 +3102,6 @@ cond(
   is_sub => printf("set1 is subset of set2\n"),
   true => printf("set1 is not subset of set2\n")
 );
-```
-
-### LinkedList
-
-Doubly-linked list.
-
-```yo
-{ LinkedList } :: import("std/collections/linked_list");
-
-// Create a new LinkedList
-list := LinkedList(i32).new();
-
-// Push to front and back
-list.push_front(i32(1));
-list.push_back(i32(2));
-list.push_front(i32(0));
-
-printf("Length: %zu\n", list.len());
-
-// Access front and back
-match(
-  list.front(),
-  .Some(v) => printf("Front: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-match(
-  list.back(),
-  .Some(v) => printf("Back: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-// Pop from front and back
-match(
-  list.pop_front(),
-  .Some(v) => printf("Popped front: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-match(
-  list.pop_back(),
-  .Some(v) => printf("Popped back: %d\n", v),
-  .None => printf("List is empty\n")
-);
-
-// Get by index
-match(
-  list.get(usize(0)),
-  .Some(v) => printf("At index 0: %d\n", v),
-  .None => printf("Index out of bounds\n")
-);
-
-// Insert at index
-match(
-  list.insert(usize(1), i32(20)),
-  .Ok(_) => printf("Inserted at index 1\n"),
-  .Error(err) => match(
-    err,
-    .IndexOutOfBounds => printf("Index out of bounds\n"),
-    .EmptyList => printf("List is empty\n")
-  )
-);
-
-// Remove at index — remove(idx) returns the element directly and panics on
-// an out-of-bounds index (the Index impl's contract); a RANGE removal that
-// hands the elements back is drain(start .. end), which returns them as a
-// fresh ArrayList. Non-consuming iteration is iter(), into_iter() moves.
-removed := list.remove(usize(0));
-printf("Removed: %d\n", removed);
-drained := list.drain(usize(1) .. usize(3));
-
-// Check if has
-cond(
-  list.contains(i32(20)) => printf("Contains 20\n"),
-  true => printf("Does not contain 20\n")
-);
-
-// Reverse the list
-list.reverse();
-
-// Clear
-list.clear();
-assert(list.is_empty(), "List should be empty");
 ```
 
 ## Closure
@@ -4876,7 +4792,7 @@ For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMB
 
 Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `addr_of(value(index))`, and mutation via the call-syntax assignment `value(index) = new_value`.
 
-The standard library implements `Index` for its collection types, including `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, `LinkedList` and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
+The standard library implements `Index` for its collection types, including `ArrayList`, `HashMap`, `BTreeMap`, `Deque` and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
 
 For the full design, trait definition, and implementation details, see [INDEX_TRAIT.md](./INDEX_TRAIT.md).
 

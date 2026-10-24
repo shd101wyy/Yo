@@ -15,7 +15,6 @@
 { String } :: import("std/string");
 { HashMap } :: import("std/collections/hash_map");
 { Deque } :: import("std/collections/deque");
-{ LinkedList } :: import("std/collections/linked_list");
 { BTreeMap } :: import("std/collections/btree_map");
 { OrderedMap } :: import("std/collections/ordered_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -353,7 +352,7 @@ test("for(map, (k, inout(v)) => body): key by value, value borrowed", {
   scores.insert(String.from("c"), i32(3)); // guard released
   assert(scores.len() == usize(3), "insert after the loop");
 });
-test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
+test("borrowed for over Deque, BTreeMap and OrderedMap", {
   dq := Deque(i32).new();
   dq.push_back(i32(1));
   dq.push_back(i32(2));
@@ -361,13 +360,6 @@ test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
     x = (x + i32(100));
   });
   assert(dq.pop_front() == Option(i32).Some(i32(101)), "deque element mutated in place");
-  ll := LinkedList(i32).new();
-  ll.push_back(i32(1));
-  ll.push_back(i32(2));
-  for(&mut ll, x => {
-    x = (x * i32(3));
-  });
-  assert(ll.pop_front() == Option(i32).Some(i32(3)), "linked-list node value mutated in place");
   bt := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
   bt.insert(i32(2), i32(20));
