@@ -1,0 +1,22 @@
+//! A copy's source can share its buffer with variables it flowed from (or
+//! into) before the copy: a write through any of them after the copy
+//! reaches the copy too. `alias_before` copies `t` while `t` and `x` share a
+//! buffer, then pushes through `x`, so the copy is listed. `fresh_before`'s
+//! `t` holds its own buffer (`x.clone()`), and its copy is cloned.
+{ ArrayList } :: import("std/collections/array_list");
+alias_before :: (fn() -> usize)({
+  x := ArrayList(i32).new();
+  t := x;
+  y := t;
+  x.push(i32(1));
+  y.len() + t.len()
+});
+fresh_before :: (fn() -> usize)({
+  x := ArrayList(i32).new();
+  t := x.clone();
+  y := t;
+  x.push(i32(1));
+  y.len() + t.len()
+});
+main :: (fn() -> unit)(());
+export(main);
