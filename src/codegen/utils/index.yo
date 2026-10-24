@@ -202,6 +202,13 @@ CodeGenContext :: ref(
     /// types, so the lightweight RC runtime is emitted and a cycle leaks.
     /// Set by `compile_module` after construction (default false = `auto`).
     cycle_collector_off : bool,
+    /// The allocator interface the runtime speaks: version 2 (aligned
+    /// `alloc`/`realloc`, a sized `free`, the 32-byte cell prefix) when
+    /// std's `AllocatorVTable.alloc` takes three parameters, else version 1.
+    /// Derived from that shape, never a flag (`std_allocator_abi_is_v2`;
+    /// plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30). Set by
+    /// `compile_module` after construction (default false = version 1).
+    alloc_abi_v2 : bool,
     /// True when compiling as a library (no main() wrapper).
     is_library : bool,
     /// True when any asm block uses intel_syntax (`-masm=intel` needed).
@@ -392,6 +399,7 @@ impl(
       debug_async_await : debug_async_await,
       needs_cycle_gc : false,
       cycle_collector_off : false,
+      alloc_abi_v2 : false,
       is_library : is_library,
       needs_intel_asm_syntax : false,
       current_loop_label : Option(String).None,
@@ -474,6 +482,16 @@ impl(
       }
     )
   }),
+  /// The C expression allocating one RC block of C type `c_type` in the
+  /// allocation scope held by the C expression `scope`. Interface version 2
+  /// passes the block's alignment, so an allocator places an over-aligned
+  /// object correctly and records the extent its sized `free` is handed.
+  rc_alloc_scoped_call : (fn(self : &Self, scope : &String, c_type : &String) -> String)(
+    cond(
+      self.alloc_abi_v2 => `__yo_rc_alloc_scoped(${scope}, sizeof(${c_type}), _Alignof(${c_type}))`,
+      true => `__yo_rc_alloc_scoped(${scope}, sizeof(${c_type}))`
+    )
+  ),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
   dispose_type_id_for : (fn(self : &Self, dispose_c_name : &String) -> usize)(
     match(
@@ -679,6 +697,62 @@ impl(
 // evaluator/types/struct.yo). A struct with no side-table entry is treated as
 // all-runtime. See issues/retired/codegen-port-type-model-gaps.md Gap 1.
 // ===========================================================================
+/// Whether `vt`, std's `AllocatorVTable`, is allocator interface version 2:
+/// its `alloc` field is `fn(ctx, size, align)`, three parameters, where
+/// version 1's is `fn(ctx, size)` (plans/VALUES_BY_DEFAULT.md "After V2b: the
+/// allocator interface, version 2"). The emitted runtime calls through this
+/// vtable, so its field types ARE the contract, and a switch read off them
+/// cannot disagree with them (plans/handover/VBD_LOOKAHEAD_2026-10-23.md D30).
+allocator_vtable_type_is_v2 :: (fn(vt : &TypeValue) -> bool)(
+  match(
+    resolve_struct_shell(vt),
+    Rc(.Struct({ field_labels, field_types })) => {
+      (found : bool) = false;
+      (fi : usize) = usize(0);
+      while(fi < field_labels.len(), {
+        if(match(field_labels.get(fi), .Some(l) => (l == "alloc"), .None => false), {
+          found = match(
+            field_types.get(fi),
+            .Some(ft) => match(ft, Rc(.Func({ param_types })) => (param_types.len() == usize(3)), _ => false),
+            .None => false
+          );
+        });
+        fi = (fi + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+/// Whether the std `env` sees speaks allocator interface version 2: the shape
+/// of its prelude's `AllocatorVTable` (`allocator_vtable_type_is_v2`). A
+/// program shadowing the name does not count: only the struct std declares
+/// (in `std/prelude.yo`, or `std/allocator.yo` should it move back) decides.
+/// No such binding (a prelude-less compile) is version 1.
+std_allocator_abi_is_v2 :: (fn(env : &Environment) -> bool)({
+  vars := get_variables_from_env(env, &String.from("AllocatorVTable"));
+  (v2 : bool) = false;
+  (vi : usize) = usize(0);
+  while(vi < vars.len(), {
+    match(
+      vars.get(vi),
+      .Some(var) => match(
+        var.value.get(usize(0)),
+        .Some(.TypeVal(t)) => match(
+          resolve_struct_shell(&t),
+          Rc(.Struct({ id : sid })) => if(sid.starts_with("struct_decl_std__prelude_") || sid.starts_with("struct_decl_std__allocator_"), {
+            v2 = allocator_vtable_type_is_v2(&t);
+          }),
+          _ => ()
+        ),
+        _ => ()
+      ),
+      .None => ()
+    );
+    vi = (vi + usize(1));
+  });
+  v2
+});
 /// A runtime (non-comptime-only) struct field: its label and type, in
 /// declaration order.
 RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
@@ -2401,6 +2475,8 @@ export(
   ArrayStructInfo,
   RuntimeStructField,
   get_runtime_struct_fields,
+  allocator_vtable_type_is_v2,
+  std_allocator_abi_is_v2,
   type_key,
   get_type_string,
   get_storage_type_string,
