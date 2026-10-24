@@ -234,7 +234,11 @@ impl(
     // Write value at tail position
     (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
     (tail : usize) = ((self._head + current_len) % self._capacity);
-    consume((self._data.add(tail)).* = value);
+    // SAFETY: `tail` indexes a slot past the live run `[_head, _head + len)`,
+    // so it holds no value (never written, or moved out by a receive). A
+    // bitwise write moves `value` in without dropping those dead bytes and
+    // without copying `value`, which a move-only `T` forbids.
+    __yo_ptr_write(self._data.add(tail), value);
     self._len.store(current_len + usize(1), MemoryOrder.Release);
     self._not_empty.signal();
     self._mutex._raw_unlock();
@@ -259,10 +263,11 @@ impl(
       },
       true => ()
     );
-    // Read value at head position and neutralize the slot's RC
-    element_ptr := self._data.add(self._head);
-    (val : T) = element_ptr.*;
-    ___drop(element_ptr.*);
+    // SAFETY: the slot at `_head` holds the oldest live value (`len > 0`
+    // under the mutex). A bitwise read moves it out, and advancing `_head`
+    // below makes the slot dead, so neither the queue nor `drop` touches the
+    // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
+    (val : T) = __yo_ptr_read(self._data.add(self._head));
     self._head = ((self._head + usize(1)) % self._capacity);
     self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
@@ -288,7 +293,11 @@ impl(
     );
     (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
     (tail : usize) = ((self._head + current_len) % self._capacity);
-    consume((self._data.add(tail)).* = value);
+    // SAFETY: `tail` indexes a slot past the live run `[_head, _head + len)`,
+    // so it holds no value (never written, or moved out by a receive). A
+    // bitwise write moves `value` in without dropping those dead bytes and
+    // without copying `value`, which a move-only `T` forbids.
+    __yo_ptr_write(self._data.add(tail), value);
     self._len.store(current_len + usize(1), MemoryOrder.Release);
     self._not_empty.signal();
     self._mutex._raw_unlock();
@@ -314,9 +323,11 @@ impl(
       },
       true => ()
     );
-    element_ptr := self._data.add(self._head);
-    (val : T) = element_ptr.*;
-    ___drop(element_ptr.*);
+    // SAFETY: the slot at `_head` holds the oldest live value (`len > 0`
+    // under the mutex). A bitwise read moves it out, and advancing `_head`
+    // below makes the slot dead, so neither the queue nor `drop` touches the
+    // value again. A copy (`p.*`) would be E0901 for a move-only `T`.
+    (val : T) = __yo_ptr_read(self._data.add(self._head));
     self._head = ((self._head + usize(1)) % self._capacity);
     self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
@@ -373,7 +384,9 @@ impl(
       (i : usize) = usize(0);
       while(runtime(i < current_len), {
         (idx : usize) = ((self._head + i) % self._capacity);
-        ___drop((self._data.add(idx)).*);
+        // SAFETY: every slot of the live run `[_head, _head + len)` owns its
+        // value and nothing reads it after this; the buffer is freed below.
+        drop_in_place(self._data.add(idx));
         i = (i + usize(1));
       });
       free(.Some((*void)(self._data)));
