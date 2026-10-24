@@ -1445,9 +1445,9 @@ generate_async_block_state_dispose_function :: (
 /// prefix, so the pool is consulted only for the global allocator. The
 /// caller zeroes it either way.
 _sm_alloc_call :: (fn(struct_name : &String, dispose_function_name : &String, scope : &String, context : &FunctionGenerationContext) -> String)(
-  if(context.base.needs_cycle_gc, `__yo_rc_alloc_scoped(${scope}, sizeof(${struct_name}))`, {
+  if(context.base.needs_cycle_gc, context.base.rc_alloc_scoped_call(scope, struct_name), {
     pid := context.base.sm_pool_id_for(dispose_function_name);
-    `(${scope.clone()}.vtable ? __yo_rc_alloc_scoped(${scope.clone()}, sizeof(${struct_name.clone()})) : __yo_sm_take(${pid.to_string()}, sizeof(${struct_name})))`
+    `(${scope.clone()}.vtable ? ${context.base.rc_alloc_scoped_call(scope, struct_name)} : __yo_sm_take(${pid.to_string()}, sizeof(${struct_name})))`
   })
 );
 /// Generate the constructor for an async block: heap-allocates + zero-inits the

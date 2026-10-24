@@ -20,7 +20,7 @@
 { Exception } :: import("std/error");
 { Environment } :: import("../env.yo");
 { EvalContext, force_pending_count } :: import("../evaluator/context.yo");
-{ CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum } :: import("./utils/index.yo");
+{ CodeGenContext, set_on_demand_declare_fn, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, std_allocator_abi_is_v2 } :: import("./utils/index.yo");
 { FunctionGenerationContext } :: import("./functions/context.yo");
 { collect_required_functions, collect_module_level_init_functions, collect_trace_methods_from_generic_impls, collect_dispose_methods, register_find_function_calls_in_expr } :: import("./functions/collection.yo");
 { collect_type, collect_required_types, collect_pointer_pointees, register_collect_type } :: import("./types/collection.yo");
@@ -410,6 +410,9 @@ compile_module :: (fn(module_value : &EvalValue, info : &mut ExprInfoTable, targ
   // `--cycle-collector off`: read by compute_needs_cycle_gc and by the
   // `__yo_cycle_collector_off` hook in the runtime declarations.
   base.cycle_collector_off = cycle_collector_off;
+  // The allocator interface the runtime speaks, read off the shape of std's
+  // `AllocatorVTable` (D30): version 1 until std moves (Generation B).
+  base.alloc_abi_v2 = std_allocator_abi_is_v2(module_env);
   // The entry module's path decides which top-level exports get plain,
   // externally-linked C names (functions/collection.yo).
   base.current_module_path = Option(String).Some(module_env.module_path.*.clone());
