@@ -77,8 +77,11 @@ test("where-clause inference with bool callback return type", {
 // ArrayList(MapEntry(K',V')) identities from the failed impl-match trials,
 // whose GC traverse delegated to a never-emitted hard-generic trace spec —
 // "call to undeclared function yo_id_..._<raw SomeT ids>_..." at C compile.
-// The first collection was std's linked list until its removal (2026-10-24);
-// Deque keeps the same two-instantiation shape.
+// The original trigger was std's linked list (removed 2026-10-24); Deque then
+// BTreeMap did NOT reproduce the bug even before the fix, so this case is now
+// a two-instantiation smoke test, not a guard. The fix sits in the cycle
+// collector's trace delegation, which W6b deletes, so the lost guard is
+// accepted rather than rebuilt.
 { Deque, DequeIter } :: import("std/collections/deque");
 { BTreeMap, BTreeMapIter, MapEntry } :: import("std/collections/btree_map");
 __WbInto :: trait(
