@@ -1,0 +1,39 @@
+// issues/2026-10-24-an-exit-in-a-nested-later-arm-skips-the-drop-of-the-moved-local.md
+{ println } :: import("std/fmt");
+(mut(g_drops) : i32) = i32(0);
+D :: struct(n : i32);
+impl(
+  D,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_drops = (g_drops + i32(1));
+    })
+  )
+);
+take :: (fn(d : D) -> i32)(d.n);
+// The move is in the inner `cond`'s first arm, the return in its second;
+// the outer `cond` around them is what the fixed one-level case lacks.
+f :: (fn(a : bool, b : bool, k : i32) -> i32)({
+  d := D(n : k);
+  (mut(total) : i32) = i32(0);
+  cond(
+    a => (),
+    true => {
+      cond(
+        b => {
+          total = take(d);
+        },
+        true => {
+          return(i32(-1));
+        }
+      );
+    }
+  );
+  total
+});
+main :: (fn() -> unit)({
+  r := f(false, false, i32(7));
+  n := g_drops;
+  println(`returned ${r}, drops ${n} (expected 1)`);
+});
+export(main);

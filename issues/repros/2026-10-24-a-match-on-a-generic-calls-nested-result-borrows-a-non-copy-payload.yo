@@ -1,0 +1,20 @@
+// `passc` moves the `Option(Inner)` payload out of a generic call's
+// `Result(Option(V), i32)` result and is rejected with E0901, naming the
+// binding's type as the unsubstituted `Option(V)`. `passd`, the same shape
+// one level shallower (`Option(V)`), is accepted, and so is `passc` when
+// `Inner` has `Drop` or derives `Copy`.
+Inner :: struct(n : i32);
+derive(Inner, Clone);
+mk :: (fn(generic(V : Type), v : V) -> Result(Option(V), i32))(Result(Option(V), i32).Ok(Option(V).Some(v)));
+passc :: (fn(v : Inner) -> Option(Inner))(
+  match(mk(v), .Ok(prev) => prev, .Err(_) => Option(Inner).None)
+);
+mk2 :: (fn(generic(V : Type), v : V) -> Option(V))(Option(V).Some(v));
+passd :: (fn(v : Inner) -> Inner)(
+  match(mk2(v), .Some(prev) => prev, .None => Inner(n : i32(0)))
+);
+main :: (fn() -> unit)({
+  consume(passc(Inner(n : i32(1))));
+  consume(passd(Inner(n : i32(1))));
+});
+export(main);

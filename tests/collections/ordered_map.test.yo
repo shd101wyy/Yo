@@ -339,3 +339,99 @@ test("OrderedMap index_of and get_index address entries by position", {
   assert(m.index_of(`b`).unwrap() == usize(0), "shift-remove pulled b forward");
   assert(m.get_index(usize(0)).unwrap().key == `b`, "and get_index agrees");
 });
+// A key whose every value hashes alike, so all of a map's positions share
+// ONE bucket of the position index. Each `insert` after the first appends
+// to that bucket's existing list, and every `remove`/`swap_remove` edits it,
+// so these tests read back each write `_index_add`, `_index_drop` and
+// `_index_bump` make to a list the index already holds. A write made to a
+// copy of the list (`get` returns one once `ArrayList` is a value type)
+// would be lost, and the keys below would no longer be found
+// (plans/handover/VBD_LOOKAHEAD_2026-10-23.md, P3).
+_OmSameHash :: struct(id : i32);
+derive(_OmSameHash, Eq(_OmSameHash), Copy, Clone);
+impl(
+  _OmSameHash,
+  Hash(
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(
+      hasher.write_i32(i32(7))
+    )
+  )
+);
+_om_same_hash_map :: (fn(n : i32) -> OrderedMap(_OmSameHash, i32))({
+  m := OrderedMap(_OmSameHash, i32).new();
+  (mut(i) : i32) = i32(0);
+  while(i < n, i = (i + i32(1)), {
+    m.insert(_OmSameHash(id : i), i * i32(10));
+  });
+  m
+});
+test("OrderedMap keys sharing one hash: every insert lands in the shared position list", {
+  m := _om_same_hash_map(i32(5));
+  assert(m.len() == usize(5), "five entries");
+  (mut(i) : i32) = i32(0);
+  while(i < i32(5), i = (i + i32(1)), {
+    k := _OmSameHash(id : i);
+    assert(m.contains_key(&k), `key ${i.to_string()} is found`);
+    assert(m.get(&k).unwrap() == (i * i32(10)), `key ${i.to_string()} has its own value`);
+    assert(m.index_of(&k).unwrap() == usize(i), `key ${i.to_string()} is at its insertion position`);
+  });
+  absent := _OmSameHash(id : i32(99));
+  assert(!m.contains_key(&absent), "a key with the same hash that was never inserted is absent");
+  // Overwriting a key goes through the shared list too, and keeps the order.
+  k2 := _OmSameHash(id : i32(2));
+  assert(m.insert(k2, i32(222)).unwrap() == i32(20), "the old value comes back");
+  assert(m.index_of(&k2).unwrap() == usize(2), "an overwrite keeps the position");
+  assert(m.len() == usize(5), "and adds no entry");
+});
+test("OrderedMap keys sharing one hash: remove drops and shifts the shared positions", {
+  m := _om_same_hash_map(i32(5));
+  k1 := _OmSameHash(id : i32(1));
+  assert(m.remove(&k1).unwrap() == i32(10), "remove returns the value");
+  assert(!m.contains_key(&k1), "the removed key is gone");
+  assert(m.len() == usize(4), "four left");
+  // 0 stays; 2, 3 and 4 each moved down one slot.
+  ids := [i32(0), i32(2), i32(3), i32(4)];
+  (mut(j) : usize) = usize(0);
+  while(j < usize(4), j = (j + usize(1)), {
+    k := _OmSameHash(id : ids(j));
+    assert(m.index_of(&k).unwrap() == j, `key ${ids(j).to_string()} is at ${j.to_string()}`);
+    assert(m.get(&k).unwrap() == (ids(j) * i32(10)), `key ${ids(j).to_string()} keeps its value`);
+  });
+  // A re-insert appends to the shared list again.
+  m.insert(k1, i32(11));
+  assert(m.index_of(&k1).unwrap() == usize(4), "the re-inserted key goes to the end");
+  assert(m.get(&k1).unwrap() == i32(11), "with its new value");
+  // Removing the LAST entry shifts nothing, so only the drop forgets its
+  // position: a position left behind would point past the end, at the slot
+  // the entry was moved out of.
+  assert(m.remove(&k1).unwrap() == i32(11), "the last entry is removable");
+  assert(!m.contains_key(&k1), "and its position is forgotten");
+  assert(m.index_of(&k1).is_none(), "index_of agrees");
+});
+test("OrderedMap keys sharing one hash: swap_remove moves the last position", {
+  m := _om_same_hash_map(i32(5));
+  k0 := _OmSameHash(id : i32(0));
+  assert(m.swap_remove(&k0).unwrap() == i32(0), "swap_remove returns the value");
+  assert(!m.contains_key(&k0), "the removed key is gone");
+  k4 := _OmSameHash(id : i32(4));
+  assert(m.index_of(&k4).unwrap() == usize(0), "the last key moved into the hole");
+  assert(m.get(&k4).unwrap() == i32(40), "and is still found by key");
+  (mut(i) : i32) = i32(1);
+  while(i < i32(4), i = (i + i32(1)), {
+    k := _OmSameHash(id : i);
+    assert(m.index_of(&k).unwrap() == usize(i), `key ${i.to_string()} did not move`);
+  });
+  // The key now last is removed in place: no position moves, so only the
+  // drop forgets it.
+  k3 := _OmSameHash(id : i32(3));
+  assert(m.swap_remove(&k3).unwrap() == i32(30), "the last key is removable");
+  assert(!m.contains_key(&k3), "and its position is forgotten");
+  // Empty the map through the shared list, then refill it.
+  while(m.len() > usize(0), {
+    first := m.get_index(usize(0)).unwrap().key;
+    assert(m.swap_remove(&first).is_some(), "each remaining key is removable");
+  });
+  m.insert(k0, i32(5));
+  assert(m.index_of(&k0).unwrap() == usize(0), "a refilled map starts at position 0");
+  assert(m.get(&k0).unwrap() == i32(5), "with the new value");
+});

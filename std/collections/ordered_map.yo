@@ -148,13 +148,17 @@ impl(
       .None => Option(usize).None
     )
   }),
-  /// Record that `pos` holds an entry whose key hashes to `h`. The bucket is
-  /// an `ArrayList`, a shared handle, so the `get` copy writes the list the
-  /// index holds.
+  /// Record that `pos` holds an entry whose key hashes to `h`.
+  ///
+  /// The position list is written WHERE THE INDEX HOLDS IT, through the
+  /// bucket's entry pointer — a projection into the map's own storage. A
+  /// list read out with `get` is a copy once `ArrayList` is a value type,
+  /// and a push onto the copy would be lost; the same holds for
+  /// `_index_drop` and `_index_bump`.
   _index_add : (fn(self : &mut Self, h : u64, pos : usize) -> unit)(
     match(
-      self._index.get(&h),
-      .Some(positions) => positions.push(pos),
+      self._index.get_entry_ptr(&h),
+      .Some(ep) => ep.*.value.push(pos),
       .None => {
         fresh := ArrayList(usize).new();
         fresh.push(pos);
@@ -166,11 +170,11 @@ impl(
   /// Forget the position `pos` under `h` (`remove`/`swap_remove`).
   _index_drop : (fn(self : &mut Self, h : u64, pos : usize) -> unit)(
     match(
-      self._index.get(&h),
-      .Some(positions) => {
+      self._index.get_entry_ptr(&h),
+      .Some(ep) => {
         match(
-          positions.index_of(&pos),
-          .Some(i) => consume(positions.remove(i)),
+          ep.*.value.index_of(&pos),
+          .Some(i) => consume(ep.*.value.remove(i)),
           .None => ()
         );
         ()
@@ -182,13 +186,13 @@ impl(
   /// shift or a swap leaves behind.
   _index_bump : (fn(self : &mut Self, h : u64, from : usize, to : usize) -> unit)(
     match(
-      self._index.get(&h),
-      .Some(positions) => {
+      self._index.get_entry_ptr(&h),
+      .Some(ep) => {
         match(
-          positions.index_of(&from),
+          ep.*.value.index_of(&from),
           .Some(i) => {
-            consume(positions.remove(i));
-            positions.insert(i, to);
+            consume(ep.*.value.remove(i));
+            ep.*.value.insert(i, to);
           },
           .None => ()
         );
