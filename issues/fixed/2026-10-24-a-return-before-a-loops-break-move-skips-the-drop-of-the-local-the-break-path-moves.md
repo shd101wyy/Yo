@@ -77,7 +77,10 @@ The loop join works like the branch join (`check_loop_flow`,
   token (`_mark_moved_at_loop_end`). Past it, not at it: a `return` that is
   the body's last statement has the loop's last token as its cleanup point.
   The user's move stays the "value moved here" note of a later E0901
-  (`variable_note_arm_move`).
+  (`variable_note_arm_move`). When the move sits in a nested loop or a
+  nested branch, the token the join sees is that inner loop's or branch's
+  end, so the note is the site the inner one recorded
+  (`variable_move_note`), not that end.
 - A move made inside an arm that leaves the loop is already kept by the
   branch join as a window over that arm (`UndoneMove`). A move the body's
   end still shows (the body never completes, so every path after it leaves
@@ -108,4 +111,7 @@ two-break, `continue`, not-last and keeping-arm shapes, the sibling-arm shapes
 the body-end window must leave alone, and the exits on the move's own path
 that must drop nothing) and "in an io.async loop, a `return` before the `break`
 path moves a slot local drops it". Both fail on develop `48b8e93a1` and pass
-with the fix. The repro prints `made=2 drops=2`.
+with the fix. The repro prints `made=2 drops=2`. The cli-case
+`tests/cli-cases/a-break-path-move-note-points-at-the-users-move` pins the
+E0901 note at the user's move for a move in a nested loop, in a nested branch
+of the breaking arm, and in the breaking arm itself.
