@@ -56,7 +56,7 @@ main :: (fn() -> unit)({
 | --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`name : &mut T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
 | `addr_of(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `name : &mut T` 参数，或直接传自有集合                                                                               |
-| 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(&mut coll, x => …)` 在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
+| 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(&coll, x => …)`（只读）或 `for(&mut coll, x => …)`（原地）在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
 | 交出存储的 API 一律以原始指针形式交出（`s.ptr()`、`xs.ptr()`） | "Raw pointer values are not available in safe code"                 | 通过安全 API 读取或复制字节（`len()`、索引、`s(a..b)`）；原始视图是标准库内部管道 |
 | `unsafe(...)` 调用                                  | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`                                           |
 | `asm(...)` 块                                       | "inline assembly is not available in safe code"                                  | 同上                                                                                                                   |
@@ -107,7 +107,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-借用是**二等的**，存在于参数位置（`name : &mut T`、`name : &T`）和局部绑定（`name := &mut place`）。函数只能以投影的形式返回借用（`-> &mut T` 产出以其借用参数为根的位置，通过下标 `x(i)` 或直接调用 `t.index_mut(i)` 到达，其结果可绑定为局部借用；见 [INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)），`&mut T` 是模式而不是一等类型（`ArrayList(&mut T)` 或字段 `f : &mut T` 是错误），借用也无法泄漏到 struct 字段或闭包捕获中。`&mut` 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象。局部借用（`name := &mut place`，或只读的 `name := &place`）存活到它的最后一次使用，并在这段范围内冻结它的位置：`&` 借用下不能写入或移动它，`&mut` 借用下除通过该借用外完全不能访问它（E0911）—— 因此被借用的存储按构造在整个借用期间存活且没有别名。局部借用也永远不跨越函数边界：`return(<以该借用为根的位置>)` 与以借用为结果的函数体尾部是 E0912；请先把值拷出到自有局部变量（`v := y;`）。元素位置（`xs(i)`）不能手动绑定；元素只能通过 `for(&mut coll, x => …)`（或只读的 `for(&coll, x => …)`）借用，它在循环期间持有集合的一个局部借用（因此循环体不能提到集合本身，E0911），并且在集合仍是引用对象期间持有其运行时借用标志以防范其他句柄。见 [FLOWABILITY.md](./FLOWABILITY.md)。
+借用是**二等的**，存在于参数位置（`name : &mut T`、`name : &T`）和局部绑定（`name := &mut place`）。函数只能以投影的形式返回借用（`-> &mut T` 产出以其借用参数为根的位置，通过下标 `x(i)` 或直接调用 `t.index_mut(i)` 到达，其结果可绑定为局部借用；见 [INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)），`&mut T` 是模式而不是一等类型（`ArrayList(&mut T)` 或字段 `f : &mut T` 是错误），借用也无法泄漏到 struct 字段或闭包捕获中。`&mut` 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象。局部借用（`name := &mut place`，或只读的 `name := &place`）存活到它的最后一次使用，并在这段范围内冻结它的位置：`&` 借用下不能写入或移动它，`&mut` 借用下除通过该借用外完全不能访问它（E0911）—— 因此被借用的存储按构造在整个借用期间存活且没有别名。局部借用也永远不跨越函数边界：`return(<以该借用为根的位置>)` 与以借用为结果的函数体尾部是 E0912；请先把值拷出到自有局部变量（`v := y;`）。元素位置（`xs(i)`）不能手动绑定；元素只能通过 `for(&mut coll, x => …)`（或只读的 `for(&coll, x => …)`）借用，它在循环期间持有集合的一个局部借用（因此循环体不能写入集合，在 `&mut` 下甚至不能提到它，E0911），并且在集合仍是引用对象期间持有其运行时借用标志以防范其他句柄。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 

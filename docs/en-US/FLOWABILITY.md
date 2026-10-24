@@ -178,12 +178,12 @@ for(&mut counts, c => {
 }); // hand the element to a &mut param
 for(&mut scores, (k, v) => {
   v = (v + i32(10));
-}); // maps: key by value, value borrowed
+}); // maps: key read-only, value borrowed
 ```
 
 The macro takes a local borrow `c := &mut coll` for the whole loop and walks
 a cursor over it (the `BorrowedWalk` trait: a position that holds no handle
-to the collection, plus a `walk_elem` projection), binding each element as a
+to the collection; plus `BorrowedWalkMut`'s `walk_elem` projection), binding each element as a
 `&mut` local into the collection's own storage
 (`plans/VALUES_BY_DEFAULT.md` decision 39). No copy of the collection is
 made, and every step re-derives the element from the collection. Because `c`
@@ -195,6 +195,23 @@ returned (copy it out first, `v := x; return(v)`) or captured by an escaping
 closure. To read or grow a collection while walking it, walk its positions
 instead: `for(xs.indices(), i => …)` with `xs(i)` (`ArrayList`, `Deque`),
 where each `xs(i)` reads the current buffer.
+
+The **read walk** `for(&coll, x => body)` is the same loop over a read
+borrow `c := &coll`: each element is bound through the `walk_ref` read
+projection as a `&` local, so neither the collection nor an element is
+copied (a `String` element is not dup'd), and a write through `x` is
+E0908. A `&` borrow only freezes its place, so the body may read `coll`
+(`coll.len()`, a nested `for(&coll, …)`) but not write it (E0911). Maps
+take `for(&m, (k, v) => …)`, the key and the value both borrowed.
+
+```yo
+for(&enemies, e => {
+  total = (total + e.hp);
+}); // read in place, nothing copied
+for(&scores, (k, v) => {
+  seen = (seen + v);
+}); // maps: key and value borrowed read-only
+```
 
 A collection reached through *another* handle (a second `ref` handle, a
 global) is invisible to that static rule, so the loop also holds the
@@ -217,15 +234,25 @@ microbenchmark, unmeasurable elsewhere). Once the collections are values
 (V2b), a collection has no other handle and the flag goes.
 
 A plain `e` in `for(&mut m, e => …)` yields the whole entry; prefer
-`(k, v)`, which keeps keys immutable. The sources are the std collections
-that implement `BorrowedWalk` (`ArrayList`, `Deque`, `HashMap`,
-`BTreeMap`, `OrderedMap`); `HashSet` and `PriorityQueue` have
-none, because writing a hashed or heap-ordered element in place would break
-the container. A user type becomes a source by implementing `BorrowedWalk`;
-`walk_elem` forwards the inner collection's projection with its call-site
-marker (`&mut self.items(cur)`) in safe code, and only a spelling that hands
-out a raw pointer (`self.items.ptr().unwrap().add(cur)`) needs
-`pragma(Pragma.AllowUnsafe)`. `Array(T, N)` takes the value form or an index loop. A
+`(k, v)`, which keeps keys immutable (the key is borrowed read-only in both
+map forms). Every std collection implements `BorrowedWalk` and is a
+read-walk source; the in-place sources also implement `BorrowedWalkMut`
+(`ArrayList`, `Deque`, `HashMap`, `BTreeMap`, `OrderedMap`).
+`HashSet` and `PriorityQueue` have the read walk only, because writing a
+hashed or heap-ordered element in place would break the container, so
+`for(&mut set, …)` is an error naming `BorrowedWalkMut`. A user type becomes
+a source by implementing `BorrowedWalk` (and `BorrowedWalkMut` for the
+in-place walk); `walk_ref` and `walk_elem` forward the inner collection's
+projection with its call-site marker (`&self.items(cur)`,
+`&mut self.items(cur)`) in safe code, and only a spelling that hands out a
+raw pointer (`self.items.ptr().unwrap().add(cur)`) needs
+`pragma(Pragma.AllowUnsafe)`. A forwarded walk has one open gap while
+collections are reference objects: the loop's flag guards the wrapper, not
+the inner collection, so a body that shares the inner handle (`h := bag.items`,
+which the read walk allows) and grows it leaves `x` dangling
+(`issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md`,
+closed by V2b). `String` has no walk (walk `s.chars()`), and
+`Array(T, N)` takes the value form or an index loop. A
 source that is not a place (`for(&mut make(), x => …)`) is held by a hidden
 local for the loop. The borrowed `for` works inside an `io.async` body, with
 awaits in the loop body.

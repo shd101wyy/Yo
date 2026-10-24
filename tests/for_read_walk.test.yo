@@ -1,0 +1,371 @@
+{ assert } :: import("std/assert");
+/// The read walk `for(&xs, x => body)` (plans/VALUES_BY_DEFAULT.md decision 39,
+/// B7a): the loop holds a read borrow `c := &xs` for its whole extent and
+/// walks the `BorrowedWalk` cursor, binding each element through the
+/// `walk_ref` read projection. Nothing is copied: not the collection, not an
+/// element. The body may read `xs` but not write it (E0911), and the element
+/// is read-only (E0908) and second-class (E0912). Maps take
+/// `for(&m, (k, v) => body)`, both borrowed. The in-place form
+/// `for(&mut xs, …)` is covered by tests/for_macro_borrow.test.yo.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ Deque } :: import("std/collections/deque");
+{ BTreeMap } :: import("std/collections/btree_map");
+{ OrderedMap } :: import("std/collections/ordered_map");
+{ PriorityQueue } :: import("std/collections/priority_queue");
+Enemy :: struct(hp : i32, name : String);
+// A `Drop` counter (testing.instructions.md, "Writing a test that observes a
+// LEAK"): a walk that copied an element out would dup it, and one that leaked
+// its hidden source would never drop it.
+(mut(g_rw_dropped) : i32) = i32(0);
+_RwTracked :: ref(struct(n : i32));
+impl(
+  _RwTracked,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_rw_dropped = (g_rw_dropped + i32(1));
+    })
+  )
+);
+_rw_tracked_list :: (fn(n : i32) -> ArrayList(_RwTracked))({
+  xs := ArrayList(_RwTracked).new();
+  (mut(i) : i32) = i32(1);
+  while(i <= n, {
+    xs.push(_RwTracked(n : i));
+    i = (i + i32(1));
+  });
+  xs
+});
+test("read walk over ArrayList: every element, in order, and the body may read the list", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  (mut(sum) : i32) = i32(0);
+  (mut(weighted) : i32) = i32(0);
+  (mut(pos) : i32) = i32(0);
+  for(&xs, x => {
+    sum = (sum + x);
+    pos = (pos + i32(1));
+    weighted = (weighted + (x * pos));
+    assert(xs.len() == usize(3), "a read of the walked list in the body");
+  });
+  assert(sum == i32(6), "every element seen");
+  assert(weighted == i32(14), "in index order: 1*1 + 2*2 + 3*3");
+  xs.push(i32(4)); // the guard released at the loop end
+  assert(xs.len() == usize(4), "push after the walk");
+});
+test("read walk over struct elements reads the fields in place", {
+  enemies := ArrayList(Enemy).new();
+  enemies.push(Enemy(hp : i32(3), name : String.from("a")));
+  enemies.push(Enemy(hp : i32(5), name : String.from("bb")));
+  (mut(hp) : i32) = i32(0);
+  (mut(chars) : usize) = usize(0);
+  for(&enemies, e => {
+    hp = (hp + e.hp);
+    chars = (chars + e.name.len());
+  });
+  assert(hp == i32(8), "hp read in place");
+  assert(chars == usize(3), "a String field read in place");
+});
+test("read walk over String elements: no per-element dup", {
+  names := ArrayList(String).new();
+  names.push(String.from("x"));
+  names.push(String.from("yz"));
+  first := names(usize(0));
+  before := ref_count(first);
+  (mut(total) : usize) = usize(0);
+  for(&names, s => {
+    total = (total + s.len());
+    assert(ref_count(first) == before, "the element is borrowed, not dup'd");
+  });
+  assert(total == usize(3), "both strings read");
+  assert(ref_count(first) == before, "counts unchanged after the loop");
+});
+test("read walk over Deque, PriorityQueue and HashSet", {
+  dq := Deque(i32).new();
+  dq.push_back(i32(2));
+  dq.push_front(i32(1));
+  dq.push_back(i32(3));
+  (mut(seen) : i32) = i32(0);
+  for(&dq, x => {
+    seen = ((seen * i32(10)) + x);
+  });
+  assert(seen == i32(123), "the deque in front-to-back order");
+  pq := PriorityQueue(i32).new();
+  pq.push(i32(7));
+  pq.push(i32(9));
+  pq.push(i32(8));
+  (mut(sum) : i32) = i32(0);
+  (mut(count) : usize) = usize(0);
+  for(&pq, x => {
+    sum = (sum + x);
+    count = (count + usize(1));
+  });
+  assert((sum == i32(24)) && (count == usize(3)), "every queued element, in heap order");
+  assert(pq.pop() == Option(i32).Some(i32(9)), "the heap order is intact");
+  set := HashSet(i32).new();
+  _ := set.insert(i32(10));
+  _ := set.insert(i32(20));
+  _ := set.insert(i32(30));
+  sum = i32(0);
+  count = usize(0);
+  for(&set, x => {
+    sum = (sum + x);
+    count = (count + usize(1));
+  });
+  assert((sum == i32(60)) && (count == usize(3)), "every set element once");
+  assert(set.contains(i32(20)), "the set is untouched");
+});
+test("read walk over the maps: (k, v) borrows both, a single name the entry", {
+  m := HashMap(String, i32).new();
+  m.insert(String.from("a"), i32(1));
+  m.insert(String.from("bb"), i32(2));
+  (mut(vsum) : i32) = i32(0);
+  (mut(klen) : usize) = usize(0);
+  keys := ArrayList(String).new();
+  for(&m, (k, v) => {
+    vsum = (vsum + v);
+    klen = (klen + k.len());
+    keys.push(k);
+  });
+  assert((vsum == i32(3)) && (klen == usize(3)), "every key and value read in place");
+  assert(keys.len() == usize(2), "a key copied out of the walk");
+  m.insert(String.from("c"), i32(3)); // the guard released
+  assert(m.len() == usize(3), "insert after the walk");
+  (mut(esum) : i32) = i32(0);
+  for(&m, e => {
+    esum = (esum + e.value);
+  });
+  assert(esum == i32(6), "the whole entry, read");
+  om := OrderedMap(i32, i32).new();
+  om.insert(i32(3), i32(30));
+  om.insert(i32(1), i32(10));
+  (mut(order) : i32) = i32(0);
+  for(&om, (k, v) => {
+    order = ((order * i32(10)) + k);
+    assert(v == (k * i32(10)), "value beside its key");
+  });
+  assert(order == i32(31), "insertion order");
+  bt := BTreeMap(i32, i32).new();
+  bt.insert(i32(2), i32(20));
+  bt.insert(i32(1), i32(10));
+  order = i32(0);
+  for(&bt, (k, v) => {
+    order = ((order * i32(10)) + k);
+    assert(v == (k * i32(10)), "value beside its key");
+  });
+  assert(order == i32(12), "key order");
+});
+test("nested read walks: the same list twice, and a read walk inside a write walk", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  (mut(pairs) : i32) = i32(0);
+  for(&xs, a => {
+    for(&xs, b => {
+      pairs = (pairs + (a * b));
+    });
+  });
+  assert(pairs == i32(36), "two read borrows of one list: (1+2+3)^2");
+  ys := ArrayList(i32).new();
+  ys.push(i32(10));
+  ys.push(i32(20));
+  for(&mut ys, y => {
+    for(&xs, x => {
+      y = (y + x);
+    });
+  });
+  assert((ys(usize(0)) == i32(16)) && (ys(usize(1)) == i32(26)), "each written element saw every read one");
+  xs.push(i32(4));
+  ys.push(i32(30));
+  assert((xs.len() == usize(4)) && (ys.len() == usize(3)), "every guard released");
+});
+_rw_find_first_over :: (fn(xs : &ArrayList(i32), limit : i32) -> i32)({
+  for(&xs, x => {
+    if(x > limit, {
+      v := x;
+      return(v);
+    });
+  });
+  i32(-1)
+});
+test("read walk: break, continue and return leave the list usable", {
+  xs := ArrayList(i32).new();
+  (mut(i) : i32) = i32(0);
+  while(i < i32(6), {
+    xs.push(i);
+    i = (i + i32(1));
+  });
+  (mut(sum) : i32) = i32(0);
+  for(&xs, x => {
+    if(x == i32(1), {
+      continue;
+    });
+    if(x == i32(4), {
+      break;
+    });
+    sum = (sum + x);
+  });
+  assert(sum == i32(5), "0 + 2 + 3: 1 skipped, the walk left at 4");
+  xs.push(i32(6)); // the guard released on `break`
+  assert(_rw_find_first_over(&xs, i32(2)) == i32(3), "returned a copy from inside the walk");
+  assert(_rw_find_first_over(&xs, i32(100)) == i32(-1), "walked off the end");
+  xs.push(i32(7)); // the guard released on `return`
+  assert(xs.len() == usize(8), "push after the early returns");
+});
+_rw_sum_until :: (fn(stop : i32) -> i32)({
+  xs := _rw_tracked_list(i32(4));
+  (mut(sum) : i32) = i32(0);
+  for(&xs, t => {
+    if(t.n == stop, {
+      return(sum);
+    });
+    sum = (sum + t.n);
+  });
+  sum
+});
+test("read walk leaks nothing: elements are not dup'd, and every exit drops each once", {
+  g_rw_dropped = i32(0);
+  {
+    xs := _rw_tracked_list(i32(3));
+    first := xs(usize(0));
+    before := ref_count(first);
+    (mut(sum) : i32) = i32(0);
+    for(&xs, t => {
+      sum = (sum + t.n);
+      assert(ref_count(first) == before, "the element is borrowed, not dup'd");
+    });
+    assert(sum == i32(6), "every element read");
+    for(&xs, t => {
+      if(t.n == i32(2), {
+        break;
+      });
+    });
+    assert(g_rw_dropped == i32(0), "the walks dropped nothing");
+  };
+  assert(g_rw_dropped == i32(3), "each element dropped once, with its list");
+  g_rw_dropped = i32(0);
+  (mut(total) : i32) = i32(0);
+  for(&_rw_tracked_list(i32(3)), t => {
+    total = (total + t.n);
+  });
+  assert(total == i32(6), "a walk over a temporary");
+  assert(g_rw_dropped == i32(3), "the hidden owning local is dropped after the loop");
+  g_rw_dropped = i32(0);
+  assert(_rw_sum_until(i32(3)) == i32(3), "1 + 2, left at 3");
+  assert(g_rw_dropped == i32(4), "the early return dropped the walked list once");
+  g_rw_dropped = i32(0);
+  assert(_rw_sum_until(i32(99)) == i32(10), "the whole list");
+  assert(g_rw_dropped == i32(4), "the fall-through dropped the walked list once");
+});
+// --- Read-only: what the read walk rejects --------------------------------------
+// The element is a `&` borrow: a write through it is E0908.
+comptime_expect_error(
+  read_walk_element_write :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(&xs, x => {
+      x = i32(2);
+    });
+  }),
+  "is a `&` borrow, which is read-only"
+);
+comptime_expect_error(
+  read_walk_field_write :: (fn() -> unit)({
+    enemies := ArrayList(Enemy).new();
+    enemies.push(Enemy(hp : i32(3), name : String.from("a")));
+    for(&enemies, e => {
+      e.hp = i32(0);
+    });
+  }),
+  "is a `&` borrow, which is read-only"
+);
+comptime_expect_error(
+  read_walk_map_value_write :: (fn() -> unit)({
+    m := HashMap(i32, i32).new();
+    m.insert(i32(1), i32(1));
+    for(&m, (k, v) => {
+      v = (v + k);
+    });
+  }),
+  "is a `&` borrow, which is read-only"
+);
+// The body writing the walked collection is E0911: the loop's `c := &xs` is
+// live for the whole loop, and a `&` borrow freezes its place.
+comptime_expect_error(
+  read_walk_push_on_the_collection :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(&xs, x => {
+      xs.push(x);
+    });
+  }),
+  "Cannot write `xs` here"
+);
+// The element is second-class: returning it is E0912 — read it out first.
+comptime_expect_error(
+  read_walk_element_returned :: (fn(xs : &ArrayList(i32)) -> i32)({
+    for(&xs, x => {
+      return(x);
+    });
+    i32(0)
+  })
+);
+// `HashSet` and `PriorityQueue` have only the read walk: writing an element in
+// place would break the container's order, so `for(&mut …)` is an error that
+// names it.
+comptime_expect_error(
+  write_walk_over_a_set :: (fn() -> unit)({
+    set := HashSet(i32).new();
+    _ := set.insert(i32(1));
+    for(&mut set, x => {
+      x = i32(2);
+    });
+  }),
+  "needs `BorrowedWalkMut`"
+);
+comptime_expect_error(
+  write_walk_over_a_priority_queue :: (fn() -> unit)({
+    pq := PriorityQueue(i32).new();
+    pq.push(i32(1));
+    for(&mut pq, x => {
+      x = i32(2);
+    });
+  }),
+  "needs `BorrowedWalkMut`"
+);
+// A `String` has no read walk (D19): a `&u8` element would silently change
+// what the loop means. The error names `s.chars()`.
+comptime_expect_error(
+  read_walk_over_a_string :: (fn() -> unit)({
+    s := String.from("ab");
+    for(&s, c => {
+      consume(c);
+    });
+  }),
+  "for(s.chars(), c => …)"
+);
+// A hand-written element borrow names the walk with the borrow's own sigil:
+// a read borrow `y := &xs(i)` points at the read walk, `&mut` at the in-place one.
+comptime_expect_error(
+  read_borrow_of_an_element_names_the_read_walk :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    y := &xs(usize(0));
+    _ := (y + i32(1));
+  }),
+  "iterate it with `for(&coll, x => ...)`"
+);
+comptime_expect_error(
+  mut_borrow_of_an_element_names_the_in_place_walk :: (fn() -> unit)({
+    (mut(xs) : ArrayList(i32)) = ArrayList(i32).new();
+    xs.push(i32(1));
+    y := &mut xs(usize(0));
+    y = i32(2);
+  }),
+  "iterate it with `for(&mut coll, x => ...)`"
+);

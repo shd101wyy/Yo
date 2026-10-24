@@ -454,6 +454,31 @@ impl(
     HashSetIterPtr(T)(_inner : self._map.iter())
   )
 );
+/// The read walk `for(&set, x => …)` (decision 39, plans/VALUES_BY_DEFAULT.md
+/// B7a): the backing map's bucket cursor, so the walk order is the bucket
+/// order `iter()` has; each element is the bucket's key, read in place. A set
+/// has no `BorrowedWalkMut`: writing an element in place would break its hash,
+/// so `for(&mut set, …)` is an error.
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash)),
+  HashSet(T),
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : T,
+    walk_start : (fn(self : &Self) -> usize)(self._map._walk_from(usize(0))),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self._map.capacity),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &T)({
+      if(cur >= self._map.capacity, {
+        __yo_panic("HashSet: walk cursor out of bounds");
+      });
+      // The entry's KEY is the set's element; take its address rather than
+      // assuming `MapEntry`'s field order puts it at offset 0.
+      addr_of(self._map._data_ptr().add(cur).*.key)
+    }),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(self._map._walk_from(cur + usize(1)))
+  )
+);
 /// `Default` — the empty set.
 impl(
   generic(T : Type),

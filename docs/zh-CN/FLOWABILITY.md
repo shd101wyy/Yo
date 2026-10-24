@@ -149,12 +149,12 @@ for(&mut counts, c => {
 }); // 把元素交给 &mut 参数
 for(&mut scores, (k, v) => {
   v = (v + i32(10));
-}); // map：键按值、值被借用
+}); // map：键只读、值被借用
 ```
 
 宏在整个循环期间持有一个局部借用 `c := &mut coll`，并在其上走一个游标
-（`BorrowedWalk` trait：一个不持有集合句柄的位置，加上一个 `walk_elem`
-投影），把每个元素绑定为指向集合自身存储的 `&mut` 局部
+（`BorrowedWalk` trait：一个不持有集合句柄的位置；加上 `BorrowedWalkMut` 的
+`walk_elem` 投影），把每个元素绑定为指向集合自身存储的 `&mut` 局部
 （`plans/VALUES_BY_DEFAULT.md` 决策 39）。循环不会复制集合，每一步都从集合
 重新取出元素。由于 `c` 在整个循环期间都存活，循环体完全不能再提到 `coll`：
 `coll.push(x)` 是编译错误，`coll.len()`、`coll.clone()` 或对 `coll` 的嵌套
@@ -163,6 +163,22 @@ for(&mut scores, (k, v) => {
 也不能被逃逸闭包捕获。若要在遍历时读取或扩充集合，请改为遍历它的位置：
 `for(xs.indices(), i => …)` 配合 `xs(i)`（`ArrayList`、`Deque`），每次 `xs(i)`
 都读取当前的缓冲区。
+
+**只读遍历** `for(&coll, x => body)` 是同一个循环，只是借用换成只读借用
+`c := &coll`：每个元素经由 `walk_ref` 只读投影绑定为 `&` 局部，因此既不复制
+集合也不复制元素（`String` 元素不会被 dup），经由 `x` 写入是 E0908。`&` 借用
+只冻结它的位置，所以循环体可以读取 `coll`（`coll.len()`、嵌套的
+`for(&coll, …)`），但不能写入它（E0911）。map 使用 `for(&m, (k, v) => …)`，
+键和值都以只读方式借用。
+
+```yo
+for(&enemies, e => {
+  total = (total + e.hp);
+}); // 原地读取，不复制
+for(&scores, (k, v) => {
+  seen = (seen + v);
+}); // map：键和值都只读借用
+```
 
 经由*另一个*句柄（第二个 `ref` 句柄、全局变量）触及的集合对这条静态规则不可见，
 因此循环还会持有集合的**运行时借用标志**；`break`、`continue`、`return` 与效应
@@ -179,13 +195,21 @@ an interior reference … borrows from it`），而不是让元素引用悬垂�
 句柄，这个标志也随之取消。
 
 在 `for(&mut m, e => …)` 中，普通的 `e` 会交出整个条目；请优先使用 `(k, v)`，
-它保持键不可变。可作为来源的是实现了 `BorrowedWalk` 的 std 集合（`ArrayList`、
-`Deque`、`HashMap`、`BTreeMap`、`OrderedMap`）；`HashSet` 与
-`PriorityQueue` 没有实现，因为原地改写一个按哈希或堆序存放的元素会破坏容器。
-用户类型实现 `BorrowedWalk` 即可成为来源：`walk_elem` 带调用点标记转发内层集合的
-投影（`&mut self.items(cur)`），安全代码即可；只有交出裸指针的写法
+它保持键不可变（两种 map 形式都以只读方式借用键）。每个 std 集合都实现了
+`BorrowedWalk`，都可以只读遍历；可原地写入的来源还实现了 `BorrowedWalkMut`
+（`ArrayList`、`Deque`、`HashMap`、`BTreeMap`、`OrderedMap`）。
+`HashSet` 与 `PriorityQueue` 只有只读遍历，因为原地改写一个按哈希或堆序存放的
+元素会破坏容器，所以 `for(&mut set, …)` 是一个点名 `BorrowedWalkMut` 的错误。
+用户类型实现 `BorrowedWalk`（原地遍历还需 `BorrowedWalkMut`）即可成为来源：
+`walk_ref` 与 `walk_elem` 带调用点标记转发内层集合的投影（`&self.items(cur)`、
+`&mut self.items(cur)`），安全代码即可；只有交出裸指针的写法
 （`self.items.ptr().unwrap().add(cur)`）才需要 `pragma(Pragma.AllowUnsafe)`。
-`Array(T, N)` 请使用值形式或索引循环。不是位置的来源（`for(&mut make(), x => …)`）
+在集合仍是引用对象期间，转发式遍历还有一处未堵上的缺口：循环的标志只守护外层类型，
+不守护内层集合，因此循环体若共享内层句柄（`h := bag.items`，只读遍历允许这样读）
+并使其增长，`x` 就会悬垂
+（`issues/2026-10-24-a-forwarded-walk-leaves-the-inner-collection-unguarded.md`，
+由 V2b 修复）。
+`String` 没有遍历（请遍历 `s.chars()`），`Array(T, N)` 请使用值形式或索引循环。不是位置的来源（`for(&mut make(), x => …)`）
 由一个隐藏局部在循环期间持有。借用形式的 `for` 在 `io.async` 体内同样可用，
 循环体里也可以 await。
 

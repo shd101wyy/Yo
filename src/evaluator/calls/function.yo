@@ -6901,7 +6901,15 @@ _no_method_message :: (fn(func_expr : &AstExpr, ctx : &EvalContext) -> String)({
     ),
     .None => String.new()
   );
-  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}`
+  // The borrowed `for`'s expansion calls `walk_start` first (every source)
+  // and `walk_elem` only under `&mut` (plans/VALUES_BY_DEFAULT.md decision 39,
+  // B7a): a miss on either names the source the loop wanted.
+  walk_note := cond(
+    (method_name == "walk_start") => ` A borrowed \`for(&xs, …)\` / \`for(&mut xs, …)\` walks a collection implementing \`BorrowedWalk\`; walk a \`String\`'s characters with \`for(s.chars(), c => …)\`, and an \`Array(T, N)\` or an iterator chain with the value form \`for(xs, x => …)\`.`,
+    (method_name == "walk_elem") => ` \`for(&mut xs, …)\` writes each element in place and needs \`BorrowedWalkMut\`; ${recv_ty_str} has only the read walk \`for(&xs, …)\` (writing a \`HashSet\` or \`PriorityQueue\` element in place would break its order).`,
+    true => String.new()
+  );
+  `No method "${method_name}" on ${recv_ty_str}: the type has no field or method with that name.${deref_note}${walk_note}`
 });
 /// A method miss inside auto-generated code (a derive's generated body) on a
 /// receiver whose type holds no type variable is generic-independent: no

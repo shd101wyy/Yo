@@ -337,7 +337,7 @@ test("borrowed for over a rvalue collection", {
   });
   assert(sum == i32(6), "the hidden local kept the temporary alive for the loop");
 });
-test("for(map, (k, inout(v)) => body): key by value, value borrowed", {
+test("for(map, (k, inout(v)) => body): key read-only, value borrowed", {
   scores := HashMap(String, i32).new();
   scores.insert(String.from("a"), i32(1));
   scores.insert(String.from("b"), i32(2));
@@ -433,7 +433,8 @@ comptime_expect_error(
     });
   })
 );
-// `HashSet` and `PriorityQueue` have no `BorrowedWalk`: writing a hashed or
+// `HashSet` and `PriorityQueue` have no `BorrowedWalkMut` (only the read walk
+// `for(&set, …)`, tests/for_read_walk.test.yo): writing a hashed or
 // heap-ordered element in place would break the container.
 comptime_expect_error(
   borrowed_loop_over_a_set :: (fn() -> unit)({

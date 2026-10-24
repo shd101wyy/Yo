@@ -9,8 +9,14 @@ impl(
     WalkElem : i32,
     walk_start : (fn(self : &Self) -> usize)(usize(0)),
     walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
-    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.walk_elem(cur)),
+    walk_ref : (fn(self : &Self, cur : &usize) -> &i32)(&self.items(cur)),
     walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
+  BorrowedWalkMut(
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.walk_elem(cur))
   )
 );
 main :: (fn() -> unit)({

@@ -1043,7 +1043,8 @@ test("decision 42: local borrows, the annotated form and re-points", {
 test("decision 42: capture lists and the borrowed for", {
   assert_str_eq(_d42(`{ x, y : &y, z : &mut w }(m : i32) => m`), _d42(`{ x, __yo_imm(y) : &y, __yo_mut(z) : &mut w }(m : i32) => m`), "the long form");
   assert_str_eq(_d42(`{ &y, &mut z }() => y`), `_(__yo_imm(y), __yo_mut(z))() => y`, "the puns");
-  assert_str_eq(_d42(`for(&xs, x => x)`), _d42(`for(xs, x => x)`), "the read-only borrowed for");
+  assert_str_eq(_d42(`for(&xs, x => x)`), _d42(`for(xs, __yo_imm(x) => x)`), "the read walk");
+  assert_str_eq(_d42(`for(&m, (k, v) => v)`), _d42(`for(m, (k, __yo_imm(v)) => v)`), "the map read walk borrows the value read-only");
   assert_str_eq(_d42(`for(&mut xs, x => x)`), _d42(`for(xs, __yo_mut(x) => x)`), "the exclusive borrowed for");
   assert_str_eq(_d42(`for(&mut m, (k, v) => v)`), _d42(`for(m, (k, __yo_mut(v)) => v)`), "the map form borrows the value");
 });
