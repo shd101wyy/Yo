@@ -767,6 +767,83 @@ test("a later argument cannot move the receiver of a call that omits a defaulted
   assert(_PmRes.peek_d(&a, i32(1)) == i32(2), "a type-qualified call lends its `&a` argument");
 });
 
+// Decision 28's value-root rule: a place lent exclusively (a `&mut` argument,
+// a `self : &mut Self` receiver) may not overlap a place another argument of
+// the same call lends when both are rooted at one value local, whichever
+// comes first: the callee would write the place while reading it. Disjoint
+// fields, a copy, two `&` lends and a root that is a reference cell pass.
+impl(
+  _PmRes,
+  absorb : (fn(self : &mut Self, other : &Self) -> i32)({
+    self.n = (self.n + other.n);
+    self.n
+  })
+);
+_pm_sync_peek :: (fn(c : &mut _PmRes, d : &_PmRes) -> i32)({
+  c.n = (c.n + d.n);
+  c.n
+});
+_pm_pair_push :: (fn(p : &mut _PmLentStr, s : &String) -> usize)({
+  p.s.push_string(s);
+  p.s.len()
+});
+_pm_str_pair_len :: (fn(s : &mut String, p : &_PmLentStr) -> usize)({
+  s.push_str("!");
+  s.len() + p.s.len()
+});
+_pm_field_pair :: (fn(s : &mut String, k : &i32) -> i32)({
+  s.push_str("?");
+  k + i32(1)
+});
+_PmCell :: ref(struct(n : i32));
+impl(
+  _PmCell,
+  absorb : (fn(self : &mut Self, other : &Self) -> i32)({
+    self.n = (self.n + other.n);
+    self.n
+  })
+);
+test("a `&mut` argument may not overlap another argument rooted at the same value", {
+  comptime_expect_error({
+    mut(a) := _PmRes(n : i32(1));
+    a.absorb(&a)
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    mut(a) := _PmRes(n : i32(1));
+    _pm_sync_peek(&mut a, &a)
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    mut(p) := _PmLentStr(s : String.from("a"), k : i32(0));
+    _pm_pair_push(&mut p, &p.s)
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    mut(p) := _PmLentStr(s : String.from("a"), k : i32(0));
+    _pm_str_pair_len(&mut p.s, &p)
+  }, "decision 28's value-root rule");
+  comptime_expect_error({
+    mut(p) := _PmLentStr(s : String.from("a"), k : i32(0));
+    p.s.push_string(&p.s)
+  }, "decision 28's value-root rule");
+  // A `&` lend followed by an overlapping `&mut` one is the two-phase rule's.
+  comptime_expect_error({
+    mut(a) := _PmRes(n : i32(1));
+    _pm_peek(&a, _pm_sync(&mut a, i32(1)))
+  }, "the borrow starts when that argument is evaluated");
+  mut(a) := _PmRes(n : i32(1));
+  b := _PmRes(n : i32(2));
+  assert(a.absorb(&b) == i32(3), "another binding may be lent beside the receiver");
+  mut(p) := _PmLentStr(s : String.from("ab"), k : i32(0));
+  t := p.s.clone();
+  assert(_pm_pair_push(&mut p, &t) == usize(4), "a copy does not overlap");
+  q := _PmLentStr(s : String.from("xy"), k : i32(0));
+  assert(_pm_str_pair_len(&mut p.s, &q) == usize(7), "a disjoint root passes");
+  assert(_pm_field_pair(&mut p.s, &p.k) == i32(1), "disjoint fields of one root pass");
+  assert(p.s == "abab!?", "both writes landed");
+  assert(_pm_peek(&a, _pm_peek(&a, i32(0))) == i32(6), "two `&` lends may overlap");
+  c := _PmCell(n : i32(2));
+  assert(c.absorb(&c) == i32(4), "a root that is a reference cell is decision 28's `Rc` arm, not this rule");
+});
+
 // An operator whose method borrows its operands (Eq's and Ord's
 // `lhs : &Self`) lends them like a written `&a`
 // (issues/fixed/2026-10-14-an-operator-operand-lent-to-its-method-can-be-moved-by-the-other-operand.md).

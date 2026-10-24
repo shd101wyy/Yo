@@ -1859,10 +1859,10 @@ _places_overlap :: (fn(a : &_ArgPlace, b : &_ArgPlace) -> bool)({
 /// `f(&g)` (where `g` reaches the `&mut`-capturing `f`) and
 /// `xs.for_each({ n : &mut xs.n }(…) => …)` are errors, and a `for_each`
 /// literal that borrows a fresh local is not. Two places the arguments only
-/// name (`f(&h, &mut h.n)`) are decision 28's value-root rule, which lands
-/// with V2b (plans/VALUES_BY_DEFAULT.md decision 28 "Phase"); reporting them
-/// here made the rule depend on whether a capture list had been evaluated
-/// before the call, since that is what arms this check
+/// name (`f(&h, &mut h.n)`) are decision 28's value-root rule, which
+/// `_check_call_value_root_overlap` (`calls/function.yo`) judges at every
+/// call; reporting them here made the rule depend on whether a capture list
+/// had been evaluated before the call, since that is what arms this check
 /// (issues/fixed/2026-10-15-the-argument-overlap-check-runs-only-after-a-capture-list-records-a-borrow.md).
 /// `extra` is the called closure value, when the callee is one.
 require_capture_borrow_exclusivity :: (
@@ -5938,11 +5938,28 @@ local_borrow_place_of_variable :: (fn(v : &Variable) -> LocalBorrowPlace)(
     text : v.name.clone()
   )
 );
+/// The place `e` names when it is rooted at a value local, for decision 28's
+/// value-root rule: a runtime binding of a function (not a module-level one)
+/// whose own type is a value, neither a reference cell nor a raw pointer.
+/// Below a cell the cell is the unit, as for every local-borrow place
+/// (`through_cell`); a place rooted at a cell or a pointer reaches storage
+/// other handles share, which decision 28's `Rc` arm judges at run time.
+local_borrow_value_place_of :: (fn(e : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(LocalBorrowPlace))({
+  p := match(local_borrow_place_of(e, env, ctx), .Some(x) => x, .None => return(Option(LocalBorrowPlace).None));
+  if(p.module_root, {
+    return(Option(LocalBorrowPlace).None);
+  });
+  root := match(get_variables_from_env(env, &p.root_name).last(), .Some(v) => v, .None => return(Option(LocalBorrowPlace).None));
+  if(_lb_is_cell_type(&root.ty) || is_pointer_type(&root.ty), {
+    return(Option(LocalBorrowPlace).None);
+  });
+  Option(LocalBorrowPlace).Some(p)
+});
 _lb_same_decl :: (fn(a_name : &String, a : &Token, b_name : &String, b : &Token) -> bool)(
   (a_name == b_name) && ((a.character == b.character) && (a.module_path == b.module_path))
 );
 /// One place is a prefix of the other (decision 28's overlap rule).
-_lb_places_overlap :: (fn(p : &LocalBorrowPlace, q : &LocalBorrowPlace) -> bool)({
+local_borrow_places_overlap :: (fn(p : &LocalBorrowPlace, q : &LocalBorrowPlace) -> bool)({
   if(!_lb_same_decl(p.root_name.clone(), &p.root_decl, q.root_name.clone(), &q.root_decl), {
     return(false);
   });
@@ -6126,7 +6143,7 @@ local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess,
         while(pi < info.places.len(), {
           match(
             info.places.get(pi),
-            .Some(fp) => if(_lb_places_overlap(&fp, place), {
+            .Some(fp) => if(local_borrow_places_overlap(&fp, place), {
               _lb_raise_conflict(&info, &fp, place, kind, tok, ctx, exn);
             }),
             .None => ()
@@ -7023,6 +7040,8 @@ export(
   local_borrow_set_lookahead,
   local_borrow_place_of,
   local_borrow_place_of_variable,
+  local_borrow_value_place_of,
+  local_borrow_places_overlap,
   local_borrow_place_text,
   local_borrow_info_of,
   local_borrow_info_of_variable,

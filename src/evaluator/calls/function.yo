@@ -67,7 +67,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, reject_write_through_rc, place_cell_hops, PlaceCellHops, handle_payload_is_read_only, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_value_place_of, local_borrow_places_overlap, LocalBorrowPlace, local_borrow_note_runtime_call, local_borrow_enter_macro_site, local_borrow_leave_macro_site, local_borrow_is_macro_await, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_require_mut, variable_is_future_operand_parameter, place_require_mut, migrate_explicit_copy_on, record_copy_pointer } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3369,6 +3369,68 @@ _check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLen
         _check_call_lent_place(&l.place, &l.lent_arg, &op_args, l.from, moved_before, env, ctx, exn);
       }),
       .None => ()
+    );
+  });
+});
+/// Decision 28's value-root rule: within one call, a place lent exclusively
+/// (a `&mut` argument, the receiver of a `self : &mut Self` method) may not
+/// overlap a place another argument lends (`&x`, `&mut x`, a borrowed
+/// receiver, an operand its operator borrows) when both are rooted at the
+/// same value local (`local_borrow_value_place_of`). So `s.push_string(&s)`,
+/// `f(&mut p, &p.name)` and `f(&mut p.name, &p)` are E0910, while
+/// `f(&mut p.a, &p.b)` and `xs.push(xs.len())` (a read, not a lend) pass. The
+/// callee would write the place while reading it through the other argument;
+/// once `String` and the collections are values with unique buffers, that
+/// read sees storage the write reallocated. A later argument that writes or
+/// relends a place an earlier one lends is the two-phase rule's
+/// (`_check_call_lent_place_moves`), which runs first. A lend that steps
+/// through a reference cell (`p.node.x`, `node` a `ref` object) on its
+/// exclusive side writes shared storage, which decision 28's `Rc` arm judges.
+_check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  places := ArrayList(Option(LocalBorrowPlace)).new();
+  (li : usize) = usize(0);
+  while(li < lends.len(), li = (li + usize(1)), {
+    places.push(
+      match(
+        lends.get(li),
+        .Some(l) => if(_is_unmarked_lent_place(&l.place, ctx), local_borrow_value_place_of(&l.place, env, ctx), Option(LocalBorrowPlace).None),
+        .None => Option(LocalBorrowPlace).None
+      )
+    );
+  });
+  (i : usize) = usize(0);
+  while(i < lends.len(), i = (i + usize(1)), {
+    li_lend := match(lends.get(i), .Some(l) => l, .None => return(()));
+    match(
+      places.get(i),
+      .Some(.Some(pi)) => if(li_lend.exclusive && !pi.through_cell, {
+        (j : usize) = usize(0);
+        while(j < lends.len(), j = (j + usize(1)), {
+          if(j != i, {
+            match(
+              places.get(j),
+              .Some(.Some(pj)) => if(local_borrow_places_overlap(&pi, &pj), {
+                lj_lend := match(lends.get(j), .Some(l) => l, .None => return(()));
+                at := if(lj_lend.from > li_lend.from, lj_lend.lent_arg.clone(), li_lend.lent_arg.clone());
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      ast_expr_token(&at),
+                      `\`${ast_expr_to_string(&li_lend.lent_arg)}\` lends \`${pi.text}\` exclusively to this call (${li_lend.form}), and \`${ast_expr_to_string(&lj_lend.lent_arg)}\` (${lj_lend.form}) lends \`${pj.text}\`, which overlaps it: a \`&mut\` argument may not overlap another argument rooted at the same value, since the callee would write the place while it reads it (decision 28's value-root rule, plans/VALUES_BY_DEFAULT.md).`,
+                      Option(String).Some(`copy one side into a local before the call (\`t := ${pj.text}.clone();\`, then pass \`&t\`), or split the call`)
+                    ),
+                    E_BORROW_CONFLICT
+                  ),
+                  ctx,
+                  exn
+                );
+              }),
+              _ => ()
+            );
+          });
+        });
+      }),
+      _ => ()
     );
   });
 });
@@ -7064,6 +7126,7 @@ evaluate_function_call :: (
     _note_future_producing_call(expr, &std_r, ctx, exn);
     std_lends := _call_lends(expr, ctx);
     _check_call_lent_place_moves(expr, &std_lends, &moved_before, env, ctx, exn);
+    _check_call_value_root_overlap(&std_lends, env, ctx, exn);
     _check_call_global_lends(expr, &std_lends, &std_r, env, ctx, exn);
     // An await a macro's expansion writes carries the macro's
     // tokens; rule 4 judges it at the macro call
@@ -7087,6 +7150,7 @@ evaluate_function_call :: (
       _note_future_producing_call(expr, &r, ctx, exn);
       lends := _call_lends(expr, ctx);
       _check_call_lent_place_moves(expr, &lends, &moved_before, env, ctx, exn);
+      _check_call_value_root_overlap(&lends, env, ctx, exn);
       _check_call_global_lends(expr, &lends, &r, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
