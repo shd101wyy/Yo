@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -2824,9 +2824,125 @@ _run_migrate_rc_pattern :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated patterns were not migrated`));
   });
 });
+/// When the written-after guard calls a write or a flow "after" the copy
+/// site at `at_module`/`at_offset`. `mates` are the regions that run more
+/// than once (`record_copy_loop`: a runtime loop, a fn literal) enclosing
+/// the site; `carry` are those of them the copy outlives one run of
+/// (`_copy_when`). In a `carry` region every position is after the copy: a
+/// write above it runs again on the next iteration or call, while the copy
+/// still shares the buffer
+/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
+/// In a `mates` region every position is before it as well, for the same
+/// reason.
+_CopyWhen :: struct(at_module : String, at_offset : u32, mates : ArrayList(CopyLoop), carry : ArrayList(CopyLoop));
+/// Does a region of `loops` (all in one module) hold `at_offset`?
+_in_copy_loops :: (fn(loops : &ArrayList(CopyLoop), at_offset : u32) -> bool)({
+  (k : usize) = usize(0);
+  while(k < loops.len(), k = (k + usize(1)), {
+    l := loops(k);
+    if((l.start <= at_offset) && (at_offset <= l.end), {
+      return(true);
+    });
+  });
+  false
+});
+/// Does the position `at_module`/`at_offset` run after the copy `w`?
+_copy_after :: (fn(w : &_CopyWhen, at_module : &String, at_offset : u32) -> bool)(
+  (at_module == w.at_module) && ((at_offset > w.at_offset) || _in_copy_loops(&w.carry, at_offset))
+);
+/// Does the position `at_module`/`at_offset` run before the copy `w`?
+_copy_before :: (fn(w : &_CopyWhen, at_module : &String, at_offset : u32) -> bool)(
+  (at_module == w.at_module) && ((at_offset < w.at_offset) || _in_copy_loops(&w.mates, at_offset))
+);
+/// Is the variable a declaration key (`_ic_decl_key`, `<module>:<offset>`)
+/// names declared inside `l`?
+_decl_in_copy_loop :: (fn(decl : &String, l : &CopyLoop) -> bool)(
+  match(
+    decl.last_index_of(":"),
+    .Some(colon) => match(
+      decl.substring(colon + usize(1), decl.len()).parse_u64(),
+      .Some(off) => ((decl.substring(usize(0), colon) == l.at_module) && (u64(l.start) <= off) && (off <= u64(l.end))),
+      .None => false
+    ),
+    .None => false
+  )
+);
+/// The guard's view of the copy site `st` (`_CopyWhen`). Its copy outlives
+/// one run of an enclosing region unless the destination and every variable
+/// its value flows on into (`flows_by_src`, after the site or anywhere in an
+/// enclosing region) are declared inside that region. A copy with no
+/// destination variable (an argument, a field store, a `return`) is assumed
+/// to outlive every one.
+_copy_when :: (
+  fn(
+    st : &ExplicitCopySite,
+    loops_by_module : &HashMap(String, ArrayList(CopyLoop)),
+    flows_by_src : &HashMap(String, ArrayList(CopyFlow)),
+    tail_dests : &HashMap(String, ArrayList(String))
+  ) -> _CopyWhen
+)({
+  mates := ArrayList(CopyLoop).new();
+  match(
+    loops_by_module.get(st.at_module.clone()),
+    .Some(ls) => {
+      (k : usize) = usize(0);
+      while(k < ls.len(), k = (k + usize(1)), {
+        l := ls(k);
+        if((l.start <= st.at_offset) && (st.at_offset <= l.end), {
+          mates.push(l);
+        });
+      });
+    },
+    .None => ()
+  );
+  carry := ArrayList(CopyLoop).new();
+  if(mates.len() > usize(0), {
+    // The copy's destination and every variable its value reaches in this
+    // module.
+    dests := ArrayList(String).new();
+    if(!st.dst_decl.is_empty(), {
+      dests.push(st.dst_decl.clone());
+    });
+    match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => dests.extend(&tds), .None => ());
+    seen := HashSet(String).new();
+    (di : usize) = usize(0);
+    while(di < dests.len(), di = (di + usize(1)), {
+      seen.insert(dests(di).clone());
+    });
+    (ri : usize) = usize(0);
+    while(ri < dests.len(), ri = (ri + usize(1)), {
+      match(
+        flows_by_src.get(dests(ri).clone()),
+        .Some(fl) => {
+          (k : usize) = usize(0);
+          while(k < fl.len(), k = (k + usize(1)), {
+            f := fl(k);
+            if((f.at_module == st.at_module) && ((f.at_offset > st.at_offset) || _in_copy_loops(&mates, f.at_offset)) && seen.insert(f.dst.clone()), {
+              dests.push(f.dst.clone());
+            });
+          });
+        },
+        .None => ()
+      );
+    });
+    (mi : usize) = usize(0);
+    while(mi < mates.len(), mi = (mi + usize(1)), {
+      l := mates(mi);
+      (escapes : bool) = (dests.len() == usize(0));
+      (k : usize) = usize(0);
+      while((k < dests.len()) && !escapes, k = (k + usize(1)), {
+        escapes = !_decl_in_copy_loop(&dests(k), &l);
+      });
+      if(escapes, {
+        carry.push(l);
+      });
+    });
+  });
+  _CopyWhen(at_module : st.at_module.clone(), at_offset : st.at_offset, mates : mates, carry : carry)
+});
 /// Is the variable `decl` (an `_ic_decl_key`; empty for none) written after
-/// the copy site `st`, in its module?
-_copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite)), decl : &String, st : &ExplicitCopySite) -> bool)(
+/// the copy `w` (`_copy_after`)?
+_copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite)), decl : &String, w : &_CopyWhen) -> bool)(
   cond(
     decl.is_empty() => false,
     true => match(
@@ -2835,13 +2951,8 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
         (found : bool) = false;
         (k : usize) = usize(0);
         while((k < lst.len()) && !found, k = (k + usize(1)), {
-          match(
-            lst.get(k),
-            .Some(w) => if((w.at_module == st.at_module) && (w.at_offset > st.at_offset), {
-              found = true;
-            }),
-            .None => ()
-          );
+          wr := lst(k);
+          found = _copy_after(w, &wr.at_module, wr.at_offset);
         });
         found
       },
@@ -2849,24 +2960,72 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
     )
   )
 );
-/// Is the variable `decl` (an `_ic_decl_key`; empty for none), or a
-/// variable its value flows into after the copy site `st`
-/// (`record_copy_tail_dests`' flows: `t := x`, `t := { x }`, `t = x.f`,
-/// transitively), written after `st`? `x := e.no; t := x; t.push(v)` copies
-/// into `x` and writes through `t`, which shares `x`'s buffer.
+/// Is a variable that shares a buffer with `starts` (`_ic_decl_key`s; an
+/// empty one is skipped) at or after the copy `w` written after it?
+///
+/// With `shared_before` (a copy's source), the variables the source shares
+/// its buffer with when the copy is made come first: those joined to it by
+/// a flow before the site (`_copy_before`), in either direction and
+/// transitively. `t := x; y := t; x.push(v)` copies `t` into `y` while `t`
+/// and `x` share a buffer, so the push reaches `y`
+/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-buffer-its-source-already-shared.md).
+/// Then every variable those values flow on into after the site
+/// (`record_copy_tail_dests`' flows: `t := x`, `t := { x }`, `t = x.f`, a
+/// capture or pattern binding, transitively): `x := e.no; t := x; t.push(v)`
+/// copies into `x` and writes through `t`, which shares `x`'s buffer.
 _decl_written_after :: (
-  fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite)), flows_by_src : &HashMap(String, ArrayList(CopyFlow)), decl : &String, st : &ExplicitCopySite) -> bool
+  fn(
+    writes_by_decl : &HashMap(String, ArrayList(CopyWrite)),
+    flows_by_src : &HashMap(String, ArrayList(CopyFlow)),
+    flows_by_dst : &HashMap(String, ArrayList(CopyFlow)),
+    starts : &ArrayList(String),
+    w : &_CopyWhen,
+    shared_before : bool
+  ) -> bool
 )({
-  if(decl.is_empty(), {
-    return(false);
-  });
   seen := HashSet(String).new();
-  seen.insert(decl.clone());
   work := ArrayList(String).new();
-  work.push(decl.clone());
+  (si : usize) = usize(0);
+  while(si < starts.len(), si = (si + usize(1)), {
+    if(!starts(si).is_empty() && seen.insert(starts(si).clone()), {
+      work.push(starts(si).clone());
+    });
+  });
+  if(shared_before, {
+    (bi : usize) = usize(0);
+    while(bi < work.len(), bi = (bi + usize(1)), {
+      cur := work(bi).clone();
+      match(
+        flows_by_src.get(cur.clone()),
+        .Some(fl) => {
+          (k : usize) = usize(0);
+          while(k < fl.len(), k = (k + usize(1)), {
+            f := fl(k);
+            if(_copy_before(w, &f.at_module, f.at_offset) && seen.insert(f.dst.clone()), {
+              work.push(f.dst.clone());
+            });
+          });
+        },
+        .None => ()
+      );
+      match(
+        flows_by_dst.get(cur.clone()),
+        .Some(fl) => {
+          (k : usize) = usize(0);
+          while(k < fl.len(), k = (k + usize(1)), {
+            f := fl(k);
+            if(_copy_before(w, &f.at_module, f.at_offset) && seen.insert(f.src.clone()), {
+              work.push(f.src.clone());
+            });
+          });
+        },
+        .None => ()
+      );
+    });
+  });
   while(work.len() > usize(0), {
     cur := match(work.pop(), .Some(d) => d, .None => String.new());
-    if(_copy_written_after(writes_by_decl, &cur, st), {
+    if(_copy_written_after(writes_by_decl, &cur, w), {
       return(true);
     });
     match(
@@ -2875,7 +3034,7 @@ _decl_written_after :: (
         (k : usize) = usize(0);
         while(k < fl.len(), k = (k + usize(1)), {
           f := fl(k);
-          if((f.at_module == st.at_module) && (f.at_offset > st.at_offset) && seen.insert(f.dst.clone()), {
+          if(_copy_after(w, &f.at_module, f.at_offset) && seen.insert(f.dst.clone()), {
             work.push(f.dst.clone());
           });
         });
@@ -2885,32 +3044,6 @@ _decl_written_after :: (
   });
   false
 });
-/// Is a variable the copy site `st` flows into as a block's or a
-/// conditional's result position (`record_copy_tail_dests`) written after
-/// it, directly or through the flows `_decl_written_after` follows?
-/// `t := if(c, e.no, e.yes); t.push(x)` makes its copies in the arms, and
-/// `t` is their destination.
-_tail_dest_written_after :: (
-  fn(
-    writes_by_decl : &HashMap(String, ArrayList(CopyWrite)),
-    flows_by_src : &HashMap(String, ArrayList(CopyFlow)),
-    tail_dests : &HashMap(String, ArrayList(String)),
-    st : &ExplicitCopySite
-  ) -> bool
-)(
-  match(
-    tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`),
-    .Some(decls) => {
-      (found : bool) = false;
-      (k : usize) = usize(0);
-      while((k < decls.len()) && !found, k = (k + usize(1)), {
-        found = _decl_written_after(writes_by_decl, flows_by_src, &decls(k), st);
-      });
-      found
-    },
-    .None => false
-  )
-);
 /// The receiver of the `Clone` impl whose member holds the copy site `st`
 /// (`record_clone_impl_body`), or none.
 _clone_impl_body_at :: (fn(bodies : &ArrayList(CloneImplBody), st : &ExplicitCopySite) -> Option(String))({
@@ -3029,16 +3162,33 @@ _run_migrate_explicit_copy :: (
   });
   // The flows of one variable's value into another (`t := x`), by source
   // declaration: a write through a variable a copy flowed into is a write
-  // of the copy.
+  // of the copy. By destination too: a source shares its buffer with the
+  // variables it flowed from before the copy.
   flows_by_src := HashMap(String, ArrayList(CopyFlow)).new();
+  flows_by_dst := HashMap(String, ArrayList(CopyFlow)).new();
   flows := take_copy_flows();
   (fli : usize) = usize(0);
   while(fli < flows.len(), fli = (fli + usize(1)), {
     fw := flows(fli);
     fw_key := fw.src.clone();
     fw_lst := match(flows_by_src.get(fw_key.clone()), .Some(l) => l, .None => ArrayList(CopyFlow).new());
+    fd_key := fw.dst.clone();
     fw_lst.push(fw);
     flows_by_src.insert(fw_key, fw_lst);
+    fd_lst := match(flows_by_dst.get(fd_key.clone()), .Some(l) => l, .None => ArrayList(CopyFlow).new());
+    fd_lst.push(flows(fli));
+    flows_by_dst.insert(fd_key, fd_lst);
+  });
+  // The regions that run more than once (`record_copy_loop`), by module.
+  loops_by_module := HashMap(String, ArrayList(CopyLoop)).new();
+  copy_loops := take_copy_loops();
+  (cli : usize) = usize(0);
+  while(cli < copy_loops.len(), cli = (cli + usize(1)), {
+    cl := copy_loops(cli);
+    cl_key := cl.at_module.clone();
+    cl_lst := match(loops_by_module.get(cl_key.clone()), .Some(l) => l, .None => ArrayList(CopyLoop).new());
+    cl_lst.push(cl);
+    loops_by_module.insert(cl_key, cl_lst);
   });
   // The `Clone` impls' members, where a type defines its copy.
   clone_bodies := take_clone_impl_bodies();
@@ -3201,12 +3351,17 @@ _run_migrate_explicit_copy :: (
       // The direct writes first, so the most specific reason is printed:
       // the source or the destination itself, a result position's
       // destination, then a variable either flows into afterwards.
+      when := _copy_when(&st, &loops_by_module, &flows_by_src, &tail_dests);
+      copy_side := ArrayList(String).new();
+      copy_side.push(st.dst_decl.clone());
+      match(tail_dests.get(`${st.at_module}:${st.at_offset.to_string()}`), .Some(tds) => copy_side.extend(&tds), .None => ());
+      src_side := ArrayList(String).new();
+      src_side.push(st.src_decl.clone());
       written := cond(
-        _copy_written_after(&writes_by_decl, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
-        _copy_written_after(&writes_by_decl, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
-        _tail_dest_written_after(&writes_by_decl, &flows_by_src, &tail_dests, &st) => Option(String).Some(String.from("the copy")),
-        _decl_written_after(&writes_by_decl, &flows_by_src, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
-        _decl_written_after(&writes_by_decl, &flows_by_src, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
+        _copy_written_after(&writes_by_decl, &st.src_decl, &when) => Option(String).Some(String.from("its source")),
+        _copy_written_after(&writes_by_decl, &st.dst_decl, &when) => Option(String).Some(String.from("the copy")),
+        _decl_written_after(&writes_by_decl, &flows_by_src, &flows_by_dst, &copy_side, &when, false) => Option(String).Some(String.from("the copy")),
+        _decl_written_after(&writes_by_decl, &flows_by_src, &flows_by_dst, &src_side, &when, true) => Option(String).Some(String.from("its source")),
         true => Option(String).None
       );
       match(
