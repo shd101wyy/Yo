@@ -68,7 +68,10 @@ is answered in the same file, and the mutable-static half of rule D1
 only when `_msp_type_may_root` holds for the global's type: an RC handle, a
 pointer, or a move-only value (the predicate `type_contains_rc_type` ∪
 pointer containment that `_msp_atom_root` already applies). A store to an
-inert global (`i32`, a struct of scalars) contributes nothing to the mask.
+inert global (`i32`, a `Copy` struct of scalars) contributes nothing to the
+mask. A non-`Copy` struct of scalars is a move-only value to
+`type_contains_rc_type` (decision 36), and a store to one runs its drop glue,
+which a `Drop` impl can make arbitrary code: that store keeps `all`.
 That is the verdict a FIELD store into the same global already got:
 `g.n = v` reaches `_msp_atom_root` through `_msp_store_prefix`, which answers
 NONE for an inert type, so only the whole-variable spelling was imprecise.
@@ -96,5 +99,6 @@ object argument.
 Regression test: "borrowed for: a callee that only writes a scalar global
 does not trip the flag through an alias" in
 `tests/for_macro_borrow_user_collection.test.yo` (the repro's `label_ctor` and
-`label_plain`, plus a struct-of-scalars global written whole and by field).
+`label_plain`, plus a `Copy` struct-of-scalars global written whole and by
+field).
 It panics on the v0.2.69 seed and passes with the fix.

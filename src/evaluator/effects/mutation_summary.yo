@@ -3059,12 +3059,13 @@ impl(
                     _msp_mask_add_root(&m, br, br.deep);
                   },
                   // A global whose type can root storage (an RC handle, a
-                  // pointer, a move-only value) may alias any argument's
-                  // storage, and the store releases what it held: unknown
-                  // effects. An inert global (`i32`, a struct of scalars)
-                  // is its own static and reaches no argument's storage,
-                  // the verdict `_msp_atom_root` already gives a field
-                  // store into one
+                  // pointer) may alias any argument's storage, and a store
+                  // to one (or to a move-only value, a non-`Copy` struct
+                  // included) releases what it held, running drop glue:
+                  // unknown effects. An inert global (`i32`, a `Copy` struct
+                  // of scalars) is its own static and reaches no argument's
+                  // storage, the verdict `_msp_atom_root` already gives a
+                  // field store into one
                   // (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
                   // D1 records the write itself where it happens
                   // (`d1_record_global_write`), not through this mask.

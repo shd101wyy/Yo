@@ -426,8 +426,8 @@ test("borrowed for: read-only methods iterating a value field by value, through 
   assert(seen == usize(40), "every by-value iteration of a value field runs without the entry assert");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
-// A callee that writes an INERT module-level global (an `i32`, a struct of
-// scalars) mutates only that static: no argument's storage is reachable from
+// A callee that writes an INERT module-level global (an `i32`, a `Copy`
+// struct of scalars) mutates only that static: no argument's storage is reachable from
 // it, so it does not count as mutating every argument. Before the fix such a
 // store made the callee's mask `all`, and each read-only `&self` method that
 // lent `&self.name` to it got the entry assert, which panicked through a
@@ -435,6 +435,9 @@ test("borrowed for: read-only methods iterating a value field by value, through 
 // (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
 { String } :: import("std/string");
 GCount :: struct(calls : i32, bytes : usize);
+// `Copy`: a non-`Copy` struct is a move-only value, whose store runs drop
+// glue, so a store to it still counts as unknown effects.
+derive(GCount, Copy, Clone);
 (mut(g_scalar_calls) : i32) = i32(0);
 (mut(g_scalar_stats) : GCount) = GCount(calls : i32(0), bytes : usize(0));
 count_copy :: (fn(s : &String) -> String)({
