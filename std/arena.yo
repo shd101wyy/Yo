@@ -58,7 +58,8 @@ extern(
   __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
   __yo_debug_heap_on : (fn() -> bool)
 );
-// Every block starts on a 16-byte boundary of the region.
+// Every block starts on a 16-byte boundary of the region, or on its alignment
+// when that is larger.
 _ALIGN :: usize(16);
 // The arena's state lives in the state table below, not in the `Arena`
 // object, so an `Allocator` value can name it. A state is never released: a
@@ -167,17 +168,31 @@ _unlock :: (fn(st : *_ArenaState) -> unit)(
   // SAFETY: as `_lock`.
   unsafe(atomic_store_explicit(addr_of(st.*.lock), false, memory_order_release))
 );
-// Bump `size` bytes off the region of incarnation `gen`. Caller holds the
-// lock.
-_bump :: (fn(st : *_ArenaState, gen : usize, size : usize) -> ?*void)({
+// The padding that takes offset `top` of `st`'s region to a multiple of
+// `align`. The region is 16-aligned, so only an alignment above 16 pads, and
+// it pads by the region's address, not the offset.
+_pad :: (fn(st : *_ArenaState, top : usize, align : usize) -> usize)(
+  cond(
+    (align <= _ALIGN) => usize(0),
+    true => {
+      // SAFETY: the caller holds the lock on the live state `st`.
+      addr := (_word_of(.Some((*void)(unsafe(st.*.region).unwrap()))) + top);
+      ((align - (addr & (align - usize(1)))) & (align - usize(1)))
+    }
+  )
+);
+// Bump `size` bytes aligned to `align` off the region of incarnation `gen`.
+// Caller holds the lock.
+_bump :: (fn(st : *_ArenaState, gen : usize, size : usize, align : usize) -> ?*void)({
   // SAFETY: the caller holds the lock on the live state `st`. Fields are
   // read through `st`: the state holds its lock, so it is not `Copy`.
   need := _round_up(size);
   cond(
     !_current(st, gen) => panic("Arena: allocation from an arena after deinit"),
-    ((need < size) || (need > (unsafe(st.*.capacity) - unsafe(st.*.top)))) => .None,
+    ((need < size) || (_pad(st, unsafe(st.*.top), align) > (unsafe(st.*.capacity) - unsafe(st.*.top)))) => .None,
+    (need > ((unsafe(st.*.capacity) - unsafe(st.*.top)) - _pad(st, unsafe(st.*.top), align))) => .None,
     true => {
-      at := unsafe(st.*.top);
+      at := (unsafe(st.*.top) + _pad(st, unsafe(st.*.top), align));
       unsafe(st.*.top = (at + need));
       unsafe(st.*.last = .Some(at));
       unsafe(st.*.live = (st.*.live + usize(1)));
@@ -185,14 +200,16 @@ _bump :: (fn(st : *_ArenaState, gen : usize, size : usize) -> ?*void)({
     }
   )
 });
-_arena_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_arena_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   st := _st(ctx);
   _lock(st);
-  r := _bump(st, _gen_of(ctx), size);
+  r := _bump(st, _gen_of(ctx), size, align);
   _unlock(st);
   r
 });
-_arena_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(
+// The size and alignment are not needed: a bump arena reclaims a block only
+// when it is the most recent one.
+_arena_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)(
   match(
     ptr,
     .Some(p) => {
@@ -220,10 +237,10 @@ _arena_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(
     .None => ()
   )
 );
-_arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
+_arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
   match(
     ptr,
-    .None => _arena_alloc(ctx, new_size),
+    .None => _arena_alloc(ctx, new_size, align),
     .Some(p) => {
       st := _st(ctx);
       gen := _gen_of(ctx);
@@ -234,23 +251,19 @@ _arena_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(
       );
       // SAFETY: as `_arena_free`.
       off := usize(unsafe((*u8)(p).offset_from(unsafe(st.*.region).unwrap())));
-      // `top` before `_bump` below moves it: the old block ends at or before it.
-      old_top := unsafe(st.*.top);
       need := _round_up(new_size);
       (r : ?*void) = cond(
         (need < new_size) => .None,
-        // The most recent block grows (or shrinks) in place.
+        // The most recent block grows (or shrinks) in place: it was placed
+        // at `align`, so its offset still is.
         ((unsafe(st.*.last) == Option(usize).Some(off)) && (need <= (unsafe(st.*.capacity) - off))) => {
           unsafe(st.*.top = (off + need));
           .Some(p)
         },
         true => match(
-          _bump(st, gen, new_size),
+          _bump(st, gen, new_size, align),
           .Some(q) => {
-            // The old block's size is not recorded; its bytes end at or
-            // before `top`, so copying up to there stays inside the region.
-            avail := (old_top - off);
-            n := cond((new_size < avail) => new_size, true => avail);
+            n := cond((new_size < old_size) => new_size, true => old_size);
             unsafe(memcpy(q, p, n));
             // One block replaced by one: `_bump` counted the new one.
             unsafe(st.*.live = (st.*.live - usize(1)));

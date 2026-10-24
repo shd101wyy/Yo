@@ -130,15 +130,15 @@ test("an explicit allocator inside another scope wins, and the outer scope survi
 // `with_allocator(a, …)` it recurses, as `box(v, alloc : .Some(a))` does: a
 // callback must not allocate through the scope (option 1 of that question).
 _ReentCounts :: struct(allocs : usize, frees : usize);
-_reent_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+_reent_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
   c := (*_ReentCounts)(ctx.unwrap());
   unsafe(c.*.allocs = (c.*.allocs + usize(1)));
   scratch := ArrayList(usize).new();
   scratch.push(size);
   GlobalAllocator.malloc(size)
 });
-_reent_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(GlobalAllocator.realloc(ptr, new_size));
-_reent_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+_reent_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(GlobalAllocator.realloc(ptr, new_size));
+_reent_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
   c := (*_ReentCounts)(ctx.unwrap());
   unsafe(c.*.frees = (c.*.frees + usize(1)));
   GlobalAllocator.free(ptr);

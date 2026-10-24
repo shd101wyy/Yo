@@ -370,19 +370,27 @@ export(Trace);
 /// The functions behind an `Allocator`. Implementing one needs
 /// `pragma(Pragma.AllowUnsafe)`.
 ///
-/// - `alloc(ctx, size)` returns a block of at least `size` bytes aligned to
-///   16, or `.None`.
-/// - `realloc(ctx, ptr, new_size)` resizes a block this vtable's `alloc`
-///   returned, keeping its first `min(old, new_size)` bytes. `.None` leaves
-///   the original block untouched and still owned by the caller.
-/// - `free(ctx, ptr)` releases such a block.
+/// Allocator interface version 2, Zig's `std.mem.Allocator` calls:
 ///
-/// There is no size at `free` and no aligned family: every container buffer
-/// and every RC block uses the plain family (see `std/allocator.yo`'s module notes).
+/// - `alloc(ctx, size, align)` returns a block of at least `size` bytes
+///   aligned to `align` (a power of two, at least 16), or `.None`.
+/// - `realloc(ctx, ptr, old_size, new_size, align)` resizes a block this
+///   vtable's `alloc` returned for `old_size` bytes at `align`, keeping its
+///   first `min(old_size, new_size)` bytes. `.None` leaves the original block
+///   untouched and still owned by the caller.
+/// - `free(ctx, ptr, size, align)` releases such a block; `size` and `align`
+///   are the ones it was allocated (or last reallocated) with, so a
+///   size-class allocator needs no header of its own.
+///
+/// A block can be freed on another thread (an `Arc` dropped elsewhere), so an
+/// allocator shared across threads makes its `free` thread-safe. Codegen calls
+/// these slots for the reference-counted objects a scope places, so the shape
+/// is a contract with the compiler: it reads the arity of `alloc` to pick the
+/// runtime it emits (see `std/allocator.yo`'s module notes).
 AllocatorVTable :: struct(
-  alloc : (fn(ctx : ?*void, size : usize) -> ?*void),
-  realloc : (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void),
-  free : (fn(ctx : ?*void, ptr : ?*void) -> unit)
+  alloc : (fn(ctx : ?*void, size : usize, align : usize) -> ?*void),
+  realloc : (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void),
+  free : (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)
 );
 /// An allocator value: an opaque context plus an immortal vtable. Two words,
 /// copied freely; it is not reference counted, because an allocator must not
@@ -9905,12 +9913,13 @@ export(
 /// auto-dereference (`Deref`). Sharing is `Rc`; a `Box` is never counted, so
 /// `ref_count` rejects it.
 ///
-/// The cell is one allocation: a 16-byte owner prefix, then the payload. The
-/// prefix records the allocator that placed the cell (the `alloc` argument,
-/// else the current `with_allocator` scope), or the global allocator, and the
-/// drop frees the cell through it (§3.11). A placed cell's prefix is the one
-/// `std/allocator.yo`'s `Allocator.alloc` writes, so `Allocator.owner_of`
-/// reads it.
+/// The cell is one allocation: a `max(16, align_of(V))`-byte prefix ending in
+/// the owner record, then the payload. The record names the allocator that
+/// placed the cell (the `alloc` argument, else the current `with_allocator`
+/// scope), or the global allocator, and the drop frees the cell through it
+/// (§3.11), telling it the cell's size and alignment. A placed cell's prefix
+/// is the one `std/allocator.yo`'s `Allocator.alloc` writes, so
+/// `Allocator.owner_of` reads it.
 ///
 /// ```yo
 /// a := box(i32(41));
@@ -9948,9 +9957,15 @@ _BoxOwner :: struct(
 );
 derive(_BoxOwner, Copy, Clone);
 _BOX_PREFIX_SIZE :: usize(16);
-// The owner prefix in front of a `Box` cell's payload.
+// The prefix in front of a `Box(V)` cell's payload, and the alignment its
+// block is asked for: `max(16, align_of(V))`, as `Allocator.alloc` places it.
+_box_span :: (fn(comptime(V) : Type) -> usize)(
+  cond((align_of(V) > _BOX_PREFIX_SIZE) => align_of(V), true => _BOX_PREFIX_SIZE)
+);
+// The owner record in front of a `Box` cell's payload: its last 16 bytes.
 _box_owner_of :: (fn(cell : *void) -> *_BoxOwner)(
-  // SAFETY: every `Box` cell is a `box` block plus `_BOX_PREFIX_SIZE`.
+  // SAFETY: every `Box` cell is a `box` block plus `_box_span(V)`, at least
+  // `_BOX_PREFIX_SIZE`.
   (*_BoxOwner)(unsafe((*u8)(cell).sub(_BOX_PREFIX_SIZE)))
 );
 /// Move `value` into a new uniquely owned cell. `alloc : .Some(a)` places the
@@ -9972,15 +9987,17 @@ box :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .None) -
       vtable : match(__yo_scope_vtable(), .Some(vt) => .Some((*AllocatorVTable)(vt)), .None => .None)
     )
   );
-  size := (size_of(V) + _BOX_PREFIX_SIZE);
+  span := _box_span(V);
+  size := (size_of(V) + span);
   block := match(
-    match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size), .None => __yo_malloc(size)),
+    match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size, span), .None => __yo_malloc(size)),
     .Some(b) => b,
     .None => __yo_panic("box: out of memory")
   );
-  // SAFETY: `block` is a fresh, 16-aligned allocation of `size` bytes.
-  unsafe(consume((*_BoxOwner)(block).* = owner));
-  cell := (*V)(unsafe((*u8)(block).add(_BOX_PREFIX_SIZE)));
+  cell := (*V)(unsafe((*u8)(block).add(span)));
+  // SAFETY: `block` is a fresh allocation of `size` bytes, so the record's 16
+  // bytes before `cell` lie inside it.
+  unsafe(consume(_box_owner_of((*void)(cell)).* = owner));
   unsafe(consume(cell.* = value));
   Box(V)(cell)
 });
@@ -10004,12 +10021,13 @@ impl(
     drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: the box is the cell's only owner, and this runs once.
       unsafe(drop_in_place(self._cell));
-      block := _box_owner_of((*void)(self._cell));
-      owner := unsafe(block.*);
+      owner := unsafe(_box_owner_of((*void)(self._cell)).*);
+      span := _box_span(T);
+      block := (*void)(unsafe((*u8)(self._cell).sub(span)));
       match(
         owner.vtable,
-        .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block))),
-        .None => __yo_free(.Some((*void)(block)))
+        .Some(vt) => vt.*.free(owner.ctx, .Some(block), size_of(T) + span, span),
+        .None => __yo_free(.Some(block))
       );
     })
   )

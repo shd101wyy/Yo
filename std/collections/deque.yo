@@ -68,7 +68,7 @@ impl(
   /// allocator. PANICS when that allocation fails.
   new_in : (fn(alloc : Allocator) -> Self)(
     match(
-      alloc.alloc(usize(0)),
+      alloc.alloc(usize(0), align_of(T)),
       .Some(p) => Self(_buf : .Some((*T)(p)), _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : _CAP_TAG),
       .None => __yo_panic("Deque.new_in: allocation failed")
     )
@@ -84,10 +84,11 @@ impl(
       true => .None
     )
   ),
-  // Release a ring buffer the way it was allocated.
+  // Release a ring buffer the way it was allocated: an owned one is told its
+  // size (the current capacity's worth of slots) and alignment.
   _free_buf : (fn(self : &Self, p : &*T) -> unit)(
     cond(
-      self._owned() => Allocator.free(.Some((*void)(p))),
+      self._owned() => Allocator.free(.Some((*void)(p)), self._cap() * size_of(T), align_of(T)),
       true => free(.Some((*void)(p)))
     )
   ),
@@ -121,7 +122,7 @@ impl(
     size := (new_cap * size_of(T));
     // The new ring comes from the allocator that owns the old one.
     new_raw := cond(
-      self._owned() => Allocator.owner_of((*void)(self._buf.unwrap())).alloc(size),
+      self._owned() => Allocator.owner_of((*void)(self._buf.unwrap())).alloc(size, align_of(T)),
       true => malloc(size)
     );
     new_buf := match(

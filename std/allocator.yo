@@ -7,24 +7,33 @@
 //! `std.mem.Allocator` shape; it and `AllocatorVTable` are defined in the
 //! prelude, this module holds their methods), `with_allocator`,
 //! `current_allocator`. The
-//! vtable (`alloc`, `realloc`, `free`, context first) and the 16-byte owner
-//! prefix are frozen: codegen writes the same prefix for every RC object a
-//! scope places (`plans/archive/EXPLICIT_ALLOCATORS.md`). Implementors: the global
+//! vtable (`alloc`, `realloc`, `free`, context first; interface version 2:
+//! every call carries the alignment and `realloc`/`free` the block's size) and
+//! the owner record in the 16 bytes before every block are frozen: codegen
+//! writes the same record for every RC object a scope places
+//! (`plans/archive/EXPLICIT_ALLOCATORS.md`, `plans/VALUES_BY_DEFAULT.md` "After
+//! V2b: the allocator interface, version 2"). Implementors: the global
 //! allocator, `std/arena.yo`'s `Arena`, and a counting allocator in
 //! `tests/arena.test.yo`.
 //!
 //! ## Explicit allocators and the owner prefix
 //!
-//! Every block handed out by `Allocator.alloc` carries a 16-byte prefix
-//! immediately before the returned pointer, holding the allocator's `ctx` and
-//! `vtable`. `Allocator.realloc` and `Allocator.free` read it, so a block is
-//! always released to the allocator that made it, whoever releases it and on
-//! whichever thread. Implementors never see the prefix: their `alloc` hands out
-//! a raw block `16` bytes larger than asked, and this module owns the layout.
-//! The same layout is emitted by codegen for reference-counted objects placed
-//! by an explicit allocator, so the two sides must never diverge.
+//! Every block handed out by `Allocator.alloc(size, align)` carries a prefix of
+//! `max(16, align)` bytes immediately before the returned pointer; its last 16
+//! hold the allocator's `ctx` and `vtable`. `Allocator.realloc` and
+//! `Allocator.free` read them, so a block is always released to the allocator
+//! that made it, whoever releases it and on whichever thread. The caller tells
+//! `realloc` and `free` the size and alignment it asked for, as Zig's
+//! `Allocator` does, so a size-class allocator (a pool, a slab) needs no header
+//! of its own. Implementors never see the prefix: their `alloc` is asked for a
+//! raw block of the prefix plus `size`, aligned to `max(16, align)`, and this
+//! module owns the layout. Codegen places reference-counted objects the same
+//! way, with the object's extent (`{size, align}`) in the 16 bytes before the
+//! owner record (a 32-byte prefix, or `max(32, align)`), because their release
+//! path does not know the type; the two sides must never diverge.
 pragma(Pragma.AllowUnsafe);
 { SIZE_MAX } :: import("./libc/stdint.yo");
+{ memcpy } :: import("./libc/string.yo");
 /// Memory allocation error variants.
 AllocError :: enum(
   /// Allocator ran out of memory.
@@ -174,19 +183,61 @@ GlobalAllocator :: impl({
     aligned_free
   );
 });
-/// Size of the owner prefix in front of every `Allocator.alloc` block. 16 keeps
-/// the returned pointer aligned for any scalar the plain family serves.
+/// Size of the owner record in front of every `Allocator.alloc` block, and the
+/// smallest prefix: a block of alignment `align` has `max(16, align)` bytes in
+/// front of it, the owner record in the last 16. 16 keeps the returned pointer
+/// aligned for any scalar the plain family serves.
 ALLOC_PREFIX_SIZE :: usize(16);
-// The owner prefix. Mirrors codegen's `__yo_alloc_prefix_t`: `ctx` at offset
+// The prefix in front of a block of alignment `align`, and the alignment its
+// raw block is asked for: both `max(16, align)`.
+_span :: (fn(align : usize) -> usize)(cond((align > ALLOC_PREFIX_SIZE) => align, true => ALLOC_PREFIX_SIZE));
+// Whether `align` is a power of two, the only alignments there are.
+_valid_align :: (fn(align : usize) -> bool)((align != usize(0)) && ((align & (align - usize(1))) == usize(0)));
+// The owner record. Mirrors codegen's `__yo_alloc_prefix_t`: `ctx` at offset
 // 0, `vtable` at offset `sizeof(*void)`, the rest of the 16 bytes unused.
 _AllocPrefix :: struct(
   ctx : ?*void,
   vtable : *AllocatorVTable
 );
 derive(_AllocPrefix, Copy, Clone);
-_global_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)(__yo_malloc(size));
-_global_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)(__yo_realloc(ptr, new_size));
-_global_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)(__yo_free(ptr));
+// The global allocator's vtable: the plain family for the alignment `malloc`
+// already gives (16), the aligned family above it. `free` and `realloc` are
+// told the alignment, so they pick the family the block came from.
+_global_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)(
+  cond(
+    (align <= ALLOC_PREFIX_SIZE) => __yo_malloc(size),
+    true => GlobalAllocator.aligned_alloc(align, size)
+  )
+);
+_global_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
+  cond(
+    (align <= ALLOC_PREFIX_SIZE) => __yo_realloc(ptr, new_size),
+    true => match(
+      GlobalAllocator.aligned_alloc(align, new_size),
+      .Some(q) => {
+        match(
+          ptr,
+          .Some(p) => {
+            n := cond((old_size < new_size) => old_size, true => new_size);
+            // SAFETY: `p` holds `old_size` bytes and `q` `new_size`; they are
+            // distinct blocks.
+            unsafe(memcpy(q, p, n));
+            __yo_aligned_free(ptr);
+          },
+          .None => ()
+        );
+        .Some(q)
+      },
+      .None => .None
+    )
+  )
+);
+_global_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)(
+  cond(
+    (align <= ALLOC_PREFIX_SIZE) => __yo_free(ptr),
+    true => __yo_aligned_free(ptr)
+  )
+);
 // A module-level `:=` global: the vtable is ONE object with one address for
 // the whole program, which is what the owner prefix stores. (`&(K)` of a `::`
 // constant also gets static storage since
@@ -197,18 +248,24 @@ _GLOBAL_VTABLE := AllocatorVTable(
   realloc : _global_realloc,
   free : _global_free
 );
-// The prefix of a block `Allocator.alloc` returned.
+// The owner record of a block `Allocator.alloc` returned.
 _prefix_of :: (fn(ptr : *void) -> *_AllocPrefix)(
   // SAFETY: `ptr` came from `Allocator.alloc`/`realloc`, which returned
-  // `raw + ALLOC_PREFIX_SIZE` for a raw block whose first bytes are the prefix.
+  // `raw + span` for a raw block whose prefix ends in the owner record.
   (*_AllocPrefix)(unsafe((*u8)(ptr).sub(ALLOC_PREFIX_SIZE)))
 );
-// Write the prefix into a raw block and return the caller's pointer.
-_stamp :: (fn(raw : *void, ctx : ?*void, vtable : *AllocatorVTable) -> ?*void)({
-  pre := (*_AllocPrefix)(raw);
-  // SAFETY: `raw` is a fresh block of at least ALLOC_PREFIX_SIZE bytes.
-  unsafe(pre.* = _AllocPrefix(ctx : ctx, vtable : vtable));
-  .Some((*void)(unsafe((*u8)(raw).add(ALLOC_PREFIX_SIZE))))
+// The raw block of a block of alignment `align` that `Allocator.alloc` returned.
+_raw_of :: (fn(ptr : *void, align : usize) -> *void)(
+  // SAFETY: as `_prefix_of`; the prefix is `_span(align)` bytes.
+  (*void)(unsafe((*u8)(ptr).sub(_span(align))))
+);
+// Write the owner record into a raw block with a `span`-byte prefix and return
+// the caller's pointer.
+_stamp :: (fn(raw : *void, span : usize, ctx : ?*void, vtable : *AllocatorVTable) -> ?*void)({
+  p := (*void)(unsafe((*u8)(raw).add(span)));
+  // SAFETY: `raw` is a fresh block of at least `span` bytes, `span >= 16`.
+  unsafe(_prefix_of(p).* = _AllocPrefix(ctx : ctx, vtable : vtable));
+  .Some(p)
 });
 impl(
   Allocator,
@@ -216,46 +273,50 @@ impl(
   /// owner prefix like any other; the global allocator's own static surface
   /// (`GlobalAllocator`) never does.
   global : (fn() -> Allocator)(Allocator(ctx : .None, vtable : addr_of(_GLOBAL_VTABLE))),
-  /// Allocate `size` bytes owned by this allocator, 16-aligned. `.None` on
-  /// failure (including a size too large to carry the prefix). Release with
-  /// `Allocator.free`.
-  alloc : (fn(self : Self, size : usize) -> ?*void)(
+  /// Allocate `size` bytes owned by this allocator, aligned to `align` (and
+  /// to at least 16). `.None` on failure, including an `align` that is not a
+  /// power of two and a size too large to carry the prefix. Release with
+  /// `Allocator.free`, telling it the same `size` and `align`.
+  alloc : (fn(self : Self, size : usize, align : usize) -> ?*void)(
     cond(
-      (size > (SIZE_MAX - ALLOC_PREFIX_SIZE)) => .None,
+      !_valid_align(align) => .None,
+      (size > (SIZE_MAX - _span(align))) => .None,
       true => match(
-        self.vtable.*.alloc(self.ctx, size + ALLOC_PREFIX_SIZE),
-        .Some(raw) => _stamp(raw, self.ctx, self.vtable),
+        self.vtable.*.alloc(self.ctx, size + _span(align), _span(align)),
+        .Some(raw) => _stamp(raw, _span(align), self.ctx, self.vtable),
         .None => .None
       )
     )
   ),
-  /// Resize a block from `Allocator.alloc`, through the allocator that owns it.
-  /// `.None` on failure, in which case the original block is untouched.
-  realloc : (fn(ptr : *void, new_size : usize) -> ?*void)(
+  /// Resize a block from `Allocator.alloc` of `old_size` bytes and alignment
+  /// `align` to `new_size` bytes, through the allocator that owns it. `.None`
+  /// on failure, in which case the original block is untouched.
+  realloc : (fn(ptr : *void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
     cond(
-      (new_size > (SIZE_MAX - ALLOC_PREFIX_SIZE)) => .None,
+      (new_size > (SIZE_MAX - _span(align))) => .None,
       true => {
-        pre := _prefix_of(ptr);
-        // SAFETY: `pre` is the live prefix of `ptr` (see `_prefix_of`).
-        owner := unsafe(pre.*);
+        // SAFETY: the owner record of `ptr` is live (see `_prefix_of`).
+        owner := unsafe(_prefix_of(ptr).*);
+        span := _span(align);
         match(
-          owner.vtable.*.realloc(owner.ctx, .Some((*void)(pre)), new_size + ALLOC_PREFIX_SIZE),
-          .Some(raw) => _stamp(raw, owner.ctx, owner.vtable),
+          owner.vtable.*.realloc(owner.ctx, .Some(_raw_of(ptr, align)), old_size + span, new_size + span, span),
+          .Some(raw) => _stamp(raw, span, owner.ctx, owner.vtable),
           .None => .None
         )
       }
     )
   ),
-  /// Release a block from `Allocator.alloc`/`realloc` to the allocator that
-  /// owns it. `.None` is a no-op.
-  free : (fn(ptr : ?*void) -> unit)(
+  /// Release a block from `Allocator.alloc`/`realloc` of `size` bytes and
+  /// alignment `align` (the values it was allocated with) to the allocator
+  /// that owns it. `.None` is a no-op.
+  free : (fn(ptr : ?*void, size : usize, align : usize) -> unit)(
     match(
       ptr,
       .Some(p) => {
-        pre := _prefix_of(p);
-        // SAFETY: `pre` is the live prefix of `p` (see `_prefix_of`).
-        owner := unsafe(pre.*);
-        owner.vtable.*.free(owner.ctx, .Some((*void)(pre)));
+        // SAFETY: the owner record of `p` is live (see `_prefix_of`).
+        owner := unsafe(_prefix_of(p).*);
+        span := _span(align);
+        owner.vtable.*.free(owner.ctx, .Some(_raw_of(p, align)), size + span, span);
       },
       .None => ()
     )

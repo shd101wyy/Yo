@@ -82,22 +82,32 @@ impl(
   _set_cap : (fn(self : &mut Self, cap : usize) -> unit)({
     self._capacity = (cap | (self._capacity & _CAP_TAG));
   }),
-  // Grow (or shrink) the buffer to `bytes` through the allocator that owns it;
-  // a list with no buffer yet takes a global one.
+  // The byte size of the current buffer, as it was allocated: the capacity's
+  // worth of elements, or the one-byte anchor of a zero-sized element type.
+  _buf_bytes : (fn(self : &Self) -> usize)(
+    cond(
+      (size_of(T) == usize(0)) => usize(1),
+      true => (self._cap() * size_of(T))
+    )
+  ),
+  // Grow (or shrink) the buffer to `bytes` through the allocator that owns it,
+  // telling it the buffer's current size and the element alignment; a list
+  // with no buffer yet takes a global one.
   _buf_resize : (fn(self : &mut Self, bytes : usize) -> ?*void)(
     match(
       self._ptr,
       .None => malloc(bytes),
       .Some(old_ptr) => cond(
-        self._owned() => Allocator.realloc((*void)(old_ptr), bytes),
+        self._owned() => Allocator.realloc((*void)(old_ptr), self._buf_bytes(), bytes, align_of(T)),
         true => realloc(.Some((*void)(old_ptr)), bytes)
       )
     )
   ),
-  // Release the buffer to the allocator that owns it.
+  // Release the buffer to the allocator that owns it, telling it the buffer's
+  // size and alignment.
   _buf_free : (fn(self : &Self, p : &*T) -> unit)(
     cond(
-      self._owned() => Allocator.free(.Some((*void)(p))),
+      self._owned() => Allocator.free(.Some((*void)(p)), self._buf_bytes(), align_of(T)),
       true => free(.Some((*void)(p)))
     )
   ),
@@ -284,8 +294,8 @@ impl(
   ///
   /// Every growth, shrink and the final release go through `alloc`, wherever
   /// and on whichever thread the last reference dies. Unlike `new`, this takes
-  /// one allocation right away: a block holding only `alloc`'s 16-byte owner
-  /// prefix, which is how the list remembers its allocator (the list object
+  /// one allocation right away: a block holding only `alloc`'s owner prefix,
+  /// which is how the list remembers its allocator (the list object
   /// itself stays the size of a plain one). PANICS when that allocation fails.
   new_in : (fn(alloc : Allocator) -> Self)(Self.with_capacity_in(alloc, usize(0))),
   /// Empty list with room for `cap` elements, its buffer in `alloc` — Rust's
@@ -300,7 +310,7 @@ impl(
         bytes := cond((size_of(T) == usize(0)) => usize(1), true => (size_of(T) * cap));
         tagged_cap := cond((size_of(T) == usize(0)) => _CAP_MASK, true => cap);
         match(
-          alloc.alloc(bytes),
+          alloc.alloc(bytes, align_of(T)),
           .Some(p) =>
             Self(
               _ptr : .Some((*T)(p)),

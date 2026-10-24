@@ -148,17 +148,18 @@ impl(
   // made current, or the global one.
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))(Self._alloc_with_capacity_in(current_allocator(), capacity)),
   // Allocate both buffers from `alloc` (the global allocator when `.None`).
-  _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize) -> ?*void)(
+  _alloc_buf : (fn(alloc : Option(Allocator), bytes : usize, align : usize) -> ?*void)(
     match(
       alloc,
-      .Some(a) => a.alloc(bytes),
+      .Some(a) => a.alloc(bytes, align),
       .None => malloc(bytes)
     )
   ),
-  // Release a buffer the way it was allocated.
-  _free_buf : (fn(owned : bool, p : *void) -> unit)(
+  // Release a buffer the way it was allocated: an owned one is told the size
+  // and alignment it was allocated with.
+  _free_buf : (fn(owned : bool, p : *void, bytes : usize, align : usize) -> unit)(
     cond(
-      owned => Allocator.free(.Some(p)),
+      owned => Allocator.free(.Some(p), bytes, align),
       true => free(.Some(p))
     )
   ),
@@ -195,17 +196,17 @@ impl(
     ctrl_size := capacity;
     data_size := (capacity * bucket_size);
     owned := alloc.is_some();
-    ctrl_result := Self._alloc_buf(alloc, ctrl_size);
+    ctrl_result := Self._alloc_buf(alloc, ctrl_size, align_of(u8));
     match(
       ctrl_result,
       .None => .Err(.AllocError(error : .OutOfMemory)),
       .Some(ctrl_void_ptr) => {
         ctrl_ptr := (*u8)(ctrl_void_ptr);
-        data_result := Self._alloc_buf(alloc, data_size);
+        data_result := Self._alloc_buf(alloc, data_size, align_of(MapEntry(K, V)));
         match(
           data_result,
           .None => {
-            Self._free_buf(owned, (*void)(ctrl_ptr));
+            Self._free_buf(owned, (*void)(ctrl_ptr), ctrl_size, align_of(u8));
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
@@ -546,12 +547,12 @@ impl(
     owned := self._owned();
     match(
       self.ctrl,
-      .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity, align_of(u8)),
       .None => ()
     );
     match(
       self.data,
-      .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+      .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity * size_of(MapEntry(K, V)), align_of(MapEntry(K, V))),
       .None => ()
     );
     self.ctrl = new_map.ctrl;
@@ -999,12 +1000,12 @@ impl(
       owned := self._owned();
       match(
         self.ctrl,
-        .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+        .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity, align_of(u8)),
         .None => ()
       );
       match(
         self.data,
-        .Some(ptr) => Self._free_buf(owned, (*void)(ptr)),
+        .Some(ptr) => Self._free_buf(owned, (*void)(ptr), self.capacity * size_of(MapEntry(K, V)), align_of(MapEntry(K, V))),
         .None => ()
       );
     })

@@ -9,7 +9,7 @@ main :: (fn() -> unit)({
   next := Arena.new(usize(1024));
   println(`released: ${arena.is_released()}, next live: ${!next.is_released()}`);
   // `a` is a stale copy of the dead arena's allocator: it must not reach `next`.
-  block := a.alloc(usize(32));
+  block := a.alloc(usize(32), usize(16));
   println(`unreachable: ${block.is_some()}, next live blocks: ${next.live_blocks()}`);
 });
 export(main);

@@ -6,7 +6,8 @@ pragma(Pragma.SkipWasm32Wasi); // the threaded cases need pthreads
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ with_allocator } :: import("std/allocator");
+{ with_allocator, GlobalAllocator } :: import("std/allocator");
+{ memcpy } :: import("std/libc/string");
 { Arena } :: import("std/arena");
 { Thread } :: import("std/thread");
 { yield } :: import("std/async");
@@ -221,4 +222,259 @@ test("A default HashMap and a String built in the scope are placed there", {
     assert(arena.live_blocks() > usize(2), "the map object, its tables and the string's bytes");
   };
   assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
+});
+// ===== Allocator interface version 2: aligned blocks, a sized free =====
+// A ledger allocator: every block it hands out is recorded with the size and
+// alignment it was asked for, and `realloc`/`free` must be told exactly those.
+// Its storage is raw global memory, never an RC object, so recording a block
+// allocates nothing in the scope it serves.
+_Rec :: struct(ptr : ?*void, size : usize, align : usize);
+derive(_Rec, Copy, Clone);
+_LEDGER_CAP :: usize(1024);
+_Ledger :: struct(recs : ?*void, n : usize, live : usize, mismatches : usize, misaligned : usize, max_align : usize);
+derive(_Ledger, Copy, Clone);
+// A pointer's address, for alignment checks.
+_addr :: (fn(p : ?*void) -> usize)({
+  c := p;
+  mut(w) := usize(0);
+  unsafe(memcpy((*void)(addr_of(w)), (*void)(addr_of(c)), size_of(usize)));
+  w
+});
+_rec_at :: (fn(l : *_Ledger, i : usize) -> *_Rec)(
+  // SAFETY: `recs` holds `_LEDGER_CAP` records and `i` is below `n`.
+  (*_Rec)(unsafe((*u8)(l.*.recs.unwrap()).add(i * size_of(_Rec))))
+);
+// The record of `ptr`, checked against `size` and `align`; .None (and a
+// mismatch counted) when the ledger never handed `ptr` out.
+_ledger_take :: (fn(l : *_Ledger, ptr : ?*void, size : usize, align : usize) -> unit)({
+  mut(i) := usize(0);
+  mut(found) := false;
+  while(runtime(i < unsafe(l.*.n)) && (!found), {
+    r := _rec_at(l, i);
+    if(unsafe(r.*.ptr) == ptr, {
+      found = true;
+      if((unsafe(r.*.size) != size) || (unsafe(r.*.align) != align), {
+        unsafe(l.*.mismatches = (l.*.mismatches + usize(1)));
+      });
+      unsafe(r.*.ptr = .None);
+      unsafe(l.*.live = (l.*.live - usize(1)));
+    });
+    i = (i + usize(1));
+  });
+  if(!found, {
+    unsafe(l.*.mismatches = (l.*.mismatches + usize(1)));
+  });
+});
+_ledger_put :: (fn(l : *_Ledger, p : ?*void, size : usize, align : usize) -> unit)({
+  if((_addr(p) % align) != usize(0), {
+    unsafe(l.*.misaligned = (l.*.misaligned + usize(1)));
+  });
+  if(align > unsafe(l.*.max_align), {
+    unsafe(l.*.max_align = align);
+  });
+  assert(unsafe(l.*.n) < _LEDGER_CAP, "ledger full");
+  unsafe(_rec_at(l, l.*.n).* = _Rec(ptr : p, size : size, align : align));
+  unsafe(l.*.n = (l.*.n + usize(1)));
+  unsafe(l.*.live = (l.*.live + usize(1)));
+});
+_ledger_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  l := (*_Ledger)(ctx.unwrap());
+  p := GlobalAllocator.aligned_alloc(align, size);
+  if(p.is_some(), _ledger_put(l, p, size, align));
+  p
+});
+_ledger_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)({
+  l := (*_Ledger)(ctx.unwrap());
+  q := GlobalAllocator.aligned_alloc(align, new_size);
+  match(
+    q,
+    .Some(qp) => {
+      n := cond((old_size < new_size) => old_size, true => new_size);
+      // SAFETY: `ptr` holds `old_size` bytes (the ledger checks it), `qp`
+      // `new_size`.
+      unsafe(memcpy(qp, ptr.unwrap(), n));
+      _ledger_take(l, ptr, old_size, align);
+      GlobalAllocator.aligned_free(ptr);
+      _ledger_put(l, q, new_size, align);
+    },
+    .None => ()
+  );
+  q
+});
+_ledger_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
+  _ledger_take((*_Ledger)(ctx.unwrap()), ptr, size, align);
+  GlobalAllocator.aligned_free(ptr);
+});
+_LEDGER_VTABLE := AllocatorVTable(alloc : _ledger_alloc, realloc : _ledger_realloc, free : _ledger_free);
+_new_ledger :: (fn() -> _Ledger)(
+  _Ledger(
+    recs : GlobalAllocator.calloc(_LEDGER_CAP, size_of(_Rec)),
+    n : usize(0),
+    live : usize(0),
+    mismatches : usize(0),
+    misaligned : usize(0),
+    max_align : usize(0)
+  )
+);
+test("Every release tells the allocator the size and alignment the block was allocated with", {
+  mut(ledger) := _new_ledger();
+  a := Allocator(ctx : .Some((*void)(addr_of(ledger))), vtable : addr_of(_LEDGER_VTABLE));
+  {
+    p := with_allocator(a, () => _Point(x : i32(3), y : i32(4)));
+    s := with_allocator(a, () => _Shape.Square(side : i32(5)));
+    b := with_allocator(a, () => rc(i64(9)));
+    bx := box(i32(2), alloc : .Some(a));
+    d := with_allocator(a, () => _make_speaker());
+    list := ArrayList(i64).new_in(a);
+    mut(i) := i64(0);
+    while(runtime(i < i64(300)), {
+      list.push(i);
+      i = (i + i64(1));
+    });
+    map := HashMap(i32, i32).new_in(a);
+    mut(k) := i32(0);
+    while(runtime(k < i32(100)), {
+      map.insert(k, k * i32(2));
+      k = (k + i32(1));
+    });
+    assert((p.x + p.y) == i32(7), "ref struct");
+    assert(b.* == i64(9), "rc");
+    assert(bx.* == i32(2), "box");
+    assert(d.speak() == i32(6), "dyn");
+    assert(list.get(usize(299)) == Option(i64).Some(i64(299)), "list");
+    assert(map.get(i32(99)) == Option(i32).Some(i32(198)), "map");
+    assert(ledger.live >= usize(7), `every kind placed in the ledger: ${ledger.live}`);
+  };
+  assert(ledger.live == usize(0), `every block went back: ${ledger.live} live`);
+  assert(ledger.mismatches == usize(0), `every free and realloc was told the allocated size and alignment: ${ledger.mismatches}`);
+  assert(ledger.misaligned == usize(0), "every block honours its alignment");
+  GlobalAllocator.free(ledger.recs);
+});
+test("Allocator.alloc places an over-aligned block and keeps it aligned across realloc", {
+  mut(ledger) := _new_ledger();
+  a := Allocator(ctx : .Some((*void)(addr_of(ledger))), vtable : addr_of(_LEDGER_VTABLE));
+  p := a.alloc(usize(100), usize(256)).unwrap();
+  assert((_addr(.Some(p)) % usize(256)) == usize(0), "256-aligned");
+  assert(ledger.max_align == usize(256), "the raw block was asked for the alignment");
+  assert(Allocator.owner_of(p).same(a), "the owner record sits before an over-aligned block too");
+  unsafe((*u8)(p).* = u8(7));
+  unsafe((*u8)(p).add(usize(99)).* = u8(9));
+  q := Allocator.realloc(p, usize(100), usize(5000), usize(256)).unwrap();
+  assert((_addr(.Some(q)) % usize(256)) == usize(0), "still 256-aligned");
+  assert(unsafe((*u8)(q).*) == u8(7), "first byte kept");
+  assert(unsafe((*u8)(q).add(usize(99)).*) == u8(9), "last byte kept");
+  Allocator.free(.Some(q), usize(5000), usize(256));
+  assert(ledger.live == usize(0), "released");
+  assert(ledger.mismatches == usize(0), "sized free matched");
+  assert(a.alloc(usize(8), usize(48)).is_none(), "an alignment that is not a power of two is refused");
+  // The global allocator and an arena serve the alignment too.
+  g := Allocator.global().alloc(usize(10), usize(64)).unwrap();
+  assert((_addr(.Some(g)) % usize(64)) == usize(0), "global: 64-aligned");
+  Allocator.free(.Some(g), usize(10), usize(64));
+  arena := _arena();
+  r := arena.allocator().alloc(usize(10), usize(4096)).unwrap();
+  assert((_addr(.Some(r)) % usize(4096)) == usize(0), "arena: 4096-aligned");
+  Allocator.free(.Some(r), usize(10), usize(4096));
+  assert(arena.live_blocks() == usize(0), "arena: released");
+});
+// A header-free pool: size classes of 64/128/256/512 bytes, each a free list
+// threaded through the free blocks themselves. It keeps no per-block header:
+// `free` finds the class from the size it is told, so a release told a wrong
+// size lands on the wrong list and the per-class counts stop balancing.
+_POOL_CLASSES :: usize(4);
+_Pool :: struct(heads : Array(?*void, 4), allocs : Array(usize, 4), frees : Array(usize, 4), refused : usize);
+derive(_Pool, Copy, Clone);
+_pool_class :: (fn(size : usize) -> usize)(
+  cond(
+    (size <= usize(64)) => usize(0),
+    (size <= usize(128)) => usize(1),
+    (size <= usize(256)) => usize(2),
+    (size <= usize(512)) => usize(3),
+    true => _POOL_CLASSES
+  )
+);
+_pool_alloc :: (fn(ctx : ?*void, size : usize, align : usize) -> ?*void)({
+  pl := (*_Pool)(ctx.unwrap());
+  c := _pool_class(size);
+  cond(
+    ((c == _POOL_CLASSES) || (align > usize(16))) => {
+      unsafe(pl.*.refused = (pl.*.refused + usize(1)));
+      .None
+    },
+    true => {
+      unsafe(pl.*.allocs(c) = (pl.*.allocs(c) + usize(1)));
+      match(
+        unsafe(pl.*.heads(c)),
+        .Some(h) => {
+          // SAFETY: a free block's first word is the next free block.
+          unsafe(pl.*.heads(c) = (*?*void)(h).*);
+          .Some(h)
+        },
+        .None => GlobalAllocator.malloc(usize(64) << c)
+      )
+    }
+  )
+});
+_pool_free :: (fn(ctx : ?*void, ptr : ?*void, size : usize, align : usize) -> unit)({
+  pl := (*_Pool)(ctx.unwrap());
+  c := _pool_class(size);
+  unsafe(pl.*.frees(c) = (pl.*.frees(c) + usize(1)));
+  // SAFETY: `ptr` is a block of class `c` (the size says so), at least a word.
+  unsafe((*?*void)(ptr.unwrap()).* = pl.*.heads(c));
+  unsafe(pl.*.heads(c) = ptr);
+});
+_pool_realloc :: (fn(ctx : ?*void, ptr : ?*void, old_size : usize, new_size : usize, align : usize) -> ?*void)(
+  cond(
+    (_pool_class(old_size) == _pool_class(new_size)) => ptr,
+    true => match(
+      _pool_alloc(ctx, new_size, align),
+      .Some(q) => {
+        n := cond((old_size < new_size) => old_size, true => new_size);
+        // SAFETY: distinct blocks of at least `n` bytes.
+        unsafe(memcpy(q, ptr.unwrap(), n));
+        _pool_free(ctx, ptr, old_size, align);
+        .Some(q)
+      },
+      .None => .None
+    )
+  )
+);
+_POOL_VTABLE := AllocatorVTable(alloc : _pool_alloc, realloc : _pool_realloc, free : _pool_free);
+test("A header-free pool allocator frees by the size it is given", {
+  mut(pool) := _Pool(
+    heads : Array(?*void, 4)(.None, .None, .None, .None),
+    allocs : Array(usize, 4)(usize(0), usize(0), usize(0), usize(0)),
+    frees : Array(usize, 4)(usize(0), usize(0), usize(0), usize(0)),
+    refused : usize(0)
+  );
+  a := Allocator(ctx : .Some((*void)(addr_of(pool))), vtable : addr_of(_POOL_VTABLE));
+  mut(round) := usize(0);
+  while(runtime(round < usize(3)), {
+    {
+      pts := ArrayList(_Point).new();
+      mut(i) := i32(0);
+      while(runtime(i < i32(20)), {
+        pts.push(with_allocator(a, () => _Point(x : i32(i), y : i32(1))));
+        i = (i + i32(1));
+      });
+      s := with_allocator(a, () => _Shape.Circle(r : i32(3)));
+      d := with_allocator(a, () => _make_speaker());
+      list := ArrayList(i32).new_in(a);
+      mut(j) := i32(0);
+      while(runtime(j < i32(60)), {
+        list.push(j);
+        j = (j + i32(1));
+      });
+      assert(list.len() == usize(60), "list");
+      assert(pts.get(usize(19)).unwrap().x == i32(19), "points");
+    };
+    round = (round + usize(1));
+  });
+  assert(pool.refused == usize(0), "every request fit a class");
+  mut(c) := usize(0);
+  while(runtime(c < _POOL_CLASSES), {
+    assert(pool.allocs(c) == pool.frees(c), `class ${c}: ${pool.allocs(c)} allocations, ${pool.frees(c)} frees`);
+    c = (c + usize(1));
+  });
+  assert(pool.allocs(usize(0)) > usize(0), "the small objects took the smallest class");
 });
