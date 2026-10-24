@@ -173,7 +173,9 @@ test_step.depend_on(tests);
 `AllocatorKind.Mimalloc` 即 `yo compile --allocator mimalloc`。它链接与 `std/`
 同级的 `vendor/mimalloc` 中捆绑的 mimalloc：每个发布包都附带它，源码检出中它是一个
 git 子模块。缺少它时编译失败，并给出查找的路径；不会退回到系统分配器。在源码检出中运行
-`git -c protocol.file.allow=always submodule update --init`。wasm 目标上没有
+`git -c protocol.file.allow=always submodule update --init`。`scripts/install.sh`
+由发布的单文件 `yo.c` 构建的安装（没有发布包的平台，或使用 `--from-source`、`--c-compiler`、`--c-flags`
+时）不含 `vendor/`，因此那里无法使用 mimalloc。wasm 目标上同样没有
 mimalloc，在那里请求它同样是错误。
 
 `AllocatorKind.Fixed` 让所有分配都来自 `.bss` 中一个静态定长的区域 —— 不依赖

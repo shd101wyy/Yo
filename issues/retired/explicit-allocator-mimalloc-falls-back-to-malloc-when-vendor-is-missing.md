@@ -60,11 +60,13 @@ now rather than at step C, because the fallback is live today. What changed:
   `<std>/../vendor/mimalloc/src/static.c` does not exist:
 
   ```
-  yo: error: compile: --allocator mimalloc needs the bundled mimalloc, and <std>/../vendor/mimalloc/src/static.c does not exist. In a source checkout, run `git -c protocol.file.allow=always submodule update --init`; otherwise pass `--allocator system`.
+  yo: error: compile: --allocator mimalloc needs the bundled mimalloc, and <checkout>/vendor/mimalloc/src/static.c does not exist. In a source checkout, run `git -c protocol.file.allow=always submodule update --init`; a source install built from the published yo.c ships no mimalloc. Otherwise use the system allocator: pass `--allocator system`, or set `allocator : build.AllocatorKind.System` in build.yo.
   ```
 
-  `yo build` reaches the same error through its child compile, and `yo test --allocator mimalloc` checks once
-  before its first batch. `--skip-c-compiler` links nothing and is not checked.
+  `yo build` reaches the same error through its child compile (hence the `build.yo` spelling of the remedy), and
+  `yo test --allocator mimalloc` checks once before its first batch. `--skip-c-compiler` links nothing and is not
+  checked. An install that `scripts/install.sh` built from `yo.c` has no `vendor/` (GitHub's source tarball
+  carries no submodule contents), so mimalloc is unavailable there; `docs/*/BUILD_SYSTEM.md` says so.
 - **The emitted C** has no `malloc` fallback: its mimalloc block is `#error` when `<mimalloc.h>` is not on the
   include path, then an unconditional `#include <mimalloc.h>`. Hand-compiled `--emit-c` output cannot downgrade
   either. The one consumer that wanted the C library's heap, the memory-ratchet job's work count, now says so with

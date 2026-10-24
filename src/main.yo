@@ -5872,16 +5872,25 @@ _bundled_mimalloc_dir :: (fn(std_root : &String) -> String)(`${std_root}/../vend
 /// a fallback always overrides an explicit request, and one measured "mimalloc"
 /// A/B turned out to be glibc against glibc (maintainer decision 2026-10-24,
 /// issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md).
+///
+/// The message names both spellings of the system allocator because it also
+/// reaches `yo build` users through the child compile, and `yo build` has no
+/// `--allocator` flag: there the choice lives in `build.yo`.
 _require_bundled_mimalloc :: (fn(command : String, std_root : &String, exn : Exception) -> unit)({
   mim_static := `${_bundled_mimalloc_dir(std_root)}/src/static.c`;
   if(!file_exists_sync(mim_static.clone()), {
+    // Display only: the check above reads the path as the C compiler will.
+    shown := Path.new(mim_static.clone()).normalize().to_string();
     exn.throw(
       dyn(
-        `${command}: --allocator mimalloc needs the bundled mimalloc, and ${mim_static} does not exist. In a source checkout, run \`git -c protocol.file.allow=always submodule update --init\`; otherwise pass \`--allocator system\`.`
+        `${command}: --allocator mimalloc needs the bundled mimalloc, and ${shown} does not exist. In a source checkout, run \`git -c protocol.file.allow=always submodule update --init\`; a source install built from the published yo.c ships no mimalloc. Otherwise use the system allocator: ${_system_allocator_remedy}.`
       )
     );
   });
 });
+/// How to ask for the system allocator, from `yo compile`/`yo test` and from a
+/// `build.yo` artifact (whose child compile reports the error).
+_system_allocator_remedy :: "pass `--allocator system`, or set `allocator : build.AllocatorKind.System` in build.yo";
 run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   input := match(
     argv.get(usize(2)),
@@ -7186,7 +7195,7 @@ run_compile :: (
   // mimalloc does not build for wasm. An explicit request for it is an error,
   // not a silent switch to the system allocator (see `_require_bundled_mimalloc`).
   if((allocator == "mimalloc") && is_target_wasm(&target), {
-    exn.throw(dyn(`compile: --allocator mimalloc is not available on wasm targets (${target.triple}); pass --allocator system`));
+    exn.throw(dyn(`compile: --allocator mimalloc is not available on wasm targets (${target.triple}). Use the system allocator: ${_system_allocator_remedy}.`));
   });
   // Same rule as `check`: compiling a module that lives inside a std tree
   // must resolve std to THAT tree, not the bundle an installed binary finds
@@ -9413,7 +9422,7 @@ run_test :: (
   // The batch compiles would each fail on these; fail once, before any runs.
   if(test_allocator == "mimalloc", {
     if(wasm_target_kind != "", {
-      exn.throw(dyn(`test: --allocator mimalloc is not available on wasm targets (${wasm_target_kind}); pass --allocator system`));
+      exn.throw(dyn(`test: --allocator mimalloc is not available on wasm targets (${wasm_target_kind}). Pass \`--allocator system\`.`));
     });
     test_std_root := resolve_std_path();
     _require_bundled_mimalloc(String.from("test"), &test_std_root, exn);
