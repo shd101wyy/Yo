@@ -1,0 +1,39 @@
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ println } :: import("std/fmt");
+Holder :: struct(items : ArrayList(i32));
+(mut(g_calls) : i32) = i32(0);
+poke :: (fn(h : Holder) -> unit)({
+  g_calls = (g_calls + i32(1));
+  h.items.push(i32(7));
+});
+Bag :: ref(struct(items : ArrayList(i32)));
+impl(
+  Bag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
+  grow : (fn(self : &Self) -> unit)({
+    poke(Holder(items : self.items));
+  })
+);
+main :: (fn() -> unit)({
+  bag := Bag(items : ArrayList(i32).new());
+  bag.items.push(i32(1));
+  other := bag;
+  for(&mut bag, x => {
+    other.grow();
+    x = (x + i32(1));
+  });
+  println(&bag.items.len());
+});
+export(main);

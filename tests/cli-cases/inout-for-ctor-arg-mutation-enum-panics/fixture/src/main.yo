@@ -1,0 +1,42 @@
+// A user collection implements `BorrowedWalk` with a raw pointer into its
+// list (plans/VALUES_BY_DEFAULT.md decision 39), so the file is unsafe-capable.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+W :: struct(a : usize, b : usize);
+push_len :: (fn(xs : &mut ArrayList(i32)) -> usize)({
+  xs.push(i32(5));
+  xs.len()
+});
+Bag :: ref(struct(items : ArrayList(i32)));
+impl(
+  Bag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
+  // The push runs inside an ENUM payload.
+  grow : (fn(self : &mut Self) -> usize)({
+    w := Option(usize).Some(push_len(&mut self.items));
+    match(w, .Some(_) => usize(0), .None => usize(1))
+  })
+);
+main :: (fn() -> unit)({
+  bag := Bag(items : ArrayList(i32).new());
+  bag.items.push(i32(1));
+  other := bag; // a second handle: the loop's static borrow cannot see it
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    seen = (seen + other.grow()); // panics: grow pushes into the borrowed list
+    x = (x + i32(1));
+  });
+  assert(false, "unreachable: grow must panic first");
+});
+export(main);

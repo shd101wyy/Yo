@@ -1,0 +1,45 @@
+// A user collection implements `BorrowedWalk` with a raw pointer into its
+// list (plans/VALUES_BY_DEFAULT.md decision 39), so the file is unsafe-capable.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+W :: struct(a : usize, b : usize);
+push_len :: (fn(xs : &mut ArrayList(i32)) -> usize)({
+  xs.push(i32(5));
+  xs.len()
+});
+// A helper whose whole body is a constructor: its call's compile-time value
+// is the constructor's shell too.
+mkw :: (fn(xs : &mut ArrayList(i32)) -> W)(W(a : push_len(xs), b : usize(0)));
+Bag :: ref(struct(items : ArrayList(i32)));
+impl(
+  Bag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  Bag,
+  // The push runs inside a helper whose body is a struct constructor.
+  grow : (fn(self : &mut Self) -> usize)({
+    w := mkw(&mut self.items);
+    w.b
+  })
+);
+main :: (fn() -> unit)({
+  bag := Bag(items : ArrayList(i32).new());
+  bag.items.push(i32(1));
+  other := bag; // a second handle: the loop's static borrow cannot see it
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    seen = (seen + other.grow()); // panics: grow pushes into the borrowed list
+    x = (x + i32(1));
+  });
+  assert(false, "unreachable: grow must panic first");
+});
+export(main);

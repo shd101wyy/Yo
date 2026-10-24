@@ -819,6 +819,38 @@ is_trait_val :: (fn(v : &EvalValue) -> bool)(match(v, .TraitVal(_, _, _) => true
 is_comptime_list_val :: (fn(v : &EvalValue) -> bool)(match(v, .ComptimeListVal(_) => true, _ => false));
 is_expr_val :: (fn(v : &EvalValue) -> bool)(match(v, .ExprVal(_) => true, _ => false));
 is_unknown_val :: (fn(v : &EvalValue) -> bool)(match(v, .UnknownVal(_, _) => true, _ => false));
+/// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
+/// hole). A bare runtime call yields `UnknownVal`, but a RUNTIME construction
+/// (`.Some((p &+ i).*)`, `Wrap(v : runtimeVal)`, `(f(), 1)`) yields an
+/// `EnumVal`/`StructVal`/`TupleVal`/`ArrayVal` SHELL with an `UnknownVal`
+/// leaf: it still runs at runtime. Only a value with concrete leaves
+/// (`.Some(i32(7))`) was folded at compile time.
+value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
+  match(
+    v,
+    .UnknownVal(_, _) => true,
+    .EnumVal(_, fields) => _values_contain_unknown(&fields),
+    .StructVal(_, _, field_values) => _values_contain_unknown(&field_values),
+    .TupleVal(fields) => _values_contain_unknown(&fields),
+    .ArrayVal(elements) => _values_contain_unknown(&elements),
+    _ => false
+  )
+);
+_values_contain_unknown :: (fn(vs : &ArrayList(EvalValue)) -> bool)({
+  (i : usize) = usize(0);
+  (found : bool) = false;
+  while((i < vs.len()) && !found, {
+    match(
+      vs.get(i),
+      .Some(f) => if(value_contains_unknown(&f), {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
 /// Is `v` a RUNTIME-ONLY unknown (see `UnknownVal.is_runtime_only`)?
 is_runtime_only_unknown_val :: (fn(v : &EvalValue) -> bool)(
   match(v, .UnknownVal(_, ro) => ro, _ => false)
@@ -964,7 +996,7 @@ export(value_to_string);
 export(is_unit_val, is_bool_val, is_int_lit, is_float_lit, is_str_lit, is_var_ref);
 export(is_enum_val, is_func_val, is_return_val, is_break_val, is_type_val, is_struct_val, is_module_val);
 export(is_tuple_val, is_array_val, is_ptr_val, is_trait_val);
-export(is_comptime_list_val, is_expr_val, is_unknown_val);
+export(is_comptime_list_val, is_expr_val, is_unknown_val, value_contains_unknown);
 export(
   is_number_val,
   is_comptime_int_value,

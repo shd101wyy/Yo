@@ -1,0 +1,11 @@
+# A method whose only write to its receiver happens inside a TUPLE element.
+# A guard for the struct and enum siblings: a runtime construction whose
+# compile-time value is a shell with an unknown leaf used to read as a folded
+# constant, so the PARAM-STORAGE mask skipped it, never saw the push, and
+# dropped the method's entry assert. The tuple shape asserted before that fix
+# too; the fix's `value_contains_unknown` now also looks inside tuple values,
+# and this case pins that the method still carries the assert and panics.
+# `build run` propagates the panic as rc≠0.
+# issues/fixed/2026-10-23-a-mutating-call-inside-a-constructor-argument-escapes-the-borrow-assert.md
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300

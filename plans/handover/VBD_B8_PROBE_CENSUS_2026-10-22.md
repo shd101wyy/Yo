@@ -375,7 +375,7 @@ binary built from `95162303d`, and each still fails the same way under both
 | `issues/2026-10-22-a-whole-value-destructuring-binds-move-only-fields-as-borrows.md` | S2 | `{ _bytes } := self` cannot move a field out |
 | `issues/fixed/2026-10-22-a-struct-pattern-on-a-newtype-emits-a-field-access-the-c-type-does-not-have.md` | S2 | invalid C; `into_bytes` must clone |
 | `issues/2026-10-22-clone-of-an-anonymous-record-element-copies-the-element-first.md` | S2 | an extra copy, then E0901 |
-| `issues/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md` | S2 | spurious borrow-flag panic |
+| `issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md` | S2 | spurious borrow-flag panic |
 | `issues/2026-10-23-a-ref-payload-in-another-variant-makes-a-move-only-match-binding-a-borrow.md` | S2 | false E0901; on develop it blocks `derive(FromJson)` on structs with move-only fields |
 | `issues/2026-10-22-a-move-in-one-cond-arm-is-reported-at-the-other-arm.md` | S3 | wrong note location |
 | `issues/2026-10-22-a-swallowed-test-body-error-inside-a-while-loop-breaks-the-next-derive.md` | S3 (filed S2, lowered in review) | misleading check results without `--test-bodies` |

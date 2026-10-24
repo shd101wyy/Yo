@@ -1,0 +1,10 @@
+# A method whose only write to its receiver happens inside a constructor
+# ARGUMENT (a struct constructor). The constructor's compile-time value is a shell with an
+# unknown leaf, which the PARAM-STORAGE mask used to read as a folded
+# constant: it skipped the whole construction, never saw the push, dropped
+# the method's entry assert, and the push under the borrowed `for`
+# reallocated the walked buffer (heap-use-after-free under ASan). The method
+# must carry the assert and panic. `build run` propagates the panic as rc≠0.
+# issues/fixed/2026-10-23-a-mutating-call-inside-a-constructor-argument-escapes-the-borrow-assert.md
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300

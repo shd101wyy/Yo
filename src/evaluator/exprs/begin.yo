@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx,
   ImplConcreteTypeInfo
 } :: import("../context.yo");
-{ EvalValue, is_type_value } :: import("../../value.yo");
+{ EvalValue, is_type_value, value_contains_unknown } :: import("../../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner } :: import("../../types/definitions.yo");
 { t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
@@ -626,51 +626,6 @@ _check_keyword_position :: (
 ///                               Gates the single-expression shared-id
 ///                               `variable_name` carry (see the carry block
 ///                               before the final expr_info_table_set).
-/// True when `v` is — or recursively contains — an `UnknownVal` (a runtime
-/// hole). Used to decide whether a single-expression begin block must carry the
-/// inner expression's `runtime_arg_exprs_in_order`: a bare runtime call yields
-/// `UnknownVal`, and a RUNTIME enum/struct construction (`.Some((p &+ i).*)`,
-/// `Wrap(v : runtimeVal)`) yields an `EnumVal`/`StructVal` SHELL with an
-/// `UnknownVal` payload — both need the runtime construction codegen. A fully
-/// comptime-folded construct (`.Some(i32(7))`) has only concrete leaves and must
-/// keep the comptime-value path (see the gate in `evaluate_begin_expression`).
-_value_contains_unknown :: (fn(v : &EvalValue) -> bool)(
-  match(
-    v,
-    .UnknownVal(_, _) => true,
-    .EnumVal(_, fields) => {
-      (i : usize) = usize(0);
-      (found : bool) = false;
-      while((i < fields.len()) && !found, {
-        match(
-          fields.get(i),
-          .Some(f) => if(recur(&f), {
-            found = true;
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    },
-    .StructVal(_, _, field_values) => {
-      (i : usize) = usize(0);
-      (found : bool) = false;
-      while((i < field_values.len()) && !found, {
-        match(
-          field_values.get(i),
-          .Some(f) => if(recur(&f), {
-            found = true;
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      found
-    },
-    _ => false
-  )
-);
 /// True iff `name` equals the name carried by `opt` (if any).
 _name_matches_opt :: (fn(name : &String, opt : &Option(String)) -> bool)(
   match(opt, .Some(n) => (name == n), .None => false)
@@ -3967,7 +3922,7 @@ _evaluate_begin_expression_impl :: (
   carry_runtime_args := match(
     last_info.value,
     .None => true,
-    .Some(v) => match(v, .UnitVal => true, _ => _value_contains_unknown(&v))
+    .Some(v) => match(v, .UnitVal => true, _ => value_contains_unknown(&v))
   );
   if(shared_with_tail && !carry_runtime_args, {
     out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;
