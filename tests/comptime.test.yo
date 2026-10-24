@@ -3067,6 +3067,15 @@ test("Test parser associtivity", {
   );
   comptime_assert(right_2 == quote(a = (b -> c)));
 });
+// Moved here from the deleted tests/macro_def_gate.test.yo (2026-10-24,
+// plans/backlog/MACRO_AND_ISO_REMOVAL.md C5): `quote` values and the
+// `__yo_expr_*` reflection methods outlive the macro removal, and this file
+// declares no `pragma(Pragma.AllowMacroDef)`.
+test("quote/Expr values and AST reflection need no macro pragma", {
+  q :: quote(1 + 2);
+  assert(q.is_fn_call(), "quote works without the pragma");
+  assert(q.get_callee() == quote(+), "AST reflection works without the pragma");
+});
 test("Test sizeof", {
   comptime_assert(size_of(Type) == 0);
   // comptime_assert(sizeof(Free) == 0);

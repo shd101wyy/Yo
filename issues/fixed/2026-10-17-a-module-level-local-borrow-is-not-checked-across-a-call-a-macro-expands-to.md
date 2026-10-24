@@ -89,3 +89,12 @@ but the invariant this verification rests on (a macro call with a runtime call
 inside its expansion is itself a runtime call) now has a guard, so a change
 that makes macro calls comptime-skippable trips it instead of silently
 reopening the hole.
+
+**2026-10-24:** the pin test was deleted with the rest of the user-macro
+fixtures (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5, done early). User
+macros stay definable under `Pragma.AllowMacroDef` until C1/C2 remove the
+machinery, so the invariant above still matters until then. It is now pinned
+through a std macro instead: `tests/local_borrows.test.yo`
+(`module_level_borrow_across_a_for_loop_rejected`) expects E0911 "Cannot call
+`for` while `c` is live". `for` stays a macro until Part B desugars it, and
+the desugared loop must keep that case rejected.

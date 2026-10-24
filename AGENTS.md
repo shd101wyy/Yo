@@ -23,7 +23,7 @@ Detailed instructions for specific areas are in `.github/instructions/`. Always 
 - `yo-self/` is today's `src/`; `yo-self/tests/` is today's `tests/internal/`; `./yo-cli <args>` is `yo <args>`; `src/tests/fixme.yo` is `tmp/fixme.yo`.
 - `open(...)` is pre-2026-09-10 spelling: a glob import is `{ ... } :: import("m")`, a module value destructures as `{ a, b } :: SomeModule`, a struct as `{ x, y } := s` (`plans/reference/REMOVE_OPEN_BUILTIN.md`).
 - `plans/backlog/NON_ESCAPABLE_TYPES.md` is the pre-2026-10-20 name of `plans/backlog/REFERENCES_AND_ORIGINS.md` (decision 43's design; renamed when references became first-class with origins — "non-escapable" is now just O10's `Escapable` bound); `plans/backlog/FUTURE_ORIGINS.md` was the 2025 sketch, deleted the same day (its verdict is that doc's §6 row).
-- `escape` is the old name of `unwind`; the `phase6*` test files were renamed to `quote_macro_eval`, `macro_expansion`, `ast_reflection`, `macro_helpers`.
+- `escape` is the old name of `unwind`; the `phase6*` test files were renamed to `quote_macro_eval`, `macro_expansion`, `ast_reflection`, `macro_helpers`; `macro_expansion`, `macro_registry`, `tests/macro_def_pragma`, `tests/macro_def_gate` and `tests/codegen-bootstrap/try_macro_assign` were deleted with the user-macro fixtures on 2026-10-24 (`plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5).
 - `imm(x) : T` / `mut(x) : T` (and the older `inout(x) : T`) are pre-decision-42 spellings of `x : &T` / `x : &mut T`; `imm(self)` is `self : &Self`, `-> imm(T)` is `-> &T`, `{ imm(y) : &y }` is `{ y : &y }`, `for(xs, inout(x) => …)` is `for(&mut xs, x => …)` (`plans/VALUES_BY_DEFAULT.md` decision 42, 2026-10-10). Generation B deleted the old forms: the tree spells only the sigils, and a mode word in source is error E0009 (`yo fix <path> --migrate borrow-spelling` rewrites it). The meaning is identical; only the spelling changes (decision 43 makes `&T` a second-class type).
 - "yo-self" survives as a NAME in two REQUIRED CI check names ("Bootstrap fixpoint (yo-self self-compile)", "Self-hosted `test` subcommand (yo-self tier-1 gates)") and in artifact names like `/tmp/yo-self-bin`. Renaming those checks would block every PR; leave them alone.
 
@@ -141,7 +141,7 @@ yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail
 # std's own tests (sibling *.test.yo files + in-file test(...) declarations)
 yo test ./std --bail
 
-# Compiler-internal tests: ONE FILE AT A TIME (macro_expansion alone needs 6.5 GB;
+# Compiler-internal tests: ONE FILE AT A TIME (one compiler-sized file needs up to 6.5 GB;
 # two concurrent children swap and trip the runner's 600 s deadline, manufacturing
 # failures). The whole directory takes ~78 min and peaks at 8.8 GB (measured
 # 2026-09-21, Mac Mini M4; the older "~22 min" predates most of these files).

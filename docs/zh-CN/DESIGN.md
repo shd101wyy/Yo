@@ -4368,9 +4368,8 @@ if(true, {
 ```
 
 > std 的 `try` 宏已移除（它隐藏了调用方栈帧内的 `return`，且在概念上与
-> 代数效应系统冲突）。请改用对 `Result` 的 `match`，或在
-> `pragma(Pragma.AllowMacroDef);` 下在本地定义等价宏 ——
-> `tests/codegen-bootstrap/try_macro_assign.yo` 保留了一个可用版本。
+> 代数效应系统冲突）。请改用对 `Result` 的 `match`。用户自定义宏也正在被移除
+> （`plans/backlog/MACRO_AND_ISO_REMOVAL.md`），因此不要在本地把它重新定义为宏。
 
 ## 派生特征（Derive Traits）
 

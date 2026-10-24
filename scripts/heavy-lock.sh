@@ -7,7 +7,7 @@
 #   source scripts/heavy-lock.sh
 #   heavy_take "<who>: <job>"            # weight 1: may share the machine with other jobs
 #   heavy_take "<who>: <job>" exclusive  # runs alone: timings, A/B, profiles, >5 GB steps
-#                                        # (tests/internal/macro_expansion is 6.5 GB)
+#                                        # (a compiler-sized tests/internal file: up to 6.5 GB)
 #   heavy_take "<who>: <job>" priority   # queues ahead of every ordinary ticket
 #                                        # (also HEAVY_PRIORITY=1; combines with exclusive)
 #   ... heavy step ...

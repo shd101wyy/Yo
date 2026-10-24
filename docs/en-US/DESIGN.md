@@ -4604,9 +4604,9 @@ if(true, {
 
 > The std `try` macro was removed (it hid a caller-frame `return` and
 > collided conceptually with algebraic effects). Match on the `Result`
-> instead, or define an equivalent macro locally under
-> `pragma(Pragma.AllowMacroDef);` —
-> `tests/codegen-bootstrap/try_macro_assign.yo` keeps a working version.
+> instead. User-defined macros are being removed as well
+> (`plans/backlog/MACRO_AND_ISO_REMOVAL.md`), so do not re-create it as a
+> local macro.
 
 ## Derive Traits
 
