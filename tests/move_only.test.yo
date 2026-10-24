@@ -2841,7 +2841,120 @@ _mo_rb_escape_before_move :: (fn(k : i32) -> i32)({
   });
   i
 });
-test("move-only: an exit before a loop's `break` path moves the local drops it", {
+// The move stands on every path after it until the path leaves the loop:
+// an exit after a conditional `break` on the move's own path drops nothing,
+// and an exit in a sibling arm of the moving one still drops the local.
+_mo_rb_move_then_choose :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := _MoFd(n : k);
+  while(true, {
+    i = (i + i32(1));
+    _mo_take(f);
+    if(i == k, {
+      break;
+    }, {
+      return(i32(-1));
+    });
+  });
+  i
+});
+_mo_rb_arm_then_tail :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := _MoFd(n : k);
+  while(true, {
+    i = (i + i32(1));
+    if(k < i32(5), {
+      _mo_take(f);
+      if(i == k, {
+        break;
+      });
+    }, {
+      return(i32(-2));
+    });
+    return(i32(-1));
+  });
+  i
+});
+_mo_rb_match_other_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := _MoFd(n : k);
+  while(true, {
+    i = (i + i32(1));
+    match(
+      k,
+      1 => {
+        _mo_take(f);
+      },
+      _ => {
+        return(i32(-2));
+      }
+    );
+    if(i == k, {
+      break;
+    });
+    return(i32(-1));
+  });
+  i
+});
+_mo_rb_last_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := _MoFd(n : k);
+  while(true, {
+    i = (i + i32(1));
+    if(k > i32(5), {
+      _mo_take(f);
+      break;
+    }, {
+      _mo_take(f);
+      if(i == k, {
+        return(i32(-1));
+      });
+    });
+    return(i32(-2));
+  });
+  i
+});
+_mo_rb_keeping_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := _MoFd(n : k);
+  while(true, {
+    i = (i + i32(1));
+    if(i == k, {
+      _mo_take(f);
+      break;
+    });
+    if(k == i32(1), {
+      _mo_take(f);
+    }, {
+      if(k == i32(3), {
+        return(i32(-3));
+      });
+    });
+    break;
+  });
+  i
+});
+_mo_rb_inner_loop_in_arm :: (fn(k : i32) -> i32)({
+  (mut(i) : i32) = i32(0);
+  f := _MoFd(n : k);
+  while(true, {
+    i = (i + i32(1));
+    if(k < i32(5), {
+      while(true, {
+        _mo_take(f);
+        break;
+      });
+    }, {
+      return(i32(-2));
+    });
+    if(i == k, {
+      break;
+    });
+    return(i32(-1));
+  });
+  i
+});
+test("move-only: a move on a loop's `break` path stands only on the paths after it", {
   d0 := _mo_counts_reset();
   assert(_mo_shape(_mo_rb_if(i32(3)), i32(-2), d0, i32(1), i32(3)), "if arm: the return at i == 2 drops it");
   d1 := _mo_counts_reset();
@@ -2882,6 +2995,38 @@ test("move-only: an exit before a loop's `break` path moves the local drops it",
   assert(_mo_shape(_mo_rb_escape_before_move(i32(2)), i32(100), d18, i32(1), i32(2)), "an escape before the move in its arm drops it");
   d19 := _mo_counts_reset();
   assert(_mo_shape(_mo_rb_escape_before_move(i32(3)), i32(3), d19, i32(1), i32(3)), "before move: no escape");
+  d20 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_move_then_choose(i32(1)), i32(1), d20, i32(1), i32(1)), "move, then break");
+  d21 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_move_then_choose(i32(2)), i32(-1), d21, i32(1), i32(2)), "move, then the other arm returns");
+  d22 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_arm_then_tail(i32(1)), i32(1), d22, i32(1), i32(1)), "arm moves and breaks");
+  d23 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_arm_then_tail(i32(2)), i32(-1), d23, i32(1), i32(2)), "arm moves, the return after the branch");
+  d24 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_arm_then_tail(i32(7)), i32(-2), d24, i32(1), i32(7)), "the sibling arm's return drops it");
+  d25 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_match_other_arm(i32(1)), i32(1), d25, i32(1), i32(1)), "match arm moves, then break");
+  d26 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_match_other_arm(i32(2)), i32(-2), d26, i32(1), i32(2)), "the other match arm's return drops it");
+  d27 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_last_arm(i32(7)), i32(1), d27, i32(1), i32(7)), "first arm moves and breaks");
+  d28 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_last_arm(i32(1)), i32(-1), d28, i32(1), i32(1)), "last arm moves, returns inside it");
+  d29 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_last_arm(i32(2)), i32(-2), d29, i32(1), i32(2)), "last arm moves, returns after the branch");
+  d30 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_keeping_arm(i32(1)), i32(1), d30, i32(1), i32(1)), "the break path moves");
+  d31 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_keeping_arm(i32(3)), i32(-3), d31, i32(1), i32(3)), "a keeping arm's return drops it once");
+  d32 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_keeping_arm(i32(4)), i32(1), d32, i32(1), i32(4)), "the keeping arm drops it at its end");
+  d33 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_inner_loop_in_arm(i32(1)), i32(1), d33, i32(1), i32(1)), "an inner loop moves, then break");
+  d34 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_inner_loop_in_arm(i32(2)), i32(-1), d34, i32(1), i32(2)), "an inner loop moves, the return after the branch");
+  d35 := _mo_counts_reset();
+  assert(_mo_shape(_mo_rb_inner_loop_in_arm(i32(7)), i32(-2), d35, i32(1), i32(7)), "the sibling arm of an inner loop's arm drops it");
 });
 test("move-only: in an io.async loop, a `return` before the `break` path moves a slot local drops it", {
   d0 := _mo_counts_reset();
