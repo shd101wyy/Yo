@@ -4472,8 +4472,11 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
 /// still owns the value, except after a move on its own path: inside the arm
 /// that made it (the branch joins keep those) or after a move the body's end
 /// still shows (`_keep_body_end_move`). The move a user wrote stays the
-/// "value moved here" note (`variable_note_arm_move`).
+/// "value moved here" note (`variable_note_arm_move`): `site` is itself the
+/// end of an inner loop or branch when the move sits inside one, so the note
+/// is the site that one recorded (`variable_move_note`).
 _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExpr) -> unit)({
+  note := variable_move_note(v, site);
   last := _last_token_of(loop_expr, site);
   end := Token(
     kind : last.kind,
@@ -4486,7 +4489,7 @@ _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExp
     input : last.input
   );
   v.consumed_at_token = Option(Token).Some(end.clone());
-  variable_note_arm_move(v, &end, &Option(Token).Some(site.clone()));
+  variable_note_arm_move(v, &end, &Option(Token).Some(note));
 });
 /// Keep the move `ct` the loop body's end still shows (the body never
 /// completes: each path after the move leaves the loop) as moved from `ct`

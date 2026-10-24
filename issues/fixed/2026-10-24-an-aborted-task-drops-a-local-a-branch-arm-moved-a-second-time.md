@@ -50,11 +50,15 @@ other keeping the value (`{ take(f); }, { (); }`) fails the same way on the
 moving path. A straight-line move, and a move on a loop's `break` path, were
 correct.
 
-The emit-diff of the fix shows where it reached: `std/http/wire.yo`'s message
-read task (eleven arm moves of `result` into `_release_message`,
-`_split_into_carry` and `String.from_bytes`, so the compiler's own HTTP client
-had it) and `tests/async_await.test.yo`'s `if(flag, io.await(f1), …)` shapes,
-where an await in an arm moves the future into the await slot.
+The emit-diff of the fix shows where it reached: `tests/async_await.test.yo`'s
+`if(flag, io.await(f1), …)` shapes, where an await in an arm moves the future
+into the await slot, and `std/http/wire.yo`'s message read task, which now
+flags eleven arm moves of `result` (into `_release_message`,
+`_split_into_carry` and `String.from_bytes`). The `wire.yo` change is
+hardening, not a fixed double free: every one of those moves sits in the
+`_framed_out := cond(...)` after the task's last await (the read loop), and
+none of the callees takes an effect handler, so neither an abort nor an
+effect escape reaches the task's dispose after them.
 
 ## Root cause
 
