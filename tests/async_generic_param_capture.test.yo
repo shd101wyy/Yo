@@ -29,6 +29,31 @@ read_once_params :: (
 write_once_params :: (
   fn(generic(W : Type), w : &W, buf : *u8, size : usize, io : Io, where(W <: Writer)) -> Impl(Future(usize, IoExn))
 )(io.async({ &w, buf, size, io }(e : IoExn) => e.io.await(w.write(buf, size, io), e)));
+// The same shape with NO capture list, which is the path the fix repaired:
+// the generic parameters are captured implicitly. A `File`'s future borrows
+// the file, so it needs the list above; a `ref` reader's `read` owns what it
+// uses (`self` is a shared handle), so its future borrows nothing and `r`,
+// `buf`, `size` and `io` are captured by value.
+MemSrc :: ref(struct(data : ArrayList(u8), pos : usize));
+impl(
+  MemSrc,
+  Reader(
+    read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
+        mut(n) := usize(0);
+        while((n < size) && (self.pos < self.data.len()), {
+          consume((buf.add(n)).* = self.data(self.pos));
+          self.pos = (self.pos + usize(1));
+          n = (n + usize(1));
+        });
+        n
+      })
+    )
+  )
+);
+read_once_implicit :: (
+  fn(generic(R : Type), r : R, buf : *u8, size : usize, io : Io, where(R <: Reader)) -> Impl(Future(usize, IoExn))
+)(io.async(e => e.io.await(r.read(buf, size, io), e)));
 // Non-generic control of the same shape — always worked; pins that the fix
 // did not disturb the plain path.
 write_once_file :: (fn(f : &File, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
@@ -92,4 +117,29 @@ test("non-generic control of the same shape still works", {
   if(arch != Arch.Wasm32, {
     io.await(remove_file(&path, io), t_e);
   });
+});
+test("generic fn async closure captures the enclosing params implicitly", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  data := ArrayList(u8).new();
+  data.push(u8(0x61));
+  data.push(u8(0x62));
+  data.push(u8(0x63));
+  src := MemSrc(data : data, pos : usize(0));
+  buf := ArrayList(u8).with_capacity(usize(8));
+  (mut(bi) : usize) = usize(0);
+  while(bi < usize(8), bi = (bi + usize(1)), {
+    buf.push(u8(0));
+  });
+  got := io.await(read_once_implicit(src, buf.ptr().unwrap(), usize(8), io), t_e);
+  assert(got == usize(3), "generic read captured r/buf/size/io implicitly");
+  assert(buf(usize(0)) == u8(0x61), "byte 0 read through the implicit capture");
+  assert(buf(usize(2)) == u8(0x63), "byte 2 read through the implicit capture");
 });
