@@ -32,4 +32,11 @@ TLocked :: (fn(comptime(V) : Type) -> comptime(Type))(
   struct(_cell : __yo_atomic_cell(V))
 );
 tlocked :: (fn(generic(V : Type), sink(v) : V) -> TLocked(V))(TLocked(V)(_cell : __yo_atomic_cell(V)(v, .None)));
-export(TRc, TArc, trc, tarc, treset, TLocked, tlocked);
+/// A handle whose `Deref` impl names a `Target` other than its payload:
+/// auto-dereference forwards to the payload `h.*` reads, as for every handle
+/// (decision D2).
+TPt :: struct(x : i32);
+TMisnamed :: newtype(_cell : __yo_cell(TPt));
+impl(TMisnamed, Deref(Target : bool));
+tmisnamed :: (fn(x : i32) -> TMisnamed)(TMisnamed(__yo_cell(TPt)(TPt(x : x), .None)));
+export(TRc, TArc, trc, tarc, treset, TLocked, tlocked, TPt, TMisnamed, tmisnamed);

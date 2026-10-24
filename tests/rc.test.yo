@@ -2700,6 +2700,19 @@ test("a write through an Rc handle is E0919, naming the doors", {
     "read-only through the handle"
   );
 });
+// A `&mut` match scrutinee lends its place to the arms, which may write it
+// (issues/fixed/2026-10-24-a-mut-match-scrutinee-writes-through-an-rc-or-an-atomic-object.md).
+test("a `&mut` match scrutinee in an Rc's payload is E0919", {
+  h := _ro_make();
+  comptime_expect_error(match(&mut h.*, p => {
+    p.n = i32(5);
+  }), "read-only through the handle");
+  comptime_expect_error(match(&mut h.items, l => l.push(i32(5))), "read-only through the handle");
+  comptime_expect_error(match(&mut h.n, n => {
+    n = i32(5);
+  }), "read-only through the handle");
+  assert((h.n == i32(1)) && (h.items.len() == usize(0)), "nothing wrote the payload");
+});
 test("reads, & lends, the handle itself and the doors are not E0919", {
   mut(h) := _ro_make();
   assert(h.n == i32(1), "a read through the handle");

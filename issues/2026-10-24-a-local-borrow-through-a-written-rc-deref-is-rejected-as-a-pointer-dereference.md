@@ -41,3 +41,12 @@ N0 corpus records today's rejection for two of its rows
 (`tests/origins/corpus.tsv`, `rc-handle-dropped` and `rc-handle-reassigned`,
 which expect E0911 once decision 43's rules land), so the change belongs with
 decision 43's N1 work, which re-records those rows.
+
+## Test
+
+No new test file: decision 43's corpus already pins this rejection.
+`tests/origins/corpus.tsv` rows `rc-handle-dropped` and
+`rc-handle-reassigned` (run by `tests/origins/model_corpus.test.yo`) expect
+today's message ("A local borrow cannot reach through a pointer
+dereference") and name E0911 as the verdict once N1 lands, so they fail the
+moment the fix changes the diagnostic and are re-recorded with it.
