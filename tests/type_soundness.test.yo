@@ -1145,11 +1145,19 @@ _p5_clobber :: (fn(a : &mut _P5Holder, b : &_P5Holder) -> usize)({
   });
   b.s.len()
 });
-test("soundness: a by-value argument outlives the inout argument it overlaps", {
-  mut(x) := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
-  n := _p5_clobber(&mut x, &x);
+// Decision 28's value-root rule: a `&mut` argument may not overlap another
+// argument rooted at the same value local, so the overlap that once needed a
+// caller-owned +1 is E0910; a separate value is lent beside it.
+test("soundness: a `&mut` argument overlapping a `&` one on a value root is E0910", {
+  comptime_expect_error({
+    mut(x) := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+    _p5_clobber(&mut x, &x)
+  }, "decision 28's value-root rule");
+  mut(x) := _P5Holder(s : String.from("original"));
+  y := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  n := _p5_clobber(&mut x, &y);
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
-  assert(x.s.starts_with(`fresh-value-2`), "the inout write reached the caller");
+  assert(x.s.starts_with(`fresh-value-2`), "the `&mut` write reached the caller");
 });
 // The same overlap on a collection, which is a reference type: the dup/drop
 // pair optimizer cancelled the caller-owned +1 against `xs`'s scope-end drop,

@@ -3416,7 +3416,7 @@ _check_call_value_root_overlap :: (fn(lends : &ArrayList(_CallLend), env : &Envi
                   with_code(
                     format_error_message_with_help(
                       ast_expr_token(&at),
-                      `\`${ast_expr_to_string(&li_lend.lent_arg)}\` lends \`${pi.text}\` exclusively to this call (${li_lend.form}), and \`${ast_expr_to_string(&lj_lend.lent_arg)}\` (${lj_lend.form}) lends \`${pj.text}\`, which overlaps it: a \`&mut\` argument may not overlap another argument rooted at the same value, since the callee would write the place while it reads it (decision 28's value-root rule, plans/VALUES_BY_DEFAULT.md).`,
+                      `This call lends \`${pi.text}\` exclusively (${li_lend.form}) and also lends \`${pj.text}\` (${lj_lend.form}), which overlaps it: a \`&mut\` argument may not overlap another argument rooted at the same value, since the callee would write the place while it reads it (decision 28's value-root rule, plans/VALUES_BY_DEFAULT.md).`,
                       Option(String).Some(`copy one side into a local before the call (\`t := ${pj.text}.clone();\`, then pass \`&t\`), or split the call`)
                     ),
                     E_BORROW_CONFLICT

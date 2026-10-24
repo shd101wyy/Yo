@@ -227,12 +227,20 @@ an interior reference … borrows from it`），而不是让元素引用悬垂�
   替换 `p` 并 drop 旧的 `p.s` 时，`&p.s` 已经被读取，被调用者会读到已释放的
   内存。
 
-后续实参读取该位置或以 `&` 借用它是允许的（`xs.push(xs.len())`、
-`f(&mut a, a.len())`），写入与被借出位置不重叠的字段也允许
-（`peek(&p.s, { p.k = 3; k })`）。这就是 Rust 的两阶段借用规则。请移动一份
-副本（`eat(a.clone())`），或在调用之前先算好后续实参
-（`k := reset(&mut p); peek(&p.s, k)`）。产生借用型 Future 的调用遵循同一
-规则，只是它的借用一直持续到 Future 被 await（[ASYNC_AWAIT.md](./ASYNC_AWAIT.md)）。
+后续实参读取该位置是允许的（`xs.push(xs.len())`、`f(&mut a, a.len())`），
+以 `&` 借用某个先前实参以 `&` 借出的位置也允许（`peek(&a, peek(&a, k))`），
+写入与被借出位置不重叠的字段同样允许（`peek(&p.s, { p.k = 3; k })`）。这就是
+Rust 的两阶段借用规则。请移动一份副本（`eat(a.clone())`），或在调用之前先算好
+后续实参（`k := reset(&mut p); peek(&p.s, k)`）。产生借用型 Future 的调用遵循
+同一规则，只是它的借用一直持续到 Future 被 await（[ASYNC_AWAIT.md](./ASYNC_AWAIT.md)）。
+
+**同一调用借出的两个位置，若其中一个以 `&mut` 借出且两者都以同一个值局部变量为根，
+就不得重叠**（决策 28 的值根规则，E0910），先后顺序不限：`s.push_string(&s)`
+（接收者以 `&mut` 借出）、`sync_peek(&mut a, &a)`、`f(&mut p, &p.name)` 与
+`f(&mut p.name, &p)` 都会被拒绝，因为被调用方会在通过另一个实参读取该位置的同时
+写入它。两个 `&` 借出可以重叠，互不重叠的字段也可以（`f(&mut p.s, &p.k)`）。以引用
+单元（`Rc`、`Arc`、`ref` 对象，以及在成为值之前的集合）为根的位置不是值根：其他
+句柄本来就能到达该单元。请先复制其中一方（`t := s.clone(); s.push_string(&t)`）。
 
 没有了局部绑定，就没有任何东西可"失效"：旧的借用失效门已随绑定形式
 一并删除。`get` 返回的元素句柄在任何容器操作之后都有效 —— 即使容器被

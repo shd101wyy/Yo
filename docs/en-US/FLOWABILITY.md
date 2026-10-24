@@ -279,13 +279,25 @@ the code is written out, in a nested call or in a block:
   already read when the later argument replaced `p` and dropped the old
   `p.s`, so the callee would read freed memory.
 
-A read, or a `&` borrow, of the place in a later argument is fine
-(`xs.push(xs.len())`, `f(&mut a, a.len())`), and so is a write to a field the
-lent place does not overlap (`peek(&p.s, { p.k = 3; k })`). This is Rust's
-two-phase borrow rule. Move a copy (`eat(a.clone())`), or compute the later
-argument before the call (`k := reset(&mut p); peek(&p.s, k)`). A call that
-makes a borrowing Future follows the same rule, and its borrow lasts until
-the Future is awaited ([ASYNC_AWAIT.md](./ASYNC_AWAIT.md)).
+A read of the place in a later argument is fine (`xs.push(xs.len())`,
+`f(&mut a, a.len())`), so is a `&` borrow of a place an earlier argument lends
+`&` (`peek(&a, peek(&a, k))`), and so is a write to a field the lent place
+does not overlap (`peek(&p.s, { p.k = 3; k })`). This is Rust's two-phase
+borrow rule. Move a copy (`eat(a.clone())`), or compute the later argument
+before the call (`k := reset(&mut p); peek(&p.s, k)`). A call that makes a
+borrowing Future follows the same rule, and its borrow lasts until the Future
+is awaited ([ASYNC_AWAIT.md](./ASYNC_AWAIT.md)).
+
+**Two places one call lends may not overlap when one of them is lent `&mut`
+and both are rooted at the same value local** (decision 28's value-root
+rule, E0910), in either order: `s.push_string(&s)` (the receiver is lent
+`&mut`), `sync_peek(&mut a, &a)`, `f(&mut p, &p.name)` and
+`f(&mut p.name, &p)` are rejected, because the callee would write the place
+while it reads it through the other argument. Two `&` lends may overlap, and
+so may disjoint fields (`f(&mut p.s, &p.k)`). A place rooted at a reference
+cell (an `Rc`, an `Arc`, a `ref` object, and a collection until it becomes a
+value) is not a value root: other handles reach the cell anyway. Copy one
+side first (`t := s.clone(); s.push_string(&t)`).
 
 With no local bindings there is nothing left to "invalidate": the old
 borrow-invalidation gates were deleted along with the binding form.

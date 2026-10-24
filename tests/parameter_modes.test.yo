@@ -795,9 +795,9 @@ _pm_field_pair :: (fn(s : &mut String, k : &i32) -> i32)({
   s.push_str("?");
   k + i32(1)
 });
-_PmCell :: ref(struct(n : i32));
+_PmObj :: ref(struct(n : i32));
 impl(
-  _PmCell,
+  _PmObj,
   absorb : (fn(self : &mut Self, other : &Self) -> i32)({
     self.n = (self.n + other.n);
     self.n
@@ -840,7 +840,7 @@ test("a `&mut` argument may not overlap another argument rooted at the same valu
   assert(_pm_field_pair(&mut p.s, &p.k) == i32(1), "disjoint fields of one root pass");
   assert(p.s == "abab!?", "both writes landed");
   assert(_pm_peek(&a, _pm_peek(&a, i32(0))) == i32(6), "two `&` lends may overlap");
-  c := _PmCell(n : i32(2));
+  c := _PmObj(n : i32(2));
   assert(c.absorb(&c) == i32(4), "a root that is a reference cell is decision 28's `Rc` arm, not this rule");
 });
 
