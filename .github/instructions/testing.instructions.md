@@ -222,8 +222,10 @@ fix over-dropped and introduced a use-after-free.
 replaces both**: the exit report lists every leaked block (live and not
 reachable from a module global) by allocation number, a run whose `main`
 returns with one exits 23, `yo test --allocator debug`
-fails a leaking test, and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at allocation `n`
-for a debugger stack. **The fixed-region allocator's `--debug-heap` oracle
+fails a leaking test (unless `YO_TEST_LEAK_VERDICT=0`, which the runner passes
+on as `YO_DEBUG_ALLOC_VERDICT=0`), and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at
+allocation `n` for a debugger stack. A thread still running 1 s after `main`
+returned leaves the report unjudged (it says so). **The fixed-region allocator's `--debug-heap` oracle
 counts the same way**: build with
 `--allocator fixed --heap-size 1g --debug-heap` and every run prints
 `heap: peak …, N allocations, live at exit: B blocks / T bytes` at exit.

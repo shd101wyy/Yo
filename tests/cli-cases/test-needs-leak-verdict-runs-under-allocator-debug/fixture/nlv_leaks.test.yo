@@ -1,0 +1,8 @@
+// A leak-shaped test under `--allocator debug --disable-sanitize`: its only
+// failure mode is a leak verdict, and the debug allocator supplies one.
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.NeedsLeakVerdict);
+{ GlobalAllocator } :: import("std/allocator");
+test("keeps its block live", {
+  _p := unsafe(GlobalAllocator.malloc(usize(48)));
+});

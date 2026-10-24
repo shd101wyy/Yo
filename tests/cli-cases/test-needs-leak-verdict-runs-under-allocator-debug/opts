@@ -1,0 +1,8 @@
+# `--allocator debug` is a leak verdict source of its own
+# (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11): a
+# `pragma(Pragma.NeedsLeakVerdict)` file must RUN under it even when no
+# AddressSanitizer test binary is built (`--disable-sanitize`, a wasm
+# target), instead of being skipped as "would pass vacuously". The fixture
+# leaks, so the run fails: the verdict is real, not vacuous.
+stdout_keep_match=(Skipping .*|✓ .*|✗ .*|Memory leak detected:|live at exit: [0-9]+ blocks / [0-9]+ bytes|[0-9]+ passed|[0-9]+ failed)
+timeout=600
