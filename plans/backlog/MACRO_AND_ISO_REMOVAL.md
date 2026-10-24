@@ -657,9 +657,11 @@ Part C deletes the macros.
     `__yo_ptr_write` fix (`return(w.a)` of an `Array(String, 2)`, invalid C;
     pre-existing, seed fails too), fixed in
     `issues/fixed/2026-10-21-return-of-an-rc-element-array-emits-invalid-c.md`.
-    With the std literals gone, `tests/macro_def_pragma.test.yo` carries a
-    local quoted-variadic macro so that path keeps runtime coverage until
-    Part C. The parser edit is mechanical, but both bootstrap gates this
+    With the std literals gone, `tests/macro_def_pragma.test.yo` carried a
+    local quoted-variadic macro so that path kept runtime coverage until
+    Part C. That file was deleted early on 2026-10-24 (C5), so the
+    quoted-variadic binding path has no runtime coverage left; it is code
+    C2 deletes, and no std code uses `...(quote(` any more. The parser edit is mechanical, but both bootstrap gates this
     section names were run with the tree binary: `gates_fast.sh` rc 0 and
     `fixpoint_only.sh` holds (stage-2 hollow 0, stage 2 == stage 3). The
     compiler's own stage-2 C is byte-identical between the v0.2.67 seed
@@ -826,6 +828,16 @@ touches every `for` in 48 files under `tests/`, 25 of them `*.test.yo`). Bootstr
       these files, so C2 need not touch them;
     - `macro_def_gate`'s third case ("quote/Expr values stay ungated") pins
       surviving behaviour and moved to `tests/comptime.test.yo`;
+    - `macro_def_pragma`'s `comptime_expect_error` pin (a borrow of a
+      module-level place live across a user-macro call is E0911) was the
+      only guard of "a macro call whose expansion makes a runtime call is
+      itself a runtime call" (rule 3). It is replaced by a `for` case in
+      `tests/local_borrows.test.yo`
+      (`module_level_borrow_across_a_for_loop_rejected`), which Part B's
+      desugared loop must keep rejected. Its `local_list` quoted-variadic
+      macro was the runtime coverage of the `...(quote(elems))` binding
+      path (`src/evaluator/calls/function.yo`, `function_type.yo`); that
+      coverage is gone, and C2 deletes the path;
     - CI's `tests/internal` shard map lost its fourth heavy file
       (`.github/workflows/test.yml`), and the docs that named the deleted
       files (`AGENTS.md`, `testing.instructions.md`, `scripts/heavy-lock.sh`,

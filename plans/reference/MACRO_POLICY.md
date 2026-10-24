@@ -205,7 +205,10 @@ keeps the default dialect small and makes macro definitions greppable.
    add the pragma; plus a new negative test: defining a macro *without* the
    pragma is a compile error, and passing an explicit `quote(...)` value to a
    `comptime(e) : Expr` parameter still works *without* the pragma (the gate
-   must not catch derive-style comptime AST work).
+   must not catch derive-style comptime AST work). (2026-10-24:
+   `macro_expansion` and `macro_registry` were deleted and `ast_reflection`/
+   `macro_helpers` rewritten without macro definitions,
+   `plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5.)
 
 ```yo
 // New: gated macro definition
@@ -404,7 +407,10 @@ All parts landed together at the user's direction. Deltas vs the proposal:
    ungated), `tests/try_macro.test.yo` deleted,
    `tests/codegen-bootstrap/try_macro_assign.yo` rewritten with a local
    gated macro, `pragma(Pragma.AllowMacroDef);` added to the 8
-   macro-defining snippets across the internal macro test files.
+   macro-defining snippets across the internal macro test files. (All of
+   these user-macro fixtures were deleted or rewritten on 2026-10-24,
+   `plans/backlog/MACRO_AND_ISO_REMOVAL.md` C5; `macro_def_gate`'s
+   quote/Expr case moved to `tests/comptime.test.yo`.)
 
 ## Open questions (considered, deferred)
 

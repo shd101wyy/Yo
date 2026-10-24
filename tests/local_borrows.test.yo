@@ -10,6 +10,7 @@
 /// tests/cli-cases/local-borrow-across-an-await-through-a-cell-is-e0911.
 { String } :: import("std/string");
 { RefCell } :: import("std/sync/refcell");
+{ ArrayList } :: import("std/collections/array_list");
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Shape :: struct(origin : Point, name : String);
@@ -369,6 +370,23 @@ comptime_expect_error(
     c = i32(2);
   }),
   "Cannot call `noop` while `c` is live"
+);
+// `for` is a std macro until MACRO_AND_ISO_REMOVAL Part B desugars it: the
+// macro call itself is a runtime call for rule 3, because its expansion makes
+// runtime calls. Part B's desugared loop must keep this rejected. Record:
+// issues/fixed/2026-10-17-a-module-level-local-borrow-is-not-checked-across-a-call-a-macro-expands-to.md
+comptime_expect_error(
+  module_level_borrow_across_a_for_loop_rejected :: (fn() -> unit)({
+    mut(xs) := ArrayList(i32).new();
+    xs.push(i32(1));
+    c := &mut g_count;
+    c = i32(1);
+    for(&mut xs, x => {
+      x = i32(2);
+    });
+    c = i32(2);
+  }),
+  "Cannot call `for` while `c` is live"
 );
 
 // --- Rejected: re-points (decision 25, plan §8) -------------------------------

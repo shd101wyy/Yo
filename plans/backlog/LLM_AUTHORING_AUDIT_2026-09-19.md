@@ -113,7 +113,10 @@ caller-frame `return`, and its name collided conceptually with algebraic
 effects. A working copy survives in
 `tests/codegen-bootstrap/try_macro_assign.yo` under
 `pragma(Pragma.AllowMacroDef);`, and `tests/macro_def_pragma.test.yo`
-re-creates it to keep the caller-frame-return path covered.
+re-creates it to keep the caller-frame-return path covered. (Both copies
+were deleted on 2026-10-24 with the other user-macro fixtures, and user
+macros themselves are being removed, `MACRO_AND_ISO_REMOVAL.md`; this
+section's proposal is moot unless `try` returns as a built-in form.)
 
 The 2026-09-19 ruling asks for it back as a prelude macro. The two 2026-08-21
 objections still apply and are answered, not dismissed:
@@ -169,8 +172,8 @@ removal paragraph gains the reversal date.
 4. `unwind` inside the tried expression (an effect handler firing) must keep
    its own semantics — the `try` arm only sees a returned `.Err`.
 5. `tests/try_macro.test.yo` is restored (deleted at the removal) with 1–4;
-   `tests/codegen-bootstrap/try_macro_assign.yo` drops its local definition
-   and calls the prelude's.
+   `tests/codegen-bootstrap/try_macro_assign.yo` (deleted 2026-10-24) would
+   have dropped its local definition and called the prelude's.
 
 Seed gate: none for defining it (the seed evaluates the tree's prelude, as it
 does for `for`); `std/` may only CALL it after the next release ships a
