@@ -67,9 +67,15 @@ own ExprInfo carries `expr_info_index_method_type` (set by Index-trait dispatch,
 
 `_is_unmarked_lent_place` now recognises an element read the way `_global_lend_root` does: the call's
 own ExprInfo carries the Index dispatch marker (`expr_info_index_method_type`), or the callee is
-array-typed. The one-argument / not-a-function-type heuristic is gone. Every other call (a closure,
-`Dyn(Fn*)` or `Dyn(FnOnce)` call, a closure-typed field `h.cb(x)`, a constructor) yields a temporary that
-no later argument can reach, so it lends nothing. The #1573 protections are unchanged: their receivers
+array-typed. The one-argument / not-a-function-type heuristic is gone. A call through a closure-valued
+FIELD (`h.cb(x)`, `h.cb()`, `h.cb(x, y)`: a dot-step callee whose type is not `.Func`) still lends its
+root, at any arity. That is a stopgap, not the language rule: codegen leaves such a call inline while it
+spills a later argument to its own statement, so accepting it would run the call after the later
+argument freed the closure (heap-use-after-free; develop rejected only the one-argument shape, by
+accident of the old heuristic, and accepted the zero- and two-argument ones with the same UAF —
+`issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`). Every
+other call (a closure local's call, `Dyn(Fn*)` or `Dyn(FnOnce)` local, a method or plain fn call, a
+constructor) yields a temporary that no later argument can reach, so it lends nothing. The #1573 protections are unchanged: their receivers
 (`hs(usize(0)).peek`, `fs(usize(0)).r.peek`, `ts(usize(0)).peek_len`) are Index-dispatched, so they keep
 the marker, and the `r.peek` case is a plain name. The predicate gates only a diagnostic, so no emitted C
 changes.
@@ -84,6 +90,11 @@ Regression tests, in `tests/fn_once.test.yo`:
   `mk(i32(1)).plus(_once_eat_mk(mk))`.
 - "FnOnce: an element read as an operand still lends its container", a negative control that stays
   E0910: `xs(usize(0)) == _once_first(xs)`.
+- "FnOnce: a closure-field call as an operand or receiver lends the holder": E0910 for
+  `h.cb1(i32(1)) == eat(h)`, `h.cb0() == eat(h)`, `h.cb2(i32(0), i32(1)) == eat(h)` and the receiver
+  `h.mk(i32(1)).plus(eat(h))` (the stopgap above).
+- "FnOnce: a method call's result as an operand lends nothing of the receiver": `h.tag_of() == eat(h)`
+  compiles and releases the holder's capture once.
 
 The develop binary fails the first three with the E0910 above and passes the control. All four pass
 after the fix, and each checks dispose counts. The two existing tests that turned develop red pass as well.
@@ -94,6 +105,7 @@ with a repro:
 
 - `cb(i32(1)).len()`, where `cb`'s `FnOnce` body is the bare capture `s`, leaks the environment:
   `issues/2026-10-24-an-fnonce-closure-whose-body-is-a-bare-capture-leaks-its-environment.md`.
-- `h.cb(i32(1)) == (i32(1) + eat(h))` on a `Dyn(Fn)` field is a use after free, because the later
-  argument's call is hoisted above the inline field call:
+- `h.cb(i32(1)) == eat(h)` on a `Dyn(Fn)` field is a use after free, because the later argument's
+  call is spilled above the inline field call. The evaluator now rejects that shape (E0910 stopgap
+  above); the codegen defect stays open:
   `issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`.
