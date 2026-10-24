@@ -88,8 +88,9 @@ perf/inject-forall-captures-memo). Metric reminders re-proven during the
 A/B: footprint is compressor-noise across runs (same memoized binary read
 16.48 GB libc / 18.39 GB mimalloc footprint while tracked live FELL 4.1 GB);
 and a `--allocator mimalloc` build in a tree whose `vendor/mimalloc`
-submodule is uninitialized SILENTLY falls back to libc ("Bundled mimalloc
-not found" on stderr; verify with `nm <bin> | grep -c mi_malloc`). (2) The 40 B ArrayList army
+submodule is uninitialized SILENTLY fell back to libc ("Bundled mimalloc
+not found" on stderr; verify with `nm <bin> | grep -c mi_malloc`); since
+2026-10-24 it is a hard error. (2) The 40 B ArrayList army
 is now 60% BODY (24 B) — the remaining lever is deleting objects (Variable.value
 inline single-slot), not shrinking headers. (3) ExprInfo diet unchanged
 (~−1.2 GB). Raw dumps: /tmp/peak_hist.txt (libc), /tmp/peak_hist_mi.txt

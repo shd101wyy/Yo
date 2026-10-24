@@ -490,7 +490,13 @@ Rules for codegen code and for the evaluator analyses codegen calls late
 
 - `--allocator system` (default) — the platform system allocator
 - `--allocator mimalloc` — high-performance allocation (the process-wide
-  global allocator `std/allocator` builds on when present)
+  global allocator `std/allocator` builds on). It links `<std>/../vendor/mimalloc`;
+  when that is missing the compile fails before evaluation and names the path
+  (`_require_bundled_mimalloc` in `src/main.yo`), and the emitted C stops at
+  `#error` without `<mimalloc.h>`. There is no fallback to `malloc`, and wasm
+  targets reject it (maintainer decision 2026-10-24). To build mimalloc-flavored
+  C on the C library's heap on purpose, compile it with
+  `-I scripts/bootstrap/libc_mimalloc` (the work ratchet does).
 - `--allocator fixed` — hand-written TLSF over ONE static `.bss` region
   (`plans/reference/FIXED_REGION_ALLOCATOR.md`). The implementation is emitted
   by `src/codegen/c/allocator_fixed.yo`: defines + external prototypes in the

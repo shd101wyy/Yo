@@ -159,7 +159,7 @@ Downloaded versions are stored in the global Yo cache directory, each one a plai
     └── LICENSE.md
 ```
 
-`vendor/` must stay a sibling of `std/` — the binary locates its standard library by walking up from the executable, and mimalloc as `<std>/../vendor`.
+`vendor/` must stay a sibling of `std/` — the binary locates its standard library by walking up from the executable, and mimalloc as `<std>/../vendor`. Without it, `--allocator mimalloc` fails with an error that names the missing path.
 
 The cache location can be customized with environment variables:
 

@@ -357,16 +357,16 @@ be verified in the PR.
     2. A value that is not comptime-evaluable, or not constant-emittable (it holds a heap value, or a pointer
        that is not null, a function or `addr_of` of a `::` constant); also a by-value use of `global_allocator`.
     3. A value whose type has no `GlobalAlloc` impl.
-    4. `heap.Mimalloc` on wasm (today silently `system`, `src/main.yo:7169`).
+    4. `heap.Mimalloc` on wasm (`--allocator mimalloc` with a wasm target has been an error since 2026-10-24).
     5. A `heap.Tlsf` region over 4 GiB on a 32-bit target (moved from `:7136`).
     6. A `GlobalAlloc` method that allocates through the global allocator: a runtime abort under the debug wrapper
        now, a compile error once §9's `noalloc` exists (§10.1 C5).
   - Add a module-level link-source declaration, so that reaching `std/heap/mimalloc` links
-    `vendor/mimalloc/src/static.c`. **Proposed, not decided:** a missing `vendor/` becomes a hard error (today a
-    warning and libc, `src/main.yo:7815-7835`), and the emitted C's `__has_include(<mimalloc.h>)` fallback
-    (`src/codegen/c/collection.yo:205`) becomes `#error`. That is this plan's reading of the verdict's
-    "link-source"; the verdict itself does not address the open question
-    `issues/questions/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md` (§10 item 3).
+    `vendor/mimalloc/src/static.c`. **Decided 2026-10-24 (maintainer), and already implemented for `--allocator
+    mimalloc` ahead of this step:** a missing `vendor/` is a hard error that names the path
+    (`_require_bundled_mimalloc` in `src/main.yo`), and the emitted C's mimalloc block is `#error` without
+    `<mimalloc.h>` (`src/codegen/c/collection.yo`). The link-source declaration carries the same error over
+    (`issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`, §10 item 3).
   - `__yo_build_executable` accepts both arities: slot 4 is the allocator and slot 8 the heap size
     (`src/evaluator/builtins/build.yo:1228-1229`; `std/build.yo:355`).
 - **std.** `std/heap/{system,mimalloc,tlsf,debug}.yo` plus `index.yo`, the catalog's first face
@@ -406,8 +406,9 @@ be verified in the PR.
     does a closure literal.
   - An emit-diff shows no `__yo_current_allocator` in the C of `src/main.yo`.
 - **C.** Each `heap.*` root runs a container, `rc`, `dyn` and `io.async` workload. The three declaration errors and
-  mimalloc-on-wasm fail to compile. A cli-case without `vendor/` fails and names the path (if §10 item 3 is confirmed). `yo test --allocator
-  debug` fails a leaking test (the existing Z11 case). Added 2026-10-25 for §11:
+  mimalloc-on-wasm fail to compile. The cli-case without `vendor/` (`tests/cli-cases/compile-allocator-mimalloc-missing-vendor`,
+  landed with the `--allocator` error) moves to the root declaration and still fails naming the path.
+  `yo test --allocator debug` fails a leaking test (the existing Z11 case). Added 2026-10-25 for §11:
   - **A user-written global allocator.** The root declares §11.2's `LiveCount` example and reads the count
     through `addr_of(global_allocator)` (§6 C, "Reaching the live static"). Inside `main`, the count before and
     after a scoped workload is equal. A module-level initializer's allocation shows as a count ≥ 1 at `main`'s
@@ -476,7 +477,7 @@ reuses. Nothing is scheduled.
 ## 10. Open questions
 
 All of the verdict's questions are decided (its §6, adopted as recommended). Writing and reviewing this plan raised
-three more:
+three more; item 3 is resolved:
 
 1. **The portable-C arm's allocator.** `release.yml:643` emits the portable C with `--allocator system` for a Linux
    triple, while `src/main.yo`'s step-C declaration picks mimalloc on Linux. **Position:** a second root file
@@ -485,11 +486,10 @@ three more:
 2. **User `ref` types lose placement from B1 until V5 Generation B deletes `ref` (v0.2.74).** A user `ref` object
    could be placed only by the scope. **Position:** accept it. The explicit form is a value struct in
    `rc(v, alloc : .Some(a))`, which is where V5 Generation B moves every `ref` type anyway.
-3. **A missing `vendor/mimalloc` under step C** (flagged for the maintainer). The verdict says only "link-source
-   for std/heap/mimalloc"; it does not answer
-   `issues/questions/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`. **Position:** that
-   question's own recommendation, option 2: a hard error that names the path, and `#error` in the emitted C. The
-   question stays open until the maintainer confirms.
+3. **A missing `vendor/mimalloc` under step C. Resolved 2026-10-24 (maintainer): a hard error.** The position was
+   the question's own recommendation, option 2: a hard error that names the path, and `#error` in the emitted C. The
+   maintainer confirmed it and asked for it now, so it landed for today's `--allocator mimalloc` before step C
+   (`issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md`); step C keeps it.
 
 ### 10.1 Custom allocators: DECIDED 2026-10-25 (maintainer adopted every recommendation)
 
@@ -508,8 +508,8 @@ Each item states the recommendation the maintainer adopted on 2026-10-25.
 - **C3. `__yo_aligned_free` gains an `align` argument: DECIDED.** **Recommendation:** adopt, as a small std change in
   step C's Generation A, so `GlobalAlloc` stays one family. It also removes the two-family hazard
   (`std/allocator.yo:77-93`) for every allocator except Windows' libc, where `heap.System` routes by `align`.
-- **C4. A missing `vendor/mimalloc` is a hard error: DECIDED** (maintainer, 2026-10-24; implemented for today's `--allocator mimalloc` ahead of step C on `fix/mimalloc-missing-vendor-hard-error`). This is §10 item 3.
-  **Recommendation:** as there.
+- **C4. A missing `vendor/mimalloc` is a hard error: DECIDED** (maintainer, 2026-10-24; implemented for today's
+  `--allocator mimalloc` ahead of step C). This is §10 item 3; the link-source declaration keeps the same error.
 - **C5. The re-entry check is runtime-only, under `--allocator debug`, until `noalloc`: DECIDED.**
   **Recommendation:** adopt, and do not delay step C on §9. The debug wrapper keeps a thread-local re-entry flag
   and aborts with "the global allocator allocated through itself". Once `noalloc` lands, every `GlobalAlloc`
@@ -846,7 +846,7 @@ defines today, a wrapper such as
 wrappers replace the per-`--allocator` `#define` arms. `heap.System`'s `alloc` is one extern call, so under `-O2`
 the wrapper folds to `malloc`, and the self-hosted compiler pays nothing. `heap.Mimalloc` is the same struct with
 methods that call `mi_*`. Its module's link-source declaration pulls `vendor/mimalloc/src/static.c` into the link
-(`src/main.yo:7815`), and §10 item 3 decides what a missing `vendor/` does.
+(`src/main.yo:7815`), and a missing `vendor/` is a hard error (§10 item 3).
 
 **`yo test --allocator debug` does not replace the declaration.** `heap.Debug` is Z11's tracker. Under the flag,
 the compiler emits the debug arm with its backing calls bound to the declared `GlobalAlloc` instead of libc. A leak

@@ -171,6 +171,14 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 | `AllocatorKind.Fixed`    | General-purpose TLSF allocator over ONE statically-sized region (see below) |
 | `AllocatorKind.Debug`    | Tracking allocator over the system one: aborts on a double free, fails a run that leaks (see below) |
 
+`AllocatorKind.Mimalloc` is `yo compile --allocator mimalloc`. It links the
+bundled mimalloc from `vendor/mimalloc` beside `std/`: every release bundle
+ships it, and a source checkout carries it as a git submodule. When it is
+missing, the compile fails and names the path it looked for; it never falls back
+to the system allocator. In a checkout, run
+`git -c protocol.file.allow=always submodule update --init`. mimalloc is not
+available on wasm targets, so asking for it there is an error as well.
+
 `AllocatorKind.Fixed` serves every allocation out of a single statically-sized
 region in `.bss` — no libc heap (the first building block of the
 embedded/freestanding story). Set its size with the executable's `heap_size`

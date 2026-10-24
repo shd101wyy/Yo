@@ -24,6 +24,9 @@ $ direnv allow . # 运行此命令激活 nix shell。
 $ git submodule update --init --recursive
 ```
 
+缺少它时，`--allocator mimalloc` 会报错并给出缺失的路径；Linux 上的 `yo build` 也一样，
+因为 `build.yo` 在 Linux 上选择 mimalloc。
+
 编译器唯一的 Yo 依赖 `markdown_yo`（`yo doc --format html` 背后的 Markdown
 渲染器）声明在仓库根目录的 `yo.toml` 里，由 Yo 自己的包管理器抓取：
 
