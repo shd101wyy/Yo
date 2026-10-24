@@ -5,7 +5,7 @@ pragma(Pragma.SkipWasm32Wasi); // the atomic handle's thread test needs pthreads
 //! treats it as those cells by structure, so the wrappers of
 //! tests/fixtures/cell_handles.yo stand in for them here. This file is SAFE:
 //! E0919 and D3 must fire where user code runs.
-{ TRc, TArc, trc, tarc, treset, TLocked, tlocked } :: import("./fixtures/cell_handles.yo");
+{ TRc, TArc, trc, tarc, treset, TLocked, tlocked, tmisnamed } :: import("./fixtures/cell_handles.yo");
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
@@ -66,6 +66,25 @@ test("the handle's own field is not behind it: replacing the cell is no write th
   assert((ref_count(g) == usize(1)) && (ref_count(h) == usize(1)), "each cell has one handle");
 });
 _HoldsArc :: struct(a : TArc(_P));
+test("a `&mut` match scrutinee through a cell handle is E0919 / D3: the arms may write it", {
+  h := trc(_p(i32(1)));
+  comptime_expect_error(match(&mut h.*, p => {
+    p.x = i32(5);
+  }), "read-only through the handle");
+  comptime_expect_error(match(&mut h.items, l => l.push(i32(5))), "read-only through the handle");
+  comptime_expect_error(match(&mut h.x, x => {
+    x = i32(5);
+  }), "read-only through the handle");
+  a := tarc(_p(i32(1)));
+  comptime_expect_error(match(&mut a.*, p => {
+    p.x = i32(5);
+  }), "atomic object");
+  comptime_expect_error({
+    m := &mut a.x;
+    ()
+  }, "atomic object");
+  assert((h.*.x == i32(1)) && (a.*.x == i32(1)) && (h.*.items.len() == usize(0)), "nothing wrote the payloads");
+});
 test("S11/S12: a write through an atomic cell handle is D3 in safe code", {
   a := tarc(_p(i32(1)));
   comptime_expect_error(a.*.x = i32(2), "atomic object");
@@ -84,6 +103,23 @@ test("S19: ref_count counts the handles, not the constant 1", {
   b := a;
   assert(ref_count(a) == usize(2), `two atomic handles: ${ref_count(a)}`);
   assert(b.* == i32(2), "the copy");
+});
+// A copy whose source lives on shares the source's count when the dup/drop
+// pair optimizer cancels the pair, as for an `Rc` (`_optimize_dup_drop_pairs`):
+// a handle is one cell pointer in C, not a value with counted fields.
+test("a handle's dup/drop pair cancels as an Rc's does", {
+  g := trc(i32(1));
+  g2 := g;
+  r := rc(i32(1));
+  r2 := r;
+  assert(ref_count(g) == ref_count(r), `the handle counts as the Rc does: ${ref_count(g)} vs ${ref_count(r)}`);
+  assert((g.* + g2.*) == (r.* + r2.*), "both copies are used after");
+  a := tarc(i32(2));
+  a2 := a;
+  b := arc(i32(2));
+  b2 := b;
+  assert(ref_count(a) == ref_count(b), `the atomic handle counts as the Arc does: ${ref_count(a)} vs ${ref_count(b)}`);
+  assert((a.* + a2.*) == (b.* + b2.*), "both atomic copies are used after");
 });
 test("an atomic cell handle is shared with another thread", {
   a := tarc(_Sq(s : i32(7)));
@@ -133,6 +169,20 @@ test("S20-S22: dyn of a cell handle dispatches to its payload", {
     (f : Dyn(_Area, Send)) = dyn(trc(_Sq(s : i32(1))));
     f
   }, "must be atomically reference counted");
+});
+// An atomic `ref` enum is no object of its own for the box rule, as with
+// `Arc`: `dyn` of an atomic handle over one boxes it for a `Send` `Dyn`.
+_AE :: atomic(ref(enum(A(n : i32), B)));
+impl(_AE, _Area(area : (fn(self : &Self) -> i32)(match(self, .A(n) => n, .B => i32(0)))));
+test("S2: an atomic handle of an atomic ref enum is a box in a Send Dyn, as an Arc of one is", {
+  (d : Dyn(_Area, Send)) = dyn(tarc(_AE.A(n : i32(7))));
+  assert(d.area() == i32(7), "dispatched through the atomic handle");
+  (e : Dyn(_Area, Send)) = dyn(arc(_AE.A(n : i32(8))));
+  assert(e.area() == i32(8), "and through the Arc");
+});
+test("D2: a handle auto-dereferences to its payload whatever Target its Deref impl names", {
+  m := tmisnamed(i32(3));
+  assert(m.x == i32(3), "m.x is m.*.x");
 });
 _count_later :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
   io.async({ &items }(io : Io) => {

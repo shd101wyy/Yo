@@ -722,7 +722,11 @@ cannot be copied.
       stay name-gated (`_is_wrapper_ctor_name`).
     - **D2, `Deref` on a view.** A view in an unsafe-capable file may
       implement `Deref` (`_throw_if_deref_impl_outside_prelude`), so
-      auto-dereference is testable before std moves.
+      auto-dereference is testable before std moves. Auto-dereference of a
+      view forwards to its cell's payload, the place `h.*` reads, whatever
+      `Target` the impl names (`deref_target_type`): the impl's `Target` is
+      not compared with the payload, so a misnamed one cannot send
+      auto-dereference to a type the handle does not hold.
     - **D3, the non-handle atomic types are `struct`s.** `Mutex`, `RwLock`,
       the `Atomic*` types and the rest become `struct(_cell :
       __yo_atomic_cell(State))` at V5, not newtypes: a newtype would make
@@ -735,6 +739,12 @@ cannot be copied.
       - `ref_count(h)` reads the cell's header, atomically for an atomic
         view (it folded to the constant `1`); `is_rc_type` is not widened,
         because its dup/drop users would change the C;
+      - the dup/drop pair optimizer cancels a view's pairs as an `Rc`'s
+        (`value_type_with_rc` in `src/evaluator/exprs/begin.yo` excludes a
+        view as it excludes a `ref` object): a view is one cell pointer in
+        C, so an aliasing copy shares the source's count and `ref_count`
+        after `g2 := g` agrees with `Rc`'s (`tests/cell_handles.test.yo`
+        compares the two);
       - `Option` of a non-atomic view keeps the one-pointer niche and of an
         atomic one the tag (`_is_nullable_payload_type`);
       - the payload is read-only through the handle: E0919 for both kinds
@@ -742,7 +752,11 @@ cannot be copied.
         for both), and D3 for the atomic one, rooted
         (`get_atomic_object_root_type`) or through a hop (`place_cell_hops`);
         the handle's own field `h._cell` is a field of a value, not a step
-        through the handle;
+        through the handle; a `&mut` local lend (a borrow binding or a
+        `&mut` match scrutinee) of a place behind any handle is E0919 or D3
+        as the write itself would be
+        (`issues/fixed/2026-10-24-a-mut-match-scrutinee-writes-through-an-rc-or-an-atomic-object.md`,
+        which the old shapes had too);
       - a borrow of `h.*` pins the handle (the local-borrow pin), a future
         may hold a `&` place through it, the global-lend and `ref` argument
         checks and the method-entry borrow asserts treat it as a handle,
@@ -751,7 +765,10 @@ cannot be copied.
         count `h.*` as a step through the handle, not a write of the
         binding;
       - `dyn(h)` dispatches to the payload and is not boxed a second time; a
-        `Dyn(…, Send)` takes only the atomic view; the wrappers, the
+        `Dyn(…, Send)` takes only the atomic view, and an atomic view is a
+        box unless its payload is a `ref` struct or another view, as an
+        `Arc` is (`is_boxed_type`: an `Arc` of an atomic `ref` enum is boxed
+        too); the wrappers, the
         vtable's retain/release and `downcast` read the cell behind the
         handle;
       - the pattern helpers look through a view (`box_inner_type`,
