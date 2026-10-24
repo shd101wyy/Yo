@@ -265,7 +265,9 @@ Point :: struct(x : i32, y : i32);
 
 FilePermission :: newtype(mode : u32);
 
-TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
+Session :: ref(struct(id : i32, log : ArrayList(u8)));
+
+Fd :: struct(n : i32); // + impl(Fd, Drop(...)): move-only
 ```
 
 | Keyword                                               | Semantics                                      |
@@ -278,6 +280,7 @@ TcpStream :: ref(struct(fd : i32, buffer : ArrayList(u8)));
 
 - Use `newtype(...)` when the type has exactly one field
 - Use `ref(struct(...))` / `ref(enum(...))` for types that need shared ownership (`atomic(ref(...))` for atomic RC)
+- A type that owns a resource (a descriptor, a thread, a temporary file) is a move-only value, not a `ref`: it implements `Drop`, or holds a field that does. std's `File`, `TcpStream`, `TcpListener`, `UdpSocket`, `UnixStream`, `TlsStream`, `HttpClient`, `TempDir`, `TempFile`, `Watcher`, `Child` and its pipes, and `Thread` are `struct(_cell : Box(State))`: a copy is E0901, so lend with `&f` (methods take `self : &Self`), move it, or share it as `Rc(T)` / `Arc(Mutex(T))`
 - **Parameter form by type kind:**
   - `ref(struct(...))` / `ref(enum(...))`: plain `name : Type` (reference semantics — no pointer or `&mut` needed).
     `foo :: (fn(ctx : EvalContext) -> unit)(ctx.do_stuff());`
