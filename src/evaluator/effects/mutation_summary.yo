@@ -3058,10 +3058,20 @@ impl(
                     br := match(ctx.roots.get(lt.value.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
                     _msp_mask_add_root(&m, br, br.deep);
                   },
-                  v.is_module_level => {
+                  // A global whose type can root storage (an RC handle, a
+                  // pointer, a move-only value) may alias any argument's
+                  // storage, and the store releases what it held: unknown
+                  // effects. An inert global (`i32`, a struct of scalars)
+                  // is its own static and reaches no argument's storage,
+                  // the verdict `_msp_atom_root` already gives a field
+                  // store into one
+                  // (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
+                  // D1 records the write itself where it happens
+                  // (`d1_record_global_write`), not through this mask.
+                  v.is_module_level => if(_msp_type_may_root(&v.ty), {
                     m.all = true;
                     _msp_debug_all(String.from("walk"), e);
-                  },
+                  }),
                   true => ()
                 ),
                 .None => {

@@ -426,3 +426,69 @@ test("borrowed for: read-only methods iterating a value field by value, through 
   assert(seen == usize(40), "every by-value iteration of a value field runs without the entry assert");
   assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "the borrowed loop still mutates in place");
 });
+// A callee that writes an INERT module-level global (an `i32`, a struct of
+// scalars) mutates only that static: no argument's storage is reachable from
+// it, so it does not count as mutating every argument. Before the fix such a
+// store made the callee's mask `all`, and each read-only `&self` method that
+// lent `&self.name` to it got the entry assert, which panicked through a
+// second handle inside the borrowed `for`
+// (issues/fixed/2026-10-24-a-callee-that-writes-a-scalar-global-is-assumed-to-mutate-every-argument.md).
+{ String } :: import("std/string");
+GCount :: struct(calls : i32, bytes : usize);
+(mut(g_scalar_calls) : i32) = i32(0);
+(mut(g_scalar_stats) : GCount) = GCount(calls : i32(0), bytes : usize(0));
+count_copy :: (fn(s : &String) -> String)({
+  g_scalar_calls = (g_scalar_calls + i32(1));
+  s.clone()
+});
+stats_copy :: (fn(s : &String) -> String)({
+  g_scalar_stats = GCount(calls : (g_scalar_stats.calls + i32(1)), bytes : g_scalar_stats.bytes);
+  g_scalar_stats.bytes = (g_scalar_stats.bytes + s.len());
+  s.clone()
+});
+W3 :: struct(s : String, n : usize);
+NBag :: ref(struct(items : ArrayList(i32), name : String));
+impl(
+  NBag,
+  BorrowedWalk(
+    WalkCursor : usize,
+    WalkElem : i32,
+    walk_start : (fn(self : &Self) -> usize)(usize(0)),
+    walk_valid : (fn(self : &Self, cur : &usize) -> bool)(cur < self.items.len()),
+    walk_elem : (fn(self : &mut Self, cur : &usize) -> &mut i32)(self.items.ptr().unwrap().add(cur)),
+    walk_next : (fn(self : &Self, cur : &usize) -> usize)(cur + usize(1))
+  )
+);
+impl(
+  NBag,
+  label_ctor : (fn(self : &Self) -> usize)({
+    w := W3(s : count_copy(&self.name), n : usize(1));
+    w.s.len()
+  }),
+  label_plain : (fn(self : &Self) -> usize)({
+    s := count_copy(&self.name);
+    s.len()
+  }),
+  label_stats : (fn(self : &Self) -> usize)({
+    s := stats_copy(&self.name);
+    s.len()
+  })
+);
+test("borrowed for: a callee that only writes a scalar global does not trip the flag through an alias", {
+  bag := NBag(items : ArrayList(i32).new(), name : String.from("ab"));
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  other := bag;
+  mut(seen) := usize(0);
+  for(&mut bag, x => {
+    seen = (seen + other.label_ctor());
+    seen = (seen + other.label_plain());
+    seen = (seen + other.label_stats());
+    x = (x + i32(1));
+  });
+  // Three labels of length 2, two elements.
+  assert(seen == usize(12), "every read-only label runs without the entry assert");
+  assert(g_scalar_calls == i32(4), "the scalar global counted each call");
+  assert((g_scalar_stats.calls == i32(2)) && (g_scalar_stats.bytes == usize(4)), "the struct-of-scalars global counted each call");
+  assert((bag.items(usize(0)) == i32(2)) && (bag.items(usize(1)) == i32(3)), "the borrowed loop still mutates in place");
+});
