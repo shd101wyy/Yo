@@ -4491,23 +4491,25 @@ _mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExp
 /// Keep the move `ct` the loop body's end still shows (the body never
 /// completes: each path after the move leaves the loop) as moved from `ct`
 /// to the end of `body`, along the paths after it only: like
-/// `_keep_undone_move`, the window enters each `cond`/`match` whose arm holds
-/// `ct` and covers that arm, and the code after the branch from its end. A
-/// branch that ends at `ct` is the join `ct` stands for (`after`: a join's
-/// end token, moved only past it), so the walk stops there. A `ct` no arm
-/// span holds (a nested loop's end) stops the walk early, which covers more
-/// of the body, never less.
-_keep_body_end_move :: (fn(v : &Variable, ct : &Token, after : bool, body : &AstExpr) -> unit)({
+/// `_keep_undone_move`, the window enters each `cond`/`match` that holds the
+/// move and extends past `ct`, covers the arm holding it, and the code after
+/// the branch from its end. A join stands for a move in its arms at its end
+/// token (`after`: moved only past it), so the walk locates the move by the
+/// site a user wrote (`loc`, `variable_move_note`) and stops at a branch
+/// that ends at or before `ct`: nothing of it runs after the join. A move it
+/// cannot locate stops the walk early, which covers more of the body, never
+/// less.
+_keep_body_end_move :: (fn(v : &Variable, ct : &Token, loc : &Token, after : bool, body : &AstExpr) -> unit)({
   (region : AstExpr) = body;
   (walking : bool) = true;
   while(walking, {
     match(
-      _outer_branch_holding(&region, ct),
+      _outer_branch_holding(&region, loc),
       .Some(nb) => {
         nb_tok := ast_expr_token(&nb);
         nb_end := _last_token_of(&nb, &nb_tok);
         match(
-          if((nb_end.module_path == ct.module_path) && (nb_end.character > ct.character), _arm_body_holding(&nb, ct), Option(AstExpr).None),
+          if((nb_end.module_path == ct.module_path) && (nb_end.character > ct.character), _arm_body_holding(&nb, loc), Option(AstExpr).None),
           .Some(inner) => {
             _record_kept_move(v, UndoneMove(moved_at : nb_end, until : _last_token_of(&region, ct), inclusive : true, after : true));
             region = inner;
@@ -4634,7 +4636,12 @@ check_loop_flow :: (
               body_end,
               .Some(be) => {
                 note := variable_move_note(&v, &be);
-                _keep_body_end_move(&v, &be, (note.row != be.row) || (note.column != be.column), loop_expr);
+                joined := ((note.row != be.row) || (note.column != be.column));
+                loc := cond(
+                  (joined && (note.module_path == be.module_path)) => note,
+                  true => be.clone()
+                );
+                _keep_body_end_move(&v, &be, &loc, joined, loop_expr);
               },
               .None => ()
             );
