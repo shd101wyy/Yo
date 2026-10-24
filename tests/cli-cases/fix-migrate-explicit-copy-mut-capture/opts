@@ -1,0 +1,12 @@
+# `yo fix <path> --migrate explicit-copy` follows a `&mut` capture-list
+# borrow to the variable it captures
+# (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-mut-capture-list-borrow.md).
+# The capture is a second binding, keyed at its own label, so a push through
+# it in the closure body was never a write of the captured variable, and the
+# copy that shares the pushed buffer was cloned. The four copies whose buffer
+# a closure pushes through (a local, a parameter under a label, a field
+# place, the copy itself) are listed; `read_only`, whose closure only reads
+# through a `&` capture, is cloned. The trailing check proves main.yo still
+# evaluates.
+stdout_keep=^fix:
+timeout=240

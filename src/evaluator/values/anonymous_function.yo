@@ -143,7 +143,7 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, _ic_decl_key, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, _ic_decl_key, record_copy_flow_decl, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -802,7 +802,11 @@ _CapListEntry :: struct(
   root_name : String,
   path : ArrayList(String),
   /// The borrowed place's root is a `&T` parameter (a by-value C local).
-  root_is_value_param : bool
+  root_is_value_param : bool,
+  /// The borrowed place's root variable as `yo fix --migrate explicit-copy`
+  /// keys it (`_ic_decl_key`); empty for a by-value entry and outside the
+  /// migration.
+  (root_decl : String) ?= String.new()
 );
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
   _raise_capture_rejection(ctx, exn, tok, msg)
@@ -995,7 +999,8 @@ _evaluate_capture_list :: (
           root_id : root_var.id,
           root_name : root_tok.value.clone(),
           path : fields,
-          root_is_value_param : root_var.is_imm_borrow
+          root_is_value_param : root_var.is_imm_borrow,
+          root_decl : if(migrate_explicit_copy_on(), _ic_decl_key(&root_var.token), String.new())
         )
       );
     }, {
@@ -1594,6 +1599,11 @@ evaluate_anonymous_function_implementation :: (
             .Some(cv) => {
               if(ce.is_borrow, {
                 cv.is_ref = true;
+                // A write through a `&mut` capture is a write of the
+                // captured variable (`record_copy_flow_decl`).
+                if(ce.is_mut && !ce.root_decl.is_empty(), {
+                  record_copy_flow_decl(ce.root_decl.clone(), _ic_decl_key(&ce.label_tok), &ce.label_tok);
+                });
               }, if(!ce_owned, {
                 mark_fn_capture_value_binding(cv.id);
               }));
