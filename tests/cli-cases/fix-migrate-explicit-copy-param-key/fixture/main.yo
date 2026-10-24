@@ -1,0 +1,27 @@
+//! Every parameter of a module used to share one `_ic_decl_key`, so a write
+//! to one parameter (`bump`'s `other`) or a flow out of one (`grow`'s `p`
+//! into `local`, which is written) listed a copy out of another as "its
+//! source is written afterwards". `x := entry.yes` and `bytes := s` copy out
+//! of parameters nothing writes and are cloned; `local := p` is written
+//! afterwards and stays listed.
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+plain :: (fn(entry : VEntry) -> usize)({
+  x := entry.yes;
+  x.len()
+});
+bump :: (fn(other : &mut ArrayList(i32)) -> unit)({
+  other.push(i32(1));
+});
+peek :: (fn(s : &String) -> usize)({
+  bytes := s;
+  bytes.len()
+});
+grow :: (fn(p : &String) -> String)({
+  mut(local) := p;
+  local.push_str("x");
+  local
+});
+main :: (fn() -> unit)(());
+export(main);

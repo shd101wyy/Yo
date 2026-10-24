@@ -1,0 +1,13 @@
+//! A raw pointer derived from one parameter (`first_ptr`'s `xs`) used to list
+//! a copy out of another (`plain`'s `entry`) as "a raw pointer into its
+//! source is taken". `x := entry.yes` is cloned.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("std/collections/array_list");
+VEntry :: struct(yes : ArrayList(i32), no : ArrayList(i32));
+plain :: (fn(entry : VEntry) -> usize)({
+  x := entry.yes;
+  x.len()
+});
+first_ptr :: (fn(xs : &ArrayList(i32)) -> *i32)(xs.ptr().unwrap());
+main :: (fn() -> unit)(());
+export(main);

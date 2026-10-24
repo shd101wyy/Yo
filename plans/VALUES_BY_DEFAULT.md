@@ -7398,8 +7398,8 @@ heavy run, the command is given in item 2.
               `&String` parameter that nothing writes. They are listed
               only because every parameter of a module shares one
               declaration key
-              (`issues/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md`,
-              S3, open). The run took 11:19 wall at 1.38 GB max RSS, on a
+              (`issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md`,
+              S3, fixed by B4-0a). The run took 11:19 wall at 1.38 GB max RSS, on a
               loaded box: several other agents' heavy jobs ran beside it.
          3. Regenerate on the tip with the hot path widened to the files
             item 4 measured, `--hot-path src/evaluator --hot-path
