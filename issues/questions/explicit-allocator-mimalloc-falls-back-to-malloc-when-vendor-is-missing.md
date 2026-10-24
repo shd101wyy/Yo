@@ -2,7 +2,13 @@
 
 **Kind:** design question — an open decision, not a defect.
 
-**Status:** OPEN. Found 2026-09-29 while measuring the codegen memory plan
+**Status:** OPEN. The adopted allocator verdict (2026-10-24) does not address this question: its step C only says
+that the compiler links `std/heap/mimalloc` through a link-source declaration. `plans/backlog/ALLOCATOR_PLACEMENT.md`
+§6 C reads that as option 2 below, a hard error on a missing `vendor/mimalloc` (and `#error` in place of the
+emitted C's `__has_include(<mimalloc.h>)` fallback), and flags the reading for the maintainer (its §10). Until he
+confirms, or step C lands after v0.2.75, the fallback below is the behavior.
+
+Found 2026-09-29 while measuring the codegen memory plan
 (`plans/CODEGEN_MEMORY_REDUCTION.md`).
 
 ## What
@@ -10,7 +16,7 @@
 `yo compile … --allocator mimalloc` links the bundled mimalloc from
 `<std>/../vendor/mimalloc/src/static.c`. When that file does not exist, the
 C-compile step prints one line and links the system allocator instead
-(`src/main.yo`, the "Bundled mimalloc allocator (else system)" block):
+(`src/main.yo`, the "Bundled mimalloc allocator (else system)" block, lines 7815-7835 at `82671f612`):
 
 ```
 Bundled mimalloc not found, falling back to standard malloc

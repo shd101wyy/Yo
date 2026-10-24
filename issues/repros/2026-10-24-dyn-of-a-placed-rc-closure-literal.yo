@@ -1,0 +1,14 @@
+{ Arena } :: import("std/arena");
+{ println } :: import("std/fmt");
+
+use_cb :: (fn(v : i32, cb : &Dyn(Fn(u : i32) -> i32)) -> i32)(cb(v));
+
+main :: (fn() -> unit)({
+  arena := Arena.new(usize(1) << usize(16));
+  k := i32(1);
+  // Accepted: the closure is typed from the Dyn.
+  println(use_cb(i32(41), dyn(rc(u => (u + k)))));
+  // Rejected: "Expected a function type", only because `alloc :` is a second argument.
+  println(use_cb(i32(41), dyn(rc(u => (u + k), alloc : .Some(arena.allocator())))));
+});
+export(main);
