@@ -85,9 +85,17 @@ emit_debug_allocator_impl :: (fn(context : &CodeGenContext) -> unit)({
       String.new(),
       String.from("  atexit(__yo_dbg_atexit);\n")
     );
-  // One step of the report's wait for the program's own threads: a
-  // millisecond's sleep. WASM never has a thread to wait for (thread creation
-  // fails there and `__yo_thread_spawn` runs the closure inline).
+  // The report's wait for the program's own threads: a monotonic clock in
+  // milliseconds (Windows' Sleep(1) can last a whole 15 ms tick, so the wait
+  // reads the clock rather than counting naps) and one short nap. WASM never
+  // has a thread to wait for (thread creation fails there and
+  // `__yo_thread_spawn` runs the closure inline).
+  clock_ms :=
+    cond(
+      is_target_wasm(&context.target_info) => String.from("  return 0;"),
+      is_target_windows(&context.target_info) => String.from("  return (uint64_t)GetTickCount64();"),
+      true => String.from("  struct timespec ts;\n  clock_gettime(CLOCK_MONOTONIC, &ts);\n  return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000L);")
+    );
   thread_nap :=
     cond(
       is_target_wasm(&context.target_info) => String.from("    break;"),
@@ -545,12 +553,15 @@ static void __yo_dbg_scan(const void* addr, size_t size, __yo_dbg_entry_t* es, s
 // Wait, up to __YO_DBG_THREAD_WAIT_MS, for the program's own threads to
 // finish; returns how many are still running. Called WITHOUT the lock: a
 // finishing thread frees through it.
+static uint64_t __yo_dbg_clock_ms(void) {
+${clock_ms}
+}
+
 static size_t __yo_dbg_wait_threads(void) {
-  int waited = 0;
+  uint64_t start = __yo_dbg_clock_ms();
   size_t running = atomic_load_explicit(&__yo_dbg_threads, memory_order_acquire);
-  while (running > 0 && waited < __YO_DBG_THREAD_WAIT_MS) {
+  while (running > 0 && __yo_dbg_clock_ms() - start < (uint64_t)__YO_DBG_THREAD_WAIT_MS) {
 ${thread_nap}
-    waited += 1;
     running = atomic_load_explicit(&__yo_dbg_threads, memory_order_acquire);
   }
   return running;
