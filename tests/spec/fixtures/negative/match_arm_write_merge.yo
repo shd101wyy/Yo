@@ -1,0 +1,38 @@
+// issues/fixed/2026-10-23-a-write-in-one-match-arm-holds-on-every-path.md:
+// the arms of a `match` used to walk one after another over each other's
+// writes, so a write in the `.A` arm held on the `.B` path too. Both
+// functions return the pre-match value when `p` is `.B`; neither ensures
+// may verify.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+
+grow1 :: (fn(xs : ArrayList(i32), ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
+  xs.push(i32(7));
+});
+
+Pick :: enum(A, B);
+
+match_grow :: (fn(p : Pick, ensures(r == usize(1))) -> (r : usize))({
+  ys := ArrayList(i32).new();
+  match(
+    p,
+    .A => {
+      grow1(ys);
+    },
+    .B => ()
+  );
+  ys.len()
+});
+
+match_assign :: (fn(p : Pick, ensures(r == i32(1))) -> (r : i32))({
+  (mut(y) : i32) = i32(0);
+  match(
+    p,
+    .A => {
+      y = i32(1);
+    },
+    .B => ()
+  );
+  y
+});
+export(grow1, match_grow, match_assign);

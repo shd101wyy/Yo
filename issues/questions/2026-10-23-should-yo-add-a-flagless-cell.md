@@ -89,7 +89,7 @@ shape?
     caller's `ArrayList`, and a trusted runtime-mode callee with
     `ensures(true)` can grow it while the caller is proved to see it
     unchanged. That is the S1
-    `issues/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md`.
+    `issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md`.
   - `RefCell`, `Mutex` and the atomics are opaque `unsafe` writes in std.
   - This gap exists today with `RefCell` alone. Adding Cell as a second
     hand-built type gives that unbuilt exclusion a second name it can

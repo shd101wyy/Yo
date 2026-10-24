@@ -1,0 +1,11 @@
+// The runtime-mode callee `frame_runtime_param_mutation.yo` imports
+// (issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md,
+// the related variant). `grow` pushes onto its own list parameter, and its
+// contract is true: it never says `old(xs)`. A runtime-mode body is not
+// verified, so nothing checks that "no old(xs) means xs is unchanged".
+{ ArrayList } :: import("std/collections/array_list");
+
+grow :: (fn(xs : ArrayList(i32), ensures(true)) -> unit)({
+  xs.push(i32(7));
+});
+export(grow);

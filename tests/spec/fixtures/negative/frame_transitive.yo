@@ -1,0 +1,25 @@
+// The transitive variant of
+// issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md:
+// `quiet` is verify-mode and its contract is true, but it calls the
+// runtime-mode `poke`, which grows a list stashed in a RefCell global. A
+// verify-mode callee's frame is only as closed as the callees its body
+// calls, so `probe_quiet` must not keep `xs` across `quiet()`.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ poke } :: import("./frame_interior_mutation_stash.yo");
+
+quiet :: (fn(ensures(true)) -> unit)({
+  poke();
+});
+
+probe_quiet :: (
+  fn(
+    xs : ArrayList(i32),
+    requires(xs.len() == usize(0)),
+    ensures(r == usize(0))
+  ) -> (r : usize)
+)({
+  quiet();
+  xs.len()
+});
+export(quiet, probe_quiet);

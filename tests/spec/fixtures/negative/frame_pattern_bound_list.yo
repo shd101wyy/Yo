@@ -1,0 +1,24 @@
+// A list bound by a pattern (an `Option` payload) is a field projection of
+// the scrutinee, not a constant; the open-frame havoc read its sort from the
+// term's shape, took it for a bool and kept it across `poke()`
+// (issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md,
+// review finding 2). `poke` can grow the payload list, so `probe_opt` must
+// refute.
+pragma(Pragma.Verify);
+{ ArrayList } :: import("std/collections/array_list");
+{ poke } :: import("./frame_interior_mutation_stash.yo");
+
+probe_opt :: (fn(o : Option(ArrayList(i32)), ensures(r == usize(0))) -> (r : usize))(
+  match(
+    o,
+    .Some(xs) => cond(
+      (xs.len() == usize(0)) => {
+        poke();
+        xs.len()
+      },
+      true => usize(0)
+    ),
+    .None => usize(0)
+  )
+);
+export(probe_opt);

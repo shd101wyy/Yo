@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
   AstExpr,
   ExprId,
   BK_TUPLE,
+  BK_RETURN,
   BF_DECREASES,
   ast_expr_id,
   ast_expr_token,
@@ -44,7 +45,16 @@ pragma(Pragma.AllowUnsafe);
 { mangle_vc_name, encode_sort, encode_term, _msof_key } :: import("./encode.yo");
 { type_display_name } :: import("../types/string.yo");
 { is_unit_type } :: import("../types/guards.yo");
-{ is_ghost_fn, ghost_fn_def_of, refine_pred_chain_of, callsite_contracts_for, specialized_base_of, VerifyTask } :: import("../evaluator/builtins/contracts.yo");
+{
+  is_ghost_fn,
+  ghost_fn_def_of,
+  refine_pred_chain_of,
+  callsite_contracts_for,
+  specialized_base_of,
+  VerifyTask,
+  resolve_verify_mode
+} :: import("../evaluator/builtins/contracts.yo");
+{ get_func_type } :: import("../function_value.yo");
 { RefCell } :: import("std/sync/refcell");
 
 /// V5 task 3 slice 2: the ghost_fn inlining stack (see
@@ -60,7 +70,8 @@ pragma(Pragma.AllowUnsafe);
   get_func_ensures_exprs,
   get_func_return_label,
   get_func_decreases_expr,
-  get_func_refined_params
+  get_func_refined_params,
+  has_func_assumed_body
 } :: import("../evaluator/types/function.yo");
 // ---------------------------------------------------------------------------
 // V6 task 4: mutual-recursion cliques.
@@ -72,6 +83,19 @@ pragma(Pragma.AllowUnsafe);
 /// walk consults this for the clique-edge decrease obligation
 /// (`_same_recursion_clique`).
 (g_recursion_cliques : RefCell(ArrayList(ArrayList(String)))) = RefCell(ArrayList(ArrayList(String))).new(ArrayList(ArrayList(String)).new());
+// The call-site frame's registries (`_callee_frame_open`, at the end of
+// this file).
+/// The current batch's tasks by func_id: a verify-mode callee's body is
+/// classified through its task's table (a module loaded with a per-module
+/// table has none left once it finished evaluating).
+(g_frame_tasks : RefCell(HashMap(String, VerifyTask))) = RefCell(HashMap(String, VerifyTask)).new(HashMap(String, VerifyTask).new());
+/// Final verdicts of `_callee_frame_open` (true = open).
+(g_frame_open_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
+/// The classifications in progress: a call cycle answers "closed"
+/// provisionally, so a verdict taken under one is not memoized until the
+/// outermost classification finishes.
+(g_frame_in_progress : RefCell(ArrayList(String))) = RefCell(ArrayList(String)).new(ArrayList(String).new());
+(mut(g_frame_cycle_hit) : bool) = false;
 /// True when `a` and `b` sit in the same mutual-recursion clique.
 _same_recursion_clique :: (fn(a : &String, b : &String) -> bool)({
   (found : bool) = false;
@@ -789,6 +813,12 @@ VcCtx :: ref(
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
     /// everything the terms mention.
     datatypes : ArrayList(String),
+    /// The sorts behind the value-enum datatypes above, by SMT name: each
+    /// constructor's datatype and each field accessor's sort. A name bound
+    /// to a constructor or projection term carries no sort of its own
+    /// (`_vc_term_sort`).
+    ctor_sorts : HashMap(String, VcSort),
+    acc_sorts : HashMap(String, VcSort),
     /// Name → ArrS sort for every bound ARRAY value (V5 task 6). The name's
     /// current TERM may be a store chain (index writes rebind), which carries
     /// no sort — this table is where the walk reads the element sort and the
@@ -817,7 +847,17 @@ VcCtx :: ref(
     fun_decls : ArrayList(VcFunDecl),
     gfn_keys : ArrayList(String),
     /// The `for` loops being walked, innermost last (`produced(xs)`).
-    for_frames : ArrayList(ForFrame)
+    for_frames : ArrayList(ForFrame),
+    /// > 0 while a callee's parameter labels are bound over the caller's
+    /// names (its requires, ensures and clique measure at a call): a call
+    /// to an open-frame callee there is a subset error, because the
+    /// restore after it would put back the stale terms of the names the
+    /// labels shadow.
+    label_depth : usize,
+    /// Calls that may change caller state beyond the call's result — an
+    /// open-frame callee, or an argument written through `&mut`. A
+    /// spec-transparent attempt that adds one is not transparent.
+    frame_effects : usize
   )
 );
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
@@ -849,6 +889,8 @@ _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String)
     call_arg_names : HashMap(String, String).new(),
     distinct_pairs : ArrayList(String).new(),
     datatypes : ArrayList(String).new(),
+    ctor_sorts : HashMap(String, VcSort).new(),
+    acc_sorts : HashMap(String, VcSort).new(),
     array_sorts : HashMap(String, VcSort).new(),
     quant_depth : usize(0),
     fundecls : ArrayList(VcSort).new(),
@@ -857,7 +899,9 @@ _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String)
     ms_axiom_keys : ArrayList(String).new(),
     fun_decls : ArrayList(VcFunDecl).new(),
     gfn_keys : ArrayList(String).new(),
-    for_frames : ArrayList(ForFrame).new()
+    for_frames : ArrayList(ForFrame).new(),
+    label_depth : usize(0),
+    frame_effects : usize(0)
   )
 );
 _next_fresh :: (fn(ctx : &mut VcCtx) -> usize)({
@@ -1903,6 +1947,15 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
     });
     return(lex_t);
   });
+  // `return(v)` leaves the function: its path never reaches the code after
+  // the branch it sits in, and the ensures must hold for `v` there. The
+  // walk models neither (a folded `return(lit)` used to read as the bare
+  // literal, so the branch's fall-through value stood for the returned one
+  // — issues/fixed/2026-10-23-the-verifier-walk-ignores-an-early-return.md).
+  if(ast_expr_is_fn_call_of(e, BK_RETURN, .Some(usize(1))), {
+    _fail_subset(ctx, String.from("return(...) (an early exit: the walk does not model the returning path)"), e);
+    return(Option(VcTerm).None);
+  });
   info := match(
     expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(i) => i,
@@ -1939,10 +1992,12 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
       return(Option(VcTerm).None);
     }
   );
-  // Comptime-folded value ⇒ literal of the expression's own type.
+  // Comptime-folded value ⇒ literal of the expression's own type. Not
+  // across a `return`: a block or branch that returns a constant folds to
+  // it, and its value would stand for the path that leaves the function.
   match(
     info.value,
-    .Some(v) => {
+    .Some(v) => if(!_contains_return(e), {
       match(
         _type_sort(&info.ty),
         .Some(sort) => {
@@ -1956,7 +2011,7 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
         },
         .None => ()
       );
-    },
+    }),
     .None => ()
   );
   // Runtime paths — statement-form ifs with early returns (arm-value
@@ -2035,6 +2090,26 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
   _fail_subset(ctx, String.from("non-call expression"), e);
   Option(VcTerm).None
 });
+/// Does `e` contain a `return(...)` call?
+_contains_return :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, f, fargs, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_RETURN, .Some(usize(1))) || _contains_return(&f), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < fargs.len(), {
+        if(_contains_return(fargs.get(i).unwrap()), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
 /// Register the datatype declaration entry for a VALUE enum type once per
 /// context (idempotent by dt name). The entry format is
 /// `<dt-name>|<ctor0> <ctor1> (f0 <sort>) ...` — encode_content splits at
@@ -2055,6 +2130,7 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
         dt := _enum_dt_name(e_id.clone());
         already := _dt_registered(&ctx.datatypes, dt.clone());
         if(!already, {
+          dt_sort := _type_sort(t);
           sb := StringBuilder.new();
           sb.write_string(dt.clone());
           sb.write_byte(u8(0x7C));
@@ -2065,6 +2141,14 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
               sb.write_byte(u8(0x20));
             });
             sb.write_string(_enum_ctor_name(e_id.clone(), vname.clone()));
+            match(
+              dt_sort,
+              .Some(ds) => {
+                ctx.ctor_sorts.insert(_enum_ctor_name(e_id.clone(), vname.clone()), ds);
+                ()
+              },
+              .None => ()
+            );
             vfs := match(e_fields.get(vi), .Some(l) => l, .None => no_types());
             vls := match(e_labels.get(vi), .Some(l) => l, .None => no_labels());
             if(vfs.len() > usize(0), {
@@ -2096,9 +2180,18 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
                 sb.write_byte(u8(0x5F));
                 sb.write_string(&flabel);
                 sb.write_byte(u8(0x20));
+                f_sort := _type_sort(&fty);
+                match(
+                  f_sort,
+                  .Some(fs0) => {
+                    ctx.acc_sorts.insert(`${_enum_ctor_name(e_id.clone(), vname.clone())}_${flabel}`, fs0);
+                    ()
+                  },
+                  .None => ()
+                );
                 sb.write_string(
                   match(
-                    _type_sort(&fty),
+                    f_sort,
                     .Some(fs) => encode_sort(&fs),
                     .None => String.from("Int")
                   )
@@ -2342,7 +2435,14 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
       );
       match(
         lookup_match_arms(ast_expr_id(at)),
-        .Some(arms) => _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty),
+        .Some(arms) => {
+          ph := _match_phi_new(ctx, &arms);
+          out := _match_arms_ir(ctx, at, &s, &arms, usize(0), &e_ty, &ph);
+          if(out.is_none() || !_match_phi_merge(ctx, at, &ph), {
+            return(Option(VcTerm).None);
+          });
+          out
+        },
         .None => {
           _fail_subset(ctx, String.from("match arms not registered (the pattern table is off)"), at);
           Option(VcTerm).None
@@ -2357,19 +2457,19 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
 /// arm contributes `ite(test_and_guard, body[binds], tail)`; the final arm
 /// must be unguarded (an exhaustive match's last arm holds when reached).
 _match_arms_ir :: (
-  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), from : usize, e_ty : &TypeValue) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, at : &AstExpr, scrut : &VcTerm, arms : &ArrayList(Arm), from : usize, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
 )(
   cond(
     (from >= arms.len()) => {
       _fail_subset(ctx, String.from("match without a final arm"), at);
       Option(VcTerm).None
     },
-    ((from + usize(1)) == arms.len()) => _match_last_arm_ir(ctx, scrut, arms, from, e_ty),
+    ((from + usize(1)) == arms.len()) => _match_last_arm_ir(ctx, scrut, arms, from, e_ty, ph),
     true => {
-      tail := _match_arms_ir(ctx, at, scrut, arms, from + usize(1), e_ty);
+      tail := _match_arms_ir(ctx, at, scrut, arms, from + usize(1), e_ty, ph);
       match(
         tail,
-        .Some(tail_t) => _match_arm_conditioned_ir(ctx, arms.get(from).unwrap(), scrut, &tail_t, e_ty),
+        .Some(tail_t) => _match_arm_conditioned_ir(ctx, arms.get(from).unwrap(), scrut, &tail_t, e_ty, ph),
         .None => Option(VcTerm).None
       )
     }
@@ -2380,13 +2480,14 @@ _match_arms_ir :: (
 /// matched. A GUARDED final arm can fail, which the ite tree cannot
 /// express without a bottom value: outside the subset, loudly.
 _match_last_arm_ir :: (
-  fn(ctx : &mut VcCtx, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, scrut : &VcTerm, arms : &ArrayList(Arm), idx : usize, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
 )({
   arm := arms.get(idx).unwrap();
   if(arm.guard.is_some(), {
     _fail_subset(ctx, String.from("guarded final match arm (outside the subset)"), &arm.arm_expr);
     return(Option(VcTerm).None);
   });
+  _match_phi_reset(ctx, ph);
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   test_opt := _arm_ir_bind(&arm.pattern, scrut, e_ty, ctx, &saved_names, &mut saved_vals);
@@ -2397,14 +2498,17 @@ _match_last_arm_ir :: (
     .None => Option(VcTerm).None
   );
   _restore_vars(ctx, &saved_names, &saved_vals);
+  _match_phi_capture(ctx, ph, rc(VcTermNode.BoolLit(true)));
   body_t
 });
 /// One non-final arm over its COMPILED pattern: bind the pattern's names
 /// to projections of `scrut`, build the conjunctive pattern test, conjoin
 /// the guard, and wrap the body in `ite(test, body, tail)`.
 _match_arm_conditioned_ir :: (
-  fn(ctx : &mut VcCtx, arm : &Arm, scrut : &VcTerm, tail : &VcTerm, e_ty : &TypeValue) -> Option(VcTerm)
+  fn(ctx : &mut VcCtx, arm : &Arm, scrut : &VcTerm, tail : &VcTerm, e_ty : &TypeValue, ph : &_MatchPhi) -> Option(VcTerm)
 )({
+  _match_phi_reset(ctx, ph);
+  (arm_test : VcTerm) = rc(VcTermNode.BoolLit(false));
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   test_opt := _arm_ir_bind(&arm.pattern, scrut, e_ty, ctx, &saved_names, &mut saved_vals);
@@ -2430,11 +2534,19 @@ _match_arm_conditioned_ir :: (
         .Some(ft) => match(
           _expr_term(ctx, &arm.body),
           .Some(body_t) => {
-            ite_args := ArrayList(VcTerm).new();
-            ite_args.push(ft);
-            ite_args.push(body_t);
-            ite_args.push(tail);
-            Option(VcTerm).Some(rc(VcTermNode.App(VcOp.IteOp, ite_args)))
+            arm_test = ft;
+            // An arm that exited the loop has no value on the fall-through
+            // path (`_match_phi_merge` assumes it was not taken there).
+            cond(
+              ctx.path_dead => Option(VcTerm).Some(tail),
+              true => {
+                ite_args := ArrayList(VcTerm).new();
+                ite_args.push(ft);
+                ite_args.push(body_t);
+                ite_args.push(tail);
+                Option(VcTerm).Some(rc(VcTermNode.App(VcOp.IteOp, ite_args)))
+              }
+            )
           },
           .None => Option(VcTerm).None
         ),
@@ -2444,7 +2556,141 @@ _match_arm_conditioned_ir :: (
     .None => Option(VcTerm).None
   );
   _restore_vars(ctx, &saved_names, &saved_vals);
+  _match_phi_capture(ctx, ph, arm_test);
   result
+});
+/// The names a `match`'s arms may change (`_scan_assigned_in` over every
+/// arm's guard and body), their terms before the match, and per arm — in
+/// WALK order, the last arm first — its test and the names' terms after its
+/// body. Each arm walks from the pre-match terms and the names merge into
+/// an ite over the arm tests afterwards, the `cond` rule (`_cond_ite`); the
+/// arms used to walk one after another over each other's writes, so a
+/// write in one arm held on every path
+/// (issues/fixed/2026-10-23-a-write-in-one-match-arm-holds-on-every-path.md).
+/// `dead` marks an arm whose walk exited the loop (break/continue): it
+/// never reaches the code after the match
+/// (issues/fixed/2026-10-23-a-break-in-a-match-arm-ends-the-walk-of-the-enclosing-block.md).
+_MatchPhi :: ref(
+  struct(
+    names : ArrayList(String),
+    pre : ArrayList(Option(VcTerm)),
+    tests : ArrayList(VcTerm),
+    posts : ArrayList(ArrayList(Option(VcTerm))),
+    dead : ArrayList(bool)
+  )
+);
+_match_phi_new :: (fn(ctx : &mut VcCtx, arms : &ArrayList(Arm)) -> _MatchPhi)({
+  names := ArrayList(String).new();
+  (ai : usize) = usize(0);
+  while(ai < arms.len(), {
+    arm := arms.get(ai).unwrap();
+    match(
+      arm.guard,
+      .Some(g) => _scan_assigned_in(ctx, &g, &mut names),
+      .None => ()
+    );
+    _scan_assigned_in(ctx, &arm.body, &mut names);
+    ai = (ai + usize(1));
+  });
+  pre := ArrayList(Option(VcTerm)).new();
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    pre.push(ctx.vars.get(names.get(ni).unwrap().clone()));
+    ni = (ni + usize(1));
+  });
+  _MatchPhi(
+    names : names,
+    pre : pre,
+    tests : ArrayList(VcTerm).new(),
+    posts : ArrayList(ArrayList(Option(VcTerm))).new(),
+    dead : ArrayList(bool).new()
+  )
+});
+/// Put every arm-written name back to its pre-match term.
+_match_phi_reset :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi) -> unit)({
+  _restore_vars(ctx, &ph.names, &ph.pre);
+});
+/// Record one walked arm: its test, the arm-written names' terms now, and
+/// whether its walk exited the loop (the next arm walks from a live path).
+_match_phi_capture :: (fn(ctx : &mut VcCtx, ph : &_MatchPhi, test : VcTerm) -> unit)({
+  post := ArrayList(Option(VcTerm)).new();
+  (ni : usize) = usize(0);
+  while(ni < ph.names.len(), {
+    post.push(ctx.vars.get(ph.names.get(ni).unwrap().clone()));
+    ni = (ni + usize(1));
+  });
+  ph.tests.push(test);
+  ph.posts.push(post);
+  ph.dead.push(ctx.path_dead);
+  ctx.path_dead = false;
+});
+/// After the arms: each arm-written name is the ite over the LIVE arms'
+/// tests of its per-arm terms (first matching arm wins). A name with no
+/// pre-match term was an arm-local binding and goes out of scope. A dead
+/// arm (it exited the loop) is not taken on the fall-through path: assume
+/// that permanently, the `cond` rule. False when every arm is dead (the
+/// match has no fall-through state), a subset error like `cond`'s.
+_match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &_MatchPhi) -> bool)({
+  n := ph.tests.len();
+  // Walk index k is source arm n-1-k: the arms before it in source order
+  // are the walk indices above k.
+  (base : Option(usize)) = Option(usize).None;
+  (k0 : usize) = usize(0);
+  while(k0 < n, {
+    if(ph.dead.get(k0).unwrap(), {
+      earlier := ArrayList(VcTerm).new();
+      (j : usize) = n;
+      while(j > (k0 + usize(1)), {
+        j = (j - usize(1));
+        earlier.push(ph.tests.get(j).unwrap());
+      });
+      ctx.path.push(_app1(VcOp.NotOp, _arm_taken_term(&earlier, ph.tests.get(k0).unwrap())));
+    }, {
+      if(base.is_none(), {
+        base = Option(usize).Some(k0);
+      });
+    });
+    k0 = (k0 + usize(1));
+  });
+  if((n > usize(0)) && base.is_none(), {
+    _fail_subset(ctx, String.from("match arm exits the loop on every arm (break/continue) — the match has no fall-through value"), at);
+    return(false);
+  });
+  if((ph.names.len() == usize(0)) || base.is_none(), {
+    return(true);
+  });
+  b := base.unwrap();
+  (ni : usize) = usize(0);
+  while(ni < ph.names.len(), {
+    nm := ph.names.get(ni).unwrap();
+    pre_t := ph.pre.get(ni).unwrap();
+    match(
+      pre_t,
+      .Some(pv) => {
+        (merged : VcTerm) = match(ph.posts.get(b).unwrap().get(ni).unwrap(), .Some(t0) => t0, .None => pv);
+        (k : usize) = (b + usize(1));
+        while(k < n, {
+          if(!ph.dead.get(k).unwrap(), {
+            arm_v := match(ph.posts.get(k).unwrap().get(ni).unwrap(), .Some(tk) => tk, .None => pv);
+            ite_args := ArrayList(VcTerm).new();
+            ite_args.push(ph.tests.get(k).unwrap());
+            ite_args.push(arm_v);
+            ite_args.push(merged);
+            merged = rc(VcTermNode.App(VcOp.IteOp, ite_args));
+          });
+          k = (k + usize(1));
+        });
+        ctx.vars.insert(nm.clone(), merged);
+        ()
+      },
+      .None => {
+        _ := ctx.vars.remove(nm.clone());
+        ()
+      }
+    );
+    ni = (ni + usize(1));
+  });
+  true
 });
 /// Restore ctx.vars to the pre-arm scope (bindings pop in reverse).
 _restore_vars :: (
@@ -2747,6 +2993,18 @@ _and_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   });
   r
 });
+/// The condition under which an arm of a first-match chain (`cond`,
+/// `match`) runs: its own `test` and none of the `earlier` arms' tests.
+_arm_taken_term :: (fn(earlier : &ArrayList(VcTerm), test : &VcTerm) -> VcTerm)({
+  parts := ArrayList(VcTerm).new();
+  (i : usize) = usize(0);
+  while(i < earlier.len(), {
+    parts.push(_app1(VcOp.NotOp, earlier.get(i).unwrap()));
+    i = (i + usize(1));
+  });
+  parts.push(test);
+  _and_terms(&parts)
+});
 /// Disjoin a non-empty term list with OrOp (single terms pass through).
 _or_terms :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
   r := ts.get(usize(0)).unwrap();
@@ -2780,9 +3038,11 @@ _scan_assigned :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut ArrayList
         .Some(xp) => _scan_assigned(table, &xp, out),
         .None => {
           head := ast_expr_token(&f).value;
-          // A mutating METHOD call on a named receiver (`out.push(v)`: the
-          // callee's contract mentions `old(self...)`) rebinds the receiver
-          // name at the call (R1 slice 2), so it joins the havoc set.
+          // A call rebinds the names it may change (`_callee_call_term`):
+          // `pop`'s receiver, an argument its contract relates with
+          // `old(...)` (`out.push(v)`, `grow(xs)`), one passed to a `&mut`
+          // parameter, and, at an open-frame callee, every list in scope
+          // (the `#frame` mark, expanded by `_scan_assigned_in`).
           match(
             _pop_receiver_name(e),
             .Some(pn) => {
@@ -2792,15 +3052,7 @@ _scan_assigned :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut ArrayList
             },
             .None => ()
           );
-          match(
-            _mutated_receiver_name(table, e),
-            .Some(rn) => {
-              if(!out.contains(rn.clone()), {
-                out.push(rn.clone());
-              });
-            },
-            .None => ()
-          );
+          _call_written_names(table, e, out);
           if(((head == ":=") || (head == "=")) && (fargs.len() == usize(2)), {
             match(
               _binding_name_of(fargs.get(usize(0)).unwrap()),
@@ -2877,66 +3129,132 @@ _pop_receiver_name :: (fn(e : &AstExpr) -> Option(String))({
   });
   Option(String).Some(ast_expr_token(&recv).value)
 });
-/// The receiver NAME of a method call whose callee's contract mentions
-/// `old(self...)` — a call that mutates its receiver (R1 slice 2).
-_mutated_receiver_name :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(String))({
+/// The names a call may change, as `_callee_call_term` rebinds them: each
+/// plain-name argument (the receiver first for a method call) whose
+/// parameter the contract relates with `old(...)` or which is written
+/// through `&mut`, plus the `#frame` mark when the callee is contracted and
+/// its frame is open. Shape-first: an extra name is a sound extra havoc.
+_call_written_names :: (fn(table : &ExprInfoTable, e : &AstExpr, out : &mut ArrayList(String)) -> unit)({
   callee := match(
     e,
     .FnCall(_, f, _, _, _) => f,
     .Atom(_, _) => {
-      return(Option(String).None);
+      return(());
     }
   );
-  dot_args := match(
-    callee,
-    .FnCall(_, cf, da, _, _) => cond(
-      (ast_expr_token(&cf).value == ".") => da.clone(),
-      true => {
-        return(Option(String).None);
-      }
-    ),
-    .Atom(_, _) => {
-      return(Option(String).None);
-    }
+  cargs := match(
+    e,
+    .FnCall(_, _, fa, _, _) => fa,
+    .Atom(_, _) => ArrayList(AstExpr).new()
   );
-  if(dot_args.len() != usize(2), {
-    return(Option(String).None);
-  });
-  recv := dot_args.get(usize(0)).unwrap();
-  if(!ast_expr_is_atom(&recv), {
-    return(Option(String).None);
-  });
-  (fid : String) = match(
-    expr_info_table_get(table, ast_expr_id(&callee)),
-    .Some(ci) => match(
-      ci.value,
-      .Some(v) => match(
-        v,
-        .FuncVal(fvd, _) => fvd.*.func_id.clone(),
-        _ => String.new()
-      ),
-      .None => String.new()
+  cv := _call_callee_value(table, e);
+  fid := match(cv, .Some(v) => _func_val_id(&v), .None => String.new());
+  params := match(
+    cv,
+    .Some(v2) => match(
+      v2,
+      .FuncVal(fvd, _) => fvd.*.params.clone(),
+      _ => ArrayList(String).new()
     ),
-    .None => String.new()
+    .None => ArrayList(String).new()
   );
-  if(fid.len() == usize(0), {
-    fid = match(
-      lookup_method_callee_value(ast_expr_id(e)),
-      .Some(mv) => match(
-        mv,
-        .FuncVal(mfvd, _) => mfvd.*.func_id.clone(),
-        _ => String.new()
-      ),
-      .None => String.new()
+  // [receiver] ++ args when the callee is a method taking `self`.
+  eff := ArrayList(AstExpr).new();
+  if(match(params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false), {
+    match(
+      callee,
+      .FnCall(_, cf, da, _, _) => if((ast_expr_token(&cf).value == ".") && (da.len() == usize(2)), {
+        eff.push(da.get(usize(0)).unwrap());
+      }),
+      .Atom(_, _) => ()
     );
   });
-  if(fid.len() == usize(0), {
-    return(Option(String).None);
+  (ci : usize) = usize(0);
+  while(ci < cargs.len(), {
+    eff.push(cargs.get(ci).unwrap());
+    ci = (ci + usize(1));
   });
-  if(_contracts_mention_old_of(get_func_requires_exprs(fid.clone()), get_func_ensures_exprs(fid.clone()), String.from("self")), {
-    return(Option(String).Some(ast_expr_token(&recv).value));
+  (reqs : ArrayList(AstExpr)) = if(fid.len() > usize(0), get_func_requires_exprs(fid.clone()), ArrayList(AstExpr).new());
+  (enss : ArrayList(AstExpr)) = if(fid.len() > usize(0), get_func_ensures_exprs(fid.clone()), ArrayList(AstExpr).new());
+  // A generic callee's contract instance stashed at this call site is the
+  // one `_callee_call_term` reads.
+  match(
+    callsite_contracts_for(ast_expr_id(e).to_string()),
+    .Some(cs) => {
+      reqs = cs.reqs.clone();
+      enss = cs.enss.clone();
+    },
+    .None => ()
+  );
+  (i : usize) = usize(0);
+  while(i < eff.len(), {
+    a := eff.get(i).unwrap();
+    match(
+      _arg_place_atom(&a),
+      .Some(pa) => {
+        pn := ast_expr_token(&pa).value;
+        pl := match(params.get(i), .Some(p) => p, .None => String.new());
+        written := (ast_expr_is_fn_call_of(&a, "&mut", .Some(usize(1))) || ((fid.len() > usize(0)) && _callee_param_is_mut_ref(&fid, i)) || ((pl.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, pl.clone())));
+        if(written && !out.contains(pn.clone()), {
+          out.push(pn);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
   });
-  Option(String).None
+  if(cv.is_some() && (fid.len() > usize(0)) && _call_is_contracted(&fid, e) && _callee_frame_open(cv.unwrap(), table), {
+    if(!out.contains(String.from("#frame")), {
+      out.push(String.from("#frame"));
+    });
+  });
+});
+/// `_scan_assigned` for a walk: the `#frame` mark becomes every name in
+/// scope whose value an open-frame callee could change (`_sort_holds_list`).
+_scan_assigned_in :: (fn(ctx : &mut VcCtx, e : &AstExpr, out : &mut ArrayList(String)) -> unit)({
+  _scan_assigned(&ctx.table, e, out);
+  mark := String.from("#frame");
+  if(out.contains(mark.clone()), {
+    kept := ArrayList(String).new();
+    (oi : usize) = usize(0);
+    while(oi < out.len(), {
+      on := out.get(oi).unwrap();
+      if(on != mark, {
+        kept.push(on);
+      });
+      oi = (oi + usize(1));
+    });
+    ki := ctx.vars.keys();
+    (go : bool) = true;
+    while(go, {
+      match(
+        ki.next(),
+        .Some(k) => {
+          if(!k.starts_with("__") && !kept.contains(k.clone()), {
+            match(
+              ctx.vars.get(k.clone()),
+              .Some(cur) => {
+                srt := _binding_sort(ctx, &k, &cur);
+                if(_sort_holds_list(ctx, &srt), {
+                  kept.push(k.clone());
+                });
+              },
+              .None => ()
+            );
+          });
+        },
+        .None => {
+          go = false;
+        }
+      );
+    });
+    out.clear();
+    (ki2 : usize) = usize(0);
+    while(ki2 < kept.len(), {
+      out.push(kept.get(ki2).unwrap());
+      ki2 = (ki2 + usize(1));
+    });
+  });
 });
 /// Extract the loop body's leading `invariant(...)` predicates and the
 /// optional trailing `decreases(...)` measure; every other statement is
@@ -3110,6 +3428,62 @@ _havoc_binding_sort :: (fn(old : &VcTerm) -> VcSort)(
     )
   )
 );
+/// The sort of a term, read from its structure: a constant's declared sort,
+/// a literal's, a constructor's datatype, a field projection's accessor
+/// sort (`ctx.ctor_sorts` / `ctx.acc_sorts`, a list's `len`), an `ite`'s
+/// branches, an array read's element. `.None` when the structure does not
+/// say.
+_vc_term_sort :: (fn(ctx : &VcCtx, t : &VcTerm) -> Option(VcSort))(
+  match(
+    t,
+    Rc(.Var(_, s)) => Option(VcSort).Some(s),
+    Rc(.BvLit(_, w)) => Option(VcSort).Some(VcSort.BvS(width : w)),
+    Rc(.BoolLit(_)) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.Test(_, _)) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.Quant(_, _, _, _, _)) => Option(VcSort).Some(VcSort.BoolS),
+    Rc(.ArrConst(cs, _)) => Option(VcSort).Some(cs),
+    Rc(.Ctor(cn, _)) => match(
+      _list_sort_of_ctor(&cn),
+      .Some(ls) => Option(VcSort).Some(ls),
+      .None => ctx.ctor_sorts.get(cn.clone())
+    ),
+    Rc(.Proj(pacc, _, _)) => match(
+      ctx.acc_sorts.get(pacc.clone()),
+      .Some(ps) => Option(VcSort).Some(ps),
+      .None => cond(
+        _is_list_len_acc(&pacc) => Option(VcSort).Some(VcSort.BvS(width : usize(64))),
+        true => Option(VcSort).None
+      )
+    ),
+    Rc(.App(op, aargs)) => match(
+      op,
+      .IteOp => match(
+        _vc_term_sort(ctx, aargs.get(usize(1)).unwrap()),
+        .Some(its) => Option(VcSort).Some(its),
+        .None => _vc_term_sort(ctx, aargs.get(usize(2)).unwrap())
+      ),
+      .SelectOp => match(
+        _vc_term_sort(ctx, aargs.get(usize(0)).unwrap()),
+        .Some(.ArrS(ael, _)) => Option(VcSort).Some(ael),
+        _ => Option(VcSort).None
+      ),
+      _ => Option(VcSort).None
+    )
+  )
+);
+/// The sort a havoc gives `name` (bound to `cur`): the array table's, else
+/// the term's own (`_vc_term_sort`), else the width guess.
+_binding_sort :: (fn(ctx : &VcCtx, name : &String, cur : &VcTerm) -> VcSort)(
+  match(
+    ctx.array_sorts.get(name.clone()),
+    .Some(asrt) => asrt,
+    .None => match(
+      _vc_term_sort(ctx, cur),
+      .Some(ts) => ts,
+      .None => _havoc_binding_sort(cur)
+    )
+  )
+);
 /// Rebind every assigned name to a fresh unconstrained constant under a
 /// NEW havoc generation (nested/back-to-back loops never share constants).
 _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)({
@@ -3118,13 +3492,9 @@ _havoc_assigned :: (fn(ctx : &mut VcCtx, assigned : &ArrayList(String)) -> unit)
   while(ai < assigned.len(), {
     name := assigned.get(ai).unwrap();
     srt := match(
-      ctx.array_sorts.get(name.clone()),
-      .Some(asrt) => asrt,
-      .None => match(
-        ctx.vars.get(name.clone()),
-        .Some(old) => _havoc_binding_sort(&old),
-        .None => VcSort.BoolS
-      )
+      ctx.vars.get(name.clone()),
+      .Some(old) => _binding_sort(ctx, &name, &old),
+      .None => match(ctx.array_sorts.get(name.clone()), .Some(asrt) => asrt, .None => VcSort.BoolS)
     );
     hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
     ctx.vars.insert(name.clone(), rc(VcTermNode.Var(name : hv, sort : srt)));
@@ -3363,7 +3733,7 @@ _loop_core :: (
   while(bi < a.body.len(), {
     match(
       a.body.get(bi),
-      .Some(s) => _scan_assigned(&ctx.table, &s, &mut assigned),
+      .Some(s) => _scan_assigned_in(ctx, &s, &mut assigned),
       .None => ()
     );
     bi = (bi + usize(1));
@@ -4165,9 +4535,11 @@ _call_term :: (
   // assert(y == old(y))` "proved" though it is false for every x).
   if((head == "old") && (n == usize(1)) && ctx.call_pre.is_some(), {
     // Inside a callee's ensures at a CALL SITE (R1 slice 2): `old(e)` is
-    // e over the pre-call bindings of the mutated arguments (every other
-    // name is unchanged by the call, so its current binding IS its pre
-    // state).
+    // e over the pre-call bindings of the rebound arguments. Every other
+    // name is still bound to its pre-call term while the ensures are
+    // assumed (an open-frame callee's other lists are havocked only
+    // afterwards, `_frame_havoc_lists`), so its current binding IS its pre
+    // state.
     oa_pre := args.get(usize(0)).unwrap();
     pre_map := ctx.call_pre.unwrap();
     saved_pre_vars := ctx.vars;
@@ -4974,7 +5346,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
         .FnCall(_, _, a2, _, _) => a2,
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
-      _scan_assigned(&ctx.table, aa0.get(usize(1)).unwrap(), &mut phi_names);
+      _scan_assigned_in(ctx, aa0.get(usize(1)).unwrap(), &mut phi_names);
     });
     ai0 = (ai0 + usize(1));
   });
@@ -5049,13 +5421,16 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
       });
       arm_states.push(state);
       _unwind_path_guards(ctx, path_base, pushed);
-      // An arm that exited the loop never falls through: its guard can
-      // never hold on the fall-through path, so assume ¬guard there
-      // permanently (the exit itself — site snapshot or continue
-      // obligation — was recorded during the arm's walk).
+      // An arm that exited the loop never falls through: the path that
+      // TAKES it (its guard, no earlier guard) never reaches the code after
+      // the cond, so assume its negation there permanently (the exit itself
+      // — site snapshot or continue obligation — was recorded during the
+      // arm's walk). Its bare guard can hold on the fall-through path: an
+      // earlier arm that also matches runs instead
+      // (issues/fixed/2026-10-23-a-dead-cond-arm-assumes-its-guard-false-after-the-cond.md).
       dead_flags.push(ctx.path_dead);
       if(ctx.path_dead, {
-        ctx.path.push(_app1(VcOp.NotOp, &guard_cell.*));
+        ctx.path.push(_app1(VcOp.NotOp, _arm_taken_term(&conds, &guard_cell.*)));
       });
       if(c_opt.is_none() || v_opt.is_none(), {
         return(Option(VcTerm).None);
@@ -5707,6 +6082,7 @@ _transparent_call_term :: (
   });
   saved_err := ctx.subset_error;
   saved_mut := ctx.mutated_names.len();
+  saved_effects := ctx.frame_effects;
   saved_ob := ctx.obligations.len();
   saved_keys := ctx.gfn_keys.len();
   saved_decls := ctx.fun_decls.len();
@@ -5714,7 +6090,7 @@ _transparent_call_term :: (
   g_transparent_defining.with_mut(xs => xs.push(fid.clone()));
   t := _ghost_fn_app_term(ctx, e, args, fid);
   _ := g_transparent_defining.with_mut(xs => xs.pop());
-  failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none()) || (ctx.mutated_names.len() > saved_mut));
+  failed := (t.is_none() || (ctx.subset_error.is_some() && saved_err.is_none()) || (ctx.mutated_names.len() > saved_mut) || (ctx.frame_effects > saved_effects));
   if(failed, {
     // The innermost reason wins (a nested callee's recursion); else name
     // what this attempt hit.
@@ -5722,6 +6098,7 @@ _transparent_call_term :: (
     if(prior_reason.len() == usize(0), {
       g_transparent_reason = cond(
         (ctx.mutated_names.len() > saved_mut) => String.from("it changes an argument"),
+        (ctx.frame_effects > saved_effects) => String.from("it writes through a `&mut` argument or calls a callee whose frame is not checked"),
         (ctx.subset_error.is_some() && saved_err.is_none()) => match(
           ctx.subset_error,
           .Some(se) => `its body is outside the verifier subset (${se.construct})`,
@@ -6215,6 +6592,21 @@ _callee_call_term :: (
   // dot-callee, not among the args; the callee's first param is `self`.
   // Align: the effective argument list is [receiver] ++ args (R1 slice 2).
   eff_args := _method_effective_args(ctx, e, args, &callee_params);
+  // The call-site FRAME (`_callee_frame_open`): a callee whose frame is
+  // not checked may change any list the caller holds, reached through
+  // state its contract cannot name.
+  frame_open := match(
+    _call_callee_value(&ctx.table, e),
+    .Some(cfv) => _callee_frame_open(&cfv, &ctx.table),
+    .None => true
+  );
+  if(frame_open && (ctx.label_depth > usize(0)), {
+    _fail_subset(ctx, String.from("a contract clause calls a callee whose frame is not checked (a runtime-mode, verify+ or unverified function may change any list)"), e);
+    return(Option(VcTerm).None);
+  });
+  if(frame_open, {
+    ctx.frame_effects = (ctx.frame_effects + usize(1));
+  });
   saved_names := ArrayList(String).new();
   saved_vals := ArrayList(Option(VcTerm)).new();
   arg_terms := ArrayList(VcTerm).new();
@@ -6266,6 +6658,8 @@ _callee_call_term :: (
     );
     pbi = (pbi + usize(1));
   });
+  saved_label_depth := ctx.label_depth;
+  ctx.label_depth = (saved_label_depth + usize(1));
   if((is_self_recursion || is_clique_recursion) && m_current.is_some(), {
     // SELF: my own measure re-evaluated over the rebound (actual)
     // bindings. MUTUAL: the CALLEE's measure over its rebound params —
@@ -6370,47 +6764,73 @@ _callee_call_term :: (
   // (`ctx.call_pre`). A contract that never says `old(p)` promises no
   // change to `p` and leaves it bound (the "old mentions modifies" rule;
   // the standing gap is issues/questions/modifies-clause-for-callee-side-effects.md).
+  //
+  // Two more arguments change at a call whatever the contract says: one
+  // written through a `&mut` parameter (any sort: the caller's `y` after
+  // `bump(&mut y)`), and, at an open-frame callee, every list argument
+  // (its post-call value is the one the ensures describes, whether or not
+  // a caller name is bound to it).
   havoc_names := ArrayList(String).new();
   havoc_terms := ArrayList(VcTerm).new();
   pre_map := HashMap(String, VcTerm).new();
   (hvi : usize) = usize(0);
   while(hvi < eff_args.len(), {
+    hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
     match(
       eff_args.get(hvi),
       .Some(ha_arg) => match(
-        _arg_place_atom(&ha_arg),
-        .Some(ha) => {
-          hnm := ast_expr_token(&ha).value;
-          hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
-          if((hcp.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, hcp.clone()), {
-            match(
-              arg_terms.get(hvi),
-              .Some(hpre) => match(
-                hpre,
-                Rc(.Var(_, hsort)) => if(_list_sort_elem(&hsort).is_some(), {
-                  fresh_h := _next_fresh(ctx);
-                  hnew := rc(VcTermNode.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort));
-                  pre_map.insert(hcp.clone(), hpre);
-                  ctx.vars.insert(hcp.clone(), hnew);
-                  havoc_names.push(hnm.clone());
-                  havoc_terms.push(hnew);
-                  if(!ctx.mutated_names.contains(hnm.clone()), {
-                    ctx.mutated_names.push(hnm.clone());
-                  });
-                }),
-                _ => ()
-              ),
-              .None => ()
-            );
+        arg_terms.get(hvi),
+        .Some(hpre) => if(hcp.len() > usize(0), {
+          place := _arg_place_atom(&ha_arg);
+          hnm := match(place, .Some(ha) => ast_expr_token(&ha).value, .None => String.new());
+          writes_through := (_callee_param_is_mut_ref(&fid, hvi) || ast_expr_is_fn_call_of(&ha_arg, "&mut", .Some(usize(1))));
+          if(writes_through && (hnm.len() == usize(0)), {
+            _fail_subset(ctx, String.from("a `&mut` argument that is not a plain name (the call may write it)"), &ha_arg);
           });
-        },
+          sort_src := match(place, .Some(pa) => pa, .None => ha_arg);
+          typed_sort := match(
+            expr_info_table_get(&ctx.table, ast_expr_id(&sort_src)),
+            .Some(hinf) => _type_sort(&hinf.ty),
+            .None => Option(VcSort).None
+          );
+          hsort := match(
+            ctx.array_sorts.get(hnm.clone()),
+            .Some(asrt) => asrt,
+            .None => match(typed_sort, .Some(ts) => ts, .None => _havoc_binding_sort(&hpre))
+          );
+          is_list := _list_sort_elem(&hsort).is_some();
+          by_old := (is_list && (hnm.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, hcp.clone()) && match(hpre, Rc(.Var(_, _)) => true, _ => false));
+          by_ref := (writes_through && (hnm.len() > usize(0)));
+          by_frame := (frame_open && _sort_holds_list(ctx, &hsort));
+          if(by_old || by_ref || by_frame, {
+            fresh_h := _next_fresh(ctx);
+            hlabel := if(hnm.len() > usize(0), hnm.clone(), hcp.clone());
+            hnew := rc(VcTermNode.Var(name : `__yo_mut${fresh_h.to_string()}_${hlabel}`, sort : hsort));
+            pre_map.insert(hcp.clone(), hpre);
+            ctx.vars.insert(hcp.clone(), hnew);
+            if(hnm.len() > usize(0), {
+              havoc_names.push(hnm.clone());
+              havoc_terms.push(hnew);
+              if(by_ref, {
+                ctx.frame_effects = (ctx.frame_effects + usize(1));
+              });
+              // A changed list parameter needs its own contract to relate
+              // it with `old` (`verify_function_body`). An open-frame call
+              // does not: every caller of this function sees its frame
+              // open as well.
+              if((by_old || by_ref) && is_list && !ctx.mutated_names.contains(hnm.clone()), {
+                ctx.mutated_names.push(hnm.clone());
+              });
+            });
+          });
+        }),
         .None => ()
       ),
       .None => ()
     );
     hvi = (hvi + usize(1));
   });
-  if(havoc_names.len() > usize(0), {
+  if(pre_map.len() > usize(0), {
     ctx.call_pre = Option(HashMap(String, VcTerm)).Some(pre_map);
   });
   // Assume ensures with a fresh result bound. The callee's ensures name
@@ -6459,6 +6879,7 @@ _callee_call_term :: (
     ei = (ei + usize(1));
   });
   ctx.call_pre = Option(HashMap(String, VcTerm)).None;
+  ctx.label_depth = saved_label_depth;
   // Restore the caller's bindings (a missing binding goes back to missing).
   (si : usize) = saved_names.len();
   while(si > usize(0), {
@@ -6503,6 +6924,9 @@ _callee_call_term :: (
       .None => ()
     );
     hri3 = (hri3 + usize(1));
+  });
+  if(frame_open, {
+    _frame_havoc_lists(ctx, &havoc_names);
   });
   Option(VcTerm).Some(ret_var)
 });
@@ -7045,6 +7469,311 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
     error : ctx.subset_error
   )
 });
+// ---------------------------------------------------------------------------
+// The call-site FRAME: which callees may change state the caller holds
+// without naming it in their contract
+// (issues/fixed/2026-10-23-the-call-site-frame-misses-a-list-reached-through-a-refcell-global.md).
+// ---------------------------------------------------------------------------
+/// Driver prepass beside `register_recursion_cliques`: the batch's tasks,
+/// and a fresh verdict memo (the target set decides which bodies are
+/// verified, so a verdict never outlives its batch).
+register_frame_tasks :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
+  g_frame_tasks.with_mut(m => m.clear());
+  g_frame_open_memo.with_mut(m => m.clear());
+  g_frame_in_progress.with_mut(xs => xs.clear());
+  g_frame_cycle_hit = false;
+  (ti : usize) = usize(0);
+  while(ti < tasks.len(), {
+    match(
+      tasks.get(ti),
+      .Some(t) => {
+        g_frame_tasks.with_mut(m => m.insert(t.func_id.clone(), t));
+        ()
+      },
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+});
+/// The FuncVal a call node resolves to: the callee atom's ExprInfo value,
+/// else the method-callee side table keyed by the call — the two sources
+/// `_callee_call_term` reads.
+_call_callee_value :: (fn(table : &ExprInfoTable, e : &AstExpr) -> Option(EvalValue))({
+  callee := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => e
+  );
+  match(
+    expr_info_table_get(table, ast_expr_id(&callee)),
+    .Some(ci) => match(
+      ci.value,
+      .Some(v) => if(is_func_val(&v), {
+        return(Option(EvalValue).Some(v));
+      }),
+      .None => ()
+    ),
+    .None => ()
+  );
+  match(
+    lookup_method_callee_value(ast_expr_id(e)),
+    .Some(mv) => if(is_func_val(&mv), Option(EvalValue).Some(mv), Option(EvalValue).None),
+    .None => Option(EvalValue).None
+  )
+});
+_func_val_id :: (fn(v : &EvalValue) -> String)(
+  match(
+    v,
+    .FuncVal(fvd, _) => fvd.*.func_id.clone(),
+    _ => String.new()
+  )
+);
+/// Does the call `e` (resolved to `fid`) go through the contracted-callee
+/// path of `_callee_call_term`: requires/ensures, a stashed generic
+/// instance, or a refined parameter?
+_call_is_contracted :: (fn(fid : &String, e : &AstExpr) -> bool)({
+  if((get_func_requires_exprs(fid.clone()).len() > usize(0)) || (get_func_ensures_exprs(fid.clone()).len() > usize(0)), {
+    return(true);
+  });
+  if(callsite_contracts_for(ast_expr_id(e).to_string()).is_some(), {
+    return(true);
+  });
+  preds := get_func_refined_params(
+    match(
+      specialized_base_of(fid.clone()),
+      .Some(b) => b,
+      .None => fid
+    ).clone()
+  );
+  (i : usize) = usize(0);
+  while(i < preds.len(), {
+    if(preds.get(i).unwrap().len() > usize(0), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Is the FRAME of the callee `fv` open: may a call to it change a list the
+/// caller holds that its contract does not relate with `old(...)`? Every
+/// `ArrayList` is a reference, so a callee can reach the caller's list
+/// without receiving it (a second handle in a `RefCell` global), and no
+/// contract can say so.
+///
+/// Closed: a `ghost_fn` (erased at runtime); an `assumed()` contract (the
+/// author vouches that it is the whole truth, frame included —
+/// issues/questions/modifies-clause-for-callee-side-effects.md); and a
+/// function whose body THIS run verifies in `verify` mode (its task is in
+/// the batch, `register_frame_tasks`; a failure there fails the run) and
+/// that calls no contracted callee whose frame is open. Such a body cannot
+/// read a module-level global (the walk rejects it), its list parameters
+/// are checked against `old(...)` (`verify_function_body`), and a callee
+/// with no contract fails its walk unless it is spec-transparent (which an
+/// open call inside rules out), so a call is its only route to other state.
+///
+/// Open: everything else. A `runtime`-mode callee's contract is trusted
+/// but its frame is checked nowhere; `verify+` degrades an unverifiable
+/// body to runtime asserts; a verify-mode body this run does not verify (an
+/// imported file outside the targets, under `yo compile` too) is checked
+/// nowhere, whatever its pragma says.
+_callee_frame_open :: (fn(fv : &EvalValue, table : &ExprInfoTable) -> bool)({
+  fid := _func_val_id(fv);
+  if(fid.len() == usize(0), {
+    return(true);
+  });
+  base := match(specialized_base_of(fid.clone()), .Some(b) => b, .None => fid.clone());
+  if(is_ghost_fn(fid.clone()) || is_ghost_fn(base.clone()), {
+    return(false);
+  });
+  if(has_func_assumed_body(fid.clone()) || has_func_assumed_body(base.clone()), {
+    return(false);
+  });
+  match(
+    g_frame_open_memo.with(m => m.get(fid.clone())),
+    .Some(memo) => {
+      return(memo);
+    },
+    .None => ()
+  );
+  if(g_frame_in_progress.with(xs => xs.contains(fid.clone())), {
+    g_frame_cycle_hit = true;
+    return(false);
+  });
+  task := match(
+    g_frame_tasks.with(m => m.get(fid.clone())),
+    .Some(t) => Option(VerifyTask).Some(t),
+    .None => g_frame_tasks.with(m => m.get(base.clone()))
+  );
+  // Only a body THIS run verifies is checked: a verify-mode function in an
+  // imported file outside the targets (`yo compile` verifies the targets
+  // alone) is trusted like a runtime-mode one, whatever its pragma says.
+  tk := match(
+    task,
+    .Some(t0) => t0,
+    .None => {
+      g_frame_open_memo.with_mut(m => m.insert(fid.clone(), true));
+      return(true);
+    }
+  );
+  body := tk.body;
+  btable := tk.table;
+  if((resolve_verify_mode(&tk.module_path) != "verify") || expr_info_table_get(&btable, ast_expr_id(&body)).is_none(), {
+    g_frame_open_memo.with_mut(m => m.insert(fid.clone(), true));
+    return(true);
+  });
+  saved_hit := g_frame_cycle_hit;
+  g_frame_cycle_hit = false;
+  g_frame_in_progress.with_mut(xs => xs.push(fid.clone()));
+  open := _frame_scan_open(&btable, &body);
+  _ := g_frame_in_progress.with_mut(xs => xs.pop());
+  outermost := (g_frame_in_progress.with(xs => xs.len()) == usize(0));
+  if(open || !g_frame_cycle_hit || outermost, {
+    g_frame_open_memo.with_mut(m => m.insert(fid.clone(), open));
+  });
+  g_frame_cycle_hit = (!outermost && (saved_hit || g_frame_cycle_hit));
+  open
+});
+/// Does `e` contain a call to a contracted callee whose frame is open?
+/// Follows macro expansions (the walk sees the expansion) and both the
+/// callee and the argument positions.
+_frame_scan_open :: (fn(table : &ExprInfoTable, e : &AstExpr) -> bool)({
+  f := match(
+    e,
+    .FnCall(_, f0, _, _, _) => f0,
+    .Atom(_, _) => {
+      return(false);
+    }
+  );
+  fargs := match(
+    e,
+    .FnCall(_, _, fa, _, _) => fa,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  expanded := match(
+    expr_info_table_get(table, ast_expr_id(e)),
+    .Some(ei) => expr_info_macro_expansion(&ei),
+    .None => Option(AstExpr).None
+  );
+  match(
+    expanded,
+    .Some(xp) => {
+      return(_frame_scan_open(table, &xp));
+    },
+    .None => ()
+  );
+  if(_call_frame_open(table, e), {
+    return(true);
+  });
+  if(_frame_scan_open(table, &f), {
+    return(true);
+  });
+  (i : usize) = usize(0);
+  while(i < fargs.len(), {
+    a := fargs.get(i).unwrap();
+    if(_frame_scan_open(table, &a), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Is `e` a call to a contracted callee whose frame is open?
+_call_frame_open :: (fn(table : &ExprInfoTable, e : &AstExpr) -> bool)(
+  match(
+    _call_callee_value(table, e),
+    .Some(cv) => {
+      cfid := _func_val_id(&cv);
+      (cfid.len() > usize(0)) && _call_is_contracted(&cfid, e) && _callee_frame_open(&cv, table)
+    },
+    .None => false
+  )
+);
+/// Is parameter `i` of `fid` declared `&mut T` (the callee may write it)?
+_callee_param_is_mut_ref :: (fn(fid : &String, i : usize) -> bool)(
+  match(
+    get_func_type(fid),
+    Rc(.Func({ meta : fm })) => match(fm.*.param_is_ref.get(i), .Some(b) => b, .None => false),
+    _ => false
+  )
+);
+/// Can a value of `s` change when an open-frame callee runs: a list (a
+/// reference), a value enum or fixed array holding one, or a generic
+/// parameter's uninterpreted sort (an instance may be a list)? Integers,
+/// bools and the ghost carriers (sequences, sets) are values.
+_sort_holds_list :: (fn(ctx : &VcCtx, s : &VcSort) -> bool)(
+  match(
+    s,
+    .DataS(dn) => cond(
+      _list_sort_elem(s).is_some() => true,
+      true => {
+        (holds : bool) = false;
+        own := dn.clone();
+        (di : usize) = usize(0);
+        while((di < ctx.datatypes.len()) && !holds, {
+          entry := ctx.datatypes.get(di).unwrap();
+          if(entry.starts_with(`${own}|`), {
+            // Constructor names start with the datatype's own name; any
+            // other datatype named in the entry is a field's sort.
+            parts := entry.split(&own);
+            (pi : usize) = usize(0);
+            while(pi < parts.len(), {
+              part := parts.get(pi).unwrap();
+              if(part.contains("List_") || part.contains("__yo_d"), {
+                holds = true;
+              });
+              pi = (pi + usize(1));
+            });
+          });
+          di = (di + usize(1));
+        });
+        holds
+      }
+    ),
+    .ArrS(elem, _) => _sort_holds_list(ctx, &elem),
+    .Uninterpreted(_) => true,
+    _ => false
+  )
+);
+/// After a call to an open-frame callee: every name whose value could have
+/// changed (`_sort_holds_list`) is rebound to a fresh unconstrained
+/// constant, except `keep` (the arguments the callee's ensures already
+/// describe at their post-call terms). Walk temporaries (`__`) and the
+/// entry snapshot `old(...)` reads are left alone.
+_frame_havoc_lists :: (fn(ctx : &mut VcCtx, keep : &ArrayList(String)) -> unit)({
+  names := ArrayList(String).new();
+  ki := ctx.vars.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      ki.next(),
+      .Some(k) => {
+        names.push(k.clone());
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  fresh_n := _next_fresh(ctx);
+  (ni : usize) = usize(0);
+  while(ni < names.len(), {
+    nm := names.get(ni).unwrap();
+    if(!nm.starts_with("__") && !keep.contains(nm.clone()), {
+      match(
+        ctx.vars.get(nm.clone()),
+        .Some(cur) => {
+          srt := _binding_sort(ctx, &nm, &cur);
+          if(_sort_holds_list(ctx, &srt), {
+            ctx.vars.insert(nm.clone(), rc(VcTermNode.Var(name : `__yo_frame${fresh_n.to_string()}_${nm.clone()}`, sort : srt)));
+            ()
+          });
+        },
+        .None => ()
+      );
+    });
+    ni = (ni + usize(1));
+  });
+});
 export(
   _pointer_width,
   GuardSite,
@@ -7053,5 +7782,6 @@ export(
   VcBodyResult,
   VerifyFnInput,
   verify_function_body,
-  register_recursion_cliques
+  register_recursion_cliques,
+  register_frame_tasks
 );
