@@ -496,7 +496,7 @@ stable_id_module_path :: (fn(id : &String) -> Option(String))(
     .Some(key) => {
       segs := key.split(":");
       n := segs.len();
-      anchored := (n >= usize(4)) && match(segs.get(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false);
+      anchored := ((n >= usize(4)) && match(segs.get(n - usize(3)), .Some(s) => s.starts_with("@"), .None => false));
       keep := cond(anchored => (n - usize(3)), (n >= usize(3)) => (n - usize(2)), true => usize(0));
       if(keep == usize(0), {
         return(Option(String).None);
