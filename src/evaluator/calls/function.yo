@@ -3459,7 +3459,7 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
   // (recorded callee) lends its receiver above instead; a module function or
   // constructor (`m.f`, `E.Some`) is a compile-time value with no holder.
   if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && lookup_method_callee_value(ast_expr_id(call)).is_none(), {
-    if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(ci) => !is_function_type(&ci.ty) || match(ci.value, .Some(v) => is_unknown_val(&v), .None => true), .None => false), {
+    if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)), .Some(ci) => (!is_function_type(&ci.ty) || match(ci.value, .Some(v) => is_unknown_val(&v), .None => true)), .None => false), {
       out.push(_CallLend(place : op_callee.clone(), lent_arg : op_callee.clone(), from : usize(0), marked : false, exclusive : false, form : String.from("the closure-valued field the call calls"), tag : String.from("callee")));
     });
   });
@@ -3570,7 +3570,7 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
         if(l.exclusive, {
           place_require_mut(&l.place, &ast_expr_token(&l.lent_arg), &`lend \`&mut\` (${l.form})`, true, env, ctx, exn);
         });
-      },
+      }),
       .None => ()
     );
   });

@@ -1,0 +1,13 @@
+{ assert } :: import("std/assert");
+sub :: (fn(a : i32, b : i32) -> i32)(a - b);
+bump :: (fn(p : &mut i32) -> i32)({
+  p = i32(10);
+  i32(1)
+});
+main :: (fn() -> unit)({
+  (mut(x) : i32) = i32(3);
+  r := sub(x, bump(&mut x));
+  assert(r == i32(2), "x is read before bump writes it");
+  ()
+});
+export(main);

@@ -1,0 +1,9 @@
+{ assert } :: import("std/assert");
+Holder :: struct(tag : i32);
+eat :: (fn(sink(h) : Rc(Holder)) -> i32)(h.tag);
+main :: (fn() -> unit)({
+  h := rc(Holder(tag : i32(2)));
+  assert((h.tag + eat(h)) == i32(4), "rc-field-add");
+  ()
+});
+export(main);
