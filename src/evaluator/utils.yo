@@ -98,7 +98,7 @@ pragma(Pragma.AllowUnsafe);
   variable_inout_borrow_root_id
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
-{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
+{ EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook, type_head_name_for_impl_forcing } :: import("./context.yo");
 { atof } :: import("std/libc/stdlib");
 {
   format_error_message,
@@ -2705,8 +2705,8 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 ///
 /// `ty_value` is the copied type itself, which the listing asks for `Clone`
 /// (`type_lacks_clone`) once the whole run is evaluated, and
-/// `lacks_clone_at_copy` whether a `.clone()` written at the copy would not
-/// resolve there (`_ic_clone_unresolved_here`). A copy of a type without `Clone` at the end (a `StringBuilder`
+/// `lacks_clone_at_copy` the same question asked when the copy was
+/// recorded. A copy of a type without `Clone` at the end (a `StringBuilder`
 /// or a `HeaderMap` before B11 derives one, a collection of such elements)
 /// is still E0901 under unique buffers, and no `.clone()` spells it, so it
 /// is listed for a move or a borrow
@@ -2716,10 +2716,10 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// pushing `self`, `std/string/string.yo`, about 2,700 lines above the
 /// impl). Such a copy used to be dropped
 /// (issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md).
-/// An `impl` below the copy is forced by the `.clone()` lookup, so that copy
-/// is cloned. One whose `Clone` comes from a `derive(T, Clone)` below it is
-/// listed instead: the lookup does not force a `derive`, so a `.clone()`
-/// written there would not resolve
+/// An `impl` below the copy is forced by the `.clone()` method lookup, so
+/// that copy is cloned. One whose `Clone` comes from a `derive(T, Clone)`
+/// (`ic_clone_comes_from_derive`) is listed instead: the lookup does not
+/// force a `derive`, so a `.clone()` written there would not resolve
 /// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
 ExplicitCopySite :: struct(
   path : String,
@@ -3144,7 +3144,7 @@ take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
   g_copy_loop_ids.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl);
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl, record_clone_derive, ic_clone_comes_from_derive);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -3342,39 +3342,35 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// wrote). A copy of a type without `Clone` is kept as well: the listing
 /// asks `ExplicitCopySite.ty_value` for `Clone` once the run is evaluated
 /// (`ExplicitCopySite.lacks_clone_at_copy`).
-/// Whether a `.clone()` written at a copy of `ty` would not resolve there:
-/// the type has no `Clone` yet, even after the forcing a `.clone()` method
-/// lookup there does. A lookup that misses forces the pending `impl`s of the
-/// receiver's type (`force_pending_impls_for_type_name`), and a container's
-/// `Clone` impl asks its element types, whose own pending impls are forced in
-/// turn. So the same pending impls of `ty` and of its type arguments are forced
-/// here first: a `Clone` impl further down the module (`String`'s, about
-/// 2,700 lines below `String.split`) registers, and the copy is cloned like
-/// any other. A `derive(T, Clone)` further down is not forced by that lookup
-/// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md),
-/// so its type still lacks `Clone` here and the copy is listed.
-_ic_clone_unresolved_here :: (fn(ty : &TypeValue) -> bool)({
-  if(!type_lacks_clone(ty), {
-    return(false);
+/// The nominal types a `derive(T, …, Clone, …)` gave `Clone` while the
+/// migration ran, by head name (`type_head_name_for_impl_forcing`).
+(g_clone_derived_heads : RefCell(HashSet(String))) = RefCell(HashSet(String)).new(HashSet(String).new());
+/// Record, while the migration runs, that a `derive` gave `target` `Clone`
+/// (`process_trait_arg`, evaluator/builtins/derive.yo).
+record_clone_derive :: (fn(target : &TypeValue) -> unit)({
+  if(!g_migrate_explicit_copy, {
+    return(());
   });
-  if(!_ic_force_pending_clone_impls(ty, u32(0)), {
+  head := type_head_name_for_impl_forcing(target);
+  if(!head.is_empty(), {
+    _new_head := g_clone_derived_heads.with_mut(hs => hs.insert(head));
+  });
+});
+/// Does `ty`, or a type argument of it (to a depth of four), take its
+/// `Clone` from a `derive` (`record_clone_derive`)? A copy made above its
+/// type's `Clone` (`ExplicitCopySite.lacks_clone_at_copy`) is listed when
+/// it does: a `.clone()` method lookup that misses forces the pending
+/// `impl`s of the type (`force_pending_impls_for_type_name`), so a
+/// `.clone()` written above an `impl(T, Clone(…))` resolves, but a `derive`
+/// is not forced
+/// (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
+ic_clone_comes_from_derive :: (fn(ty : &TypeValue, (depth : u32) ?= u32(0)) -> bool)({
+  head := type_head_name_for_impl_forcing(ty);
+  if(!head.is_empty() && g_clone_derived_heads.with(hs => hs.contains(head)), {
     return(true);
   });
-  type_lacks_clone(ty)
-});
-/// Force the pending impls declaring `clone` of `ty`'s nominal head and,
-/// recursively, of its type arguments (`_ic_clone_unresolved_here`); true
-/// when one was forced.
-_ic_force_pending_clone_impls :: (fn(ty : &TypeValue, depth : u32) -> bool)({
-  head := type_head_name_for_impl_forcing(ty);
-  missed := Option(String).Some(String.from("clone"));
-  (forced : bool) = match(
-    force_pending_impls_for_type_name(&head, &missed),
-    .Forced => true,
-    _ => false
-  );
   if(depth >= u32(4), {
-    return(forced);
+    return(false);
   });
   targs := match(
     ty,
@@ -3384,15 +3380,11 @@ _ic_force_pending_clone_impls :: (fn(ty : &TypeValue, depth : u32) -> bool)({
   );
   (i : usize) = usize(0);
   while(i < targs.len(), i = (i + usize(1)), {
-    match(
-      targs.get(i),
-      .Some(ta) => if(recur(&ta, depth + u32(1)), {
-        forced = true;
-      }),
-      .None => ()
-    );
+    if(match(targs.get(i), .Some(ta) => recur(&ta, depth + u32(1)), .None => false), {
+      return(true);
+    });
   });
-  forced
+  false
 });
 /// What a copy site carries for `yo fix --migrate explicit-copy`: the
 /// copied expression's FIRST token as written (`p` of `p.name`, whose own
@@ -3424,7 +3416,7 @@ _ic_migrate_site :: (
         src_dying : m.src_dying.clone(),
         capture_label : m.capture_label.clone(),
         ty_value : ty.clone(),
-        lacks_clone_at_copy : _ic_clone_unresolved_here(ty)
+        lacks_clone_at_copy : type_lacks_clone(ty)
       )
     )
   )

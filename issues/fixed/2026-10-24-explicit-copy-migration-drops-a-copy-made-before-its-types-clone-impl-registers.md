@@ -37,35 +37,39 @@ where the impl was written. A "no" dropped the site.
 
 ## Fix
 
-The site keeps the copied type (`ExplicitCopySite.ty_value`) and whether a
-`.clone()` written at the copy would resolve there
-(`ExplicitCopySite.lacks_clone_at_copy`, `_ic_clone_unresolved_here` in
-`src/evaluator/utils.yo`). That second answer is asked as the `.clone()`
-method lookup would ask it: when the type has no `Clone` yet, the pending
-`impl`s of the type and of its type arguments that declare `clone` are
-forced first (`force_pending_impls_for_type_name`), and the type is asked
-again. `_run_migrate_explicit_copy` (`src/main.yo`) asks `type_lacks_clone`
-once more when it builds the listing, by which time every module is
-evaluated and every impl registered:
+The site keeps the copied type (`ExplicitCopySite.ty_value`) and the
+record-time answer (`lacks_clone_at_copy`). `_run_migrate_explicit_copy`
+(`src/main.yo`) asks `type_lacks_clone` again when it builds the listing, by
+which time every module is evaluated and every impl registered:
 
 - no `Clone` at the end: listed as clone-less
   (`issues/fixed/2026-10-22-explicit-copy-migration-omits-copies-of-a-type-without-clone-from-its-listing.md`);
-- `Clone` from an `impl` further down the module: the forcing registers it,
-  and the copy is cloned like any other;
-- `Clone` at the end but a `.clone()` at the copy would not resolve: listed
-  as "copied above the `derive` that gives `T` its `Clone`". This is a
-  `derive(T, Clone)` below the copy, which the method lookup does not force
+- `Clone` at the end but not at the copy, from an `impl` further down the
+  module: cloned like any other copy. A `.clone()` method lookup that
+  misses forces the type's pending `impl`s, so the call resolves there;
+- the same, but the type or one of its type arguments takes its `Clone`
+  from a `derive(T, Clone)` (`ic_clone_comes_from_derive`, fed by
+  `record_clone_derive` in `src/evaluator/builtins/derive.yo`): listed as
+  "copied above the `derive` that gives `T` its `Clone`". The lookup does
+  not force a `derive`
   (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`,
-  S2, open). Once that is fixed, these sites can be cloned.
+  S2, open). Once that is fixed, these sites can be cloned too.
+- `Clone` at the copy: unchanged.
 
 A first version listed every copy made above its type's `Clone`, an `impl`
 included. On develop `f1cfa553d`'s tree that was 8 std sites and 1 src site.
 The 8 std sites (`String.split` pushing `self`, and seven `JsonValue` and
 `ArrayList(JsonValue)` copies in `std/encoding/json.yo` above its
-`impl(JsonValue, Clone)`) have impls below them, and are now cloned. The src
+`impl(JsonValue, Clone)`) have impls below them, and are cloned. The src
 site, `src/diagnostics.yo:88`, copies a `Diagnostic` about 280 lines above
-`derive(Diagnostic, Clone)`, and stays listed.
+`derive(Diagnostic, Clone)`, and stays listed. A second version forced the
+pending impls at the copy instead of asking where `Clone` came from; forcing
+every impl of `TomlValue`, which has no `Clone`, from inside the copy's
+dup bookkeeping made `std/encoding/toml.yo` fail to evaluate under the
+migration (`yo check` of the same forcing through a written `.to_string()`
+passes), so the run now reads the answer off the derives instead of forcing
+anything.
 
 Test: `tests/cli-cases/fix-migrate-explicit-copy-clone-impl-below`. `c := b` above a `derive` is
 listed, the copies of a `Sack` and an `ArrayList(Sack)` above an `impl` are
-cloned, and the file still checks.
+cloned, and the migrated file still checks.

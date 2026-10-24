@@ -49,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { Exception, AnyError } :: import("std/error");
 { type_to_string } :: import("../../types/string.yo");
 { push_copy_pending, clear_copy_pending } :: import("../trait_checking.yo");
+{ record_clone_derive } :: import("../utils.yo");
 { RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Derive-impl failure channel
@@ -447,6 +448,11 @@ process_trait_arg :: (
       String.from("")
     }
   );
+  // `yo fix --migrate explicit-copy` lists a copy made above a derived
+  // `Clone` (`record_clone_derive`).
+  if(key == "Clone", {
+    record_clone_derive(target_type);
+  });
   // Look up the registered derive rule.
   rule_opt := get_derive_rule(&key);
   derive_rule_val := match(

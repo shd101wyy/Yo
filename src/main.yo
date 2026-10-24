@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -3362,12 +3362,12 @@ _run_migrate_explicit_copy :: (
         println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
         continue;
       });
-      // The type has `Clone` by the end of the run, but a `.clone()` at the
-      // copy would not resolve (`ExplicitCopySite.lacks_clone_at_copy`): a
-      // `derive(T, Clone)` further down the module, which the lookup does not
-      // force (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md).
-      // So the copy is listed rather than spelled.
-      if(st.lacks_clone_at_copy, {
+      // The type has `Clone` by the end of the run but not where the copy
+      // was evaluated (`ExplicitCopySite.lacks_clone_at_copy`). A `.clone()`
+      // lookup there forces an `impl` further down the module, but not a
+      // `derive` (issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md):
+      // a copy whose `Clone` is derived is listed rather than spelled.
+      if(st.lacks_clone_at_copy && ic_clone_comes_from_derive(&st.ty_value), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied above the \`derive\` that gives \`${st.ty}\` its \`Clone\`, where a \`.clone()\` does not resolve; left as written (spell \`.clone()\` by hand, after moving the \`derive(..., Clone)\` above the copy)`);
         continue;
