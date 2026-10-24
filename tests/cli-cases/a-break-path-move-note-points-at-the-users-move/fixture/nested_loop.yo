@@ -1,0 +1,22 @@
+Fd :: struct(n : i32);
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+take :: (fn(sink(f) : Fd) -> i32)(f.n);
+show :: (fn(f : &Fd) -> i32)(f.n);
+// The move sits in a loop nested in the loop that breaks.
+nested_loop :: (fn(k : i32) -> i32)({
+  f := Fd(n : k);
+  while(true, {
+    while(true, {
+      if(k > i32(0), {
+        take(f);
+        break;
+      });
+    });
+    break;
+  });
+  f.n
+});
+main :: (fn() -> unit)({
+  nested_loop(i32(1));
+});
+export(main);

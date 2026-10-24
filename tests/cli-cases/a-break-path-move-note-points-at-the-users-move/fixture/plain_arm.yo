@@ -1,0 +1,19 @@
+Fd :: struct(n : i32);
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));
+take :: (fn(sink(f) : Fd) -> i32)(f.n);
+show :: (fn(f : &Fd) -> i32)(f.n);
+// The move sits in the breaking arm itself.
+plain_arm :: (fn(k : i32) -> i32)({
+  f := Fd(n : k);
+  while(true, {
+    if(k > i32(0), {
+      take(f);
+      break;
+    });
+  });
+  f.n
+});
+main :: (fn() -> unit)({
+  plain_arm(i32(1));
+});
+export(main);
