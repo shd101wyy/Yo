@@ -10,6 +10,11 @@
 > `with_allocator`, `current_allocator`, a task keeping its scope, and containers following the scope. A creation
 > without `alloc :` goes to the global allocator, and the containers take `alloc :` instead of `new_in`. That is B1
 > at v0.2.71 and B2 at v0.2.72. This page is rewritten when B2 lands.
+>
+> **Amended 2026-10-24 (maintainer decision, built):** `std/arena` is deleted, with its `--debug-heap` exit
+> listing (the codegen hook `__yo_debug_heap_on` went with it). The `Arena` bullets below are history; std ships
+> no arena until [`plans/backlog/ZIG_STYLE_ALLOCATORS.md`](../backlog/ZIG_STYLE_ALLOCATORS.md)'s
+> `FixedBufferAllocator` (A1) and `ArenaAllocator` (A3).
 
 ## The model
 
@@ -59,14 +64,14 @@ No container grew a field: the owner bit lives in a word each already had.
   `Deque.new()` and what is built on them) and take one explicitly with
   `new_in` / `with_capacity_in`.
   The `imm` collections follow the scope.
-- `std/arena.yo` `Arena`: a bump region. `deinit` (and the handle's
+- *(Deleted 2026-10-24.)* `std/arena.yo` `Arena`: a bump region. `deinit` (and the handle's
   dispose) **panics** while a block is live; `abandon()` is the
   process-lifetime escape hatch. Arena states are pooled, never freed, so a
   stale `Allocator` copy panics instead of touching freed memory. Every
   operation takes the arena's spinlock (D3). The handle is not `Send`; share
   the `Allocator` value.
-- `--allocator fixed --debug-heap` lists every arena never deinit and every
-  abandoned arena in the exit report.
+- *(Deleted 2026-10-24.)* `--allocator fixed --debug-heap` listed every arena
+  never deinit and every abandoned arena in the exit report.
 
 ## Decisions not taken
 
@@ -78,5 +83,5 @@ No container grew a field: the owner bit lives in a word each already had.
 
 ## Docs
 
-`docs/en-US/MEMORY_SAFETY.md` §"Explicit Allocators and Arenas" and
+`docs/en-US/MEMORY_SAFETY.md` §"Explicit Allocators" (§"Explicit Allocators and Arenas" until 2026-10-24) and
 `docs/en-US/DESIGN.md` §"Explicit Allocators", with their `zh-CN` twins.

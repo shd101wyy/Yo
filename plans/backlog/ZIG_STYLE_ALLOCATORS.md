@@ -39,6 +39,18 @@ forms cannot drop reference counting.
   draft that kept `with_allocator` as a scoped handler
   (`ALLOCATOR_PLACEMENT.md` §8).
 
+**Amended 2026-10-24 (maintainer decision: `std/arena` deleted):** the
+one-region `Arena` (a bump region with a generation-stamped state table,
+`deinit`/`reset` panics while blocks are live, the `--debug-heap` arena
+listing) is deleted, not moved. `FixedBufferAllocator` (A1) and
+`ArenaAllocator` (A3) are new allocators written on this plan's terms, and
+the real arena is A4. Until A1/A3 land, std ships no arena; that gap is
+accepted. Every "`std/arena` moves", "re-exported" or "today's `Arena`"
+below is history: there is nothing to move and no re-export (no
+backward-compatibility scaffolding). Tests that used `Arena` as "some
+explicit allocator" now use `Allocator.global()` or a counting allocator
+defined in the test file.
+
 The sections below keep their 2026-10-21 text otherwise.
 
 ## 0. Verdict
@@ -99,20 +111,20 @@ The sections below keep their 2026-10-21 text otherwise.
 | --- | --- | --- |
 | `std.mem.Allocator` (vtable + ctx) | `Allocator { ctx, vtable }`, `AllocatorVTable(alloc, realloc, free)` in `std/allocator.yo`; a scope (`with_allocator`) instead of an allocator parameter on every call | version 2: alignment, sized `free` (queued) |
 | `page_allocator` | none; `--allocator` picks the process heap | §3.1 |
-| `FixedBufferAllocator` | `std/arena` is a bump region with a checked end, over a heap-allocated region of fixed size | over a caller-provided buffer; `reset`; §3.2 |
-| `ArenaAllocator` (chunks over a backing allocator) | `std/arena` (one region, no backing allocator: D8 "out of scope") | backing allocator, growable chunks, `reset` modes; §3.3 |
+| `FixedBufferAllocator` | none (`std/arena`, a bump region with a checked end over a heap-allocated region, was deleted 2026-10-24) | the whole allocator, over a caller-provided buffer; `reset`; §3.2 |
+| `ArenaAllocator` (chunks over a backing allocator) | none (`std/arena` deleted 2026-10-24) | the whole allocator: backing allocator, growable chunks, `reset` modes; §3.3 |
 | `c_allocator` / `raw_c_allocator` | `GlobalAllocator` IS libc under `--allocator system`, but not under `mimalloc` or `fixed` | an allocator that is libc whatever `--allocator` says; §3.4 |
 | `smp_allocator` (0.14) | `--allocator mimalloc` (process-wide); the TLSF `fixed` region | a Yo-written general-purpose allocator as an `Allocator` value; §3.9 |
 | `GeneralPurposeAllocator` / `DebugAllocator`, `std.testing.allocator` | `--allocator fixed --debug-heap` (leak oracle at exit); `--sanitize leak` (Linux only) | `ZIG_ADOPTION_CANDIDATES.md` Z11: `--allocator debug` and `yo test --allocator debug`; §3.5 |
 | `FailingAllocator` | none | §3.6 |
 | `LoggingAllocator`, `ScopedLoggingAllocator` | none | §3.7 |
-| `ThreadSafeAllocator` | every arena locks itself (D3) | a wrapper for allocators that do not; §3.8 |
+| `ThreadSafeAllocator` | none (the deleted `std/arena` locked itself, D3) | a wrapper for allocators that do not; §3.8 |
 | `StackFallbackAllocator` | none | §3.2 |
 | `MemoryPool(T)` | none | needs sized `free`; §3.10 |
 | `wasm_allocator` | the C heap through emscripten | `PageAllocator` on `memory.grow`; §3.1 |
 | a real arena (`bumpalo`) | none, rejected in 2026-09 | §4, at origins N2 |
 
-## 2. Why `std/arena` is not Zig's arena, and must not be
+## 2. Why the (deleted) `std/arena` was not Zig's arena, and §3's must not be
 
 Zig's `ArenaAllocator.deinit` frees every chunk, and a pointer still held
 into one is a use-after-free the language does not detect. Yo's `Arena`
@@ -138,11 +150,10 @@ Two consequences the plan keeps explicit:
 
 ## 3. The catalog, on the version-2 interface
 
-All of it is std, under one directory, `std/heap/` (Zig's name; `std/arena`
-moves there as `std/heap/arena.yo` with a re-export at the old path until
-the next seed carries the move, per the seed rule in AGENTS.md). Each
-allocator is an `Allocator` value made by a `.allocator()` method on a
-state value, as `Arena` does today; each is usable with `with_allocator`,
+All of it is std, under one directory, `std/heap/` (Zig's name; the
+2026-10-21 text moved `std/arena` there with a re-export, moot since it was
+deleted 2026-10-24). Each allocator is an `Allocator` value made by a
+`.allocator()` method on a state value, as the deleted `Arena` did; each is usable with `with_allocator`,
 `new_in`/`with_capacity_in`, and `Allocator.alloc`/`free` under
 `pragma(Pragma.AllowUnsafe)`. The owner prefix (16 bytes, or `max(16,
 align)` under version 2) stays on every block an explicit allocator hands
@@ -164,20 +175,19 @@ Thread-safe by construction (the kernel's). One module-level value,
 
 A bump allocator over a caller-provided region: `FixedBufferAllocator.new(buf : &mut Array(u8, N))`
 or over a raw slice under `AllowUnsafe`. `free` reclaims only the most
-recent block (Zig's rule, and `std/arena`'s today); `reset()` is the
+recent block (Zig's rule, and the deleted `std/arena`'s); `reset()` is the
 checked reset of §2. `thread_safe_allocator()` is Zig's atomic-bump
-variant. Today's `std/arena` is this allocator over a region it
-`malloc`s itself, plus the generation-stamped state table that makes a
-stale handle panic instead of touching freed memory; that table is kept
-(it is what makes the handle rules checkable without lifetimes) and the
-region becomes an argument.
+variant. The deleted `std/arena` was this allocator over a region it
+`malloc`ed itself, plus a generation-stamped state table that made a stale
+handle panic instead of touching freed memory. A1 writes the allocator
+new; whether it needs such a table (or an origin, §4) is decided there.
 
 `StackFallbackAllocator(N)`: an inline `Array(u8, N)` served first, a
 fallback allocator after; Zig's `stackFallback(N, fallback)`. In Yo the
 buffer lives in the owner's value (a struct field), so the allocator state
 is move-only and the `Allocator` value it hands out is valid until the
-state's last use — a place rule the current scope design already has for
-`Arena` handles (a stale `Allocator` reaches a released state and panics).
+state's last use — the place rule the deleted `Arena` handles had (a stale
+`Allocator` reached a released state and panicked).
 
 ### 3.3 `ArenaAllocator`
 
@@ -185,11 +195,11 @@ Zig's: a linked list of chunks from a backing allocator, growing
 geometrically; `reset(.free_all | .retain_capacity | .retain_with_limit)`;
 `deinit` frees every chunk. Yo's: the same chunk list over any
 `Allocator` (this lands D8's "explicit backing-allocator parameter"), the
-same three reset modes, and the §2 rule on `reset` and `deinit`. The
-bookkeeping that today's `Arena` keeps per block (the live count, the
-most-recent-block offset for in-place `realloc`) carries over per chunk.
+same three reset modes, and the §2 rule on `reset` and `deinit`. It keeps
+per chunk the bookkeeping the deleted `Arena` kept per block (the live
+count, the most-recent-block offset for in-place `realloc`).
 Cross-thread: an `Arc` placed in an arena may be dropped on another
-thread, so the arena stays self-locking (D3), as today.
+thread, so the arena is self-locking (D3), as the deleted one was.
 
 ### 3.4 `CAllocator`
 
@@ -359,22 +369,23 @@ The first exists from phase A3; the second from A4.
 | Phase | Lands | Needs | Gate |
 | --- | --- | --- | --- |
 | A0 | the allocator interface, version 2 (alignment; sized `free`) — already queued in `VALUES_BY_DEFAULT.md` §6 after V2b; this plan adds nothing to it | V2b | that item's tests |
-| A1 | `std/heap/`: `PageAllocator`, `FixedBufferAllocator` (+ the thread-safe variant, `StackFallbackAllocator`), `CAllocator`, `FailingAllocator`, `LoggingAllocator`, `ThreadSafeAllocator`; `std/arena` moves and becomes `FixedBufferAllocator` over a heap region | A0 for page alignment (the rest can land on version 1 with the 16-byte contract) | each allocator's unit tests; every existing arena and counting-allocator test; a cli-case under `--allocator fixed` using `CAllocator` |
+| A1 | `std/heap/`: `PageAllocator`, `FixedBufferAllocator` (+ the thread-safe variant, `StackFallbackAllocator`), `CAllocator`, `FailingAllocator`, `LoggingAllocator`, `ThreadSafeAllocator`; `FixedBufferAllocator` is new (`std/arena` was deleted 2026-10-24, nothing moves) | A0 for page alignment (the rest can land on version 1 with the 16-byte contract) | each allocator's unit tests; every existing counting-allocator test; a cli-case under `--allocator fixed` using `CAllocator` |
 | A2 | `DebugAllocator`, `--allocator debug`, `yo test --allocator debug` (Z11) | Z4 for sites, optional | the leak gates in the tree switch to it; a double-free and a size-mismatch abort test |
 | A3 | `ArenaAllocator` over a backing allocator with the three reset modes; `TlsfAllocator` over a region | A1 | reset-while-live panics; `Arc` dropped on another thread into an arena chunk; TLSF's stress harness over a page block |
-| A4 | the real arena (§4): `std/heap/bump.yo`, `alloc` with `TrivialDrop`, `alloc_list`, `alloc_dropping` | REFERENCES_AND_ORIGINS N2 | a dangling arena handle is E0911 at `reset`, at drop and at return; a cycle among arena values frees with the chunks; a tokenizer benchmark against `std/arena` and the global heap, numbers recorded here |
+| A4 | the real arena (§4): `std/heap/bump.yo`, `alloc` with `TrivialDrop`, `alloc_list`, `alloc_dropping` | REFERENCES_AND_ORIGINS N2 | a dangling arena handle is E0911 at `reset`, at drop and at return; a cycle among arena values frees with the chunks; a tokenizer benchmark against A3's `ArenaAllocator` and the global heap, numbers recorded here |
 | A5 | `SmpAllocator`, go/no-go | A3, CP0's counters | ≥ mimalloc on the compiler's allocation profile, or a freestanding target that needs it; otherwise archived with its numbers |
 | A6 | `MemoryPool(T)` | A0 | header-free create/destroy; pool exhaustion returns `AllocError` |
 
 Each phase is one PR, Generation A where the compiler is touched (A2's
-flag; the `std/arena` move's re-export), library-only otherwise. Docs:
+flag), library-only otherwise. Docs:
 `docs/en-US/EXPLICIT_ALLOCATORS.md` and `MEMORY_SAFETY.md` gain a catalog
 section, in both languages, per phase.
 
 ## 6. Open questions, with positions
 
-- **`std/heap/` or flat `std/`?** Position: `std/heap/`, Zig's name, with
-  `std/arena` re-exported for one seed.
+- **`std/heap/` or flat `std/`?** Position: `std/heap/`, Zig's name. (The
+  2026-10-21 text re-exported `std/arena` for one seed; moot since its
+  deletion on 2026-10-24.)
 - **Should `with_allocator` scopes accept the real arena?** *(Moot since
   2026-10-24: the scope is deleted, `ALLOCATOR_PLACEMENT.md`; the
   position below still holds for the `alloc :` argument.)* No: the scope

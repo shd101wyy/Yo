@@ -172,7 +172,7 @@ kept := ArrayList(i32).from(arr.clone());
 ```yo
 { with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
-// `a` is any `Allocator` (a parameter, `Allocator.global()`, your own vtable).
+// `a` is any `Allocator` value: `Allocator.global()`, or your own vtable.
 list := ArrayList(i32).new_in(a); // the buffer lives in `a`
 p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // RC objects created inside
 ```

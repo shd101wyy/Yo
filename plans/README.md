@@ -175,8 +175,8 @@ prelude's `box`/`rc`/`arc` with `Box.new`/`Rc.new`/`Arc.new` through one
 later.
 [`ALLOCATOR_PLACEMENT`](backlog/ALLOCATOR_PLACEMENT.md) (maintainer,
 2026-10-24, adopting the advisor's verdict) deletes the thread allocation
-scope (`with_allocator`, `current_allocator`, `Arena.scoped` and the
-codegen thread-local): a creation without `alloc :` goes to the global
+scope (`with_allocator`, `current_allocator`, `Arena.scoped` — gone with
+`std/arena`, deleted 2026-10-24 — and the codegen thread-local): a creation without `alloc :` goes to the global
 allocator, placement is the one defaulted `alloc : Option(Allocator)`
 argument at the creation site (containers included, so
 `new_in`/`with_capacity_in` go), `clone()` still lands where its source

@@ -141,11 +141,9 @@ main :: (fn() -> unit)({
 
 Point :: ref(struct(x : i32, y : i32));
 
-// `a` 是任意 `Allocator`：一个参数、`Allocator.global()` 或你自己的分配器。
-place :: (fn(a : Allocator) -> unit)({
-  p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // 放在 `a` 里
-  xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
-});
+a := Allocator.global(); // 或任何其他 `Allocator` 值，比如你自己的分配器
+p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // 放在 `a` 里
+xs := ArrayList(i32).new_in(a); // 缓冲区在 `a` 里
 ```
 
 - **放置跟随作用域。** `with_allocator(a, f)` 在 `f` 运行期间把 `a` 设为本线程的当前分配器，`f` 调用的所有函数也受影响。它放置的是 `ref` 结构体和枚举、`rc`、`arc`、`dyn` 盒子，以及在其中创建的任务状态机。运行时自己的簿记仍使用全局分配器。可变容器同样跟随作用域：在作用域内创建的 `ArrayList.new()`、`HashMap.new()`、`Deque.new()` 以及基于它们的类型（`HashSet`、`StringBuilder`、`String`）把缓冲区放在 `a` 中，缓冲区之后的每次增长都留在创建它的分配器里。在作用域之外，或需要显式指定分配器时，使用 `new_in` / `with_capacity_in`。

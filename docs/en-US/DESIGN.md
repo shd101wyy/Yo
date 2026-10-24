@@ -1234,7 +1234,7 @@ RC decides when an object dies; an explicit allocator decides where it lives. `w
 { with_allocator } :: import("std/allocator");
 Point :: ref(struct(x : i32, y : i32));
 
-// `a` is any `Allocator`, for example a parameter.
+// `a` is any `Allocator` value, e.g. `Allocator.global()`.
 p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // placed in `a`
 p2 := Point(x : i32(1), y : i32(2)); // outside the scope: the global allocator
 ```

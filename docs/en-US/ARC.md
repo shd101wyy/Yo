@@ -85,7 +85,7 @@ Unlike `box`, `arc` makes `a` the current scope while the cell is allocated, so
 allocator" there):
 
 ```yo
-// `alloc_a` is any `Allocator`, for example a parameter.
+// `alloc_a` is any `Allocator` value, e.g. `Allocator.global()`.
 shared := arc(i32(42), alloc : .Some(alloc_a));
 ```
 

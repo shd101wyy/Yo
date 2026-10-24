@@ -141,11 +141,9 @@ An explicit allocator decides **where** a block lives. Reference counting still 
 
 Point :: ref(struct(x : i32, y : i32));
 
-// `a` is any `Allocator`: a parameter, `Allocator.global()`, or your own.
-place :: (fn(a : Allocator) -> unit)({
-  p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // placed in `a`
-  xs := ArrayList(i32).new_in(a); // the buffer lives in `a`
-});
+a := Allocator.global(); // or any other `Allocator` value, such as your own
+p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // placed in `a`
+xs := ArrayList(i32).new_in(a); // the buffer lives in `a`
 ```
 
 - **Placement follows the scope.** `with_allocator(a, f)` makes `a` the current allocator on this thread while `f` runs, including in everything `f` calls. It places `ref` structs and enums, `rc`, `arc`, `dyn` boxes and the state machines of tasks created there. The runtime's own bookkeeping stays on the global allocator. The mutable containers follow the scope too: `ArrayList.new()`, `HashMap.new()`, `Deque.new()` and the types built on them (`HashSet`, `StringBuilder`, `String`) created inside the scope keep their buffers in `a`, and every growth of a buffer stays with the allocator it was created in. Outside a scope, or to pick an allocator explicitly, use `new_in` / `with_capacity_in`.

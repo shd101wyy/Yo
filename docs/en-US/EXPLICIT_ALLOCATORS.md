@@ -42,10 +42,11 @@ and outside an allocation scope; only where its bytes come from changes.
 
 ## Quick start
 
-A function that takes an `Allocator` places what it builds there; the caller
-chooses the allocator. `Allocator.global()` is the global allocator as such a
-value, and [Writing your own allocator](#writing-your-own-allocator) shows a
-counting one.
+An `Allocator` is a value. `Allocator.global()` is the global allocator as
+such a value, and [Writing your own allocator](#writing-your-own-allocator)
+shows a counting one; the code below places the same way with either. (A
+function parameter of type `Allocator` needs `pragma(Pragma.AllowUnsafe);`
+today, because the value carries raw pointers.)
 
 ```yo
 { println } :: import("std/fmt");
@@ -54,23 +55,22 @@ counting one.
 
 Point :: ref(struct(x : i32, y : i32));
 
-build :: (fn(a : Allocator) -> usize)({
-  // Every RC object and container buffer created in the scope comes from `a`.
-  p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
-  xs := with_allocator(a, () => {
-    ys := ArrayList(i32).new(); // follows the scope
-    ys.push(p.x);
-    ys
-  });
-  // Outside a scope, name the allocator explicitly.
-  zs := ArrayList(i32).new_in(a);
-  zs.push(p.y);
-  xs.len() + zs.len()
-  // `p`, `xs` and `zs` die here, and their blocks go back to `a`.
-});
-
 main :: (fn() -> unit)({
-  println(`${build(Allocator.global())}`); // 2
+  a := Allocator.global();
+  {
+    // Every RC object and container buffer created in the scope comes from `a`.
+    p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
+    xs := with_allocator(a, () => {
+      ys := ArrayList(i32).new(); // follows the scope
+      ys.push(p.x);
+      ys
+    });
+    // Outside a scope, name the allocator explicitly.
+    zs := ArrayList(i32).new_in(a);
+    zs.push(p.y);
+    println(`${xs.len() + zs.len()}`); // 2
+  };
+  // `p`, `xs` and `zs` are gone, so their blocks went back to `a`.
 });
 export(main);
 ```
@@ -108,7 +108,7 @@ handle. Yo does not wrap a value into an `Option`, so the caller writes
 `.Some(...)`:
 
 ```yo
-// `a` is any `Allocator`, for example a parameter.
+// `a` is any `Allocator` value.
 b := box(i32(1), alloc : .Some(a));
 r := rc(i32(2), alloc : .Some(a));
 c := arc(i32(3), alloc : .Some(a));

@@ -1195,7 +1195,7 @@ s3 := s2; // RC = 3
 { with_allocator } :: import("std/allocator");
 Point :: ref(struct(x : i32, y : i32));
 
-// `a` 是任意 `Allocator`，例如一个参数。
+// `a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
 p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // 放在 `a` 里
 p2 := Point(x : i32(1), y : i32(2)); // 作用域之外：全局分配器
 ```

@@ -66,7 +66,7 @@ same := Arc(i32)(i32(42));
 分配器”）：
 
 ```yo
-// `alloc_a` 是任意 `Allocator`，例如一个参数。
+// `alloc_a` 是任意 `Allocator` 值，例如 `Allocator.global()`。
 shared := arc(i32(42), alloc : .Some(alloc_a));
 ```
 

@@ -35,9 +35,10 @@ Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必
 
 ## 快速上手
 
-接受 `Allocator` 参数的函数把它构建的东西放在那里，由调用者选择分配器。
-`Allocator.global()` 是作为这种值的全局分配器；[编写自己的分配器](#编写自己的分配器)
-给出了一个计数分配器。
+`Allocator` 是一个值。`Allocator.global()` 是作为这种值的全局分配器，
+[编写自己的分配器](#编写自己的分配器)给出了一个计数分配器；下面的代码对两者的放置
+方式相同。（类型为 `Allocator` 的函数参数目前需要 `pragma(Pragma.AllowUnsafe);`，
+因为这个值携带裸指针。）
 
 ```yo
 { println } :: import("std/fmt");
@@ -46,23 +47,22 @@ Yo 不检查的是分配器自身的生命周期：它的上下文和 vtable 必
 
 Point :: ref(struct(x : i32, y : i32));
 
-build :: (fn(a : Allocator) -> usize)({
-  // 作用域内创建的每个 RC 对象和容器缓冲区都来自 `a`。
-  p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
-  xs := with_allocator(a, () => {
-    ys := ArrayList(i32).new(); // 跟随作用域
-    ys.push(p.x);
-    ys
-  });
-  // 在作用域外，显式指定分配器。
-  zs := ArrayList(i32).new_in(a);
-  zs.push(p.y);
-  xs.len() + zs.len()
-  // `p`、`xs` 和 `zs` 在这里消失，它们的块回到 `a`。
-});
-
 main :: (fn() -> unit)({
-  println(`${build(Allocator.global())}`); // 2
+  a := Allocator.global();
+  {
+    // 作用域内创建的每个 RC 对象和容器缓冲区都来自 `a`。
+    p := with_allocator(a, () => Point(x : i32(3), y : i32(4)));
+    xs := with_allocator(a, () => {
+      ys := ArrayList(i32).new(); // 跟随作用域
+      ys.push(p.x);
+      ys
+    });
+    // 在作用域外，显式指定分配器。
+    zs := ArrayList(i32).new_in(a);
+    zs.push(p.y);
+    println(`${xs.len() + zs.len()}`); // 2
+  };
+  // `p`、`xs` 和 `zs` 都已消失，它们的块已经回到 `a`。
 });
 export(main);
 ```
@@ -96,7 +96,7 @@ export(main);
 不会把值自动包装成 `Option`，所以调用方要写 `.Some(...)`：
 
 ```yo
-// `a` 是任意 `Allocator`，例如一个参数。
+// `a` 是任意 `Allocator` 值。
 b := box(i32(1), alloc : .Some(a));
 r := rc(i32(2), alloc : .Some(a));
 c := arc(i32(3), alloc : .Some(a));

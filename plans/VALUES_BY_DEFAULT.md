@@ -1107,6 +1107,10 @@ and every free routes through the owner prefix.
     can move a captured value out.
     - **(2026-10-24)** Moot: `scoped` and `with_allocator` are deleted
       (`plans/backlog/ALLOCATOR_PLACEMENT.md` B1).
+  - **(2026-10-24, std/arena deleted by the maintainer)** std ships no
+    arena until `plans/backlog/ZIG_STYLE_ALLOCATORS.md` A1/A3; the rule of
+    this bullet (blocks stay where they were placed, `clone_in` moves them
+    out) is unchanged, and the V2b test below uses a counting allocator.
 - **Placing one cell** uses the constructors' `alloc` parameter (§3.2), an
   ordinary defaulted parameter rather than D2's rejected `alloc_in`
   keyword.
@@ -1128,6 +1132,9 @@ and every free routes through the owner prefix.
     the incarnation that tells a dead arena's handle and `Allocator` copies
     from the next arena reusing the state
     (`issues/fixed/a-deinit-arenas-handle-aliases-the-next-arena-that-reuses-its-state.md`).
+  - **(2026-10-24)** Moot: `std/arena` is deleted (maintainer decision),
+    so the exception is gone; `ZIG_STYLE_ALLOCATORS.md`'s allocators are
+    written on V3's terms.
 - **Owner bits.** Cell headers keep the `__YO_RC_TAG` bit. When V2b gives
   the collections private buffers, the
   per-container owner bits (the capacity word, `_tombstones`, the
@@ -5460,6 +5467,7 @@ lands after V1 step 2, because its resource cells are the unique `Box`
   - **except `Arena` (2026-10-09, std/arena kept after review):** its state
     is pooled and outlives the handle, so it stays a move-only
     `struct(_state : *_ArenaState, _gen : usize)` with `Dispose` (§3.11);
+    **(2026-10-24)** moot, `std/arena` is deleted;
   - and for the sockets, `TlsStream`, `HttpClient`, `Child*`, `Thread`,
     `ThreadPool`, and the RAII guards (which hold `*(_State)` into the
     cell).
@@ -6716,7 +6724,9 @@ compiler; the std shapes are plain structs the seed lowers):
   - Tests: a list built in an arena, relocated out with
     `clone_in(Allocator.global())`, after which `Arena.deinit` succeeds
     (2026-10-09, std/arena kept after review: a `clone()` under a global
-    scope stays in the arena, §3.11).
+    scope stays in the arena, §3.11). **(2026-10-24)** `std/arena` is
+    deleted: the list is built in a counting allocator defined in the test,
+    whose count is zero once the source is dropped.
   - **As-built plan (2026-10-14, branch feat/vbd-v2b-unique-buffers).**
     - **Unique buffers and the explicit-copy kind are one step.** Measured
       with the v0.2.62 seed on a value
