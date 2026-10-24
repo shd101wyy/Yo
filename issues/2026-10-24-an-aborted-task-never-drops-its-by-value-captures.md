@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a spawned `io.async` task that owns a value through a by-value capture (`io.async({ v }(io : Io) => …)`) and is aborted while suspended never drops it: the value leaks and its `Drop` never runs. Since V3 a std resource moved into a task is such a value, so aborting a task that owns a `UnixListener`, `TcpStream` or `File` leaks the descriptor until the process exits.
 
-**Status:** open. Found 2026-10-24 by the leak-verdict run of `tests/net/unix.test.yo` ("aborting a task whose accept is pending releases it") on `feat/v3-std-cell-free-resources`, where the spawned server task now owns its listener. Reproduced without std resources on develop (`f271ed005` binary with develop's std), on the v0.2.68 seed and on the branch: the same 236-byte LeakSanitizer report on all three, so V3 only made it visible. CI runs that test with `YO_TEST_LEAK_VERDICT=0`, so it stays green there.
+**Status:** open. Found 2026-10-24 by the leak-verdict run of `tests/net/unix.test.yo` ("aborting a task whose accept is pending releases it") on `feat/v3-std-cell-free-resources`, where the spawned server task now owns its listener. Reproduced without std resources on develop (`f271ed005` binary with develop's std), on the v0.2.68 seed and on the branch: the same 236-byte LeakSanitizer report on all three, so V3 only made it visible. That unix test already leaked on develop under the leak verdict (132 bytes in 2 allocations, `f271ed005`); on the branch it leaks 196 bytes in 3, the extra 64 being the listener state the task now owns. CI runs that test with `YO_TEST_LEAK_VERDICT=0`, so it stays green there.
 
 ## Reproducer
 
