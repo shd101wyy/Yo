@@ -80,9 +80,12 @@ cli-case whose golden shows all four lines. The listing counts in
 ## Fix
 
 Fixed 2026-10-24 with P8 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.4).
-`_ic_migrate_site` keeps a unique-buffer copy whose type has no `Clone` and
-sets `ExplicitCopySite.lacks_clone`. `_run_migrate_explicit_copy`
-(`src/main.yo`) lists it after the generic-body checks, ahead of every
+`_ic_migrate_site` keeps a unique-buffer copy whatever its type, with the
+type itself (`ExplicitCopySite.ty_value`). `_run_migrate_explicit_copy`
+(`src/main.yo`) asks that type for `Clone` once the run is evaluated (asking
+at record time was order-dependent:
+`issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md`),
+and lists a clone-less copy after the generic-body checks, ahead of every
 reason a `.clone()` could answer. A copy in a generic body keeps the
 generic-body reason, since its type usually lacks `Clone` only because a
 type parameter is open. A copy out of a dying temporary keeps that reason,
