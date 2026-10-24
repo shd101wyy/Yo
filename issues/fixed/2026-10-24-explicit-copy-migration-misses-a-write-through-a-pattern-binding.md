@@ -46,13 +46,16 @@ count the push as a write of `entry`.
 ## Fix
 
 While the migration runs, a binding records a flow from the variable its
-scrutinee or right-hand side is a place of (`_ic_place_root_decl`) into the
-binding (`record_copy_flow_decl`): in `evaluate_match`
+scrutinee or right-hand side is a place of (`_ic_binding_source_decl`) into
+the binding (`record_copy_flow_decl`): in `evaluate_match`
 (`src/evaluator/exprs/match.yo`) for each arm's bindings, and in
 `handle_member_destructuring` (`src/evaluator/exprs/destructuring_assignment.yo`)
 for each bound name. A `&mut` match's binding is the scrutinee's place, so
 its flow is recorded both ways. The guard already follows flows after the
-copy, so the push through the binding is a write of `entry`.
+copy, so the push through the binding is a write of `entry`. A call's own
+result is a place of no variable, and neither is a variable of another
+module: a `for` expansion binds the user's element from the template's
+iterator, whose `next()` writes advance it and touch no element.
 
 Test: `tests/cli-cases/fix-migrate-explicit-copy-pattern-binding`. A by-value match, a `&mut`
 match, a record pattern and a `:=` destructuring are listed. A binding that
