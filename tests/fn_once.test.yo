@@ -423,7 +423,9 @@ test("FnOnce: a closure field's call result is a temporary", {
   before := g_once_disposed;
   {
     t := _OnceTok(n : i32(3));
-    h := _OnceCbHolder(cb : dyn({ t }(x : i32) => (x + t.n)));
+    h := _OnceCbHolder(
+      cb : dyn({ t }(x : i32) => (x + t.n))
+    );
     assert(h.cb(i32(1)) == (i32(1) + _once_eat_holder(h)), "the operand lends nothing of h");
   };
   assert(g_once_disposed == (before + i32(1)), "the holder's closure released its capture once");
