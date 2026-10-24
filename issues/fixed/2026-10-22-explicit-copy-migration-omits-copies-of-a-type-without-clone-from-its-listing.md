@@ -82,8 +82,11 @@ cli-case whose golden shows all four lines. The listing counts in
 Fixed 2026-10-24 with P8 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.4).
 `_ic_migrate_site` keeps a unique-buffer copy whose type has no `Clone` and
 sets `ExplicitCopySite.lacks_clone`. `_run_migrate_explicit_copy`
-(`src/main.yo`) lists it after the `Clone`-impl check, ahead of every other
-reason, because no other reason can make it rewritable:
+(`src/main.yo`) lists it after the generic-body checks, ahead of every
+reason a `.clone()` could answer. A copy in a generic body keeps the
+generic-body reason, since its type usually lacks `Clone` only because a
+type parameter is open. A copy out of a dying temporary keeps that reason,
+with "borrow it by hand" in place of "spell `.clone()`":
 
 ```text
 fix: main.yo:14:12: `xs` is copied and `ArrayList(F)` has no `Clone`, so `.clone()` cannot spell the copy; left as written (move it, borrow it, or give the type `Clone`)

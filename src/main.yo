@@ -3326,13 +3326,6 @@ _run_migrate_explicit_copy :: (
         },
         .None => ()
       );
-      // A copy of a type without `Clone` (`ExplicitCopySite.lacks_clone`):
-      // unique buffers still make it E0901, and no `.clone()` spells it.
-      if(st.lacks_clone, {
-        n_skipped = (n_skipped + usize(1));
-        println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
-        continue;
-      });
       // A copy out of a temporary that dies right after it (a field or an
       // element of a call's owned result, `_ic_dying_temp_source`) is
       // usually a move. Listed, so a value read again (a genuine copy) is
@@ -3341,7 +3334,10 @@ _run_migrate_explicit_copy :: (
         dying.get(`${st.row.to_string()}:${st.col.to_string()}`),
         .Some(what) => {
           n_skipped = (n_skipped + usize(1));
-          println(`fix: ${at}: \`${st.expect}\` is ${what} that dies after the copy, so the copy is usually a move; left as written (spell \`.clone()\` by hand if the value is read again)`);
+          // A type without `Clone` cannot take `.clone()`: a value read
+          // again is borrowed instead.
+          dying_hint := if(st.lacks_clone, String.from("borrow it by hand if the value is read again"), String.from("spell `.clone()` by hand if the value is read again"));
+          println(`fix: ${at}: \`${st.expect}\` is ${what} that dies after the copy, so the copy is usually a move; left as written (${dying_hint})`);
           continue;
         },
         .None => ()
@@ -3354,6 +3350,15 @@ _run_migrate_explicit_copy :: (
       if(in_generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied in a generic body, where \`.clone()\` would demand \`Clone\` of every instantiation; left as written`);
+        continue;
+      });
+      // A copy of a type without `Clone` (`ExplicitCopySite.lacks_clone`):
+      // unique buffers still make it E0901, and no `.clone()` spells it. A
+      // generic body's copy is listed as one above: its type usually lacks
+      // `Clone` only because a parameter is open.
+      if(st.lacks_clone, {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied and \`${st.ty}\` has no \`Clone\`, so \`.clone()\` cannot spell the copy; left as written (move it, borrow it, or give the type \`Clone\`)`);
         continue;
       });
       // A `return` of a place rooted in a borrow, a module-level binding or
