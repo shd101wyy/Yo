@@ -287,6 +287,19 @@ Useful flags:
 
 - `yo public-safe-report [path]` — flags public stdlib APIs that leak `*(T)` in their signatures. Used to keep the safe surface clean as the stdlib evolves.
 
+### `--allocator debug`: leaks and heap misuse at run time
+
+The unsafe surface can still free a block twice, free a pointer it never allocated, write through a dangling pointer or forget a block. `--allocator debug` (`yo compile`, `yo test`, or `allocator : AllocatorKind.Debug` in `build.yo`) runs the program on a tracking allocator over the system heap that catches these on every platform, including the ones where AddressSanitizer is unavailable:
+
+- **A double free, or a free of a pointer it never handed out, aborts** with `debug allocator: double free: free of block #N (S bytes), already freed`, or with the pointer named. The allocator looks a pointer up in its own table before it reads anything around it, so a bad pointer never crashes the check itself.
+- **A freed block is poisoned and quarantined** instead of reused (up to 64 MiB of freed payload; the most recently freed block always stays, whatever its size). A write through a dangling pointer is reported when the block leaves the quarantine or at exit: `block #N (S bytes) was written after it was freed (first changed byte at offset K)`. Once a block has left the quarantine its memory is back with the system, so a second free of it is reported as a pointer the allocator `did not hand out (or whose block already left the quarantine)` rather than as a double free.
+- **Fresh blocks are filled with `0xAA`**, so a read of memory nobody initialized shows a recognizable pattern rather than a lucky zero.
+- **The exit report lists every leaked block.** It always prints `debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`. Module globals are never dropped, so a block still reachable from one, or from the runtime's own process-lifetime state such as the worker pool (a conservative scan of those roots and of what they reach), is counted as `still reachable from module globals or runtime state`, not leaked. Up to 32 leaked blocks follow, by allocation number. When `main` returned normally and a block leaked, the process exits with status 23 and `leak check failed`.
+- **Some exits list the live blocks without judging them.** An `exit()` from inside the program skips every drop. A thread the program started (`Thread.spawn` or a pool worker) that is still running owns blocks only its stack reaches, which the scan cannot see: the report first waits up to one second for the program's threads to finish (by then the pool has told its idle workers to stop), and if one is still running it says so and does not judge. `YO_DEBUG_ALLOC_VERDICT=0` turns the verdict off.
+- **`yo test --allocator debug` fails a test that leaks.** Each test runs in its own process, so a test whose body returns with a block still live fails as `Memory leak detected`. `YO_TEST_LEAK_VERDICT=0` stages this verdict off too (the runner passes it to the test binary as `YO_DEBUG_ALLOC_VERDICT=0`), and a `pragma(Pragma.NeedsLeakVerdict)` file runs under `--allocator debug` even where no AddressSanitizer binary is built.
+
+A block is named by its allocation number; set `YO_DEBUG_ALLOC_TRAP=<n>` and the program aborts at allocation `n`, so a debugger shows where it came from (single-threaded programs number their allocations deterministically). The allocator does not yet check that a free names the block's size (that needs the sized `free` of the allocator interface's next version), and it records neither allocation sites nor type names. It does not name arenas either: an `Arena` that is never `deinit`ed shows up as anonymous leaked blocks, while `--allocator fixed --debug-heap` lists it by name.
+
 ## FFI
 
 User code cannot declare `extern(...)` or `c_include(...)`. To call a C function:

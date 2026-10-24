@@ -510,17 +510,9 @@ ${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
 `
   );
   if(debug_heap, {
+    em.emit_string_line(emit_heap_format_size("__yo_fixed_format_size"));
     em.emit_string_line(
       `
-static void __yo_fixed_format_size(char* buf, size_t n, size_t bytes) {
-  double v = (double)bytes;
-  const char* unit = "B";
-  if (v >= 1073741824.0) { v /= 1073741824.0; unit = "GiB"; }
-  else if (v >= 1048576.0) { v /= 1048576.0; unit = "MiB"; }
-  else if (v >= 1024.0) { v /= 1024.0; unit = "KiB"; }
-  snprintf(buf, n, "%.1f %s", v, unit);
-}
-
 // Leak oracle (--debug-heap): reports peak/live at exit. Non-zero live at
 // exit is the portable leak signal (no ASan, no mimalloc stats needed).
 static void __yo_fixed_heap_report(void) {
@@ -539,4 +531,18 @@ static void __yo_fixed_heap_report(void) {
     );
   });
 });
-export(emit_fixed_allocator_defines, emit_fixed_allocator_impl);
+/// The C helper both leak reports use to print a byte count ("1.5 KiB"):
+/// the fixed arm's `--debug-heap` report and the debug allocator's
+/// (`allocator_debug.yo`).
+emit_heap_format_size :: (fn(name : str) -> String)(
+  `
+static void ${name}(char* buf, size_t n, size_t bytes) {
+  double v = (double)bytes;
+  const char* unit = "B";
+  if (v >= 1073741824.0) { v /= 1073741824.0; unit = "GiB"; }
+  else if (v >= 1048576.0) { v /= 1048576.0; unit = "MiB"; }
+  else if (v >= 1024.0) { v /= 1024.0; unit = "KiB"; }
+  snprintf(buf, n, "%.1f %s", v, unit);
+}`
+);
+export(emit_fixed_allocator_defines, emit_fixed_allocator_impl, emit_heap_format_size);

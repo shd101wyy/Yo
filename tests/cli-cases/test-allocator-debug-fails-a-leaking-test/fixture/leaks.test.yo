@@ -1,0 +1,12 @@
+// `yo test --allocator debug`: the leak check runs when each test body
+// returns, so the test that frees its block passes and the one that keeps a
+// block live fails.
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("std/allocator");
+test("frees its block", {
+  p := unsafe(GlobalAllocator.malloc(usize(48)));
+  unsafe(GlobalAllocator.free(p));
+});
+test("keeps its block live", {
+  _p := unsafe(GlobalAllocator.malloc(usize(48)));
+});

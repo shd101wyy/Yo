@@ -1288,13 +1288,22 @@ static void __yo_process_cleanup(void) {
     );
   });
   em.emit_string_line(`}`);
+  // `--allocator debug` (src/codegen/c/allocator_debug.yo): the list of live
+  // threads' GC states is a root of the exit report's reachability scan. A
+  // detached pool worker may still be running when the report runs, and what
+  // its state tracks is freed when that thread exits, not leaked.
+  gc_root_line := if(
+    context.base.allocator == "debug",
+    String.from("  __yo_debug_alloc_root(&__yo_all_thread_gcs, sizeof(__yo_all_thread_gcs));\n"),
+    String.new()
+  );
   if(is_target_windows(&ti), {
     em.emit_string_line(
       `static INIT_ONCE __yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
 static BOOL CALLBACK __yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
   (void)InitOnce; (void)Parameter; (void)Context;
   InitializeCriticalSection(&__yo_thread_list_mutex);
-  atexit(__yo_process_cleanup);
+${gc_root_line}  atexit(__yo_process_cleanup);
   return TRUE;
 }
 
@@ -1311,7 +1320,7 @@ static void __yo_init_process_cleanup(void) {
   // InitOnceExecuteOnce; this is the POSIX/wasm equivalent.
   static _Atomic bool cleanup_initialized = false;
   if (atomic_exchange_explicit(&cleanup_initialized, true, memory_order_acq_rel)) return;
-  atexit(__yo_process_cleanup);
+${gc_root_line}  atexit(__yo_process_cleanup);
 }`
     );
   });

@@ -1719,6 +1719,11 @@ jobs:
           # (shard 0 of a sharded leg, or the whole unsharded leg).
           if [ -z "${{ matrix.shards }}" ] || [ "${{ matrix.shard }}" = "0" ]; then
             "$YO" test ./std --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+            # `--allocator debug` on this OS: the suite above runs the file
+            # under the default allocator, where its fault checks are inert.
+            # Its children judge their own leaks whatever
+            # YO_TEST_LEAK_VERDICT says (plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11).
+            "$YO" test ./tests/debug_allocator.test.yo --allocator debug --bail --verbose --c-compiler clang $TEST_SAN_FLAG
           fi
 
   # Stage 1 built ONCE per battery and shared. Before this job, five Linux jobs

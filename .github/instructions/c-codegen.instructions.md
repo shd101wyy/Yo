@@ -502,6 +502,30 @@ Rules for codegen code and for the evaluator analyses codegen calls late
   walker, multi-threaded hammer); keep that harness in sync when touching the
   algorithm. `--heap-size <n>[K|M|G]` (fixed only, 64K..4G) sizes the region;
   `--debug-heap` (fixed only) prints peak/live-at-exit at process exit.
+- **`--allocator debug`** is a tracking allocator over the system heap
+  (`plans/backlog/ZIG_ADOPTION_CANDIDATES.md` Z11), emitted by
+  `src/codegen/c/allocator_debug.yo` with the same header/code split and one
+  family (`__yo_aligned_free` IS `__yo_debug_free`). Each block carries a
+  header (system pointer, size, allocation number, address-keyed canary),
+  sits on a live list and is registered in a block table keyed by payload
+  address: free/realloc consult the table BEFORE reading the header, so a
+  foreign or already-evicted pointer never makes the check itself crash.
+  Freed blocks are poisoned 0xDD and quarantined (64 MiB FIFO; the newest
+  freed block always stays). `main` calls `__yo_debug_alloc_init()` first so its atexit report
+  runs LAST, after the runtime's own cleanup handlers; the body marks a
+  normal return with `__yo_debug_alloc_main_returned()`, and only then does a
+  leaked block exit with status 23 (`yo test` names it a leak). Module
+  globals are never dropped, so `__yo_main_module_init` registers each one
+  with `__yo_debug_alloc_root` and the report's conservative scan counts what
+  they still reach as reachable, not leaked; a runtime static that holds heap
+  for the life of the process (the worker array, the GC-state list) is
+  registered the same way. A running thread's stack is NOT a root: the
+  parallelism runtime counts the program's threads
+  (`__yo_debug_alloc_thread_enter` before `__yo_raw_thread_create`,
+  `__yo_debug_alloc_thread_leave` as the entry's last statement), the report
+  waits up to 1 s for them, and with one still running it lists without
+  judging. A new thread-creation site must call the pair too. The program
+  reads the mode through `__yo_debug_alloc_on()` (extern "Yo").
 
 ### Out-of-memory policy (all allocators)
 

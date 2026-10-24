@@ -169,6 +169,7 @@ Shared libraries compile with `-shared -fPIC` and produce `lib<name>.so` (Linux)
 | `AllocatorKind.Mimalloc` | High-performance allocator (mimalloc)     |
 | `AllocatorKind.System`   | The platform's system allocator (default) |
 | `AllocatorKind.Fixed`    | General-purpose TLSF allocator over ONE statically-sized region (see below) |
+| `AllocatorKind.Debug`    | Tracking allocator over the system one: aborts on a double free, fails a run that leaks (see below) |
 
 `AllocatorKind.Fixed` serves every allocation out of a single statically-sized
 region in `.bss` — no libc heap (the first building block of the
@@ -180,6 +181,15 @@ makes OOM a reproducible test input instead of unreachable overcommit. The
 allocator is thread-safe (the parallelism runtime allocates from worker
 threads), and `yo compile --debug-heap` turns it into a portable leak oracle
 by reporting live blocks at process exit.
+
+`AllocatorKind.Debug` is `yo compile --allocator debug`, the allocator for
+finding memory bugs: a double free or a free of a pointer it never handed out
+aborts, freed blocks are poisoned and quarantined so a write after free is
+reported, and the exit report lists every leaked block. A run whose
+`main` returns with a leaked block (one no module global still reaches)
+exits with status 23, so `yo build run` and
+`yo test --allocator debug` fail on a leak. See
+[Memory Safety](MEMORY_SAFETY.md#--allocator-debug-leaks-and-heap-misuse-at-run-time).
 
 ### Cycle collector
 

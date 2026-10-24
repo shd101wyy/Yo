@@ -254,6 +254,44 @@ that ends with live blocks. It works on every platform including the
 ones where ASan is hollow, and it is deterministic. CODEGEN_PERFORMANCE
 CP0's event counters can ride the same header.
 
+**As built (2026-10-23, `feat/z11-debug-allocator`).** `--allocator debug`
+for `yo compile` and `yo test`, and `AllocatorKind.Debug` on an
+`Executable` (the allocator string reaches `__yo_build_executable`
+unchanged, so no new builtin and no seed gate). The runtime is
+`src/codegen/c/allocator_debug.yo`: a header per block (system pointer,
+size, allocation number, address-keyed canary), a block table keyed by
+payload address (free/realloc trust a pointer only once the table names
+it, so a foreign or long-evicted pointer is rejected without reading
+around it), a live list, fresh blocks filled 0xAA, freed blocks poisoned
+0xDD and kept in a 64 MiB FIFO quarantine (the newest freed block always
+stays; checked on eviction and at exit, so a write after free is
+reported), double-free and foreign-pointer aborts, and an exit report:
+`debug allocator: peak …, N allocations, live at exit: B blocks / S bytes`,
+the blocks still reachable from module globals or runtime state (a
+conservative scan whose roots `__yo_main_module_init` and the runtime
+register, since module globals are never dropped), and up to 32 leaked
+blocks by allocation number. When `main` returned normally a leaked block
+exits 23 (`leak check failed`), which `yo test` names `Memory leak
+detected`. Listed but not judged: an `exit()` mid-program, a thread of the
+program still running after the report's one-second wait for the counted
+threads (a running thread's stack is no root), and
+`YO_DEBUG_ALLOC_VERDICT=0`, which `yo test` sets from
+`YO_TEST_LEAK_VERDICT=0`. A `Pragma.NeedsLeakVerdict` file runs under
+`--allocator debug` without an ASan binary. Deferred: the **size-mismatch
+abort** needs allocator interface v2's sized `free` (v0.2.71 Generation
+A); **allocation sites** need Z4, which has not landed; **type names**
+(A2 §3.5's "until Z4 lands the table carries the type name and size")
+need `__yo_rc_alloc` to pass a type tag into the header, so the report
+carries size and allocation number only; **arena names** need std's
+`Arena` tracking to read `__yo_debug_alloc_on`, which the v0.2.68 seed
+does not emit (Generation A/B), so an abandoned arena is anonymous leaked
+blocks here while `--debug-heap` names it. Until sites land a block is
+named by its allocation number and `YO_DEBUG_ALLOC_TRAP=<n>` aborts at
+allocation `n` for a debugger stack. The `DebugAllocator` VALUE (a tracking wrapper over
+any `Allocator`) is A2's other face and waits for version 2 with the rest of
+`std/heap`. The tree's hand-written `Dispose`-counter leak gates are not
+switched over here.
+
 ### Z12. Fixed-capacity inline list — `std.BoundedArray`
 
 **Yo today.** `Array(T, N)` (no length) and `ArrayList(T)` (heap) only

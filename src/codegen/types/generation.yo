@@ -1159,6 +1159,15 @@ static inline void __yo_scope_set(void* ctx, void* vtable) {
       true => "static inline bool __yo_debug_heap_on(void) { return false; }"
     )
   );
+  // Whether the program runs on `--allocator debug` (allocator_debug.yo), as
+  // the program can read it (extern "Yo"): tests/debug_allocator.test.yo
+  // checks the allocator's aborts only when they are armed.
+  em.emit_declaration_line(
+    cond(
+      (context.allocator == "debug") => "static inline bool __yo_debug_alloc_on(void) { return true; }",
+      true => "static inline bool __yo_debug_alloc_on(void) { return false; }"
+    )
+  );
   // The `--cycle-collector` mode as the program can read it (extern "Yo"):
   // the FLAG, not the runtime selected from it, so a test of the uncollected
   // build can tell "off" from "auto with no cyclic type"

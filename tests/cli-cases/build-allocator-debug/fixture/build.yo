@@ -1,0 +1,20 @@
+build :: import("std/build");
+
+// plans/backlog/ZIG_ADOPTION_CANDIDATES.md Z11: `allocator : Debug` on an
+// executable reaches the child compile as `--allocator debug`.
+clean_exe :: build.executable({
+  name : "probe-clean",
+  root : "./src/clean.yo",
+  allocator : build.AllocatorKind.Debug
+});
+leak_exe :: build.executable({
+  name : "probe-leak",
+  root : "./src/leak.yo",
+  allocator : build.AllocatorKind.Debug
+});
+run_clean_exe :: build.run(clean_exe);
+run_clean :: build.step("run-clean", "Run the probe that frees everything");
+run_clean.depend_on(run_clean_exe);
+run_leak_exe :: build.run(leak_exe);
+run_leak :: build.step("run-leak", "Run the probe that leaks one block");
+run_leak.depend_on(run_leak_exe);

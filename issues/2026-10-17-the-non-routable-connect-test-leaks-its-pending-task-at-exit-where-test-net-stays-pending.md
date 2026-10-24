@@ -2,7 +2,7 @@
 
 **Severity:** S3. On a network that leaves a connect to TEST-NET-1 pending, `tests/net/tcp.test.yo` fails under LeakSanitizer. The only loss is a 64-byte block from a task the test leaves running on purpose, and it happens once, at process exit.
 
-**Status:** open — MITIGATED 2026-10-20, unverified (branch `fix/tcp-nonroutable-connect-leak`: the test now aborts its connect). Closing it needs a Linux LeakSanitizer run of `tests/net/tcp.test.yo` on a network where a connect to TEST-NET-1 stays pending; see "What is still open" below. **Found:** 2026-10-17, running the decision 46 Generation B gate (#1421) on Linux x86_64 under WSL2. It reproduces on develop `ed733408c` with the binary `yo-dev-ed733408c`, so the change did not cause it.
+**Status:** open — the 2026-10-20 mitigation (the test aborts its connect) does NOT hold on Linux io_uring under WSL2: measured 2026-10-24, see "Measured on the Linux box" below. Closing it needs a Linux LeakSanitizer run of `tests/net/tcp.test.yo` on a network where a connect to TEST-NET-1 stays pending; see "What is still open" below. **Found:** 2026-10-17, running the decision 46 Generation B gate (#1421) on Linux x86_64 under WSL2. It reproduces on develop `ed733408c` with the binary `yo-dev-ed733408c`, so the change did not cause it.
 
 ## Symptom
 
@@ -100,3 +100,23 @@ backend's, not this test's.
   LeakSanitizer cannot run here.
 - `tests/net/tcp.test.yo` passes 25/25 under the default
   `--sanitize address` with the tree binary.
+
+### Measured on the Linux box (2026-10-24, WSL2 x86_64, io_uring)
+
+The mitigation does not hold here. Runs of this one test with the
+`feat/z11-debug-allocator` tree binary, abort in place:
+
+- Default `--sanitize address` with the leak verdict on: `LeakSanitizer:
+  detected memory leaks`, a direct leak of 64 bytes plus one of 16 bytes,
+  `80 byte(s) leaked in 2 allocation(s)`.
+- `--allocator debug`: `leaked block #12: 16 bytes`, `leaked block #13:
+  64 bytes`, `leak check failed: 2 blocks / 80 bytes`, exit status 23. The
+  whole-file debug run fails this one test and passes the other 24.
+
+The two oracles agree. Each test runs in its own process, so the
+io_uring cancel completion that the test's comment expects "the ticks after
+this test" to reap never arrives before exit. The teardown direction above
+(`__yo_io_cleanup` dropping the ring's reference on each remaining fd-bound
+future) is the remaining fix. Until then, `tests/net/tcp.test.yo` is a known
+failure of any suite-wide `--allocator debug` run (W6a's corpus
+measurement).
