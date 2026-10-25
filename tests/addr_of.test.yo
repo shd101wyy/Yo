@@ -96,3 +96,91 @@ test("addr_of a unit place: a non-null pointer, and moves through it touch nothi
   assert(o.is_some(), "non-null, so not the None niche");
   assert(s.a == i32(7), "the field beside it is untouched");
 });
+// E0921: a `&T` parameter is passed as a copy of the caller's value
+// (decision 34; today every size of `T`, `fn_param_is_ptr_borrow`), so
+// `addr_of` of it, or of a place inside it, is the callee's copy, which
+// dangles once the call returns (maintainer verdict 2026-10-25,
+// issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md).
+_AoSmall :: struct(n : usize);
+derive(_AoSmall, Copy, Clone);
+_AoBig :: struct(a : usize, b : usize, c : usize, d : usize, e : usize, f : usize, g : usize, h : usize);
+_AoHandle :: ref(struct(n : usize));
+test("addr_of of a &T parameter is E0921: small Copy T, large T, self, generic T, a field", {
+  s := _AoSmall(n : usize(1));
+  comptime_expect_error({
+    _ao_small_where :: (fn(x : &_AoSmall) -> *_AoSmall)(addr_of(x));
+    _ao_small_where(&s);
+  }, "a `&T` parameter has no stable address");
+  big := _AoBig(a : usize(1), b : usize(2), c : usize(3), d : usize(4), e : usize(5), f : usize(6), g : usize(7), h : usize(8));
+  comptime_expect_error({
+    _ao_big_where :: (fn(x : &_AoBig) -> *_AoBig)(addr_of(x));
+    _ao_big_where(&big);
+  }, "a `&T` parameter has no stable address");
+  comptime_expect_error({
+    _AoSelf :: struct(n : usize);
+    impl(_AoSelf, where_is : (fn(self : &Self) -> *Self)(addr_of(self)));
+    o := _AoSelf(n : usize(1));
+    o.where_is();
+  }, "a `&T` parameter has no stable address");
+  comptime_expect_error({
+    _ao_gen_where :: (fn(generic(T : Type), x : &T) -> *T)(addr_of(x));
+    _ao_gen_where(&s);
+  }, "a `&T` parameter has no stable address");
+  comptime_expect_error({
+    _ao_field_where :: (fn(x : &_AoBig) -> *usize)(addr_of(x.c));
+    _ao_field_where(&big);
+  }, "takes the address of a place inside `x`");
+  comptime_expect_error({
+    _ao_capture_where :: (fn(x : &_AoSmall) -> *_AoSmall)({
+      (f : Impl(Fn() -> *_AoSmall)) = (() => addr_of(x));
+      f()
+    });
+    _ao_capture_where(&s);
+  }, "a `&T` parameter has no stable address");
+});
+// The same rule through the places the first test does not spell: a tuple
+// element, a fixed-array element, and an `io.async` body capturing the
+// parameter (the state machine would store the callee's copy).
+_AoPair :: struct(t : Tuple(usize, usize));
+_AoFixed :: struct(a : [usize ; 3]);
+test("E0921 also covers a tuple element, a fixed-array element, and an async body's capture", {
+  p := _AoPair(t : (usize(1), usize(2)));
+  comptime_expect_error({
+    _ao_tuple_where :: (fn(x : &_AoPair) -> *usize)(addr_of(x.t.0));
+    _ao_tuple_where(&p);
+  }, "takes the address of a place inside `x`");
+  f := _AoFixed(a : [usize ; 3](usize(4), usize(5), usize(6)));
+  comptime_expect_error({
+    _ao_array_where :: (fn(x : &_AoFixed) -> *usize)(addr_of(x.a(1)));
+    _ao_array_where(&f);
+  }, "takes the address of a place inside `x`");
+  s := _AoSmall(n : usize(7));
+  comptime_expect_error({
+    _ao_async_where :: (fn(x : &_AoSmall, io : Io) -> Impl(Future(*_AoSmall, Io)))(
+      io.async((e : Io) => addr_of(x))
+    );
+    io.await(_ao_async_where(&s, io), io);
+  }, "a `&T` parameter has no stable address");
+});
+_ao_ptr_param :: (fn(x : *_AoBig) -> *_AoBig)(x);
+_ao_mut_param :: (fn(x : &mut _AoBig) -> *_AoBig)(addr_of(x));
+_ao_mut_field :: (fn(x : &mut _AoBig) -> *usize)(addr_of(x.c));
+_ao_handle_field :: (fn(x : &_AoHandle) -> *usize)(addr_of(x.n));
+_ao_local :: (fn(x : &_AoSmall) -> usize)({
+  (copy : _AoSmall) = x;
+  p := addr_of(copy);
+  p.*.n
+});
+_ao_projection :: (fn(x : &_AoBig) -> &usize)(&x.c);
+test("the forms that give the caller's address: *T, &mut T, a ref handle's field, a local, a projection", {
+  mut(big) := _AoBig(a : usize(1), b : usize(2), c : usize(3), d : usize(4), e : usize(5), f : usize(6), g : usize(7), h : usize(8));
+  assert(_ao_ptr_param(addr_of(big)) == addr_of(big), "a *T parameter carries the caller's address");
+  assert(_ao_mut_param(&mut big) == addr_of(big), "a &mut T parameter is a pointer");
+  assert(_ao_mut_field(&mut big) == addr_of(big.c), "a field of a &mut T parameter is the caller's field");
+  h := _AoHandle(n : usize(4));
+  assert(_ao_handle_field(&h) == addr_of(h.n), "a ref handle's field lives in the shared cell");
+  assert(_ao_local(&_AoSmall(n : usize(9))) == usize(9), "a local copy has its own address");
+  assert(_ao_projection(&big) == usize(3), "a projection's &T parameter is a pointer");
+  arr := [usize(1), usize(2), usize(3)];
+  assert(arr(1) == usize(2), "the prelude's Array Index takes addr_of of its projection receiver");
+});

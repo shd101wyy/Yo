@@ -2126,6 +2126,22 @@ export(wrap_body_in_begin);
 /// `*(T)`, it is the projection's `T*` return.
 PROJECTION_REF_TAIL_PATH :: "auto-generated://projection-ref";
 PROJECTION_MUT_TAIL_PATH :: "auto-generated://projection-mut";
+/// The marker module path of the callee token of an `addr_of(receiver)` the
+/// evaluator synthesizes for a method whose receiver is a raw pointer
+/// (`self : *Self`, `self : &*Self`) called on a value (`x.m()`): the pointer
+/// lives for the call. E0921 (`addr_of` of a `&T` parameter) is about the
+/// address a program takes, so it skips this node. The call token keeps the
+/// receiver's own path, which the safe-code raw-pointer gate reads.
+AUTO_REF_RECEIVER_PATH :: "auto-generated://auto-ref-receiver";
+/// Whether `e` is the synthesized `addr_of(receiver)` of a pointer-receiver
+/// method call (`AUTO_REF_RECEIVER_PATH`).
+ast_expr_is_auto_ref_receiver :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, .Atom(_, ar_tok), _, _, _) => (ar_tok.module_path.* == AUTO_REF_RECEIVER_PATH),
+    _ => false
+  )
+);
 /// The sigil mode of a projection result node: `.Some(true)` for `&mut place`,
 /// `.Some(false)` for `&place`, `.None` for any other node.
 projection_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
@@ -2294,4 +2310,4 @@ _projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayL
 rewrite_projection_tails :: (fn(body : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
   _projection_tail(body, is_mut, mismatches)
 );
-export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, projection_tail_mode, rewrite_projection_tails);
+export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, projection_tail_mode, rewrite_projection_tails, AUTO_REF_RECEIVER_PATH, ast_expr_is_auto_ref_receiver);

@@ -1343,6 +1343,8 @@ swap(addr_of(x), addr_of(y)); // Pass pointers to x and y
 
 For day-to-day in-place mutation, prefer the `name : &mut T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller lends the places with `&mut` (`swap(&mut x, &mut y)`) instead of taking raw addresses. Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
+`addr_of(x)` where `x` is a `&T` parameter, or a place inside one (`addr_of(x.field)`), is error E0921: a `&T` parameter is passed as a copy of the caller's value, so its address is the callee's copy and dangles when the call returns. Code that needs the caller's address takes `x : *T` and the caller passes `addr_of(place)`, or takes `x : &mut T`, which is passed as a pointer. A projection's `&T` parameter (a function returning `&T` or `&mut T`) is passed as a pointer and keeps `addr_of`; that is how the prelude's `Array` `Index` impl reaches the element.
+
 ### Pointer Operations
 
 ```yo

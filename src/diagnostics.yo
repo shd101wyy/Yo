@@ -286,6 +286,17 @@ E_RC_PAYLOAD_WRITE :: "E0919";
 /// Renumbered from E0919 onto E0920: decision 46's Rc-payload write landed
 /// as E0919 first (#1421), and codes are never renumbered once published.
 E_DEREF_OF_BORROW :: "E0920";
+/// `addr_of(x)` where `x` is a `&T` parameter passed by value, or a place
+/// inside one (a field of a value struct or tuple, an element of an array it
+/// holds): decision 34 passes such a parameter as a copy, so the pointer is
+/// the address of the callee's copy, not of the caller's place, and it
+/// dangles once the call returns. The forms that give the caller's address
+/// are a `*T` parameter the caller fills with `addr_of(place)`, or a
+/// `&mut T` parameter (passed as a pointer). A projection's `&T` parameter
+/// (`-> &T`, decision 24) is passed as a pointer and keeps `addr_of`
+/// (maintainer verdict 2026-10-25,
+/// issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md).
+E_ADDR_OF_BORROW_PARAM :: "E0921";
 // Comptime.
 E_COMPTIME_ARGUMENT :: "E1101";
 E_COMPTIME_OVERFLOW :: "E1102";
@@ -1114,7 +1125,7 @@ export(
 );
 export(E_USE_OF_MOVED_VALUE, E_CANNOT_REASSIGN, E_MAYBE_UNINITIALIZED, E_NO_MATCHING_CALL);
 export(E_OPTIMISTIC_PANIC, E_CONFLICTING_IMPL, E_CANNOT_INFER, E_DYN_UNCALLABLE, E_ARGUMENT_LABEL_MISMATCH, E_AMBIGUOUS_METHOD, E_DISCARDED_MUST_USE, E_BARE_CALLABLE_INTO_DYN);
-export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH, E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_COMPTIME_BINDING_RUNTIME_WRITE, E_RC_PAYLOAD_WRITE, E_DEREF_OF_BORROW);
+export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE, E_MOVED_ON_SOME_PATHS, E_WRITE_THROUGH_BORROW, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH, E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_BINDING_WRITE, E_COMPTIME_BINDING_RUNTIME_WRITE, E_RC_PAYLOAD_WRITE, E_DEREF_OF_BORROW, E_ADDR_OF_BORROW_PARAM);
 export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW, E_COMPTIME_DIVISION_BY_ZERO, E_COMPTIME_RUNTIME_BINDING, E_COMPTIME_PARAM_DEFAULT);
 export(E_INTERNAL_COMPILER_ERROR);
 export(E_DEP_FETCH_FAILED, E_MANIFEST_NOT_FOUND, E_LOCK_MISMATCH, E_STORE_INTEGRITY_MISMATCH, E_NO_MATCHING_VERSION);

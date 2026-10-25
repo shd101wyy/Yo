@@ -32,7 +32,8 @@ pragma(Pragma.AllowUnsafe);
   is_function_boundary_arrow,
   desugar_if_calls,
   BF_YO_AS,
-  ast_expr_strip_borrow_marker
+  ast_expr_strip_borrow_marker,
+  AUTO_REF_RECEIVER_PATH
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
@@ -1694,7 +1695,7 @@ _build_receiver_call_args :: (
           column : recv_tok.column,
           character : recv_tok.character,
           byte_offset : recv_tok.byte_offset,
-          module_path : recv_tok.module_path,
+          module_path : rc(String.from(AUTO_REF_RECEIVER_PATH)),
           input : recv_tok.input
         )
       );
@@ -11452,7 +11453,7 @@ Fix: wrap the call:
                   column : recv_tok.column,
                   character : recv_tok.character,
                   byte_offset : recv_tok.byte_offset,
-                  module_path : recv_tok.module_path,
+                  module_path : rc(String.from(AUTO_REF_RECEIVER_PATH)),
                   input : recv_tok.input
                 )
               );

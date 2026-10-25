@@ -526,7 +526,7 @@ Each item states the recommendation the maintainer adopted on 2026-10-25.
   access that does not exist. **This is final, not provisional:** decision 34 lowers `x : &T` to `T x` for a
   small `Copy` `T` permanently, and to `const T*` otherwise, where a write through it is E0908
   (`plans/VALUES_BY_DEFAULT.md:251`, `:2264-2267`, `:2598`). Neither form is a writable address of the static,
-  so `&Self` can never be the `GlobalAlloc` receiver. The maintainer confirms the spelling, not a revisit date. Whether the compiler should reject `addr_of` of a `&T` parameter at all is filed as `issues/questions/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`.
+  so `&Self` can never be the `GlobalAlloc` receiver. The maintainer confirms the spelling, not a revisit date. Whether the compiler should reject `addr_of` of a `&T` parameter at all was filed as a question and is decided (maintainer, 2026-10-25): it is error E0921, for the parameter and for any place inside it, so the `self : &Self` receiver above no longer compiles (`issues/retired/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`). The implementation found that today every `&T` parameter of a non-projection function reaches C by value, whatever the size of `T` (`fn_param_is_ptr_borrow`, `src/types/utils.yo`); only a projection's (`-> &T`, decision 24) is a pointer, and that one keeps `addr_of`.
 - **C7. Atomics in a `GlobalAlloc` state: DECIDED (found while writing).** The advisor's draft allows
   `std/sync/atomic`. Its types are `atomic(ref(struct((*) : …)))` (`std/sync/atomic.yo:1295`), heap cells, and
   **they stay cells after V5**: V5 Generation A rewrites every `Atomic*` type onto `__yo_atomic_cell(State)`
