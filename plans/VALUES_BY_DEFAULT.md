@@ -9274,6 +9274,27 @@ once `SEED_VERSION` parses it.
        marks only what is written by assignment today: its handle writes
        (`b_marks.push(...)` on an unmarked local) become value writes after
        B8–B11, so the Generation B pass below still covers `markdown_yo`.
+     - **The std half went next (v0.2.71, VBD P5; schedule §5c decision
+       18).** `is_global_mut_rule_exempt` no longer lists std, so a written
+       std local, pattern or compile-time binding must be `mut` like any
+       other; `src/`, `scripts/`, the root `build.yo`, the store and macro
+       expansions stay exempt until the src half (v0.2.72).
+       - `yo fix ./std --migrate mut-bindings` with the tree binary marked
+         1,050 bindings and listed one parameter write
+         (`String`'s `from_iter_add`, rebound by hand).
+       - That count is a floor: the migration marks only bodies its run
+         evaluates (`issues/2026-10-25-migrate-mut-bindings-marks-only-the-bodies-its-run-evaluates.md`).
+         A hunt marked 71 more: re-runs with the test trees in the file
+         list (8 + 34 + 25), with `--target wasm32-wasip1` (2), and by hand
+         (2), plus the 2 captured-`self` rebinds in `std/async/stream.yo`.
+         The other targets and `src/main.yo` found nothing new. A compile of
+         the language suite against the result was also part of the hunt.
+       - The `for` macro now declares the two gensyms it writes,
+         `mut(for_iter_var)` and `mut(for_src)`. They were exempt as prelude
+         tokens; without the marker every `for` over an iterator, and every
+         `for(&mut …)` over a non-place source, would be E0917 in user code.
+       - B8–B11 re-run the std migration for their own types' handle writes,
+         as before.
    - Order: after V2b Generation B and before decision 43, so that
      decision 43's `&mut` rules can assume `mut`. **Decided 2026-10-20
      (`plans/handover/VBD_RELEASE_SCHEDULE.md` §5 decision 2): Generation B at v0.2.72, after B8–B11
