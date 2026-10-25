@@ -15,6 +15,7 @@
   BK_BEGIN,
   BK_WHILE,
   BF_INVARIANT,
+  BF_DROP,
   clone_expr_fresh_ids
 } :: import("../../expr.yo");
 {
@@ -32,6 +33,9 @@
 { check_loop_flow, record_copy_loop } :: import("../utils.yo");
 { expr_contains_loop_terminator } :: import("../../expr_traversal.yo");
 { Environment, snapshot_env, env_adopt } :: import("../../env.yo");
+{ get_variables_from_env } :: import("../../env.yo");
+{ generate_expr_from_code } :: import("../../parser.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 { Variable } :: import("../../env.yo");
 { EvalContext, LoopBodyCtx, LoopKind, LoopFlowSnapshot } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -219,6 +223,76 @@ _throw_max_iterations_error :: (
   exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
   make_err_expr()
 });
+/// The step of a three-argument `while` is a synthetic single-expression
+/// begin, and an ASSIGNMENT step's attached temp is the OLD value's save
+/// (`attach_temp_variable_to_expr` in the reassignment evaluator). The
+/// reassignment evaluator adopts its right side's env
+/// (`env_adopt(&env, &rhs_info.env)`), so that temp's variable lands in the
+/// ENCLOSING begin frame (the function body), not the step's own: its
+/// scope-end drop is scheduled once, after the loop, while codegen declares
+/// the save inside the loop, per iteration. Append a drop of the save to the
+/// step node itself — `generate_while_loop` flushes it right after the step,
+/// inside the loop (`src/codegen/exprs/while_loop.yo`); the enclosing frame's
+/// own copy is skipped at its scope end (a temp whose C declaration sits in a
+/// block that has closed, `src/codegen/exprs/begin.yo`). Without this,
+/// `while(n < i32(3), s = mk(n).s, …)` either freed the replaced String
+/// under its new owner or leaked one per iteration
+/// (issues/fixed/2026-10-25-a-temporary-built-in-a-three-argument-while-step-is-dropped-outside-its-c-scope.md).
+_append_step_save_drop :: (fn(step : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(step)),
+    .Some(si) => match(
+      si.variable_name,
+      .Some(tname) => match(
+        get_variables_from_env(&si.env, &tname).last(),
+        .Some(tv) => if(tv.is_owning_the_rc_value && type_contains_rc_type(&tv.ty) && tv.consumed_at_token.is_none(), {
+          // Once per step: the loop simulation evaluates the step once per
+          // iteration, the begin epilogue rebuilds this list each time, and
+          // every synthesized drop would carry a fresh id — a second append
+          // would double-release at runtime.
+          (already : bool) = false;
+          match(
+            si.deferred_drop_expressions,
+            .Some(ds) => {
+              (di : usize) = usize(0);
+              while((di < ds.len()) && !already, {
+                match(
+                  ds.get(di),
+                  .Some(d) => match(
+                    d,
+                    .FnCall(_, _, dargs, _, _) => match(
+                      dargs.get(usize(0)),
+                      .Some(dtok_arg) => {
+                        if((ast_expr_token(&d).value == BF_DROP) && (ast_expr_token(&dtok_arg).value == tname), {
+                          already = true;
+                        });
+                      },
+                      .None => ()
+                    ),
+                    .Atom(_, _) => ()
+                  ),
+                  .None => ()
+                );
+                di = (di + usize(1));
+              });
+            },
+            .None => ()
+          );
+          if(!already, {
+            evaluated := evaluate_expression_raw(generate_expr_from_code(`${BF_DROP}(${tname})`, exn), &si.env, ctx, exn);
+            list := match(si.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
+            list.push(evaluated);
+            si.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(list);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(step), &si);
+          });
+        }, ()),
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  )
+);
 // ---------------------------------------------------------------------------
 // evaluate_while — main function
 // ---------------------------------------------------------------------------
@@ -523,7 +597,12 @@ evaluate_while :: (
         step_expr_opt,
         .None => (),
         .Some(step_expr_cont) => {
-          eval_step_cont := evaluate_expression_raw(&step_expr_cont, &updated_env_cont, ctx, exn);
+          // The step runs once per iteration, so its temporaries get their own
+          // begin frame, as the condition's do: evaluated raw, they joined the
+          // ENCLOSING block and were released once, after the loop, outside the
+          // C block that declares them (issues/fixed/2026-10-25-a-temporary-built-in-a-three-argument-while-step-is-dropped-outside-its-c-scope.md).
+          eval_step_cont := evaluate_begin_expression(&step_expr_cont, &updated_env_cont, ctx, ArrayList(Variable).new(), false, exn);
+          _append_step_save_drop(&eval_step_cont, ctx, exn);
           step_info_cont_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_step_cont));
           if(step_info_cont_opt.is_none(), {
             exn.throw(
@@ -637,7 +716,9 @@ evaluate_while :: (
     step_expr_opt,
     .None => (),
     .Some(step_expr_s) => {
-      eval_step_s := evaluate_expression_raw(&step_expr_s, &env, ctx, exn);
+      // Own begin frame, as on the continue path above.
+      eval_step_s := evaluate_begin_expression(&step_expr_s, &env, ctx, ArrayList(Variable).new(), false, exn);
+      _append_step_save_drop(&eval_step_s, ctx, exn);
       step_info_s_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_step_s));
       if(step_info_s_opt.is_none(), {
         exn.throw(

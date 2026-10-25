@@ -9,6 +9,7 @@
 import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
 
 CPayload :: enum(
   Empty,
@@ -88,4 +89,148 @@ test("continue inside match arm with extracted Option payload", {
     iter = (iter + i32(1));
   });
   assert(items.len() == usize(8), "backing list intact after 30k iterations");
+});
+
+// A temporary built in a `while` condition or a three-argument step belongs to
+// that condition or step: it is released after each evaluation, on the exit
+// edge and on `continue`, `break` and `return`. The condition's leaked once per
+// evaluation; the step's was released once, after the loop, outside the C
+// block that declares it (a C compile error)
+// (issues/fixed/2026-10-24-a-temporary-object-built-in-a-while-condition-leaks-once-per-iteration.md,
+// issues/fixed/2026-10-25-a-temporary-built-in-a-three-argument-while-step-is-dropped-outside-its-c-scope.md).
+(mut(g_loop_tok_drops) : i32) = i32(0);
+_LoopTok :: struct(n : i32, s : String);
+impl(
+  _LoopTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_loop_tok_drops = (g_loop_tok_drops + i32(1));
+    })
+  )
+);
+_loop_tok :: (fn(x : i32) -> _LoopTok)(_LoopTok(n : x, s : String.from("abc")));
+_loop_return_at :: (fn(stop : i32) -> i32)({
+  (mut(j) : i32) = i32(0);
+  while(_loop_tok(j).n < i32(10), {
+    j = (j + i32(1));
+    if(j == stop, {
+      return(j);
+    });
+  });
+  j
+});
+test("a temporary in a while condition is released once per evaluation", {
+  before := g_loop_tok_drops;
+  (mut(j) : i32) = i32(0);
+  while(_loop_tok(j).n < i32(3), {
+    j = (j + i32(1));
+  });
+  assert(j == i32(3));
+  assert(g_loop_tok_drops == (before + i32(4)), "four evaluations, the last one exiting");
+  before2 := g_loop_tok_drops;
+  (mut(k) : i32) = i32(0);
+  while(_loop_tok(k).s.len() > usize(k), {
+    k = (k + i32(1));
+    if(k == i32(1), {
+      continue;
+    });
+    if(k == i32(2), {
+      break;
+    });
+  });
+  assert(k == i32(2));
+  assert(g_loop_tok_drops == (before2 + i32(2)), "continue and break leave after the release");
+  before3 := g_loop_tok_drops;
+  assert(_loop_return_at(i32(3)) == i32(3));
+  assert(g_loop_tok_drops == (before3 + i32(3)), "a return in the body leaves after the release");
+});
+test("a temporary in a three-argument while step is released once per iteration", {
+  before := g_loop_tok_drops;
+  (mut(j) : i32) = i32(0);
+  (mut(seen) : i32) = i32(0);
+  while(j < i32(6), j = (j + _loop_tok(i32(1)).n), {
+    if(j == i32(1), {
+      continue;
+    });
+    if(j == i32(4), {
+      break;
+    });
+    seen = (seen + i32(1));
+  });
+  assert((j == i32(4)) && (seen == i32(3)));
+  assert(g_loop_tok_drops == (before + i32(4)), "the step ran four times, once after a continue");
+  (mut(s) : String) = String.from("x");
+  (mut(n) : i32) = i32(0);
+  while(n < i32(3), s = _loop_tok(n).s, {
+    n = (n + i32(1));
+  });
+  assert((s == "abc") && (n == i32(3)));
+});
+
+(mut(g_sc_step_drops) : i32) = i32(0);
+// An RC-handle place and a move-only place, each replaced by a three-argument
+// `while` step INSIDE a state machine (the body suspends between iterations):
+// the assignment generator returns the old-value save's NAME as a statement's
+// value, and in a state machine that save lives in an `sm->var_<name>_<id>`
+// slot — emitting the returned name as a statement was an undeclared
+// identifier (found by the adversarial review; a step now discards the
+// return, `generate_step_expression`).
+_ScCnt :: ref(struct(n : i32));
+impl(
+  _ScCnt,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_sc_step_drops = (g_sc_step_drops + i32(1));
+    })
+  )
+);
+_sc_mk :: (fn(x : i32) -> _ScCnt)(_ScCnt(n : x));
+_sc_run_rc :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async(e => {
+    (mut(t) : _ScCnt) = _sc_mk(i32(50));
+    (mut(k) : i32) = i32(0);
+    while(k < i32(3), t = _sc_mk(k), {
+      k = (k + i32(1));
+      e.io.await(yield(e.io), e.io);
+    });
+    e.io.await(yield(e.io), e.io);
+    d := g_sc_step_drops;
+    (t.n * i32(10)) + d
+  })
+);
+(mut(g_sc_mv_drops) : i32) = i32(0);
+_ScMv :: struct(n : i32);
+impl(
+  _ScMv,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_sc_mv_drops = (g_sc_mv_drops + i32(1));
+    })
+  )
+);
+_sc_mkv :: (fn(x : i32) -> _ScMv)(_ScMv(n : x));
+_sc_run_mv :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async(e => {
+    (mut(t) : _ScMv) = _sc_mkv(i32(50));
+    (mut(k) : i32) = i32(0);
+    while(k < i32(3), t = _sc_mkv(k), {
+      k = (k + i32(1));
+      e.io.await(yield(e.io), e.io);
+    });
+    e.io.await(yield(e.io), e.io);
+    d := g_sc_mv_drops;
+    (t.n * i32(10)) + d
+  })
+);
+test("an RC-place assignment step inside io.async compiles and releases per iteration", {
+  before := g_sc_step_drops;
+  r := io.await(_sc_run_rc(io), io);
+  assert(r == i32(33), `rc step: expected t.n=3 drops=3 (33), got ${r.to_string()}`);
+  assert(g_sc_step_drops == (before + i32(4)), "three replaced values plus the final one");
+});
+test("a move-only-place assignment step inside io.async does the same", {
+  before := g_sc_mv_drops;
+  r := io.await(_sc_run_mv(io), io);
+  assert(r == i32(33), `mv step: expected t.n=3 drops=3 (33), got ${r.to_string()}`);
+  assert(g_sc_mv_drops == (before + i32(4)), "three replaced values plus the final one");
 });

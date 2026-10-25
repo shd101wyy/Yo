@@ -232,3 +232,90 @@ test("a newtype pattern tests its field, at runtime and at compile time", {
   r :: match(K, _NtMeters(_m : 0) => i32(0), _NtMeters(_m : x) => x);
   assert(r == i32(3));
 });
+// A scrutinee that reads a field of a call result, or applies an operator to
+// one, owns the call's result in its own frame: the result is released right
+// after the subject is read, once per evaluation, also when an arm leaves the
+// loop or the function. A call scrutinee (`&mk()`, an enum payload binding)
+// was already released once and must stay so
+// (issues/fixed/2026-10-25-a-match-scrutinee-that-reads-a-field-of-a-call-result-never-releases-the-result.md).
+(mut(g_scr_tok_drops) : i32) = i32(0);
+_ScrTok :: struct(n : i32, s : String);
+impl(
+  _ScrTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_scr_tok_drops = (g_scr_tok_drops + i32(1));
+    })
+  )
+);
+_scr_tok :: (fn(x : i32) -> _ScrTok)(_ScrTok(n : x, s : String.from("payload")));
+_scr_tok_opt :: (fn(x : i32) -> Option(_ScrTok))(.Some(_scr_tok(x)));
+test("a scrutinee over a field of a call result releases the result once per evaluation", {
+  before := g_scr_tok_drops;
+  (mut(i) : i32) = i32(0);
+  (mut(hits) : i32) = i32(0);
+  while(i < i32(4), i = (i + i32(1)), {
+    a := match(_scr_tok(i).n, i32(2) => i32(1), _ => i32(0));
+    b := match(_scr_tok(i).s, "payload" => i32(1), _ => i32(0));
+    c := match(&_scr_tok(i).s, x => x.len());
+    d := match(_scr_tok(i).n + i32(1), i32(3) => i32(1), _ => i32(0));
+    hits = (hits + a + b + i32(c) + d);
+  });
+  assert(hits == i32(34), "a and d hold once, b four times, c is 7 each time");
+  assert(g_scr_tok_drops == (before + i32(16)), "each scrutinee's call result released once");
+});
+// A whole-call subject is released by the call tail's own post-call flush or
+// at the enclosing scope's end (a borrowed `&call` subject keeps its value
+// alive until then), so the probe runs in its own function and the counter is
+// read after that scope closed. Guards against a DOUBLE release of a subject
+// the new scrutinee flush also covers.
+_scr_call_probe :: (fn() -> i32)({
+  a := match(&_scr_tok(i32(5)), r => r.n);
+  b := match(_scr_tok_opt(i32(6)), .Some(r) => r.s.len(), .None => usize(0));
+  (a * i32(10)) + i32(b)
+});
+test("a call scrutinee is still released exactly once", {
+  before := g_scr_tok_drops;
+  v := _scr_call_probe();
+  assert(v == i32(57));
+  assert(g_scr_tok_drops == (before + i32(2)), "one release per call, no more");
+});
+_scr_return_at :: (fn(stop : i32) -> i32)({
+  (mut(k) : i32) = i32(0);
+  while(k < i32(5), {
+    k = (k + i32(1));
+    match(
+      _scr_tok(k).n,
+      (n && (n == stop)) => {
+        return(n);
+      },
+      _ => ()
+    );
+  });
+  k
+});
+test("a scrutinee's call result is released when an arm returns, breaks or continues", {
+  before := g_scr_tok_drops;
+  assert(_scr_return_at(i32(2)) == i32(2));
+  assert(g_scr_tok_drops == (before + i32(2)), "two evaluations, the last one returning");
+  before2 := g_scr_tok_drops;
+  (mut(k) : i32) = i32(0);
+  (mut(t) : i32) = i32(0);
+  while(k < i32(6), {
+    k = (k + i32(1));
+    match(
+      _scr_tok(k).n,
+      i32(2) => {
+        continue;
+      },
+      i32(5) => {
+        break;
+      },
+      _ => {
+        t = (t + i32(1));
+      }
+    );
+  });
+  assert(t == i32(3));
+  assert(g_scr_tok_drops == (before2 + i32(5)), "one release per evaluation, on every exit edge");
+});

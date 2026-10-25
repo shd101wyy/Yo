@@ -793,6 +793,39 @@ flushes right after the bool. Before that, a guard's temp
 and dropped at the enclosing block's end, an undeclared C identifier
 (`issues/fixed/2026-10-24-a-match-guard-that-builds-a-temporary-object-emits-undeclared-c-temps.md`).
 
+The same holds for a `while` condition, a three-argument `while` step and a
+non-place `match` scrutinee: each is a one-expression block, and the node
+shares its id with its tail. When the tail is a call, the call's post-call
+flush emits the frame's drops, but nothing else does. A field read or an
+operator tail (`RI(v : j).v < 3`, `match(mk(7).n, …)`) therefore needs its
+own flush, or the frame's temporaries leak on every evaluation. Three flushes
+cover this:
+
+- `_emit_while_cond_break` puts the condition's value in a bool, flushes the
+  condition's drops, then breaks.
+- `generate_while_loop` flushes the step's drops right after the step. An
+  ASSIGNMENT step must go through the assignment generator, never a hand-built
+  `lhs = rhs`: the hand-built form is a bitwise move that skips the right
+  side's dup (the frame's drop then frees the value under its new owner) and
+  the replaced value's release.
+- `_generate_match_expression_body` flushes the scrutinee's drops once the
+  arms read only the subject's own materialized temp. A `mut` match, a pointer
+  subject or a subject with no temp is flushed after the construct instead.
+
+An exit (`break`/`continue`) between a flush and the end of the enclosing
+scope must consult `emitted_deferred_drop_ids` before re-emitting a pending
+drop (`_emit_loop_body_drops_before_exit`): a flush that already ran at a
+point the exit executes after (the scrutinee's own-temp flush, before the
+arms) released the target on that path, and emitting it again frees it twice.
+Consult only — an exit path never records into the set, or the normal path's
+scope-end flush would skip its own release.
+
+A new construct that evaluates a sub-expression through
+`evaluate_begin_expression` must flush that node itself
+(`issues/fixed/2026-10-24-a-temporary-object-built-in-a-while-condition-leaks-once-per-iteration.md`,
+`issues/fixed/2026-10-25-a-match-scrutinee-that-reads-a-field-of-a-call-result-never-releases-the-result.md`,
+`issues/fixed/2026-10-25-a-temporary-built-in-a-three-argument-while-step-is-dropped-outside-its-c-scope.md`).
+
 ### Inside a state machine, a temp declared as a C local must also be stored to its slot
 
 A minted temp the async capture analysis gave a `sm->var_<id>` slot has its

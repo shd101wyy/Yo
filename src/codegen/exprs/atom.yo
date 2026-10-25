@@ -445,13 +445,26 @@ _emit_loop_body_drops_before_exit :: (fn(context : &FunctionGenerationContext, i
                 .None => false
               );
               if(!skip, {
-                drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
-                if(drop_code.len() > usize(0), {
-                  line := indent.clone();
-                  line.push_string(&drop_code);
-                  line.push_str(";");
-                  em := context.base.emitter;
-                  em.emit_string_line(&line);
+                // Emitted-once guard, the same contract as return.yo's
+                // `generate_pending_deferred_drops`: a drop whose C was
+                // already emitted at a point that executes BEFORE this exit
+                // on the same path (a match scrutinee's own-temp flush runs
+                // before the arms on every iteration) released its target
+                // here — re-emitting it at the exit frees the value twice (a
+                // `continue` in an arm over a call-field scrutinee,
+                // issues/fixed/2026-10-25-a-match-scrutinee-that-reads-a-field-of-a-call-result-never-releases-the-result.md).
+                // Consulted only: an exit path must not record, or the
+                // scope-end flushes of the normal path would skip their own
+                // release.
+                if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
+                  drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
+                  if(drop_code.len() > usize(0), {
+                    line := indent.clone();
+                    line.push_string(&drop_code);
+                    line.push_str(";");
+                    em := context.base.emitter;
+                    em.emit_string_line(&line);
+                  });
                 });
               });
             },

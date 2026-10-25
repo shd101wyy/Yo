@@ -2445,8 +2445,19 @@ _gen_general_match :: (fn(expr : &AstExpr, arms : &ArrayList(Arm), indent : &Str
 /// release and nothing later runs it (a match passed as a call argument leaked
 /// on every early return:
 /// issues/fixed/match-argument-temp-is-never-released-on-an-explicit-return.md).
+///
+/// The subject's own frame drops (see `_generate_match_expression_body`) are
+/// pending while the construct renders, so an early exit inside the subject
+/// or an arm releases what is live, and they are flushed after the construct
+/// unless the body released them right after the subject (emitted-once).
 generate_match_expression :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  subject_opt := _args(expr).get(usize(0));
+  subj_drops := match(subject_opt, .Some(sj) => match(context.base.get_expr_info(&sj), .Some(sj_ei) => sj_ei.deferred_drop_expressions.clone(), .None => Option(ArrayList(AstExpr)).None), .None => Option(ArrayList(AstExpr)).None);
+  subj_prev := context.pending_deferred_drops;
+  context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&subj_drops, &subj_prev));
   code := _generate_match_expression_body(expr, indent, context);
+  context.pending_deferred_drops = subj_prev;
+  match(subject_opt, .Some(sj) => generate_deferred_drop_expressions(&sj, indent.clone(), context), .None => ());
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => {
@@ -2531,6 +2542,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // payload releases the scrutinee's own value
   // (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
   is_mut_match := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
+  (subject_is_own_temp : bool) = false;
   match(
     subject_ei.variable_name,
     .Some(svn) => {
@@ -2570,9 +2582,23 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
         }),
         .None => ()
       );
+      subject_is_own_temp = (!is_mut_match && (matched_value_code == subject_var_name) && !is_pointer_type(&match_value_type));
     },
     .None => ()
   );
+  // A non-place scrutinee is a one-expression block in the evaluator: its
+  // temporaries (the `mk(i32(7))` of `match(mk(i32(7)).n, …)`) have their own
+  // frame, whose drops ride the subject node. Once the arms read only the
+  // subject's own temp (materialized above, with its dup), nothing reads those
+  // temporaries any more: release them now, before any arm can leave. A call
+  // tail's post-call flush already did the same. A subject the arms read
+  // through its code (a `mut` match's place, a pointer that may point into a
+  // temporary, a subject with no temp) keeps them until the construct ends
+  // (`generate_match_expression`)
+  // (issues/fixed/2026-10-25-a-match-scrutinee-that-reads-a-field-of-a-call-result-never-releases-the-result.md).
+  if(subject_is_own_temp, {
+    generate_deferred_drop_expressions(&subject, indent.clone(), context);
+  });
   // Primitive (int/bool) match.
   if(match(expr_info_is_primitive_match(&ei), .Some(b) => b, .None => false), {
     return(generate_primitive_match_expression(expr, indent.clone(), context, &matched_value_code, &match_value_type, &temp_var_opt, is_unit));
