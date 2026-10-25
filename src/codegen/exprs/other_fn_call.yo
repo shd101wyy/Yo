@@ -2938,7 +2938,16 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
     return(Option(String).Some(String.from("")));
   });
-  if(ou_may_unwind, {
+  // A call the evaluator gave a result temp is a STATEMENT whether or not it
+  // may unwind, exactly as the registered direct call above is: an argument
+  // or operand runs where it is generated, so a call left inline here ran
+  // after every later sibling's statement. A call through a closure- or
+  // fn-valued FIELD (`h.cb(x)`, `h.f(x)`) is not may-unwind (its callee is no
+  // atom), and `h.cb(i32(1)) == eat(h)` called the closure after `eat(h)`
+  // had freed it
+  // (issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
+  // Only a may-unwind call clears and checks `__yo_effect_escaped`.
+  if(ou_may_unwind || ei.variable_name.is_some(), {
     fp_tv := match(ei.variable_name, .Some(tv) => tv, .None => `_eu_${ast_expr_id(expr).to_string()}`);
     already := match(context.declared_temp_vars, .Some(s) => s.contains(fp_tv.clone()), .None => false);
     if(!already, {
@@ -2947,8 +2956,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       // Interior-`inout` borrow flags around the indirect call (see the
       // direct-call unit exit).
       fp_bc2 := _emit_borrow_acquires(&runtime_args, &param_is_ref.items, indent.clone(), context);
-      // Clear __yo_effect_escaped before the indirect call
-      em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+      // Clear __yo_effect_escaped before an indirect call that may unwind.
+      if(ou_may_unwind, {
+        em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+      });
       if(ctl_generic_ret, {
         // Declare the temp BEFORE the call — escape-path drops reference it —
         // and call as a STATEMENT. A generic-ResumeType handler cannot resume
@@ -2981,8 +2992,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       _store_temp_var_to_state_machine_if_needed(fp_tv.clone(), indent.clone(), context);
       _emit_borrow_releases(&fp_bc2, indent.clone(), context);
     });
-    generate_call_deferred_drops(expr, indent.clone(), context, true);
-    emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
+    generate_call_deferred_drops(expr, indent.clone(), context, ou_may_unwind);
+    if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
     return(Option(String).Some(fp_tv));
   });
   Option(String).Some(out)

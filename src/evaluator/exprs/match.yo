@@ -126,7 +126,8 @@ pragma(Pragma.AllowUnsafe);
   arm_is_classic,
   pattern_const_values
 } :: import("./pattern_compile.yo");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
@@ -293,6 +294,39 @@ _gadt_refined_expected :: (
     k = (k + usize(1));
   });
   match(refined, .Some(r) => r, .None => expected)
+});
+/// The error `_evaluate_guard_block` caught (its handler is capture-free, so
+/// a module-level channel, as `evaluate_expression_guarded`'s is).
+(g_guard_block_err : RefCell(ArrayList(AnyError))) = RefCell(ArrayList(AnyError)).new(ArrayList(AnyError).new());
+/// Evaluate a non-atom guard as a one-expression block, the way `cond`
+/// evaluates a condition: a temporary the guard creates (`h.mk(n)` in
+/// `(n && (h.mk(n).peek() > i32(1)))`, the `rc(n)` in `(n && (rc(n).* > 1))`)
+/// lives in the guard's own frame, so its drop is the guard's, which codegen
+/// emits right after the guard's bool inside the arm block that declares the
+/// temp. Evaluated in the enclosing block, the drop landed at that block's
+/// end, outside the arm block: an undeclared C identifier
+/// (issues/fixed/2026-10-24-a-match-guard-that-builds-a-temporary-object-emits-undeclared-c-temps.md).
+/// The error is returned, not thrown, as `evaluate_expression_guarded`
+/// returns it.
+_evaluate_guard_block :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> Option(AnyError))({
+  g_guard_block_err.with_mut(xs => xs.clear());
+  _evaluate_guard_block_inner(g, env, ctx, out);
+  cond(
+    (out.len() > usize(0)) => Option(AnyError).None,
+    (g_guard_block_err.with(xs => xs.len()) == usize(0)) => Option(AnyError).None,
+    true => g_guard_block_err.with(xs => xs.last())
+  )
+});
+_evaluate_guard_block_inner :: (fn(g : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit)({
+  guard_exn := Exception(
+    throw : (
+      _g_err -> {
+        g_guard_block_err.with_mut(xs => xs.push(_g_err));
+        unwind(())
+      }
+    )
+  );
+  out.push(evaluate_begin_expression(g, env, ctx, ArrayList(Variable).new(), false, guard_exn));
 });
 /// Commit, right after the arm's guard is evaluated, every copy the arm's
 /// pattern bindings hold pending (the arm frame sits at `arm_frame` in
@@ -1344,7 +1378,10 @@ evaluate_match :: (
         old_expected_g := ctx.expected_type;
         ctx.expected_type = Option(ExpectedTypeCtx).None;
         evaluated_g_gout := ArrayList(AstExpr).new();
-        evaluated_g_gerr := evaluate_expression_guarded(&g, &env, ctx, &mut evaluated_g_gout);
+        evaluated_g_gerr := cond(
+          ast_expr_is_atom(&g) => evaluate_expression_guarded(&g, &env, ctx, &mut evaluated_g_gout),
+          true => _evaluate_guard_block(&g, &env, ctx, &mut evaluated_g_gout)
+        );
         ctx.expected_type = old_expected_g;
         match(evaluated_g_gerr, .Some(evaluated_g_ge) => exn.throw(&evaluated_g_ge), .None => ());
         _commit_guard_copies(&env, base_frame_count);

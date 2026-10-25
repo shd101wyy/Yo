@@ -421,39 +421,139 @@ test("FnOnce: an element read as an operand still lends its container", {
     xs(usize(0)) == _once_first(xs)
   }, "an earlier argument of the same call lends to it");
 });
-// A call through a closure-valued FIELD still lends the field's root: codegen
-// leaves that call inline while it spills a later argument, so `eat(h)` would
-// free the closure before `h.cb(…)` ran
-// (issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
+// A call through a closure- or fn-valued FIELD runs where it is written: its
+// statement comes before a later argument's, so `eat(h)` cannot free the
+// closure before `h.cb(…)` runs. `_once_log` records the call order: the field
+// call logs 1, the consuming callee 2, so source order is `12`
+// (issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md).
+(mut(g_once_order) : i32) = i32(0);
+_once_log :: (fn(k : i32) -> i32)({
+  g_once_order = ((g_once_order * i32(10)) + k);
+  k
+});
 _OnceCbHolder :: struct(cb0 : Dyn(Fn() -> i32), cb1 : Dyn(Fn(x : i32) -> i32), cb2 : Dyn(Fn(x : i32, y : i32) -> i32), mk : Dyn(Fn(x : i32) -> _OnceSum), tag : i32);
 impl(_OnceCbHolder, tag_of : (fn(self : &Self) -> i32)(self.tag));
 _once_eat_holder :: (fn(sink(h) : _OnceCbHolder) -> i32)(h.tag);
+_once_eat_logged :: (fn(sink(h) : _OnceCbHolder) -> i32)(_once_log(h.tag + i32(1)));
 _once_holder :: (fn() -> _OnceCbHolder)({
   t := _OnceTok(n : i32(1));
   _OnceCbHolder(
-    cb0 : dyn({ t }() => t.n),
-    cb1 : dyn((x : i32) => x),
-    cb2 : dyn((x : i32, y : i32) => (x + y)),
-    mk : dyn((x : i32) => _OnceSum(n : x)),
+    cb0 : dyn({ t }() => _once_log(t.n)),
+    cb1 : dyn((x : i32) => _once_log(x)),
+    cb2 : dyn((x : i32, y : i32) => _once_log(x + y)),
+    mk : dyn((x : i32) => _OnceSum(n : _once_log(x))),
     tag : i32(1)
   )
 });
-test("FnOnce: a closure-field call as an operand or receiver lends the holder", {
+_OnceOuter :: struct(h : _OnceCbHolder);
+_once_eat_outer :: (fn(sink(w) : _OnceOuter) -> i32)(_once_log(w.h.tag + i32(1)));
+_once_eat_rc_holder :: (fn(sink(h) : Rc(_OnceCbHolder)) -> i32)(_once_log(h.tag + i32(1)));
+_OnceGen :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F, tag : i32));
+_OnceFp :: struct(f : (fn(x : i32) -> i32), tag : i32);
+_once_eat_fp :: (fn(sink(h) : Rc(_OnceFp)) -> i32)(_once_log(h.tag + i32(1)));
+test("FnOnce: a closure-field call as an operand runs before a later argument consumes the holder", {
+  before := g_once_disposed;
+  {
+    g_once_order = i32(0);
+    h := _once_holder();
+    assert(h.cb1(i32(1)) < _once_eat_logged(h), "1 < 2");
+    assert(g_once_order == i32(12), "h.cb1(1) ran before eat(h)");
+  };
+  {
+    g_once_order = i32(0);
+    h := _once_holder();
+    assert(h.cb1(i32(1)) < (i32(0) + _once_eat_logged(h)), "nested operand");
+    assert(g_once_order == i32(12), "h.cb1(1) ran before the nested eat(h)");
+  };
+  {
+    g_once_order = i32(0);
+    h := _once_holder();
+    assert(h.cb0() < _once_eat_logged(h), "zero arguments: t.n = 1");
+    assert(g_once_order == i32(12), "h.cb0() ran before eat(h)");
+  };
+  {
+    g_once_order = i32(0);
+    h := _once_holder();
+    assert(h.cb2(i32(0), i32(1)) < _once_eat_logged(h), "two arguments");
+    assert(g_once_order == i32(12), "h.cb2(0, 1) ran before eat(h)");
+  };
+  {
+    // The consuming callee calls no closure: it only reads the tag.
+    g_once_order = i32(0);
+    h := _once_holder();
+    assert(h.cb0() == _once_eat_holder(h), "t.n == tag");
+    assert(g_once_order == i32(1), "only h.cb0() logged");
+  };
+  assert(g_once_disposed == (before + i32(5)), "each holder's capture released once");
+});
+test("FnOnce: a closure-field call's result as a borrowed receiver runs before a later argument consumes the holder", {
+  before := g_once_disposed;
+  {
+    g_once_order = i32(0);
+    h := _once_holder();
+    assert(h.mk(i32(1)).plus(_once_eat_logged(h)) == i32(3), "1 + 2");
+    assert(g_once_order == i32(12), "h.mk(1) ran before eat(h)");
+  };
+  assert(g_once_disposed == (before + i32(1)), "the holder's capture released once");
+});
+test("FnOnce: a closure-field call through a nested field, an Rc holder or a generic holder keeps source order", {
+  before := g_once_disposed;
+  {
+    g_once_order = i32(0);
+    w := _OnceOuter(h : _once_holder());
+    assert(w.h.cb1(i32(1)) < _once_eat_outer(w), "nested field");
+    assert(g_once_order == i32(12), "w.h.cb1(1) ran before eat(w)");
+  };
+  {
+    g_once_order = i32(0);
+    h := rc(_once_holder());
+    assert(h.cb1(i32(1)) < _once_eat_rc_holder(h), "Rc holder");
+    assert(g_once_order == i32(12), "h.cb1(1) ran before eat(h)");
+  };
+  {
+    g_once_order = i32(0);
+    t := _OnceTok(n : i32(1));
+    (c : Impl(Fn(x : i32) -> i32)) = ({ t }(x : i32) => _once_log(x * t.n));
+    eat := (fn(sink(hh) : _OnceGen(type_of(c))) -> i32)(_once_log(hh.tag + i32(1)));
+    h := _OnceGen(type_of(c))(cb : c, tag : i32(1));
+    assert(h.cb(i32(1)) < eat(h), "an Impl(Fn) field");
+    assert(g_once_order == i32(12), "h.cb(1) ran before eat(h)");
+  };
+  assert(g_once_disposed == (before + i32(3)), "each capture released once");
+});
+test("FnOnce: a fn-pointer field call on an Rc holder runs before a later argument releases the holder", {
+  g_once_order = i32(0);
+  h := rc(_OnceFp(f : _once_log, tag : i32(1)));
+  assert(h.f(i32(1)) < _once_eat_fp(h), "1 < 2");
+  assert(g_once_order == i32(12), "h.f(1) ran before eat(h)");
+});
+// A closure-field call's OWNED result used as a `&self` receiver is a temp the
+// call now declares, so its scope-end drop runs: it used to be an inline
+// expression whose temp was never declared, and the result leaked
+// (issues/fixed/2026-10-25-a-closure-field-call-result-used-as-a-borrowed-receiver-is-never-released.md).
+impl(_OnceTok, peek_n : (fn(self : &Self) -> i32)(self.n));
+_OnceTokHolder :: struct(mk : Dyn(Fn(x : i32) -> _OnceTok));
+test("FnOnce: a closure-field call's owned result as a borrowed receiver is released once", {
+  before := g_once_disposed;
+  {
+    h := _OnceTokHolder(mk : dyn((x : i32) => _OnceTok(n : x)));
+    assert(h.mk(i32(5)).peek_n() == i32(5), "Dyn(Fn) field");
+  };
+  {
+    (c : Impl(Fn(x : i32) -> _OnceTok)) = ((x : i32) => _OnceTok(n : x));
+    g := _OnceGen(type_of(c))(cb : c, tag : i32(1));
+    assert(g.cb(i32(6)).peek_n() == i32(6), "Impl(Fn) field");
+  };
+  assert(g_once_disposed == (before + i32(2)), "each receiver temp released once");
+});
+test("FnOnce: a closure-field call lends the holder to its own arguments", {
   comptime_expect_error({
     h := _once_holder();
-    h.cb1(i32(1)) == _once_eat_holder(h)
+    h.cb1(_once_eat_holder(h))
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
-    h := _once_holder();
-    h.cb0() == _once_eat_holder(h)
-  }, "an earlier argument of the same call lends to it");
-  comptime_expect_error({
-    h := _once_holder();
-    h.cb2(i32(0), i32(1)) == _once_eat_holder(h)
-  }, "an earlier argument of the same call lends to it");
-  comptime_expect_error({
-    h := _once_holder();
-    h.mk(i32(1)).plus(_once_eat_holder(h))
+    h := rc(_once_holder());
+    h.cb1(_once_eat_rc_holder(h))
   }, "an earlier argument of the same call lends to it");
 });
 test("FnOnce: a method call's result as an operand lends nothing of the receiver", {

@@ -73,7 +73,7 @@ root, at any arity. That is a stopgap, not the language rule: codegen leaves suc
 spills a later argument to its own statement, so accepting it would run the call after the later
 argument freed the closure (heap-use-after-free; develop rejected only the one-argument shape, by
 accident of the old heuristic, and accepted the zero- and two-argument ones with the same UAF —
-`issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`). Every
+`issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`). Every
 other call (a closure local's call, `Dyn(Fn*)` or `Dyn(FnOnce)` local, a method or plain fn call, a
 constructor) yields a temporary that no later argument can reach, so it lends nothing. The #1573 protections are unchanged: their receivers
 (`hs(usize(0)).peek`, `fs(usize(0)).r.peek`, `ts(usize(0)).peek_len`) are Index-dispatched, so they keep
@@ -107,5 +107,5 @@ with a repro:
   `issues/2026-10-24-an-fnonce-closure-whose-body-is-a-bare-capture-leaks-its-environment.md`.
 - `h.cb(i32(1)) == eat(h)` on a `Dyn(Fn)` field is a use after free, because the later argument's
   call is spilled above the inline field call. The evaluator now rejects that shape (E0910 stopgap
-  above); the codegen defect stays open:
-  `issues/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`.
+  above); the codegen defect was fixed afterwards and the stopgap removed:
+  `issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`.

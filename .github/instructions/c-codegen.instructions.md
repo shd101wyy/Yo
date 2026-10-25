@@ -754,6 +754,32 @@ The newtype cast once emitted its argument bare, and `Self(b : self.b)` then
 returned a payload both owners released
 (`issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md`).
 
+### A call with a result temp is a statement on every call path
+
+Arguments and operands are ordered only by the statements they emit while they
+are generated: an argument left as an inline C expression runs at its point of
+use, after every later sibling's statement. So every call emitter in
+`generate_other_function_call` turns a call the evaluator gave a temp
+(`ExprInfo.variable_name`) into `T tv = <call>;`. The registered direct call,
+the method call and the projection call always did. The function-pointer /
+closure tail (a `fn`-pointer field, a `Dyn(Fn …)` vtable call, a static
+`Impl(Fn …)` capture-struct call) did so only when the call may unwind, so
+`h.cb(i32(1)) == eat(h)` called the closure after `eat(h)` had freed it
+(`issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`).
+A plain operand that is no call (`h.tag`, a local `x`) is still emitted inline
+and can still run late; that is open
+(`issues/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md`).
+
+A declared temp needs its drop in the C scope that declares it. A temp names
+itself in the nearest begin-block frame, and its scope-end drop runs at that
+block's end. A `cond` condition and a `match` guard are each evaluated as a
+one-expression block (`evaluate_begin_expression`), so their temps get their
+own frame. Their drops ride on the condition or guard node, which the emitter
+flushes right after the bool. Before that, a guard's temp
+(`(n && (h.mk(n).peek() > i32(1)))`) was declared inside the arm's test block
+and dropped at the enclosing block's end, an undeclared C identifier
+(`issues/fixed/2026-10-24-a-match-guard-that-builds-a-temporary-object-emits-undeclared-c-temps.md`).
+
 ### Inside a state machine, a temp declared as a C local must also be stored to its slot
 
 A minted temp the async capture analysis gave a `sm->var_<id>` slot has its

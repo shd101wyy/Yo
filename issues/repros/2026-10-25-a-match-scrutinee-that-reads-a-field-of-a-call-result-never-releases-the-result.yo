@@ -1,0 +1,10 @@
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+Rec :: struct(n : i32, s : String);
+mk :: (fn(x : i32) -> Rec)(Rec(n : x, s : String.from("payload")));
+main :: (fn() -> unit)({
+  m := match(mk(i32(7)).n, i32(7) => i32(1), _ => i32(0));
+  assert(m == i32(1), "scrutinee");
+  ()
+});
+export(main);
