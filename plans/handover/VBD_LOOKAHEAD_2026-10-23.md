@@ -396,6 +396,7 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
   - The unwrap family is the plan's 8 methods plus `unwrap_or_default` (both types), `unwrap_err` and `expect_err`: all 12 take `self : Self`.
   - `extend(other : ArrayList(T))` moves bitwise only when `ref_count(other) == 1`; a list another handle shares is copied element by element, so the other handle keeps them (D21's rule, until B8). That copy is the check, so `extend` of a move-only `T` stays E0901 until B8. 12 call sites edited (src 8, std 3, tests 1; `expr_info.yo:2223` passes a `&` list by value, a share, unchanged until B8); the 3 `HashMap.extend` calls are a different method.
   - The S2 `issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md` is fixed here: rule (b) asks whether the sibling's type can hold one of the types the element hangs from.
+  - The "std's own 9 accessor copies" bullet is settled by the shapes above. The 9 are the B3-deferred sites `plans/VALUES_BY_DEFAULT.md` lists for B6 (`ArrayList.get`, `HashMap.get`, `ArrayList.extend`, `Option.unwrap`/`unwrap_or` ×3, `Result.unwrap`/`unwrap_or` ×3): both `get` bodies keep their copy (decision 4's "the copy is the check") with `get_cloned` beside them; the unwrap family consumes its receiver, so no accessor copies out of `&Self`; `extend_cloned` clones through the slot. Nothing else reads an accessor copy that B3 had left.
 
 #### B6-b: the decision 20 text, N7, and `--migrate cloned-accessors`
 

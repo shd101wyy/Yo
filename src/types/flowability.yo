@@ -41,7 +41,8 @@
 { Variable, Environment, get_variables_from_env, snapshot_env } :: import("../env.yo");
 { format_error_message, error_message_text, YoError } :: import("../error.yo");
 { Exception, AnyError } :: import("std/error");
-{ is_type_val } :: import("../value.yo");
+{ is_type_val, EvalValue } :: import("../value.yo");
+{ get_closure_capture_info } :: import("../function_value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner } :: import("./definitions.yo");
 { is_function_type, is_pointer_type, is_counted_handle_type, unique_box_payload_type } :: import("./guards.yo");
@@ -782,18 +783,20 @@ require_ref_own_argument_exclusivity :: (
 });
 /// Can a value of `ty` hold, or reach through its fields, a cell, a pointer
 /// or a box, a value of one of the types `targets` names (`type_key`)? A
-/// `Dyn`, an open type variable and a `void` pointer can hold anything, and a
-/// function value inside an aggregate may be a closure that captured one, so
-/// those answer yes. A top-level function value answers no: the caller asks
-/// the argument's own ExprInfo whether it is a closure. A plain DFS over the
-/// type graph: `seen` holds every type already walked, which adds nothing the
-/// first visit did not.
+/// `Dyn`, an open type variable and a `void` pointer can hold anything; a
+/// function value — inside an aggregate, an `Impl(Future)` frame, or the
+/// argument itself — may be a closure that captured one, so those answer yes
+/// too: the type alone cannot tell a closure from a plain `fn`. The caller
+/// of the top-level (argument) case carves out a function value it can
+/// PROVE non-capturing by its value (`_fn_value_may_reach_any_of`), the
+/// same registry the `Send` check trusts. A plain DFS over the type graph:
+/// `seen` holds every type already walked, which adds nothing the first
+/// visit did not.
 _type_may_reach_any_of :: (
   fn(
     ty_in : &TypeValue,
     targets : &HashSet(String),
-    seen : &mut HashSet(String),
-    depth : usize
+    seen : &mut HashSet(String)
   ) -> bool
 )({
   ty := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(ty_in)));
@@ -808,19 +811,19 @@ _type_may_reach_any_of :: (
   match(
     unique_box_payload_type(&ty),
     .Some(payload) => {
-      return(recur(&payload, targets, seen, depth + usize(1)));
+      return(recur(&payload, targets, seen));
     },
     .None => ()
   );
   match(
     ty,
-    Rc(.Struct({ field_types : fields })) => _any_may_reach_any_of(&fields.items, targets, seen, depth + usize(1)),
+    Rc(.Struct({ field_types : fields })) => _any_may_reach_any_of(&fields.items, targets, seen),
     Rc(.EnumT({ variant_fields : all_fields })) => {
       (vi : usize) = usize(0);
       while(vi < all_fields.len(), vi = (vi + usize(1)), {
         match(
           all_fields.get(vi),
-          .Some(v_fields) => if(_any_may_reach_any_of(&v_fields.items, targets, seen, depth + usize(1)), {
+          .Some(v_fields) => if(_any_may_reach_any_of(&v_fields.items, targets, seen), {
             return(true);
           }),
           .None => ()
@@ -828,20 +831,21 @@ _type_may_reach_any_of :: (
       });
       false
     },
-    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, targets, seen, depth + usize(1)),
-    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, targets, seen, depth + usize(1)),
-    Rc(.Array(element : elem, length : _)) => recur(&elem, targets, seen, depth + usize(1)),
+    Rc(.Tuple(field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, targets, seen),
+    Rc(.Union(name : _, field_labels : _, field_types : fields)) => _any_may_reach_any_of(&fields.items, targets, seen),
+    Rc(.Array(element : elem, length : _)) => recur(&elem, targets, seen),
     Rc(.Pointer(pointee : p)) => match(
       t_refine_inner(&p),
       Rc(.Void) => true,
-      _ => recur(&p, targets, seen, depth + usize(1))
+      _ => recur(&p, targets, seen)
     ),
-    Rc(.Func({ result : _ })) => (depth > usize(0)),
-    Rc(.FnTraitT(base_name : _)) => (depth > usize(0)),
+    Rc(.Func({ result : _ })) => true,
+    Rc(.FnTraitT(base_name : _)) => true,
+    Rc(.FutureTraitT(base_name : _)) => true,
     Rc(.DynT(required_trait_types : _)) => true,
     Rc(.SomeT({ resolution : resolved })) => match(
       resolved,
-      .Some(concrete) => recur(&concrete, targets, seen, depth + usize(1)),
+      .Some(concrete) => recur(&concrete, targets, seen),
       .None => true
     ),
     _ => false
@@ -852,15 +856,14 @@ _any_may_reach_any_of :: (
   fn(
     fields : &ArrayList(TypeValue),
     targets : &HashSet(String),
-    seen : &mut HashSet(String),
-    depth : usize
+    seen : &mut HashSet(String)
   ) -> bool
 )({
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
       fields.get(i),
-      .Some(ft) => if(_type_may_reach_any_of(&ft, targets, seen, depth), {
+      .Some(ft) => if(_type_may_reach_any_of(&ft, targets, seen), {
         return(true);
       }),
       .None => ()
@@ -868,6 +871,76 @@ _any_may_reach_any_of :: (
   });
   false
 });
+/// Is `ty` itself a function type — `Func` or an `Fn`/`FnMut`/`FnOnce`
+/// trait type (through refinement, shells and a resolved `Impl` wrapper)?
+/// `Future` is excluded on purpose: an async frame's captures are judged by
+/// the walk, which answers yes for it.
+_is_fn_typed :: (fn(ty_in : &TypeValue) -> bool)({
+  ty := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(ty_in)));
+  match(
+    ty,
+    Rc(.Func({ result : _ })) => true,
+    Rc(.FnTraitT(base_name : _)) => true,
+    Rc(.SomeT({ resolution : resolved })) => match(
+      resolved,
+      .Some(concrete) => _is_fn_typed(&concrete),
+      // An unresolved type variable may stand for a closure.
+      .None => true
+    ),
+    _ => false
+  )
+});
+/// The compile-time value a function-typed argument carries: a plain atom
+/// reads its binding's cell in `env` (an ExprInfo value of a runtime atom is
+/// only a `VarRef`), anything else reads the ExprInfo's own value.
+_fn_arg_value :: (fn(arg : &AstExpr, oi : &ExprInfo, env : &Environment) -> Option(EvalValue))(
+  match(
+    arg,
+    .Atom(_, tok) => {
+      vars := get_variables_from_env(env, &tok.value);
+      match(
+        vars.last(),
+        .Some(v) => match(
+          v.value.get(usize(0)),
+          .Some(fv) => Option(EvalValue).Some(fv),
+          .None => oi.value
+        ),
+        .None => oi.value
+      )
+    },
+    _ => oi.value
+  )
+);
+/// Can the function VALUE `v` reach a value of one of the types `targets`
+/// names? A plain `fn` — no registered capture struct
+/// (`get_closure_capture_info`, the registry `_capture_judgement_type`
+/// trusts for `Send`) — captures nothing, so it cannot; a closure is judged
+/// by its capture struct's fields, the captured variables' types; no value
+/// at all (a runtime variable that may hold any closure) can be one that
+/// captured the container, so it can. This is the carve-out the type walk
+/// cannot make: `cb := (v) => { xs.clear(); v };` and a top-level `fn` have
+/// the same `Func`/`Impl(Fn(...))` type, but only the closure can reach
+/// `xs` (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md,
+/// F1).
+_fn_value_may_reach_any_of :: (fn(v : &Option(EvalValue), targets : &HashSet(String)) -> bool)(
+  match(
+    v,
+    .Some(fvv) => match(
+      fvv,
+      .FuncVal(fvd, _) => match(
+        get_closure_capture_info(&fvd.*.func_id),
+        .Some(cci) => {
+          seen := HashSet(String).new();
+          _type_may_reach_any_of(&cci.capture_type, &targets, &mut seen)
+        },
+        // A plain fn: no capture struct, nothing captured.
+        .None => false
+      ),
+      _ => true
+    ),
+    .None => true
+  )
+);
 /// The types a ref argument's storage hangs from: the container holding the
 /// element (`index`) or the object the field lives in (`object-hop`), and
 /// every value on the field path down to it from the root variable, keyed by
@@ -908,8 +981,10 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
 /// allocation when the callee can REACH that container and free/realloc it
 /// during the call: (a) the container is module-level or aliases a
 /// module-level variable; (b) any OTHER argument could hold a handle to it
-/// — a closure (may have captured it), or a value whose type can hold one of
-/// the types the place hangs from (`_ref_place_holder_types`,
+/// — a closure (may have captured it, a literal or a value in a variable:
+/// `_fn_value_may_reach_any_of` judges by the value, since the type of a
+/// closure and of a plain `fn` is the same), or a value whose type can hold
+/// one of the types the place hangs from (`_ref_place_holder_types`,
 /// `_type_may_reach_any_of`). A value that cannot hold one cannot reach it:
 /// `replace(&mut xs(i), v)` with `xs : ArrayList(String)` and `v : String`
 /// is fine, since no `String` holds an `ArrayList(String)`
@@ -1029,8 +1104,18 @@ _reject_if_container_reachable :: (
           is_closure || match(
             holder_types,
             .Some(targets) => {
-              seen := HashSet(String).new();
-              _type_may_reach_any_of(&oi.ty, &targets, &mut seen, usize(0))
+              // F1: a function-typed sibling is judged by its VALUE — a
+              // plain `fn` (no capture struct) cannot reach, a closure by
+              // its capture struct's fields, an unknown runtime value can —
+              // because its TYPE alone cannot tell a closure from a `fn`.
+              (is_fn : bool) = _is_fn_typed(&oi.ty);
+              if(is_fn, {
+                fnv := _fn_arg_value(&other, &oi, env);
+                _fn_value_may_reach_any_of(&fnv, &targets)
+              }, {
+                seen := HashSet(String).new();
+                _type_may_reach_any_of(&oi.ty, &targets, &mut seen)
+              })
             },
             .None => (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty))
           )
