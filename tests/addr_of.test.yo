@@ -132,7 +132,7 @@ test("addr_of of a &T parameter is E0921: small Copy T, large T, self, generic T
   }, "takes the address of a place inside `x`");
   comptime_expect_error({
     _ao_capture_where :: (fn(x : &_AoSmall) -> *_AoSmall)({
-      f := (() => addr_of(x));
+      (f : Impl(Fn() -> *_AoSmall)) = (() => addr_of(x));
       f()
     });
     _ao_capture_where(&s);
