@@ -1,8 +1,9 @@
 # Allocator placement: global by default, placement by argument
 
 > **Status: Backlog — decided 2026-10-24 (maintainer adopted the advisor's verdict); steps A1/B1/B2 are VBD
-> campaign items, step C follows v0.2.75.** A1 is #1572 (merged; it ships in v0.2.70). A2, B1, B2 and C are not
-> started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
+> campaign items, step C follows v0.2.75.** A1 is #1572 (merged; it ships in v0.2.70). A2 and B1 are implemented
+> for v0.2.71 (branches `vbd/alloc-placement-a2` and `vbd/alloc-placement-b1`, stacked; 2026-10-25). B2 and C are
+> not started. Releases: `plans/handover/VBD_RELEASE_SCHEDULE.md` (revision of 2026-10-24). Line numbers are develop's
 > at `82671f612`. The maintainer's criterion: "Yo should be as explicit as possible because it is written by LLMs;
 > no backward compatibility; do things right." His answer to the verdict: "Adopt as recommended". This plan
 > replaces a same-day first draft (the "hybrid", §8 item 1). It amends `plans/reference/EXPLICIT_ALLOCATORS.md`
