@@ -24,7 +24,7 @@
 > answered by the coordinator and confirmed by the advisor).** The choice is comptime and the instance is a
 > compiler-emitted static, like Rust's `#[global_allocator] static`. The global interface is not the placement
 > vtable. New §11 says what a user writes for each face. §6 C states the declaration rule, §7 C gains the tests,
-> and §10.1 lists the decisions still OPEN for the maintainer.
+> and §10.1 records the maintainer's decisions (every recommendation adopted, 2026-10-25).
 
 ## 0. The verdict
 
@@ -491,30 +491,30 @@ three more:
    question's own recommendation, option 2: a hard error that names the path, and `#error` in the emitted C. The
    question stays open until the maintainer confirms.
 
-### 10.1 Custom allocators: OPEN for the maintainer (2026-10-25)
+### 10.1 Custom allocators: DECIDED 2026-10-25 (maintainer adopted every recommendation)
 
 C1–C5 come from the advisor's design (§11). C6 and C7 came up while the examples were checked against v0.2.70.
-Each item states a recommendation, and none is decided.
+Each item states the recommendation the maintainer adopted on 2026-10-25.
 
-- **C1. A value, not a type: OPEN.** `global_allocator :: heap.X(...)` binds a comptime value whose type implements
+- **C1. A value, not a type: DECIDED.** `global_allocator :: heap.X(...)` binds a comptime value whose type implements
   `GlobalAlloc`. **Recommendation:** adopt. A type alone cannot carry `Tlsf`'s region size or `Debug`'s report
   flag. A parameterless allocator is a unit-struct constant, so `global_allocator :: heap.Mimalloc;` reads the
   same as before.
-- **C2. `GlobalAlloc` is a separate, unsized interface: OPEN.** It is the three-function libc family of §11.2
+- **C2. `GlobalAlloc` is a separate, unsized interface: DECIDED.** It is the three-function libc family of §11.2
   (`alloc` and `realloc` with an alignment, `free` with the alignment but no size), distinct from the placement
   vtable. **Recommendation:** adopt. A global block is untagged and has no extent, and `__yo_rc_free(void*)`
   (`src/codegen/types/generation.yo:1108`, `:1133`) knows neither its size nor its type. The alternative, a sized
   free for every global block, puts a per-type release path into every `__yo_rc_free` call.
-- **C3. `__yo_aligned_free` gains an `align` argument: OPEN.** **Recommendation:** adopt, as a small std change in
+- **C3. `__yo_aligned_free` gains an `align` argument: DECIDED.** **Recommendation:** adopt, as a small std change in
   step C's Generation A, so `GlobalAlloc` stays one family. It also removes the two-family hazard
   (`std/allocator.yo:77-93`) for every allocator except Windows' libc, where `heap.System` routes by `align`.
-- **C4. A missing `vendor/mimalloc` is a hard error: OPEN.** This is §10 item 3, unchanged here.
+- **C4. A missing `vendor/mimalloc` is a hard error: DECIDED** (maintainer, 2026-10-24; implemented for today's `--allocator mimalloc` ahead of step C on `fix/mimalloc-missing-vendor-hard-error`). This is §10 item 3.
   **Recommendation:** as there.
-- **C5. The re-entry check is runtime-only, under `--allocator debug`, until `noalloc`: OPEN.**
+- **C5. The re-entry check is runtime-only, under `--allocator debug`, until `noalloc`: DECIDED.**
   **Recommendation:** adopt, and do not delay step C on §9. The debug wrapper keeps a thread-local re-entry flag
   and aborts with "the global allocator allocated through itself". Once `noalloc` lands, every `GlobalAlloc`
   impl is implicitly `noalloc`, and re-entry becomes a compile error.
-- **C6. How the `GlobalAlloc` methods reach the static: OPEN (found while writing).** The advisor's draft
+- **C6. How the `GlobalAlloc` methods reach the static: DECIDED (found while writing).** The advisor's draft
   takes `self : &Self`, as Rust's `GlobalAlloc` does. In Yo today a `&T` parameter reaches C **by value**. The
   probe (2026-10-25, v0.2.70, `--emit-c`): a method `(fn(self : &Self) -> Allocator)` on a one-field struct
   compiles to `f(__yo_t_… __yo_v_self)`, and `addr_of(self)` inside it is `(void*)(&__yo_v_self)`, the address
@@ -526,8 +526,8 @@ Each item states a recommendation, and none is decided.
   access that does not exist. **This is final, not provisional:** decision 34 lowers `x : &T` to `T x` for a
   small `Copy` `T` permanently, and to `const T*` otherwise, where a write through it is E0908
   (`plans/VALUES_BY_DEFAULT.md:251`, `:2264-2267`, `:2598`). Neither form is a writable address of the static,
-  so `&Self` can never be the `GlobalAlloc` receiver. The maintainer confirms the spelling, not a revisit date.
-- **C7. Atomics in a `GlobalAlloc` state: OPEN (found while writing).** The advisor's draft allows
+  so `&Self` can never be the `GlobalAlloc` receiver. The maintainer confirms the spelling, not a revisit date. Whether the compiler should reject `addr_of` of a `&T` parameter at all is filed as `issues/questions/2026-10-25-should-addr-of-a-borrowed-parameter-be-rejected.md`.
+- **C7. Atomics in a `GlobalAlloc` state: DECIDED (found while writing).** The advisor's draft allows
   `std/sync/atomic`. Its types are `atomic(ref(struct((*) : …)))` (`std/sync/atomic.yo:1295`), heap cells, and
   **they stay cells after V5**: V5 Generation A rewrites every `Atomic*` type onto `__yo_atomic_cell(State)`
   (`plans/VALUES_BY_DEFAULT.md:731-734`, `:5456-5461`; `plans/handover/VBD_RELEASE_SCHEDULE.md:219`), which is
