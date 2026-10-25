@@ -263,6 +263,29 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
 - **Extra:** ABBA `check src/main.yo` and `check std/rand.yo` against base, capped at 12 GB. Bar: RSS ≤ 1.02x, user time within noise.
 - If the ABBA bar fails, fall back to `.clone()` per site, the tool's default. Never use the `take`/`replace` window (D1).
 
+**As built (2026-10-26, branch `vbd/b4-0b-fnonce-sink`): only part 2 landed; parts 1 and 3 are deferred.**
+
+- Part 2 (the tool fix) landed: an `FnOnce` capture-list body's copies of its
+  captures are judged by liveness at the body's end (`captures_owned_by_body`
+  + `audit_record_implicit_copy`'s pending arm + the body-end judgment in the
+  anonymous-function evaluator); cli-case
+  `fix-migrate-explicit-copy-fnonce-capture-move` pins it (3 insertions on
+  develop → 1).
+- The flip is blocked by TWO evaluator bugs the probes missed (P-B tested a
+  concrete local helper, not the impl-method shape):
+  `issues/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md`
+  (S2, false E0901 — fixed and verified on `vbd/b4-0b-full-state`) and
+  `issues/2026-10-25-an-fnonce-closure-literal-at-a-method-call-is-released-twice.md`
+  (S1, silent double release — src's ~767 capturing `with_mut` lambdas would
+  all take the shape, so a self-compiled compiler corrupts its own heap).
+- The flip is also Generation B, not a same-PR std change: the v0.2.70 seed
+  rejects every caller of a `sink(body) : Impl(FnOnce(...))` with_mut (even a
+  capture-free lambda), so the release could not build the tree. A
+  seed-compatible relay spelling (`{ body }` as `Thread.spawn`'s wrapper)
+  lives on `vbd/b4-0b-full-state`; it survives the S2 fix but not the S1 one.
+- None of the 82 sites were converted; the B4 directory PRs' dry runs
+  re-list them unchanged (with_mut stays `&Impl(Fn)` on develop).
+
 #### B4-0c (dropped)
 
 The breakdown's prelude `take`/`replace`/`swap` is now B6-0 (§4.2, D2). It is one PR, not three.

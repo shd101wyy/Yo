@@ -139,11 +139,11 @@ pragma(Pragma.AllowUnsafe);
 { extract_fn_trait_from_type, type_implements_fn, type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ evaluate_begin_expression } :: import("../exprs/begin.yo");
+{ evaluate_begin_expression, audit_judge_arm_copies } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic, hard_swallow_diagnostic_in_generic_trial, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, audit_pending_copies_enabled, _ic_decl_key, record_copy_flow_decl, record_copy_loop, reject_second_class_return, capture_place_crosses_cell, reject_bare_callable_result, reject_closure_literal_into_dyn_fn, bare_callable_recorded_into_dyn_fn, place_require_mut } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -2256,6 +2256,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
       &body_eval_env,
       ctx
     );
+    // An `FnOnce(...)` capture-list body owns its by-value captures
+    // (decision 37): a copy of one inside the body is held pending and judged
+    // by liveness where the body ends (below), not recorded at once.
+    body_eval_ctx.captures_owned_by_body = closure_owns_captures;
     // Closure codegen: for a marked io.async closure, the synthesized
     // closure return type is a fresh `SomeT _ret` — using it as the body's expected
     // type coerces an operator-bodied result (e.g. `i32+i32`) to that SomeT, so the
@@ -2285,6 +2289,23 @@ Result type: ${type_to_string(&decl_result_ty)}`
       record_hollow_body_error(&hb_site, _anon_swallow_message(), g_anon_swallow_diags.with(xs => xs.clone()));
     }, {
       clear_hollow_body_error(&hb_site);
+    });
+    // An `FnOnce` capture-list body owns its by-value captures (decision 37),
+    // so `audit_record_implicit_copy` held its copies of one pending on the
+    // capture. Judge them here, against the body's evaluated statements: a
+    // capture read again after the copy is a copy, the last use a move —
+    // the same judgment a match arm's bindings get (`_judge_arm_copies`,
+    // exprs/match.yo). The capture frame is popped only far below.
+    if(closure_owns_captures && audit_pending_copies_enabled(), {
+      match(
+        cap_frame_idx,
+        .Some(jcfi) => match(
+          env.frames.get(jcfi),
+          .Some(jfr) => audit_judge_arm_copies(&jfr, &anon_body_out, &body_eval_ctx),
+          .None => ()
+        ),
+        .None => ()
+      );
     });
     // Channel 0 (P0, plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): a swallowed
     // unbound-name that is bound LATER in this module is a forward

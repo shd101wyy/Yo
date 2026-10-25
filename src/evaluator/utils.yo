@@ -3624,6 +3624,17 @@ audit_record_implicit_copy :: (
         },
         captured => {
           kind = String.from("capture-state");
+          // An `FnOnce(...)` closure with an explicit capture list OWNS its
+          // by-value captures (decision 37): the body may move one out at its
+          // last use. The copy is held pending on the capture and judged
+          // where the body ends (`audit_judge_arm_copies`, called by the
+          // anonymous-function evaluator with the body's statements) — read
+          // again in the body is a copy, the last use a move. Every other
+          // closure borrows or dups its captures on each call, so its copies
+          // are recorded at once.
+          if(ctx.captures_owned_by_body, {
+            pending_id = Option(usize).Some(v.id);
+          });
         },
         (!v.is_owning_the_rc_value && g_implicit_copy_match_roots.with(m => m.get(&v.id)).is_some()) => match(
           g_implicit_copy_match_roots.with(m => m.get(&v.id)),

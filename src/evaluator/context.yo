@@ -322,6 +322,13 @@ EvalContext :: ref(
     captured_variables : Option(HashMap(String, CapturedVarInfo)),
     /// Subset of capturedVariables consumed via `own(self)` parameter passing.
     own_consumed_captures : Option(HashSet(String)),
+    /// The closure body being evaluated is typed against `FnOnce(...)` and
+    /// carries an explicit capture list, so it OWNS its by-value captures
+    /// (plans/VALUES_BY_DEFAULT.md decision 37): a copy of one inside the
+    /// body is judged by liveness at the body's end — read again is a copy,
+    /// the last use a move (`yo fix --migrate explicit-copy`,
+    /// `audit_record_implicit_copy`).
+    (captures_owned_by_body : bool) ?= false,
     /// The innermost loop body being evaluated.
     is_evaluating_loop_body : Option(LoopBodyCtx),
     /// `Self` type for the innermost struct / enum / union definition.
@@ -1877,6 +1884,7 @@ copy_eval_context :: (fn(ctx : &EvalContext) -> EvalContext)(
     is_inside_impl_block : ctx.is_inside_impl_block,
     captured_variables : ctx.captured_variables,
     own_consumed_captures : ctx.own_consumed_captures,
+    captures_owned_by_body : ctx.captures_owned_by_body,
     is_evaluating_loop_body : ctx.is_evaluating_loop_body,
     self_type : ctx.self_type,
     self_trait_type : ctx.self_trait_type,
