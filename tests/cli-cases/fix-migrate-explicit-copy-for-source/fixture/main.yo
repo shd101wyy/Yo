@@ -1,0 +1,33 @@
+{ String } :: import("std/string");
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+// A list read again after its first loop: the first `for` becomes the read
+// walk; the second is the list's last use, a move.
+sum_twice :: (fn() -> i32)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  mut(total) := i32(0);
+  for(xs, x => {
+    total = (total + x);
+  });
+  total = (total + i32(xs.len()));
+  for(xs, x => {
+    total = (total + x);
+  });
+  total
+});
+// A `String` source read again: iterated as a copy.
+count_twice :: (fn() -> usize)({
+  s := String.from("ab");
+  mut(n) := usize(0);
+  for(s, c => {
+    n = (n + usize(1));
+  });
+  (n + s.len())
+});
+main :: (fn() -> unit)({
+  assert(sum_twice() == i32(8), "1 + 2, the length, then 1 + 2 again");
+  assert(count_twice() == usize(4), "two runes and two bytes");
+});
+export(main);

@@ -1,0 +1,9 @@
+# `yo fix <path> --migrate explicit-copy` and the source of a `for` value form
+# (VBD B7b). `into_iter` takes its receiver by value, so `for(xs, x => …)`
+# copies `xs` into the loop's iterator. A std collection read again after the
+# loop is spelled as the read walk `for(&xs, …)`, which copies nothing; its
+# last use is a move, neither rewritten nor listed. A `String` source has no
+# read walk and is iterated as a copy, `.clone()`. The expected_tree pins the
+# rewritten main.yo, and the trailing `check` proves it still evaluates.
+stdout_keep=^fix:
+timeout=240

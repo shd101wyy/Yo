@@ -3412,6 +3412,47 @@ _run_migrate_explicit_copy :: (
         println(`fix: ${at}: \`${st.expect}\` is copied above the \`derive\` that gives \`${st.ty}\` its \`Clone\`, where a \`.clone()\` does not resolve; left as written (spell \`.clone()\` by hand, after moving the \`derive(..., Clone)\` above the copy)`);
         continue;
       });
+      // The source of a `for` value form (`for(xs, x => …)`): the copy is
+      // the receiver of the loop's `into_iter`, which consumes `xs` (B7b). A
+      // std collection read again afterwards takes the read walk
+      // `for(&xs, …)`, which copies nothing. It is checked before the
+      // sharing guards below, which a borrow cannot trip: the borrow ends
+      // with the loop, so a write after it is unaffected, and a write of `xs`
+      // in the body becomes E0911 instead of a walk that silently sees it.
+      // The body then borrows each element, so a body that writes or keeps
+      // its element is named by `yo check` for a hand edit. Any other source
+      // (a `String`, an aggregate holding a collection) has no read walk and
+      // goes on to the `.clone()` path.
+      if((st.copy_path == "param") && explicit_copy_type_is_collection(&st.ty), {
+        match(
+          line_starts.get(st.row),
+          .Some(ls) => {
+            fs_start := (ls + st.col);
+            if(fs_start < runes.len(), {
+              match(
+                _expr_span_end(&runes, fs_start, fs_start, &st.expect, &file),
+                .Some(fs_end) => if(_is_for_value_source(&runes, fs_start, fs_end), {
+                  n_for_reads = (n_for_reads + usize(1));
+                  if(dry_run, {
+                    fs_text := String.new();
+                    (fk : usize) = fs_start;
+                    while(fk < fs_end, fk = (fk + usize(1)), {
+                      fs_text.push_rune(runes(fk));
+                    });
+                    println(`fix: ${at}: for-source: \`${st.expect}\` would become \`&${fs_text}\` (the read walk: the body borrows each element)`);
+                  });
+                  at_idx.push(fs_start);
+                  at_text.push(String.from("&"));
+                  at_close.push(false);
+                  continue;
+                }),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      });
       // A `return` of a place rooted in a borrow, a module-level binding or
       // a borrowed binding leaves its block sharing that root's buffer: a
       // write through it (by a caller, or through the binding an arm tail
@@ -3504,24 +3545,6 @@ _run_migrate_explicit_copy :: (
             ),
             .None => true
           );
-          // The source of a `for` value form (`for(xs, x => …)`): the copy
-          // is the receiver of the loop's `into_iter`, which consumes `xs`
-          // (B7b). A std collection read again afterwards takes the read walk
-          // `for(&xs, …)`, which copies nothing; its body then borrows each
-          // element, so a body that writes or keeps the element needs a hand
-          // edit, which `yo check` names. Any other source (a `String`, an
-          // aggregate holding a collection) has no read walk and is iterated
-          // as a copy, `.clone()`.
-          if((st.copy_path == "param") && explicit_copy_type_is_collection(&st.ty) && _is_for_value_source(&runes, start, end), {
-            n_for_reads = (n_for_reads + usize(1));
-            if(dry_run, {
-              println(`fix: ${at}: for-source: \`${st.expect}\` would become \`&${cand}\` (the read walk: the body borrows each element)`);
-            });
-            at_idx.push(start);
-            at_text.push(String.from("&"));
-            at_close.push(false);
-            continue;
-          });
           n_inserted = (n_inserted + usize(1));
           // A capture list's shorthand entry `x` names the capture and its
           // source: the copy is the source's, so the entry becomes
