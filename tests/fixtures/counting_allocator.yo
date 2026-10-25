@@ -1,0 +1,35 @@
+//! A counting `Allocator` for SAFE test files: implementing one needs raw
+//! pointers, so it lives here, under the pragma, and hands the safe side only
+//! an `Allocator` value and its live-block count. It forwards to the global
+//! allocator. Used by tests/allocator_parameter.test.yo
+//! (plans/backlog/ALLOCATOR_PLACEMENT.md, step A2), which also names
+//! `RawHolder`, a struct carrying a raw pointer that is NOT an `Allocator`.
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("std/allocator");
+{ AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+_LIVE := AtomicUsize.new(usize(0));
+_counting_alloc :: (fn(ctx : ?*void, size : usize) -> ?*void)({
+  _LIVE.fetch_add(usize(1), MemoryOrder.AcqRel);
+  GlobalAllocator.malloc(size)
+});
+_counting_realloc :: (fn(ctx : ?*void, ptr : ?*void, new_size : usize) -> ?*void)({
+  if(ptr.is_none(), {
+    _LIVE.fetch_add(usize(1), MemoryOrder.AcqRel);
+  });
+  GlobalAllocator.realloc(ptr, new_size)
+});
+_counting_free :: (fn(ctx : ?*void, ptr : ?*void) -> unit)({
+  if(ptr.is_some(), {
+    _LIVE.fetch_sub(usize(1), MemoryOrder.AcqRel);
+  });
+  GlobalAllocator.free(ptr);
+});
+_COUNTING_VTABLE := AllocatorVTable(alloc : _counting_alloc, realloc : _counting_realloc, free : _counting_free);
+/// The counting allocator. Every value shares one count.
+counting_allocator :: (fn() -> Allocator)(Allocator(ctx : .None, vtable : addr_of(_COUNTING_VTABLE)));
+/// The blocks the counting allocator holds right now.
+counting_live :: (fn() -> usize)(_LIVE.load(MemoryOrder.Acquire));
+/// A struct whose representation carries a raw pointer: the safe side's
+/// parameter gate must still reject it.
+RawHolder :: struct(p : ?*u8);
+export(counting_allocator, counting_live, RawHolder);

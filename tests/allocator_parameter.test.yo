@@ -1,0 +1,47 @@
+//! A SAFE file (no `pragma(Pragma.AllowUnsafe)`) passes placement on: the
+//! prelude's `Allocator` is an opaque handle to the raw-view parameter gate,
+//! so `Allocator`, `Option(Allocator)` and a struct holding one are parameter
+//! types here (plans/backlog/ALLOCATOR_PLACEMENT.md, step A2). Using the
+//! handle's raw words stays gated: `a.alloc(n)` is still rejected.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ counting_allocator, counting_live, RawHolder } :: import("./fixtures/counting_allocator.yo");
+_Node :: struct(name : i32, kids : ArrayList(i32));
+// The one placement spelling: a defaulted `Option(Allocator)` passed on.
+_make_node :: (fn(name : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(_Node))(
+  rc(_Node(name : name, kids : ArrayList(i32).new()), alloc : alloc)
+);
+// A bare `Allocator` parameter.
+_place_in :: (fn(a : Allocator, name : i32) -> Rc(_Node))(_make_node(name, alloc : .Some(a)));
+// A struct holding one.
+_Placement :: struct(alloc : Option(Allocator), label : i32);
+_make_with :: (fn(p : _Placement) -> Rc(_Node))(_make_node(p.label, alloc : p.alloc));
+test("a safe function declares (alloc : Option(Allocator)) ?= .None and places an Rc", {
+  a := counting_allocator();
+  base := counting_live();
+  {
+    g := _make_node(i32(1));
+    assert(counting_live() == base, "the default is the global allocator");
+    n := _make_node(i32(2), alloc : .Some(a));
+    assert(counting_live() == (base + usize(1)), `the placed cell is the counting allocator's: ${counting_live()}`);
+    assert((g.name + n.name) == i32(3), "the payloads");
+  };
+  assert(counting_live() == base, `the placed cell went back: ${counting_live()}`);
+});
+test("an Allocator parameter and a struct holding one pass placement on", {
+  a := counting_allocator();
+  base := counting_live();
+  {
+    m := _place_in(a, i32(3));
+    k := _make_with(_Placement(alloc : .Some(a), label : i32(4)));
+    assert(counting_live() == (base + usize(2)), `both cells are placed: ${counting_live()}`);
+    assert((m.name + k.name) == i32(7), "the payloads");
+  };
+  assert(counting_live() == base, `both cells went back: ${counting_live()}`);
+});
+test("the handle's raw words stay gated in a safe file", {
+  comptime_expect_error(Allocator.global().alloc(usize(8)), "Raw pointer values are not available in safe code");
+  // The opaque handle is the prelude's `Allocator` only: any other struct
+  // carrying a raw pointer is still rejected as a parameter type.
+  comptime_expect_error((fn(h : RawHolder) -> unit)(()), "Raw-pointer-carrying types ('RawHolder')");
+});
