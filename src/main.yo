@@ -3259,6 +3259,8 @@ _run_migrate_explicit_copy :: (
     hot_canon.push(canonical_module_path(hot_paths(hpi).clone()));
   });
   (n_inserted : usize) = usize(0);
+  // `for` value-form sources spelled as the read walk (`&`).
+  (n_for_reads : usize) = usize(0);
   (n_skipped : usize) = usize(0);
   (n_skipped_tests : usize) = usize(0);
   (ti : usize) = usize(0);
@@ -3511,7 +3513,7 @@ _run_migrate_explicit_copy :: (
           // aggregate holding a collection) has no read walk and is iterated
           // as a copy, `.clone()`.
           if((st.copy_path == "param") && explicit_copy_type_is_collection(&st.ty) && _is_for_value_source(&runes, start, end), {
-            n_inserted = (n_inserted + usize(1));
+            n_for_reads = (n_for_reads + usize(1));
             if(dry_run, {
               println(`fix: ${at}: for-source: \`${st.expect}\` would become \`&${cand}\` (the read walk: the body borrows each element)`);
             });
@@ -3600,7 +3602,8 @@ _run_migrate_explicit_copy :: (
   });
   verb := if(dry_run, String.from("would insert"), String.from("inserted"));
   tests_note := if(n_skipped_tests > usize(0), `; ${n_skipped_tests.to_string()} test body(ies) did not evaluate (listed above)`, String.new());
-  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s); ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
+  for_note := if(n_for_reads > usize(0), `; ${if(dry_run, "would spell", "spelled")} ${n_for_reads.to_string()} \`for\` source(s) as the read walk (\`&\`)`, String.new());
+  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s)${for_note}; ${n_skipped.to_string()} site(s) left as written (listed above)${tests_note}; ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
   });

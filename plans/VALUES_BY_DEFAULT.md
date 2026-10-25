@@ -3623,6 +3623,24 @@ and in git, not a silent edit.
           `for(xs, …)` sources used afterwards;
         - `iter()` and the `*Ptr` iterators move under
           `pragma(Pragma.AllowUnsafe)`;
+          **As built (B7b, 2026-10-25):** `IntoIterator.into_iter` and its
+          nine std impls (and `src/`'s seven `SharedList` impls) take
+          `self : Self`, and so do `chars`, `bytes`, `char_indices`,
+          `lines`, `keys`, `values`, `chunks` and `windows` (lookahead D20).
+          While a collection is `ref`, the by-value receiver is a share, and
+          the iterators still copy each element out (lookahead D21): each
+          flip (B8–B11) switches its own iterator to move-out. The seven
+          `*Ptr` iterators hold the buffer pointer and the length `iter()`
+          saw, not the container, so they keep nothing alive (raw views for
+          unsafe code; a safe file cannot hold the pointers they yield).
+          `yo fix --migrate explicit-copy` spells a `for` value form whose
+          collection source is used again as the read walk `for(&xs, …)`
+          (`_is_for_value_source`), and a `String` or aggregate source as
+          `.clone()`. `src/`'s four value loops and three `iter()` users
+          became read walks by hand (the v0.2.70 seed carries B7a). A move-only
+          source is now iterable by value (it moves into its iterator); an
+          `Array(T, N)` of move-only elements is not yet, because `_ArrayIter`
+          still copies each element out (`issues/2026-10-25-the-value-form-over-an-array-of-move-only-elements-is-e0901.md`);
         - `HashMapEntry` stops holding the map (decision 20's `with` shape).
 
         The S2 closes there.

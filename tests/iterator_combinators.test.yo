@@ -477,6 +477,72 @@ test("IntoIterator bound accepts ArrayList and Array", {
   assert(__ii_sum(&xs) == i32(6), "ArrayList through the Item-bound generic");
   assert(__ii_sum([i32(4), i32(5)]) == i32(9), "Array through the Item-bound generic");
 });
+// --- B7b: consuming iteration (plans/VALUES_BY_DEFAULT.md decision 39) -------
+// `IntoIterator.into_iter` takes its receiver by value, so the iterator OWNS
+// what it walks and the value form `for(src, x => …)` consumes `src`. A
+// move-only source is therefore iterable by value: it moves into the
+// iterator, which drops it once, when the loop ends; a later use of it is a
+// use of a moved value. (An `into_iter(self : &Self)` could only copy a
+// move-only source into its iterator, which is E0901.)
+mut(g_b7b_dropped) := i32(0);
+_B7bTokens :: struct(n : usize);
+impl(
+  _B7bTokens,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_b7b_dropped = (g_b7b_dropped + i32(1));
+    })
+  )
+);
+_B7bTokensIter :: struct(src : _B7bTokens, i : usize);
+impl(
+  _B7bTokensIter,
+  Iterator(
+    Item : usize,
+    next : (fn(self : &mut Self) -> Option(usize))(
+      cond(
+        (self.i < self.src.n) => {
+          r := self.i;
+          self.i = (self.i + usize(1));
+          .Some(r)
+        },
+        true => .None
+      )
+    )
+  )
+);
+impl(
+  _B7bTokens,
+  IntoIterator(
+    Item : usize,
+    IntoIter : _B7bTokensIter,
+    into_iter : (fn(self : Self) -> _B7bTokensIter)(_B7bTokensIter(src : self, i : usize(0)))
+  )
+);
+test("B7b: the value form moves a move-only source into its iterator, which drops it once", {
+  before := g_b7b_dropped;
+  {
+    toks := _B7bTokens(n : usize(4));
+    mut(total) := usize(0);
+    for(toks, i => {
+      total = (total + i);
+    });
+    assert(total == usize(6), "0 + 1 + 2 + 3");
+    assert(g_b7b_dropped == (before + i32(1)), "the iterator dropped the source when the loop ended");
+    comptime_expect_error(toks.n, "use of moved value");
+  };
+  assert(g_b7b_dropped == (before + i32(1)), "dropped exactly once: the moved-from binding drops nothing");
+});
+test("B7b: a combinator chain owns its move-only source", {
+  before := g_b7b_dropped;
+  {
+    toks := _B7bTokens(n : usize(3));
+    n := toks.into_iter().map(i => (i * usize(10))).fold(usize(0), (acc, x) => (acc + x));
+    assert(n == usize(30), "0 + 10 + 20");
+    comptime_expect_error(toks.into_iter(), "use of moved value");
+  };
+  assert(g_b7b_dropped == (before + i32(1)), "the chain dropped the source once");
+});
 // --- D3.4: rev / DoubleEndedIterator (plans/archive/STD_API_AUDIT.md) ---------------
 test("rev on integer ranges", {
   out := ArrayList(i32).from([i32(0),]);

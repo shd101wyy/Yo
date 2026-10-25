@@ -211,8 +211,9 @@ test("borrowed for over a ref collection forwarding the inner projection: no ass
   bag.items.push(i32(3));
   assert(bag.items.len() == usize(3), "the guard released the flag at loop end: later container calls do not panic");
 });
-// A read-only method iterating a VALUE field by value, `for(self.c, …)`, runs
-// the field's `into_iter`, whose iterator owns a copy of the field, and then
+// A read-only method iterating a copy of a VALUE field, `for(self.c.clone(),
+// …)`, runs the field's `into_iter`, which consumes the copy (B7b; before it,
+// `for(self.c, …)` lent the field to an `into_iter` that copied it), and then
 // advances that iterator's own cursor. Neither touches `self`, so the method
 // carries no entry assert. Two PARAM-STORAGE mistakes used to give it one
 // (issues/fixed/2026-10-23-a-read-only-method-iterating-a-value-field-asserts-its-receiver-unborrowed.md):
@@ -252,6 +253,7 @@ impl(
 );
 // The iterator is bound to a local, then returned.
 CountLocal :: struct(c : Counter);
+derive(CountLocal, Clone);
 impl(
   CountLocal,
   IntoIterator(
@@ -265,6 +267,7 @@ impl(
 );
 // A fully constant iterator: its value is folded, it roots nothing.
 CountConst :: struct(c : Counter);
+derive(CountConst, Clone);
 impl(
   CountConst,
   IntoIterator(
@@ -275,6 +278,7 @@ impl(
 );
 // The copy passes through a chain of locals.
 CountChain :: struct(c : Counter);
+derive(CountChain, Clone);
 impl(
   CountChain,
   IntoIterator(
@@ -375,35 +379,35 @@ impl(
   VBag,
   sum_clone : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.c, x => {
+    for(self.c.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_local : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.local, x => {
+    for(self.local.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_const : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.konst, x => {
+    for(self.konst.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_chain : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.chain, x => {
+    for(self.chain.clone(), x => {
       t = (t + x);
     });
     t
   }),
   sum_hand : (fn(self : &Self) -> usize)({
     mut(t) := usize(0);
-    for(self.h, x => {
+    for(self.h.clone(), x => {
       t = (t + x);
     });
     t
