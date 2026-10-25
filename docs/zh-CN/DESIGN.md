@@ -3267,14 +3267,25 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 ### Rc 类型
 
 > **⚠️ `Rc` 对应 Rust 的 `Rc`，而不是 Rust 的 `Box`。** Rust 的 `Box<T>` 是唯一
-> 所有者——传递即移动，克隆即深拷贝。Yo 的 `Rc(T)` 是 `ref` 类型：复制句柄会
-> **共享同一个堆上的值并增加引用计数**，与 Rust 的 `Rc<T>` 完全一致。
+> 所有者——传递即移动，克隆即深拷贝。Yo 的 `Rc(T)` 是计数句柄：`Rc.clone(a)`
+> **产生指向同一个堆上值的第二个句柄并增加引用计数**，与 Rust 的 `Rc::clone`
+> 完全一致。
 >
 > ```yo
 > a := rc(i32(42));
-> b := a;                    // 第二个句柄，而不是值的副本
+> b := Rc.clone(a);          // 第二个句柄，而不是值的副本
 > assert(ref_count(a) == usize(2), "a 和 b 指向同一个值");
 > ```
+>
+> **第二个句柄要显式写出**（`plans/VALUES_BY_DEFAULT.md` 决定 17）：句柄是新的
+> 所有者，所以共享在创建处可见。句柄的最后一次使用会移动它（`b := a` 之后不再
+> 使用 `a`）；源值之后仍被使用的隐式拷贝是 E0901，其提示写出 `Rc.clone(a)`。
+> `&Rc(T)` 形参借用句柄而不拷贝。持有句柄的值（结构体字段、`Option(Rc(T))`）
+> 用 `.clone()` 拷贝，它会克隆每个句柄；闭包在捕获列表里取得第二个句柄：
+> `{ a : Rc.clone(a) }() => a.*`。`yo fix <path> --migrate rc-clone` 为已有代码
+> 写出这些克隆。克隆通过类型来写（`Rc.clone(a)`），因为 `a.clone()` 可能指
+> 负载自己的 `clone`（决定 32）。泛型函数体中以 `T` 出现的句柄
+> （`ArrayList(Rc(T)).get(i)`）仍然隐式共享。
 >
 > 引用计数是 Yo **通用**的对象模型，并非某个容器的可选策略：每个
 > `ref(struct(...))` 都是引用计数的，`Rc` 只是其中单字段的特例。
@@ -3401,7 +3412,7 @@ test("Rc reference counting", {
   ```yo
   { RefCell } :: import("std/sync/refcell");
   log := rc(RefCell(i32).new(i32(0)));
-  other := log; // 指向同一个单元的第二个句柄
+  other := Rc.clone(log); // 指向同一个单元的第二个句柄
   other.replace_with(n => (n + i32(1)));
   assert(log.with(n => n) == i32(1), "seen through the first handle");
   ```
@@ -3410,7 +3421,7 @@ test("Rc reference counting", {
 
   ```yo
   a := rc(Point(x : 1, y : 2));
-  b := a;
+  b := Rc.clone(a);
   Rc.make_mut(&mut b).x = 10; // b 得到自己的单元
   assert((a.x == 1) && (b.x == 10), "a is unchanged");
   ```
