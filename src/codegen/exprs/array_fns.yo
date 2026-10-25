@@ -15,6 +15,7 @@
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen_at, fresh_local_name, element_wise_dup_target } :: import("../utils/index.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
+{ sequence_operand } :: import("./other_fn_call.yo");
 /// `array(1, 2, 3)` → `(<arrayType>){ .data = { 1, 2, 3 } }`, into a named temp
 /// when the array has a result variable name. Returns `.None` when the node is
 /// not a typed array call (fall-through).
@@ -35,11 +36,11 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
               args_list.push_str(", ");
             });
             arg_code := _call_generate_expr(&arg, indent.clone(), context);
+            (elem_code : String) = arg_code;
             // Deferred dup for a moved RC element:
             // emit the element's deferred `___dup` expressions, then reference
             // the DUP RESULT temp in the literal instead of the original —
             // the literal now owns its own +1 per element.
-            (used_dup_temp : bool) = false;
             match(
               context.base.get_expr_info(&arg),
               .Some(arg_ei) => match(
@@ -56,8 +57,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
                         .Some(dup_ei) => match(
                           dup_ei.variable_name,
                           .Some(dup_vn) => {
-                            args_list.push_string(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
-                            used_dup_temp = true;
+                            elem_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env));
                           },
                           .None => ()
                         ),
@@ -71,9 +71,10 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
               ),
               .None => ()
             );
-            if(!used_dup_temp, {
-              args_list.push_string(&arg_code);
-            });
+            // Sequenced against the later elements (`sequence_operand`,
+            // other_fn_call.yo): C leaves initializers unordered, and a later
+            // element's statements run before this literal.
+            args_list.push_string(sequence_operand(&arg, elem_code, &arg_exprs, i, false, indent, context));
           },
           .None => ()
         );

@@ -126,7 +126,7 @@
 { generate_consume } :: import("./consume.yo");
 { generate_op_and, generate_op_or } :: import("./and_or.yo");
 { generate_match_expression } :: import("./match.yo");
-{ generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
+{ generate_other_function_call, _store_temp_var_to_state_machine_if_needed, sequence_operand } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction, generate_yo_capture_field } :: import("./closures.yo");
 { generate_deferred_dup_expressions, generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at, type_key } :: import("../utils/index.yo");
@@ -336,7 +336,10 @@ _generate_inline_call :: (fn(expr : &AstExpr, indent : &String, context : &Funct
           ),
           .None => arg_code
         );
-        args.push(final_code);
+        // Sequenced against the later operands (`sequence_operand`,
+        // other_fn_call.yo): `(h.tag + eat(h))` read `h->tag` after `eat(h)`
+        // released `h`.
+        args.push(sequence_operand(&arg, final_code, &arg_exprs, i, false, indent, context));
       },
       .None => ()
     );

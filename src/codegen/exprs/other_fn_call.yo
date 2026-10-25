@@ -2,27 +2,29 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT } :: import("../../expr.yo");
-{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard, is_by_value_param_share_dup, is_call_scoped_share_dup } :: import("../../expr_info.yo");
+{ AstExpr, ExprId, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_address_of_call, ast_expr_token, ast_expr_to_string, ast_expr_id, make_err_expr, BF_DOT, BK_BORROW_MUT } :: import("../../expr.yo");
+{ lookup_method_callee_value, ExprInfo, new_expr_info, expr_info_effect_analysis, expr_info_deferred_dup_expressions, expr_info_index_trait_ptr_type, scope_variables, scope_release_note_hard, is_by_value_param_share_dup, is_call_scoped_share_dup, lookup_macro_expansion, expr_info_converted_runtime_type } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype, fn_value_c_name } :: import("../functions/declarations.yo");
 { TypeValue, TypeValueNode, FuncMeta, no_types, no_labels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
-{ is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type, is_cell_primitive_type, is_counted_handle_type, is_atomic_counted_handle_type } :: import("../../types/guards.yo");
+{ is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type, is_cell_primitive_type, is_counted_handle_type, is_atomic_counted_handle_type, is_never_type, is_primitive_type, is_tuple_type } :: import("../../types/guards.yo");
 { type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr, dyn_type_lists_clone } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
 { is_any_temp_variable_name } :: import("../../utils.yo");
-{ declare_c_var_name, get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at, erased_future_result_type_string, fresh_local_name } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
-{ generate_deferred_drop_expressions, emit_deferred_dup_or_code } :: import("./drop_dup.yo");
+{ generate_deferred_drop_expressions, emit_deferred_dup_or_code, _looks_like_minted_temp } :: import("./drop_dup.yo");
+{ expr_contains_await } :: import("../../expr_traversal.yo");
+{ TokenKind } :: import("../../token.yo");
 { generate_yo_inline_function_call } :: import("./inline_fns.yo");
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { emit_effect_unwind_check, generate_call_deferred_drops } :: import("./return.yo");
@@ -688,6 +690,311 @@ _dispatch_arg_code :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, 
   );
   if(has_dup, _materialize_arg(arg, param_is_ref, expr, indent, context), _call_generate_expr(arg, indent, context))
 });
+/// Operand sequencing. Codegen renders each operand of a call, an operator,
+/// a constructor or a tuple/array literal as a C expression, and an operand
+/// that needs statements (a call's result temp, a dup, a block body) emits
+/// them while it is generated. An earlier operand left inline therefore runs
+/// where the finished expression is used: after every later operand's
+/// statements, and unordered against a later inline operand (C sequences
+/// neither function arguments nor initializers). `(h.tag + eat(h))` read
+/// `h->tag` after `eat(h)` freed it, and `sub(x, bump(&mut x))` passed the
+/// value `bump` wrote
+/// (issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md,
+/// issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md).
+///
+/// Every operand loop calls `sequence_operand` on each by-value operand's
+/// final code, after its deferred dup (so a retained share is the value
+/// taken), with the operands in generation order. When a later operand can
+/// change what the code reads, the value is copied into a fresh `__yo_seq_<n>`
+/// local declared at this point, and its name is returned; otherwise the code
+/// comes back unchanged. The copy is bitwise and owns nothing: the operand's
+/// move, dup or borrowed read is exactly what it was.
+///
+/// Left as they are:
+/// - an address operand (`is_ptr`, `&x`, `&mut x`, `addr_of(x)`): the callee
+///   reads through it, and decision 28's E0910 rejects a later operand that
+///   writes or frees a lent place;
+/// - a settled code (`_operand_code_is_settled`): a literal, a compile-time
+///   value or binding, a temp the operand declared;
+/// - inside a state machine, an operand a later operand's `await` separates
+///   from its use: a C local does not survive the suspension
+///   (issues/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md);
+/// - a value whose type has no C spelling here (an unresolved `SomeType`).
+sequence_operand :: (fn(arg : &AstExpr, code : String, operands : &ArrayList(AstExpr), index : usize, is_ptr : bool, indent : &String, context : &FunctionGenerationContext) -> String)({
+  n := operands.len();
+  if(is_ptr || (code.len() == usize(0)) || ((index + usize(1)) >= n), {
+    return(code);
+  });
+  if(ast_expr_is_address_of_call(arg, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(arg, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+    return(code);
+  });
+  ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(code));
+  if(_operand_code_is_settled(arg, &code, &ei), {
+    return(code);
+  });
+  root := _operand_local_root(arg, &code, context);
+  (must : bool) = false;
+  (j : usize) = (index + usize(1));
+  while((j < n) && !must, {
+    match(
+      operands.get(j),
+      .Some(later) => {
+        must = match(root, .Some(rn) => _operand_mentions(&later, &rn), .None => _operand_may_write(&later, context));
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  if(!must, {
+    return(code);
+  });
+  if(context.in_async_state_machine.is_some(), {
+    (k : usize) = (index + usize(1));
+    while(k < n, {
+      match(
+        operands.get(k),
+        .Some(later) => if(expr_contains_await(&later), {
+          return(code);
+        }),
+        .None => ()
+      );
+      k = (k + usize(1));
+    });
+  });
+  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty);
+  ty := resolve_some_type_to_concrete(&eff_ty);
+  if(is_unit_type(&ty) || is_never_type(&ty) || is_some_type(&ty), {
+    return(code);
+  });
+  tmp := fresh_local_name(String.from("__yo_seq_"), &context.base.current_function_name);
+  em := context.base.emitter;
+  em.emit_string_line(`${indent}${get_variable_type_string(&ty, tmp.clone(), &context.base)} = ${code};`);
+  tmp
+});
+/// Whether `code`, the rendering of operand `arg`, is a value no later
+/// operand can change: a literal, a compile-time value or compile-time-only
+/// binding, or a temp the operand's own generation declared.
+_operand_code_is_settled :: (fn(arg : &AstExpr, code : &String, ei : &ExprInfo) -> bool)({
+  if(_is_bare_literal(code), {
+    return(true);
+  });
+  if(ast_expr_is_atom(arg), {
+    tok := ast_expr_token(arg);
+    match(
+      tok.kind,
+      .Integer => return(true),
+      .Float => return(true),
+      .Bool => return(true),
+      .StringLit => return(true),
+      .CharLit => return(true),
+      .Identifier => {
+        vars := scope_variables(ast_expr_id(arg), &ei.env, &tok.value);
+        m := vars.len();
+        if(
+          m > usize(0),
+          match(
+            vars.get(m - usize(1)),
+            .Some(v) => if(v.is_compile_time_only, {
+              return(true);
+            }),
+            .None => ()
+          )
+        );
+      },
+      _ => ()
+    );
+  }, {
+    // A call with a compile-time value is emitted as that constant
+    // (`generate_other_function_call`'s comptime short-cut); a constructor
+    // shell with runtime fields is not.
+    match(
+      ei.value,
+      .Some(v) => if(!is_unknown_val(&v) && !is_struct_val(&v) && !is_enum_val(&v), {
+        return(true);
+      }),
+      .None => ()
+    );
+  });
+  _is_c_identifier(code) && (_looks_like_minted_temp(code) || is_any_temp_variable_name(code) || code.starts_with("__yo_seq_"))
+});
+/// Whether `s` is a plain C identifier.
+_is_c_identifier :: (fn(s : &String) -> bool)({
+  n := s.len();
+  if(n == usize(0), {
+    return(false);
+  });
+  first := s.byte_at(usize(0));
+  if((first >= u8(48)) && (first <= u8(57)), {
+    return(false);
+  });
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := s.byte_at(i);
+    if(!(((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))), {
+      return(false);
+    });
+    i = (i + usize(1));
+  });
+  true
+});
+/// The binding operand `arg` reads in place when only an operand that names
+/// it can change the value read: a runtime local or by-value parameter (not a
+/// module-level binding, not a borrow), or a field chain of value structs and
+/// tuples over one. A borrow checker conflict (E0910) rejects a later operand
+/// that writes it through a live borrow, so the name is the only way in.
+/// Anything read through a pointer or a reference handle (`p->f`, `(*p)`, a
+/// `ref` struct's or an `Rc`'s field, a closure capture) has aliases no name
+/// reveals and gets `.None`, as does every other expression.
+_operand_local_root :: (fn(arg : &AstExpr, code : &String, context : &FunctionGenerationContext) -> Option(String))({
+  body := if(code.starts_with("sm->"), code.substring(usize(4), code.len()), code.clone());
+  if(body.contains("->") || body.contains("(*"), {
+    return(Option(String).None);
+  });
+  _value_place_root(arg, context)
+});
+_value_place_root :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
+  match(
+    e,
+    .Atom(_, tok) => if(
+      tok.kind == TokenKind.Identifier,
+      match(
+        context.base.get_expr_info(e),
+        .Some(ei) => {
+          vars := scope_variables(ast_expr_id(e), &ei.env, &tok.value);
+          m := vars.len();
+          if(
+            m == usize(0),
+            Option(String).None,
+            match(
+              vars.get(m - usize(1)),
+              .Some(v) => if(v.is_module_level || v.is_ref || v.is_imm_borrow, Option(String).None, Option(String).Some(tok.value.clone())),
+              .None => Option(String).None
+            )
+          )
+        },
+        .None => Option(String).None
+      ),
+      Option(String).None
+    ),
+    .FnCall(_, _, pargs, _, _) => if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+      base := match(pargs.get(usize(0)), .Some(b) => b, .None => return(Option(String).None));
+      field_ok := match(pargs.get(usize(1)), .Some(.Atom(_, ft)) => ((ft.kind == TokenKind.Identifier) || (ft.kind == TokenKind.Integer)), .Some(_) => false, .None => false);
+      base_is_value := match(context.base.get_expr_info(&base), .Some(bei) => ((is_struct_type(&bei.ty) && !is_reference_struct_type(&bei.ty)) || is_tuple_type(&bei.ty)), .None => false);
+      if(field_ok && base_is_value, recur(&base, context), Option(String).None)
+    }, Option(String).None)
+  )
+);
+/// Whether `e` names `name` anywhere, macro expansions included.
+_operand_mentions :: (fn(e : &AstExpr, name : &String) -> bool)(
+  match(
+    e,
+    .Atom(_, tok) => (tok.value == name),
+    .FnCall(_, f, args, _, _) => {
+      match(
+        lookup_macro_expansion(ast_expr_id(e)),
+        .Some(me) => if(recur(&me, name), {
+          return(true);
+        }),
+        .None => ()
+      );
+      if(recur(&f, name), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(recur(&a, name), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+);
+/// Whether a primitive operator symbol: the operators that lower to a C
+/// operator over primitive operands (`_operator_inline_name`,
+/// `_unary_operator_inline_name` and the short-circuit pair).
+_is_primitive_operator_symbol :: (fn(op : &String) -> bool)(
+  (op == "+") || (op == "-") || (op == "*") || (op == "/") || (op == "%") || (op == "==") || (op == "!=") || (op == "<") || (op == "<=") || (op == ">") || (op == ">=") || (op == "&") || (op == "|") || (op == "^") || (op == "<<") || (op == ">>") || (op == "!") || (op == "~") || (op == "&&") || (op == "||")
+);
+/// Whether evaluating operand `e` may write, free or reassign state that an
+/// earlier operand reads. Conservative: only a name, a field or dereference
+/// step, a borrow (it writes nothing until the callee runs), an enum variant
+/// literal, a constructor or primitive conversion, and a primitive operator
+/// over such operands are free of writes. Every other call, method call,
+/// block, assignment, `cond`/`match` or await may write.
+_operand_may_write :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, f, args, _, _) => {
+      match(
+        lookup_macro_expansion(ast_expr_id(e)),
+        .Some(me) => {
+          return(recur(&me, context));
+        },
+        .None => ()
+      );
+      n := args.len();
+      a0 := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      cond(
+        ((n == usize(1)) && (ast_expr_is_address_of_call(e, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))))) => recur(&a0, context),
+        ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => recur(&a0, context),
+        ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(1))) => false,
+        true => {
+          op := match(f, .Atom(_, ft) => ft.value.clone(), .FnCall(_, _, _, _, _) => String.new());
+          is_label := ((op == ":") && (n == usize(2)) && ast_expr_is_atom(&a0));
+          is_ctor := match(context.base.get_expr_info(&f), .Some(fei) => match(fei.value, .Some(.TypeVal(_)) => true, _ => false), .None => false);
+          is_prim_op := (
+            _is_primitive_operator_symbol(&op) && {
+              (all_prim : bool) = true;
+              (pi : usize) = usize(0);
+              while(pi < n, {
+                match(
+                  args.get(pi),
+                  .Some(pa) => match(
+                    context.base.get_expr_info(&pa),
+                    .Some(pei) => if(!is_primitive_type(&pei.ty), {
+                      all_prim = false;
+                    }),
+                    .None => {
+                      all_prim = false;
+                    }
+                  ),
+                  .None => ()
+                );
+                pi = (pi + usize(1));
+              });
+              all_prim
+            }
+          );
+          cond(
+            is_label => match(args.get(usize(1)), .Some(lv) => recur(&lv, context), .None => false),
+            (is_ctor || is_prim_op) => {
+              (ai : usize) = usize(0);
+              while(ai < n, {
+                match(
+                  args.get(ai),
+                  .Some(a) => if(recur(&a, context), {
+                    return(true);
+                  }),
+                  .None => ()
+                );
+                ai = (ai + usize(1));
+              });
+              false
+            },
+            true => true
+          )
+        }
+      )
+    }
+  )
+);
 /// Apply the auto-`&` wrap to ref-parameter arguments (fold `(*x)`→`x`, wrap
 /// bare literals in a compound literal, address-of addressable exprs, else
 /// spill to a temp).
@@ -1089,7 +1396,7 @@ _generate_runtime_enum_construct :: (
             while(i < n, {
               fty := match(vftys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(!is_unit_type(&fty), {
-                fcode := match(rt_args.get(i), .Some(a) => emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), .None => String.from(""));
+                fcode := match(rt_args.get(i), .Some(a) => sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), rt_args, i, false, indent, context), .None => String.from(""));
                 if(any_field, {
                   inits.push_str(", ");
                   positional.push_str(", ");
@@ -1444,7 +1751,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     });
     if(dm_has_slot, {
       recv_expr := match(dmethod_args.get(usize(0)), .Some(rv) => rv, .None => make_err_expr());
-      recv_code := _call_generate_expr(&recv_expr, indent.clone(), context);
+      // The receiver is generated before the arguments (`dm_runtime[0]` is
+      // its slot), so it is sequenced against them.
+      recv_code := sequence_operand(&recv_expr, _call_generate_expr(&recv_expr, indent.clone(), context), &dm_runtime, usize(0), false, indent, context);
       method_name := sanitize_for_c_identifier(ast_expr_token(match(dmethod_args.get(usize(1)), .Some(ma) => ma, .None => make_err_expr())).value, false);
       dm_call := String.from("(");
       dm_call.push_string(recv_code.clone());
@@ -1473,7 +1782,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         match(
           dm_runtime.get(dmi),
           .Some(da) => {
-            dm_args.push(_dispatch_arg_code(&da, dm_pref, expr, indent.clone(), context));
+            dm_args.push(sequence_operand(&da, _dispatch_arg_code(&da, dm_pref, expr, indent.clone(), context), &dm_runtime, dmi, dm_pref, indent, context));
             dm_pir.push(dm_pref);
             dm_rargs.push(da);
           },
@@ -1626,7 +1935,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 match(
                   dm_runtime.get(ia_i),
                   .Some(a) => {
-                    inline_args.push(_dispatch_arg_code(&a, match(ia_pir.get(ia_i), .Some(r) => r, .None => false), expr, indent.clone(), context));
+                    ia_ptr := match(ia_pir.get(ia_i), .Some(r) => r, .None => false);
+                    inline_args.push(sequence_operand(&a, _dispatch_arg_code(&a, ia_ptr, expr, indent.clone(), context), &dm_runtime, ia_i, ia_ptr, indent, context));
                   },
                   .None => ()
                 );
@@ -1689,7 +1999,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 dm_runtime.get(cmi),
                 .Some(a) => {
                   cm_arg_list.push({
-                    mc := _dispatch_arg_code(&a, match(cm_abi_ptr.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
+                    cm_ptr := match(cm_abi_ptr.get(cmi), .Some(r) => r, .None => false);
+                    mc := sequence_operand(&a, _dispatch_arg_code(&a, cm_ptr, expr, indent.clone(), context), &dm_runtime, cmi, cm_ptr, indent, context);
                     hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1845,7 +2156,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 rm_runtime.get(rmi),
                 .Some(a) => {
                   rm_args.push({
-                    mc := _dispatch_arg_code(&a, match(rm_abi_ptr.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
+                    rm_ptr := match(rm_abi_ptr.get(rmi), .Some(r) => r, .None => false);
+                    mc := sequence_operand(&a, _dispatch_arg_code(&a, rm_ptr, expr, indent.clone(), context), &rm_runtime, rmi, rm_ptr, indent, context);
                     hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -2069,7 +2381,9 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               .Some(ca) => {
                 cc := _future_field_upcast(
                   match(ctor_fields.get(ci), .Some(f) => Option(TypeValue).Some(f.ty), .None => Option(TypeValue).None),
-                  emit_deferred_dup_or_code(&ca, _call_generate_expr(&ca, indent.clone(), context), indent.clone(), context),
+                  // A cell's payload is held in its own temp before the
+                  // allocator argument runs (below).
+                  sequence_operand(&ca, emit_deferred_dup_or_code(&ca, _call_generate_expr(&ca, indent.clone(), context), indent.clone(), context), &ctor_args, ci, is_cell, indent, context),
                   context
                 );
                 cond(
@@ -2265,7 +2579,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                     .Some(a) => {
                       vs_fv := _future_field_upcast(
                         match(rt_fields.get(rfi), .Some(f) => Option(TypeValue).Some(f.ty), .None => Option(TypeValue).None),
-                        emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context),
+                        sequence_operand(&a, emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), &vs_args, rfi, false, indent, context),
                         context
                       );
                       cl_out.push_string(&vs_fv);
@@ -2412,7 +2726,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     match(
       runtime_args.get(ai),
       .Some(arg) => {
-        mc := _materialize_arg(&arg, pref, expr, indent.clone(), context);
+        mc := sequence_operand(&arg, _materialize_arg(&arg, pref, expr, indent.clone(), context), &runtime_args, ai, pref, indent, context);
         args.push(if((mc.len() == usize(0)) && has_slot, String.from("0"), mc));
       },
       .None => ()
@@ -3032,4 +3346,4 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   });
   Option(String).Some(out)
 });
-export(_is_addressable_c_expr, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset);
+export(_is_addressable_c_expr, bind_owning_result_temp, _split_top_level_args_list, _resolve_var_name_in_context, _store_temp_var_to_state_machine_if_needed, _get_interior_ref_container_code, _emit_borrow_acquires, _emit_borrow_releases, _is_inside_object_method, _maybe_emit_auto_borrow_assert, generate_other_function_call, ref_spill_counter_reset, sequence_operand);
