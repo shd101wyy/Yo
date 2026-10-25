@@ -99,6 +99,21 @@ is_prelude_io_struct :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// Whether `t` is the prelude's `Allocator` struct: two raw words (a context
+/// and a vtable) that safe code holds and passes on as an opaque handle, as
+/// the placement argument `(alloc : Option(Allocator)) ?= .None`
+/// (plans/backlog/ALLOCATOR_PLACEMENT.md, step A2). Identified by its
+/// declaration, so a user struct named `Allocator` is not one.
+is_prelude_allocator_struct :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    Rc(.Struct({ id : sid, name : sname })) => (
+      (sname == "Allocator")
+      && match(type_decl_module(sid.clone()), .Some(m) => m.ends_with("prelude.yo"), .None => false)
+    ),
+    _ => false
+  )
+);
 // ---------------------------------------------------------------------------
 // c_include TYPE ADOPTION — "this Yo type IS the C type `Name` in <header>".
 //
@@ -1225,6 +1240,7 @@ export(
   enum_decls_differ,
   type_decl_module,
   is_prelude_io_struct,
+  is_prelude_allocator_struct,
   AdoptedExternCType,
   register_adopted_extern_c_type,
   get_adopted_extern_c_type,

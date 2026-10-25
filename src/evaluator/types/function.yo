@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
   type_requires_comptime_modifier,
   type_prohibits_comptime_modifier,
   type_contains_some_type,
-  type_representation_contains_raw_ptr,
+  parameter_type_contains_raw_ptr,
   get_all_some_types,
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
@@ -1870,10 +1870,11 @@ evaluate_function_parameter :: (
   );
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
   // annotate a parameter with a type whose representation carries a raw
-  // pointer (RawSlice(T), structs wrapping *(T), ...).
+  // pointer (RawSlice(T), structs wrapping *(T), ...). The prelude's
+  // `Allocator` passes as an opaque handle (ALLOCATOR_PLACEMENT.md A2).
   if(!ctx.unsafe_context &&
     !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.*.clone())) &&
-      type_representation_contains_raw_ptr(&final_param_type), {
+      parameter_type_contains_raw_ptr(&final_param_type), {
     exn.throw(
       dyn(
         format_error_message(
