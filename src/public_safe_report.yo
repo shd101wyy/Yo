@@ -221,7 +221,7 @@ _should_skip_file :: (fn(file : &String) -> bool)({
   });
   segs := file.split(`/`);
   (i : usize) = usize(0);
-  while(runtime(i < segs.len()), {
+  while(i < segs.len(), {
     seg := segs(i).clone();
     if((seg == "libc") || (seg == "linux") || (seg == "darwin") || (seg == "cuda") || (seg == "sys") || (seg == "sync"), {
       return(true);
@@ -236,7 +236,7 @@ _find_extern_spans :: (fn(src : &ArrayList(u8)) -> ArrayList(_Span))({
   spans := ArrayList(_Span).new();
   n := src.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     boundary_ok := if(i == usize(0), true, !_psr_is_ident_byte(src(i - usize(1))));
     if(boundary_ok && _psr_bytes_at(src, i, "extern") && true, {
       // `extern` then optional whitespace then `(`.
@@ -249,7 +249,7 @@ _find_extern_spans :: (fn(src : &ArrayList(u8)) -> ArrayList(_Span))({
         (depth : i64) = i64(1);
         (j : usize) = (k + usize(1));
         (open_found : bool) = false;
-        while(runtime((j < n) && !open_found), {
+        while((j < n) && !open_found, {
           nj := _psr_skip_string_or_comment(src, j);
           if(nj != j, {
             j = nj;
@@ -279,7 +279,7 @@ _find_extern_spans :: (fn(src : &ArrayList(u8)) -> ArrayList(_Span))({
 });
 _position_inside_spans :: (fn(offset : usize, spans : &ArrayList(_Span)) -> bool)({
   (i : usize) = usize(0);
-  while(runtime(i < spans.len()), {
+  while(i < spans.len(), {
     sp := spans(i);
     if((offset >= sp.s) && (offset < sp.e), {
       return(true);
@@ -306,7 +306,7 @@ _find_pointer_types :: (fn(text : &ArrayList(u8)) -> ArrayList(_PtrHit))({
   out := ArrayList(_PtrHit).new();
   n := text.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     ni := _psr_skip_string_or_comment(text, i);
     if(ni != i, {
       i = ni;
@@ -316,7 +316,7 @@ _find_pointer_types :: (fn(text : &ArrayList(u8)) -> ArrayList(_PtrHit))({
         (depth : i64) = i64(0);
         (j : usize) = (i + usize(1));
         (closed : bool) = false;
-        while(runtime((j < n) && !closed), {
+        while((j < n) && !closed, {
           cond(
             (text(j) == u8(40)) => {
               depth = (depth + i64(1));
@@ -411,7 +411,7 @@ _offset_to_line_col :: (fn(src : &ArrayList(u8), offset : usize) -> _LineCol)({
   (line : usize) = usize(1);
   (last_nl : i64) = i64(-1);
   (i : usize) = usize(0);
-  while(runtime(i < offset), {
+  while(i < offset, {
     if(src(i) == u8(10), {
       line = (line + usize(1));
       last_nl = i64(i);
@@ -451,7 +451,7 @@ _extract_top_level_fn_decls :: (fn(src : &ArrayList(u8)) -> ArrayList(_FnDecl))(
   decls := ArrayList(_FnDecl).new();
   n := src.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     at_line_start := if(i == usize(0), true, src(i - usize(1)) == u8(10));
     if(at_line_start && _psr_is_alpha_byte(src(i)), {
       // Parse the identifier.
@@ -484,7 +484,7 @@ _extract_top_level_fn_decls :: (fn(src : &ArrayList(u8)) -> ArrayList(_FnDecl))(
             (depth : i64) = i64(0);
             (j : usize) = sig_open;
             (sig_close : i64) = i64(-1);
-            while(runtime((j < n) && (sig_close < i64(0))), {
+            while((j < n) && (sig_close < i64(0)), {
               nj := _psr_skip_string_or_comment(src, j);
               if(nj != j, {
                 j = nj;
@@ -506,7 +506,7 @@ _extract_top_level_fn_decls :: (fn(src : &ArrayList(u8)) -> ArrayList(_FnDecl))(
               (pdepth : i64) = i64(1);
               (pj : usize) = params_start;
               (params_end : i64) = i64(-1);
-              while(runtime((pj < usize(sig_close)) && (params_end < i64(0))), {
+              while((pj < usize(sig_close)) && (params_end < i64(0)), {
                 npj := _psr_skip_string_or_comment(src, pj);
                 if(npj != pj, {
                   pj = npj;
@@ -577,14 +577,14 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
   extern_spans := _find_extern_spans(&src);
   decls := _extract_top_level_fn_decls(&src);
   (di : usize) = usize(0);
-  while(runtime(di < decls.len()), {
+  while(di < decls.len(), {
     decl := decls(di);
     keep := (!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()));
     if(keep && !_position_inside_spans(decl.params_start, &extern_spans), {
       param_bytes := decl.param_text.to_bytes();
       param_hits := _find_pointer_types(&param_bytes);
       (hi : usize) = usize(0);
-      while(runtime(hi < param_hits.len()), {
+      while(hi < param_hits.len(), {
         hit := param_hits(hi);
         if(!_ptr_hit_is_privilege_token(&param_bytes, hit.offset), {
           lc := _offset_to_line_col(&src, decl.params_start + hit.offset);
@@ -610,7 +610,7 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
           // first `->` after params_start.
           (arrow : usize) = decl.params_start;
           (found_arrow : bool) = false;
-          while(runtime((arrow < src.len()) && !found_arrow), {
+          while((arrow < src.len()) && !found_arrow, {
             if(_psr_bytes_at(&src, arrow, "->"), {
               found_arrow = true;
             }, {
@@ -619,7 +619,7 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
           });
           ret_start := if(found_arrow, arrow + usize(2), decl.params_start);
           (ri : usize) = usize(0);
-          while(runtime(ri < ret_hits.len()), {
+          while(ri < ret_hits.len(), {
             hit := ret_hits(ri);
             lc := _offset_to_line_col(&src, ret_start + hit.offset);
             findings.push(
@@ -650,7 +650,7 @@ _psr_method_name :: (fn(body : &String) -> Option(String))(
       bytes := name.clone();
       (ok : bool) = (k > usize(0));
       (bi : usize) = usize(0);
-      while(runtime(ok && (bi < bytes.len())), {
+      while(ok && (bi < bytes.len()), {
         ok = _psr_is_ident_byte(bytes.byte_at(bi));
         bi = (bi + usize(1));
       });
@@ -676,7 +676,7 @@ scan_class1_extractions :: (fn(file : &String, src_str : &String, out : &mut Arr
   (method_comptime : bool) = false;
   (recorded : bool) = false;
   (li : usize) = usize(0);
-  while(runtime(li < lines.len()), {
+  while(li < lines.len(), {
     raw := lines(li).clone();
     line := if(raw.ends_with("\r"), raw.substring(usize(0), raw.len() - usize(1)), raw);
     cond(
@@ -754,7 +754,7 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Futu
     root_prefix_len := walk_root.len();
     collected := ArrayList(String).new();
     (i : usize) = usize(0);
-    while(runtime(i < entries.len()), {
+    while(i < entries.len(), {
       entry := entries(i);
       keep := match(entry.file_type, .Directory => false, _ => true);
       p := entry.path.to_string();
@@ -763,7 +763,7 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Futu
         segs := rel.split(`/`);
         (ok : bool) = true;
         (si : usize) = usize(0);
-        while(runtime((si + usize(1)) < segs.len()), {
+        while((si + usize(1)) < segs.len(), {
           seg := segs(si).clone();
           skip := ((seg == "node_modules") || (seg == ".git") || (seg == "dist") || (seg == "yo-out") || (seg == "build") || seg.starts_with(`.`));
           if(skip, {
@@ -790,14 +790,14 @@ generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception
     (public_decls_scanned : usize) = usize(0);
     (files_scanned : usize) = usize(0);
     (fi : usize) = usize(0);
-    while(runtime(fi < files.len()), {
+    while(fi < files.len(), {
       file := files(fi).clone();
       if(!_should_skip_file(file.clone()), {
         files_scanned = (files_scanned + usize(1));
         src := e.io.await(fs_file.read_to_string(Path.new(file.clone()), e.io), e);
         decls := _extract_top_level_fn_decls(src.to_bytes());
         (di : usize) = usize(0);
-        while(runtime(di < decls.len()), {
+        while(di < decls.len(), {
           decl := decls(di);
           if(!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()), {
             public_decls_scanned = (public_decls_scanned + usize(1));
@@ -811,7 +811,7 @@ generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception
     });
     (class1_ungated : usize) = usize(0);
     (ki : usize) = usize(0);
-    while(runtime(ki < class1.len()), {
+    while(ki < class1.len(), {
       if(class1(ki).status == "UNGATED", {
         class1_ungated = (class1_ungated + usize(1));
       });
@@ -843,7 +843,7 @@ _format_class1_section :: (fn(report : &PublicSafeReport) -> String)({
   });
   out.write_str("\n\nClass-1 extraction methods (Option/Result methods that trap on the failure case):\n");
   (i : usize) = usize(0);
-  while(runtime(i < report.class1.len()), {
+  while(i < report.class1.len(), {
     c := report.class1(i);
     out.write_string(`  ${c.file}:${c.line}: ${c.receiver}.${c.method} — ${c.status}\n`);
     i = (i + usize(1));
@@ -870,7 +870,7 @@ format_public_safe_report :: (fn(report : &PublicSafeReport) -> String)({
   });
   out.write_str("Findings (file:line:col):\n");
   (i : usize) = usize(0);
-  while(runtime(i < report.findings.len()), {
+  while(i < report.findings.len(), {
     f := report.findings(i);
     out.write_string(`  ${f.file}:${f.line}:${f.column}: ${f.decl_name} ${f.slot} exposes ${f.pointer_type} — ${f.snippet}\n`);
     i = (i + usize(1));
@@ -886,7 +886,7 @@ _psr_json_str :: (fn(text : &String) -> String)({
   bytes := text;
   n := bytes.len();
   (i : usize) = usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
       (b == u8(34)) => out.push_str("\\\""),
@@ -916,7 +916,7 @@ public_safe_report_to_json :: (fn(report : &PublicSafeReport) -> String)({
   out := StringBuilder.new();
   out.write_str("{\n  \"findings\": [");
   (i : usize) = usize(0);
-  while(runtime(i < report.findings.len()), {
+  while(i < report.findings.len(), {
     f := report.findings(i);
     if(i > usize(0), {
       out.write_str(",");
@@ -929,7 +929,7 @@ public_safe_report_to_json :: (fn(report : &PublicSafeReport) -> String)({
   });
   out.write_str("],\n  \"class1Extractions\": [");
   (ci : usize) = usize(0);
-  while(runtime(ci < report.class1.len()), {
+  while(ci < report.class1.len(), {
     c := report.class1(ci);
     if(ci > usize(0), {
       out.write_str(",");

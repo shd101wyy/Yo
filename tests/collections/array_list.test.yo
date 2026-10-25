@@ -1444,7 +1444,7 @@ test("ArrayList.new_in keeps its buffer in its allocator through growth", {
     assert(counts.live == usize(1), "new_in allocates the owner prefix");
     assert(list.capacity() == usize(0), "and no element storage");
     mut(i) := i32(0);
-    while(runtime(i < i32(1000)), {
+    while(i < i32(1000), {
       list.push(i);
       i = (i + i32(1));
     });
@@ -1464,7 +1464,7 @@ test("ArrayList.with_capacity_in reserves inside its allocator", {
     assert(list.capacity() == usize(64), "capacity");
     before := counts.requests;
     mut(k) := usize(0);
-    while(runtime(k < usize(64)), {
+    while(k < usize(64), {
       list.push(u64(k));
       k = (k + usize(1));
     });
@@ -1508,7 +1508,7 @@ test("try_push reports an exhausted allocator as OutOfMemory", {
     list := ArrayList(u64).new_in(_counting(addr_of(counts)));
     (mut(full) : bool) = false;
     mut(k) := usize(0);
-    while(runtime(!full && (k < usize(1000))), {
+    while(!full && (k < usize(1000)), {
       full = list.try_push(u64(k)).is_err();
       k = (k + usize(1));
     });

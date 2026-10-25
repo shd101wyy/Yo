@@ -58,7 +58,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   sib := io.spawn(
     io.async((io : Io) => {
       (mut(i) : i32) = i32(0);
-      while(runtime(i < i32(40)), {
+      while(i < i32(40), {
         io.await(yield(io), io);
         progress.fetch_add(i32(1), MemoryOrder.AcqRel);
         i = (i + i32(1));
@@ -73,7 +73,7 @@ test("a sibling task keeps running while spawn_blocking blocks", {
   observed := io.await(
     spawn_blocking(() => {
       (mut(spins) : i32) = i32(0);
-      while(runtime((progress.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200))), {
+      while((progress.load(MemoryOrder.Acquire) < i32(5)) && (spins < i32(200)), {
         sleep_blocking(Duration.from_millis(i64(5)));
         spins = (spins + i32(1));
       });
@@ -145,7 +145,7 @@ test("repeated pairs of spawn_blocking do not corrupt the wake inbox", {
   expected := (rounds * i32(3));
   (mut(round) : i32) = i32(0);
   (mut(total) : i32) = i32(0);
-  while(runtime(round < rounds), {
+  while(round < rounds, {
     a := io.spawn(
       spawn_blocking(() => {
         sleep_blocking(Duration.from_millis(i64(2)));

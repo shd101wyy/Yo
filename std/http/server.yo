@@ -137,7 +137,7 @@ impl(
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
-      while(runtime(!self.stopped), {
+      while(!self.stopped, {
         got := e.io.await(self._accept_request(e.io), e);
         resp := match(got.1, .Ok(req) => handler(&req), .Err(bad) => bad);
         e.io.await(_respond(&got.0, resp, e.io), e);

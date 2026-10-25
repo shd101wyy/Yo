@@ -278,7 +278,7 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
   (mut(total) : i32) = i32(0);
   (mut(count) : i32) = i32(0);
   mut(v) := rx.try_recv();
-  while(runtime(match(v, .Ok(_) => true, .Err(_) => false)), {
+  while(match(v, .Ok(_) => true, .Err(_) => false), {
     total = (total + match(v, .Ok(x) => x, .Err(_) => i32(0)));
     count = (count + i32(1));
     v = rx.try_recv();

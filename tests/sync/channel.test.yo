@@ -197,14 +197,14 @@ test("Channel single producer single consumer with Thread", {
   ch := Channel(i32).new(usize(10));
   producer := Thread(unit).spawn(io => {
     mut(i) := i32(0);
-    while(runtime(i < i32(5)), {
+    while(i < i32(5), {
       _ := ch.send(i);
       i = (i + i32(1));
     });
   });
   mut(sum) := i32(0);
   mut(count) := i32(0);
-  while(runtime(count < i32(5)), {
+  while(count < i32(5), {
     val := ch.recv();
     cond(
       val.is_some() => {
@@ -224,14 +224,14 @@ test("Channel thread producer sends many values", {
   ch := Channel(i32).new(usize(20));
   t := Thread(unit).spawn(io => {
     mut(i) := i32(0);
-    while(runtime(i < i32(10)), {
+    while(i < i32(10), {
       _ := ch.send(i);
       i = (i + i32(1));
     });
   });
   mut(sum) := i32(0);
   mut(count) := i32(0);
-  while(runtime(count < i32(10)), {
+  while(count < i32(10), {
     val := ch.recv();
     cond(
       val.is_some() => {
@@ -348,7 +348,7 @@ test("Channel pool task sends multiple values", {
   mut(sum) := i32(0);
   mut(count) := i32(0);
   mut(val) := ch.try_recv();
-  while(runtime(val.is_ok()), {
+  while(val.is_ok(), {
     sum = (sum + val.unwrap());
     count = (count + i32(1));
     val = ch.try_recv();
@@ -396,7 +396,7 @@ _recv_within :: (fn(ch : &Channel(i32), budget_ms : i64) -> Option(i32))({
   start := Instant.now();
   (mut(found) : Option(i32)) = .None;
   (mut(waiting) : bool) = true;
-  while(runtime(waiting), {
+  while(waiting, {
     match(
       ch.try_recv(),
       .Ok(v) => {
@@ -599,7 +599,7 @@ test("cloned Senders in several threads all fan in to one Receiver", {
   (mut(total) : i32) = i32(0);
   (mut(count) : i32) = i32(0);
   mut(v) := rx.try_recv();
-  while(runtime(v.is_ok()), {
+  while(v.is_ok(), {
     total = (total + v.unwrap());
     count = (count + i32(1));
     v = rx.try_recv();
@@ -644,7 +644,7 @@ test("a sender per thread: the last one to finish closes the channel", {
   assert(rx.is_closed(), "the last sender to go closed the channel");
   (mut(sum) : i32) = i32(0);
   mut(v) := rx.try_recv();
-  while(runtime(v.is_ok()), {
+  while(v.is_ok(), {
     sum = (sum + v.unwrap());
     v = rx.try_recv();
   });

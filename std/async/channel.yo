@@ -287,7 +287,7 @@ impl(
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (woken : bool) = false;
-    while(runtime(!woken && (self._st.with(s => s._recv_waiters.len()) > usize(0))), {
+    while(!woken && (self._st.with(s => s._recv_waiters.len()) > usize(0)), {
       w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
       woken = w.is_woken();
@@ -298,7 +298,7 @@ impl(
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (woken : bool) = false;
-    while(runtime(!woken && (self._st.with(s => s._send_waiters.len()) > usize(0))), {
+    while(!woken && (self._st.with(s => s._send_waiters.len()) > usize(0)), {
       w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
       woken = w.is_woken();
@@ -306,7 +306,7 @@ impl(
   }),
   /// Wake every suspended sender and drop the queue.
   _wake_all_senders : (fn(self : &Self) -> unit)({
-    while(runtime(self._st.with(s => s._send_waiters.len()) > usize(0)), {
+    while(self._st.with(s => s._send_waiters.len()) > usize(0), {
       w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
     });
@@ -314,7 +314,7 @@ impl(
   /// Wake every suspended task on both sides.
   _wake_all : (fn(self : &Self) -> unit)({
     self._wake_all_senders();
-    while(runtime(self._st.with(s => s._recv_waiters.len()) > usize(0)), {
+    while(self._st.with(s => s._recv_waiters.len()) > usize(0), {
       w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
     });

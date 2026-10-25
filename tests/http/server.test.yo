@@ -32,7 +32,7 @@ _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
     out := ArrayList(u8).new();
     buf := (*u8)(malloc(usize(4096)).unwrap());
     mut(done) := false;
-    while(runtime(!done), {
+    while(!done, {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
       cond(
         (n == usize(0)) => {
@@ -40,7 +40,7 @@ _read_all :: (fn(stream : &TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
         },
         true => {
           mut(i) := usize(0);
-          while(runtime(i < n), {
+          while(i < n, {
             out.push((buf.add(i)).*);
             i = (i + usize(1));
           });

@@ -214,11 +214,11 @@ impl(
     // a closed channel takes no more values, and a channel whose `Receiver`
     // has been dropped will never be drained, so blocking on either would
     // block forever.
-    while(runtime(
+    while(
       (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
       && !self._closed.load(MemoryOrder.Relaxed)
       && !self._recv_dropped.load(MemoryOrder.Relaxed)
-    ), {
+    , {
       self._not_full.wait_with(&self._mutex);
     });
     cond(
@@ -250,10 +250,10 @@ impl(
   recv : (fn(self : &Self) -> Option(T))({
     self._mutex._raw_lock();
     // Wait while buffer is empty and channel is not closed
-    while(runtime(
+    while(
       (self._len.load(MemoryOrder.Relaxed) == usize(0))
       && !self._closed.load(MemoryOrder.Relaxed)
-    ), {
+    , {
       self._not_empty.wait_with(&self._mutex);
     });
     cond(
@@ -382,7 +382,7 @@ impl(
     drop : (fn(self : &mut Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
       (i : usize) = usize(0);
-      while(runtime(i < current_len), {
+      while(i < current_len, {
         (idx : usize) = ((self._head + i) % self._capacity);
         // SAFETY: every slot of the live run `[_head, _head + len)` owns its
         // value and nothing reads it after this; the buffer is freed below.

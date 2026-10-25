@@ -228,7 +228,7 @@ _drain :: (fn(fd : i32, want : i64, io : Io) -> Impl(Future(i64, Io)))(
   io.async((io : Io) => {
     buf := (*u8)(malloc(usize(65536)).unwrap());
     (mut(got) : i64) = i64(0);
-    while(runtime(got < want), {
+    while(got < want, {
       n := io.await(tcp.recv(fd, buf, usize(65536), i32(0)), io);
       if(n <= i32(0), {
         return(got);
@@ -249,7 +249,7 @@ test("the stream-write op delivers every byte, parking when the send buffer is f
   // and some writes must park.
   reader := io.spawn(_drain(accepted_fd, total, io), io);
   (mut(sent) : i64) = i64(0);
-  while(runtime(sent < total), {
+  while(sent < total, {
     rest := (total - sent);
     want := cond((rest < i64(65536)) => usize(rest), true => usize(65536));
     n := io.await(tcp.stream_write(client_fd, chunk, want), io);
@@ -273,7 +273,7 @@ test("the stream-write op to a closed peer fails with an error instead of SIGPIP
   // not arrived yet): retry a bounded number of times, 2 ms apart.
   (mut(err) : i32) = i32(0);
   (mut(i) : i32) = i32(0);
-  while(runtime((i < i32(50)) && (err == i32(0))), {
+  while((i < i32(50)) && (err == i32(0)), {
     r := io.await(tcp.stream_write(client_fd, buf, usize(1024)), io);
     if(r < i32(0), {
       err = r;

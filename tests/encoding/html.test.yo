@@ -165,7 +165,7 @@ test("two threads decode entities at once", {
   t := Thread(i32).spawn((io : Io) => {
     (mut(n) : i32) = i32(0);
     (mut(i) : i32) = i32(0);
-    while(runtime(i < i32(2000)), {
+    while(i < i32(2000), {
       if(html.decode(String.from("&forall;&amp;&AElig;")) == `∀&Æ`, {
         n = (n + i32(1));
       });
@@ -175,7 +175,7 @@ test("two threads decode entities at once", {
   });
   (mut(m) : i32) = i32(0);
   (mut(j) : i32) = i32(0);
-  while(runtime(j < i32(2000)), {
+  while(j < i32(2000), {
     if(html.decode(String.from("&lt;&copy;&gt")) == `<©>`, {
       m = (m + i32(1));
     });

@@ -171,7 +171,7 @@ _parse_port :: (fn(s : &String, start : usize, end : usize) -> Result(u16, UrlEr
   );
   val := u32(0);
   i := start;
-  while(runtime(i < end), {
+  while(i < end, {
     ch := s.byte_at(i);
     cond(
       ((ch >= _ZERO) && (ch <= _NINE)) => {
@@ -225,7 +225,7 @@ impl(
     // for `UrlError.InvalidCharacter`, which the enum has always published and
     // nothing ever threw.
     (vi : usize) = usize(0);
-    while(runtime(vi < src_len), {
+    while(vi < src_len, {
       cond(
         _is_uri_byte(s.byte_at(vi)) => (),
         true => {
@@ -253,7 +253,7 @@ impl(
     );
     i := usize(1);
     found_colon := false;
-    while(runtime(i < src_len), {
+    while(i < src_len, {
       ch := s.byte_at(i);
       cond(
         (ch == _COLON) => {
@@ -276,7 +276,7 @@ impl(
     );
     scheme_bytes := ArrayList(u8).new();
     j := usize(0);
-    while(runtime(j < scheme_end), {
+    while(j < scheme_end, {
       b := s.byte_at(j);
       // Normalize to lowercase
       cond(
@@ -307,7 +307,7 @@ impl(
         auth_start := pos;
         auth_end := src_len;
         k := pos;
-        while(runtime(k < src_len), {
+        while(k < src_len, {
           ch := s.byte_at(k);
           cond(
             ((ch == _SLASH) || (ch == _QUESTION) || (ch == _HASH)) => {
@@ -321,13 +321,13 @@ impl(
         // Check for userinfo (look for '@')
         host_start := auth_start;
         m := auth_start;
-        while(runtime(m < auth_end), {
+        while(m < auth_end, {
           cond(
             (s.byte_at(m) == _AT) => {
               // Everything before '@' is userinfo
               ui_bytes := ArrayList(u8).new();
               n := auth_start;
-              while(runtime(n < m), {
+              while(n < m, {
                 ui_bytes.push(s.byte_at(n));
                 n = (n + usize(1));
               });
@@ -345,12 +345,12 @@ impl(
           ((host_start < auth_end) && (s.byte_at(host_start) == _LBRACKET)) => {
             // IPv6: find closing ']'
             bracket_end := (host_start + usize(1));
-            while(runtime((bracket_end < auth_end) && (s.byte_at(bracket_end) != _RBRACKET)), {
+            while((bracket_end < auth_end) && (s.byte_at(bracket_end) != _RBRACKET), {
               bracket_end = (bracket_end + usize(1));
             });
             host_bytes := ArrayList(u8).new();
             hh := host_start;
-            while(runtime(hh <= bracket_end), {
+            while(hh <= bracket_end, {
               cond(
                 (hh < auth_end) => {
                   host_bytes.push(s.byte_at(hh));
@@ -381,7 +381,7 @@ impl(
             // Regular host — find ':' for port
             (colon_pos : Option(usize)) = .None;
             cp := host_start;
-            while(runtime(cp < auth_end), {
+            while(cp < auth_end, {
               cond(
                 (s.byte_at(cp) == _COLON) => {
                   colon_pos = .Some(cp);
@@ -397,7 +397,7 @@ impl(
                 // host is before colon, port is after
                 host_b := ArrayList(u8).new();
                 hh2 := host_start;
-                while(runtime(hh2 < cp_val), {
+                while(hh2 < cp_val, {
                   host_b.push(s.byte_at(hh2));
                   hh2 = (hh2 + usize(1));
                 });
@@ -416,7 +416,7 @@ impl(
                 // No port, entire range is host
                 host_b := ArrayList(u8).new();
                 hh3 := host_start;
-                while(runtime(hh3 < auth_end), {
+                while(hh3 < auth_end, {
                   host_b.push(s.byte_at(hh3));
                   hh3 = (hh3 + usize(1));
                 });
@@ -439,7 +439,7 @@ impl(
     path_start := pos;
     path_end := src_len;
     pp := pos;
-    while(runtime(pp < src_len), {
+    while(pp < src_len, {
       ch := s.byte_at(pp);
       cond(
         ((ch == _QUESTION) || (ch == _HASH)) => {
@@ -454,7 +454,7 @@ impl(
       (path_start < path_end) => {
         path_bytes := ArrayList(u8).new();
         pb := path_start;
-        while(runtime(pb < path_end), {
+        while(pb < path_end, {
           path_bytes.push(s.byte_at(pb));
           pb = (pb + usize(1));
         });
@@ -471,7 +471,7 @@ impl(
         q_start := pos;
         q_end := src_len;
         qq := pos;
-        while(runtime(qq < src_len), {
+        while(qq < src_len, {
           cond(
             (s.byte_at(qq) == _HASH) => {
               q_end = qq;
@@ -483,7 +483,7 @@ impl(
         });
         q_bytes := ArrayList(u8).new();
         qb := q_start;
-        while(runtime(qb < q_end), {
+        while(qb < q_end, {
           q_bytes.push(s.byte_at(qb));
           qb = (qb + usize(1));
         });
@@ -499,7 +499,7 @@ impl(
         pos = (pos + usize(1)); // skip '#'
         f_bytes := ArrayList(u8).new();
         fb := pos;
-        while(runtime(fb < src_len), {
+        while(fb < src_len, {
           f_bytes.push(s.byte_at(fb));
           fb = (fb + usize(1));
         });
@@ -854,7 +854,7 @@ _validate_component :: (
 )({
   forbidden_b := &forbidden;
   (i : usize) = usize(0);
-  while(runtime(i < s.len()), {
+  while(i < s.len(), {
     b := s.byte_at(i);
     cond(
       !_is_uri_byte(b) => {
@@ -863,7 +863,7 @@ _validate_component :: (
       true => ()
     );
     (j : usize) = usize(0);
-    while(runtime(j < forbidden_b.len()), {
+    while(j < forbidden_b.len(), {
       cond(
         (forbidden_b.byte_at(j) == b) => {
           return(

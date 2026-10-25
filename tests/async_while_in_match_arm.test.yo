@@ -27,7 +27,7 @@ _match_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
         n = i64(-1);
       },
       .Spin => {
-        while(runtime(n < i64(3)), {
+        while(n < i64(3), {
           e.io.await(yield(e.io), e.io);
           n = (n + i64(1));
         });
@@ -47,7 +47,7 @@ _cond_branch :: (fn(skip : bool, io : Io) -> Impl(Future(i64, Io)))(
         n = i64(-1);
       },
       true => {
-        while(runtime(n < i64(3)), {
+        while(n < i64(3), {
           e.io.await(yield(e.io), e.io);
           n = (n + i64(1));
         });
@@ -100,7 +100,7 @@ _spawn_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
           }),
           e.io
         );
-        while(runtime(!h.is_finished()), {
+        while(!h.is_finished(), {
           e.io.await(yield(e.io), e.io);
           turns = (turns + i64(1));
         });

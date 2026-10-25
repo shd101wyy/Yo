@@ -207,7 +207,7 @@ impl(
   args : (fn(self : &Self, more : &ArrayList(String)) -> Self)({
     n := more.len();
     i := usize(0);
-    while(runtime(i < n), {
+    while(i < n, {
       match(
         more.get(i),
         .Some(s) => {
@@ -285,12 +285,12 @@ impl(
 _command_has_interior_nul :: (fn(self : &Command) -> bool)({
   if(self._program.to_cstr_checked().is_err(), return(true));
   (i : usize) = usize(0);
-  while(runtime(i < self._args.len()), {
+  while(i < self._args.len(), {
     if(self._args(i).to_cstr_checked().is_err(), return(true));
     i = (i + usize(1));
   });
   (k : usize) = usize(0);
-  while(runtime(k < self._env_overrides.len()), {
+  while(k < self._env_overrides.len(), {
     if(self._env_overrides(k).to_cstr_checked().is_err(), return(true));
     k = (k + usize(1));
   });
@@ -308,7 +308,7 @@ _build_cstr_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
   storage.push(self._program.to_cstr());
   n := self._args.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       self._args.get(i),
       .Some(s) => {
@@ -330,7 +330,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
   // Overrides FIRST so an inherited same-key entry is skipped below.
   n := self._env_overrides.len();
   i := usize(0);
-  while(runtime(i < n), {
+  while(i < n, {
     match(
       self._env_overrides.get(i),
       .Some(entry) => {
@@ -348,7 +348,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
   if(!self._env_clear, {
     (ei : usize) = usize(0);
     (env_done : bool) = false;
-    while(runtime(!env_done), {
+    while(!env_done, {
       slot := (environ.add(ei)).*;
       match(
         slot,
@@ -364,7 +364,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
           );
           (overridden : bool) = false;
           (ki : usize) = usize(0);
-          while(runtime(ki < keys.len()), {
+          while(ki < keys.len(), {
             match(
               keys.get(ki),
               .Some(k) => if(k == key, {
@@ -450,7 +450,7 @@ _spawn_with_fds :: (
     argv_buf := (*?*u8)(argv_raw);
     // Fill argv pointers from each owning ArrayList(u8) in storage.
     j := usize(0);
-    while(runtime(j < argc), {
+    while(j < argc, {
       match(
         storage.get(j),
         .Some(cs) => match(
@@ -482,7 +482,7 @@ _spawn_with_fds :: (
       envp_raw = .Some(envp_mem);
       envp_buf := (*?*u8)(envp_mem);
       (ej : usize) = usize(0);
-      while(runtime(ej < envc), {
+      while(ej < envc, {
         match(
           env_storage.get(ej),
           .Some(es) => match(
@@ -564,7 +564,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
         (n == i32(0)) => break,
         true => {
           k := usize(0);
-          while(runtime(k < usize(n)), {
+          while(k < usize(n), {
             out.push((buf.add(k)).*);
             k = (k + usize(1));
           });

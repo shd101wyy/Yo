@@ -59,7 +59,7 @@ one instance of it: `std/http/client.yo`'s `_fetch_deadline`, which implements
 ```yo
 h := e.io.spawn(work(e.io), e); // the operation, as a task
 dh := e.io.spawn(sleep(limit, e.io), e.io); // the deadline, as a task
-while(runtime(!h.is_finished() && !dh.is_finished()), {
+while(!h.is_finished() && !dh.is_finished(), {
   e.io.await(yield(e.io), e.io); // a REAL suspension point
 });
 ```

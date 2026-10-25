@@ -122,7 +122,7 @@ impl(
     st := self._state();
     me := __yo_thread_self();
     (handed : bool) = false;
-    while(runtime(!handed && (unsafe(st.*._waiters.len()) > usize(0))), {
+    while(!handed && (unsafe(st.*._waiters.len()) > usize(0)), {
       w := unsafe(st.*._waiters.remove(usize(0)));
       w._waker.wake();
       if(w._waker.is_woken() || (w._thread != me), {

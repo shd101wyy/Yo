@@ -79,7 +79,7 @@ impl(
     // not a zero (issues/fixed/ipaddr-parse-v4-accepts-empty-and-wrapping-octets.md).
     digits := usize(0);
     i := usize(0);
-    while(runtime(i < bytes.len()), {
+    while(i < bytes.len(), {
       ch := bytes.byte_at(i);
       cond(
         (ch == _ASCII_DOT) => {
@@ -174,7 +174,7 @@ impl(
     // Commit the accumulated group into head or tail depending on whether the
     // `::` has been passed. Written inline at each commit point because a
     // closure would have to capture six mutable locals.
-    while(runtime(i < n), {
+    while(i < n, {
       b := bytes.byte_at(i);
       cond(
         (b == _ASCII_COLON) => {
@@ -400,7 +400,7 @@ impl(
     );
     // Move the post-`::` groups to the back; the gap between is already zero.
     (t : usize) = usize(0);
-    while(runtime(t < tail_len), {
+    while(t < tail_len, {
       segs((usize(8) - tail_len) + t) = tail(t);
       t = (t + usize(1));
     });
@@ -441,7 +441,7 @@ impl(
         // ::1
         all_zero := true;
         i := usize(0);
-        while(runtime(i < usize(7)), {
+        while(i < usize(7), {
           cond(
             (segs(i) != u16(0)) => {
               all_zero = false;
@@ -490,7 +490,7 @@ impl(
       },
       .V6(segs) => {
         (i : usize) = usize(0);
-        while(runtime(i < usize(8)), {
+        while(i < usize(8), {
           // Network byte order: high octet of each group first.
           out.push(u8((segs(i) >> u16(8)) & u16(255)));
           out.push(u8(segs(i) & u16(255)));
@@ -518,7 +518,7 @@ impl(
       .V6(segs) => {
         (all_zero : bool) = true;
         (i : usize) = usize(0);
-        while(runtime(i < usize(8)), {
+        while(i < usize(8), {
           cond(
             (segs(i) != u16(0)) => {
               all_zero = false;
@@ -605,7 +605,7 @@ impl(
               (cur_start : usize) = usize(8);
               (cur_len : usize) = usize(0);
               i := usize(0);
-              while(runtime(i < usize(8)), {
+              while(i < usize(8), {
                 cond(
                   (segs(i) == u16(0)) => {
                     if(cur_len == usize(0), {
@@ -631,7 +631,7 @@ impl(
               });
               w := StringBuilder.new();
               (j : usize) = usize(0);
-              while(runtime(j < usize(8)), {
+              while(j < usize(8), {
                 cond(
                   ((best_len > usize(0)) && (j == best_start)) => {
                     // `::` carries BOTH colons, so a run touching either end
@@ -795,7 +795,7 @@ _parse_port :: (fn(s : &String, exn : Exception) -> u16)({
   bytes := &s;
   (v : u32) = u32(0);
   (i : usize) = usize(0);
-  while(runtime(i < bytes.len()), {
+  while(i < bytes.len(), {
     b := bytes.byte_at(i);
     cond(
       ((b < _ASCII_ZERO) || (b > _ASCII_NINE)) => {

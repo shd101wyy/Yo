@@ -5001,7 +5001,7 @@ impl(
     (acc : T) = T(1);
     (i : u32) = u32(0);
     (overflowed : bool) = false;
-    while(runtime((i < exp) && !overflowed), {
+    while((i < exp) && !overflowed, {
       match(
         acc.checked_mul(self),
         .Some(v) => {
@@ -7233,7 +7233,7 @@ impl(
   Eq(Self)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
-      while(runtime(i < U), {
+      while(i < U, {
         cond(
           (lhs(i) == rhs(i)) => (),
           true => {
@@ -7255,7 +7255,7 @@ impl(
   Ord(Self)(
     (<) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
-      while(runtime(i < U), {
+      while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
             return(lhs(i) < rhs(i));
@@ -7268,7 +7268,7 @@ impl(
     }),
     (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
-      while(runtime(i < U), {
+      while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
             return(lhs(i) < rhs(i));
@@ -7281,7 +7281,7 @@ impl(
     }),
     (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
-      while(runtime(i < U), {
+      while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
             return(lhs(i) > rhs(i));
@@ -7294,7 +7294,7 @@ impl(
     }),
     (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
-      while(runtime(i < U), {
+      while(i < U, {
         cond(
           (lhs(i) != rhs(i)) => {
             return(lhs(i) > rhs(i));
@@ -7441,7 +7441,7 @@ impl(
   Hash(
     hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       i := usize(0);
-      while(runtime(i < U), {
+      while(i < U, {
         self(i).hash(hasher);
         i = (i + usize(1));
       });

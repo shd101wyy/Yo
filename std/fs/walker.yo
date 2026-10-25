@@ -206,7 +206,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path : String, depth : u32)).new();
     stack.push({ path : root_s.clone(), depth : u32(0) });
-    while(runtime(stack.len() > usize(0)), {
+    while(stack.len() > usize(0), {
       item := stack.pop().unwrap();
       cur_depth := item.depth;
       // Check max depth
@@ -219,7 +219,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
         should_continue => {
           entries := e.io.await(_dir.read_dir(Path.new(&item.path), e.io), e);
           i := usize(0);
-          while(runtime(i < entries.len()), {
+          while(i < entries.len(), {
             entry := entries(i);
             entry_path := _join_path(&item.path, &entry.name);
             match(
@@ -279,7 +279,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
           // target (is_dir follows links; a dangling link is simply false)
           // and descend when it is a directory not already entered.
           j := usize(0);
-          while(runtime(j < pending_links.len()), {
+          while(j < pending_links.len(), {
             lp := pending_links(j).clone();
             canon_s := e.io.await(_canon_dir_target(&lp, e.io), e);
             cond(
@@ -374,7 +374,7 @@ glob :: (fn(pattern : &String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))
     entries := e.io.await(walk_with(Path.new(&parts.base), &opts, e.io), e);
     out := ArrayList(Path).new();
     (i : usize) = usize(0);
-    while(runtime(i < entries.len()), {
+    while(i < entries.len(), {
       wentry := entries(i);
       out.push(wentry.path);
       i = (i + usize(1));

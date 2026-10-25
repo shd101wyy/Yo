@@ -64,7 +64,7 @@ test("Thread with async loop", {
   thread := Thread(unit).spawn(io => {
     task := io.async((io : Io) => {
       mut(counter) := 0;
-      while(runtime(counter < i32(5)), {
+      while(counter < i32(5), {
         counter = (counter + 1);
         io.await(yield(io), io);
       });
@@ -419,7 +419,7 @@ test("Test rand draws from a PER-THREAD generator, not a shared locked one", {
 test("Test a spawned thread joins a thread of its own, 5000 times", {
   done := AtomicUsize.new(usize(0));
   (mut(i) : i32) = i32(0);
-  while(runtime(i < i32(5000)), {
+  while(i < i32(5000), {
     t := Thread(unit).spawn((io : Io) => {
       inner := Thread(unit).spawn((iio : Io) => {
         _n := done.fetch_add(usize(1), MemoryOrder.AcqRel);
@@ -465,7 +465,7 @@ _dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
     dpath := Path.new(base.clone());
     io.await(fs_dir.create_dir(&dpath, io), IoExn(io : io, exn : exn));
     (mut(i) : usize) = usize(0);
-    while(runtime(i < usize(5)), {
+    while(i < usize(5), {
       io.await(
         fs_file.write_string(Path.new(path_join(base.clone(), `f${i}.txt`)), String.from("x"), io),
         IoExn(io : io, exn : exn)
@@ -473,13 +473,13 @@ _dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
       i = (i + usize(1));
     });
     (mut(n) : i64) = i64(0);
-    while(runtime(n < i64(40)), {
+    while(n < i64(40), {
       entries := io.await(fs_dir.read_dir(&dpath, io), IoExn(io : io, exn : exn));
       assert(entries.len() == usize(5), "expected the 5 files back");
       n = (n + i64(1));
     });
     (mut(j) : usize) = usize(0);
-    while(runtime(j < usize(5)), {
+    while(j < usize(5), {
       io.await(
         fs_dir.remove_file(Path.new(path_join(base.clone(), `f${j}.txt`)), io),
         IoExn(io : io, exn : exn)

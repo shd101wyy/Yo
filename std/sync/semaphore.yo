@@ -92,7 +92,7 @@ impl(
   /// Take one permit, blocking until one is available.
   acquire : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
-    while(runtime(self._permits <= i32(0)), {
+    while(self._permits <= i32(0), {
       self._cv.wait_with(&self._mutex);
     });
     self._permits = (self._permits - i32(1));

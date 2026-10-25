@@ -33,7 +33,7 @@ _raw_side :: (fn(fd : i32, first : bool, io : Io) -> Impl(Future(i64, IoExn)))(
       e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
     });
     (i : i64) = i64(0);
-    while(runtime(i < ROUNDS), {
+    while(i < ROUNDS, {
       n := e.io.await(IO_tcp.recv(fd, buf, usize(64), i32(0)), e.io);
       if(n <= i32(0), {
         return(i);
@@ -53,7 +53,7 @@ _std_side :: (fn(s : TcpStream, first : bool, io : Io) -> Impl(Future(i64, IoExn
       e.io.await(s.write(buf, usize(1), e.io), e);
     });
     (i : i64) = i64(0);
-    while(runtime(i < ROUNDS), {
+    while(i < ROUNDS, {
       n := e.io.await(s.read(buf, usize(64), e.io), e);
       if(n == usize(0), {
         return(i);
@@ -72,7 +72,7 @@ _write_raw :: (fn(fd : i32, buf : *u8, io : Io) -> Impl(Future(i64, IoExn)))(
   io.async(e => {
     (i : i64) = i64(0);
     (sum : i64) = i64(0);
-    while(runtime(i < WRITES), {
+    while(i < WRITES, {
       r := e.io.await(IO_tcp.stream_write(fd, buf, usize(1)), e.io);
       sum = (sum + i64(r));
       i = (i + i64(1));
@@ -85,7 +85,7 @@ _write_std :: (fn(s : TcpStream, buf : *u8, io : Io) -> Impl(Future(i64, IoExn))
   io.async(e => {
     (i : i64) = i64(0);
     (sum : i64) = i64(0);
-    while(runtime(i < WRITES), {
+    while(i < WRITES, {
       r := e.io.await(s.write(buf, usize(1), e.io), e);
       sum = (sum + i64(r));
       i = (i + i64(1));
@@ -110,7 +110,7 @@ main :: (fn(io : Io) -> unit)({
   clients := ArrayList(TcpStream).new();
   servers := ArrayList(TcpStream).new();
   (k : usize) = usize(0);
-  while(runtime(k < K), {
+  while(k < K, {
     acc := io.spawn(listener.accept(io), e);
     c := io.await(TcpStream.connect(addr, io), e);
     io.await(c.set_nodelay(true, io), e);
@@ -135,7 +135,7 @@ main :: (fn(io : Io) -> unit)({
       t0 := Instant.now();
       hs := ArrayList(JoinHandle(i64)).new();
       k = usize(0);
-      while(runtime(k < K), {
+      while(k < K, {
         c := clients.get(k).unwrap();
         s := servers.get(k).unwrap();
         cond(
@@ -151,7 +151,7 @@ main :: (fn(io : Io) -> unit)({
         k = (k + usize(1));
       });
       (j : usize) = usize(0);
-      while(runtime(j < hs.len()), {
+      while(j < hs.len(), {
         hs.get(j).unwrap().await(io);
         j = (j + usize(1));
       });

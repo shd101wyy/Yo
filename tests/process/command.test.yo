@@ -338,7 +338,7 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   argv_raw := malloc(size_of(?*u8) * (argc + usize(1))).unwrap();
   argv_buf := (*?*u8)(argv_raw);
   mut(j) := usize(0);
-  while(runtime(j < argc), {
+  while(j < argc, {
     (argv_buf.add(j)).* = storage(j).ptr();
     j = (j + usize(1));
   });
@@ -599,7 +599,7 @@ _spawn_wait_rounds :: (fn(io : Io) -> unit)({
     );
     e := IoExn(io : io, exn : exn);
     (mut(n) : i64) = i64(0);
-    while(runtime(n < i64(12)), {
+    while(n < i64(12), {
       cmd := cond(
         (platform == Platform.Windows) => {
           c := Command.new(`cmd.exe`);
@@ -661,10 +661,10 @@ test("a child-stdin write larger than the pipe buffer does not park the event lo
   ticker := io.spawn(sleep(Duration.from_millis(i64(100)), io), io);
   total := usize(262144);
   (mut(sent) : usize) = usize(0);
-  while(runtime(sent < total), {
+  while(sent < total, {
     rest := ArrayList(u8).new();
     (mut(k) : usize) = sent;
-    while(runtime(k < total), {
+    while(k < total, {
       rest.push(u8(121));
       k = (k + usize(1));
     });
