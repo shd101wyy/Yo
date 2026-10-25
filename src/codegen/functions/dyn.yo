@@ -37,7 +37,7 @@ _is_reserved_dyn_label :: (fn(label : &String, trait_ty : Option(TypeValue)) -> 
 /// (`cell_handle_view`; the handle is a C-transparent newtype, so its value
 /// is the cell pointer), else the data type itself.
 _dyn_data_object_type :: (fn(data_type : &TypeValue) -> TypeValue)(
-  match(cell_handle_view(data_type), .Some(v) => v.cell, .None => data_type.clone())
+  match(cell_handle_view(data_type), .Some(v) => Rc.clone(v.cell), .None => data_type.clone())
 );
 /// Sanitized C field name of the single field of an Rc(T) data type ("*").
 /// A cell handle's is its cell's (`_dyn_data_object_type`).
@@ -291,7 +291,7 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
       (rbp_i : usize) = usize(0);
       while(rbp_i < rbp_ft.len(), {
         rbp_e := match(rbp_ft.get(rbp_i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
-        (rbp_r : TypeValue) = rbp_e;
+        (rbp_r : TypeValue) = Rc.clone(rbp_e);
         if(is_some_type(&rbp_e), {
           rbp_r = resolve_some_type_to_concrete(&rbp_e);
         });
@@ -302,16 +302,16 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
       (rbp_j : usize) = usize(0);
       while(rbp_j < rbp_ta.len(), {
         rbp_e2 := match(rbp_ta.get(rbp_j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
-        (rbp_r2 : TypeValue) = rbp_e2;
+        (rbp_r2 : TypeValue) = Rc.clone(rbp_e2);
         if(is_some_type(&rbp_e2), {
           rbp_r2 = resolve_some_type_to_concrete(&rbp_e2);
         });
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
       });
-      rc(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), rbp_fl, shared_list(rbp_new_ft), rbp_irs, rbp_iar, rbp_inw, rbp_cfid.clone(), shared_list(rbp_new_ta), rbp_isn))
+      rc(TypeValueNode.Struct(rbp_id.clone(), rbp_nm.clone(), Rc.clone(rbp_fl), shared_list(rbp_new_ft), rbp_irs, rbp_iar, rbp_inw, rbp_cfid.clone(), shared_list(rbp_new_ta), rbp_isn))
     },
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 /// C name for the boxed dyn payload: the raw recorded key first (the
@@ -627,7 +627,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                               .Some(entry) => match(
                                 get_func_type(func_id.clone()),
                                 Rc(.Func({ param_types, result, meta : __fm1 })) => {
-                                  param_is_ref := __fm1.*.param_is_ref;
+                                  param_is_ref := Rc.clone(__fm1.*.param_is_ref);
                                   impl_cname := entry.c_name.clone();
                                   // The label is sanitized like the slot's field
                                   // name: an operator member (`LogicalNot`'s `!`)
@@ -641,8 +641,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // Future-returning method is the case that
                                   // differs: the impl returns its concrete future,
                                   // the trait the Future interface pointer.
-                                  slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => spt, _ => param_types.clone());
-                                  slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => sfm.*.param_is_ref, _ => param_is_ref.clone());
+                                  slot_params_tys := match(slot_ty, .Some(Rc(.Func({ param_types : spt }))) => Rc.clone(spt), _ => param_types.clone());
+                                  slot_param_is_ref := match(slot_ty, .Some(Rc(.Func({ meta : sfm }))) => Rc.clone(sfm.*.param_is_ref), _ => param_is_ref.clone());
                                   slot_ret := match(slot_ty, .Some(Rc(.Func({ result : sres }))) => get_type_string(&sres, &context.base), _ => return_str.clone());
                                   params := _wrapper_params(slot_params_tys.items.clone(), slot_param_is_ref.items.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();

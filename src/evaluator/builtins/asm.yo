@@ -334,7 +334,7 @@ _parse_operand :: (
               .Some(vv) => match(vv, .TypeVal(_) => true, _ => false),
               .None => false
             );
-            var_type = variable.ty;
+            var_type = Rc.clone(variable.ty);
             var_initialized = variable.initialized_at_token.is_some();
           },
           .None => ()
@@ -381,7 +381,7 @@ _parse_operand :: (
       .Some(info) => match(
         info.value,
         .Some(.TypeVal(tv)) => {
-          out_ty = Option(TypeValue).Some(tv);
+          out_ty = Option(TypeValue).Some(Rc.clone(tv));
         },
         .Some(_) => (),
         .None => ()
@@ -439,7 +439,7 @@ _parse_operand :: (
   evaluated := evaluate_expression_raw(&value_or_type_expr, env, ctx, exn);
   value_ty := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
-    .Some(info) => info.ty,
+    .Some(info) => Rc.clone(info.ty),
     .None => {
       exn.throw(
         dyn(
@@ -883,9 +883,9 @@ evaluate_asm :: (
           keep := (!op.discarded && op.target_var_name.is_none() && !_is_special_kind(&op.kind) && !(op.kind == String.from("in")));
           if(keep, {
             match(
-              op.output_type,
+              &op.output_type,
               .Some(ot) => {
-                return_output_types.push(ot);
+                return_output_types.push(Rc.clone(ot));
               },
               .None => ()
             );
@@ -904,8 +904,8 @@ evaluate_asm :: (
         .Some(fab) => match(
           fab.kind,
           .FunctionBody => match(
-            fab.func_type,
-            .Some(ft) => match(ft, Rc(.Func({ result : r })) => r, _ => t_unit()),
+            &fab.func_type,
+            .Some(ft) => match(ft, Rc(.Func({ result : r })) => Rc.clone(r), _ => t_unit()),
             .None => t_unit()
           ),
           _ => t_unit()

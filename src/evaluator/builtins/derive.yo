@@ -693,7 +693,7 @@ _evaluate_derive_executing :: (
   // Expect target to be a TypeVal.
   target_type := match(
     target_info.value,
-    .Some(.TypeVal(ty_box)) => ty_box,
+    .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
     .Some(_) => {
       exn.throw(
         dyn(

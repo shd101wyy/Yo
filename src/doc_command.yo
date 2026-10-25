@@ -391,10 +391,10 @@ document_one_file :: (
     (labels : SharedList(String)) = no_labels();
     (types : SharedList(TypeValue)) = no_types();
     match(
-      outcome.module_type,
+      &outcome.module_type,
       Rc(.Struct({ field_labels, field_types })) => {
-        labels = field_labels;
-        types = field_types;
+        labels = Rc.clone(field_labels);
+        types = Rc.clone(field_types);
       },
       _ => ()
     );

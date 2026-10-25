@@ -256,14 +256,14 @@ derive(VariadicParamEntry, Clone);
 register_func_variadic_param :: (fn(func_id : &String, label : &String, ty : &TypeValue) -> unit)({
   if(label != "...", {
     record_owned_func_id(func_id.clone());
-    g_func_variadic_params.with_mut(m => m.insert(func_id, VariadicParamEntry(label : label, ty : ty)));
+    g_func_variadic_params.with_mut(m => m.insert(func_id, VariadicParamEntry(label : label, ty : Rc.clone(ty))));
   });
 });
 copy_func_variadic_param :: (fn(from_id : &String, to_id : &String) -> unit)({
   match(
     g_func_variadic_params.with(m => m.get(from_id.clone())),
     .Some(entry) => {
-      g_func_variadic_params.with_mut(m => m.insert(to_id.clone(), entry));
+      g_func_variadic_params.with_mut(m => m.insert(to_id.clone(), entry.clone()));
     },
     .None => ()
   );
@@ -468,7 +468,7 @@ default_param_eval_env :: (fn(func_id : &String, inner : &Option(Environment), f
       );
       Environment(
         frames : rc(frames),
-        module_path : d.module_path,
+        module_path : Rc.clone(d.module_path),
         function_declaration_frame_level : d.function_declaration_frame_level,
         frozen : false
       )
@@ -1016,7 +1016,7 @@ _get_expr_type :: (
   });
   match(
     info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
     .None => rc(TypeValueNode.Unit)
   )
 });
@@ -1041,7 +1041,7 @@ _eval_and_update_env :: (
         .Some(
           match(
             info.value,
-            .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+            .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
             .None => rc(TypeValueNode.Unit)
           )
         ),
@@ -1260,12 +1260,12 @@ _add_where_clause_constraint :: (
       // push was the one site that kept appending.
       if(is_negated, {
         if(!_wcc_has_trait(&negative_trait_types, trait_ty), {
-          negative_trait_types.push(trait_ty);
+          negative_trait_types.push(Rc.clone(trait_ty));
           negative_trait_levels.push(usize(0));
         });
       }, {
         if(!_wcc_has_trait(&required_trait_types, trait_ty), {
-          required_trait_types.push(trait_ty);
+          required_trait_types.push(Rc.clone(trait_ty));
           required_trait_levels.push(usize(0));
         });
       });
@@ -1775,7 +1775,7 @@ evaluate_function_parameter :: (
       saved_expected := ctx.expected_type;
       ctx.expected_type = match(
         param_type,
-        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(pt, env_mut)),
+        .Some(pt) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(Rc.clone(pt), env_mut)),
         .None => saved_expected
       );
       evaluated_dve := evaluate_expression_raw(&dve, env_mut, ctx, exn);
@@ -2073,7 +2073,7 @@ use_id :: (fn(generic(T : Type),
     });
   });
   // Determine actual type and value for the variable
-  (actual_param_type : TypeValue) = final_param_type;
+  (actual_param_type : TypeValue) = Rc.clone(final_param_type);
   match(
     existing_where_var,
     .Some(wv) => {
@@ -2087,7 +2087,7 @@ use_id :: (fn(generic(T : Type),
             av,
             .TypeVal(av_box) => {
               if(is_some_type(&av_box), {
-                new_some := av_box;
+                new_some := Rc.clone(av_box);
                 match(
                   new_some,
                   Rc(.SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _)) => {
@@ -2146,7 +2146,7 @@ use_id :: (fn(generic(T : Type),
         existing_pre_var,
         .Some(pv) => {
           // Pre-added by comptime pre-scan pass — reuse it
-          actual_param_type = pv.ty;
+          actual_param_type = Rc.clone(pv.ty);
           match(
             label_expr,
             .Some(le) => {
@@ -2260,8 +2260,8 @@ use_id :: (fn(generic(T : Type),
 /// (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md, option 3).
 _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Environment) -> String)({
   base := `Type ${type_to_string(concrete)} does not implement required trait ${type_to_string(tv)}`;
-  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l, _ => no_labels());
-  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t, _ => no_types());
+  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => Rc.clone(l), _ => no_labels());
+  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => Rc.clone(t), _ => no_types());
   (i : usize) = usize(0);
   while(i < labels.len(), {
     label := match(labels.get(i), .Some(l) => l, .None => String.new());
@@ -2363,7 +2363,7 @@ validate_concrete_type_constraints :: (
     if(is_type_value(&info.value), {
       tv := match(
         info.value,
-        .Some(.TypeVal(b)) => b,
+        .Some(.TypeVal(b)) => Rc.clone(b),
         .Some(_) => {
           exn.throw(
             dyn(
@@ -2446,7 +2446,7 @@ validate_concrete_type_constraints :: (
         );
       });
       implemented := tc_res.implemented;
-      env_mut.frames = tc_res.env.frames;
+      env_mut.frames = Rc.clone(tc_res.env.frames);
       if(negated, {
         if(implemented, {
           exn.throw(
@@ -2553,7 +2553,7 @@ apply_single_trait_constraint :: (
       return(false);
     });
     env_adopt(&env_mut, &info.env);
-    lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
+    lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
     }, {
@@ -2584,7 +2584,7 @@ apply_single_trait_constraint :: (
     return(false);
   });
   env_adopt(&env_mut, &info_rhs.env);
-  trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
+  trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
       dyn(
@@ -2801,7 +2801,7 @@ parse_where_clause_constraints :: (
         );
       });
       env_adopt(&env_mut, &lhs_info.env);
-      lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
+      lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
       // (add_where_clause_constraint_for_type_application). The RHS trait parsing
@@ -2911,7 +2911,7 @@ parse_where_clause_constraints :: (
         continue;
       });
       env_adopt(&env_mut, &trait_info.env);
-      trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
+      trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
           dyn(
@@ -3325,7 +3325,7 @@ evaluate_function_parameters :: (
       });
       impl_param := FuncParam(
         param.label,
-        param.ty,
+        Rc.clone(param.ty),
         true,
         param.is_quote,
         param.is_owning_rc_value,
@@ -3803,7 +3803,7 @@ evaluate_function_parameters :: (
       });
       variadic_param = FuncParam(
         vparam_name,
-        vparam_type,
+        Rc.clone(vparam_type),
         is_vcomptime,
         is_vquote,
         false,
@@ -4404,7 +4404,7 @@ evaluate_function_type :: (
       }
     );
     forall_labels.push(fp.label);
-    forall_types.push(fp.ty);
+    forall_types.push(Rc.clone(fp.ty));
     fpi = (fpi + usize(1));
   });
   (ppi : usize) = usize(0);
@@ -4440,7 +4440,7 @@ evaluate_function_type :: (
       );
     });
     param_labels.push(pp.label);
-    param_types.push(pp.ty);
+    param_types.push(Rc.clone(pp.ty));
     param_is_ref.push(pp.is_ref);
     param_is_owning.push(pp.is_owning_rc_value);
     param_is_sink.push(pp.is_sink);
@@ -4509,7 +4509,7 @@ evaluate_function_type :: (
     match(
       params_result.params.get(rp2_i),
       .Some(fp) => match(
-        fp.ty,
+        &fp.ty,
         Rc(.RefineT(_, pred_fid)) => {
           pred_here = pred_fid;
         },
@@ -4603,7 +4603,7 @@ evaluate_function_type :: (
       }
     );
     implicit_labels.push(ip.label);
-    implicit_types.push(ip.ty);
+    implicit_types.push(Rc.clone(ip.ty));
     ipi = (ipi + usize(1));
   });
   // where_types: collect trait types from where clause exprs (for substitution)
@@ -4619,7 +4619,7 @@ evaluate_function_type :: (
       }
     );
     match(
-      fp.ty,
+      &fp.ty,
       Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
@@ -4645,7 +4645,7 @@ evaluate_function_type :: (
   if(params_result.has_variadic, {
     mint_vlabel = Option(String).Some(params_result.variadic_param.label.clone());
     mint_vcomptime = params_result.variadic_param.is_compile_time_only;
-    vts_mint.push(params_result.variadic_param.ty);
+    vts_mint.push(Rc.clone(params_result.variadic_param.ty));
   });
   func_type := rc(
     TypeValueNode.Func(
@@ -4873,7 +4873,7 @@ _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) ->
         match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, &t)), .None => ());
         j = (j + usize(1));
       });
-      rc(TypeValueNode.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_kft, sw_rc))
+      rc(TypeValueNode.SomeT(sw_id, sw_nm, sw_fl, Rc.clone(sw_pt), new_rtt, sw_rtl, new_ntt, sw_ntl, sw_kft.clone(), sw_rc.clone()))
     },
     _ => substitute(ns, wrapper)
   )
@@ -4985,7 +4985,7 @@ _resolve_some_types_deep :: (
     // still rebuild it from the env-bound carrier SomeTs (T := i32,
     // E := Ctx from the arg synthesis).
     if(rsd_fut_poisoned, {
-      r = ty;
+      r = Rc.clone(ty);
     });
     // Wrapper resolved to a concrete type → done.
     if(!is_some_type(&r) && !rsd_fut_poisoned, {
@@ -5036,7 +5036,7 @@ _resolve_some_types_deep :: (
   });
   some_types := get_all_some_types(ty);
   if(some_types.len() == usize(0), {
-    return(ty);
+    return(Rc.clone(ty));
   });
   s := subst_new();
   (bound_any : bool) = false;
@@ -5090,7 +5090,7 @@ _resolve_some_types_deep :: (
   });
   cond(
     bound_any => substitute(&s, ty),
-    true => ty
+    true => Rc.clone(ty)
   )
 });
 /// Did the env resolve the slot `st` to a DIFFERENT SomeType (`r`)? Only then
@@ -5180,7 +5180,7 @@ _collect_type_arg_somes :: (
           cta_args.get(cta_a),
           .Some(cta_at) => {
             if(is_some_type(&cta_at), {
-              acc.push(cta_at);
+              acc.push(Rc.clone(cta_at));
             });
             recur(&cta_at, acc, visited_ids);
           },
@@ -5215,7 +5215,7 @@ _collect_type_arg_somes :: (
           cta_phantoms.get(cta_pi),
           .Some(cta_pt) => {
             if(is_some_type(&cta_pt), {
-              acc.push(cta_pt);
+              acc.push(Rc.clone(cta_pt));
             }, {
               acc.append(get_all_some_types(&cta_pt));
             });
@@ -5269,7 +5269,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
   tas_visited := ArrayList(String).new();
   _collect_type_arg_somes(ty, &mut targ_somes, &mut tas_visited);
   if(targ_somes.len() == usize(0), {
-    return(ty);
+    return(Rc.clone(ty));
   });
   tas_s := subst_new();
   (tas_bound_any : bool) = false;
@@ -5334,7 +5334,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
   });
   cond(
     tas_bound_any => substitute(&tas_s, ty),
-    true => ty
+    true => Rc.clone(ty)
   )
 });
 // evaluate_function_return_type_again
@@ -5363,7 +5363,7 @@ evaluate_function_return_type_again :: (
   // the resolved return is a same-ctor, tyarg-compatible sibling. This
   // is the CENTRAL exit every spec-signature/return stamping funnels through.
   (rr_out : TypeValue) = match(
-    _ctx.self_type,
+    &_ctx.self_type,
     .Some(rr_recv) => match(
       adopt_receiver_struct_instance(&resolved, &rr_recv),
       .Some(rr_adopted) => rr_adopted,

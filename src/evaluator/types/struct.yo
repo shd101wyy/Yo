@@ -121,7 +121,7 @@ evaluate_struct_type :: (
     )
   );
   // Temporarily set SelfType in context for field evaluation.
-  old_self_type := ctx.self_type;
+  old_self_type := ctx.self_type.clone();
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // RC functions (___drop/___dup) for reference-semantics structs are lowered
   // DIRECTLY in codegen (drop_dup.yo: `is_reference_struct_type` →
@@ -147,7 +147,7 @@ evaluate_struct_type :: (
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_type_field(&arg, i, &env, ctx, "struct", exn);
-    field := result.field;
+    field := result.field.clone();
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
@@ -222,7 +222,7 @@ evaluate_struct_type :: (
       sc_stored := match(
         type_pointee_second_class(&field.ty),
         .Some(sc_inner) => Option(TypeValue).Some(sc_inner),
-        .None => if(force_reference_semantics || is_atomic_rc, Option(TypeValue).Some(field.ty), Option(TypeValue).None)
+        .None => if(force_reference_semantics || is_atomic_rc, Option(TypeValue).Some(Rc.clone(field.ty)), Option(TypeValue).None)
       );
       match(
         sc_stored,
@@ -231,10 +231,10 @@ evaluate_struct_type :: (
       );
     });
     field_labels.push(field.label.clone());
-    field_types.push(field.ty);
+    field_types.push(Rc.clone(field.ty));
     field_comptime_flags.push(field.is_comptime);
     if(!field.is_comptime, {
-      runtime_field_types.push(field.ty);
+      runtime_field_types.push(Rc.clone(field.ty));
     });
     fields.push(field);
     env_adopt(&env, &result.env);
@@ -493,7 +493,7 @@ evaluate_cell_type :: (
       env = expr_info_adopt_env(&pi);
       match(
         pi.value,
-        .Some(.TypeVal(pt)) => Option(TypeValue).Some(pt),
+        .Some(.TypeVal(pt)) => Option(TypeValue).Some(Rc.clone(pt)),
         _ => Option(TypeValue).None
       )
     },
@@ -536,7 +536,7 @@ evaluate_cell_type :: (
     return(make_err_expr());
   });
   payload_types := ArrayList(TypeValue).new();
-  payload_types.push(v);
+  payload_types.push(Rc.clone(v));
   cell_id := _cell_instance_id(is_atomic_rc, &v);
   cell_name := String.from(builtin);
   cell_name.push_str("(");
@@ -546,7 +546,7 @@ evaluate_cell_type :: (
   labels.push(payload_label.clone());
   field_types_s := shared_list(payload_types);
   type_args := ArrayList(TypeValue).new();
-  type_args.push(v);
+  type_args.push(Rc.clone(v));
   cell_ty := rc(
     TypeValueNode.Struct(
       cell_id.clone(),

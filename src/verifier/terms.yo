@@ -272,12 +272,12 @@ impl(
   }),
   /// Builder: push an unnamed assumption.
   assume : (fn(self : &Self, term : &VcTerm) -> Self)({
-    self.assumptions.push(VcAssumption(name : Option(String).None, term : term));
+    self.assumptions.push(VcAssumption(name : Option(String).None, term : Rc.clone(term)));
     self
   }),
   /// Builder: push a named assumption (unsat-core attribution).
   assume_named : (fn(self : &Self, name : &String, term : &VcTerm) -> Self)({
-    self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : term));
+    self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : Rc.clone(term)));
     self
   })
 );
@@ -301,7 +301,7 @@ new_vc_query :: (fn(name : &String) -> VcQuery)(
 /// Boolean negation.
 vc_not :: (fn(t : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(t);
+  args.push(Rc.clone(t));
   rc(VcTermNode.App(VcOp.NotOp, args))
 });
 /// N-ary conjunction.
@@ -327,22 +327,22 @@ vc_or :: (fn(ts : &ArrayList(VcTerm)) -> VcTerm)({
 /// Implication `a => b` (right-associative chain when built pairwise).
 vc_imp :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
-  args.push(b);
+  args.push(Rc.clone(a));
+  args.push(Rc.clone(b));
   rc(VcTermNode.App(VcOp.ImpOp, args))
 });
 /// Equality `a = b`.
 vc_eq :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
-  args.push(b);
+  args.push(Rc.clone(a));
+  args.push(Rc.clone(b));
   rc(VcTermNode.App(VcOp.EqOp, args))
 });
 /// Distinctness `a != b`.
 vc_distinct :: (fn(a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
-  args.push(b);
+  args.push(Rc.clone(a));
+  args.push(Rc.clone(b));
   rc(VcTermNode.App(VcOp.DistinctOp, args))
 });
 export(

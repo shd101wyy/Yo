@@ -1251,8 +1251,8 @@ _synth_desugar_tok_s :: (fn(kind : TokenKind, value : &String, ref_tok : &Token)
     // the payloads), which begin.yo's _m3_tokens_comparable (`left.input == right.input`) relies
     // on — with per-node copies every comparability check memcmp'd the
     // whole file (issues/desugar-token-clones-evaluator-regression.md).
-    module_path : ref_tok.module_path,
-    input : ref_tok.input
+    module_path : Rc.clone(ref_tok.module_path),
+    input : Rc.clone(ref_tok.input)
   )
 );
 /// Unwrap an optional `label : value` wrapper on an `if` argument.
@@ -2106,8 +2106,8 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
     column : tok.column,
     character : tok.character,
     byte_offset : tok.byte_offset,
-    module_path : tok.module_path,
-    input : tok.input
+    module_path : Rc.clone(tok.module_path),
+    input : Rc.clone(tok.input)
   );
   args := ArrayList(AstExpr).new();
   args.push(body);

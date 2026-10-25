@@ -453,12 +453,12 @@ _receiver_at :: (
       return(());
     }
   );
-  (recv : TypeValue) = info.ty;
+  (recv : TypeValue) = Rc.clone(info.ty);
   (unwrapped : bool) = false;
   match(
     info.value,
     .Some(.TypeVal(t)) => {
-      recv = t;
+      recv = Rc.clone(t);
       unwrapped = true;
     },
     .Some(_) => (),
@@ -484,20 +484,20 @@ _receiver_at :: (
             .None => ()
           );
           if(!var_unwrapped, {
-            recv = sv.ty;
+            recv = Rc.clone(sv.ty);
           });
         },
         .None => ()
       );
     });
   });
-  (deref : TypeValue) = recv;
+  (deref : TypeValue) = Rc.clone(recv);
   (guard : usize) = usize(0);
   while(guard < usize(8), {
     match(
       deref,
       Rc(.Pointer(p)) => {
-        deref = p;
+        deref = Rc.clone(p);
       },
       _ => {
         guard = usize(8);
@@ -581,11 +581,11 @@ _expected_enum_at :: (
                     .Some(ty_expr) => match(
                       expr_info_table_get(info_table, ast_expr_id(&ty_expr)),
                       .Some(tinfo) => {
-                        (found : TypeValue) = tinfo.ty;
+                        (found : TypeValue) = Rc.clone(tinfo.ty);
                         match(
                           tinfo.value,
                           .Some(.TypeVal(t)) => {
-                            found = t;
+                            found = Rc.clone(t);
                           },
                           .Some(_) => (),
                           .None => ()
@@ -629,9 +629,9 @@ _expected_enum_at :: (
             .Some(subject) => match(
               expr_info_table_get(info_table, ast_expr_id(&subject)),
               .Some(sinfo) => match(
-                sinfo.ty,
+                &sinfo.ty,
                 Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => {
-                  out.push(sinfo.ty);
+                  out.push(Rc.clone(sinfo.ty));
                 },
                 _ => ()
               ),
@@ -979,14 +979,14 @@ _import_list_path :: (
 /// it cannot be loaded (own frame for the swallowing handler).
 _module_type_at :: (fn(abs : &String, std_path : &String, io : Io) -> TypeValue)({
   if(module_cache_has(abs.clone()), {
-    return(load_module_from_cache(abs).module_type);
+    return(Rc.clone(load_module_from_cache(abs).module_type));
   });
   load_exn := Exception(
     throw : (
       _err -> unwind(rc(TypeValueNode.Unit))
     )
   );
-  mm_load_file(uri_to_fs_path(abs), std_path, false, io, load_exn).module_type
+  Rc.clone(mm_load_file(uri_to_fs_path(abs), std_path, false, io, load_exn).module_type)
 });
 /// Completion items for the exports of `import_path` (as written in the
 /// document) not already in `listed`, filtered by the word prefix.
@@ -1180,8 +1180,8 @@ handle_completion :: (
         out_env := ArrayList(Environment).new();
         _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_deref, &mut out_env);
         if(out_recv.len() > usize(0), {
-          recv := out_recv(usize(0));
-          deref := out_deref(usize(0));
+          recv := Rc.clone(out_recv(usize(0)));
+          deref := Rc.clone(out_deref(usize(0)));
           env := out_env(usize(0));
           seen := HashSet(String).new();
           _type_member_items(&deref, &mut items, &mut seen);
@@ -1267,7 +1267,7 @@ handle_completion :: (
         .Some(info) => {
           detail = type_to_string(&info.ty);
           match(
-            info.ty,
+            &info.ty,
             Rc(.Func(_, _, _, _, _, _, _)) => {
               kind = K_FUNCTION;
             },
@@ -1306,7 +1306,7 @@ handle_completion :: (
                 );
                 if(fresh, {
                   emitted.insert(vname.clone());
-                  is_fn := match(v.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
+                  is_fn := match(&v.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
                   kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
                   items.push(_ci(vname.clone(), kind2, type_to_string(&v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
                 });

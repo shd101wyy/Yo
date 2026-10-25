@@ -126,7 +126,7 @@ generate_function_prototype :: (
   match(
     function_type,
     Rc(.Func({ param_types, result, meta : __fm1 })) => {
-      param_labels := __fm1.*.param_labels;
+      param_labels := Rc.clone(__fm1.*.param_labels);
       // The C pointer flags: a `&mut T` parameter, or a projection's `&T`.
       param_is_ref := fn_abi_param_is_ptr(function_type);
       result_is_ref := __fm1.*.result_is_ref;
@@ -396,7 +396,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
 });
 /// The result (return) type of a Func TypeValue, or Unit for non-functions.
 _func_result_type :: (fn(ft : &TypeValue) -> TypeValue)(
-  match(ft, Rc(.Func({ result })) => result, _ => rc(TypeValueNode.Unit))
+  match(ft, Rc(.Func({ result })) => Rc.clone(result), _ => rc(TypeValueNode.Unit))
 );
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function).
@@ -851,7 +851,7 @@ fn_value_c_name :: (fn(func_id : &String, context : &CodeGenContext) -> Option(S
             proto := generate_function_prototype(&ft, thunk.clone(), context, Option(String).Some(er.clone()), false);
             // The arguments are the parameter names the prototype generator
             // gave (its label, else `param<i>`).
-            labels := match(ft, Rc(.Func({ meta : tm })) => tm.*.param_labels, _ => no_labels());
+            labels := match(ft, Rc(.Func({ meta : tm })) => Rc.clone(tm.*.param_labels), _ => no_labels());
             np := match(ft, Rc(.Func({ param_types : tpts })) => tpts.len(), _ => usize(0));
             args := String.from("");
             (i : usize) = usize(0);

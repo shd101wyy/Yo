@@ -131,7 +131,7 @@ _lookup_or_register_enum_sig :: (fn(bare : &String, decl : &String, full_key : &
 /// (dyn/box closure wrappers) keys by its own id — hopping there over-merged
 /// the wrapper's fat call/data struct with the capture struct.
 _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t_in;
+  (cur : TypeValue) = Rc.clone(t_in);
   (seen : ArrayList(String)) = ArrayList(String).new();
   (walk : bool) = true;
   while(walk, {
@@ -150,7 +150,7 @@ _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
         // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
         // A `Future` or unresolved annotation wrapper keeps its id.
         if((ras_nm.len() == usize(0)) || ((ras_nm == "Impl") && !is_bound_closure_identity(&cur)), {
-          return(t_in);
+          return(Rc.clone(t_in));
         });
         (revisit : bool) = false;
         (ri : usize) = usize(0);
@@ -171,7 +171,7 @@ _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
           match(
             ras_rc,
             .Some(nx) => {
-              cur = nx;
+              cur = Rc.clone(nx);
             },
             .None => {
               walk = false;
@@ -185,7 +185,7 @@ _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
     );
   });
   // An unresolved chain keeps the ORIGINAL slot (bare-id keying as before).
-  if(is_some_type(&cur), t_in, cur)
+  if(is_some_type(&cur), Rc.clone(t_in), cur)
 });
 /// True when `somes` holds a SomeT whose id is `id`.
 _tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
@@ -273,8 +273,8 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       st := resolve_struct_shell(t);
       (sid, scfid, stas, sfts, s_is_ref) := match(
         st,
-        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), rcfid.clone(), rtas, rfts, rirs),
-        _ => (id.clone(), cfid.clone(), tas, fts, t_is_ref)
+        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid.clone(), rcfid.clone(), Rc.clone(rtas), Rc.clone(rfts), rirs),
+        _ => (id.clone(), cfid.clone(), Rc.clone(tas), Rc.clone(fts), t_is_ref)
       );
       // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
       // field) and a value struct with the SAME fields have DIFFERENT C layouts
@@ -468,11 +468,11 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // issues/.../recursive-enum-self-shell.md.
       rs := resolve_enum_shell(t);
       eid := match(rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
-      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs);
-      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => no_labels());
-      evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds, _ => no_discriminants());
+      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => Rc.clone(rvfs), _ => Rc.clone(vfs));
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => Rc.clone(rvns), _ => no_labels());
+      evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => Rc.clone(rvds), _ => no_discriminants());
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => false);
-      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls, _ => no_label_lists());
+      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => Rc.clone(rvfls), _ => no_label_lists());
       // Cycle guard (see g_tk_visited): an enum already on the expansion
       // path renders id-only rather than re-expanding its variant fields. The
       // node is the id AND its type arguments' identities, as the Struct arm's:
@@ -482,7 +482,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // guard cut the inner one to its bare id. That gave the outer instance a
       // second C type beside the declared `Option(Option(i32))`
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => nd_tas, _ => no_types());
+      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => Rc.clone(nd_tas), _ => no_types());
       e_node := _tk_node_id(&eid, &e_node_targs);
       if((eid.len() > usize(0)) && _tk_seen(&e_node), {
         return(eid.clone());
@@ -577,7 +577,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         // plus a type-variable argument no payload mentions. A resolved variable keys as its resolution, and a
         // non-type argument (`Unit`) adds nothing; an enum with no phantom
         // position keys exactly as before.
-        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => rtas, _ => no_types());
+        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => Rc.clone(rtas), _ => no_types());
         if(e_targs.len() > usize(0), {
           e_mask := enum_phantom_positions(&eid);
           e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
@@ -826,7 +826,7 @@ type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
       g_tk_cacheable_answers.with_mut(xs => xs.clear());
     });
     (at : usize) = g_tk_cacheable_handles.with(xs => type_identity_slot(xs, ty));
-    g_tk_cacheable_handles.with_mut(xs => xs.insert(at, ty));
+    g_tk_cacheable_handles.with_mut(xs => xs.insert(at, Rc.clone(ty)));
     g_tk_cacheable_answers.with_mut(xs => xs.insert(at, answer));
   });
   answer
@@ -898,7 +898,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       (sid, sfls, sfts, s_is_ref) := match(
         st,
         Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid, rfls, rfts, rirs),
-        _ => (id.clone(), fls, fts, t_is_ref)
+        _ => (id.clone(), Rc.clone(fls), Rc.clone(fts), t_is_ref)
       );
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
       if((sid.len() > usize(0)) && _sti_seen(&sid), {
@@ -926,8 +926,8 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     Rc(.EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 })) => {
       rs := resolve_enum_shell(t);
       eid := match(rs, Rc(.EnumT({ id : rid })) => rid.clone(), _ => id.clone());
-      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => vns0);
-      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs0);
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => Rc.clone(rvns), _ => Rc.clone(vns0));
+      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => Rc.clone(rvfs), _ => Rc.clone(vfs0));
       e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => e_is_ref0);
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
       // The path node carries the type arguments, as `_type_key_at`'s does:

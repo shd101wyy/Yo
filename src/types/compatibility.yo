@@ -62,7 +62,7 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
     return(false);
   });
   parts := ArrayList(TypeValue).new();
-  parts.push(req);
+  parts.push(Rc.clone(req));
   match(
     req,
     Rc(.TraitT({ field_types : fts, assoc_constraint_types : acts })) => {
@@ -83,7 +83,7 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
         match(cpts.get(i), .Some(t) => parts.push(t), .None => ());
         i = (i + usize(1));
       });
-      parts.push(cr);
+      parts.push(Rc.clone(cr));
     },
     _ => ()
   );
@@ -291,7 +291,7 @@ _exact_mode :: (fn(mode : _CompatMode) -> _CompatMode)(
 _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(t),
+    Rc(.FutureTraitT(base_name : _)) => Option(TypeValue).Some(Rc.clone(t)),
     Rc(.SomeT(required_trait_types : rtt)) => {
       (i : usize) = usize(0);
       while(i < rtt.len(), i = (i + usize(1)), {
@@ -455,7 +455,7 @@ _compat_impl :: (
     );
     drtt := match(
       expected,
-      Rc(.DynT(required_trait_types : rtt)) => rtt,
+      Rc(.DynT(required_trait_types : rtt)) => Rc.clone(rtt),
       _ => no_types()
     );
     i := usize(0);
@@ -497,7 +497,7 @@ _compat_impl :: (
     );
     adrtt := match(
       actual,
-      Rc(.DynT(required_trait_types : rtt)) => rtt,
+      Rc(.DynT(required_trait_types : rtt)) => Rc.clone(rtt),
       _ => no_types()
     );
     i := usize(0);
@@ -564,7 +564,7 @@ _compat_impl :: (
       match(
         expected,
         Rc(.SomeT({ resolution : ccr_res_cell })) => {
-          ccr_resolution := ccr_res_cell;
+          ccr_resolution := ccr_res_cell.clone();
           match(
             ccr_resolution,
             .Some(ccr_res_ty) => {
@@ -628,7 +628,7 @@ _compat_impl :: (
     match(
       actual,
       Rc(.SomeT({ resolution : a_res_cell })) => {
-        a_resolution := a_res_cell;
+        a_resolution := a_res_cell.clone();
         match(
           a_resolution,
           .Some(a_res_ty2) => {
@@ -683,7 +683,7 @@ _compat_impl :: (
     match(
       expected,
       Rc(.SomeT({ resolution : e_res_cell })) => {
-        e_resolution := e_res_cell;
+        e_resolution := e_res_cell.clone();
         match(
           e_resolution,
           .Some(e_res_ty2) => {
@@ -853,8 +853,8 @@ _compat_impl :: (
           match(epts.get(si), .Some(v) => e_sig.push(v), .None => ());
           si = (si + usize(1));
         });
-        a_sig.push(aret);
-        e_sig.push(eret);
+        a_sig.push(Rc.clone(aret));
+        e_sig.push(Rc.clone(eret));
         n_alpha := _push_alpha_pairs(&ameta.*.forall_labels.items, &a_sig, &emeta.*.forall_labels.items, &e_sig);
         (func_ok : bool) = true;
         i = usize(0);
@@ -921,8 +921,8 @@ _compat_impl :: (
         // payloads concretely where it can.
         ({
           (pay_differ : bool) = false;
-          pa := ata;
-          pe := eta;
+          pa := Rc.clone(ata);
+          pe := Rc.clone(eta);
           // Cycle guard: a recursive instantiation (`Node(T)` holding
           // `Node(T)`) re-enters this comparison through its own type
           // arguments — an already-open pair is not a disagreement.

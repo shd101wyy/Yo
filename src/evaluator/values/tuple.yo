@@ -107,7 +107,7 @@ evaluate_tuple_element_value :: (
     .Some(et) => cond(
       is_tuple_type(&et.ty) => {
         match(
-          et.ty,
+          &et.ty,
           Rc(.Tuple(_, types)) => {
             match(
               types.get(tuple_field_index),
@@ -150,7 +150,7 @@ evaluate_tuple_element_value :: (
   saved_expected := ctx.expected_type;
   ctx.expected_type = match(
     expected_field_type_opt,
-    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : env)),
+    .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : Rc.clone(t), env : env)),
     .None => Option(ExpectedTypeCtx).None
   );
   evaluated_rhs_gout := ArrayList(AstExpr).new();
@@ -195,7 +195,7 @@ evaluate_tuple_element_value :: (
   child_type := match(
     expected_field_type_opt,
     .Some(et) => cond(
-      is_comptime_only_type_local(&et) => rhs_info.ty,
+      is_comptime_only_type_local(&et) => Rc.clone(rhs_info.ty),
       true => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
     ),
     .None => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
@@ -234,7 +234,7 @@ evaluate_tuple_elements_value :: (
       exn
     );
     field_labels.push(i.to_string());
-    field_types.push(result.ty);
+    field_types.push(Rc.clone(result.ty));
     values.push(result.value);
     env_adopt(&env, &result.env);
     i = (i + usize(1));

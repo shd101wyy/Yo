@@ -326,10 +326,10 @@ type_implements_runtime_builtin :: (fn(ty : &TypeValue) -> Option(bool))({
   // `validate_type_availability` would false-fire on every pointer-fielded
   // struct (GcTracer :: newtype(_callback : *(u8))). Unwrap pointer chains
   // and decide from the base type's tag.
-  (rb_base : TypeValue) = ty;
+  (rb_base : TypeValue) = Rc.clone(ty);
   (rb_hops : usize) = usize(0);
   while(match(rb_base, Rc(.Pointer(_)) => (rb_hops < usize(8)), _ => false), {
-    rb_base = match(rb_base, Rc(.Pointer(p)) => p, _ => rb_base);
+    rb_base = match(rb_base, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(rb_base));
     rb_hops = (rb_hops + usize(1));
   });
   if(rb_hops > usize(0), {
@@ -879,7 +879,7 @@ _type_walk_enter :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32) -> Opt
     );
     pi = (pi + usize(1));
   });
-  w.path.push(_TypeWalkFrame(ty : ty, outer_cut : w.cut));
+  w.path.push(_TypeWalkFrame(ty : Rc.clone(ty), outer_cut : w.cut));
   w.cut = false;
   Option(bool).None
 });
@@ -891,7 +891,7 @@ _type_walk_leave :: (fn(w : &mut _TypeWalk, ty : &TypeValue, depth : u32, answer
   });
   outer_cut := match(w.path.pop(), .Some(f) => f.outer_cut, .None => false);
   if(answer || !w.cut, {
-    w.memo.push(_ReprMemoEntry(ty : ty, answer : answer));
+    w.memo.push(_ReprMemoEntry(ty : Rc.clone(ty), answer : answer));
   });
   w.cut = (w.cut || outer_cut);
   answer
@@ -1057,14 +1057,14 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
     ty_in,
     Rc(.SomeT({ resolution : sr })) => match(
       sr,
-      .Some(c) => c,
+      .Some(c) => Rc.clone(c),
       .None => {
         // A generic parameter is judged where it is bound (a generic body is
         // re-evaluated per instantiation), as `type_is_move_only` does.
         return(false);
       }
     ),
-    _ => ty_in
+    _ => Rc.clone(ty_in)
   );
   if(type_contains_rc_cell_or_move_only(&ty), {
     return(false);
@@ -1224,7 +1224,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     ty,
     Rc(.Array(element : elem, length : _)) => {
       labels.push(String.from("elements"));
-      comps.push(elem);
+      comps.push(Rc.clone(elem));
     },
     Rc(.Tuple({ field_types : fields })) => {
       (i : usize) = usize(0);
@@ -2480,7 +2480,7 @@ enum_phantom_type_arg_somes :: (fn(ty : &TypeValue) -> ArrayList(TypeValue))(
 /// flags already looked up (`type_key` reads them itself).
 enum_phantom_type_args_masked :: (fn(ty : &TypeValue, mask : &ArrayList(bool)) -> ArrayList(TypeValue))({
   out := ArrayList(TypeValue).new();
-  targs := match(ty, Rc(.EnumT({ type_arguments : ta })) => ta, _ => no_types());
+  targs := match(ty, Rc(.EnumT({ type_arguments : ta })) => Rc.clone(ta), _ => no_types());
   (field_somes : Option(ArrayList(TypeValue))) = Option(ArrayList(TypeValue)).None;
   (i : usize) = usize(0);
   while(i < targs.len(), {
@@ -2538,7 +2538,7 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
     // SelfRecursive structs). Unwrap before classifying.
     (fo_hops : usize) = usize(0);
     while(match(ft, Rc(.Pointer(_)) => (fo_hops < usize(8)), _ => false), {
-      ft = match(ft, Rc(.Pointer(p)) => p, _ => ft);
+      ft = match(ft, Rc(.Pointer(p)) => Rc.clone(p), _ => Rc.clone(ft));
       fo_hops = (fo_hops + usize(1));
     });
     // A reference-semantics struct (object type) is runtime-only REGARDLESS
@@ -2676,7 +2676,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
 /// (the async_await arm-65 family).
 resolve_cell_chain :: (fn(t_in : &TypeValue) -> TypeValue)({
   cur := resolution_chain_end(t_in);
-  if(is_some_type(&cur), t_in, cur)
+  if(is_some_type(&cur), Rc.clone(t_in), cur)
 });
 /// The LAST link of a SomeT's `resolution` chain (cycle-guarded): the
 /// terminal concrete type, or the last SomeT when the chain ends unresolved
@@ -2690,7 +2690,7 @@ resolve_cell_chain :: (fn(t_in : &TypeValue) -> TypeValue)({
 /// specialization to that specialization's own `io.async` future
 /// (issues/fixed/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md).
 resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t_in;
+  (cur : TypeValue) = Rc.clone(t_in);
   (seen : ArrayList(String)) = ArrayList(String).new();
   (walk : bool) = true;
   while(walk, {
@@ -2716,7 +2716,7 @@ resolution_chain_end :: (fn(t_in : &TypeValue) -> TypeValue)({
           match(
             rcc_rc,
             .Some(nx) => {
-              cur = nx;
+              cur = Rc.clone(nx);
             },
             .None => {
               walk = false;
@@ -2898,7 +2898,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       // `Impl(Fn(...))` and are no part of this function's representation.
       (i : usize) = usize(0);
       while(i <= fu_pt.len(), {
-        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit)), true => fu_res);
+        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit)), true => Rc.clone(fu_res));
         match(
           fu_t,
           Rc(.SomeT({ name : nm, required_trait_types : rtt, resolution : res })) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
@@ -3469,7 +3469,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
   bucket := match(g_repr_memo.with(m => m.get(key.clone())), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
-  bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
+  bucket.push(_ReprMemoEntry(ty : Rc.clone(ty), answer : answer));
   _ := g_repr_memo.with_mut(m => m.insert(key, bucket));
 });
 /// Start a top-level predicate call: an empty memo, no cut.
@@ -3532,7 +3532,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.with_mut(xs => xs.push(ty));
+            g_repr_path.with_mut(xs => xs.push(Rc.clone(ty)));
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3587,7 +3587,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.with_mut(xs => xs.push(ty));
+            g_repr_path.with_mut(xs => xs.push(Rc.clone(ty)));
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3648,7 +3648,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.with_mut(xs => xs.push(ty));
+            g_repr_path.with_mut(xs => xs.push(Rc.clone(ty)));
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3703,7 +3703,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.with_mut(xs => xs.push(ty));
+            g_repr_path.with_mut(xs => xs.push(Rc.clone(ty)));
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3839,7 +3839,7 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
       if(fts.len() > usize(0), {
         return(Option(String).Some(String.from("it takes generic(...) parameters, so there is no single function to put in the vtable")));
       });
-      labels := m.*.param_labels;
+      labels := Rc.clone(m.*.param_labels);
       (i : usize) = usize(1);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -3928,7 +3928,7 @@ dyn_vtable_slot_param_is_ref :: (fn(dyn_ty : &TypeValue, name : &String) -> Arra
                   match(
                     ft,
                     Rc(.Func({ param_types : fpts, meta : fm })) => {
-                      fpir := fm.*.param_is_ref;
+                      fpir := Rc.clone(fm.*.param_is_ref);
                       (k : usize) = usize(0);
                       while(k < fpts.len(), {
                         out.push(match(fpir.get(k), .Some(r) => r, .None => false));

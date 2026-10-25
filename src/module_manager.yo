@@ -145,7 +145,7 @@ env_mod :: import("std/env");
 // `.None` during `check`/`test` (each file keeps its own table).
 (mut(g_shared_expr_info_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
 /// No shared table is installed: each module evaluation keeps its own.
-_no_shared_expr_info_table :: (fn() -> bool)(match(g_shared_expr_info_table, .Some(_) => false, .None => true));
+_no_shared_expr_info_table :: (fn() -> bool)(match(&g_shared_expr_info_table, .Some(_) => false, .None => true));
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -436,12 +436,12 @@ mm_clear_prelude_env :: (fn() -> unit)({
 /// Publish the shared codegen ExprInfoTable. Every module loaded from here on
 /// routes its per-expression metadata into `t`.
 mm_set_shared_expr_info_table :: (fn(t : &ExprInfoTable) -> unit)({
-  g_shared_expr_info_table = Option(ExprInfoTable).Some(t);
+  g_shared_expr_info_table = Option(ExprInfoTable).Some(t.clone());
   set_name_path_sharing(true);
-  scope_release_set_table(Option(ExprInfoTable).Some(t));
+  scope_release_set_table(Option(ExprInfoTable).Some(t.clone()));
 });
 mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
-  g_shared_expr_info_table
+  g_shared_expr_info_table.clone()
 );
 /// Clone the cached prelude env, or start a fresh one keyed on `module_path`
 /// when no prelude has been loaded yet.
@@ -2170,7 +2170,7 @@ _eval_module_exprs_capturing_error :: (
   );
   result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, true, local_exn);
   out.push(result.module_value);
-  out_tys.push(result.module_type);
+  out_tys.push(Rc.clone(result.module_type));
   true
 });
 /// Read `fs_path` without a handler of the loader's own: a read error is
@@ -2370,9 +2370,9 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   // Codegen: route this module's per-expression metadata into the shared table
   // (see g_shared_expr_info_table). No-op during check/test.
   match(
-    g_shared_expr_info_table,
+    &g_shared_expr_info_table,
     .Some(t) => {
-      ctx.expr_info_table = t;
+      ctx.expr_info_table = t.clone();
     },
     .None => ()
   );
@@ -2557,9 +2557,9 @@ mm_load_prelude_file :: (
   // functions emitted directly (e.g. `assert`). No-op for `check`/`test`
   // (g_shared is None there → the prelude uses its own throwaway table).
   match(
-    g_shared_expr_info_table,
+    &g_shared_expr_info_table,
     .Some(t) => {
-      prelude_ctx.expr_info_table = t;
+      prelude_ctx.expr_info_table = t.clone();
     },
     .None => ()
   );
@@ -2649,7 +2649,7 @@ mm_load_prelude_file :: (
     // cannot recover fn field types — a FuncVal carries none — so keep the
     // recorded pair for `_prelude_load_outcome`.
     g_cached_prelude_module_value = Option(EvalValue).Some(prelude_result.module_value);
-    g_cached_prelude_module_type = Option(TypeValue).Some(prelude_result.module_type);
+    g_cached_prelude_module_type = Option(TypeValue).Some(Rc.clone(prelude_result.module_type));
   });
   true
 });
@@ -2691,7 +2691,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
                   main_fty,
-                  Rc(.Func({ result : __main_res })) => __main_res,
+                  Rc(.Func({ result : __main_res })) => Rc.clone(__main_res),
                   _ => t_unit()
                 );
                 if(!is_unit_type(&main_result), {
@@ -2770,9 +2770,9 @@ mm_eval_entry_exprs :: (
   ctx.is_executing = true;
   ctx.load_module = Option((fn(path : &String) -> LoadModuleResult)).Some(demand_load_module);
   match(
-    g_shared_expr_info_table,
+    &g_shared_expr_info_table,
     .Some(t) => {
-      ctx.expr_info_table = t;
+      ctx.expr_info_table = t.clone();
     },
     .None => ()
   );
@@ -2868,8 +2868,8 @@ _prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> Module
     .None => _build_module_val_from_env(&prelude_env)
   );
   prelude_ty := match(
-    g_cached_prelude_module_type,
-    .Some(mt) => mt,
+    &g_cached_prelude_module_type,
+    .Some(mt) => Rc.clone(mt),
     .None => type_of_eval_value(&prelude_val)
   );
   ModuleLoadOutcome(
@@ -2944,7 +2944,7 @@ mm_load_file :: (
       ModuleLoadOutcome(
         ok : true,
         module_value : mm_hit.module_value,
-        module_type : mm_hit.module_type,
+        module_type : Rc.clone(mm_hit.module_type),
         env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(rc(input_path.clone()))),
         ctx : eval_context_new(std_path.clone(), input_path.clone())
       )

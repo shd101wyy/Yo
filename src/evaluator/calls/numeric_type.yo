@@ -187,8 +187,8 @@ _make_yo_as_node :: (
       column : orig_tok.column,
       character : orig_tok.character,
       byte_offset : orig_tok.byte_offset,
-      module_path : orig_tok.module_path,
-      input : orig_tok.input
+      module_path : Rc.clone(orig_tok.module_path),
+      input : Rc.clone(orig_tok.input)
     )
   );
   args := ArrayList(AstExpr).new();
@@ -236,7 +236,7 @@ try_to_convert_to_numeric_type :: (
   arg_info := match(info_opt, .Some(i) => i, .None => new_expr_info(caller_env, target_type));
   env := expr_info_adopt_env(&arg_info);
   arg_val := arg_info.value;
-  arg_type := arg_info.ty;
+  arg_type := Rc.clone(arg_info.ty);
   // -----------------------------------------------------------------------
   // Case 0: Enum value → integer discriminant
   // -----------------------------------------------------------------------

@@ -348,8 +348,8 @@ _emit_capture_drop_lines :: (
 )({
   em := context.base.emitter;
   before := em.code.len();
-  prev_declared := em.declared_ref;
-  prev_scope := em.scope_ref;
+  prev_declared := em.declared_ref.clone();
+  prev_scope := em.scope_ref.clone();
   em.declared_ref = Option(Rc(RefCell(HashSet(String)))).None;
   em.scope_ref = Option(Rc(RefCell(ArrayList(String)))).None;
   // Field by field over the heap copy of the capture struct: the spawn
@@ -499,7 +499,7 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &Functi
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via the value's own resolution) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
-  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(&cei), .Some(c) => c, .None => cei.ty));
+  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(&cei), .Some(c) => c, .None => Rc.clone(cei.ty)));
   // The impl_closure_call_map is keyed by the BARE capture-struct id at every
   // set site (closures.yo — capture-struct sids are unique per closure), NOT
   // by type_key: type_key of a cfid-empty struct with field types is now

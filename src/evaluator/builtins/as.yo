@@ -121,11 +121,11 @@ evaluate_as :: (
   // Extract the TypeValue from the TypeVal.
   target_type := match(
     type_info.value,
-    .Some(.TypeVal(ty_box)) => ty_box,
+    .Some(.TypeVal(ty_box)) => Rc.clone(ty_box),
     .Some(_) => t_unit(),
     .None => t_unit()
   );
-  source_type := val_info.ty;
+  source_type := Rc.clone(val_info.ty);
   updated_env := expr_info_adopt_env(&type_info);
   // Check if types are compatible for casting.
   if(!are_types_compatible(&source_type, &target_type), {

@@ -84,7 +84,7 @@ check_variable_is_closure_captured :: (
 /// (or no resolution / a self-cycle). The resolved concrete is the value's
 /// own `SomeT.resolution` (`some_resolution`, expr_info.yo).
 resolve_some_type_to_concrete :: (fn(t : &TypeValue) -> TypeValue)({
-  (cur : TypeValue) = t;
+  (cur : TypeValue) = Rc.clone(t);
   (go : bool) = true;
   // Cycle guard by VISITED SomeT id — not by type_key equality: type_key's
   // SomeT arm hops through the resolution, so a resolved SomeT keys
@@ -162,7 +162,7 @@ generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &F
   cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
-  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => ri.ty, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
+  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => Rc.clone(ri.ty), .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
   (through_ptr : bool) = false;
   (cap : TypeValue) = resolve_some_type_to_concrete(&recv_ty);
   match(
@@ -216,7 +216,7 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
   });
   // Resolve the capture struct + its fields.
   capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => rc(TypeValueNode.Unit));
-  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => fl, _ => no_labels());
+  field_labels := match(capture_ty, Rc(.Struct({ field_labels : fl })) => Rc.clone(fl), _ => no_labels());
   call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.

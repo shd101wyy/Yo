@@ -107,18 +107,18 @@ ci_str_quote :: (fn(s : &String) -> String)(
 ci_child_of_comptime_list_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    Rc(.ComptimeListT(cb)) => cb,
-    Rc(.Pointer(pb)) => match(pb, Rc(.ComptimeListT(cb)) => cb, _ => ty),
-    _ => ty
+    Rc(.ComptimeListT(cb)) => Rc.clone(cb),
+    Rc(.Pointer(pb)) => match(pb, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => Rc.clone(ty)),
+    _ => Rc.clone(ty)
   )
 );
 // Extract element type from Array(T, N) or *(Array(T, N)).
 ci_child_of_array_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    Rc(.Array(cb, _, _)) => cb,
-    Rc(.Pointer(pb)) => match(pb, Rc(.Array(cb, _, _)) => cb, _ => ty),
-    _ => ty
+    Rc(.Array(cb, _, _)) => Rc.clone(cb),
+    Rc(.Pointer(pb)) => match(pb, Rc(.Array(cb, _, _)) => Rc.clone(cb), _ => Rc.clone(ty)),
+    _ => Rc.clone(ty)
   )
 );
 // Compute fallback return type for element indexing.
@@ -126,25 +126,25 @@ ci_elem_return_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
     Rc(.Pointer(pb)) => {
-      inner := pb;
+      inner := Rc.clone(pb);
       cond(
         is_array_type(&inner) => t_ptr(match(inner, Rc(.Array(cb, _, _)) => cb, _ => inner)),
         is_comptime_list_type(&inner) => t_ptr(match(inner, Rc(.ComptimeListT(cb)) => cb, _ => inner)),
-        true => ty
+        true => Rc.clone(ty)
       )
     },
     Rc(.Array(cb, _, _)) => t_ptr(&cb),
     Rc(.ComptimeListT(cb)) => t_ptr(&cb),
-    _ => ty
+    _ => Rc.clone(ty)
   )
 );
 // Compute fallback return type for ComptimeList range indexing.
 ci_list_range_return_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    Rc(.Pointer(_)) => ty,
+    Rc(.Pointer(_)) => Rc.clone(ty),
     Rc(.ComptimeListT(_)) => t_ptr(ty),
-    _ => ty
+    _ => Rc.clone(ty)
   )
 );
 // ---------------------------------------------------------------------------

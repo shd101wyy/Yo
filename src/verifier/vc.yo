@@ -514,8 +514,8 @@ _list_sort_of_ctor :: (fn(name : &String) -> Option(VcSort))({
   });
   found
 });
-_list_len_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(rc(VcTermNode.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : xs)));
-_list_contents_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(rc(VcTermNode.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : xs)));
+_list_len_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(rc(VcTermNode.Proj(ctor : _list_len_acc(elem), idx : usize(1), t : Rc.clone(xs))));
+_list_contents_term :: (fn(elem : &VcSort, xs : &VcTerm) -> VcTerm)(rc(VcTermNode.Proj(ctor : _list_contents_acc(elem), idx : usize(0), t : Rc.clone(xs))));
 _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
   cond(
     // V6 task 2: a generic type parameter verifies as an UNINTERPRETED
@@ -866,7 +866,7 @@ VcCtx :: ref(
 );
 _new_vc_ctx :: (fn(table : &ExprInfoTable, fn_name : &String, func_id : &String) -> VcCtx)(
   VcCtx(
-    table : table,
+    table : table.clone(),
     fn_name : fn_name,
     func_id : func_id,
     vars : HashMap(String, VcTerm).new(),
@@ -1134,7 +1134,7 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
           args.get(ai),
           .Some(a) => {
             f := _fold_term(&a);
-            folded.push(f);
+            folded.push(Rc.clone(f));
             match(
               f,
               Rc(.BvLit(_, _)) => (),
@@ -1151,8 +1151,8 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
         ai = (ai + usize(1));
       });
       if(all_lit && (args.len() == usize(2)), {
-        a0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
-        a1 := match(folded.get(usize(1)), .Some(x) => x, .None => t);
+        a0 := match(folded.get(usize(0)), .Some(x) => x, .None => Rc.clone(t));
+        a1 := match(folded.get(usize(1)), .Some(x) => x, .None => Rc.clone(t));
         match(
           _fold_bool2(op, &a0, &a1),
           .Some(r) => {
@@ -1183,7 +1183,7 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
         );
       });
       if(all_lit && (args.len() == usize(1)), {
-        a0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
+        a0 := match(folded.get(usize(0)), .Some(x) => x, .None => Rc.clone(t));
         match(
           _fold_bv1(op, &a0),
           .Some(r) => {
@@ -1200,14 +1200,14 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
         );
       });
       if(all_lit && (args.len() == usize(3)), {
-        c0 := match(folded.get(usize(0)), .Some(x) => x, .None => t);
+        c0 := match(folded.get(usize(0)), .Some(x) => x, .None => Rc.clone(t));
         match(
           c0,
           Rc(.BoolLit(cb)) => match(
             op,
             .IteOp => {
-              t1 := match(folded.get(usize(1)), .Some(x) => x, .None => t);
-              t2 := match(folded.get(usize(2)), .Some(x) => x, .None => t);
+              t1 := match(folded.get(usize(1)), .Some(x) => x, .None => Rc.clone(t));
+              t2 := match(folded.get(usize(2)), .Some(x) => x, .None => Rc.clone(t));
               if(cb, {
                 return(_fold_term(&t1));
               });
@@ -1220,7 +1220,7 @@ _fold_term :: (fn(t : &VcTerm) -> VcTerm)(
       });
       rc(VcTermNode.App(op, folded))
     },
-    _ => t
+    _ => Rc.clone(t)
   )
 );
 /// Emit one obligation: prove `Φ ∧ assumptions ⇒ goal`.
@@ -1687,10 +1687,10 @@ _rename_vars :: (fn(t : &VcTerm, map : &HashMap(String, String)) -> VcTerm)(
     Rc(.Var(name, sort)) => match(
       map.get(name.clone()),
       .Some(m) => rc(VcTermNode.Var(name : m.clone(), sort : sort)),
-      .None => t
+      .None => Rc.clone(t)
     ),
-    Rc(.BvLit(_, _)) => t,
-    Rc(.BoolLit(_)) => t,
+    Rc(.BvLit(_, _)) => Rc.clone(t),
+    Rc(.BoolLit(_)) => Rc.clone(t),
     Rc(.ArrConst(sort, lit)) => rc(VcTermNode.ArrConst(sort : sort, lit : _rename_vars(&lit, map))),
     Rc(.App(op, args)) => {
       out := ArrayList(VcTerm).new();
@@ -1818,28 +1818,28 @@ _lit_term :: (fn(v : &EvalValue, sort : &VcSort) -> Option(VcTerm))(
 // ============================================================================
 _app1 :: (fn(op : VcOp, a : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
+  args.push(Rc.clone(a));
   rc(VcTermNode.App(op, args))
 });
 _app2 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
-  args.push(b);
+  args.push(Rc.clone(a));
+  args.push(Rc.clone(b));
   rc(VcTermNode.App(op, args))
 });
 /// `((_ int2bv 64) (seq.len a))` — the length as a 64-bit vector.
 _seq_len_bv :: (fn(a : &VcTerm) -> VcTerm)({
   inner := ArrayList(VcTerm).new();
-  inner.push(a);
+  inner.push(Rc.clone(a));
   outer := ArrayList(VcTerm).new();
   outer.push(rc(VcTermNode.App(VcOp.SeqLen, inner)));
   rc(VcTermNode.App(VcOp.IntToBvOp(width : usize(64)), outer))
 });
 _app3 :: (fn(op : VcOp, a : &VcTerm, b : &VcTerm, c : &VcTerm) -> VcTerm)({
   args := ArrayList(VcTerm).new();
-  args.push(a);
-  args.push(b);
-  args.push(c);
+  args.push(Rc.clone(a));
+  args.push(Rc.clone(b));
+  args.push(Rc.clone(c));
   rc(VcTermNode.App(op, args))
 });
 /// The best-effort sort of a term (for Array domains when the operand is
@@ -2267,7 +2267,7 @@ _callee_is_atom :: (fn(e : &AstExpr) -> bool)(
 /// second does.
 _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExpr)) -> Option(AstExpr))(
   match(
-    info.ty,
+    &info.ty,
     Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
@@ -2337,7 +2337,7 @@ _enum_ctor_named :: (
   fn(ctx : &mut VcCtx, e : &AstExpr, info : &ExprInfo, variant : &String, dot_args : &ArrayList(AstExpr)) -> Option(VcTerm)
 )(
   match(
-    info.ty,
+    &info.ty,
     Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
@@ -2435,7 +2435,7 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
   // The scrutinee's TYPE names the datatype's CONSTRUCTORS and ACCESSORS
   // (SMT-unique across enums): every Test/Proj the walk builds must use
   // the same spellings the declare-datatypes block declares.
-  e_ty := match(scrut_info, .Some(si) => si.ty, .None => rc(TypeValueNode.Unit));
+  e_ty := match(scrut_info, .Some(si) => Rc.clone(si.ty), .None => rc(TypeValueNode.Unit));
   match(
     scrut,
     .Some(s) => {
@@ -2550,12 +2550,12 @@ _match_arm_conditioned_ir :: (
             // An arm that exited the loop has no value on the fall-through
             // path (`_match_phi_merge` assumes it was not taken there).
             cond(
-              ctx.path_dead => Option(VcTerm).Some(tail),
+              ctx.path_dead => Option(VcTerm).Some(Rc.clone(tail)),
               true => {
                 ite_args := ArrayList(VcTerm).new();
                 ite_args.push(ft);
                 ite_args.push(body_t);
-                ite_args.push(tail);
+                ite_args.push(Rc.clone(tail));
                 Option(VcTerm).Some(rc(VcTermNode.App(VcOp.IteOp, ite_args)))
               }
             )
@@ -2687,7 +2687,7 @@ _match_phi_merge :: (fn(ctx : &mut VcCtx, at : &AstExpr, ph : &_MatchPhi) -> boo
             ite_args := ArrayList(VcTerm).new();
             ite_args.push(ph.tests.get(k).unwrap());
             ite_args.push(arm_v);
-            ite_args.push(merged);
+            ite_args.push(Rc.clone(merged));
             merged = rc(VcTermNode.App(VcOp.IteOp, ite_args));
           });
           k = (k + usize(1));
@@ -2765,7 +2765,7 @@ _bind_one :: (
 )({
   saved_names.push(name.clone());
   saved_vals.push(ctx.vars.get(name.clone()));
-  ctx.vars.insert(name.clone(), term);
+  ctx.vars.insert(name.clone(), Rc.clone(term));
 });
 _arm_ir_bind_into :: (
   fn(
@@ -2829,7 +2829,7 @@ _arm_ir_bind_into :: (
       // A nested pattern digs into a SECOND datatype: declare it too, or
       // its constructor tests/projections resolve against nothing.
       _note_enum_datatype(ctx, &inner_ty);
-      parts.push(rc(VcTermNode.Test(ctor : _variant_ctor_name(&inner_ty, vname.clone()), t : scrut)));
+      parts.push(rc(VcTermNode.Test(ctor : _variant_ctor_name(&inner_ty, vname.clone()), t : Rc.clone(scrut))));
       accessors := _variant_accessors(&inner_ty, vname.clone(), arity);
       (i : usize) = usize(0);
       (ok2 : bool) = true;
@@ -2840,7 +2840,7 @@ _arm_ir_bind_into :: (
           .Some(a) => a.clone(),
           .None => _variant_ctor_name(&inner_ty, vname.clone())
         );
-        field_term := rc(VcTermNode.Proj(ctor : accessor, idx : fi, t : scrut));
+        field_term := rc(VcTermNode.Proj(ctor : accessor, idx : fi, t : Rc.clone(scrut)));
         ok2 = recur(&subs(i), &field_term, &inner_ty, ctx, saved_names, saved_vals, parts);
         i = (i + usize(1));
       });
@@ -2909,8 +2909,8 @@ _pattern_test_ast :: (fn(p : &Pattern) -> AstExpr)(
 resolve_verifier_enum :: (fn(outer : &TypeValue, inner : &TypeValue) -> TypeValue)(
   match(
     inner,
-    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => inner,
-    _ => outer
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => Rc.clone(inner),
+    _ => Rc.clone(outer)
   )
 );
 /// A source-anchored expression for diagnostics when only the IR node is
@@ -3014,7 +3014,7 @@ _arm_taken_term :: (fn(earlier : &ArrayList(VcTerm), test : &VcTerm) -> VcTerm)(
     parts.push(_app1(VcOp.NotOp, earlier.get(i).unwrap()));
     i = (i + usize(1));
   });
-  parts.push(test);
+  parts.push(Rc.clone(test));
   _and_terms(&parts)
 });
 /// Disjoin a non-empty term list with OrOp (single terms pass through).
@@ -3541,7 +3541,7 @@ _walk_invariants_in_order :: (fn(ctx : &mut VcCtx, invs : &ArrayList(AstExpr)) -
     match(
       _expr_term(ctx, invs.get(i).unwrap()),
       .Some(t) => {
-        out.push(t);
+        out.push(Rc.clone(t));
         ctx.path.push(t);
       },
       .None => {
@@ -3862,12 +3862,12 @@ _loop_core :: (
   //    disjuncts plus the cond-exit.
   saved_invariants := ctx.loop_invariants;
   saved_measure := ctx.loop_measure;
-  saved_head_measure := ctx.head_measure;
+  saved_head_measure := ctx.head_measure.clone();
   saved_for_idx := ctx.loop_for_idx;
   ctx.loop_invariants = a.invariants;
   ctx.loop_measure = a.decreases;
   ctx.loop_for_idx = match(frame, .Some(frx) => Option(String).Some(frx.idx_name.clone()), .None => Option(String).None);
-  ctx.head_measure = m_havoc;
+  ctx.head_measure = m_havoc.clone();
   saved_sites := ctx.break_sites;
   ctx.break_sites = ArrayList(BreakSite).new();
   ctx.path_dead = false;
@@ -4010,15 +4010,15 @@ _loop_core :: (
       site_v := match(
         site.vals.get(name.clone()),
         .Some(sv) => sv,
-        .None => chain.*
+        .None => Rc.clone(chain.*)
       );
       ite_a := ArrayList(VcTerm).new();
       ite_a.push(bs.get(ci2).unwrap());
       ite_a.push(site_v);
-      ite_a.push(chain.*);
+      ite_a.push(Rc.clone(chain.*));
       chain.* = rc(VcTermNode.App(VcOp.IteOp, ite_a));
     });
-    ctx.vars.insert(name.clone(), chain.*);
+    ctx.vars.insert(name.clone(), Rc.clone(chain.*));
     ni = (ni + usize(1));
   });
   exit_terms := ArrayList(VcTerm).new();
@@ -4035,7 +4035,7 @@ _loop_core :: (
   while(di3 < sites.len(), {
     d_args := ArrayList(VcTerm).new();
     d_args.push(bs.get(di3).unwrap());
-    d_args.push(sites.get(di3).unwrap().path);
+    d_args.push(Rc.clone(sites.get(di3).unwrap().path));
     disj.push(_and_terms(&d_args));
     di3 = (di3 + usize(1));
   });
@@ -4210,19 +4210,19 @@ _list_append_contents :: (fn(ctx : &mut VcCtx, elem : &VcSort, c1 : &VcTerm, l1 
     bc2 := rc(VcTermNode.Var(name : String.from("__yo_la_c2"), sort : arr));
     bi := rc(VcTermNode.Var(name : String.from("__yo_la_i"), sort : VcSort.BvS(width : usize(64))));
     fargs := ArrayList(VcTerm).new();
-    fargs.push(bc1);
-    fargs.push(bl1);
-    fargs.push(bc2);
+    fargs.push(Rc.clone(bc1));
+    fargs.push(Rc.clone(bl1));
+    fargs.push(Rc.clone(bc2));
     lhs := _app2(VcOp.SelectOp, rc(VcTermNode.Ctor(name : fname.clone(), args : fargs)), &bi);
     rhs := _app3(VcOp.IteOp, _app2(VcOp.BvUlt, &bi, &bl1), _app2(VcOp.SelectOp, &bc1, &bi), _app2(VcOp.SelectOp, &bc2, _app2(VcOp.BvSub, &bi, &bl1)));
     triggers := ArrayList(VcTerm).new();
-    triggers.push(lhs);
+    triggers.push(Rc.clone(lhs));
     ctx.axioms.push(rc(VcTermNode.Quant(kind : VcQuantKind.Forall, names : names, sorts : sorts, body : _app2(VcOp.EqOp, &lhs, &rhs), triggers : triggers)));
   });
   cargs := ArrayList(VcTerm).new();
-  cargs.push(c1);
-  cargs.push(l1);
-  cargs.push(c2);
+  cargs.push(Rc.clone(c1));
+  cargs.push(Rc.clone(l1));
+  cargs.push(Rc.clone(c2));
   rc(VcTermNode.Ctor(name : fname, args : cargs))
 });
 /// Two list values are equal when their lengths are and every element
@@ -4289,7 +4289,7 @@ _call_term :: (
     a_opt := _expr_term(ctx, args.get(usize(0)).unwrap());
     at := match(
       a_opt,
-      .Some(t0) => t0,
+      .Some(t0) => Rc.clone(t0),
       .None => rc(VcTermNode.BoolLit(true))
     );
     // Short-circuit guards: `&&`/`||` do not evaluate the RHS when the
@@ -4310,7 +4310,7 @@ _call_term :: (
     is_short_circuit := ((op0 == VcOp.AndOp) || (op0 == VcOp.OrOp));
     if(is_short_circuit, {
       if(op0 == VcOp.AndOp, {
-        ctx.path.push(at);
+        ctx.path.push(Rc.clone(at));
       }, {
         ctx.path.push(_app1(VcOp.NotOp, &at));
       });
@@ -5223,8 +5223,8 @@ _list_option_term :: (
 });
 _two_terms :: (fn(a : &VcTerm, b : &VcTerm) -> ArrayList(VcTerm))({
   out := ArrayList(VcTerm).new();
-  out.push(a);
-  out.push(b);
+  out.push(Rc.clone(a));
+  out.push(Rc.clone(b));
   out
 });
 /// A method call's receiver when it is a modeled `ArrayList(T)`: the callee
@@ -5341,7 +5341,7 @@ _binop_of_ctx :: (fn(ctx : &mut VcCtx, head : &String, args : &ArrayList(AstExpr
 });
 _widen_or_trunc :: (fn(t : &VcTerm, src_w : usize, dst_w : usize, src_signed : bool) -> VcTerm)({
   if(dst_w == src_w, {
-    return(t);
+    return(Rc.clone(t));
   });
   if(dst_w > src_w, {
     if(src_signed, {
@@ -5358,7 +5358,7 @@ _widen_or_trunc :: (fn(t : &VcTerm, src_w : usize, dst_w : usize, src_signed : b
 _idx64 :: (fn(t : &VcTerm) -> VcTerm)({
   w := _term_width(t);
   cond(
-    (w >= usize(64)) => t,
+    (w >= usize(64)) => Rc.clone(t),
     true => _app1(VcOp.ZeroExtendOp(extra : (usize(64) - w)), t)
   )
 });
@@ -5443,7 +5443,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
       // The arm's value walks under its GUARD (this condition ∧ the
       // negation of every earlier condition): obligations inside the arm
       // — callee requires, asserts — are reachable only on that path.
-      guard_cell := box(match(c_opt, .Some(c0) => c0, .None => rc(VcTermNode.BoolLit(true))));
+      guard_cell := box(match(c_opt, .Some(c0) => Rc.clone(c0), .None => rc(VcTermNode.BoolLit(true))));
       path_base := ctx.path.len();
       (pi : usize) = usize(0);
       pushed := usize(0);
@@ -5506,7 +5506,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
       if(c_opt.is_none() || v_opt.is_none(), {
         return(Option(VcTerm).None);
       });
-      ct := guard_cell.*;
+      ct := Rc.clone(guard_cell.*);
       vt := v_opt.unwrap();
       conds.push(ct);
       vals.push(vt);
@@ -5562,7 +5562,7 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
         .Some(v) => v,
         .None => match(
           pre_opt,
-          .Some(.Some(pv2)) => pv2,
+          .Some(.Some(pv2)) => Rc.clone(pv2),
           .Some(.None) => rc(VcTermNode.BoolLit(true)),
           .None => rc(VcTermNode.BoolLit(true))
         )
@@ -5592,20 +5592,20 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
           .Some(v) => v,
           .None => match(
             pre_opt,
-            .Some(.Some(pv2)) => pv2,
-            .Some(.None) => phi_cell.*,
-            .None => phi_cell.*
+            .Some(.Some(pv2)) => Rc.clone(pv2),
+            .Some(.None) => Rc.clone(phi_cell.*),
+            .None => Rc.clone(phi_cell.*)
           )
         ),
-        .None => phi_cell.*
+        .None => Rc.clone(phi_cell.*)
       );
       ite_a := ArrayList(VcTerm).new();
       ite_a.push(conds.get(fj).unwrap());
       ite_a.push(arm_v);
-      ite_a.push(phi_cell.*);
+      ite_a.push(Rc.clone(phi_cell.*));
       phi_cell.* = rc(VcTermNode.App(VcOp.IteOp, ite_a));
     });
-    ctx.vars.insert(fname.clone(), phi_cell.*);
+    ctx.vars.insert(fname.clone(), Rc.clone(phi_cell.*));
     fi = (fi + usize(1));
   });
   // Fold right: else = the last LIVE arm's value; each earlier live arm
@@ -5634,10 +5634,10 @@ _cond_ite :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) ->
     ite_args := ArrayList(VcTerm).new();
     ite_args.push(c);
     ite_args.push(v);
-    ite_args.push(acc_cell.*);
+    ite_args.push(Rc.clone(acc_cell.*));
     acc_cell.* = rc(VcTermNode.App(VcOp.IteOp, ite_args));
   });
-  Option(VcTerm).Some(acc_cell.*)
+  Option(VcTerm).Some(Rc.clone(acc_cell.*))
 });
 /// begin block: sequence statements; `name := expr` binds; the LAST expr is
 /// the value.
@@ -5727,8 +5727,8 @@ _note_ms_of :: (
       isx := _app2(VcOp.EqOp, &elemk, &x);
       ite_args := ArrayList(VcTerm).new();
       ite_args.push(isx);
-      ite_args.push(one);
-      ite_args.push(zero);
+      ite_args.push(Rc.clone(one));
+      ite_args.push(Rc.clone(zero));
       contribution := rc(VcTermNode.App(VcOp.IteOp, ite_args));
       sum = _app2(VcOp.BvAdd, &sum, &contribution);
       k = (k + usize(1));
@@ -6071,7 +6071,7 @@ _refine_pred_term :: (
   });
   pname := match(gfd.params.get(usize(0)), .Some(p) => p.clone(), .None => String.new());
   saved := ctx.vars.get(pname.clone());
-  ctx.vars.insert(pname.clone(), vt);
+  ctx.vars.insert(pname.clone(), Rc.clone(vt));
   out := _expr_term(ctx, &gfd.body);
   match(
     saved,
@@ -6315,7 +6315,7 @@ _ghost_fn_app_term :: (
       bname := `__yo_gfp${bi.to_string()}`;
       bvar := rc(VcTermNode.Var(name : bname.clone(), sort : arg_sorts.get(bi).unwrap()));
       binder_names.push(bname);
-      binder_terms.push(bvar);
+      binder_terms.push(Rc.clone(bvar));
       pn2 := params.get(bi).unwrap();
       saved_bn.push(pn2.clone());
       saved_bv.push(ctx.vars.get(pn2.clone()));
@@ -6338,7 +6338,7 @@ _ghost_fn_app_term :: (
       .Some(bt) => {
         lhs := rc(VcTermNode.Ctor(name : fname.clone(), args : binder_terms));
         triggers := ArrayList(VcTerm).new();
-        triggers.push(lhs);
+        triggers.push(Rc.clone(lhs));
         ctx.axioms.push(
           rc(VcTermNode.Quant(kind : VcQuantKind.Forall, names : binder_names, sorts : _sorts_copy(&arg_sorts), body : _app2(VcOp.EqOp, &lhs, &bt), triggers : triggers))
         );
@@ -6878,7 +6878,7 @@ _callee_call_term :: (
             hlabel := if(hnm.len() > usize(0), hnm.clone(), hcp.clone());
             hnew := rc(VcTermNode.Var(name : `__yo_mut${fresh_h.to_string()}_${hlabel}`, sort : hsort));
             pre_map.insert(hcp.clone(), hpre);
-            ctx.vars.insert(hcp.clone(), hnew);
+            ctx.vars.insert(hcp.clone(), Rc.clone(hnew));
             if(hnm.len() > usize(0), {
               havoc_names.push(hnm.clone());
               havoc_terms.push(hnew);
@@ -6915,14 +6915,14 @@ _callee_call_term :: (
   fresh_idx := _next_fresh(ctx);
   ret_name := `__ret_${fresh_idx.to_string()}`;
   ret_var := rc(VcTermNode.Var(name : ret_name.clone(), sort : ret_sort));
-  ctx.vars.insert(ret_name.clone(), ret_var);
+  ctx.vars.insert(ret_name.clone(), Rc.clone(ret_var));
   callee_label := get_func_return_label(fid.clone());
   match(
     callee_label,
     .Some(cl) => {
       saved_names.push(cl.clone());
       saved_vals.push(ctx.vars.get(cl.clone()));
-      ctx.vars.insert(cl.clone(), ret_var);
+      ctx.vars.insert(cl.clone(), Rc.clone(ret_var));
     },
     .None => ()
   );
@@ -7165,7 +7165,7 @@ _emit_binop_elision_obligation :: (
 _nonzero_term :: (fn(t : &VcTerm) -> VcTerm)(
   match(
     t,
-    Rc(.BoolLit(_)) => t,
+    Rc(.BoolLit(_)) => Rc.clone(t),
     _ => {
       w := _term_width(t);
       vc_distinct(t, rc(VcTermNode.BvLit(value : u64(0), width : w)))
@@ -7341,7 +7341,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
                             _refine_pred_chain_term(&mut ctx, &input.body, &pv, pred_fid.clone()),
                             .Some(rt) => {
                               // A refinement erases at runtime: never enforced.
-                              ctx.path.push(rt);
+                              ctx.path.push(Rc.clone(rt));
                               ctx.unenforced.push(rt);
                             },
                             .None => ()
@@ -7509,7 +7509,7 @@ verify_function_body :: (fn(input : &VerifyFnInput) -> VcBodyResult)({
       match(
         input.return_label,
         .Some(lbl) => {
-          ctx.vars.insert(lbl.clone(), bv);
+          ctx.vars.insert(lbl.clone(), Rc.clone(bv));
         },
         .None => ()
       );
@@ -7687,7 +7687,7 @@ _callee_frame_open :: (fn(fv : &EvalValue, table : &ExprInfoTable) -> bool)({
     }
   );
   body := tk.body;
-  btable := tk.table;
+  btable := tk.table.clone();
   if((resolve_verify_mode(&tk.module_path) != "verify") || expr_info_table_get(&btable, ast_expr_id(&body)).is_none(), {
     g_frame_open_memo.with_mut(m => m.insert(fid.clone(), true));
     return(true);

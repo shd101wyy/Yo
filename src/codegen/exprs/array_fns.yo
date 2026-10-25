@@ -20,7 +20,7 @@
 /// not a typed array call (fall-through).
 generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
-  array_type := ei.ty;
+  array_type := Rc.clone(ei.ty);
   match(
     ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => if(!is_array_type(&array_type), return(Option(String).None), {
@@ -119,7 +119,7 @@ generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &Func
   // The ArrayType comes from the first argument's compile-time value.
   array_type := match(
     context.base.get_expr_info(&array_type_arg),
-    .Some(aei) => match(aei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))), .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
+    .Some(aei) => match(aei.value, .Some(v) => match(v, .TypeVal(t) => Rc.clone(t), _ => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))), .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))),
     .None => return(String.from("/* ERROR: __yo_array_fill first argument must be an ArrayType */"))
   );
   if(!is_array_type(&array_type), {

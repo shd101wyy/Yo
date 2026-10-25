@@ -62,7 +62,7 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
         match(
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&candidates(k))),
           .Some(ci) => if(is_array_type(&ci.ty) || is_struct_type(&ci.ty) || is_tuple_type(&ci.ty), {
-            found = .Some(ci.ty);
+            found = .Some(Rc.clone(ci.ty));
           }),
           .None => ()
         );
@@ -189,10 +189,10 @@ evaluate_address_call :: (
     ctx.expected_type,
     .Some(ectx) => {
       match(
-        ectx.ty,
+        &ectx.ty,
         Rc(.Pointer(pointee_box)) => {
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : pointee_box, env : ectx.env)
+            ExpectedTypeCtx(ty : Rc.clone(pointee_box), env : ectx.env)
           );
         },
         _ => ()
@@ -262,7 +262,7 @@ evaluate_address_call :: (
     ),
     .None => ()
   );
-  arg_type := arg_info.ty;
+  arg_type := Rc.clone(arg_info.ty);
   pointer_type := t_ptr(&arg_type);
   // Determine compile-time pointer value from comptimeRef.
   comptime_ref_opt := expr_info_comptime_ref(&arg_info);

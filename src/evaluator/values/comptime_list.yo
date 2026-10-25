@@ -55,8 +55,8 @@ evaluate_comptime_list_value :: (
     ctx.expected_type,
     .Some(et) => cond(
       is_comptime_list_type(&et.ty) => match(
-        et.ty,
-        Rc(.ComptimeListT(box_child)) => Option(TypeValue).Some(box_child),
+        &et.ty,
+        Rc(.ComptimeListT(box_child)) => Option(TypeValue).Some(Rc.clone(box_child)),
         _ => Option(TypeValue).None
       ),
       true => Option(TypeValue).None
@@ -108,7 +108,7 @@ evaluate_comptime_list_value :: (
       }
     );
     elements.push(val);
-    arg_ty := arg_info.ty;
+    arg_ty := Rc.clone(arg_info.ty);
     // Determine or type-check the running child type.
     child_type_opt = match(
       child_type_opt,
@@ -127,7 +127,7 @@ evaluate_comptime_list_value :: (
             )
           );
         });
-        Option(TypeValue).Some(ct)
+        Option(TypeValue).Some(Rc.clone(ct))
       }
     );
     j = (j + usize(1));

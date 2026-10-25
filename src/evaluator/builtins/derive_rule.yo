@@ -153,7 +153,7 @@ evaluate_derive_rule :: (
   });
   // Store in the global registry (value + Func type).
   g_derive_rules.with_mut(m => m.insert(key.clone(), derive_fn_val));
-  g_derive_rule_types.with_mut(m => m.insert(key, EvalValue.TypeVal(derive_fn_info.ty)));
+  g_derive_rule_types.with_mut(m => m.insert(key, EvalValue.TypeVal(Rc.clone(derive_fn_info.ty))));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);

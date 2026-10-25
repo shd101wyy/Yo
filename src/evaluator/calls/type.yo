@@ -194,7 +194,7 @@ try_to_call_type_with_arguments :: (
       match(
         found_idx,
         .Some(idx) => {
-          found_field := match(type_fields.get(idx), .Some(f) => f, .None => member_element);
+          found_field := match(type_fields.get(idx), .Some(f) => f, .None => member_element.clone());
           // Cannot label an already-assigned field.
           if(found_field.assigned_value.is_some(), {
             exn.throw(
@@ -244,7 +244,7 @@ try_to_call_type_with_arguments :: (
     // A def-time trial around this call still catches the propagated error
     // in its own swallow, exactly as before.
     saved_expected := ctx.expected_type;
-    ctx.expected_type = .Some(ExpectedTypeCtx(ty : member_element.ty, env : env));
+    ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(member_element.ty), env : env));
     evaluated_arg := evaluate_expression_raw(&actual_arg_expr, &env, ctx, exn);
     ctx.expected_type = saved_expected;
     arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
@@ -272,7 +272,7 @@ try_to_call_type_with_arguments :: (
     // `k :: 3` constant.
     arg_type := if(
       _is_comptime_only_type_approx(&member_element.ty),
-      arg_info.ty,
+      Rc.clone(arg_info.ty),
       match(
         comptime_numeric_slot_type(&arg_info.ty, &arg_info.value, &member_element.ty, ast_expr_token(&actual_arg_expr), exn),
         .Some(fct) => fct,

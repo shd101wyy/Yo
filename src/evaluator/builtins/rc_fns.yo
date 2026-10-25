@@ -38,7 +38,7 @@ create_option_type :: (fn(inner_type : &TypeValue) -> TypeValue)({
   variant_names.push(String.from("Some"));
   none_fields := ArrayList(TypeValue).new();
   some_fields := ArrayList(TypeValue).new();
-  some_fields.push(inner_type);
+  some_fields.push(Rc.clone(inner_type));
   variant_fields := ArrayList(SharedList(TypeValue)).new();
   variant_fields.push(shared_list(none_fields));
   variant_fields.push(shared_list(some_fields));
@@ -307,7 +307,7 @@ evaluate_yo_dup_array_element :: (
   info0 := _eval_arg("evaluate_yo_dup_array_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_dup_array_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
-  array_type := info0.ty;
+  array_type := Rc.clone(info0.ty);
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!is_array_type(&array_type), {
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
@@ -336,7 +336,7 @@ evaluate_yo_dup_tuple_element :: (
 )({
   info0 := _eval_arg("evaluate_yo_dup_tuple_element", expr, env, ctx, usize(0), exn);
   info1 := _eval_arg("evaluate_yo_dup_tuple_element", expr, &info0.env, ctx, usize(1), exn);
-  tuple_type := info0.ty;
+  tuple_type := Rc.clone(info0.ty);
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(!is_tuple_type(&tuple_type), {
     tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));

@@ -389,7 +389,7 @@ impl(
       array_struct_types : HashMap(String, ArrayStructInfo).new(),
       c_includes : HashSet(String).new(),
       emitter : emitter,
-      info_table : info_table,
+      info_table : info_table.clone(),
       target_info : target_info,
       allocator : allocator,
       heap_size : heap_size,
@@ -523,7 +523,7 @@ impl(
   register_type : (
     fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
-    self.types.insert(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
+    self.types.insert(id, CodegenTypeEntry(ty : Rc.clone(ty), c_name : c_name, c_include : c_include));
     ()
   }),
   /// Alias an EVOLVED type_key render to an already-registered key (the
@@ -659,7 +659,7 @@ impl(
       });
       i = (i + usize(1));
     });
-    targets.push(tgt);
+    targets.push(Rc.clone(tgt));
     self.dyn_upcasts.insert(src_key, targets);
     ()
   }),
@@ -671,7 +671,7 @@ impl(
   register_extern_function : (
     fn(self : &Self, id : &String, ty : &TypeValue, c_name : &String, c_include : &Option(String)) -> unit
   )({
-    self.extern_functions.insert(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
+    self.extern_functions.insert(id, CodegenExternFnEntry(ty : Rc.clone(ty), c_name : c_name, c_include : c_include));
     ()
   }),
   /// Register an array struct type (idempotent).
@@ -1999,7 +1999,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(variable.ty, Rc(.Func({ meta : __fm1 })) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(&variable.ty, Rc(.Func({ meta : __fm1 })) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2478,14 +2478,14 @@ is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
 /// or `.None`. Such a payload is a bare code pointer, not a closure's capture
 /// struct.
 dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
-  (cur : TypeValue) = t;
+  (cur : TypeValue) = Rc.clone(t);
   seen := HashSet(String).new();
   (go : bool) = true;
   while(go, {
     match(
       cur,
       Rc(.SomeT({ id : dcf_id, resolution : .Some(dcf_r) })) => if(seen.insert(dcf_id.clone()), {
-        cur = dcf_r;
+        cur = Rc.clone(dcf_r);
       }, {
         go = false;
       }),

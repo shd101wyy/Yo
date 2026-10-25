@@ -223,7 +223,7 @@ evaluate_cond :: (
     // lookup that the bootstrap can't yet resolve). Treat the
     // condition as non-comptime-true and let the rest of the
     // case-selection logic fall through naturally.
-    is_unit_fallback := match(cond_info.ty, Rc(.Unit) => true, _ => false);
+    is_unit_fallback := match(&cond_info.ty, Rc(.Unit) => true, _ => false);
     if(!is_bool_type(&cond_info.ty) && !is_unit_fallback, {
       exn.throw(
         dyn(
@@ -359,8 +359,8 @@ evaluate_cond :: (
         consume_case_body_temp_var(&evaluated_body, &expr_info_adopt_env(&body_info), ctx);
         result_ty := cond(
           match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
-          true => body_info.ty
+            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
+          true => Rc.clone(body_info.ty)
         );
         out_info := new_expr_info(&body_info.env, &result_ty);
         out_info.value = body_info.value;
@@ -386,12 +386,12 @@ evaluate_cond :: (
           }
         );
         bodies.push(evaluated_body);
-        value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_info.ty, env : body_info.env));
+        value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_info.ty), env : body_info.env));
         env_adopt(&env, &body_info.env);
         result_ty := cond(
           match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
-          true => body_info.ty
+            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(body_info.ty)),
+          true => Rc.clone(body_info.ty)
         );
         out_info := new_expr_info(&env, &result_ty);
         out_info.value = body_info.value;
@@ -548,7 +548,7 @@ evaluate_cond :: (
                     // return expression owns soundness.
                     is_ptr_relaxed_match := cond(
                       (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty)) => match(
-                        et.ty,
+                        &et.ty,
                         Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty, &child_box),
                         _ => false
                       ),
@@ -582,7 +582,7 @@ evaluate_cond :: (
                   match(
                     value_type,
                     .None => {
-                      value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_einfo.ty, env : body_einfo.env));
+                      value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty), env : body_einfo.env));
                     },
                     .Some(vt) => {
                       if(!are_types_compatible(&body_einfo.ty, &vt.ty), {
@@ -599,9 +599,9 @@ evaluate_cond :: (
                         // the joined type after the loop.
                         runtime_vt_ty := convert_comptime_type_to_runtime_type(&vt.ty, &vt.env);
                         if((is_comptime_int_type(&vt.ty) || is_comptime_float_type(&vt.ty)) && are_types_compatible(&vt.ty, &body_einfo.ty), {
-                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_einfo.ty, env : body_einfo.env));
+                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty), env : body_einfo.env));
                         }, if(are_types_compatible(&body_einfo.ty, &runtime_vt_ty), {
-                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_einfo.ty, env : body_einfo.env));
+                          value_type = Option(ValueTypeState).Some(ValueTypeState(ty : Rc.clone(body_einfo.ty), env : body_einfo.env));
                         }, {
                           exn.throw(
                             dyn(
@@ -710,8 +710,8 @@ evaluate_cond :: (
         );
         result_ty := cond(
           match(ctx.expected_type, .Some(et) => (!type_contains_some_type_deep(&et.ty) && !type_mentions_impl_fn_or_future(&et.ty)), .None => false) =>
-            match(ctx.expected_type, .Some(et) => et.ty, .None => vts.ty),
-          true => vts.ty
+            match(ctx.expected_type, .Some(et) => Rc.clone(et.ty), .None => Rc.clone(vts.ty)),
+          true => Rc.clone(vts.ty)
         );
         (nb_ai : usize) = usize(0);
         while(nb_ai < never_bodies.len(), {
@@ -757,7 +757,7 @@ evaluate_cond :: (
               match(
                 first_rb_info_opt,
                 .Some(bi) => {
-                  return_type = Option(TypeValue).Some(bi.ty);
+                  return_type = Option(TypeValue).Some(Rc.clone(bi.ty));
                 },
                 .None => ()
               );
@@ -771,13 +771,13 @@ evaluate_cond :: (
                     fctx.kind,
                     .FunctionBody => {
                       match(
-                        fctx.func_type,
+                        &fctx.func_type,
                         .None => (),
                         .Some(ft) => {
                           match(
                             ft,
                             Rc(.Func({ result : result_box, meta : rb_meta })) => {
-                              return_type = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
+                              return_type = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), Rc.clone(result_box)));
                             },
                             _ => ()
                           );
@@ -794,7 +794,7 @@ evaluate_cond :: (
                 ctx.expected_type,
                 .None => (),
                 .Some(et) => {
-                  return_type = Option(TypeValue).Some(et.ty);
+                  return_type = Option(TypeValue).Some(Rc.clone(et.ty));
                 }
               );
             });
@@ -821,7 +821,7 @@ evaluate_cond :: (
                     ctx.is_evaluating_function_body_or_async_block,
                     .None => false,
                     .Some(fctx) => match(
-                      fctx.func_type,
+                      &fctx.func_type,
                       .None => false,
                       .Some(ft) => is_function_type_and_returns_comptime_value(&ft)
                     )
@@ -851,7 +851,7 @@ evaluate_cond :: (
                 )
               );
             });
-            unwind_ty := match(ctx.enclosing_function_return_type, .Some(t) => t, .None => t_unit());
+            unwind_ty := match(&ctx.enclosing_function_return_type, .Some(t) => Rc.clone(t), .None => t_unit());
             out_esc_info := new_expr_info(&env, &unwind_ty);
             out_esc_info.control_flow = final_cf;
             expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_esc_info);

@@ -27,7 +27,7 @@ _arg :: (fn(expr : &AstExpr, i : usize) -> Option(AstExpr))(
 );
 /// The result type of an expression (Unit when it has no ExprInfo).
 _ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
-  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => rc(TypeValueNode.Unit))
+  match(context.base.get_expr_info(expr), .Some(ei) => Rc.clone(ei.ty), .None => rc(TypeValueNode.Unit))
 );
 /// `<wrapper>(<self>)` for a single-arg RC builtin. `err` when the arg is missing.
 /// Render a drop or RC builtin's operand. In a state machine the operand is
@@ -266,7 +266,7 @@ generate_yo_dup_array_element :: (fn(expr : &AstExpr, indent : &String, context 
   if(!is_array_type(&array_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type")));
   });
-  element_type := match(array_type, Rc(.Array(el, _, _)) => el, _ => return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type"))));
+  element_type := match(array_type, Rc(.Array(el, _, _)) => Rc.clone(el), _ => return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type"))));
   match(
     element_type,
     Rc(.Array(child, nlen, nlvar)) => {

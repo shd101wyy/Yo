@@ -124,7 +124,7 @@ is_effect_call_ :: (
       });
       func_type_opt := match(
         get_info(&func_expr),
-        .Some(info) => Option(TypeValue).Some(info.ty),
+        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
         .None => Option(TypeValue).None
       );
       // When allowMissingType=false: require a function type
@@ -166,7 +166,7 @@ is_effect_call_ :: (
         });
         func_type_opt := match(
           get_info(&func_expr),
-          .Some(info) => Option(TypeValue).Some(info.ty),
+          .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
           .None => Option(TypeValue).None
         );
         if(!allow_missing_type, {
@@ -282,7 +282,7 @@ is_effect_call_ :: (
       // Verify the outermost "." expression type is a function
       outer_func_type_opt := match(
         get_info(&func_expr_for_info),
-        .Some(info) => Option(TypeValue).Some(info.ty),
+        .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
         .None => Option(TypeValue).None
       );
       if(!allow_missing_type, {
@@ -345,13 +345,13 @@ is_transitive_effect_call_ :: (
     },
     .Some(i) => i
   );
-  func_type := func_info.ty;
+  func_type := Rc.clone(func_info.ty);
   // --- Path 1: Direct FunctionType ---
   if(is_function_type(func_type.clone()), {
     result := match(
       func_type,
       Rc(.Func({ implicit_types, meta : __fm1 })) => {
-        implicit_labels := __fm1.*.implicit_labels;
+        implicit_labels := Rc.clone(__fm1.*.implicit_labels);
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
@@ -453,7 +453,7 @@ detect_effect_expr_ :: (
           match(
             get_info(&arg),
             .Some(info) => {
-              operation_arg_types.push(info.ty);
+              operation_arg_types.push(Rc.clone(info.ty));
             },
             .None => ()
           );
@@ -491,7 +491,7 @@ detect_effect_expr_ :: (
     // Get result type — fallback to effect_param_fn_type.result
     result_type_opt := match(
       get_info(expr.clone()),
-      .Some(info) => Option(TypeValue).Some(info.ty),
+      .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
       .None => Option(TypeValue).None
     );
     if(match(result_type_opt.clone(), .None => true, .Some(_) => false), {
@@ -597,7 +597,7 @@ detect_effect_expr_ :: (
             ),
             true => match(
               get_info(expr.clone()),
-              .Some(info) => Option(TypeValue).Some(info.ty),
+              .Some(info) => Option(TypeValue).Some(Rc.clone(info.ty)),
               .None => Option(TypeValue).None
             )
           );
@@ -675,24 +675,22 @@ analyze_effect_call_points :: (
     body.clone(),
     get_info,
     SuspensionPointDetector(
-      detect : dyn(
-        (expr, parent_expr) =>
-          effect_extras.with_mut(extras => {
-            found := ArrayList(SuspensionPoint).new();
-            detect_effect_expr_(
-              expr,
-              parent_expr,
-              &mut found,
-              extras,
-              effect_parameter_name.clone(),
-              effect_field_path.clone(),
-              include_transitive_calls,
-              effect_param_fn_type.clone(),
-              get_info
-            );
-            found
-          })
-      ),
+      detect : dyn({ effect_extras : Rc.clone(effect_extras), effect_field_path, effect_param_fn_type, effect_parameter_name, get_info, include_transitive_calls }(expr, parent_expr) =>
+        effect_extras.with_mut(extras => {
+          found := ArrayList(SuspensionPoint).new();
+          detect_effect_expr_(
+            expr,
+            parent_expr,
+            &mut found,
+            extras,
+            effect_parameter_name.clone(),
+            effect_field_path.clone(),
+            include_transitive_calls,
+            effect_param_fn_type.clone(),
+            get_info
+          );
+          found
+        })),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
       follow_macro_expansions : false
     )
@@ -717,7 +715,7 @@ analyze_effect_call_points :: (
         ecp := EffectCallPoint(
           base : sp,
           operation_arg_types : extra.operation_arg_types,
-          operation_result_type : extra.operation_result_type,
+          operation_result_type : Rc.clone(extra.operation_result_type),
           is_transitive_effect_call : cond(
             extra.is_transitive_effect_call => Option(bool).Some(true),
             true => Option(bool).None
@@ -758,7 +756,7 @@ analyze_effect_call_points :: (
     has_effects : result.has_suspensions,
     variable_id_remapping : result.variable_id_remapping,
     effect_parameter_name : effect_parameter_name,
-    effect_parameter_type : effect_parameter_type,
+    effect_parameter_type : Rc.clone(effect_parameter_type),
     effect_field_path : effect_field_path,
     handler_value : Option(EvalValue).None,
     effect_handler_infos : Option(ArrayList(EffectHandlerInfo)).None

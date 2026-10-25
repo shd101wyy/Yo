@@ -376,7 +376,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       });
                       ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
                       env_adopt(&env, &ext_info.env);
-                      ext_mod_type := ext_info.ty;
+                      ext_mod_type := Rc.clone(ext_info.ty);
                       if(!is_module_type(&ext_mod_type), {
                         exn.throw(
                           dyn(
@@ -553,7 +553,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                                 .None => EvalValue.UnitVal
                               );
                               field_labels.push(ext_label.clone());
-                              field_types.push(ext_type);
+                              field_types.push(Rc.clone(ext_type));
                               module_names.push(ext_label.clone());
                               module_vals.push(ext_val);
                               // Set ExprInfo on export_expr (last field wins).
@@ -740,7 +740,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                         );
                       });
                       field_labels.push(variable_name.clone());
-                      field_types.push(the_var.ty);
+                      field_types.push(Rc.clone(the_var.ty));
                       module_names.push(variable_name.clone());
                       module_vals.push(the_val);
                       // Set ExprInfo on export_expr

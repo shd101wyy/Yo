@@ -334,7 +334,7 @@ try_populate_expr_info_table :: (
     true,
     local_exn
   );
-  Option(ExprInfoTable).Some(ctx.expr_info_table)
+  Option(ExprInfoTable).Some(ctx.expr_info_table.clone())
 });
 /// Extract the test name string from a `test("name", { body })` expression.
 /// Returns None if the expression is not a 2-arg test call.
@@ -7893,7 +7893,7 @@ run_compile :: (
     // The table goes in through its own handle (written back after): passing
     // `&mut ctx.expr_info_table` beside `&ctx` lends one place twice, which
     // decision 28's value-root rule rejects once it lands with V2b.
-    info_table := ctx.expr_info_table;
+    info_table := ctx.expr_info_table.clone();
     (c_spilled_bytes : usize) = usize(0);
     c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, cycle_collector == "off", &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone(), &mut c_spilled_bytes);
     ctx.expr_info_table = info_table;
@@ -10730,10 +10730,10 @@ run_effects :: (
     (labels : SharedList(String)) = no_labels();
     (types : SharedList(TypeValue)) = no_types();
     match(
-      outcome.module_type,
+      &outcome.module_type,
       Rc(.Struct({ field_labels, field_types })) => {
-        labels = field_labels;
-        types = field_types;
+        labels = Rc.clone(field_labels);
+        types = Rc.clone(field_types);
       },
       _ => ()
     );
@@ -10768,7 +10768,7 @@ run_effects :: (
           fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
           entries := ArrayList(String).new();
           json_entries := ArrayList(String).new();
-          param_labels := meta.*.param_labels;
+          param_labels := Rc.clone(meta.*.param_labels);
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
             plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
@@ -10780,7 +10780,7 @@ run_effects :: (
               json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(&pty))}","via":"param","kinds":[${_json_string_list(&kinds)}]}`);
             });
           });
-          implicit_labels := meta.*.implicit_labels;
+          implicit_labels := Rc.clone(meta.*.implicit_labels);
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
             ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
@@ -10904,7 +10904,7 @@ _collect_future_effects :: (
       (i : usize) = usize(0);
       while((i < effect_labels.len()) && (i < effect_types.len()), {
         labels.push(effect_labels(i).clone());
-        types.push(effect_types(i));
+        types.push(Rc.clone(effect_types(i)));
         i = (i + usize(1));
       });
     },

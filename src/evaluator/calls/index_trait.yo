@@ -147,7 +147,7 @@ _try_ctfe_range_ctor :: (
   match(
     res.value,
     .TypeVal(rt) => if(is_struct_type(rt.clone()), {
-      out.push(rt);
+      out.push(Rc.clone(rt));
     }),
     _ => ()
   );
@@ -430,10 +430,10 @@ _find_all_index_methods :: (
       match(
         reg_methods.get(ri),
         .Some(m) => {
-          if(match(m.ty, Rc(.Func({ result : _ })) => true, _ => false), {
+          if(match(&m.ty, Rc(.Func({ result : _ })) => true, _ => false), {
             result.push(
               _IndexMethodEntry(
-                method_type : m.ty,
+                method_type : Rc.clone(m.ty),
                 method_value : m.value
               )
             );
@@ -482,14 +482,14 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
         cond(
           !p1_compatible => Option(_IndexShape).None,
           // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.
-          __fm1.*.result_is_ref => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : __fm1.*.result_is_mut_ref, output : result_box)),
+          __fm1.*.result_is_ref => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : __fm1.*.result_is_mut_ref, output : Rc.clone(result_box))),
           // The pre-V2b shape: self must be a pointer type OR a `&mut`
           // parameter, and the result a raw pointer to the element.
           ((p0_is_ptr || p0_is_ref) && is_pointer_type(&result_box)) => Option(_IndexShape).Some(
             _IndexShape(
               is_projection : false,
               is_mut : true,
-              output : match(result_box, Rc(.Pointer(et)) => et, _ => result_box)
+              output : match(result_box, Rc(.Pointer(et)) => Rc.clone(et), _ => Rc.clone(result_box))
             )
           ),
           true => Option(_IndexShape).None
@@ -512,7 +512,7 @@ _find_index_method :: (
   methods := _find_all_index_methods(concrete_type, env, "index");
   (i : usize) = usize(0);
   while(i < methods.len(), {
-    m := methods(i);
+    m := methods(i).clone();
     match(
       _index_shape_of(&m.method_type, arg_type),
       .Some(sh) => if(!sh.is_projection || !sh.is_mut, {
@@ -537,10 +537,10 @@ _find_index_mut_method :: (
   methods := _find_all_index_methods(concrete_type, env, "index_mut");
   (i : usize) = usize(0);
   while(i < methods.len(), {
-    m := methods(i);
+    m := methods(i).clone();
     match(
       _index_shape_of(&m.method_type, arg_type),
-      .Some(sh) => if(sh.is_projection && sh.is_mut && match(m.method_type, Rc(.Func({ meta : imm_fm })) => match(imm_fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), {
+      .Some(sh) => if(sh.is_projection && sh.is_mut && match(&m.method_type, Rc(.Func({ meta : imm_fm })) => match(imm_fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), {
         return(Option(_IndexMethodEntry).Some(m));
       }),
       .None => ()
@@ -566,7 +566,7 @@ _try_comptime_element_access :: (
 )({
   elem_ty := match(
     value_type,
-    Rc(.Array(et, _, _)) => et,
+    Rc(.Array(et, _, _)) => Rc.clone(et),
     _ => t_unit()
   );
   match(
@@ -637,7 +637,7 @@ _try_comptime_element_access :: (
                 Option(IndexCallResult).Some(
                   IndexCallResult(
                     value : Option(EvalValue).Some(elem_val),
-                    ty : elem_ty,
+                    ty : Rc.clone(elem_ty),
                     ptr_type : t_ptr(&elem_ty),
                     index_method_type : Option(TypeValue).None,
                     index_method_value : Option(EvalValue).None,
@@ -666,7 +666,7 @@ _try_comptime_element_access :: (
       Option(IndexCallResult).Some(
         IndexCallResult(
           value : Option(EvalValue).Some(unk_val),
-          ty : elem_ty,
+          ty : Rc.clone(elem_ty),
           ptr_type : t_ptr(&elem_ty),
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
@@ -737,7 +737,7 @@ _try_comptime_array_index :: (
     }
   );
   caller_env := expr_info_adopt_env(&info);
-  arg_type := info.ty;
+  arg_type := Rc.clone(info.ty);
   arg_val := info.value;
   range_check := _check_range_type(&arg_type, env, ctx);
   if(range_check.is_range, {
@@ -976,7 +976,7 @@ _try_comptime_string_index :: (
     }
   );
   caller_env := expr_info_adopt_env(&info);
-  arg_type := info.ty;
+  arg_type := Rc.clone(info.ty);
   range_check := _check_range_type(&arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
     str_value,
@@ -1021,7 +1021,7 @@ _locals_moved_inside :: (fn(e : &AstExpr, env : &Environment) -> ArrayList(_Move
   toks := ArrayList(Token).new();
   _atom_tokens_of(e, &mut toks);
   out := ArrayList(_MovedLocal).new();
-  module := ast_expr_token(e).module_path;
+  module := Rc.clone(ast_expr_token(e).module_path);
   (lo : u32) = ast_expr_token(e).character;
   (hi : u32) = lo;
   (i : usize) = usize(0);
@@ -1109,8 +1109,8 @@ _specialize_index_method :: (
   saved_caps := ctx.captured_variables;
   saved_loop := ctx.is_evaluating_loop_body;
   saved_fri := ctx.function_return_impl_concrete_type;
-  saved_self := ctx.self_type;
-  saved_enclosing := ctx.enclosing_function_return_type;
+  saved_self := ctx.self_type.clone();
+  saved_enclosing := ctx.enclosing_function_return_type.clone();
   saved_spec := ctx.currently_specializing_function;
   saved_spec_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
   // The trial re-evaluates the receiver and the index argument inside a
@@ -1227,9 +1227,9 @@ _find_comptime_index_method :: (
       methods.get(i),
       .Some(m) => {
         match(
-          m.method_type,
+          &m.method_type,
           Rc(.Func({ param_types, result : ci_result, meta : __cifm1 })) => {
-            ci_param_is_ref := __cifm1.*.param_is_ref;
+            ci_param_is_ref := Rc.clone(__cifm1.*.param_is_ref);
             if(param_types.len() == usize(2), {
               match(
                 param_types.get(usize(0)),
@@ -1361,7 +1361,7 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   ct_caller_env := expr_info_adopt_env(&arg_info);
-  arg_type := arg_info.ty;
+  arg_type := Rc.clone(arg_info.ty);
   // Find a ComptimeIndex method.
   ct_method := match(
     _find_comptime_index_method(value_type, &arg_type, &ct_caller_env),
@@ -1370,7 +1370,7 @@ _try_comptime_custom_type_index :: (
       return(Option(IndexCallResult).None);
     }
   );
-  ct_fn_type := ct_method.method_type;
+  ct_fn_type := Rc.clone(ct_method.method_type);
   // A non-FuncVal method value -> fall through.
   if(ct_method.method_value.is_none(), {
     return(Option(IndexCallResult).None);
@@ -1380,11 +1380,11 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)`.
-  ct_ret_type := match(ct_fn_type, Rc(.Func({ result : ct_r })) => ct_r, _ => t_unit());
+  ct_ret_type := match(ct_fn_type, Rc(.Func({ result : ct_r })) => Rc.clone(ct_r), _ => t_unit());
   if(!is_pointer_type(&ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
-  output_ty := match(ct_ret_type, Rc(.Pointer(ct_pt)) => ct_pt, _ => ct_ret_type);
+  output_ty := match(ct_ret_type, Rc(.Pointer(ct_pt)) => Rc.clone(ct_pt), _ => Rc.clone(ct_ret_type));
   // Comptime pointer to self for the first argument.
   self_ptr_type := t_ptr(value_type);
   // Fresh 1-elem cell around self.
@@ -1415,8 +1415,8 @@ _try_comptime_custom_type_index :: (
   // push a frame with `self` / `idx` bound.
   ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
   ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => ArrayList(EvalValue).new());
-  ct_module_path := ct_caller_env.module_path;
-  ct_callee_env := Environment.new(ct_module_path);
+  ct_module_path := Rc.clone(ct_caller_env.module_path);
+  ct_callee_env := Environment.new(Rc.clone(ct_module_path));
   (ct_ci : usize) = usize(0);
   while(ct_ci < ct_cap_vals.len(), {
     ct_cn := fv_source_name(&ct_cap_src, ct_ci);
@@ -1474,7 +1474,7 @@ _try_comptime_custom_type_index :: (
     ArgEntry(
       value : Option(EvalValue).Some(arg_value),
       parameter_type : ct_p1_ty,
-      arg_type : arg_type
+      arg_type : Rc.clone(arg_type)
     )
   );
   ct_arg_values := ArgValues(
@@ -1501,7 +1501,7 @@ _try_comptime_custom_type_index :: (
   ct_return_value := ct_result.value;
   // Also record the RUNTIME index method for codegen.
   ct_rt_method := _find_index_method(value_type, &arg_type, &ct_caller_env);
-  ct_rt_method_type := match(ct_rt_method, .Some(rm) => Option(TypeValue).Some(rm.method_type), .None => Option(TypeValue).None);
+  ct_rt_method_type := match(ct_rt_method, .Some(rm) => Option(TypeValue).Some(Rc.clone(rm.method_type)), .None => Option(TypeValue).None);
   ct_rt_method_value := match(ct_rt_method, .Some(rm) => rm.method_value, .None => Option(EvalValue).None);
   // A PtrVal return derefs to the pointed-at element/field and yields the
   // ComptimeRef that makes `p(0) = v` and `&(p(0))` comptime places.
@@ -1723,14 +1723,14 @@ try_to_call_with_index_trait :: (
   if(is_arr_or_slice_ty, {
     elem_ty := match(
       value_type,
-      Rc(.Array(et, _, _)) => et,
+      Rc(.Array(et, _, _)) => Rc.clone(et),
       _ => t_unit()
     );
     result_val := create_unknown_val(&elem_ty);
     return(
       IndexCallResult(
         value : Option(EvalValue).Some(result_val),
-        ty : elem_ty,
+        ty : Rc.clone(elem_ty),
         ptr_type : t_ptr(&elem_ty),
         index_method_type : Option(TypeValue).None,
         index_method_value : Option(EvalValue).None,
@@ -1741,7 +1741,7 @@ try_to_call_with_index_trait :: (
     );
   });
   // For custom types: find the index method via trait lookup
-  arg_type := arg_info.ty;
+  arg_type := Rc.clone(arg_info.ty);
   method_opt := _find_index_method(value_type, &arg_type, caller_env);
   method := match(
     method_opt,
@@ -1763,7 +1763,7 @@ try_to_call_with_index_trait :: (
   );
   // The element type: a projection's result, or the pointee of the pre-V2b
   // `*(Output)` (`_index_shape_of`).
-  output_ty := match(_index_shape_of(&method.method_type, &arg_type), .Some(sh) => sh.output, .None => t_unit());
+  output_ty := match(_index_shape_of(&method.method_type, &arg_type), .Some(sh) => Rc.clone(sh.output), .None => t_unit());
   // The `idx` argument follows the same ownership rule as a normal call's
   // argument (`consume_argument_for_parameter`). The Index trait takes its
   // index BY VALUE (decision 34 as amended 2026-10-11), and the specialized
@@ -1776,7 +1776,7 @@ try_to_call_with_index_trait :: (
   // (`idx : &K`, a generic impl the conformance check cannot reach) reads its
   // mode flags here and is skipped, exactly as a normal call would.
   match(
-    method.method_type,
+    &method.method_type,
     Rc(.Func({ meta : __ibv_fm })) => {
       __ibv_ref := match(__ibv_fm.*.param_is_ref.get(usize(1)), .Some(b) => b, .None => false);
       __ibv_own := match(__ibv_fm.*.param_is_owning.get(usize(1)), .Some(b) => b, .None => false);
@@ -1819,9 +1819,9 @@ try_to_call_with_index_trait :: (
   spec_method_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => method.method_value);
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
-    ty : output_ty,
+    ty : Rc.clone(output_ty),
     ptr_type : t_ptr(&output_ty),
-    index_method_type : Option(TypeValue).Some(method.method_type),
+    index_method_type : Option(TypeValue).Some(Rc.clone(method.method_type)),
     index_method_value : spec_method_value,
     caller_env : updated_env,
     index : Option(usize).None,
@@ -1885,15 +1885,15 @@ _record_index_unchecked_twin :: (
       // Its element is the subscript's: the pointee of a pre-V2b
       // `*(Output)`, or a projection's result.
       same_output := match(
-        c.ty,
+        &c.ty,
         Rc(.Func({ result : twin_ret, meta : twin_m })) => {
-          twin_out := if(twin_m.*.result_is_ref, twin_ret, match(twin_ret, Rc(.Pointer(tp)) => tp, _ => t_unit()));
+          twin_out := if(twin_m.*.result_is_ref, Rc.clone(twin_ret), match(twin_ret, Rc(.Pointer(tp)) => Rc.clone(tp), _ => t_unit()));
           (twin_m.*.result_is_ref || is_pointer_type(&twin_ret)) && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
         },
         _ => false
       );
       if(same_output, {
-        picked = Option(_IndexMethodEntry).Some(_IndexMethodEntry(method_type : c.ty, method_value : c.value));
+        picked = Option(_IndexMethodEntry).Some(_IndexMethodEntry(method_type : Rc.clone(c.ty), method_value : c.value));
       });
     });
     ci = (ci + usize(1));
@@ -1964,8 +1964,8 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
   read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
   (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(()));
   (idx : AstExpr) = match(call, .FnCall(_, _, pc_args, _, _) => match(pc_args.get(usize(0)), .Some(a) => a, .None => return(())), .Atom(_, _) => return(()));
-  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => return(()));
-  arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => ai.ty, .None => return(()));
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => Rc.clone(ri.ty), .None => return(()));
+  arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => Rc.clone(ai.ty), .None => return(()));
   read_shape := match(_index_shape_of(&read_ty, &arg_ty), .Some(sh) => sh, .None => return(()));
   // The pre-V2b method serves writes itself; an `index_mut` is already one.
   if(!read_shape.is_projection || read_shape.is_mut, {
@@ -2032,7 +2032,7 @@ _promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalConte
   _record_index_unchecked_twin(&recv_ty, &arg_ty, &read_shape.output, call, env, ctx, &idx, "IndexUncheckedMut", "index_unchecked_mut");
   ctx.expected_type = saved_exp;
   new_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => mut_m.method_value);
-  expr_info_set_index_method_type(&info, Option(TypeValue).Some(mut_m.method_type));
+  expr_info_set_index_method_type(&info, Option(TypeValue).Some(Rc.clone(mut_m.method_type)));
   expr_info_set_index_method_value(&info, &new_value);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(call), &info);
 });

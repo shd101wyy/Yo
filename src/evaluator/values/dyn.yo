@@ -73,7 +73,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
         v.value.get(usize(0)),
         .Some(val) => if(is_func_val(&val), {
           box_fv = Option(EvalValue).Some(val);
-          box_ft = v.ty;
+          box_ft = Rc.clone(v.ty);
         }),
         .None => ()
       ),
@@ -112,7 +112,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
       bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
-      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
+      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt), Option(TypeValue).Some(Rc.clone(bt)), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
 });
@@ -123,7 +123,7 @@ _create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Envi
 _dyn_target_requires_send :: (fn(expected : &Option(ExpectedTypeCtx), value_type : &TypeValue) -> bool)({
   from_expected := match(
     expected,
-    .Some(et) => match(et.ty, Rc(.DynT(required_trait_types : ert)) => Option(bool).Some(_traits_name_send(&ert.items)), _ => Option(bool).None),
+    .Some(et) => match(&et.ty, Rc(.DynT(required_trait_types : ert)) => Option(bool).Some(_traits_name_send(&ert.items)), _ => Option(bool).None),
     .None => Option(bool).None
   );
   match(
@@ -157,10 +157,10 @@ _thread_marker_named_in :: (fn(tys : &ArrayList(TypeValue)) -> String)({
   found
 });
 _unwrap_box_for_method_lookup :: (fn(t : &TypeValue) -> TypeValue)({
-  (result : TypeValue) = t;
+  (result : TypeValue) = Rc.clone(t);
   if(is_boxed_type(t), {
     // A cell handle's payload is its cell's (`cell_handle_view`).
-    match(cell_handle_view(t), .Some(v) => return(v.payload), .None => ());
+    match(cell_handle_view(t), .Some(v) => return(Rc.clone(v.payload)), .None => ());
     match(
       t,
       Rc(.Struct({ field_types : fts })) => match(
@@ -192,13 +192,13 @@ _dyn_bound_check_type :: (fn(t : &TypeValue, env : &Environment) -> Option(TypeV
     return(Option(TypeValue).None);
   });
   if(!is_some_type(t), {
-    return(Option(TypeValue).Some(t));
+    return(Option(TypeValue).Some(Rc.clone(t)));
   });
   // `type_contains_some_type` waves through a `SomeT` that already carries its
   // concrete as its own `resolution` (closures/futures).
   // Follow that resolution, then the env binding chain; if neither lands on a
   // concrete the bound is still undecidable here.
-  own_rc := match(t, Rc(.SomeT({ resolution : carried })) => carried, _ => Option(TypeValue).None);
+  own_rc := match(t, Rc(.SomeT({ resolution : carried })) => carried.clone(), _ => Option(TypeValue).None);
   resolved := match(own_rc, .Some(o) => o, .None => get_value_of_some_type_from_env(env, t));
   cond(
     is_some_type(&resolved) => Option(TypeValue).None,
@@ -552,7 +552,7 @@ _reject_dyn_borrowing_future_methods :: (
             fvals.get(fi),
             .Some(.Some(.FuncVal(fvd, _))) => {
               res_ty = match(get_func_type(fvd.*.func_id.clone()), Rc(.Func({ result : r })) => r, _ => rc(TypeValueNode.Unit));
-              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => bi.ty, .None => rc(TypeValueNode.Unit));
+              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => Rc.clone(bi.ty), .None => rc(TypeValueNode.Unit));
             },
             _ => ()
           );
@@ -616,7 +616,7 @@ _monomorphize_default_fv :: (
         implicit_args : Option(ArrayList(ArgEntry)).None,
         variadic_args : ArrayList(VarArgEntry).new()
       );
-      saved_self_ty := ctx.self_type;
+      saved_self_ty := ctx.self_type.clone();
       ctx.self_type = Option(TypeValue).Some(value_type.clone());
       spec_fv := create_specialized_function_inline(fv, &default_ft, &spec_argvals, caller_env, caller_env, ctx, exn);
       ctx.self_type = saved_self_ty;
@@ -895,7 +895,7 @@ _reject_fnonce_into_dyn_fn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : 
   target_base := match(
     target,
     .Some(t) => match(
-      t.ty,
+      &t.ty,
       Rc(.DynT(_, _, _, _)) => match(extract_fn_trait_from_type(&t.ty), .Some(tf) => match(tf, Rc(.FnTraitT(base_name : tb)) => tb.clone(), _ => String.from("")), .None => String.from("")),
       _ => String.from("")
     ),
@@ -966,10 +966,10 @@ evaluate_dyn_value :: (
   match(
     ctx.expected_type,
     .Some(et) => match(
-      et.ty,
+      &et.ty,
       Rc(.DynT(_, _, _, _)) => {
-        w_ty := match(t_dyn_payload_wrapper(&et.ty, env.frames.len()), .Some(w) => w, .None => et.ty);
-        (exp_ty : TypeValue) = w_ty;
+        w_ty := match(t_dyn_payload_wrapper(&et.ty, env.frames.len()), .Some(w) => w, .None => Rc.clone(et.ty));
+        (exp_ty : TypeValue) = Rc.clone(w_ty);
         // dyn(rc(<closure>)) special case — `box` or any other shared-cell
         // constructor (`rc`, types/guards.yo `shared_cell_names_at`): pass
         // `Rc(Impl-SomeT)` (`Rc(...)` for `rc`) as the cell call's expected
@@ -1035,7 +1035,7 @@ evaluate_dyn_value :: (
     // C codegen (which reads body ExprInfo produced in THIS mode — fn bodies
     // are evaluated in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
-    ne_value_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(ii) => ii.ty, .None => t_unit());
+    ne_value_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(ii) => Rc.clone(ii.ty), .None => t_unit());
     _reject_fnonce_into_dyn_fn(&ctx.expected_type, &ne_value_type, &expr_tok, ctx, exn);
     // Whether the inner expression actually produced an ExprInfo. With none, the
     // `t_unit()` fallback above is a STAND-IN, not the payload's type — checking
@@ -1055,7 +1055,7 @@ evaluate_dyn_value :: (
     (ret_type : TypeValue) = match(
       ctx.expected_type,
       .Some(et) => match(
-        et.ty,
+        &et.ty,
         Rc(
           .DynT(
             required_trait_types : rtt,
@@ -1066,13 +1066,13 @@ evaluate_dyn_value :: (
         ) =>
           rc(
             TypeValueNode.DynT(
-              required_trait_types : rtt,
-              required_trait_levels : rtl,
-              negative_trait_types : ntt,
-              negative_trait_levels : ntl
+              required_trait_types : Rc.clone(rtt),
+              required_trait_levels : Rc.clone(rtl),
+              negative_trait_types : Rc.clone(ntt),
+              negative_trait_levels : Rc.clone(ntl)
             )
           ),
-        _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).Some(et.ty), ne_have_inner_ty, exn)
+        _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).Some(Rc.clone(et.ty)), ne_have_inner_ty, exn)
       ),
       .None => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).None, ne_have_inner_ty, exn)
     );
@@ -1091,7 +1091,7 @@ evaluate_dyn_value :: (
     // struct, e.g. `box_Impl(Fn...)(struct(base : i32))`); the capture
     // struct is also the key the C wrapper resolves through
     // impl_closure_call_map.
-    (ne_box_inner_ty : TypeValue) = ne_value_type;
+    (ne_box_inner_ty : TypeValue) = Rc.clone(ne_value_type);
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)),
       .Some(iiv) => match(
@@ -1110,20 +1110,20 @@ evaluate_dyn_value :: (
               // lays the box payload out as the capture struct — the id-keyed
               // global misses there (round-5 finding).
               .Some(iec) => match(
-                iec.ty,
+                &iec.ty,
                 Rc(.SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _)) => {
                   ne_box_inner_ty = rc(
                     TypeValueNode.SomeT(
                       bx_id,
                       bx_nm,
                       bx_fl,
-                      bx_pt,
+                      Rc.clone(bx_pt),
                       bx_rtt,
                       bx_rtl,
                       bx_ntt,
                       bx_ntl,
-                      bx_kft,
-                      Option(TypeValue).Some(cci.capture_type)
+                      bx_kft.clone(),
+                      Option(TypeValue).Some(Rc.clone(cci.capture_type))
                     )
                   );
                 },
@@ -1221,11 +1221,11 @@ evaluate_dyn_value :: (
       return(expr);
     }
   );
-  (value_type : TypeValue) = inner_info.ty;
+  (value_type : TypeValue) = Rc.clone(inner_info.ty);
   _reject_dyn_of_dyn(value_type.clone(), &expr_tok, exn);
   _reject_fnonce_into_dyn_fn(&ctx.expected_type, &value_type, &expr_tok, ctx, exn);
   (cur_env : Environment) = expr_info_adopt_env(&inner_info);
-  (final_value_type : TypeValue) = value_type;
+  (final_value_type : TypeValue) = Rc.clone(value_type);
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType
   // special case exists — all non-object, non-dyn values are wrapped in rc().
   // A `Dyn(..., Send)` boxes with `arc` instead: the Dyn's data object is
@@ -1257,7 +1257,7 @@ evaluate_dyn_value :: (
         // Update the dyn(...) call's first arg to point at the boxed expression,
         // so that C codegen sees inner rather than the bare inner expression.
         args(usize(0)) = boxed_expr;
-        final_value_type = bi.ty;
+        final_value_type = Rc.clone(bi.ty);
         cur_env = expr_info_adopt_env(&bi);
         final_value_expr_ex = boxed_expr;
       },
@@ -1284,7 +1284,7 @@ evaluate_dyn_value :: (
   expected_dyn_from_ctx := match(
     ctx.expected_type,
     .Some(et) => match(
-      et.ty,
+      &et.ty,
       Rc(
         .DynT(
           required_trait_types : rtt,
@@ -1296,10 +1296,10 @@ evaluate_dyn_value :: (
         Option(TypeValue).Some(
           rc(
             TypeValueNode.DynT(
-              required_trait_types : rtt,
-              required_trait_levels : rtl,
-              negative_trait_types : ntt,
-              negative_trait_levels : ntl
+              required_trait_types : Rc.clone(rtt),
+              required_trait_levels : Rc.clone(rtl),
+              negative_trait_types : Rc.clone(ntt),
+              negative_trait_levels : Rc.clone(ntl)
             )
           )
         ),

@@ -112,7 +112,7 @@ _get_or_create_some_ty_for_trait :: (
   if(ast_expr_is_atom(lhs_expr), {
     var_name := ast_expr_token(lhs_expr).value;
     if(var_name == "Self", {
-      return(_SomeTyResolvedResult(self_type, true));
+      return(_SomeTyResolvedResult(Rc.clone(self_type), true));
     });
     // Look up existing var in env
     existing_vars := get_variables_from_env(env_mut, &var_name);
@@ -187,8 +187,8 @@ _get_or_create_some_ty_for_trait :: (
   // entry point so any throw propagates to the caller's `exn` instead of
   // panicking via `_evaluate_expression_wrapper`. This lets the trait
   // retry path swallow failures with a local handler.
-  old_self_type := ctx.self_type;
-  ctx.self_type = .Some(self_type);
+  old_self_type := ctx.self_type.clone();
+  ctx.self_type = .Some(Rc.clone(self_type));
   evaluated_lhs := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
   ctx.self_type = old_self_type;
   lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
@@ -220,7 +220,7 @@ _get_or_create_some_ty_for_trait :: (
   env_adopt(&env_mut, &lhs_info.env);
   lhs_tv := match(
     lhs_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
     .None => rc(TypeValueNode.Unit)
   );
   if(!is_some_type(&lhs_tv), {
@@ -293,8 +293,8 @@ _apply_single_constraint_for_trait :: (
   );
   // Evaluate trait expression (use outer exn — hard failure).
   (trait_ty2 : TypeValue) = rc(TypeValueNode.Unit);
-  old_self_type := ctx.self_type;
-  ctx.self_type = .Some(self_type);
+  old_self_type := ctx.self_type.clone();
+  ctx.self_type = .Some(Rc.clone(self_type));
   evaluated_te := evaluate_expression_raw(&unwrapped_te, env_mut, ctx, exn);
   ctx.self_type = old_self_type;
   te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
@@ -311,7 +311,7 @@ _apply_single_constraint_for_trait :: (
   env_adopt(&env_mut, &te_info.env);
   trait_ty2 = match(
     te_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
     .None => rc(TypeValueNode.Unit)
   );
   if(!is_trait_type(&trait_ty2), {
@@ -328,9 +328,9 @@ _apply_single_constraint_for_trait :: (
       trait_ty,
       Rc(.TraitT(_, _, _, _, _, _, sc, nc, _, _)) => {
         if(is_negated, {
-          nc.push(trait_ty2);
+          nc.push(Rc.clone(trait_ty2));
         }, {
-          sc.push(trait_ty2);
+          sc.push(Rc.clone(trait_ty2));
         });
       },
       _ => ()
@@ -427,10 +427,10 @@ _parse_trait_where_clauses :: (
       // Evaluate trait expression
       // Note: errors propagate via outer exn (collect_pending fallback simplified)
       (trait_ty2 : TypeValue) = rc(TypeValueNode.Unit);
-      old_self_type := ctx.self_type;
-      old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type = .Some(self_type);
-      ctx.self_trait_type = .Some(trait_ty);
+      old_self_type := ctx.self_type.clone();
+      old_self_trait_type := ctx.self_trait_type.clone();
+      ctx.self_type = .Some(Rc.clone(self_type));
+      ctx.self_trait_type = .Some(Rc.clone(trait_ty));
       evaluated_te := evaluate_expression_raw(&unwrapped_te, env_mut, ctx, exn);
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
@@ -473,7 +473,7 @@ _parse_trait_where_clauses :: (
       env_adopt(&env_mut, &te_info.env);
       trait_ty2 = match(
         te_info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
         .None => rc(TypeValueNode.Unit)
       );
       if(!is_trait_type(&trait_ty2), {
@@ -502,9 +502,9 @@ _parse_trait_where_clauses :: (
           trait_ty,
           Rc(.TraitT(_, _, _, _, _, _, sc, nc, _, _)) => {
             if(is_neg, {
-              nc.push(trait_ty2);
+              nc.push(Rc.clone(trait_ty2));
             }, {
-              sc.push(trait_ty2);
+              sc.push(Rc.clone(trait_ty2));
             });
           },
           _ => ()
@@ -707,16 +707,16 @@ _evaluate_trait_field :: (
       match(
         expected_field_ty_opt,
         .Some(eft) => {
-          ctx.expected_type = .Some(ExpectedTypeCtx(eft, env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(eft), env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         }
       );
-      old_self_type := ctx.self_type;
-      old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type = .Some(self_type);
-      ctx.self_trait_type = .Some(trait_ty);
+      old_self_type := ctx.self_type.clone();
+      old_self_trait_type := ctx.self_trait_type.clone();
+      ctx.self_type = .Some(Rc.clone(self_type));
+      ctx.self_trait_type = .Some(Rc.clone(trait_ty));
       // RAW (propagating) eval, like the sibling field-type paths at 313/458:
       // a trait method's function TYPE can throw a compile error (e.g. the
       // `-> &mut T` inout-return ban in evaluate_function_type). The
@@ -741,7 +741,7 @@ _evaluate_trait_field :: (
       });
       ty := match(
         te_info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .Some(v) => match(v, .TypeVal(b) => Rc.clone(b), _ => rc(TypeValueNode.Unit)),
         .None => rc(TypeValueNode.Unit)
       );
       field_ty_opt = .Some(ty);
@@ -776,23 +776,23 @@ _evaluate_trait_field :: (
     .Some(av_expr) => {
       field_expected_ty_opt := match(
         field_ty_opt,
-        .Some(ft) => Option(TypeValue).Some(ft),
-        .None => expected_field_ty_opt
+        .Some(ft) => Option(TypeValue).Some(Rc.clone(ft)),
+        .None => expected_field_ty_opt.clone()
       );
       old_expected_type := ctx.expected_type;
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type = .Some(ExpectedTypeCtx(fet, env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(fet), env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         }
       );
-      old_self_type := ctx.self_type;
-      old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type = .Some(self_type);
-      ctx.self_trait_type = .Some(trait_ty);
+      old_self_type := ctx.self_type.clone();
+      old_self_trait_type := ctx.self_trait_type.clone();
+      ctx.self_type = .Some(Rc.clone(self_type));
+      ctx.self_trait_type = .Some(Rc.clone(trait_ty));
       evaluated_av_gout := ArrayList(AstExpr).new();
       evaluated_av_gerr := evaluate_expression_guarded(&av_expr, env_mut, ctx, &mut evaluated_av_gout);
       ctx.expected_type = old_expected_type;
@@ -833,7 +833,7 @@ _evaluate_trait_field :: (
         }
       );
       // Validate type compatibility if expected type is set
-      av_ty := av_info.ty;
+      av_ty := Rc.clone(av_info.ty);
       match(
         field_expected_ty_opt,
         .Some(fet) => {
@@ -864,23 +864,23 @@ _evaluate_trait_field :: (
     .Some(dv_expr) => {
       field_expected_ty_opt := match(
         field_ty_opt,
-        .Some(ft) => Option(TypeValue).Some(ft),
+        .Some(ft) => Option(TypeValue).Some(Rc.clone(ft)),
         .None => expected_field_ty_opt
       );
       old_expected_type := ctx.expected_type;
       match(
         field_expected_ty_opt,
         .Some(fet) => {
-          ctx.expected_type = .Some(ExpectedTypeCtx(fet, env_mut));
+          ctx.expected_type = .Some(ExpectedTypeCtx(Rc.clone(fet), env_mut));
         },
         .None => {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         }
       );
-      old_self_type := ctx.self_type;
-      old_self_trait_type := ctx.self_trait_type;
-      ctx.self_type = .Some(self_type);
-      ctx.self_trait_type = .Some(trait_ty);
+      old_self_type := ctx.self_type.clone();
+      old_self_trait_type := ctx.self_trait_type.clone();
+      ctx.self_type = .Some(Rc.clone(self_type));
+      ctx.self_trait_type = .Some(Rc.clone(trait_ty));
       evaluated_dv_gout := ArrayList(AstExpr).new();
       evaluated_dv_gerr := evaluate_expression_guarded(&dv_expr, env_mut, ctx, &mut evaluated_dv_gout);
       ctx.expected_type = old_expected_type;
@@ -921,7 +921,7 @@ _evaluate_trait_field :: (
         }
       );
       // Validate type compatibility
-      dv_ty := dv_info.ty;
+      dv_ty := Rc.clone(dv_info.ty);
       match(
         field_expected_ty_opt,
         .Some(fet) => {
@@ -1109,10 +1109,10 @@ evaluate_trait_type :: (
     where_clause_exprs_opt,
     .Some(wce) => {
       if(wce.len() > usize(0), {
-        old_self_type := ctx.self_type;
-        old_self_trait_type := ctx.self_trait_type;
-        ctx.self_type = .Some(self_type);
-        ctx.self_trait_type = .Some(trait_ty);
+        old_self_type := ctx.self_type.clone();
+        old_self_trait_type := ctx.self_trait_type.clone();
+        ctx.self_type = .Some(Rc.clone(self_type));
+        ctx.self_trait_type = .Some(Rc.clone(trait_ty));
         pending_constraints = _parse_trait_where_clauses(
           &wce,
           &self_type,
@@ -1151,8 +1151,8 @@ evaluate_trait_type :: (
     expected_trait_type_opt := match(
       ctx.expected_type,
       .Some(et) => match(
-        et.ty,
-        Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => Option(TypeValue).Some(et.ty),
+        &et.ty,
+        Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => Option(TypeValue).Some(Rc.clone(et.ty)),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1200,10 +1200,10 @@ evaluate_trait_type :: (
       );
     });
     field_labels.push(field_result.label);
-    field_types.push(field_result.ty);
+    field_types.push(Rc.clone(field_result.ty));
     // If it's an associated type, add it to assoc_type_names and bind in env
     match(
-      field_result.assoc_some_ty,
+      &field_result.assoc_some_ty,
       .Some(some_ty) => {
         assoc_type_names.push(field_result.label);
         // Only bind if not already bound (check existing vars)
@@ -1275,10 +1275,10 @@ evaluate_trait_type :: (
       );
       pi = (pi + usize(1));
     });
-    old_self_type := ctx.self_type;
-    old_self_trait_type := ctx.self_trait_type;
-    ctx.self_type = .Some(self_type);
-    ctx.self_trait_type = .Some(trait_ty);
+    old_self_type := ctx.self_type.clone();
+    old_self_trait_type := ctx.self_trait_type.clone();
+    ctx.self_type = .Some(Rc.clone(self_type));
+    ctx.self_trait_type = .Some(Rc.clone(trait_ty));
     _drop_where_constraint_failures(
       &retry_list,
       &self_type,

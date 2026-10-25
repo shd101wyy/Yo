@@ -114,7 +114,7 @@ evaluate_subtype_of :: (
   );
   lhs_ty := match(
     lhs_type_val,
-    .TypeVal(b) => b,
+    .TypeVal(b) => Rc.clone(b),
     _ => t_unit()
   );
   // In a where clause, the LHS must be a SomeType (type parameter).
@@ -220,7 +220,7 @@ evaluate_subtype_of :: (
       te_info.value,
       .Some(v) => match(
         v,
-        .TypeVal(b) => if(is_trait_type(&b), b, {
+        .TypeVal(b) => if(is_trait_type(&b), Rc.clone(b), {
           exn.throw(
             dyn(
               format_error_message(

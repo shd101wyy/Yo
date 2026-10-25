@@ -807,7 +807,7 @@ _evaluate_expression :: (
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_ANON_STRUCT, .None)) => match(
           ctx.expected_type,
           .Some(et) => {
-            et_ty := et.ty;
+            et_ty := Rc.clone(et.ty);
             // Scope: reroute for EVERY
             // concrete expected STRUCT — named or anonymous — not just
             // unnamed ones. The named-struct narrowing existed for two

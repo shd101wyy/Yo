@@ -620,8 +620,8 @@ TypeValue :: Rc(TypeValueNode);
 t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    Rc(.RefineT(inner, _)) => inner,
-    _ => t
+    Rc(.RefineT(inner, _)) => Rc.clone(inner),
+    _ => Rc.clone(t)
   )
 );
 
@@ -658,19 +658,19 @@ impl(SharedList(SharedList(TypeValue)), Acyclic());
   SharedListCell(SharedList(String))(items : ArrayList(SharedList(String)).new())
 );
 /// The shared empty type list.
-no_types :: (fn() -> SharedList(TypeValue))(g_no_types);
+no_types :: (fn() -> SharedList(TypeValue))(Rc.clone(g_no_types));
 /// The shared empty label list.
-no_labels :: (fn() -> SharedList(String))(g_no_labels);
+no_labels :: (fn() -> SharedList(String))(Rc.clone(g_no_labels));
 /// The shared empty flag list.
-no_flags :: (fn() -> SharedList(bool))(g_no_flags);
+no_flags :: (fn() -> SharedList(bool))(Rc.clone(g_no_flags));
 /// The shared empty level list.
-no_levels :: (fn() -> SharedList(usize))(g_no_levels);
+no_levels :: (fn() -> SharedList(usize))(Rc.clone(g_no_levels));
 /// The shared empty discriminant list.
-no_discriminants :: (fn() -> SharedList(i64))(g_no_discriminants);
+no_discriminants :: (fn() -> SharedList(i64))(Rc.clone(g_no_discriminants));
 /// The shared empty list of type lists (an enum's `variant_fields`).
-no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(g_no_type_lists);
+no_type_lists :: (fn() -> SharedList(SharedList(TypeValue)))(Rc.clone(g_no_type_lists));
 /// The shared empty list of label lists (an enum's `variant_field_labels`).
-no_label_lists :: (fn() -> SharedList(SharedList(String)))(g_no_label_lists);
+no_label_lists :: (fn() -> SharedList(SharedList(String)))(Rc.clone(g_no_label_lists));
 impl(TypeValue, SharedListElem(no_list : no_types));
 impl(String, SharedListElem(no_list : no_labels));
 impl(bool, SharedListElem(no_list : no_flags));

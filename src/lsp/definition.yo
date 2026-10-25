@@ -633,30 +633,30 @@ _member_definition :: (
                 out_env := ArrayList(Environment).new();
                 _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_deref, &mut out_env);
                 if(out_recv.len() > usize(0), {
-                  owner = out_recv(usize(0));
-                  deref = out_deref(usize(0));
+                  owner = Rc.clone(out_recv(usize(0)));
+                  deref = Rc.clone(out_deref(usize(0)));
                   env_opt = Option(Environment).Some(out_env(usize(0)));
                 });
               },
               .FnCall(_, _, _, _, _) => match(
                 expr_info_table_get(info_table, ast_expr_id(&receiver)),
                 .Some(rinfo) => {
-                  owner = rinfo.ty;
+                  owner = Rc.clone(rinfo.ty);
                   match(
                     rinfo.value,
                     .Some(.TypeVal(tv)) => {
-                      owner = tv;
+                      owner = Rc.clone(tv);
                     },
                     .Some(_) => (),
                     .None => ()
                   );
-                  deref = owner;
+                  deref = Rc.clone(owner);
                   (guard : usize) = usize(0);
                   while(guard < usize(8), {
                     match(
                       deref,
                       Rc(.Pointer(p)) => {
-                        deref = p;
+                        deref = Rc.clone(p);
                       },
                       _ => {
                         guard = usize(8);
@@ -676,8 +676,8 @@ _member_definition :: (
           match(
             expr_info_table_get(info_table, ast_expr_id(&acc)),
             .Some(ainfo) => {
-              owner = ainfo.ty;
-              deref = ainfo.ty;
+              owner = Rc.clone(ainfo.ty);
+              deref = Rc.clone(ainfo.ty);
               env_opt = Option(Environment).Some(ainfo.env);
             },
             .None => ()
@@ -937,7 +937,7 @@ handle_type_definition :: (
     info.value,
     .Some(v) => match(
       v,
-      .TypeVal(t) => Option(TypeValue).Some(t),
+      .TypeVal(t) => Option(TypeValue).Some(Rc.clone(t)),
       _ => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None

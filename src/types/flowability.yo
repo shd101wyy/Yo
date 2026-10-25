@@ -464,7 +464,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
           _ => a
         );
       });
-      a_ty_opt := match(_info(ctx, &a), .Some(inf) => Option(TypeValue).Some(inf.ty), .None => Option(TypeValue).None);
+      a_ty_opt := match(_info(ctx, &a), .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty)), .None => Option(TypeValue).None);
       needs := match(a_ty_opt, .Some(t) => type_representation_contains_raw_ptr(&t), .None => false);
       if(needs && !recur(&a, ctx, opts), {
         return(false);
@@ -487,7 +487,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
           _ => te
         );
       });
-      te_ty_opt := match(_info(ctx, &te), .Some(inf) => Option(TypeValue).Some(inf.ty), .None => Option(TypeValue).None);
+      te_ty_opt := match(_info(ctx, &te), .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty)), .None => Option(TypeValue).None);
       te_needs := match(te_ty_opt, .Some(t) => type_representation_contains_raw_ptr(&t), .None => false);
       if(te_needs && !recur(&te, ctx, opts), {
         return(false);
@@ -507,7 +507,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   // populated during method dispatch).
   callee_ty_opt := match(
     _info(ctx, &call_func),
-    .Some(inf) => Option(TypeValue).Some(inf.ty),
+    .Some(inf) => Option(TypeValue).Some(Rc.clone(inf.ty)),
     .None => lookup_method_callee_type(ast_expr_id(&expr))
   );
   callee_ty := match(
@@ -522,14 +522,14 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   });
   // Extract the Func's return/ref/param info.
   is_ref_return := match(callee_ty, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_ref, _ => false);
-  ret_ty := match(callee_ty, Rc(.Func({ result : rb })) => rb, _ => rc(TypeValueNode.Unit));
+  ret_ty := match(callee_ty, Rc(.Func({ result : rb })) => Rc.clone(rb), _ => rc(TypeValueNode.Unit));
   _slice_pre := (opts.allow_parameter_source && !is_ref_return);
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(&ret_ty));
   if(!is_ref_return && !is_slice_return, {
     return(false);
   });
-  param_types := match(callee_ty, Rc(.Func({ param_types : pts })) => pts, _ => no_types());
-  param_is_ref := match(callee_ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_is_ref, _ => no_flags());
+  param_types := match(callee_ty, Rc(.Func({ param_types : pts })) => Rc.clone(pts), _ => no_types());
+  param_is_ref := match(callee_ty, Rc(.Func({ meta : __fm2 })) => Rc.clone(__fm2.*.param_is_ref), _ => no_flags());
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
@@ -670,7 +670,7 @@ require_ref_own_argument_exclusivity :: (
     is_owning := (
       cond((pi < param_is_owning.len()) => match(param_is_owning.get(pi), .Some(o) => o, .None => false), true => false) && !match(
         args.get(pi),
-        .Some(oa) => match(_info(ctx, &oa), .Some(oi) => type_is_bitwise_copy(oi.ty), .None => false),
+        .Some(oa) => match(_info(ctx, &oa), .Some(oi) => type_is_bitwise_copy(Rc.clone(oi.ty)), .None => false),
         .None => false
       )
     );

@@ -217,7 +217,7 @@ try_to_specialize_trait_type :: (
       evaluated_info_opt,
       .Some(info) => match(
         info.value,
-        .Some(v) => match(v, .TypeVal(tv) => tv, _ => rc(TypeValueNode.Unit)),
+        .Some(v) => match(v, .TypeVal(tv) => Rc.clone(tv), _ => rc(TypeValueNode.Unit)),
         .None => rc(TypeValueNode.Unit)
       ),
       .None => rc(TypeValueNode.Unit)
@@ -230,8 +230,8 @@ try_to_specialize_trait_type :: (
   specialized_trait_type := match(
     trait_type,
     Rc(.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _)) =>
-      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, shared_list(atc_labels), shared_list(atc_types))),
-    _ => trait_type
+      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic.clone(), sc, nsc, shared_list(atc_labels), shared_list(atc_types))),
+    _ => Rc.clone(trait_type)
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
 });
@@ -308,8 +308,8 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Entries are provisional (`value : None`) and cleared after the member
   // loop — the real registration happens in impl.yo once this returns.
   receiver_ty_pv := match(
-    ctx.receiver_type,
-    .Some(rt) => rt,
+    &ctx.receiver_type,
+    .Some(rt) => Rc.clone(rt),
     .None => rc(TypeValueNode.Unit)
   );
   pv_type_id := type_id_or_empty(&receiver_ty_pv);
@@ -332,7 +332,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
             value : Option(EvalValue).None,
             source_trait_id : trait_tid_pv.clone(),
             needs_pointer_conversion : false,
-            self_type : Option(TypeValue).Some(receiver_ty_pv),
+            self_type : Option(TypeValue).Some(Rc.clone(receiver_ty_pv)),
             owner : String.new()
           )
         );
@@ -422,7 +422,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         found_arg = true;
         // Evaluate value sub-expression with expected type = field_type.
         saved_expected := ctx.expected_type;
-        ctx.expected_type = .Some(ExpectedTypeCtx(ty : field_type, env : caller_env));
+        ctx.expected_type = .Some(ExpectedTypeCtx(ty : Rc.clone(field_type), env : caller_env));
         evaluated_arg_gout := ArrayList(AstExpr).new();
         evaluated_arg_gerr := evaluate_expression_guarded(&value_sub, &caller_env, ctx, &mut evaluated_arg_gout);
         ctx.expected_type = saved_expected;
@@ -443,7 +443,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         reject_second_class_escape(&arg_info.ty, String.from("stored in a trait implementation"), ast_expr_token(&value_sub), ctx, exn);
         set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
         caller_env = expr_info_adopt_env(&arg_info);
-        arg_type := arg_info.ty;
+        arg_type := Rc.clone(arg_info.ty);
         if(!are_types_compatible(&arg_type, &field_type), {
           exn.throw(
             dyn(

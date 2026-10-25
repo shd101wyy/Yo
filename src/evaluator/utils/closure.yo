@@ -186,15 +186,15 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
           v,
           .FuncVal(fvd, _) => match(
             get_closure_capture_info(fvd.*.func_id.clone()),
-            .Some(cci) => Option(TypeValue).Some(cci.capture_type),
+            .Some(cci) => Option(TypeValue).Some(Rc.clone(cci.capture_type)),
             .None => Option(TypeValue).None
           ),
-          _ => Option(TypeValue).Some(ty)
+          _ => Option(TypeValue).Some(Rc.clone(ty))
         ),
-        .None => Option(TypeValue).Some(ty)
+        .None => Option(TypeValue).Some(Rc.clone(ty))
       )
     ),
-    _ => Option(TypeValue).Some(ty)
+    _ => Option(TypeValue).Some(Rc.clone(ty))
   )
 );
 /// True when a captured variable's OWN declared type already REQUIRES this
@@ -623,7 +623,7 @@ function_value_marker :: (
   // A closure identity's capture struct names its closure whichever copy of
   // the wrapper `ty` is: a copy minted under a fresh SomeT id is in neither
   // the frames scan nor `g_closure_fids_by_some`.
-  want_cap := _capture_id_of(if(is_bound_closure_identity(ty), resolve_cell_chain(ty), ty));
+  want_cap := _capture_id_of(if(is_bound_closure_identity(ty), resolve_cell_chain(ty), Rc.clone(ty)));
   if(!want_cap.is_empty(), {
     match(
       g_closure_fids_by_capture.with(m => m.get(&want_cap)),
@@ -739,7 +739,7 @@ validate_send_closure_global_reach :: (
       (found : String) = String.new();
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
-        trait_type := rtts(ti);
+        trait_type := Rc.clone(rtts(ti));
         if(!is_fn_trait_type(&trait_type), {
           tts := type_to_string(&trait_type);
           if((tts == "Send") || ((tts == "Sync") && found.is_empty()), {
@@ -806,7 +806,7 @@ validate_capture_trait_requirements :: (
     Rc(.SomeT({ required_trait_types : rtts })) => {
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
-        trait_type := rtts(ti);
+        trait_type := Rc.clone(rtts(ti));
         if(!is_fn_trait_type(&trait_type), {
           trait_name := type_to_string(&trait_type);
           // A borrow capture is never `Send` (decision 38 E).
@@ -961,7 +961,7 @@ enrich_captured_variables :: (
                         frame_level : fl,
                         usage : cap_info.usage,
                         token : cap_info.token,
-                        ty : v.ty,
+                        ty : Rc.clone(v.ty),
                         value : v.value.get(usize(0)),
                         is_effect_param : v.is_effect_param,
                         decl_site : `${v.token.module_path.*}:${v.token.row.to_string()}:${v.token.column.to_string()}`
@@ -1097,12 +1097,12 @@ create_capture_type_and_value :: (
                 .None => (),
                 .Some(fci) => {
                   field_labels.push(cap_name.clone());
-                  field_types.push(fci.ty);
+                  field_types.push(Rc.clone(fci.ty));
                   cap_values.push(fci.value);
                   type_fields.push(
                     TypeField(
                       label : cap_name.clone(),
-                      ty : fci.ty,
+                      ty : Rc.clone(fci.ty),
                       is_comptime : false,
                       default_value : Option(EvalValue).None,
                       assigned_value : Option(EvalValue).None,
@@ -1508,7 +1508,7 @@ _CLONE_RECV_HOLE :: "__yo_clone_recv";
 /// resolution chain reaches one (a generic `T` instantiated with a closure's
 /// type).
 closure_identity_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
-  (cur : TypeValue) = ty;
+  (cur : TypeValue) = Rc.clone(ty);
   (depth : usize) = usize(0);
   while(depth < usize(16), {
     if(is_bound_closure_identity(&cur), {
@@ -1628,7 +1628,7 @@ structural_clone_expansion :: (
   closure_ty := closure_identity_of(recv_ty);
   (fields_labels, fields_types) := match(
     target,
-    Rc(.Struct({ field_labels : sc_labels, field_types : sc_types })) => (sc_labels, sc_types),
+    Rc(.Struct({ field_labels : sc_labels, field_types : sc_types })) => (Rc.clone(sc_labels), Rc.clone(sc_types)),
     _ => {
       return(Option(AstExpr).None);
     }
@@ -1722,8 +1722,8 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &Eva
   idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
   _ := evaluate_expression_raw(&idx_e, env, ctx, exn);
-  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => ri.ty, .None => t_unit());
-  cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => recv_ty));
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => Rc.clone(ri.ty), .None => t_unit());
+  cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => Rc.clone(recv_ty)));
   idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   field_ty := match(
     cap,

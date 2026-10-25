@@ -525,7 +525,7 @@ _analyze_eval :: (
     )
   );
   outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, local_exn);
-  EvalOutcome(ok : outcome.ok, info_table : outcome.ctx.expr_info_table)
+  EvalOutcome(ok : outcome.ok, info_table : outcome.ctx.expr_info_table.clone())
 });
 
 /// Map STRUCTURED diagnostics (the P3 typed channel) to LSP diagnostics —
@@ -641,7 +641,7 @@ analyze_document :: (
     _parse_document(entry_abs.clone(), text.clone()),
     .Some(exprs) => {
       ev := _analyze_eval(entry_abs.clone(), &exprs, std_path.clone(), io);
-      AnalyzeOutcome(ok : ev.ok, parsed : true, exprs : exprs, info_table : ev.info_table)
+      AnalyzeOutcome(ok : ev.ok, parsed : true, exprs : exprs, info_table : ev.info_table.clone())
     },
     .None => AnalyzeOutcome(
       ok : false,

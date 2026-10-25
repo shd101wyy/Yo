@@ -81,7 +81,7 @@ evaluate_yo_comptime_list_car :: (
       )
     );
   });
-  child_ty := match(info.ty, Rc(.ComptimeListT(cb)) => cb, _ => rc(TypeValueNode.Unit));
+  child_ty := match(&info.ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => rc(TypeValueNode.Unit));
   list_val := match(
     info.value,
     .Some(v) => v,
@@ -183,7 +183,7 @@ evaluate_yo_comptime_list_cdr :: (
       )
     );
   });
-  list_ty := info.ty;
+  list_ty := Rc.clone(info.ty);
   list_val := match(
     info.value,
     .Some(v) => v,
@@ -338,8 +338,8 @@ evaluate_yo_comptime_list_cons :: (
       EvalValue.UnitVal
     }
   );
-  child_ty := match(cdr_info.ty, Rc(.ComptimeListT(cb)) => cb, _ => rc(TypeValueNode.Unit));
-  list_ty := cdr_info.ty;
+  child_ty := match(&cdr_info.ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => rc(TypeValueNode.Unit));
+  list_ty := Rc.clone(cdr_info.ty);
   if(!are_types_compatible(&car_info.ty, &child_ty), {
     exn.throw(
       dyn(
@@ -499,7 +499,7 @@ evaluate_yo_comptime_list_append :: (
       )
     );
   });
-  first_ty := first_info.ty;
+  first_ty := Rc.clone(first_info.ty);
   out_info := new_expr_info(&cur_env, &first_ty);
   out_info.value = .Some(create_unknown_val(&first_ty));
   match(
@@ -659,7 +659,7 @@ evaluate_yo_comptime_list_element_type :: (
     info.value,
     .Some(v) => match(
       v,
-      .TypeVal(ty_box) => ty_box,
+      .TypeVal(ty_box) => Rc.clone(ty_box),
       _ => {
         exn.throw(
           dyn(
@@ -748,7 +748,7 @@ evaluate_yo_comptime_list_get :: (
       )
     );
   });
-  child_ty := match(list_info.ty, Rc(.ComptimeListT(cb)) => cb, _ => rc(TypeValueNode.Unit));
+  child_ty := match(&list_info.ty, Rc(.ComptimeListT(cb)) => Rc.clone(cb), _ => rc(TypeValueNode.Unit));
   (cur_env : Environment) = expr_info_adopt_env(&list_info);
   // Same named promotion as the car builtin above.
   get_unk_name := String.from("__comptime_list_get_");

@@ -66,7 +66,7 @@ _on_demand_collect_and_declare :: (fn(t : &TypeValue, context : &CodeGenContext)
           context.types.get(od_tid.clone()),
           .Some(od_entry) => {
             od_esid := match(
-              od_entry.ty,
+              &od_entry.ty,
               Rc(.Struct({ id : od_es_id, is_source_namespace : od_es_ns })) => if(od_es_ns, String.new(), od_es_id.clone()),
               Rc(.EnumT(od_ee_id, _, _, _, _, _, _, _, _, _)) => od_ee_id.clone(),
               _ => String.new()
@@ -99,7 +99,7 @@ _on_demand_collect_and_declare :: (fn(t : &TypeValue, context : &CodeGenContext)
     context.get_type_entry(&odk),
     .Some(od_e) => {
       od_cn := od_e.c_name.clone();
-      od_ty := od_e.ty;
+      od_ty := Rc.clone(od_e.ty);
       od_is_struct := match(od_ty, Rc(.Struct({ is_source_namespace : od_ns })) => !od_ns, _ => false);
       od_is_enum := match(od_ty, Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false);
       od_is_tuple := match(od_ty, Rc(.Tuple(_, _)) => true, _ => false);
@@ -209,7 +209,7 @@ compute_needs_cycle_gc :: (fn(context : &CodeGenContext) -> unit)({
     match(
       vals.next(),
       .Some(entry) => {
-        ty := entry.ty;
+        ty := Rc.clone(entry.ty);
         is_struct_root := (is_reference_struct_type(&ty) && !is_atomic_reference_struct_type(&ty) && !_struct_has_generic_field(&ty));
         // A reference-semantics enum can also form an RC cycle (recursive Self
         // variant field), so it is a cycle root too.

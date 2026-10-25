@@ -136,7 +136,7 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
   vars := get_variables_from_env(env, name);
   v := match(vars.last(), .Some(v) => v, .None => return(false));
   some_undroppable := match(
-    v.ty,
+    &v.ty,
     Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
     _ => false
   );

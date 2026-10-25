@@ -308,7 +308,7 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
           .None => false
         );
         if(is_ct_const, {
-          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => ei5.ty), &context.base)));
+          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => Rc.clone(ei5.ty)), &context.base)));
         });
         // By the SOURCE TOKEN, as the general path below reads a plain
         // identifier: a bare reference used as a cond/match arm value can
@@ -729,7 +729,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base), .None => String.from("")));
+            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &context.base), .None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           //
@@ -787,7 +787,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
         match(ei.value, .Some(v) => !is_unknown_val(&v), .None => false) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base),
+          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => Rc.clone(ei.ty)), &context.base),
           .None => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
         ),
         true => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)

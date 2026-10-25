@@ -25,7 +25,7 @@ _carries_trait_value :: (fn(t : &TypeValue) -> bool)(
 _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   src_req := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types : r })) => r, _ => no_types());
-  tgt_req := match(tgt, Rc(.DynT({ required_trait_types : r })) => r, _ => no_types());
+  tgt_req := match(tgt, Rc(.DynT({ required_trait_types : r })) => Rc.clone(r), _ => no_types());
   (ti : usize) = usize(0);
   while(ti < tgt_req.len(), {
     tt := match(tgt_req.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
