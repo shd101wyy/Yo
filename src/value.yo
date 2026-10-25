@@ -215,6 +215,16 @@ EvalValue :: ref(
     UnknownVal(ty : TypeValue, is_runtime_only : bool)
   )
 );
+/// `EvalValue` is a `ref(...)`: every copy of one is a second handle to the same
+/// object, so its `clone` is that handle copy too. It lets a value aggregate
+/// holding an `EvalValue` beside a counted handle `derive(..., Clone)` (decision 17,
+/// plans/VALUES_BY_DEFAULT.md V2c).
+impl(
+  EvalValue,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(self)
+  )
+);
 /// Element-wise equality for `EvalValue`.
 ///
 /// Implemented manually (not via `derive`) because `derive(EvalValue, Eq)` would
