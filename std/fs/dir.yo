@@ -140,7 +140,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
           (errno == i32(ENOENT)) => {
             // Walk the path and create each component
             bytes := &path_s;
-            i := usize(1);
+            mut(i) := usize(1);
             // On Windows, skip past drive letter root (e.g., "C:\")
             // to avoid trying to mkdir "C:" which fails with EACCES
             cond(
@@ -291,7 +291,7 @@ read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))(
       },
       true => {
         target_bytes := ArrayList(u8).with_capacity(usize(n));
-        (rli : usize) = usize(0);
+        (mut(rli) : usize) = usize(0);
         while(rli < usize(n), rli = (rli + usize(1)), {
           target_bytes.push((buf.add(rli)).*);
         });
@@ -338,7 +338,7 @@ file_type :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, IoExn)))(
     // and the body's tail is the bare `ft`: a value-position `cond` whose
     // other arm throws emitted a read of an undeclared C temp here
     // (issues/fixed/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
-    (ft : FileType) = FileType.Other;
+    (mut(ft) : FileType) = FileType.Other;
     cond(
       (result >= i32(0)) => {
         ft = _statx_file_type(buf, buf_size);
@@ -406,7 +406,7 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
           break;
         },
         true => {
-          offset := usize(0);
+          mut(offset) := usize(0);
           while(offset < usize(n), {
             entry_ptr := buf.add(offset);
             name_ptr := IO_dir.dirent_name(entry_ptr);
@@ -431,13 +431,13 @@ read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn
     e.io.await(IO_file.close(fd), e.io);
     // Pass 2 — `d_type` to `FileType`.
     entries := ArrayList(DirEntry).new();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < raw.len(), {
       // The entry's fields are read where they live in `raw`; only the name
       // is copied out, once, into the owned `DirEntry`.
       dt := raw(i).dt;
       name := raw(i).name.clone();
-      (ft : FileType) = cond(
+      (mut(ft) : FileType) = cond(
         (dt == DT_REG) => FileType.File,
         (dt == DT_DIR) => FileType.Directory,
         (dt == DT_LNK) => FileType.Symlink,

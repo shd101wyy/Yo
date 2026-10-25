@@ -333,7 +333,7 @@ impl(
   ToString(
     to_string : (fn(self : &Self) -> String)({
       // char is a single byte, create a 2-byte buffer (char + null)
-      buffer := Array(u8, usize(2)).fill(0);
+      mut(buffer) := Array(u8, usize(2)).fill(0);
       buffer(0) = u8(self);
       buffer_ptr := addr_of(buffer(0));
       String.from_cstr(buffer_ptr).unwrap()
@@ -433,8 +433,8 @@ impl(
   ArrayList(T),
   ToString(
     to_string : (fn(self : &Self) -> String)({
-      (out : String) = `[`;
-      (i : usize) = usize(0);
+      (mut(out) : String) = `[`;
+      (mut(i) : usize) = usize(0);
       n := self.len();
       while(i < n, {
         cond(
@@ -457,8 +457,8 @@ impl(
   Array(T, N),
   ToString(
     to_string : (fn(self : &Self) -> String)({
-      (out : String) = `[`;
-      (i : usize) = usize(0);
+      (mut(out) : String) = `[`;
+      (mut(i) : usize) = usize(0);
       while(i < N, {
         cond(
           (i > usize(0)) => {

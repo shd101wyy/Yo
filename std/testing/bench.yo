@@ -163,10 +163,10 @@ bench :: (fn(name : &String, iterations : u64, body : &Impl(Fn() -> unit)) -> Be
   if(iterations == u64(0), {
     __yo_panic("bench: iterations must be >= 1");
   });
-  total_ns := i64(0);
-  min_ns := i64(9223372036854775807); // i64::MAX
-  max_ns := i64(0);
-  i := u64(0);
+  mut(total_ns) := i64(0);
+  mut(min_ns) := i64(9223372036854775807); // i64::MAX
+  mut(max_ns) := i64(0);
+  mut(i) := u64(0);
   while(i < iterations, i = (i + u64(1)), {
     t_start := Instant.now();
     body();
@@ -233,8 +233,8 @@ _PILOT_MAX_ITERS :: u64(1048576);
 /// minutes on a CI runner under sanitizers. Extrapolating from the wall time of
 /// the thing actually being repeated cannot make that mistake.
 bench_auto :: (fn(name : &String, body : &Impl(Fn() -> unit)) -> BenchResult)({
-  (pilot_iters : u64) = u64(64);
-  (wall_ns : i64) = i64(0);
+  (mut(pilot_iters) : u64) = u64(64);
+  (mut(wall_ns) : i64) = i64(0);
   while(true, {
     t_start := Instant.now();
     _pilot := bench(name, pilot_iters, body);

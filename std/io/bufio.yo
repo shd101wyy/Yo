@@ -75,7 +75,7 @@ BufWriter :: (fn(comptime(W) : Type) -> comptime(Type))(
 /// A `capacity`-long zeroed byte buffer (`ArrayList` used as fixed storage).
 _zeroed :: (fn(capacity : usize) -> ArrayList(u8))({
   b := ArrayList(u8).with_capacity(capacity);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < capacity, i = (i + usize(1)), {
     b.push(u8(0));
   });
@@ -116,12 +116,12 @@ impl(
   read_line : (fn(self : &Self, io : Io) -> Impl(Future(Option(String), IoExn)))(
     io.async(e => {
       line_bytes := ArrayList(u8).new();
-      (found_newline : bool) = false;
-      (hit_eof : bool) = false;
+      (mut(found_newline) : bool) = false;
+      (mut(hit_eof) : bool) = false;
       while(!found_newline && !hit_eof, {
         cond(
           (self._pos < self._filled) => {
-            scan := self._pos;
+            mut(scan) := self._pos;
             while((scan < self._filled) && !found_newline, {
               b := self._buf(scan);
               cond(
@@ -159,7 +159,7 @@ impl(
   read_exact : (fn(self : &Self, n : usize, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn)))(
     io.async(e => {
       result := ArrayList(u8).new();
-      (hit_eof : bool) = false;
+      (mut(hit_eof) : bool) = false;
       while((result.len() < n) && !hit_eof, {
         cond(
           (self._pos < self._filled) => {
@@ -190,14 +190,14 @@ impl(
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        (out : usize) = usize(0);
-        (done : bool) = false;
+        (mut(out) : usize) = usize(0);
+        (mut(done) : bool) = false;
         // Serve buffered bytes first.
         available := (self._filled - self._pos);
         cond(
           (available > usize(0)) => {
             to_copy := cond((available < size) => available, true => size);
-            (i : usize) = usize(0);
+            (mut(i) : usize) = usize(0);
             while(i < to_copy, i = (i + usize(1)), {
               (buf.add(i)).* = self._buf(self._pos + i);
             });
@@ -220,7 +220,7 @@ impl(
           !done => {
             got := e.io.await(Self._fill(self, io), e);
             to_copy := cond((got < size) => got, true => size);
-            (j : usize) = usize(0);
+            (mut(j) : usize) = usize(0);
             while(j < to_copy, j = (j + usize(1)), {
               (buf.add(j)).* = self._buf(j);
             });
@@ -304,7 +304,7 @@ impl(
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        (src_pos : usize) = usize(0);
+        (mut(src_pos) : usize) = usize(0);
         while(src_pos < size, {
           space := (self._capacity - self._buf.len());
           cond(
@@ -314,7 +314,7 @@ impl(
             true => {
               remaining := (size - src_pos);
               to_copy := cond((remaining < space) => remaining, true => space);
-              (i : usize) = usize(0);
+              (mut(i) : usize) = usize(0);
               while(i < to_copy, i = (i + usize(1)), {
                 self._buf.push((buf.add(src_pos + i)).*);
               });

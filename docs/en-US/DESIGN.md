@@ -585,8 +585,8 @@ closure's capture-list entry take no `mut` either; a body that changes one
 rebinds it.
 
 `yo fix <path> --migrate mut-bindings` inserts the markers in older code. In
-this release the rule is enforced outside `std/` and the compiler's own
-sources, which the released seed still builds.
+this release the rule is enforced everywhere except the compiler's own
+sources, which the next release migrates; `std/` is migrated and checked too.
 
 > `mut` is a reserved word: it wraps a binding's name (`mut(x) := v`) and follows `&` (`&mut T` in a slot, `&mut x` at a call site); a binding or parameter named `mut` is an error. `imm` is no longer a keyword.
 

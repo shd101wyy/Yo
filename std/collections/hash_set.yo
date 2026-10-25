@@ -185,8 +185,8 @@ impl(
     cond(
       (self.len() > other.len()) => false,
       true => {
-        is_sub := true;
-        it := self.iter();
+        mut(is_sub) := true;
+        mut(it) := self.iter();
         while(true, {
           match(
             it.next(),
@@ -218,8 +218,8 @@ impl(
   is_disjoint : (fn(self : &Self, other : &Self) -> bool)({
     smaller := cond((self.len() <= other.len()) => self, true => other);
     larger := cond((self.len() <= other.len()) => other, true => self);
-    result := true;
-    it := smaller.iter();
+    mut(result) := true;
+    mut(it) := smaller.iter();
     while(true, {
       match(
         it.next(),
@@ -239,7 +239,7 @@ impl(
   /// Every element of either set.
   union : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     out := Self.new();
-    it := self.iter();
+    mut(it) := self.iter();
     while(true, {
       match(
         it.next(),
@@ -257,7 +257,7 @@ impl(
         }
       );
     });
-    it2 := other.iter();
+    mut(it2) := other.iter();
     while(true, {
       match(
         it2.next(),
@@ -280,7 +280,7 @@ impl(
   /// Elements present in BOTH sets.
   intersection : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     out := Self.new();
-    it := self.iter();
+    mut(it) := self.iter();
     while(true, {
       match(
         it.next(),
@@ -308,7 +308,7 @@ impl(
   /// Elements in `self` that are NOT in `other`.
   difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     out := Self.new();
-    it := self.iter();
+    mut(it) := self.iter();
     while(true, {
       match(
         it.next(),
@@ -336,7 +336,7 @@ impl(
   /// Elements in exactly one of the two sets.
   symmetric_difference : (fn(self : &Self, other : &Self) -> Result(Self, HashSetError))({
     out := Self.new();
-    it := self.iter();
+    mut(it) := self.iter();
     while(true, {
       match(
         it.next(),
@@ -359,7 +359,7 @@ impl(
         }
       );
     });
-    it2 := other.iter();
+    mut(it2) := other.iter();
     while(true, {
       match(
         it2.next(),

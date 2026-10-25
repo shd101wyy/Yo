@@ -113,7 +113,7 @@ impl(
   /// The first value for `name`, or `.None`. Case-insensitive.
   get : (fn(self : &Self, name : &String) -> Option(String))({
     lower := name.to_lowercase();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
       h := self._entries(i);
       cond(
@@ -130,7 +130,7 @@ impl(
   get_all : (fn(self : &Self, name : &String) -> ArrayList(String))({
     lower := name.to_lowercase();
     out := ArrayList(String).new();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
       h := self._entries(i);
       cond(
@@ -164,8 +164,8 @@ impl(
   remove : (fn(self : &mut Self, name : &String) -> usize)({
     lower := name.to_lowercase();
     kept := ArrayList(HttpHeader).new();
-    (removed : usize) = usize(0);
-    (i : usize) = usize(0);
+    (mut(removed) : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
       h := self._entries(i);
       cond(
@@ -184,7 +184,7 @@ impl(
   /// snapshot: pushing to it does not change the map.
   entries : (fn(self : &Self) -> ArrayList(HttpHeader))({
     out := ArrayList(HttpHeader).new();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < self._entries.len(), i = (i + usize(1)), {
       out.push(self._entries(i));
     });
@@ -198,8 +198,8 @@ impl(
     /// WITHOUT the blank line that terminates the section (the message
     /// serializers add that, since they also append `Content-Length`).
     to_string : (fn(self : &Self) -> String)({
-      out := String.new();
-      (i : usize) = usize(0);
+      mut(out) := String.new();
+      (mut(i) : usize) = usize(0);
       while(i < self._entries.len(), i = (i + usize(1)), {
         h := self._entries(i);
         out = `${out}${h.name}: ${h.value}\r\n`;
@@ -264,7 +264,7 @@ impl(
   ToString(
     /// Serialize the request to an HTTP/1.1 wire-format string.
     to_string : (fn(self : &Self) -> String)({
-      result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
+      mut(result) := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
       result = `${result}\r\n`;
       cond(
         !self.body.is_empty() => {
@@ -514,7 +514,7 @@ impl(
     /// when none is present (the byte length of `body`), so the peer can
     /// delimit the message without waiting for close.
     to_string : (fn(self : &Self) -> String)({
-      result := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
+      mut(result) := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
       cond(
         self.get_header(`Content-Length`).is_none() => {
           result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
@@ -574,7 +574,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
     ((header_end + usize(4)) <= raw.len()) => {
       raw_b := &raw;
       body_b := ArrayList(u8).new();
-      bi := (header_end + usize(4));
+      mut(bi) := (header_end + usize(4));
       while(bi < raw_b.len(), {
         body_b.push(raw_b.byte_at(bi));
         bi = (bi + usize(1));
@@ -634,7 +634,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   );
   resp := HttpResponse.new(status, &status_text);
   resp.version = version;
-  j := usize(1);
+  mut(j) := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
     // The header line is read where it lives in `lines`: no copy of it.
     cond(
@@ -671,7 +671,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     ((header_end + usize(4)) <= raw.len()) => {
       raw_b := &raw;
       body_b := ArrayList(u8).new();
-      bi := (header_end + usize(4));
+      mut(bi) := (header_end + usize(4));
       while(bi < raw_b.len(), {
         body_b.push(raw_b.byte_at(bi));
         bi = (bi + usize(1));
@@ -710,7 +710,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     true => ()
   );
   req := HttpRequest.new(method, &parts(usize(1)));
-  j := usize(1);
+  mut(j) := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
     // Read in place; only the error copies the line out.
     match(

@@ -54,7 +54,7 @@ _build_entity_map :: (fn() -> HashMap(String, String))({
   zero := u8(48);
   nine := u8(57);
   n := bytes.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     // Entity name: bytes up to the ','.
     (name_start : usize) = i;
@@ -64,10 +64,10 @@ _build_entity_map :: (fn() -> HashMap(String, String))({
     name := String.from_bytes(bytes.slice_copy(name_start .. i));
     i = (i + usize(1));
     // 1..2 decimal code points, ','-separated, ';'-terminated.
-    (value : String) = ``;
-    (record_done : bool) = false;
+    (mut(value) : String) = ``;
+    (mut(record_done) : bool) = false;
     while(!record_done, {
-      (cp : i32) = i32(0);
+      (mut(cp) : i32) = i32(0);
       while((bytes(i) >= zero) && (bytes(i) <= nine), {
         cp = ((cp * i32(10)) + i32(bytes(i) - zero));
         i = (i + usize(1));
@@ -96,7 +96,7 @@ _build_legacy_set :: (fn() -> HashSet(String))({
   bytes := data.to_bytes();
   comma := u8(44);
   n := bytes.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     (name_start : usize) = i;
     while((i < n) && (bytes(i) != comma), {

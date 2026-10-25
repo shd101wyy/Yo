@@ -78,7 +78,7 @@ _is_digit :: (fn(c : rune) -> bool)(
 );
 /// Append `count` copies of `r` to `sb`.
 _pad_runes :: (fn(sb : &mut StringBuilder, r : rune, count : usize) -> unit)({
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < count, i = (i + usize(1)), {
     sb.write_rune(r);
   });
@@ -139,11 +139,11 @@ impl(
   /// rejected, so a malformed spec degrades to plain `to_string()` output
   /// instead of failing at runtime.
   parse : (fn(s : str) -> Self)({
-    (out : Self) = Self.empty();
+    (mut(out) : Self) = Self.empty();
     chars := ArrayList(rune).new();
     {
       text := String.from(s);
-      it := text.chars();
+      mut(it) := text.chars();
       while(true, {
         match(
           it.next(),
@@ -157,7 +157,7 @@ impl(
       });
     };
     n := chars.len();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     // [[fill]align] — a fill character is only recognised when an alignment
     // follows it, which is what lets `08` mean zero-pad rather than fill `0`.
     if((i + usize(1)) < n, {
@@ -207,7 +207,7 @@ impl(
     if(i < n, {
       if(chars(i).char == u32(0x2E), {
         i = (i + usize(1));
-        (p : usize) = usize(0);
+        (mut(p) : usize) = usize(0);
         while((i < n) && _is_digit(chars(i)), {
           p = ((p * usize(10)) + usize(u32(chars(i).char - u32(0x30))));
           i = (i + usize(1));
@@ -264,7 +264,7 @@ impl(
         sb.to_string()
       },
       true => {
-        (whole : String) = String.new();
+        (mut(whole) : String) = String.new();
         whole.push_string(sign);
         whole.push_string(prefix);
         whole.push_string(digits);

@@ -33,8 +33,8 @@ _rotl32 :: (fn(x : u32, n : u32) -> u32)(
 );
 /// One 64-byte block: the 80-round compression over `h[0..5]`.
 _sha1_block :: (fn(block : *u8, h : *u32) -> unit)({
-  w := Array(u32, usize(80)).fill(u32(0));
-  (t : usize) = usize(0);
+  mut(w) := Array(u32, usize(80)).fill(u32(0));
+  (mut(t) : usize) = usize(0);
   while(t < usize(16), t = (t + usize(1)), {
     b0 := u32((block.add(t * usize(4))).*);
     b1 := u32((block.add((t * usize(4)) + usize(1))).*);
@@ -45,15 +45,15 @@ _sha1_block :: (fn(block : *u8, h : *u32) -> unit)({
   while(t < usize(80), t = (t + usize(1)), {
     w(t) = _rotl32(w(t - usize(3)) ^ w(t - usize(8)) ^ (w(t - usize(14)) ^ w(t - usize(16))), u32(1));
   });
-  a := (h.add(usize(0))).*;
-  b := (h.add(usize(1))).*;
-  c := (h.add(usize(2))).*;
-  d := (h.add(usize(3))).*;
-  e := (h.add(usize(4))).*;
-  (i : usize) = usize(0);
+  mut(a) := (h.add(usize(0))).*;
+  mut(b) := (h.add(usize(1))).*;
+  mut(c) := (h.add(usize(2))).*;
+  mut(d) := (h.add(usize(3))).*;
+  mut(e) := (h.add(usize(4))).*;
+  (mut(i) : usize) = usize(0);
   while(i < usize(80), i = (i + usize(1)), {
-    (f : u32) = u32(0);
-    (k : u32) = u32(0);
+    (mut(f) : u32) = u32(0);
+    (mut(k) : u32) = u32(0);
     cond(
       (i < usize(20)) => {
         f = ((b & c) | (~b & d));
@@ -110,7 +110,7 @@ impl(
   /// Buffers a partial 64-byte block, so how the input is split cannot
   /// change the digest.
   update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
       self._buflen = (self._buflen + usize(1));
@@ -163,8 +163,8 @@ impl(
     buf_ptr := addr_of(self._buf(usize(0)));
     h_ptr := addr_of(self._h(usize(0)));
     _sha1_block(buf_ptr, h_ptr);
-    digest := Array(u8, usize(20)).fill(u8(0));
-    j := usize(0);
+    mut(digest) := Array(u8, usize(20)).fill(u8(0));
+    mut(j) := usize(0);
     while(j < usize(5), j = (j + usize(1)), {
       word := self._h(j);
       digest(j * usize(4)) = u8(word >> u32(24));
@@ -187,7 +187,7 @@ impl(
     finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
       out := ArrayList(u8).with_capacity(usize(20));
-      (fbi : usize) = usize(0);
+      (mut(fbi) : usize) = usize(0);
       while(fbi < usize(20), fbi = (fbi + usize(1)), {
         out.push(d(fbi));
       });
@@ -214,7 +214,7 @@ sha1 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(20)))(
 sha1_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := sha1(data);
   bytes := ArrayList(u8).with_capacity(usize(20));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(20), i = (i + usize(1)), {
     bytes.push(digest(i));
   });

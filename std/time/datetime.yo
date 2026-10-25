@@ -163,7 +163,7 @@ _from_unix_secs :: (fn(secs : i64, nanos : i64) -> DateTime)({
     true => ((z - i64(146096)) / i64(146097))
   );
   doe := (z - (era * i64(146097)));
-  yoe := (((doe - (doe / i64(1460))) + (doe / i64(36524))) - (doe / i64(146096)));
+  mut(yoe) := (((doe - (doe / i64(1460))) + (doe / i64(36524))) - (doe / i64(146096)));
   yoe = (yoe / i64(365));
   y := (yoe + (era * i64(400)));
   doy := (doe - (((i64(365) * yoe) + (yoe / i64(4))) - (yoe / i64(100))));
@@ -261,7 +261,7 @@ impl(
       true => panic(`DateTime.now: clock_gettime(CLOCK_REALTIME) failed (rc=${status})`)
     );
     off := _local_utc_offset(sec);
-    (local : DateTime) = _from_unix_secs(sec + i64(off), nsec);
+    (mut(local) : DateTime) = _from_unix_secs(sec + i64(off), nsec);
     local.utc_offset_secs = off;
     local
   }),
@@ -322,8 +322,8 @@ impl(
     m := i32(self.month);
     d := i32(self.day);
     // Sum days in preceding months
-    days := d;
-    i := i32(1);
+    mut(days) := d;
+    mut(i) := i32(1);
     while(i < m, i = (i + i32(1)), {
       idx := usize(i - i32(1));
       days = (days + i32(_DAYS_IN_MONTH(idx)));
@@ -470,8 +470,8 @@ _validate :: (fn(dt : DateTime) -> Option(DateTimeError))(
 );
 /// Parse exactly `count` ASCII digits at `at`; .None on any non-digit.
 _digits :: (fn(bs : &ArrayList(u8), at : usize, count : usize) -> Option(i64))({
-  (acc : i64) = i64(0);
-  (i : usize) = usize(0);
+  (mut(acc) : i64) = i64(0);
+  (mut(i) : usize) = usize(0);
   while(i < count, i = (i + usize(1)), {
     b := match(bs.get(at + i), .Some(x) => x, .None => u8(0));
     cond(
@@ -535,15 +535,15 @@ impl(
     minute := match(_digits(&bs, usize(14), usize(2)), .Some(v) => v, .None => return(err(usize(14))));
     if(!_byte_is(&bs, usize(16), colon, colon), return(err(usize(16))));
     second := match(_digits(&bs, usize(17), usize(2)), .Some(v) => v, .None => return(err(usize(17))));
-    (at : usize) = usize(19);
-    (nanos : i64) = i64(0);
+    (mut(at) : usize) = usize(19);
+    (mut(nanos) : i64) = i64(0);
     // Optional fraction: '.' then 1+ digits.
     cond(
       _byte_is(&bs, at, u8(46), u8(46)) => {
         at = (at + usize(1));
-        (digits_seen : usize) = usize(0);
-        (scale : i64) = i64(100000000);
-        (going : bool) = true;
+        (mut(digits_seen) : usize) = usize(0);
+        (mut(scale) : i64) = i64(100000000);
+        (mut(going) : bool) = true;
         while(going, {
           b := match(bs.get(at), .Some(x) => x, .None => u8(0));
           cond(
@@ -565,7 +565,7 @@ impl(
       true => ()
     );
     // Offset: 'Z'/'z' or ±HH:MM. REQUIRED by the grammar.
-    (offset : i32) = i32(0);
+    (mut(offset) : i32) = i32(0);
     cond(
       _byte_is(&bs, at, u8(90), u8(122)) => {
         at = (at + usize(1));
@@ -610,8 +610,8 @@ impl(
   }),
   /// This value shifted backward by `d`.
   sub : (fn(self : &Self, d : Duration) -> Self)({
-    (nanos : i64) = (i64(self.nanosecond) - (d.as_nanos() % i64(1000000000)));
-    (borrow : i64) = i64(0);
+    (mut(nanos) : i64) = (i64(self.nanosecond) - (d.as_nanos() % i64(1000000000)));
+    (mut(borrow) : i64) = i64(0);
     cond(
       (nanos < i64(0)) => {
         nanos = (nanos + i64(1000000000));

@@ -115,7 +115,7 @@ impl(
 /// keeps owning the handles; a pointer is valid while its handle is alive.
 _task_ptrs :: (fn(generic(T : Type), handles : &ArrayList(JoinHandle(T))) -> ArrayList(*void))({
   out := ArrayList(*void).with_capacity(handles.len());
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < handles.len(), i = (i + usize(1)), {
     out.push(handles(i).as_ptr());
   });
@@ -125,7 +125,7 @@ _task_ptrs :: (fn(generic(T : Type), handles : &ArrayList(JoinHandle(T))) -> Arr
 /// terminal already resolve it at once.
 _wait_any :: (fn(tasks : &ArrayList(*void)) -> IoFuture)({
   w := unsafe(__yo_join_wait_new());
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < tasks.len(), i = (i + usize(1)), {
     unsafe(__yo_join_wait_add(&w, tasks(i)));
   });
@@ -177,8 +177,8 @@ race :: (
     hs := handles;
     tasks := _task_ptrs(&hs);
     _w := io.await(_wait_any(&tasks), io);
-    (winner : Option(usize)) = Option(usize).None;
-    (i : usize) = usize(0);
+    (mut(winner) : Option(usize)) = Option(usize).None;
+    (mut(i) : usize) = usize(0);
     while((i < hs.len()) && winner.is_none(), i = (i + usize(1)), {
       if(hs(i).is_finished(), {
         winner = Option(usize).Some(i);
@@ -197,14 +197,14 @@ any :: (
   assert(handles.len() > usize(0), "any: empty handle list");
   io.async({ handles }(io : Io) => {
     hs := handles;
-    (result : Option(usize)) = Option(usize).None;
-    (decided : bool) = false;
+    (mut(result) : Option(usize)) = Option(usize).None;
+    (mut(decided) : bool) = false;
     while(decided == false, {
       // Every task still running; the wait below resolves when one of
       // THESE ends, so an already-terminal (aborted) task cannot keep
       // resolving it at once.
       pending := ArrayList(*void).new();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while((i < hs.len()) && (decided == false), i = (i + usize(1)), {
         s := hs(i).state();
         cond(
@@ -238,7 +238,7 @@ _settle :: (
 )(
   io.async({ handles, winner }(io : Io) => {
     hs := handles;
-    (out : Option(T)) = Option(T).None;
+    (mut(out) : Option(T)) = Option(T).None;
     // `pop` drains from the back: the popped handle's index is the length
     // after the pop.
     while(hs.len() > usize(0), {
@@ -412,7 +412,7 @@ timeout :: (
     // is annotated, so its type comes from `T`, not from the spawn
     // (issues/fixed/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
     (h : JoinHandle(T)) = unsafe(io.spawn(fut, io));
-    child := _scope(h);
+    mut(child) := _scope(h);
     // The deadline is a spawned TASK, not a bare io-timer future: a raw
     // `IoFuture` local would be auto-dropped at scope end while the backend
     // still holds the armed timer (issues/fixed/pending-io-future-local-drop-uaf.md);
@@ -421,7 +421,7 @@ timeout :: (
       io.await(IO_timer.sleep(ms.*), io);
       return(());
     });
-    deadline := _scope(io.spawn(deadline_fut, io));
+    mut(deadline) := _scope(io.spawn(deadline_fut, io));
     // One wait over the operand and the deadline: resolves when either ends.
     w := unsafe(__yo_join_wait_new());
     _scoped_wait_on(&child, &w);
@@ -489,11 +489,11 @@ select :: (
     // Spawned under `unsafe` as in `timeout`: `_Scoped` keeps either task
     // from outliving this future.
     (ha : JoinHandle(A)) = unsafe(io.spawn(first, io));
-    a := _scope(ha);
+    mut(a) := _scope(ha);
     (hb : JoinHandle(B)) = unsafe(io.spawn(second, io));
-    b := _scope(hb);
+    mut(b) := _scope(hb);
     // 0: undecided, 1: the first completed, 2: the second, 3: both aborted.
-    (decided : u8) = u8(0);
+    (mut(decided) : u8) = u8(0);
     while(decided == u8(0), {
       sa := _scoped_state(&a);
       sb := _scoped_state(&b);

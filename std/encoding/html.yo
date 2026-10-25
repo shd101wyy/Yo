@@ -85,8 +85,8 @@ _is_legacy_entity :: (fn(name : &String) -> bool)({
 });
 // Parse a hex string to i32
 _parse_hex :: (fn(s : &String) -> i32)({
-  (result : i32) = i32(0);
-  it := s.chars();
+  (mut(result) : i32) = i32(0);
+  mut(it) := s.chars();
   while(true, {
     match(
       it.next(),
@@ -94,7 +94,7 @@ _parse_hex :: (fn(s : &String) -> i32)({
         break;
       },
       .Some(c) => {
-        (digit : i32) = i32(0);
+        (mut(digit) : i32) = i32(0);
         if((c >= rune(u32('0'))) && (c <= rune(u32('9'))), {
           digit = (i32(c.to_u32()) - i32(48));
         }, if((c >= rune(u32('a'))) && (c <= rune(u32('f'))), {
@@ -121,8 +121,8 @@ _parse_hex :: (fn(s : &String) -> i32)({
 });
 // Parse a decimal string to i32
 _parse_dec :: (fn(s : &String) -> i32)({
-  (result : i32) = i32(0);
-  it := s.chars();
+  (mut(result) : i32) = i32(0);
+  mut(it) := s.chars();
   while(true, {
     match(
       it.next(),
@@ -161,7 +161,7 @@ _is_alpha_numeric :: (fn(c : rune) -> bool)(
 // ---------------------------------------------------------------------------
 _char_table :: (fn(s : &String) -> ArrayList(IterPair(usize, rune)))({
   out := ArrayList(IterPair(usize, rune)).new();
-  it := s.char_indices();
+  mut(it) := s.char_indices();
   while(true, {
     match(
       it.next(),
@@ -225,8 +225,8 @@ decode :: (fn(input : &String) -> String)({
   // Appended in place: rebuilding `result` through a template string per
   // character made the whole decode O(n²) (plans/archive/STD_API_STABILIZATION.md §3
   // item 14).
-  (result : String) = String.with_capacity(input.len());
-  (i : usize) = usize(0);
+  (mut(result) : String) = String.with_capacity(input.len());
+  (mut(i) : usize) = usize(0);
   while(i < len, {
     c := table(i)._1;
     if(c != rune(u32('&')), {
@@ -251,8 +251,8 @@ decode :: (fn(input : &String) -> String)({
             if((hex_char == rune(u32('x'))) || (hex_char == rune(u32('X'))), {
               // Hex: &#xHH;
               (digit_start : usize) = (i + usize(1));
-              (digit_end : usize) = digit_start;
-              (scanning : bool) = true;
+              (mut(digit_end) : usize) = digit_start;
+              (mut(scanning) : bool) = true;
               while(scanning && (digit_end < len), {
                 dc := table(digit_end)._1;
                 if(((dc >= rune(u32('0'))) && (dc <= rune(u32('9')))) || ((dc >= rune(u32('a'))) && (dc <= rune(u32('f')))) || ((dc >= rune(u32('A'))) && (dc <= rune(u32('F')))), {
@@ -286,8 +286,8 @@ decode :: (fn(input : &String) -> String)({
             }, {
               // Decimal: &#DD;
               (digit_start : usize) = i;
-              (digit_end : usize) = digit_start;
-              (scanning : bool) = true;
+              (mut(digit_end) : usize) = digit_start;
+              (mut(scanning) : bool) = true;
               while(scanning && (digit_end < len), {
                 dc := table(digit_end)._1;
                 if((dc >= rune(u32('0'))) && (dc <= rune(u32('9'))), {
@@ -321,8 +321,8 @@ decode :: (fn(input : &String) -> String)({
         }, {
           // Named entity: &name; or &name (legacy)
           (name_start : usize) = i;
-          (name_end : usize) = name_start;
-          (scanning : bool) = true;
+          (mut(name_end) : usize) = name_start;
+          (mut(scanning) : bool) = true;
           while(scanning && (name_end < len), {
             nc := table(name_end)._1;
             if(_is_alpha_numeric(nc), {
@@ -353,8 +353,8 @@ decode :: (fn(input : &String) -> String)({
             );
           }, {
             // Legacy mode: try progressively shorter names
-            (matched : bool) = false;
-            (try_end : usize) = name_end;
+            (mut(matched) : bool) = false;
+            (mut(try_end) : usize) = name_end;
             while((try_end > name_start) && !matched, {
               try_name := _slice_runes(input, &table, name_start, try_end);
               if(_is_legacy_entity(&try_name), {
@@ -392,10 +392,10 @@ decode :: (fn(input : &String) -> String)({
 /// `decode(encode(s)) == s` for any `s`
 /// (plans/archive/STD_API_AUDIT.md D2 + §7 P0).
 encode :: (fn(input : &String) -> String)({
-  out := String.with_capacity(input.len());
+  mut(out) := String.with_capacity(input.len());
   bytes := &input;
   n := bytes.len();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(

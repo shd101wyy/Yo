@@ -66,8 +66,8 @@ impl(
   /// that is an ordinary root with a redundant separator.
   new : (fn(path_str : &String) -> Self)({
     segments := ArrayList(String).new();
-    (prefix : String) = String.new();
-    (is_abs : bool) = false;
+    (mut(prefix) : String) = String.new();
+    (mut(is_abs) : bool) = false;
     // Handle empty path early
     cond(
       path_str.is_empty() => {
@@ -81,7 +81,7 @@ impl(
     // Normalize backslashes to forward slashes for cross-platform support
     normalized := path_str.replace_all(String.from("\\"), String.from("/"));
     // Windows drive letter (`C:`): the root marker, not a segment.
-    (is_drive : bool) = false;
+    (mut(is_drive) : bool) = false;
     cond(
       (normalized.len() >= usize(2)) => {
         b0 := normalized.byte_at(usize(0));
@@ -93,8 +93,8 @@ impl(
     );
     // `unc_take` diverts the first two non-empty components (server, share)
     // into the prefix; everything after them is an ordinary segment.
-    (unc_take : usize) = usize(0);
-    (body : String) = normalized.clone();
+    (mut(unc_take) : usize) = usize(0);
+    (mut(body) : String) = normalized.clone();
     cond(
       is_unc => {
         is_abs = true;
@@ -114,7 +114,7 @@ impl(
     parts := body.split(&sep);
     dot := String.from(".");
     // Process each part
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < parts.len(), i = (i + usize(1)), {
       part_opt := parts.get(i);
       match(
@@ -187,7 +187,7 @@ impl(
     // Otherwise, concatenate segments
     new_segments := ArrayList(String).with_capacity(self._segments.len() + other._segments.len());
     // Copy self segments
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < self._segments.len(), i = (i + usize(1)), {
       seg := self._segments.get(i);
       match(
@@ -199,7 +199,7 @@ impl(
       );
     });
     // Copy other segments
-    j := usize(0);
+    mut(j) := usize(0);
     while(j < other._segments.len(), j = (j + usize(1)), {
       seg := other._segments.get(j);
       match(
@@ -227,14 +227,14 @@ impl(
   normalize : (fn(self : &Self) -> Self)({
     out := ArrayList(String).with_capacity(self._segments.len());
     dotdot := String.from("..");
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < self._segments.len(), i = (i + usize(1)), {
       seg := self._segments.get(i).unwrap_or(String.new());
       cond(
         (seg == dotdot) => {
           // Only a NORMAL component can be popped; a `..` already on the
           // output is a component this path could not resolve either.
-          (top_is_dotdot : bool) = false;
+          (mut(top_is_dotdot) : bool) = false;
           cond(
             (out.len() > usize(0)) => {
               top_is_dotdot = (out.last().unwrap_or(String.new()) == dotdot);
@@ -268,7 +268,7 @@ impl(
       true => ()
     );
     new_segments := ArrayList(String).with_capacity(self._segments.len() - usize(1));
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
       seg := self._segments.get(i);
       match(
@@ -375,7 +375,7 @@ impl(
         new_name := stem.concat(&dot).concat(ext);
         // Replace the last segment
         new_segments := ArrayList(String).with_capacity(self._segments.len());
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
           seg := self._segments.get(i);
           match(
@@ -407,7 +407,7 @@ impl(
     );
     // Replace the last segment
     new_segments := ArrayList(String).with_capacity(self._segments.len());
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < (self._segments.len() - usize(1)), i = (i + usize(1)), {
       seg := self._segments.get(i);
       match(
@@ -444,7 +444,7 @@ impl(
       true => ()
     );
     // Check if all base segments match
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < base._segments.len(), i = (i + usize(1)), {
       self_seg_opt := self._segments.get(i);
       base_seg_opt := base._segments.get(i);
@@ -508,7 +508,7 @@ impl(
     suffix_len := suffix._segments.len();
     self_len := self._segments.len();
     offset := (self_len - suffix_len);
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < suffix_len, i = (i + usize(1)), {
       self_seg_opt := self._segments.get(offset + i);
       suffix_seg_opt := suffix._segments.get(i);
@@ -552,7 +552,7 @@ impl(
       true => ()
     );
     // Add all segments
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < self._segments.len(), i = (i + usize(1)), {
       seg := self._segments.get(i);
       match(
@@ -587,7 +587,7 @@ impl(
       true => ()
     );
     segments := ArrayList(String).new();
-    (j : usize) = base._segments.len();
+    (mut(j) : usize) = base._segments.len();
     while(j < self._segments.len(), {
       match(
         self._segments.get(j),
@@ -623,8 +623,8 @@ impl(
       },
       true => ()
     );
-    (common : usize) = usize(0);
-    (matching : bool) = true;
+    (mut(common) : usize) = usize(0);
+    (mut(matching) : bool) = true;
     while(matching && (common < base._segments.len()) && (common < self._segments.len()), {
       b := match(base._segments.get(common), .Some(x) => x, .None => String.new());
       t := match(self._segments.get(common), .Some(x) => x, .None => String.new());
@@ -638,12 +638,12 @@ impl(
       );
     });
     segments := ArrayList(String).new();
-    (i : usize) = common;
+    (mut(i) : usize) = common;
     while(i < base._segments.len(), {
       segments.push(String.from(".."));
       i = (i + usize(1));
     });
-    (j : usize) = common;
+    (mut(j) : usize) = common;
     while(j < self._segments.len(), {
       match(
         self._segments.get(j),
@@ -663,7 +663,7 @@ impl(
     to_string : (
       self -> {
         segments := &self._segments;
-        result := String.new();
+        mut(result) := String.new();
         // A relative path with no segments is the CURRENT DIRECTORY and must
         // render as "." — `stat("")` is ENOENT, which made `yo test .` /
         // `yo check .` fail with a bare "file or directory not found". This
@@ -694,7 +694,7 @@ impl(
           },
           true => ()
         );
-        i := usize(0);
+        mut(i) := usize(0);
         segments_len := segments.len();
         while(i < segments_len, i = (i + usize(1)), {
           seg := segments.get(i);
@@ -745,7 +745,7 @@ impl(
           true => ()
         );
         // Compare each segment
-        i := usize(0);
+        mut(i) := usize(0);
         while(i < self._segments.len(), i = (i + usize(1)), {
           self_seg_opt := self._segments.get(i);
           other_seg_opt := other._segments.get(i);
@@ -784,7 +784,7 @@ impl(
     clone : (fn(self : &Self) -> Self)({
       segments := ArrayList(String).with_capacity(self._segments.len());
       (n : usize) = self._segments.len();
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       // Cloned in place through the `&String` projection, never copied out
       // through `get` first (as `ArrayList.clone`).
       while(i < n, i = (i + usize(1)), {
@@ -811,7 +811,7 @@ impl(
       hasher.write_u8(u8(47));
       (n : usize) = self._segments.len();
       hasher.write_usize(n);
-      (i : usize) = usize(0);
+      (mut(i) : usize) = usize(0);
       while(i < n, {
         match(
           self._segments.get(i),
@@ -873,7 +873,7 @@ impl(
   Path,
   ancestors : (fn(self : &Self) -> ArrayList(Self))({
     out := ArrayList(Self).new();
-    cur := self.clone();
+    mut(cur) := self.clone();
     out.push(cur.clone());
     while(true, {
       nxt := cur.parent();
@@ -921,7 +921,7 @@ export(Path);
 split_paths :: (fn(s : &String) -> ArrayList(Path))({
   parts := s.split(rune(u32(PATH_DELIMITER)));
   out := ArrayList(Path).new();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < parts.len(), i = (i + usize(1)), {
     part := parts.get(i).unwrap_or(String.new());
     cond(
@@ -935,8 +935,8 @@ split_paths :: (fn(s : &String) -> ArrayList(Path))({
 });
 /// Join paths back into a `PATH`-style string with the platform delimiter.
 join_paths :: (fn(paths : &ArrayList(Path)) -> String)({
-  out := String.new();
-  i := usize(0);
+  mut(out) := String.new();
+  mut(i) := usize(0);
   while(i < paths.len(), i = (i + usize(1)), {
     p := paths.get(i).unwrap_or(Path.new(String.new()));
     if(i > usize(0), {

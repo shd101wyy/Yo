@@ -195,7 +195,7 @@ impl(
     ((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90))) || ((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95))
   ),
   _find_prev_char_start : (fn(self : &Self, pos : usize) -> usize)({
-    p := (pos - usize(1));
+    mut(p) := (pos - usize(1));
     while(p > usize(0), p = (p - usize(1)), {
       b := self._bytes(p);
       cond(
@@ -241,8 +241,8 @@ impl(
       self._flags.ignore_case => self._to_lower(cp),
       true => cp
     );
-    (found : bool) = false;
-    i := usize(0);
+    (mut(found) : bool) = false;
+    mut(i) := usize(0);
     while((i < cls.ranges.len()) && !found, i = (i + usize(1)), {
       r := cls.ranges(i);
       (low : u32) = cond(
@@ -262,7 +262,7 @@ impl(
     });
     cond(
       (!found && self._flags.ignore_case) => {
-        i2 := usize(0);
+        mut(i2) := usize(0);
         while((i2 < cls.ranges.len()) && !found, i2 = (i2 + usize(1)), {
           r := cls.ranges(i2);
           cond(
@@ -400,13 +400,13 @@ impl(
   // If required_end is not UNSET, only succeed when Match is found at exactly required_end.
   _run_sub_vm : (fn(self : &Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
     unset := usize.MAX;
-    sub_current := ArrayList(NfaThread).new();
-    sub_next := ArrayList(NfaThread).new();
+    mut(sub_current) := ArrayList(NfaThread).new();
+    mut(sub_next) := ArrayList(NfaThread).new();
     sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
     sub_seen.resize_with_byte(self._program.instructions.len(), int(0));
     initial := NfaThread.new(sub_start_pc, self._n_slots);
     self._add_thread(&mut sub_current, &initial, start_byte, &mut sub_seen);
-    sub_pos := start_byte;
+    mut(sub_pos) := start_byte;
     input_len := self._bytes.len();
     while(sub_pos <= input_len, {
       cond(
@@ -416,7 +416,7 @@ impl(
         true => ()
       );
       // Check for Match in current threads
-      st := usize(0);
+      mut(st) := usize(0);
       while(st < sub_current.len(), st = (st + usize(1)), {
         st_thread := sub_current(st);
         st_instr := self._program.instructions(st_thread.pc);
@@ -455,7 +455,7 @@ impl(
       // Clear seen
       sub_seen.fill_with_byte(int(0));
       // Process consuming instructions
-      st2 := usize(0);
+      mut(st2) := usize(0);
       while(st2 < sub_current.len(), st2 = (st2 + usize(1)), {
         st_thread := sub_current(st2);
         st_instr := self._program.instructions(st_thread.pc);
@@ -535,23 +535,23 @@ impl(
   /// the bytes it finds there and, for a valid pattern, fails to match.
   exec_at : (fn(self : &Self, start_byte : usize) -> VmMatch)({
     // Reuse pre-allocated seen buffers from the VM
-    current := ArrayList(NfaThread).new();
-    next := ArrayList(NfaThread).new();
+    mut(current) := ArrayList(NfaThread).new();
+    mut(next) := ArrayList(NfaThread).new();
     seen := self._seen;
     next_seen := self._next_seen;
-    deferred := ArrayList(DeferredThread).new();
+    mut(deferred) := ArrayList(DeferredThread).new();
     // Clear for this execution
     seen.fill_with_byte(int(0));
     next_seen.fill_with_byte(int(0));
     initial := NfaThread.new(usize(0), self._n_slots);
     self._add_thread(&mut current, &initial, start_byte, &mut seen);
-    best_match := VmMatch(matched : false, slots : ArrayList(usize).new());
-    byte_pos := start_byte;
+    mut(best_match) := VmMatch(matched : false, slots : ArrayList(usize).new());
+    mut(byte_pos) := start_byte;
     input_len := self._bytes.len();
     unset := usize.MAX;
     while(byte_pos <= input_len, {
-      (cur_cp : u32) = u32(0);
-      (char_byte_len : usize) = usize(0);
+      (mut(cur_cp) : u32) = u32(0);
+      (mut(char_byte_len) : usize) = usize(0);
       (at_end : bool) = (byte_pos >= input_len);
       cond(
         !at_end => {
@@ -566,7 +566,7 @@ impl(
       next_seen.fill_with_byte(int(0));
       // Process deferred threads targeting this byte_pos
       new_deferred := ArrayList(DeferredThread).new();
-      di := usize(0);
+      mut(di) := usize(0);
       while(di < deferred.len(), di = (di + usize(1)), {
         d := deferred(di);
         cond(
@@ -587,8 +587,8 @@ impl(
         true => ()
       );
       // Process each thread (priority order — first match wins in gen)
-      (found_match_in_gen : bool) = false;
-      t := usize(0);
+      (mut(found_match_in_gen) : bool) = false;
+      mut(t) := usize(0);
       while((t < current.len()) && !found_match_in_gen, t = (t + usize(1)), {
         thread := current(t);
         instr := self._program.instructions(thread.pc);
@@ -655,8 +655,8 @@ impl(
                     cond(
                       ((byte_pos + captured_len) <= input_len) => {
                         // Compare captured bytes against input at current position
-                        (bytes_match : bool) = true;
-                        bi := usize(0);
+                        (mut(bytes_match) : bool) = true;
+                        mut(bi) := usize(0);
                         while(bi < captured_len, bi = (bi + usize(1)), {
                           expected := self._bytes(gs + bi);
                           actual := self._bytes(byte_pos + bi);
@@ -732,7 +732,7 @@ impl(
             // Zero-width assertion: check if sub-pattern matches ending at current position
             sub_start := instr.target_a;
             positive := (instr.slot == usize(1));
-            (lb_matched : bool) = false;
+            (mut(lb_matched) : bool) = false;
             // Try each byte position backwards from byte_pos
             cond(
               (byte_pos == usize(0)) => {
@@ -746,7 +746,7 @@ impl(
               },
               true => {
                 // Try from byte_pos backwards to 0
-                (try_pos : usize) = byte_pos;
+                (mut(try_pos) : usize) = byte_pos;
                 while(!lb_matched, {
                   cond(
                     (try_pos == usize(0)) => {
@@ -763,7 +763,7 @@ impl(
                       // Skip UTF-8 continuation bytes (10xxxxxx)
                       cond(
                         (try_pos > usize(0)) => {
-                          tb := self._bytes(try_pos);
+                          mut(tb) := self._bytes(try_pos);
                           while(utf8.is_continuation(tb) && (try_pos > usize(0)), {
                             try_pos = (try_pos - usize(1));
                             tb = self._bytes(try_pos);

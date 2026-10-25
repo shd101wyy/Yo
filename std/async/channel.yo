@@ -172,7 +172,7 @@ impl(
   /// is handed back.
   send : (fn(self : &Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
     io.async((io : Io) => {
-      (waiting : bool) = true;
+      (mut(waiting) : bool) = true;
       while(waiting, {
         if(self._st.with(s => (s._closed || (s._recv_dropped || (s._buf.len() < s._capacity)))), {
           waiting = false;
@@ -202,7 +202,7 @@ impl(
   /// Resolves to `.None` once the channel is closed AND drained.
   recv : (fn(self : &Self, io : Io) -> Impl(Future(Option(T))))(
     io.async((io : Io) => {
-      (waiting : bool) = true;
+      (mut(waiting) : bool) = true;
       while(waiting, {
         if(self._st.with(s => ((s._buf.len() > usize(0)) || s._closed)), {
           waiting = false;
@@ -286,7 +286,7 @@ impl(
   _wake_one_receiver : (fn(self : &Self) -> unit)({
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
-    (woken : bool) = false;
+    (mut(woken) : bool) = false;
     while(!woken && (self._st.with(s => s._recv_waiters.len()) > usize(0)), {
       w := self._st.with_mut(s => s._recv_waiters.remove(usize(0)));
       w.wake();
@@ -297,7 +297,7 @@ impl(
   _wake_one_sender : (fn(self : &Self) -> unit)({
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
-    (woken : bool) = false;
+    (mut(woken) : bool) = false;
     while(!woken && (self._st.with(s => s._send_waiters.len()) > usize(0)), {
       w := self._st.with_mut(s => s._send_waiters.remove(usize(0)));
       w.wake();
@@ -329,7 +329,7 @@ impl(
   ),
   /// Buffer `value` (moved in). Internal: the callers check the capacity.
   _push : (fn(self : &Self, value : T) -> unit)({
-    slot := Option(T).Some(value);
+    mut(slot) := Option(T).Some(value);
     self._st.with_mut({ &mut slot }(s) => {
       match(slot.take(), .Some(v) => s._buf.push(v), .None => ());
     });

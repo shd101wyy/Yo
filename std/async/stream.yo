@@ -183,8 +183,8 @@ impl(
     Item : A,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(A), Io)))(
       io.async({ &mut self }(io : Io) => {
-        (out : Option(A)) = Option(A).None;
-        (searching : bool) = true;
+        (mut(out) : Option(A)) = Option(A).None;
+        (mut(searching) : bool) = true;
         while(searching, {
           nx := io.await(self._inner.next(io), io);
           match(
@@ -223,8 +223,8 @@ impl(
     Item : B,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(B), Io)))(
       io.async({ &mut self }(io : Io) => {
-        (out : Option(B)) = Option(B).None;
-        (searching : bool) = true;
+        (mut(out) : Option(B)) = Option(B).None;
+        (mut(searching) : bool) = true;
         while(searching, {
           nx := io.await(self._inner.next(io), io);
           match(
@@ -263,7 +263,7 @@ impl(
     Item : A,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(A), Io)))(
       io.async({ &mut self }(io : Io) => {
-        (out : Option(A)) = Option(A).None;
+        (mut(out) : Option(A)) = Option(A).None;
         if(self._remaining > usize(0), {
           self._remaining = (self._remaining - usize(1));
           nx := io.await(self._inner.next(io), io);
@@ -295,8 +295,8 @@ impl(
     Item : A,
     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(A), Io)))(
       io.async({ &mut self }(io : Io) => {
-        (out : Option(A)) = Option(A).None;
-        (pulling : bool) = true;
+        (mut(out) : Option(A)) = Option(A).None;
+        (mut(pulling) : bool) = true;
         while(pulling, {
           nx := io.await(self._inner.next(io), io);
           match(
@@ -402,9 +402,12 @@ impl(
     ) -> Impl(Future(unit, Io))
   )(
     io.async({ self, f }(io : Io) => {
-      (draining : bool) = true;
+      // A capture-list entry is immutable (decision 47): rebind the stream
+      // to the mutable local `next` advances.
+      mut(st) := self;
+      (mut(draining) : bool) = true;
       while(draining, {
-        nx := io.await(self.next(io), io);
+        nx := io.await(st.next(io), io);
         match(
           nx,
           .Some(item) => {
@@ -429,10 +432,11 @@ impl(
     ) -> Impl(Future(ArrayList(A), Io))
   )(
     io.async({ self }(io : Io) => {
+      mut(st) := self;
       out := ArrayList(A).new();
-      (draining : bool) = true;
+      (mut(draining) : bool) = true;
       while(draining, {
-        nx := io.await(self.next(io), io);
+        nx := io.await(st.next(io), io);
         match(
           nx,
           .Some(item) => {

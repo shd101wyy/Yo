@@ -54,8 +54,8 @@ export(Alignment);
 /// `len` (bytes), `ptr` and `bytes(i)` — so this is the scan, and it needs no
 /// allocation and no validation pass.
 _str_rune_count :: (fn(s : str) -> usize)({
-  n := usize(0);
-  i := usize(0);
+  mut(n) := usize(0);
+  mut(i) := usize(0);
   while(i < s.len(), i = (i + usize(1)), {
     if((s.bytes(i) & u8(192)) != u8(128), {
       n = (n + usize(1));
@@ -225,13 +225,13 @@ impl(
           align,
           .Left => {
             self.write_str(s);
-            i := usize(0);
+            mut(i) := usize(0);
             while(i < padding, i = (i + usize(1)), {
               self.write_rune(pad);
             });
           },
           .Right => {
-            i := usize(0);
+            mut(i) := usize(0);
             while(i < padding, i = (i + usize(1)), {
               self.write_rune(pad);
             });
@@ -239,12 +239,12 @@ impl(
           },
           .Center => {
             left_pad := (padding / usize(2));
-            i := usize(0);
+            mut(i) := usize(0);
             while(i < left_pad, i = (i + usize(1)), {
               self.write_rune(pad);
             });
             self.write_str(s);
-            j := left_pad;
+            mut(j) := left_pad;
             while(j < padding, j = (j + usize(1)), {
               self.write_rune(pad);
             });

@@ -160,7 +160,7 @@ _filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : &String, patt
   );
   kept := ArrayList(WalkEntry).new();
   prefix_len := (root_s.len() + usize(1));
-  (fi : usize) = usize(0);
+  (mut(fi) : usize) = usize(0);
   while(fi < results.len(), fi = (fi + usize(1)), {
     wentry := results(fi);
     full := wentry.path.to_string();
@@ -218,7 +218,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
       cond(
         should_continue => {
           entries := e.io.await(_dir.read_dir(Path.new(&item.path), e.io), e);
-          i := usize(0);
+          mut(i) := usize(0);
           while(i < entries.len(), {
             entry := entries(i);
             entry_path := _join_path(&item.path, &entry.name);
@@ -278,7 +278,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
           // Follow-symlink pass for this directory's pending links: stat the
           // target (is_dir follows links; a dangling link is simply false)
           // and descend when it is a directory not already entered.
-          j := usize(0);
+          mut(j) := usize(0);
           while(j < pending_links.len(), {
             lp := pending_links(j).clone();
             canon_s := e.io.await(_canon_dir_target(&lp, e.io), e);
@@ -320,8 +320,8 @@ _glob_split :: (fn(pattern : &String) -> struct(base : String, rest : String))({
   bs := &pattern;
   n := bs.len();
   // First metacharacter position (n = none).
-  (meta : usize) = n;
-  (i : usize) = usize(0);
+  (mut(meta) : usize) = n;
+  (mut(i) : usize) = usize(0);
   while((i < n) && (meta == n), {
     b := match(bs.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
@@ -333,8 +333,8 @@ _glob_split :: (fn(pattern : &String) -> struct(base : String, rest : String))({
     i = (i + usize(1));
   });
   // Last '/' before the first metacharacter.
-  (cut : Option(usize)) = Option(usize).None;
-  (j : usize) = usize(0);
+  (mut(cut) : Option(usize)) = Option(usize).None;
+  (mut(j) : usize) = usize(0);
   while(j < meta, {
     b := match(bs.get_byte(j), .Some(x) => x, .None => u8(0));
     cond(
@@ -373,7 +373,7 @@ glob :: (fn(pattern : &String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))
     );
     entries := e.io.await(walk_with(Path.new(&parts.base), &opts, e.io), e);
     out := ArrayList(Path).new();
-    (i : usize) = usize(0);
+    (mut(i) : usize) = usize(0);
     while(i < entries.len(), {
       wentry := entries(i);
       out.push(wentry.path);
@@ -396,7 +396,7 @@ remove_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .None);
     entries := e.io.await(walk_with(path, &opts, e.io), e);
-    n := entries.len();
+    mut(n) := entries.len();
     // Delete deepest entries first (reverse order from walk output).
     while(n > usize(0), {
       n = (n - usize(1));

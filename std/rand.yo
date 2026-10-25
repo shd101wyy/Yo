@@ -65,7 +65,7 @@ impl(
         // range is an exact multiple of bound. `0 - bound` wraps by design
         // (that IS the two's-complement of bound).
         threshold := (u64(0).wrapping_sub(bound) % bound);
-        (r : u64) = self.next_u64();
+        (mut(r) : u64) = self.next_u64();
         while(r < threshold, {
           r = self.next_u64();
         });
@@ -176,7 +176,7 @@ impl(
   ),
   /// Fisher–Yates shuffle, in place.
   shuffle : (fn(generic(T : Type), self : &Self, xs : &mut ArrayList(T)) -> unit)({
-    (i : usize) = xs.len();
+    (mut(i) : usize) = xs.len();
     while(i > usize(1), {
       i = (i - usize(1));
       j := usize(self.next_below(u64(i + usize(1))));
@@ -258,7 +258,7 @@ thread_local(mut(_tl_seeded)) := false;
 _next_u64_thread :: (fn() -> u64)({
   // A `mut` global is not lent to a call (decision 47): the draw runs on a
   // local copy of the state, which is written back.
-  (st : _RngState) = _tl_state;
+  (mut(st) : _RngState) = _tl_state;
   cond(
     _tl_seeded => (),
     true => {
@@ -291,7 +291,7 @@ rand_below :: (fn(bound : u64) -> u64)(
     (bound == u64(0)) => __yo_panic("rand_below: bound must be non-zero"),
     true => {
       threshold := (u64(0).wrapping_sub(bound) % bound);
-      (r : u64) = _next_u64_thread();
+      (mut(r) : u64) = _next_u64_thread();
       while(r < threshold, {
         r = _next_u64_thread();
       });

@@ -17,6 +17,7 @@
 { cwd } :: import("std/env");
 {
   _lex_abs_path,
+  is_global_mut_rule_exempt,
   is_macro_def_capable_file,
   is_overload_set_capable_file
 } :: import("../../src/evaluator/memory_safety.yo");
@@ -192,4 +193,18 @@ test("class-1 scan: every trapping Option/Result extraction in the prelude is ga
   assert(_class1_status(&found, "Result", "unwrap_err") == "gated", "Result.unwrap_err found and gated");
   assert(_class1_status(&found, "Result", "expect_err") == "gated", "Result.expect_err found and gated");
   assert(_class1_status(&found, "Option", "comptime_unwrap") == "comptime", "Option.comptime_unwrap found as comptime");
+});
+// Decision 47 locals Generation B, the std half (v0.2.71): std is swept, so
+// it is no longer exempt from E0917 on a written unmarked local; the trees
+// the src half sweeps (v0.2.72) still are.
+test("is_global_mut_rule_exempt: std is checked, src, scripts, build.yo, the store and expansions are not yet", {
+  sp := String.from("/repo/std");
+  assert(!is_global_mut_rule_exempt(&String.from("/repo/std/prelude.yo"), &sp), "a std module is checked");
+  assert(!is_global_mut_rule_exempt(&String.from("file:///repo/std/collections/array_list.yo"), &sp), "a demand-loaded std module is checked");
+  assert(!is_global_mut_rule_exempt(&String.from("/repo/tests/a.test.yo"), &sp), "a test is checked");
+  assert(is_global_mut_rule_exempt(&String.from("/repo/src/main.yo"), &sp), "the compiler source is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("/repo/scripts/build_site.yo"), &sp), "a repository script is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("/repo/build.yo"), &sp), "the root build file is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("/home/u/.cache/yo/store/sha256/abc/src/lib.yo"), &sp), "a fetched dependency is exempt");
+  assert(is_global_mut_rule_exempt(&String.from("auto-generated://expansion"), &sp), "a macro expansion is exempt");
 });

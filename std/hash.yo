@@ -131,7 +131,7 @@ impl(
   Hasher(
     write : (fn(self : &mut Self, buf : *u8, size : usize) -> unit)({
       self.length = (self.length + size);
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < size, i = (i + usize(1)), {
         // SAFETY: the caller hands us `size` readable bytes at `buf`; `i`
         // stays below `size`.
@@ -148,7 +148,7 @@ impl(
         },
         true => {
           self.length = (self.length + usize(8));
-          k := usize(0);
+          mut(k) := usize(0);
           while(k < usize(8), k = (k + usize(1)), {
             self._push_byte(u8((v >> (u64(8) * u64(k))) & u64(255)));
           });
@@ -171,7 +171,7 @@ impl(
     }),
     write_u32 : (fn(self : &mut Self, v : u32) -> unit)({
       self.length = (self.length + usize(4));
-      k := usize(0);
+      mut(k) := usize(0);
       while(k < usize(4), k = (k + usize(1)), {
         self._push_byte(u8((v >> (u32(8) * u32(k))) & u32(255)));
       });
@@ -189,7 +189,7 @@ impl(
       v2 := self.v2;
       v3 := self.v3;
       // Finalize on a copy so `finish` does not consume the state.
-      s := Self(k0 : self.k0, k1 : self.k1, v0 : v0, v1 : v1, v2 : v2, v3 : v3, tail : u64(0), ntail : usize(0), length : usize(0));
+      mut(s) := Self(k0 : self.k0, k1 : self.k1, v0 : v0, v1 : v1, v2 : v2, v3 : v3, tail : u64(0), ntail : usize(0), length : usize(0));
       s._compress(b);
       s.v2 = (s.v2 ^ u64(255));
       s._round();
@@ -214,7 +214,7 @@ impl(
   Fnv1aHasher,
   Hasher(
     write : (fn(self : &mut Self, buf : *u8, size : usize) -> unit)({
-      i := usize(0);
+      mut(i) := usize(0);
       while(i < size, i = (i + usize(1)), {
         // SAFETY: `size` readable bytes at `buf`, `i < size`.
         // FNV-1a: (state ^ byte) * prime — the multiply wraps BY DESIGN
@@ -234,14 +234,14 @@ DefaultHasher :: SipHasher13;
 /// assert(hash_one(i32(1)) == hash_one(i32(1)), "deterministic");
 /// ```
 hash_one :: (fn(generic(T : Type), value : &T, where(T <: Hash)) -> u64)({
-  h := DefaultHasher.new();
+  mut(h) := DefaultHasher.new();
   value.hash(&mut h);
   h.finish()
 });
 /// Hash one value with `DefaultHasher` keyed by `k0`, `k1` — what a
 /// `HashMap.with_keys(k0, k1)` computes for its keys.
 hash_one_with_keys :: (fn(generic(T : Type), value : &T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
-  h := DefaultHasher.new_with_keys(k0, k1);
+  mut(h) := DefaultHasher.new_with_keys(k0, k1);
   value.hash(&mut h);
   h.finish()
 });

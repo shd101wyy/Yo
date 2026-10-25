@@ -92,9 +92,9 @@ _hex_val :: (fn(b : u8) -> Option(u8))(
 encode :: (fn(input : &String) -> String)({
   bytes := &input;
   n := bytes.len();
-  out := String.with_capacity(n);
+  mut(out) := String.with_capacity(n);
   hex := _HEX_UPPER.to_string();
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(
@@ -115,7 +115,7 @@ decode_bytes :: (fn(input : &String) -> Result(ArrayList(u8), PercentError))({
   bytes := &input;
   n := bytes.len();
   out := ArrayList(u8).with_capacity(n);
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < n, {
     b := match(bytes.get_byte(i), .Some(x) => x, .None => u8(0));
     cond(

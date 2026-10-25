@@ -51,7 +51,7 @@ utf8 :: import("./utf8");
 from_utf8 :: (fn(s : &String) -> ArrayList(u16))({
   bytes := s.to_bytes();
   out := ArrayList(u16).new();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < bytes.len(), {
     // A malformed byte becomes U+FFFD and advances by one, so a corrupt input
     // still terminates instead of walking off the buffer.
@@ -86,7 +86,7 @@ export(from_utf8);
 /// unit does not fit in `InvalidChar`'s `u8`.
 to_utf8 :: (fn(data : &ArrayList(u16)) -> Result(String, EncodingError))({
   out := ArrayList(u8).new();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < data.len(), {
     w := u32(data(i));
     cond(

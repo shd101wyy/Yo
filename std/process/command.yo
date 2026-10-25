@@ -206,7 +206,7 @@ impl(
   /// Append multiple arguments to the argv list.
   args : (fn(self : &Self, more : &ArrayList(String)) -> Self)({
     n := more.len();
-    i := usize(0);
+    mut(i) := usize(0);
     while(i < n, {
       match(
         more.get(i),
@@ -227,7 +227,7 @@ impl(
   get_args : (fn(self : &Self) -> ArrayList(String))(self._args.clone()),
   /// Set an environment variable for the child (overrides an inherited one).
   env : (fn(self : &Self, key : &String, value : &String) -> Self)({
-    entry := key.clone();
+    mut(entry) := key.clone();
     entry.push_str("=");
     entry.push_string(value);
     self._env_overrides.push(entry);
@@ -284,12 +284,12 @@ impl(
 // environment entries come from `environ` and are C strings already.
 _command_has_interior_nul :: (fn(self : &Command) -> bool)({
   if(self._program.to_cstr_checked().is_err(), return(true));
-  (i : usize) = usize(0);
+  (mut(i) : usize) = usize(0);
   while(i < self._args.len(), {
     if(self._args(i).to_cstr_checked().is_err(), return(true));
     i = (i + usize(1));
   });
-  (k : usize) = usize(0);
+  (mut(k) : usize) = usize(0);
   while(k < self._env_overrides.len(), {
     if(self._env_overrides(k).to_cstr_checked().is_err(), return(true));
     k = (k + usize(1));
@@ -307,7 +307,7 @@ _build_cstr_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
   storage := ArrayList(ArrayList(u8)).new();
   storage.push(self._program.to_cstr());
   n := self._args.len();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < n, {
     match(
       self._args.get(i),
@@ -329,7 +329,7 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
   keys := ArrayList(String).new();
   // Overrides FIRST so an inherited same-key entry is skipped below.
   n := self._env_overrides.len();
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < n, {
     match(
       self._env_overrides.get(i),
@@ -346,8 +346,8 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
     i = (i + usize(1));
   });
   if(!self._env_clear, {
-    (ei : usize) = usize(0);
-    (env_done : bool) = false;
+    (mut(ei) : usize) = usize(0);
+    (mut(env_done) : bool) = false;
     while(!env_done, {
       slot := (environ.add(ei)).*;
       match(
@@ -362,8 +362,8 @@ _build_env_storage :: (fn(self : &Command) -> ArrayList(ArrayList(u8)))({
             .Some(eq2) => entry.substring(usize(0), eq2),
             .None => entry.clone()
           );
-          (overridden : bool) = false;
-          (ki : usize) = usize(0);
+          (mut(overridden) : bool) = false;
+          (mut(ki) : usize) = usize(0);
           while(ki < keys.len(), {
             match(
               keys.get(ki),
@@ -449,7 +449,7 @@ _spawn_with_fds :: (
     argv_raw := malloc(argv_bytes).unwrap();
     argv_buf := (*?*u8)(argv_raw);
     // Fill argv pointers from each owning ArrayList(u8) in storage.
-    j := usize(0);
+    mut(j) := usize(0);
     while(j < argc, {
       match(
         storage.get(j),
@@ -473,15 +473,15 @@ _spawn_with_fds :: (
     program_cstr := (argv_buf.add(usize(0))).*.unwrap();
     // envp: NULL inherits the parent environment; a built block replaces it
     // (inherited entries + overrides, or overrides alone under env_clear).
-    (envp_raw : ?*void) = ?(*void).None;
-    (envp_arg : ?*?*u8) = .None;
+    (mut(envp_raw) : ?*void) = ?(*void).None;
+    (mut(envp_arg) : ?*?*u8) = .None;
     if(use_envp, {
       envc := env_storage.len();
       envp_bytes := (size_of(?*u8) * (envc + usize(1)));
       envp_mem := malloc(envp_bytes).unwrap();
       envp_raw = .Some(envp_mem);
       envp_buf := (*?*u8)(envp_mem);
-      (ej : usize) = usize(0);
+      (mut(ej) : usize) = usize(0);
       while(ej < envc, {
         match(
           env_storage.get(ej),
@@ -503,7 +503,7 @@ _spawn_with_fds :: (
       (envp_buf.add(envc)).* = .None;
       envp_arg = .Some(envp_buf);
     });
-    (cwd_ptr : ?*u8) = .None;
+    (mut(cwd_ptr) : ?*u8) = .None;
     match(
       cwd_cstr,
       .Some(cc) => {
@@ -563,7 +563,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
         },
         (n == i32(0)) => break,
         true => {
-          k := usize(0);
+          mut(k) := usize(0);
           while(k < usize(n), {
             out.push((buf.add(k)).*);
             k = (k + usize(1));
@@ -603,14 +603,14 @@ impl(
     // closure can freely capture it instead of needing `self : &mut Self`.
     io.async(e => {
       // Create stdout and stderr pipes.
-      out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
+      mut(out_fd_buf) := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
       pr1 := IO_pipe.pipe(out_fd);
       IoError.check(pr1, e.exn);
       ();
       out_read := (out_fd.add(usize(0))).*;
       out_write := (out_fd.add(usize(1))).*;
-      err_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
+      mut(err_fd_buf) := MaybeUninit(Array(i32, usize(2))).new();
       err_fd := (*i32)(err_fd_buf.as_ptr());
       pr2 := IO_pipe.pipe(err_fd);
       cond(
@@ -1058,7 +1058,7 @@ impl(
 // One end-pair of a configured stream: (child_fd, parent_fd), -1 = absent.
 // SYNC — pipe(2) is synchronous and /dev/null opens through the sync shim.
 _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i32, usize(2)))({
-  out := Array(i32, usize(2))(i32(-1), i32(-1));
+  mut(out) := Array(i32, usize(2))(i32(-1), i32(-1));
   match(
     mode,
     .Inherit => (),
@@ -1068,7 +1068,7 @@ _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i3
       out(usize(0)) = IoError.check(f, exn);
     },
     .Piped => {
-      fd_buf := MaybeUninit(Array(i32, usize(2))).new();
+      mut(fd_buf) := MaybeUninit(Array(i32, usize(2))).new();
       fds := (*i32)(fd_buf.as_ptr());
       pr := IO_pipe.pipe(fds);
       IoError.check(pr, exn);

@@ -113,8 +113,8 @@ random_bytes :: (fn(buf : &RawSlice(u8), exn : Exception) -> unit)({
     },
     ((platform == Platform.Emscripten) || (platform == Platform.Wasi)) => {
       // WASM/Emscripten/WASI: getentropy() via WASI random_get (max 256 bytes per call)
-      remaining := size;
-      offset := usize(0);
+      mut(remaining) := size;
+      mut(offset) := usize(0);
       while(remaining > usize(0), {
         chunk := cond(
           (remaining > usize(256)) => usize(256),
@@ -139,7 +139,7 @@ random_bytes :: (fn(buf : &RawSlice(u8), exn : Exception) -> unit)({
       // single-shot call silently ACCEPTED a short read — the tail of the
       // buffer kept its zero initialization (biased, predictable bytes from
       // a "successful" call) — and threw Unavailable on a transient EINTR.
-      (filled : usize) = usize(0);
+      (mut(filled) : usize) = usize(0);
       while(filled < size, {
         ret := __yo_getrandom(buf_ptr.add(filled), size - filled, u32(0));
         cond(
@@ -242,7 +242,7 @@ random_range :: (fn(r : Range(i64), exn : Exception) -> i64)(
         // uspan divides 2^64: no bias, accept everything
         true => (max_u64 - rem)
       );
-      draw := random_u64(exn);
+      mut(draw) := random_u64(exn);
       while(draw > limit, {
         draw = random_u64(exn);
       });
@@ -266,13 +266,13 @@ export(random_u32, random_u64, random_f64, random_range);
 /// so a caller that needs the bytes must decode the hex again.
 uuid_v4 :: (fn(exn : Exception) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
-  buf := Array(u8, usize(16)).fill(u8(0));
+  mut(buf) := Array(u8, usize(16)).fill(u8(0));
   random_bytes(RawSlice(u8)(ptr : addr_of(buf(usize(0))), len : usize(16)), exn);
   // Set version bits (v4)
   buf(usize(6)) = ((buf(usize(6)) & u8(0x0F)) | u8(0x40));
   // Set variant bits
   buf(usize(8)) = ((buf(usize(8)) & u8(0x3F)) | u8(0x80));
-  i := usize(0);
+  mut(i) := usize(0);
   while(i < usize(16), i = (i + usize(1)), {
     bytes.push(buf(i));
   });
@@ -281,8 +281,8 @@ uuid_v4 :: (fn(exn : Exception) -> String)({
   // Insert dashes: 8-4-4-4-12
   out := ArrayList(u8).with_capacity(usize(36));
   positions := Array(usize, usize(4))(usize(8), usize(12), usize(16), usize(20));
-  j := usize(0);
-  dash_idx := usize(0);
+  mut(j) := usize(0);
+  mut(dash_idx) := usize(0);
   while(j < hex_bytes.len(), j = (j + usize(1)), {
     cond(
       ((dash_idx < usize(4)) && (j == positions(dash_idx))) => {
