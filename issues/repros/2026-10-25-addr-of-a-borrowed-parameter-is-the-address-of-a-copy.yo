@@ -1,0 +1,11 @@
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+S :: struct(n : usize);
+where_is :: (fn(self : &S) -> *S)(addr_of(self));
+main :: (fn() -> unit)({
+  s := S(n : usize(1));
+  p := where_is(&s);
+  q := addr_of(s);
+  println(cond((p == q) => "same", true => "different"));
+});
+export(main);
