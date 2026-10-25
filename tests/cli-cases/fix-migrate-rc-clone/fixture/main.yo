@@ -2,16 +2,21 @@
 //! copy of an `Rc`/`Arc` handle whose source stays alive is spelled
 //! `Rc.clone(h)` / `Arc.clone(h)`, a copy of a value holding one `.clone()`,
 //! and a closure that captures a handle the caller reads again gets a capture
-//! list. A last use (a move) is left alone; a value holding a handle whose
-//! type is not `Clone` is listed.
+//! list, unless the closure is lent to a borrowing parameter (it borrows its
+//! captures). A `match` on a field holding a handle borrows it. A last use (a
+//! move) is left alone; a value holding a handle whose type is not `Clone` is
+//! listed.
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
 Node :: struct(label : Rc(i32), weight : i32);
 derive(Node, Clone);
 Bare :: struct(h : Rc(i32));
 keep :: (fn(h : &Rc(i32)) -> Rc(i32))(h);
 label_of :: (fn(n : &Node) -> Rc(i32))(n.label);
 total :: (fn(h : Rc(i32), k : i32) -> i32)(h.* + k);
+Holder :: struct(slot : Option(Rc(i32)));
+peek :: (fn(h : &Holder) -> i32)(match(h.slot, .Some(r) => r.*, .None => i32(0)));
 main :: (fn() -> unit)({
   a := rc(i32(1));
   b := a;
@@ -32,6 +37,9 @@ main :: (fn() -> unit)({
   bare2 := bare;
   last := rc(i32(6));
   moved := last;
-  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()}`);
+  w := RefCell(i32).new(i32(7));
+  u := w.with(c => (c + total(a, i32(0))));
+  p := peek(&Holder(slot : .Some(rc(i32(8)))));
+  println(`${a.*} ${b.*} ${m.weight} ${n.label.*} ${l.*} ${o.is_some()} ${o2.is_some()} ${t} ${f()} ${g()} ${k.*} ${s.*} ${s2.*} ${bare.h.*} ${bare2.h.*} ${moved.*} ${xs.len()} ${u} ${p}`);
 });
 export(main);

@@ -4,8 +4,11 @@
 # `&Rc(T)` parameter or a field returned, a by-value argument), `.clone()` for
 # a `Clone` value holding one (`Node`, `Option(Rc(i32))`), `k : Rc.clone(k)`
 # for a capture list's shorthand entry, and a capture list for a closure that
-# captures a handle implicitly. A last use (`moved := last`) is a move and is
-# left alone; `Bare` holds a handle and is not `Clone`, so its copy is listed.
+# captures a handle implicitly (not for one lent to `RefCell.with`, which
+# borrows its captures), and `&` before a `match` scrutinee that is a field
+# holding a handle (`match(&h.slot, ...)`). A last use (`moved := last`) is
+# a move and is left alone; `Bare` holds a handle and is not `Clone`, so its
+# copy is listed.
 # The expected_tree pins the rewritten main.yo.
 stdout_keep=^fix:
 timeout=240
