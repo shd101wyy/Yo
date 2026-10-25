@@ -766,21 +766,25 @@ test("entry.or_insert_with only calls make on the vacant path", {
   // ArrayList copy shares its buffer — an i32 counter would not come back out.
   calls := ArrayList(i32).new();
   assert(
-    m.entry(i32(1), e =>
-      e.or_insert_with(() => {
-        calls.push(i32(1));
-        i32(7)
-      })
+    m.entry(
+      i32(1),
+      e =>
+        e.or_insert_with(() => {
+          calls.push(i32(1));
+          i32(7)
+        })
     ) == i32(7),
     "vacant makes a value"
   );
   assert(calls.len() == usize(1), "make ran once");
   assert(
-    m.entry(i32(1), e =>
-      e.or_insert_with(() => {
-        calls.push(i32(1));
-        i32(9)
-      })
+    m.entry(
+      i32(1),
+      e =>
+        e.or_insert_with(() => {
+          calls.push(i32(1));
+          i32(9)
+        })
     ) == i32(7),
     "occupied returns the stored value"
   );

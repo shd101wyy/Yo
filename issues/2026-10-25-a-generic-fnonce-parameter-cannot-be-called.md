@@ -30,7 +30,7 @@ The `Fn` twin of the same function passes — that is the exact shape #1428 fixe
 (`issues/fixed/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`):
 
 ```yo
-take_fn :: (fn(generic(U : Type), sink(f) : Impl(Fn() -> U)) -> U)(f());  // checks
+take_fn :: (fn(generic(U : Type), sink(f) : Impl(Fn() -> U)) -> U)(f()); // checks
 ```
 
 Both spellings fail the same way — `sink(f)` and a plain by-value `f` — and so
