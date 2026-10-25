@@ -93,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_mentions } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, migrate_rc_clone_on, migrate_rc_clone_borrow_scrutinee, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding, strip_pattern_mut_markers, strip_mut_marker, place_require_mut, reject_write_through_rc, _lb_arrow_shadows, _lb_fn_literal_binds } :: import("../utils.yo");
 { throw_if_mut_lend_through_atomic_object } :: import("./assignment.yo");
 { set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_note_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops, reject_empty_record_arm, audit_judge_arm_copies, audit_commit_arm_copies } :: import("./begin.yo");
@@ -389,29 +389,92 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
     true => Option(Variable).None
   )
 });
-/// `yo fix --migrate rc-clone`: does any arm of the `match` node `whole`
-/// mention `name`, the scrutinee's variable (scope-aware, via
-/// `_lb_mentions`: a shadowing binding in an arm is not a mention)? The
-/// rule-on check consumes a plain local of a type holding a counted handle,
-/// so such an arm reads a moved value as written; the migration rewrites the
-/// scrutinee to `&name`.
-_scrutinee_mentioned_in_arms :: (fn(whole : &AstExpr, name : &String) -> bool)(
+/// `yo fix --migrate rc-clone`: a READ of `name` in `e` — not the left side
+/// of `name = …` (a rebinding of a consumed place, which the rule accepts),
+/// and not under a binding of the same spelling (an arm pattern, a closure
+/// parameter), which `_lb_arrow_shadows`/`_lb_fn_literal_binds` skip. The
+/// rule consumes a plain local of a type holding a counted handle, so only a
+/// READ of the scrutinee inside a nested `match` arm needs the `&` rewrite.
+_arm_reads :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
-    whole,
-    .FnCall(_, _, args, _, _) => {
-      (ai : usize) = usize(1);
+    e,
+    .Atom(_, t) => ((t.kind == TokenKind.Identifier) && (t.value == name)),
+    .FnCall(_, callee, args, _, _) => {
+      if(_lb_arrow_shadows(e, name.clone(), false), {
+        return(false);
+      });
+      if(_lb_fn_literal_binds(&callee, name.clone()), {
+        return(false);
+      });
+      lhs_is_name := match(
+        args.get(usize(0)),
+        .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value == name)),
+        .None => false
+      );
+      if((ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && lhs_is_name), {
+        return(match(args.get(usize(1)), .Some(rhs) => _arm_reads(&rhs, name.clone()), .None => false));
+      });
+      if(_arm_reads(&callee, name.clone()), {
+        return(true);
+      });
+      (ai : usize) = usize(0);
       while(ai < args.len(), ai = (ai + usize(1)), {
         match(
           args.get(ai),
-          .Some(a) => if(_lb_mentions(&a, name.clone()), {
+          .Some(a) => if(_arm_reads(&a, name.clone()), {
             return(true);
           }),
           .None => ()
         );
       });
       false
-    },
-    .Atom(_, _) => false
+    }
+  )
+);
+/// `yo fix --migrate rc-clone`: in `body` (an arm body whose binding `name`,
+/// of a type holding a counted handle, the rule would OWN — the suspended
+/// rule borrows the match instead), find every nested `match(name, …)` whose
+/// arms READ `name`: under the rule that nested match consumes the binding
+/// before the read, so the migration borrows it (`match(&name, …)`). A
+/// nested arm that only WRITES the name (`name = …`) rebinds a consumed
+/// place, which the rule accepts, and gets no `&`.
+_record_nested_scrutinee_borrows :: (fn(body : &AstExpr, name : &String, ty : &TypeValue) -> unit)(
+  match(
+    body,
+    .Atom(_, _) => (),
+    .FnCall(_, callee, args, _, _) => {
+      if(ast_expr_is_fn_call_of(body, BK_MATCH, Option(usize).None), {
+        match(
+          args.get(usize(0)),
+          .Some(nested_scr) => {
+            nested := ast_expr_strip_borrow_marker(&nested_scr);
+            if(ast_expr_is_atom(&nested) && (ast_expr_token(&nested).kind == TokenKind.Identifier) && (ast_expr_token(&nested).value == name), {
+              (ni : usize) = usize(1);
+              while(ni < args.len(), ni = (ni + usize(1)), {
+                match(
+                  args.get(ni),
+                  .Some(na) => if(_arm_reads(&na, name.clone()), {
+                    migrate_rc_clone_borrow_scrutinee(&nested, ty);
+                    break;
+                  }),
+                  .None => ()
+                );
+              });
+            });
+          },
+          .None => ()
+        );
+      });
+      _record_nested_scrutinee_borrows(&callee, name.clone(), ty);
+      (bi : usize) = usize(0);
+      while(bi < args.len(), bi = (bi + usize(1)), {
+        match(
+          args.get(bi),
+          .Some(a) => _record_nested_scrutinee_borrows(&a, name.clone(), ty),
+          .None => ()
+        );
+      });
+    }
   )
 );
 /// The scrutinee is a projection of a variable: a field chain (`x.f`), a
@@ -500,10 +563,7 @@ _decide_match_mode :: (
     marker : u8,
     env : &Environment,
     ctx : &EvalContext,
-    exn : Exception,
-    /// The whole `match` node (`scr_raw` is its scrutinee): the migration's
-    /// arm-mention check reads its arms.
-    whole : &AstExpr
+    exn : Exception
   ) -> u8
 )({
   scr := ast_expr_strip_borrow_marker(scr_raw);
@@ -563,25 +623,7 @@ _decide_match_mode :: (
     // `yo fix --migrate rc-clone` (the rule suspended): a place the rule
     // could not move gets the `&` its E0901 asks for.
     if(migrate_rc_clone_on(), {
-      unmovable := if(
-        is_atom,
-        match(
-          root,
-          .Some(rv) => cond(
-            (rv.is_module_level || match_scrutinee_is_capture(&rv, env, ctx)) => true,
-            // A plain local of a type holding a counted handle: the
-            // rule-on check consumes it (the `set_expr_as_consumed` below is
-            // reached with the rule on), so an arm reading the scrutinee
-            // again reads a moved value (`types/guards.yo`'s
-            // `_some_type_implements_future(&pt)` was E0610). The migration
-            // borrows it: `match(&pt, …)`.
-            (type_holds_counted_handle_ignoring_migration(&ty) && _scrutinee_mentioned_in_arms(whole, rv.name.clone())) => true,
-            true => false
-          ),
-          .None => false
-        ),
-        _scrutinee_is_projection(&scr, env)
-      );
+      unmovable := if(is_atom, match(root, .Some(rv) => (rv.is_module_level || match_scrutinee_is_capture(&rv, env, ctx)), .None => false), _scrutinee_is_projection(&scr, env));
       if(unmovable, {
         migrate_rc_clone_borrow_scrutinee(&scr, &ty);
       });
@@ -1153,7 +1195,7 @@ evaluate_match :: (
   );
   // How the match takes its scrutinee (plans/VALUES_BY_DEFAULT.md decision
   // 26): a consuming match moves it here, before any arm reads it.
-  match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn, expr);
+  match_mode := _decide_match_mode(&scrutinee_expr, &evaluated_scrutinee, &scr_info, borrowed_match_scrutinee_kind(ast_expr_token(expr)), &env, ctx, exn);
   consuming := (match_mode == MATCH_MODE_CONSUME);
   mut_places := (match_mode == MATCH_MODE_MUT);
   // Decision 47 step 2: a `&mut` scrutinee lends its place exclusively, so
@@ -1385,6 +1427,32 @@ evaluate_match :: (
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
           if(audit_pending_copies_enabled(), {
             match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info, below_cell : _names_contain(&rc_cell_borrowed, b.name.clone())), .None => ());
+          });
+          // `yo fix --migrate rc-clone`: with the rule suspended this match
+          // borrows (its scrutinee's type holds a counted handle), but the
+          // rule consumes it — a temporary transfers to the arms, a plain
+          // local moves — so this binding would be OWNED, and a nested
+          // `match` on it that an arm then reads consumes it first. Record
+          // the `&` for those nested matches now: when the nested match is
+          // evaluated the binding reads as a borrow (this match borrowed),
+          // and the site would be invisible.
+          if(migrate_rc_clone_on() && !consuming && !mut_places && !ct_known
+          && (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(0))
+          && type_holds_counted_handle_ignoring_migration(&scr_info.ty)
+          && type_holds_counted_handle_ignoring_migration(&b.ty)
+          && !_names_contain(&rc_cell_borrowed, b.name.clone())
+          && !(
+            (
+              ast_expr_is_atom(&scrutinee_expr)
+              && match(
+                _scrutinee_root_variable(&scrutinee_expr, &env),
+                .Some(rv0) => (rv0.is_module_level || match_scrutinee_is_capture(&rv0, &env, ctx)),
+                .None => false
+              )
+            )
+            || _scrutinee_is_projection(&scrutinee_expr, &env)
+          ), {
+            _record_nested_scrutinee_borrows(&body_ast, b.name.clone(), &b.ty);
           });
           match(
             imm_place,
