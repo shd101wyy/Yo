@@ -3169,7 +3169,19 @@ _ic_dying_temp_source :: (fn(rhs : &AstExpr, ctx : &EvalContext) -> String)({
 });
 /// Record what `binding`, a pattern binding of a `match` whose evaluated
 /// scrutinee is described by `scr_info`, borrows from.
-audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> unit)({
+audit_note_match_binding :: (
+  fn(
+    binding : &Variable,
+    scr_info : &ExprInfo,
+    /// The binding is below a cell (`Rc(.Some(x))`): it borrows the cell's
+    /// payload, whatever owns the scrutinee (`yo fix --migrate rc-clone`).
+    (below_cell : bool) ?= false
+  ) -> unit
+)({
+  if(below_cell, {
+    g_implicit_copy_match_roots.with_mut(m => m.insert(binding.id, ImplicitCopyRoot(kind : String.from("place"), root_id : usize(0))));
+    return(());
+  });
   root := match(
     scr_info.variable_name,
     .Some(sn) => match(

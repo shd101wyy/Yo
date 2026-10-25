@@ -1273,6 +1273,24 @@ evaluate_match :: (
     if(consuming || mut_places, {
       arm_pat = Option(Pattern).Some(_augment_arm_pattern(&pat, &position_type, false, &own, &env, exn));
     });
+    // `yo fix --migrate rc-clone` suspends decision 17's rule, so this match
+    // borrows; under the rule a binding below a cell is a borrow whatever the
+    // mode, so a copy of one is judged as a copy of a borrow.
+    rc_cell_borrowed := ArrayList(String).new();
+    if(migrate_rc_clone_on() && !consuming && !mut_places, {
+      probe := _ArmOwnership(
+        unbound : ArrayList(BindInfo).new(),
+        keeps : ArrayList(BindInfo).new(),
+        borrowed : ArrayList(String).new(),
+        add_hidden : false,
+        bind_tys : pc.binds,
+        tok : ast_expr_token(&arm_expr),
+        counter : usize(0),
+        is_mut : false
+      );
+      _probe_pat := _augment_arm_pattern(&pat, &position_type, false, &probe, &env, exn);
+      rc_cell_borrowed = probe.borrowed;
+    });
     owned_vars := ArrayList(Variable).new();
     place_vars := ArrayList(Variable).new();
     (bi : usize) = usize(0);
@@ -1320,7 +1338,7 @@ evaluate_match :: (
           });
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
           if(audit_pending_copies_enabled(), {
-            match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info), .None => ());
+            match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info, below_cell : _names_contain(&rc_cell_borrowed, b.name.clone())), .None => ());
           });
           match(
             imm_place,
