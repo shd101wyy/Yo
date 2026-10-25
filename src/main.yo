@@ -140,7 +140,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive } :: import("./evaluator/utils.yo");
+{ ExplicitCopySite, CopyWrite, CloneImplBody, set_migrate_explicit_copy, explicit_copy_type_is_collection, take_explicit_copy_sites, take_copy_writes, take_copy_pointers, take_copy_tail_dests, CopyFlow, take_copy_flows, take_clone_impl_bodies, CopyLoop, take_copy_loops, ic_clone_comes_from_derive } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites, set_migrate_mut_bindings, take_mut_binding_sites, take_mut_param_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies, SkippedTestBody, take_skipped_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -2310,6 +2310,31 @@ _expr_span_end :: (fn(runes : &ArrayList(rune), col : usize, scan_from : usize, 
   });
   .None
 });
+/// Whether `runes[start, end)` is the source of a `for` value form: the first
+/// argument of a `for(` call, followed by the comma before its body
+/// (`for(xs, x => …)`). The loop's `into_iter` takes that source by value
+/// (B7b), so its copy is the receiver's, made where the macro expands.
+_is_for_value_source :: (fn(runes : &ArrayList(rune), start : usize, end : usize) -> bool)({
+  (b : usize) = start;
+  while((b > usize(0)) && runes(b - usize(1)).is_whitespace(), {
+    b = (b - usize(1));
+  });
+  // `for(` and a character before it that does not continue a word.
+  if((b < usize(4)) || (runes(b - usize(1)).char != u32(0x28)), {
+    return(false);
+  });
+  if((runes(b - usize(4)).char != u32(0x66)) || (runes(b - usize(3)).char != u32(0x6F)) || (runes(b - usize(2)).char != u32(0x72)), {
+    return(false);
+  });
+  if((b > usize(4)) && _is_word_rune(runes(b - usize(5))), {
+    return(false);
+  });
+  (a : usize) = end;
+  while((a < runes.len()) && runes(a).is_whitespace(), {
+    a = (a + usize(1));
+  });
+  (a < runes.len()) && (runes(a).char == u32(0x2C))
+});
 /// `yo fix <path> --migrate addr-of` — the address-of half of V3b step 3
 /// (plans/VALUES_BY_DEFAULT.md decision 33). Semantic, not syntactic: `&x`
 /// to an `imm` parameter is a borrow and stays, so only the evaluator can tell
@@ -3104,6 +3129,13 @@ _clone_impl_body_at :: (fn(bodies : &ArrayList(CloneImplBody), st : &ExplicitCop
 /// one reached before it but judged at its block's end is lost with the
 /// error, so the body is reviewed by hand.
 ///
+/// The source of a `for` value form, `for(xs, x => …)`, is copied as the
+/// by-value receiver of the loop's `into_iter` (B7b). When `xs` is a std
+/// collection the migration spells the read walk `for(&xs, …)` instead of
+/// `xs.clone()` (`_is_for_value_source`): no copy is made, and the body
+/// borrows each element, so a body that writes or keeps its element is
+/// named by `yo check` for a hand edit.
+///
 /// A copy inside the member of a `Clone` impl (`record_clone_impl_body`)
 /// is listed: there the impl chooses how deep its type's copy goes, and the
 /// write that tells a share from a deep copy is in a caller of `clone`. A
@@ -3470,6 +3502,24 @@ _run_migrate_explicit_copy :: (
             ),
             .None => true
           );
+          // The source of a `for` value form (`for(xs, x => …)`): the copy
+          // is the receiver of the loop's `into_iter`, which consumes `xs`
+          // (B7b). A std collection read again afterwards takes the read walk
+          // `for(&xs, …)`, which copies nothing; its body then borrows each
+          // element, so a body that writes or keeps the element needs a hand
+          // edit, which `yo check` names. Any other source (a `String`, an
+          // aggregate holding a collection) has no read walk and is iterated
+          // as a copy, `.clone()`.
+          if((st.copy_path == "param") && explicit_copy_type_is_collection(&st.ty) && _is_for_value_source(&runes, start, end), {
+            n_inserted = (n_inserted + usize(1));
+            if(dry_run, {
+              println(`fix: ${at}: for-source: \`${st.expect}\` would become \`&${cand}\` (the read walk: the body borrows each element)`);
+            });
+            at_idx.push(start);
+            at_text.push(String.from("&"));
+            at_close.push(false);
+            continue;
+          });
           n_inserted = (n_inserted + usize(1));
           // A capture list's shorthand entry `x` names the capture and its
           // source: the copy is the source's, so the entry becomes
