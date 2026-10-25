@@ -990,3 +990,15 @@ test("A default HashMap stays on the global allocator", {
   m.insert(i32(1), i32(2));
   assert(m.allocator().is_none(), "global");
 });
+// ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
+test("get_cloned and get_key_value_cloned clone in place", {
+  m := HashMap(String, String).new();
+  assert(m.get_cloned(&`k`).is_none() && m.get_key_value_cloned(&`k`).is_none(), "empty: none");
+  m.insert(`k`, `v`);
+  mut(c) := m.get_cloned(&`k`).unwrap();
+  c.push_str("!");
+  assert(m(`k`) == `v`, "the clone is independent");
+  assert(m.get_cloned(&`absent`).is_none(), "absent: none");
+  e := m.get_key_value_cloned(&`k`).unwrap();
+  assert((e.key == `k`) && (e.value == `v`), "the stored pair");
+});

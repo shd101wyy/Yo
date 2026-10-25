@@ -494,3 +494,39 @@ test("Deque.new_in keeps its ring in its allocator through growth and wrap-aroun
   };
   assert(counts.live == usize(0), "dispose released the ring");
 });
+// ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
+test("get_cloned, front_cloned and back_cloned clone the element in place", {
+  d := Deque(String).new();
+  assert(d.front_cloned().is_none() && d.back_cloned().is_none(), "empty: none");
+  d.push_back(`b`);
+  d.push_front(`a`);
+  mut(c) := d.get_cloned(usize(1)).unwrap();
+  c.push_str("!");
+  assert(d(usize(1)) == `b`, "the clone is independent");
+  assert(d.front_cloned() == .Some(`a`), "front");
+  assert(d.back_cloned() == .Some(`b`), "back");
+  assert(d.get_cloned(usize(2)).is_none(), "out of range: none");
+});
+test("with, take and swap work on the ring in place, wrapped around too", {
+  d := Deque(String).new();
+  mut(i) := i32(0);
+  while(i < i32(6), i = (i + i32(1)), {
+    d.push_back(`x${i}`);
+  });
+  // Wrap the ring: drop two from the front, push two at the back.
+  _ := d.pop_front();
+  _ := d.pop_front();
+  d.push_back(`x6`);
+  d.push_back(`x7`);
+  n := d.with(usize(0), (s) => {
+    s.push_str("!");
+    s.len()
+  });
+  assert((n == usize(3)) && (d(usize(0)) == `x2!`), "with writes in place");
+  d.swap(usize(0), usize(5));
+  assert((d(usize(0)) == `x7`) && (d(usize(5)) == `x2!`), "swap across the wrap");
+  d.swap(usize(3), usize(3));
+  assert(d(usize(3)) == `x5`, "swap with itself is a no-op");
+  t := d.take(usize(5));
+  assert((t == `x2!`) && (d(usize(5)) == ``) && (d.len() == usize(6)), "take leaves the default");
+});

@@ -1258,7 +1258,7 @@ export(main);
 
 要把字段从一个仍然存活的持有者中移出，请使用 `std/mem`（即 Rust 的 `std::mem`）：`replace(&mut h.f, v)` 写入 `v` 并返回旧值，`take(&mut h.f)` 写入 `T` 的默认值（`where(T <: Default)`）并返回旧值，`swap(&mut a, &mut b)` 交换两个位置的值。它们都按位移动，因此只能移动的值既不会被复制，也不会被 drop 两次。它们位于独立的模块而不是 prelude 中，所以这些名字仍可用于你自己的定义：`{ replace, take, swap } :: import("std/mem");`。
 
-泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。
+泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。集合元素改为按位置访问（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的决定 20）：`xs(i)` 原地读取元素，`xs.with(i, (v) => …)` 以 `&mut` 借用元素运行一段代码并返回其结果，`xs.take(i)` 把元素移出并留下 `T` 的默认值，`xs.swap(i, j)` 交换两个元素，`std/mem` 的 `replace(&mut xs(i), v)` 移入新值并移出旧值。每个会复制的访问器都有一个用于实现了 `Clone` 的元素的克隆版本：`ArrayList` 的 `get_cloned`、`first_cloned` 和 `last_cloned`；`Deque` 的 `get_cloned`、`front_cloned` 和 `back_cloned`；各种映射的 `get_cloned`，以及 `get_key_value_cloned`（`HashMap`）、`get_index_cloned`（`OrderedMap`）和 `first_entry_cloned`/`last_entry_cloned`（`BTreeMap`）；`PriorityQueue` 的 `peek_cloned`。`xs.extend(ys)` 会消耗 `ys`；`xs.extend_cloned(&ys)` 追加克隆并保留它。`Option` 和 `Result` 的 `unwrap`、`expect`、`unwrap_or`、`unwrap_or_else`、`unwrap_or_default`、`unwrap_err` 和 `expect_err` 会消耗接收者，因此 `make().unwrap()` 能把只能移动的载荷移出。
 
 #### std 的资源是只能移动的
 

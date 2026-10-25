@@ -397,3 +397,48 @@ comptime_expect_error(
     own_and_ref(&mut xs(usize(0)), xs);
   })
 );
+
+// An element borrow beside a sibling argument: the sibling is rejected only
+// when a value of its type can hold one of the types the element hangs from
+// (the container, or a value on the field path to it). A `String` cannot
+// hold an `ArrayList(String)`, so it is accepted
+// (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
+_put_str :: (fn(dst : &mut String, v : String) -> String)({
+  old := dst;
+  dst = v;
+  old
+});
+_StrLists :: ref(struct(lists : ArrayList(String), tag : String));
+test("an element borrow beside a value that cannot reach the container", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("a"));
+  v := String.from("c");
+  old := _put_str(&mut xs(usize(0)), v);
+  assert((old == "a") && (xs(usize(0)) == "c"), "the element written in place");
+  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  h.lists.push(String.from("x"));
+  old2 := _put_str(&mut h.lists(usize(0)), String.from("y"));
+  assert((old2 == "x") && (h.lists(usize(0)) == "y"), "through a field path");
+});
+// A sibling that CAN hold the container stays rejected: an alias of the
+// list, a value holding one, or the object the list lives in.
+_ListBox :: struct(lists : ArrayList(String));
+test("an element borrow beside a value that can reach the container", {
+  grow_beside :: (fn(dst : &mut String, other : ArrayList(String)) -> unit)({
+    other.push(String.from("grown"));
+    dst = String.from("w");
+  });
+  hold_beside :: (fn(dst : &mut String, other : &_ListBox) -> unit)(());
+  owner_beside :: (fn(dst : &mut String, other : &_StrLists) -> unit)(());
+  xs := ArrayList(String).new();
+  xs.push(String.from("a"));
+  alias := xs;
+  comptime_expect_error(grow_beside(&mut xs(usize(0)), alias), "could hold a handle");
+  b := _ListBox(lists : ArrayList(String).new());
+  comptime_expect_error(hold_beside(&mut xs(usize(0)), &b), "could hold a handle");
+  h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
+  h.lists.push(String.from("x"));
+  h2 := h;
+  comptime_expect_error(owner_beside(&mut h.lists(usize(0)), &h2), "could hold a handle");
+  assert(xs.len() == usize(1), "nothing ran");
+});

@@ -1596,3 +1596,78 @@ test("spare_capacity is None before the first allocation", {
   xs := ArrayList(i32).new();
   assert(xs.spare_capacity().is_none(), "nothing allocated, no spare region");
 });
+// ===== Decision 20's accessors (plans/VALUES_BY_DEFAULT.md, V2b B6-a) =====
+// A plain-data element without `Copy`: copied only explicitly, so `get` is
+// E0901 for it and `get_cloned` is the copy.
+_AlTag :: struct(n : i32);
+derive(_AlTag, Clone);
+test("get_cloned, first_cloned and last_cloned clone the element in place", {
+  names := ArrayList(String).new();
+  assert(names.get_cloned(usize(0)).is_none(), "empty: none");
+  assert(names.first_cloned().is_none() && names.last_cloned().is_none(), "empty ends: none");
+  names.push(`ada`);
+  names.push(`bob`);
+  mut(c) := names.get_cloned(usize(1)).unwrap();
+  c.push_str("!");
+  assert(names(usize(1)) == `bob`, "the clone is independent of the slot");
+  assert(c == `bob!`, "the clone took the write");
+  assert(names.first_cloned() == .Some(`ada`), "first");
+  assert(names.last_cloned() == .Some(`bob`), "last");
+  assert(names.get_cloned(usize(2)).is_none(), "out of range: none");
+  tags := ArrayList(_AlTag).new();
+  tags.push(_AlTag(n : i32(4)));
+  assert(tags.get_cloned(usize(0)).unwrap().n == i32(4), "an explicit-copy element");
+  comptime_expect_error(tags.get(usize(0)), "copied only explicitly");
+});
+test("with runs the body on the element in place and returns its result", {
+  names := ArrayList(String).new();
+  names.push(`ada`);
+  names.push(`bob`);
+  n := names.with(usize(1), (s) => {
+    s.push_str(" b");
+    s.len()
+  });
+  assert(n == usize(5), "the body's result");
+  assert(names(usize(1)) == `bob b`, "written in place");
+  tags := ArrayList(_AlTag).new();
+  tags.push(_AlTag(n : i32(1)));
+  tags.with(usize(0), (t) => {
+    t.n = (t.n + i32(41));
+  });
+  assert(tags(usize(0)).n == i32(42), "an explicit-copy element is written without a copy");
+});
+test("take moves the element out and leaves the default", {
+  names := ArrayList(String).new();
+  names.push(`ada`);
+  names.push(`bob`);
+  s := names.take(usize(0));
+  assert(s == `ada`, "the element moved out");
+  assert((names.len() == usize(2)) && (names(usize(0)) == ``), "the slot holds the default");
+});
+test("extend consumes the other list; extend_cloned keeps it", {
+  a := ArrayList(String).new();
+  a.push(`a`);
+  b := ArrayList(String).new();
+  b.push(`b`);
+  b.push(`c`);
+  a.extend(b);
+  assert((a.len() == usize(3)) && (a(usize(2)) == `c`), "moved in, in order");
+  d := ArrayList(String).new();
+  d.push(`d`);
+  a.extend_cloned(&d);
+  assert((a.len() == usize(4)) && (a(usize(3)) == `d`), "cloned in");
+  d(usize(0)).push_str("!");
+  assert((d.len() == usize(1)) && (a(usize(3)) == `d`), "the source stays and is independent");
+  // A list another handle still shares is copied, not moved: the other
+  // handle keeps its elements (lookahead D21, until B8).
+  e := ArrayList(i32).new();
+  e.push(i32(7));
+  shared := e;
+  f := ArrayList(i32).new();
+  f.extend(e);
+  assert((f.len() == usize(1)) && (f(usize(0)) == i32(7)), "copied in");
+  assert((shared.len() == usize(1)) && (shared(usize(0)) == i32(7)), "the sharing handle keeps its element");
+  g := ArrayList(i32).new();
+  g.extend(ArrayList(i32).new());
+  assert(g.len() == usize(0), "an empty list adds nothing");
+});
