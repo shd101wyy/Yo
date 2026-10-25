@@ -395,7 +395,7 @@ _scrutinee_root_variable :: (fn(scr : &AstExpr, env : &Environment) -> Option(Va
 /// rule-on check consumes a plain local of a type holding a counted handle,
 /// so such an arm reads a moved value as written; the migration rewrites the
 /// scrutinee to `&name`.
-_scrutinee_mentioned_in_arms :: (fn(whole : &AstExpr, name : &String) -> bool)({
+_scrutinee_mentioned_in_arms :: (fn(whole : &AstExpr, name : &String) -> bool)(
   match(
     whole,
     .FnCall(_, _, args, _, _) => {
@@ -413,7 +413,7 @@ _scrutinee_mentioned_in_arms :: (fn(whole : &AstExpr, name : &String) -> bool)({
     },
     .Atom(_, _) => false
   )
-});
+);
 /// The scrutinee is a projection of a variable: a field chain (`x.f`), a
 /// dereference (`p.*`) or an index (`xs(i)`) rooted at one. A call on a
 /// value (`make()`, `x.get()`) is a temporary.
