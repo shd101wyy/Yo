@@ -21,6 +21,7 @@ pragma(Pragma.Verify);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
 { SIZE_MAX } :: import("../libc/stdint.yo");
+mem :: import("../mem.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 // The top bit of `_capacity` says where the buffer came from: set, it was
 // allocated through an explicit `Allocator` and carries that allocator's owner
@@ -434,9 +435,10 @@ impl(
   ),
   /// Copy of the element at `index`, or `.None` when `index >= len()`.
   ///
-  /// The bounds-checked reader. `self(index)` (the `Index` impl) hands back a
-  /// POINTER into the buffer and panics out of range instead; `iter()` is the
-  /// way to walk without copying a refcounted `T`.
+  /// The bounds-checked reader. `self(index)` (the `Index` impl) reads the
+  /// element in place and panics out of range instead; `get_cloned(i)`
+  /// clones an element that is not copied implicitly, and `with(i, body)`
+  /// writes one in place (plans/VALUES_BY_DEFAULT.md decision 20).
   get : (fn(self : &Self, index : usize) -> Option(T))(
     cond(
       (index >= self._length) => .None,
@@ -671,6 +673,40 @@ impl(
   /// call with a different meaning and an easy one to get wrong at a call site.
   reserve : (fn(self : &mut Self, additional : usize) -> unit)(
     self.ensure_total_capacity(self._length + additional)
+  ),
+  /// Run `body` on the element at `index`, borrowed in place, and return
+  /// its result — decision 20's non-copying access (plans/VALUES_BY_DEFAULT.md):
+  /// the element is neither copied out nor written back. Panics when
+  /// `index >= len()`.
+  ///
+  /// ```yo
+  /// { ArrayList } :: import("std/collections/array_list");
+  /// { String } :: import("std/string");
+  /// (mut(names) : ArrayList(String)) = ArrayList(String).new();
+  /// names.push(`ada`);
+  /// n := names.with(usize(0), (s) => {
+  ///   s.push_str(` lovelace`);
+  ///   s.len()
+  /// });
+  /// assert((n == usize(12)) && (names(usize(0)) == `ada lovelace`), "written in place");
+  /// ```
+  with : (fn(generic(R : Type), self : &mut Self, index : usize, body : &Impl(Fn(v : &mut T) -> R)) -> R)(
+    body(&mut self(index))
+  ),
+  /// Move the element at `index` out and leave `T`'s default in its slot —
+  /// `std/mem`'s `take(&mut xs(i))`. Nothing is copied, so a move-only `T`
+  /// works. Panics when `index >= len()`.
+  ///
+  /// ```yo
+  /// { ArrayList } :: import("std/collections/array_list");
+  /// { String } :: import("std/string");
+  /// (mut(names) : ArrayList(String)) = ArrayList(String).new();
+  /// names.push(`ada`);
+  /// s := names.take(usize(0));
+  /// assert((s == `ada`) && (names(usize(0)) == ``), "the slot keeps the default");
+  /// ```
+  take : (fn(self : &mut Self, index : usize, where(T <: Default)) -> T)(
+    mem.take(&mut self(index))
   ),
   /// Exchange the elements at `i` and `j`.
   ///
@@ -1983,16 +2019,84 @@ impl(
       );
     });
     self.clear();
-    self.extend(&kept);
+    self.extend(kept);
   }),
-  /// Append a copy of every element of `other`.
-  extend : (fn(self : &mut Self, other : &ArrayList(T)) -> unit)({
+  /// Append every element of `other`, consuming it — Rust's
+  /// `Vec::extend(other)`. `extend_cloned(&other)` appends clones and keeps
+  /// `other`.
+  ///
+  /// When `other` is the only handle to its list, the elements MOVE: one
+  /// `memcpy`, and the emptied list is freed. While `ArrayList` is still a
+  /// shared handle (until plans/VALUES_BY_DEFAULT.md's B8), another handle
+  /// may share the list; the elements are then copied, so the other handle
+  /// keeps them (lookahead D21's rule for the consuming iterators). That
+  /// copy is decision 20's check, so a move-only `T` is E0901 here until B8.
+  extend : (fn(self : &mut Self, other : ArrayList(T)) -> unit)(
+    cond(
+      (ref_count(other) > usize(1)) => {
+        (mut(i) : usize) = usize(0);
+        n := other.len();
+        while(i < n, i = (i + usize(1)), {
+          self.push(other(i));
+        });
+      },
+      true =>
+        match(
+          other._ptr,
+          .Some(src) => {
+            // SAFETY: `other` is the only handle, so no other list shares
+            // its buffer (and `self`, a live handle of its own, is not
+            // it). The elements move bitwise; `other` then owns none of
+            // them, so dropping it frees only the buffer.
+            self.extend_from_ptr(src, other._length);
+            other._length = usize(0);
+          },
+          .None => ()
+        )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  ArrayList(T),
+  /// Append a clone of every element of `other`, which is left as it was.
+  /// Each element is cloned in place through `other(i)`.
+  extend_cloned : (fn(self : &mut Self, other : &ArrayList(T)) -> unit)({
     (mut(i) : usize) = usize(0);
     n := other.len();
     while(i < n, i = (i + usize(1)), {
-      self.push(other(i));
+      self.push(other(i).clone());
     });
-  })
+  }),
+  /// A clone of the element at `index`, or `.None` when `index >= len()` —
+  /// `get` for an element that is not copied implicitly (decision 20). The
+  /// element is cloned in place, never copied out first.
+  ///
+  /// ```yo
+  /// { ArrayList } :: import("std/collections/array_list");
+  /// { String } :: import("std/string");
+  /// (mut(names) : ArrayList(String)) = ArrayList(String).new();
+  /// names.push(`ada`);
+  /// assert(names.get_cloned(usize(0)) == .Some(`ada`), "a clone of the element");
+  /// ```
+  get_cloned : (fn(self : &Self, index : usize) -> Option(T))(
+    cond(
+      (index >= self._length) => .None,
+      true => .Some(self(index).clone())
+    )
+  ),
+  /// A clone of the first element, or `.None` when empty.
+  first_cloned : (fn(self : &Self) -> Option(T))(
+    self.get_cloned(usize(0))
+  ),
+  /// A clone of the last element, or `.None` when empty.
+  last_cloned : (fn(self : &Self) -> Option(T))(
+    cond(
+      (self._length == usize(0)) => Option(T).None,
+      true => self.get_cloned(self._length - usize(1))
+    )
+  )
 );
 impl(
   generic(T : Type),

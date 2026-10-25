@@ -782,9 +782,10 @@ _evaluate_derive_executing :: (
     );
     arg_idx = (arg_idx + usize(1));
   });
-  trait_args.extend(&copy_args);
+  has_copy_args := (copy_args.len() > usize(0));
+  trait_args.extend(copy_args);
   clear_copy_pending();
-  if(copy_args.len() > usize(0), {
+  if(has_copy_args, {
     push_copy_pending(&target_type);
   });
   (ta_i : usize) = usize(0);

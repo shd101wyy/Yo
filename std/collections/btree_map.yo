@@ -180,6 +180,36 @@ impl(
     )
   )
 );
+/// Decision 20's cloning accessors (plans/VALUES_BY_DEFAULT.md): `get` for a
+/// value that is not copied implicitly. The stored value is cloned in place,
+/// never copied out first.
+impl(
+  generic(K : Type, V : Type),
+  where(V <: Clone),
+  BTreeMap(K, V),
+  /// A clone of the value stored under `k`, or `.None` — O(log n).
+  get_cloned : (fn(self : &Self, k : &K, where(K <: Ord(K))) -> Option(V))({
+    r := self._find(k);
+    cond(
+      r.found => .Some(self._entries(r.idx).value.clone()),
+      true => .None
+    )
+  })
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: Clone, V <: Clone),
+  BTreeMap(K, V),
+  /// A clone of the entry with the smallest key, or `.None` —
+  /// `first_entry` for a key or value that is not copied implicitly.
+  first_entry_cloned : (fn(self : &Self) -> Option(MapEntry(K, V)))(
+    self._entries.first_cloned()
+  ),
+  /// A clone of the entry with the largest key, or `.None`.
+  last_entry_cloned : (fn(self : &Self) -> Option(MapEntry(K, V)))(
+    self._entries.last_cloned()
+  )
+);
 /// Value iterator over a BTreeMap — yields each `MapEntry(K, V)` BY VALUE in
 /// KEY ORDER. This is what `into_iter()`, and therefore `for(map, ...)`,
 /// returns; `iter()` yields pointers.

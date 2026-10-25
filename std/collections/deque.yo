@@ -31,6 +31,7 @@ pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator");
 { SIZE_MAX } :: import("../libc/stdint");
 { assert } :: import("../assert");
+mem :: import("../mem");
 { malloc, realloc, free } :: GlobalAllocator;
 // The top bit of `_capacity`: set when the ring came from an explicit
 // `Allocator` and carries its owner prefix (`std/allocator.yo`), so growth and
@@ -223,8 +224,10 @@ impl(
   /// Copy of the element at LOGICAL index `index` (0 = front), or `.None`
   /// when out of range — O(1) through the ring's modulo, not a walk.
   ///
-  /// `self(index)` (the `Index` impl) hands back a pointer into the ring and
-  /// asserts the bound instead.
+  /// `self(index)` (the `Index` impl) reads the element in place and asserts
+  /// the bound instead; `get_cloned(i)` clones an element that is not copied
+  /// implicitly, and `with(i, body)` writes one in place
+  /// (plans/VALUES_BY_DEFAULT.md decision 20).
   get : (fn(self : &Self, index : usize) -> Option(T))(
     cond(
       (index >= self._len) => .None,
@@ -233,6 +236,70 @@ impl(
         idx := ((self._head + index) % self._cap());
         .Some((buf.add(idx)).*)
       }
+    )
+  ),
+  /// Run `body` on the element at logical index `index`, borrowed in place,
+  /// and return its result — decision 20's non-copying access. Asserts
+  /// `index < len()`.
+  ///
+  /// ```yo
+  /// { Deque } :: import("std/collections/deque");
+  /// (mut(d) : Deque(i32)) = Deque(i32).new();
+  /// d.push_back(i32(1));
+  /// d.with(usize(0), (v) => {
+  ///   v = (v + i32(10));
+  /// });
+  /// assert(d(usize(0)) == i32(11), "written in place");
+  /// ```
+  with : (fn(generic(R : Type), self : &mut Self, index : usize, body : &Impl(Fn(v : &mut T) -> R)) -> R)(
+    body(&mut self(index))
+  ),
+  /// Move the element at logical index `index` out and leave `T`'s default
+  /// in its slot — `std/mem`'s `take(&mut d(i))`. Asserts `index < len()`.
+  take : (fn(self : &mut Self, index : usize, where(T <: Default)) -> T)(
+    mem.take(&mut self(index))
+  ),
+  /// Exchange the elements at logical indices `i` and `j` — Rust's
+  /// `VecDeque::swap`. The slots move bitwise: no element is copied or
+  /// dropped, so a move-only `T` swaps too. Asserts both indices are
+  /// `< len()`.
+  swap : (fn(self : &mut Self, i : usize, j : usize) -> unit)({
+    assert((i < self._len) && (j < self._len), "Deque.swap: index out of bounds");
+    cond(
+      (i == j) => (),
+      true => {
+        buf := self._buf.unwrap();
+        pi := buf.add((self._head + i) % self._cap());
+        pj := buf.add((self._head + j) % self._cap());
+        tmp := __yo_ptr_read(pi);
+        __yo_ptr_write(pi, __yo_ptr_read(pj));
+        __yo_ptr_write(pj, tmp);
+      }
+    );
+  })
+);
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  Deque(T),
+  /// A clone of the element at logical index `index`, or `.None` when out of
+  /// range — `get` for an element that is not copied implicitly (decision
+  /// 20). The element is cloned in place, never copied out first.
+  get_cloned : (fn(self : &Self, index : usize) -> Option(T))(
+    cond(
+      (index >= self._len) => .None,
+      true => .Some(self(index).clone())
+    )
+  ),
+  /// A clone of the front element, or `.None` when empty.
+  front_cloned : (fn(self : &Self) -> Option(T))(
+    self.get_cloned(usize(0))
+  ),
+  /// A clone of the back element, or `.None` when empty.
+  back_cloned : (fn(self : &Self) -> Option(T))(
+    cond(
+      (self._len == usize(0)) => Option(T).None,
+      true => self.get_cloned(self._len - usize(1))
     )
   )
 );

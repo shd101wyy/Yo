@@ -144,6 +144,18 @@ impl(
     )
   })
 );
+/// Decision 20's cloning accessor (plans/VALUES_BY_DEFAULT.md): `peek` for an
+/// element that is not copied implicitly. The root is cloned in place, never
+/// copied out first.
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  PriorityQueue(T),
+  /// A clone of the LARGEST element, or `.None` when empty — O(1).
+  peek_cloned : (fn(self : &Self) -> Option(T))(
+    self._data.first_cloned()
+  )
+);
 /// Value iterator over a PriorityQueue — yields elements in the heap's
 /// INTERNAL array order, which is NOT sorted order (only the first element is
 /// guaranteed to be the maximum). This is what `into_iter()`, and therefore
