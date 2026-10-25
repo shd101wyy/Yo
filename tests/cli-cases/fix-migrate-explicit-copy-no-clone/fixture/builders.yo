@@ -1,0 +1,14 @@
+//! `StringBuilder` and `HeaderMap` hold one buffer each and become values at
+//! B11, so their copies are unique-buffer copies. Neither has `Clone` yet, so
+//! both copies are listed.
+{ StringBuilder } :: import("std/string/string_builder");
+{ HeaderMap } :: import("std/http/http");
+Page :: ref(struct(body : StringBuilder, headers : HeaderMap));
+keep_body :: (fn(page : &Page, sb : &StringBuilder) -> unit)({
+  page.body = sb;
+});
+keep_headers :: (fn(page : &Page, h : &HeaderMap) -> unit)({
+  page.headers = h;
+});
+main :: (fn() -> unit)(());
+export(main);

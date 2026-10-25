@@ -1,0 +1,12 @@
+//! `derive(Bag, Clone)` below the first `b.clone()` is not forced on the
+//! method-lookup miss, as an `impl(Bag, Clone(...))` there would be: E0610.
+//! Expected: checks clean, as with `derive` moved above `count`.
+{ ArrayList } :: import("std/collections/array_list");
+Bag :: struct(items : ArrayList(i32), label : i32);
+count :: (fn(b : &Bag) -> usize)({
+  c := b.clone();
+  c.items.len()
+});
+derive(Bag, Clone);
+main :: (fn() -> unit)(());
+export(main);

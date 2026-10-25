@@ -76,3 +76,31 @@ and add the four-setter program above as a `fix-migrate-explicit-copy`
 cli-case whose golden shows all four lines. The listing counts in
 `plans/handover/VBD_B1_EXPLICIT_COPY_LISTING_2026-10-22.md` and
 `VBD_B3_STD_EXPLICIT_COPY_LISTING_2026-10-22.md` are lower bounds until then.
+
+## Fix
+
+Fixed 2026-10-24 with P8 (plans/handover/VBD_LOOKAHEAD_2026-10-23.md §4.4).
+`_ic_migrate_site` keeps a unique-buffer copy whatever its type, with the
+type itself (`ExplicitCopySite.ty_value`). `_run_migrate_explicit_copy`
+(`src/main.yo`) asks that type for `Clone` once the run is evaluated (asking
+at record time was order-dependent:
+`issues/fixed/2026-10-24-explicit-copy-migration-drops-a-copy-made-before-its-types-clone-impl-registers.md`),
+and lists a clone-less copy after the generic-body checks, ahead of every
+reason a `.clone()` could answer. A copy in a generic body keeps the
+generic-body reason, since its type usually lacks `Clone` only because a
+type parameter is open. A copy out of a dying temporary keeps that reason,
+with "borrow it by hand" in place of "spell `.clone()`":
+
+```text
+fix: main.yo:14:12: `xs` is copied and `ArrayList(F)` has no `Clone`, so `.clone()` cannot spell the copy; left as written (move it, borrow it, or give the type `Clone`)
+```
+
+The same change adds `StringBuilder` and `HeaderMap` to `_IC_COLLECTIONS`.
+Neither has `Clone` before B11, so their copies are listed this way too.
+
+Test: `tests/cli-cases/fix-migrate-explicit-copy-no-clone`. It holds the
+four-setter program above and a `StringBuilder`/`HeaderMap` pair. With the
+parameter-key fix (B4-0a) underneath, `set_a` and `set_d` are cloned (field
+stores keep the automatic `.clone()`,
+`issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`),
+and `set_b`, `set_c` and both builder stores are listed.
