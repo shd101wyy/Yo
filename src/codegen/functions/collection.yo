@@ -28,6 +28,7 @@ pragma(Pragma.AllowUnsafe);
 { is_target_wasm } :: import("../../target.yo");
 { canonical_module_path } :: import("../../utils.yo");
 { index_unchecked_twin_of } :: import("../../evaluator/builtins/contracts.yo");
+{ type_implements_future } :: import("../../evaluator/trait_checking.yo");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): the
 // compiler has no codegen-time monomorphizer, so the trace collector drives the
 // evaluator's create_specialized_function_inline. These are the normal
@@ -197,6 +198,14 @@ expr_contains_unknown_value :: (fn(expr : &AstExpr, info : &ExprInfoTable) -> bo
   );
   false
 });
+/// `func_id` is a plain (non-`ctl`) function whose result is a future.
+_is_non_control_async_fn :: (fn(func_id : &String) -> bool)(
+  !is_control_fn(func_id.clone()) && match(
+    get_func_type(func_id.clone()),
+    Rc(.Func({ result : r, meta : m })) => (!m.*.is_control && type_implements_future(&r)),
+    _ => false
+  )
+);
 /// Recursively collect function values from a struct namespace (and nested
 /// records), marking them effect-record members so they compile standalone.
 ///
@@ -225,7 +234,15 @@ collect_effect_record_members :: (fn(mv : &EvalValue, context : &CodeGenContext,
             (is_func_val(&fv) && !is_module_namespace) => {
               func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id.clone(), _ => String.from(""));
               if(!context.has_function(func_id.clone()), {
-                mark_as_effect_record_member(func_id.clone());
+                // A non-`ctl` function returning a future is an ordinary async
+                // function stored in a field (`Holder(f : _fp_twice)`), never a
+                // handler whose result is stashed for an unwind: as a member its
+                // prototype lost the returned state machine while its body still
+                // returned it, which the C compiler rejects
+                // (issues/fixed/2026-10-24-two-async-functions-through-one-function-typed-parameter-are-called-through-an-incompatible-pointer-type.md).
+                if(!_is_non_control_async_fn(&func_id), {
+                  mark_as_effect_record_member(func_id.clone());
+                });
                 context.register_function(func_id.clone(), &fv, function_c_name(&func_id));
                 body := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
                 _call_find_function_calls_in_expr(&body, context, info);
