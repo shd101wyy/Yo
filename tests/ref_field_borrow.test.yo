@@ -453,10 +453,10 @@ _plain_write :: (fn(v : &mut String) -> unit)({
   v = String.from("plain");
 });
 test("an element borrow beside a variable holding a closure is rejected", {
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
-  cb := (
-    (v : &mut String) => {
+  (cb : Impl(Fn(v : &mut String) -> unit)) = (
+    v => {
       xs.clear();
       v = String.from("w");
     }
@@ -473,10 +473,10 @@ test("an element borrow beside a plain fn is accepted", {
 _CbFieldBox :: struct(cb : Dyn(Fn(v : &mut String) -> unit));
 test("an element borrow beside a closure in a struct field is rejected", {
   field_beside :: (fn(dst : &mut String, other : _CbFieldBox) -> unit)(());
-  xs := ArrayList(String).new();
+  mut(xs) := ArrayList(String).new();
   xs.push(String.from("a"));
-  cb := (
-    (v : &mut String) => {
+  (cb : Impl(Fn(v : &mut String) -> unit)) = (
+    v => {
       xs.clear();
       v = String.from("w");
     }
