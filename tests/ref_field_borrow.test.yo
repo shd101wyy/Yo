@@ -492,7 +492,7 @@ test("an element borrow beside a &Dyn is rejected", {
   dyn_beside :: (fn(dst : &mut String, other : &Dyn(_AreaT)) -> unit)(());
   xs := ArrayList(String).new();
   xs.push(String.from("a"));
-  (d : Dyn(_AreaT)) = dyn(trc(_SquareT(s : i32(2))));
+  (d : Dyn(_AreaT)) = dyn(rc(_SquareT(s : i32(2))));
   comptime_expect_error(dyn_beside(&mut xs(usize(0)), &d), "could hold a handle");
   assert(xs.len() == usize(1), "nothing ran");
 });
