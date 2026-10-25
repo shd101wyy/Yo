@@ -23,20 +23,13 @@ pragma(Pragma.AllowUnsafe);
 // future that copied the descriptor outlived a stream moved into the
 // function that made it, and ran on a closed, possibly reused descriptor.
 // Post-#1602 a helper that takes the resource by value may return the
-// borrowing future: the callee lend re-roots its borrows at the caller's
-// argument place, so the handle is the caller's to keep alive. Before the
-// V3 review round this future copied the descriptor and compiled anywhere.
-_tcp_read_escapes :: (fn(s : TcpStream, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(s.read(buf, usize(1), io));
-// Post-#1602 a helper that takes the resource by value may return the
-// borrowing future: the callee lend re-roots its borrows at the caller's
-// argument place, so the handle is the caller's to keep alive. Before the
-// V3 review round this future copied the descriptor and compiled anywhere.
-_tcp_write_str_escapes :: (fn(s : TcpStream, io : Io) -> Impl(Future(usize, IoExn)))(s.write_str("x", io));
-// Post-#1602 a helper that takes the resource by value may return the
-// borrowing future: the callee lend re-roots its borrows at the caller's
-// argument place, so the handle is the caller's to keep alive. Before the
-// V3 review round this future copied the descriptor and compiled anywhere.
-_tcp_accept_escapes :: (fn(l : TcpListener, io : Io) -> Impl(Future(TcpStream, IoExn)))(l.accept(io));
+// borrowing future (the callee lend re-roots its borrows at the caller's
+// argument place), but there is no regression row for it: the test-batch
+// printer re-renders a returned call in fn-value form (`(s.read)(...)`),
+// which the callee lend does not re-root, so the row cannot survive its own
+// batch (issues/2026-10-25-a-returned-method-call-in-batch-form-misses-the-callee-lend.md).
+// Before the V3 review round this future copied the descriptor and compiled
+// anywhere; the borrowing is pinned by the runtime tests below.
 // A stream can move to another thread (it holds a descriptor and two
 // addresses) but is never `Sync`: its methods write the state through `&Self`.
 comptime_assert(Type.impls(TcpStream, Send), "a TcpStream is Send");

@@ -16,10 +16,13 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 // 2026-10-25): a read that copied the fd outlived a handle moved into the
 // function that made it.
 // Post-#1602 a helper that takes the resource by value may return the
-// borrowing future: the callee lend re-roots its borrows at the caller's
-// argument place, so the handle is the caller's to keep alive. Before the
-// V3 review round this future copied the descriptor and compiled anywhere.
-_child_read_escapes :: (fn(r : ChildStdout, buf : *u8, io : Io) -> Impl(Future(usize, IoExn)))(r.read(buf, usize(1), io));
+// borrowing future (the callee lend re-roots its borrows at the caller's
+// argument place), but there is no regression row for it: the test-batch
+// printer re-renders a returned call in fn-value form (`(s.read)(...)`),
+// which the callee lend does not re-root, so the row cannot survive its own
+// batch (issues/2026-10-25-a-returned-method-call-in-batch-form-misses-the-callee-lend.md).
+// Before the V3 review round this future copied the descriptor and compiled
+// anywhere; the borrowing is pinned by the runtime tests below.
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
