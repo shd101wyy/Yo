@@ -1623,7 +1623,7 @@ test("with runs the body on the element in place and returns its result", {
   names := ArrayList(String).new();
   names.push(`ada`);
   names.push(`bob`);
-  n := names.with(usize(1), (s) => {
+  n := names.with(usize(1), s => {
     s.push_str(" b");
     s.len()
   });
@@ -1631,7 +1631,7 @@ test("with runs the body on the element in place and returns its result", {
   assert(names(usize(1)) == `bob b`, "written in place");
   tags := ArrayList(_AlTag).new();
   tags.push(_AlTag(n : i32(1)));
-  tags.with(usize(0), (t) => {
+  tags.with(usize(0), t => {
     t.n = (t.n + i32(41));
   });
   assert(tags(usize(0)).n == i32(42), "an explicit-copy element is written without a copy");

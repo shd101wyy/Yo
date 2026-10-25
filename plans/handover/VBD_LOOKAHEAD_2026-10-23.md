@@ -390,6 +390,12 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
   - Tests: `tests/collections/*` (one per call), `option_result_combinators`, `comptime_option_result`, `copy_trait`, `move_only`, `move_only_collections`, `collection_clone_through_borrow`, `index`, `derive_clone_complex`.
   - Internal: `compile.test.yo`.
   - cli-diff; `yo verify ./std/collections --format json`; fmt; refs.
+- **As built (2026-10-25, branch `vbd/b6a-std-accessors`):**
+  - The 14 `_cloned` siblings live in `where(… <: Clone)` impl blocks beside each collection's main impl; the pair accessors (`get_key_value_cloned`, `get_index_cloned`, `first_entry_cloned`, `last_entry_cloned`) need `K <: Clone` too.
+  - `with`, `take` and `swap` on `ArrayList` and `Deque` as planned (`std/mem` imported as `mem`).
+  - The unwrap family is the plan's 8 methods plus `unwrap_or_default` (both types), `unwrap_err` and `expect_err`: all 12 take `self : Self`.
+  - `extend(other : ArrayList(T))` moves bitwise only when `ref_count(other) == 1`; a list another handle shares is copied element by element, so the other handle keeps them (D21's rule, until B8). That copy is the check, so `extend` of a move-only `T` stays E0901 until B8. 12 call sites edited (src 8, std 3, tests 1; `expr_info.yo:2223` passes a `&` list by value, a share, unchanged until B8); the 3 `HashMap.extend` calls are a different method.
+  - The S2 `issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md` is fixed here: rule (b) asks whether the sibling's type can hold one of the types the element hangs from.
 
 #### B6-b: the decision 20 text, N7, and `--migrate cloned-accessors`
 

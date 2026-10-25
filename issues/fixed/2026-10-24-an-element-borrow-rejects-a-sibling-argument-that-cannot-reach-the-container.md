@@ -54,3 +54,28 @@ V2b B6-a (element access through `std/mem`) is where this bites: narrow rule
 (b) to a reachability walk over the sibling's type against the container's
 type, and name `take(&mut xs(i))` in the help. Until then B6-a spells an
 element replace as `take` followed by a store.
+
+## Fix
+
+V2b B6-a. Rule (b) in `_reject_if_container_reachable`
+(`src/types/flowability.yo`) now asks the narrower question. The types the
+borrowed element hangs from are the root variable's type and the type of every
+value on the place's field path down to the container
+(`_ref_place_holder_types`; `xs` for `xs(i)`, `h` and `h.lists` for
+`h.lists(i)`). A sibling argument is rejected when it is a closure, or when a
+value of its type can hold one of those types (`_type_may_reach_any_of`): a DFS
+over the sibling's type through struct and enum fields, tuples, unions, arrays,
+`Box` payloads and pointees. A `Dyn`, an open type variable, a `void` pointer
+and a function value inside an aggregate (a closure that may have captured the
+container) answer yes. When a type on the path is unknown, the old
+conservative predicate applies. The help text names `std/mem`'s
+`take(&mut xs(i))` beside `.get(i)`.
+
+`replace(&mut xs(i), v)` with `xs : ArrayList(String)` and `v : String` is
+accepted, and so is a move-only element value. An alias of the list, a value
+holding one, and the object a listed field lives in are still rejected.
+
+Tests: `tests/ref_field_borrow.test.yo` ("an element borrow beside a value that
+cannot reach the container" and its rejected counterpart) and
+`tests/move_only.test.yo` ("B6-a: take, with, swap and an element replace on
+move-only elements"), which fail to compile before the fix and pass after.
