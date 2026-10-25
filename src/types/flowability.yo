@@ -870,21 +870,27 @@ _any_may_reach_any_of :: (
   });
   false
 });
-/// Is `ty` itself a function type — `Func` or an `Fn`/`FnMut`/`FnOnce`
-/// trait type (through refinement, shells and a resolved `Impl` wrapper)?
-/// `Future` is excluded on purpose: an async frame's captures are judged by
-/// the walk, which answers yes for it. An UNRESOLVED `Impl` wrapper also
-/// answers yes: it may stand for a closure.
+/// Is `ty` itself a function type — a `Func`, an `Fn`/`FnMut`/`FnOnce`
+/// trait type, or an `Impl(...)` WRAPPER of one (through refinement and
+/// shells)? An `Impl(...)` wrapper is recognized by the reserved SomeT NAME,
+/// not by diving into its resolution: the resolution is not the wrapper — a
+/// closure's wrapper resolves to its capture struct, which is not a function
+/// type, and the wrapper must still be judged as a function value (F1: a
+/// closure held in a variable beside an element borrow). An unresolved type
+/// variable may stand for a closure, so it answers yes too.
 _is_fn_typed :: (fn(ty_in : &TypeValue) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(ty_in)));
   match(
     ty,
     Rc(.Func({ result : _ })) => true,
     Rc(.FnTraitT(base_name : _)) => true,
-    Rc(.SomeT({ resolution : resolved })) => match(
-      resolved,
-      .Some(concrete) => _is_fn_typed(&concrete),
-      .None => true
+    Rc(.SomeT({ name : sn, resolution : resolved })) => cond(
+      (sn == `Impl`) => true,
+      true => match(
+        resolved,
+        .Some(concrete) => _is_fn_typed(&concrete),
+        .None => true
+      )
     ),
     _ => false
   )
