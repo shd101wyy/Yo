@@ -804,6 +804,17 @@ test("entry.and_modify updates in place and or_insert covers the first sighting"
   assert(m.get(i32(1)).unwrap() == i32(3), "later sightings increment");
   assert(m.len() == usize(1), "the counter idiom keeps one entry");
 });
+test("entry stays coherent after its own or_insert flips the slot", {
+  m := HashMap(i32, i32).new();
+  m.entry(i32(5), e => {
+    assert(e.is_occupied() == false, "vacant before the insert");
+    assert(e.or_insert(i32(50)) == i32(50), "or_insert returns the value it wrote");
+    assert(e.is_occupied() == true, "the entry knows it is occupied now");
+    e.and_modify(n => (n + i32(1)));
+    assert(match(e.value(), .Some(v) => (v == i32(51)), .None => false), "value reflects and_modify");
+  });
+  assert(m.get(i32(5)).unwrap() == i32(51), "the map agrees");
+});
 test("entry.remove takes the entry out of the map", {
   m := HashMap(i32, i32).new();
   m.insert(i32(1), i32(10));
@@ -817,7 +828,7 @@ test("entry inserts correctly across the resize its own insert triggers", {
   // rehashes the table and invalidates the slot the probe found.
   (mut(i) : i32) = i32(0);
   while(i < i32(64), i = (i + i32(1)), {
-    assert(m.entry(i, e => e.or_insert(i * i32(2))) == (i * i32(2)), "each fresh key inserts its default");
+    assert(m.entry(&i, e => e.or_insert(i * i32(2))) == (i * i32(2)), "each fresh key inserts its default");
   });
   assert(m.len() == usize(64), "every key landed");
   (mut(j) : i32) = i32(0);

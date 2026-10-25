@@ -90,10 +90,12 @@ The design is written out in `plans/VALUES_BY_DEFAULT.md`, decision 39,
        collection (`tests/for_read_walk.test.yo`);
      - the `HashMapEntry` with-shape (decision 22): **landed as B7c
        (2026-10-25)** — `entry(key, body)` lends the entry to a body, holds
-       the map as `*HashMap` (not a handle copy), `or_insert`/
-       `or_insert_with`/`get_or_insert*` return `&mut V`, `and_modify`
-       returns `unit`; the `FnOnce` body spelling waits on
-       `issues/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`;
+       the map as `*HashMap` (not a handle copy), `and_modify` returns
+       `unit`, and a vacant `or_insert` flips the entry's slot so the body
+       may keep using it; the `FnOnce` body spelling waits on
+       `issues/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`,
+       and `or_insert`/`or_insert_with` returning `&mut V` on
+       `issues/2026-10-25-a-borrow-returning-generic-method-breaks-its-own-typed-parameters.md`;
      - a consuming `into_iter(self : Self)`;
      - `iter()` and the `*Ptr` iterators under
        `pragma(Pragma.AllowUnsafe)`.

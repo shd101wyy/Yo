@@ -984,31 +984,30 @@ impl(
   /// The body must not touch the map through another handle: anything that
   /// rehashes the table moves the key out of the slot the entry pinned. See
   /// `HashMapEntry` for the full invalidation rule.
-  entry : (fn(generic(R : Type), self : &mut Self, key : K, body : &Impl(Fn(e : &mut HashMapEntry(K, V)) -> R)) -> R)({
-    hash := self._hash(&key);
+  entry : (fn(generic(R : Type), self : &mut Self, key : &K, body : &Impl(Fn(e : &mut HashMapEntry(K, V)) -> R)) -> R)({
+    hash := self._hash(key);
     (mut(e) : HashMapEntry(K, V)) = HashMapEntry(K, V)(
-      _map : unsafe.cast(self, *HashMap(K, V)),
+      _map : addr_of(self),
       _key : key,
       _hash : hash,
-      _slot : Self._probe(self, &key, hash)
+      _slot : Self._probe(self, key, hash)
     );
     body(&mut e)
   }),
-  /// The value for `key` as a writable reference, inserting `default` first
-  /// when absent.
-  get_or_insert : (fn(self : &mut Self, key : &K, default : &V) -> &mut V)(
-    self.entry(key, e => e.or_insert(default))
+  /// The value for `key`, inserting `default` first when absent — one probe,
+  /// through the entry.
+  get_or_insert : (fn(self : &mut Self, key : &K, default : &V) -> V)(
+    self.entry(key, { &default }(e) => e.or_insert(default))
   ),
-  /// The value for `key` as a writable reference, inserting `make()`'s result
-  /// first when absent — use over `get_or_insert` when constructing the
-  /// default is costly.
-  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V)) -> &mut V)(
-    self.entry(key, e => e.or_insert_with(make))
+  /// The value for `key`, inserting `make()`'s result first when absent —
+  /// use over `get_or_insert` when constructing the default is costly.
+  get_or_insert_with : (fn(self : &mut Self, key : &K, make : &Impl(Fn() -> V)) -> V)(
+    self.entry(key, { &make }(e) => e.or_insert_with(make))
   ),
   /// Update the value for `key` through `f` when present; no-op when absent.
   /// Returns true when an update happened.
   update_with : (fn(self : &mut Self, key : &K, f : &Impl(Fn(v : &V) -> V)) -> bool)(
-    self.entry(key, e => {
+    self.entry(key, { &f }(e) => {
       e.and_modify(f);
       e.is_occupied()
     })
@@ -1081,12 +1080,14 @@ impl(
 /// entry again.
 HashMapEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    // SAFETY: `_map` points at the HashMap VALUE — the ref struct itself —
-    // not at its bucket array. A resize replaces the `ctrl`/`data` pointers
-    // INSIDE that struct, so this pointer stays valid across every rehash;
-    // only the cached `_slot` index goes stale, which the invalidation rule
-    // above covers. The struct is private to this module and `entry` never
-    // returns it, so no `HashMapEntry` outlives the `entry` call that made it.
+    // SAFETY: `_map` is `addr_of(self)` — it points at the receiver's SLOT
+    // (the caller's map binding), which holds the HashMap handle; `.*` reads
+    // the handle and the handle's cell carries the `ctrl`/`data` pointers. A
+    // resize replaces those pointers INSIDE the cell, so neither the slot nor
+    // the handle moves and `_map` stays valid across every rehash; only the
+    // cached `_slot` index goes stale, which the invalidation rule above
+    // covers. The struct is private to this module and `entry` never returns
+    // it, so no `HashMapEntry` outlives the `entry` call that made it.
     _map : *HashMap(K, V),
     _key : K,
     _hash : u64,
@@ -1117,28 +1118,38 @@ impl(
       .Vacant(_) => Option(V).None
     )
   ),
-  /// The value for this key as a writable reference, inserting `default`
-  /// first when vacant.
-  or_insert : (fn(self : &mut Self, default : &V) -> &mut V)(
+  /// The value for this key, inserting `default` first when vacant. The
+  /// vacant insert also flips the entry's own slot to `.Occupied`, so a body
+  /// may keep using the entry afterwards (`is_occupied`, `and_modify`).
+  ///
+  /// The decision-22 sketch returns `&mut V` here; a generic impl method
+  /// returning a borrow gets pointer-flavored `&T` parameters that do not
+  /// deref, which is invalid C
+  /// (`issues/2026-10-25-a-borrow-returning-generic-method-breaks-its-own-typed-parameters.md`),
+  /// so the value comes back as a copy, as before.
+  or_insert : (fn(self : &mut Self, default : &V) -> V)(
     match(
       self._slot,
-      .Occupied(index) => addr_of((self._map.*._data_ptr().add(index)).*.value),
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value,
       .Vacant(index) => {
         slot := self._map.*._insert_at(index, self._hash, &self._key, default);
-        addr_of((self._map.*._data_ptr().add(slot)).*.value)
+        self._slot = BucketProbe.Occupied(index : slot);
+        (self._map.*._data_ptr().add(slot)).*.value
       }
     )
   ),
-  /// The value for this key as a writable reference, inserting `make()`'s
-  /// result first when vacant — use over `or_insert` when constructing the
-  /// default is costly.
-  or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V)) -> &mut V)(
+  /// The value for this key, inserting `make()`'s result first when vacant —
+  /// use over `or_insert` when constructing the default is costly. As
+  /// `or_insert`: the slot flips to `.Occupied`, and the value comes back as
+  /// a copy (see the `&mut V` note there).
+  or_insert_with : (fn(self : &mut Self, make : &Impl(Fn() -> V)) -> V)(
     match(
       self._slot,
-      .Occupied(index) => addr_of((self._map.*._data_ptr().add(index)).*.value),
+      .Occupied(index) => (self._map.*._data_ptr().add(index)).*.value,
       .Vacant(index) => {
         slot := self._map.*._insert_at(index, self._hash, &self._key, make());
-        addr_of((self._map.*._data_ptr().add(slot)).*.value)
+        self._slot = BucketProbe.Occupied(index : slot);
+        (self._map.*._data_ptr().add(slot)).*.value
       }
     )
   ),
