@@ -124,7 +124,7 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr, type_holds_dyn_by_value, dyn_type_lists_clone } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
-{ is_global_mut_rule_exempt } :: import("./memory_safety.yo");
+{ is_global_mut_rule_exempt, is_std_module_path } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -3850,14 +3850,19 @@ DynCopyPending :: struct(site : ImplicitCopyPending, name : String, ty : TypeVal
 /// explicit-copy, any other `Dyn` move-only, and a value aggregate holding
 /// one follows it. Generation A enforces the rule on the copies a program
 /// makes outside the trees the seed builds (`is_global_mut_rule_exempt`:
-/// std, src, the build file, scripts, the store and macro expansions), whose
-/// copies still share the payload until Generation B (B13) sweeps them and
-/// makes the kind the type's own (`type_requires_explicit_copy`). The rule
-/// only rejects programs: every copy it accepts keeps today's representation
-/// (a counted share of the payload), so it changes no emitted C.
+/// src, the build file, scripts, the store and macro expansions) and outside
+/// `std/` (`is_std_module_path`, named here because decision 47's locals
+/// Generation B removed std from the shared exemption list — the Dyn rule's
+/// own scope is unchanged), whose copies still share the payload until
+/// Generation B (B13) sweeps them and makes the kind the type's own
+/// (`type_requires_explicit_copy`). The rule only rejects programs: every
+/// copy it accepts keeps today's representation (a counted share of the
+/// payload), so it changes no emitted C.
 /// True when the copy of a `ty` value at `tok` falls under the rule.
 dyn_copy_rule_applies :: (fn(ty : &TypeValue, tok : &Token, ctx : &EvalContext) -> bool)(
-  !is_global_mut_rule_exempt(&tok.module_path.*, &ctx.std_path) && type_holds_dyn_by_value(ty)
+  !is_global_mut_rule_exempt(&tok.module_path.*, &ctx.std_path)
+  && !is_std_module_path(&tok.module_path.*, &ctx.std_path)
+  && type_holds_dyn_by_value(ty)
 );
 /// Check one copy (`rhs`, read through variable `variable_name`) of a value
 /// holding a `Dyn`, where the rule applies (`dyn_copy_rule_applies`). A copy
