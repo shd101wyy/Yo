@@ -362,7 +362,7 @@ evaluate_address_call :: (
                 &ptok,
                 `\`addr_of(${bp_place})\` takes the address of ${bp_what}, and a \`&T\` parameter has no stable address: it is passed as a copy (decision 34), so the pointer would point at the callee's copy, not at the caller's place, and dangle once the call returns.`,
                 Option(String).Some(
-                  `for the caller's address, declare the parameter \`${bp.name} : *(${bp_ty})\` and pass \`addr_of(place)\` at the call, or \`${bp.name} : &mut ${bp_ty}\` (passed as a pointer); to read the value, use \`${bp.name}\` itself`
+                  `for the caller's address, declare the parameter \`${bp.name} : *${bp_ty}\` and pass \`addr_of(place)\` at the call, or \`${bp.name} : &mut ${bp_ty}\` (passed as a pointer); to read the value, use \`${bp.name}\` itself`
                 )
               ),
               E_ADDR_OF_BORROW_PARAM

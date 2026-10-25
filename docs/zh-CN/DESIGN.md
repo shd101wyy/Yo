@@ -1304,6 +1304,8 @@ swap(addr_of(x), addr_of(y)); // 传入 x 和 y 的指针
 
 日常的就地修改应优先使用 `name : &mut T` 参数形式（见[Type Methods](#type-methods)）——它在 C 中降为相同的 `T*` ABI，但保持安全，调用方用 `&mut` 借出位置（`swap(&mut x, &mut y)`），而不是取裸地址。原始 `*(T)` 仅保留给 FFI 和本节涉及的底层场景。
 
+当 `x` 是 `&T` 参数或其中的位置（`addr_of(x.field)`）时，`addr_of(x)` 是错误 E0921：`&T` 参数作为调用方值的副本传入，因此它的地址是被调用方的副本，调用返回后即悬空。需要调用方地址的代码应接受 `x : *T` 并由调用方传入 `addr_of(place)`，或接受按指针传递的 `x : &mut T`。投影（返回 `&T` 或 `&mut T` 的函数）的 `&T` 参数按指针传递，保留 `addr_of`；prelude 中 `Array` 的 `Index` 实现正是这样取得元素的。
+
 ### 指针操作
 
 ```yo
