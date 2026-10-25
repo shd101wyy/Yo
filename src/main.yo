@@ -3125,8 +3125,8 @@ _clone_impl_body_at :: (fn(bodies : &ArrayList(CloneImplBody), st : &ExplicitCop
 /// is a move and is neither rewritten nor listed. So is a copy of a capture
 /// inside an `FnOnce(...)` closure body (an explicit capture list: the body
 /// OWNS its by-value captures, decision 37), judged at the body's end the
-/// same way — `RefCell.with_mut`'s `sink(body) : Impl(FnOnce(...))` makes
-/// `{ k, v }(m) => m.insert(k, v)` a move of `k` and `v`, not a copy. A copy
+/// same way — a `sink(f) : Impl(FnOnce(...))` callee's `{ k, v }(m) =>
+/// m.insert(k, v)` moves `k` and `v`, not copies them. A copy
 /// in a file under
 /// one of `hot_paths` (`--hot-path`, repeatable; B1 passes `src/evaluator`)
 /// is listed for a hand edit instead of rewritten: there a per-operation deep

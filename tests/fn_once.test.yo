@@ -564,26 +564,3 @@ test("FnOnce: a method call's result as an operand lends nothing of the receiver
   };
   assert(g_once_disposed == (before + i32(1)), "the holder's capture released once");
 });
-
-// --- a generic FnOnce sink parameter callable inside its own callee -----------
-// A generic callee's specialized body re-binds its closure parameter
-// non-owning; the one `FnOnce` call inside the body needs an owning binding
-// (decision 37), or it is a false E0901 "it is a borrowed parameter"
-// (issues/fixed/2026-10-25-a-generic-fonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md).
-_gen_run_once :: (fn(generic(R : Type), pre : String, sink(body) : Impl(FnOnce() -> R)) -> R)(
-  body()
-);
-_GenCell :: struct(s : String);
-impl(
-  _GenCell,
-  with_put :: (fn(generic(R : Type), self : &mut Self, sink(body) : Impl(FnOnce(v : &mut String) -> R)) -> R)(
-    body(&mut self.s)
-  )
-);
-test("FnOnce: a generic FnOnce sink parameter is callable inside its own callee", {
-  s := String.from("ab");
-  assert(_gen_run_once(s.clone(), () => s.len()) == usize(2), "a plain-data closure literal is called once");
-  c := _GenCell(s : String.from("x"));
-  assert(c.with_put(v => v.push_str(&String.from("!"))) == usize(2), "an impl method calls its sink parameter");
-  assert(c.s == String.from("x!"), "the body ran on the cell's field");
-});

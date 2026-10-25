@@ -1,25 +1,30 @@
 //! `yo fix --migrate explicit-copy` inside an `FnOnce(...)` closure body: the
 //! body owns its by-value captures (decision 37), so a capture used at its
 //! last use is a MOVE — nothing is inserted and nothing is listed — while a
-//! capture the body reads again after the copy is cloned. `RefCell.with_mut`
-//! takes `sink(body) : Impl(FnOnce(v : &mut T) -> R)`.
+//! capture the body reads again after the copy is cloned. The sink parameter
+//! is a concrete `Impl(FnOnce() -> usize)` helper, the shape every
+//! `sink(f) : Impl(FnOnce(...))` callee shares; `_peek`'s plain by-value
+//! parameter makes the copy a `RefCell.with_mut` body makes at
+//! `m.insert(k, v)`.
 { String } :: import("std/string");
-{ HashMap } :: import("std/collections/hash_map");
-{ RefCell } :: import("std/sync/refcell");
 { println } :: import("std/fmt");
+_peek :: (fn(s : String) -> usize)(s.len());
+_run_once :: (fn(sink(f) : Impl(FnOnce() -> usize)) -> usize)(f());
 main :: (fn() -> unit)({
   k := String.from("k");
   v := String.from("v");
   again := String.from("again");
-  h := RefCell(HashMap(String, String)).new(HashMap(String, String).new());
-  // `k` and `v` move: each has exactly one use in the body, the `insert` call.
-  _ := h.with_mut({ k, v }(m) => m.insert(k, v));
+  // `k` and `v` move: each has exactly one use in the body, a by-value
+  // parameter of `_peek` — the copy `RefCell.with_mut` bodies make at
+  // `m.insert(k, v)`.
+  a := _run_once({ k }() => _peek(k));
+  b := _run_once({ v }() => _peek(v));
   // `again` is read again after its first use, so the first use is a copy.
-  _ := h.with_mut({ again }(m) => {
-    r := m.insert(String.from("a"), again);
-    println(again);
+  c := _run_once({ again }() => {
+    r := _peek(again);
+    println(&again);
     r
   });
-  println(h.with(m => m.len()).to_string());
+  println(`${a.to_string()} ${b.to_string()} ${c.to_string()}`);
 });
 export(main);

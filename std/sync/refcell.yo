@@ -114,23 +114,7 @@ impl(
   /// Run `body` with the value lent exclusively, and return its result —
   /// Rust's `borrow_mut()` with the guard's scope. Panics if any `with` or
   /// `with_mut` body of this cell is running.
-  ///
-  /// `sink(body) : Impl(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37):
-  /// the cell lends the value exactly once per `with_mut` call, and the body
-  /// runs exactly once, so the closure is MOVED in and may move what it
-  /// captured out of its body (`{ k, v }(m) => m.insert(k, v)`) instead of
-  /// copying each capture. An `Fn` closure is accepted too. `with` stays
-  /// `&Impl(Fn(...))`: it only reads, and a read-only body may run again.
-  ///
-  /// The call goes through a one-field relay closure (`{ body }`), as
-  /// `Thread.spawn`'s wrapper does: the relay's capture list OWNS `body`
-  /// (decision 37), so its one call consumes an owning binding. Calling
-  /// `body` directly is the same thing and works under this tree's evaluator
-  /// (issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md),
-  /// but a seed older than that fix rejects it, and this file must stay
-  /// compilable by the seed that builds the release
-  /// (plans/backlog/SEED_VERSION_AUTOMATION.md).
-  with_mut : (fn(generic(R : Type), self : &Self, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)({
+  with_mut : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R)) -> R)({
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
@@ -138,8 +122,7 @@ impl(
     });
     unsafe(consume(slot.*._borrow = isize(-1)));
     _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(-1));
-    (relay : Impl(FnOnce(v : &mut T) -> R)) = ({ body }(v : &mut T) => body(v));
-    unsafe(relay(&mut slot.*._value))
+    unsafe(body(&mut slot.*._value))
   }),
   /// Store `value` and return the value it replaces — Rust's `replace`.
   /// Panics if any `with` or `with_mut` body of this cell is running: the old
