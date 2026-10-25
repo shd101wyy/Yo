@@ -237,14 +237,16 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 /// Decision 47 step 2 (locals), Generation A (plans/VALUES_BY_DEFAULT.md):
 /// the mutability rule for a binding below module level (a write to an
 /// unmarked local, pattern or compile-time binding, E0917) is enforced
-/// outside the trees the seed builds, because the seed cannot parse a local
-/// `mut(name)` yet: std, the compiler source beside it (`<std>/../src/`), the
-/// repository's own build file and scripts that the seed also compiles
+/// outside the trees not yet swept: the compiler source beside std
+/// (`<std>/../src/`), the repository's own build file and scripts
 /// (`<std>/../build.yo`, `<std>/../scripts/`, e.g. `scripts/build_site.yo` in
 /// the release job), a fetched dependency in the store
-/// (`.../store/sha256/...`) and macro expansions. The module-level rules
-/// (E0917 on a global, E0916) no longer consult it: globals Generation B
-/// swept std and src. Locals Generation B sweeps those trees and drops this
+/// (`.../store/sha256/...`) and macro expansions. std is NOT exempt: its half
+/// of Generation B (v0.2.71, `plans/handover/VBD_RELEASE_SCHEDULE.md` §5c
+/// decision 18) marked every written std binding, so a std local that is
+/// written must be `mut`. The module-level rules (E0917 on a global, E0916)
+/// no longer consult it: globals Generation B swept std and src. The src
+/// half of locals Generation B (v0.2.72) sweeps the rest and drops this
 /// exemption.
 (g_mut_rule_exempt_memo : RefCell(HashMap(String, bool))) = RefCell(HashMap(String, bool)).new(HashMap(String, bool).new());
 is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
@@ -263,7 +265,7 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
       build_file := `${repo_root}/build.yo`;
       store := String.from("/store/sha256/");
       b := (
-        mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store)))))
+        mp.starts_with(String.from("auto-generated://")) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store))))
       );
       g_mut_rule_exempt_memo.with_mut(m => m.insert(mp.clone(), b));
       b
