@@ -1091,6 +1091,13 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// Decision 17's rule is on (`type_holds_counted_handle`); `yo fix
+/// --migrate rc-clone` turns it off while it records the copies it spells
+/// (`set_counted_handle_rule`).
+(mut(g_counted_handle_rule_on) : bool) = true;
+set_counted_handle_rule :: (fn(on : bool) -> unit)({
+  g_counted_handle_rule_on = on;
+});
 type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || (_plain_data_lacks_copy(ty) || type_holds_counted_handle(ty)));
 /// Decision 17 (plans/VALUES_BY_DEFAULT.md, V2c): copying an `Rc`/`Arc` needs
 /// `.clone()`, as in Rust. A new handle is a new owner, so sharing is visible
@@ -1109,10 +1116,6 @@ type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(t
 /// `yo fix --migrate rc-clone` suspends the rule while it records the copies
 /// it spells (`set_counted_handle_rule`): the tree it migrates still copies
 /// them implicitly.
-(mut(g_counted_handle_rule_on) : bool) = true;
-set_counted_handle_rule :: (fn(on : bool) -> unit)({
-  g_counted_handle_rule_on = on;
-});
 type_holds_counted_handle :: (fn(ty : &TypeValue) -> bool)(g_counted_handle_rule_on && type_holds_counted_handle_ignoring_migration(ty));
 /// `type_holds_counted_handle` whether or not the rule is suspended: what
 /// `yo fix --migrate rc-clone` records a copy by, so it spells exactly the
