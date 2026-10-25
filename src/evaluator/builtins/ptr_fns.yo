@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode, ast_expr_is_auto_ref_receiver } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -346,9 +346,11 @@ evaluate_address_call :: (
   );
   // E0921: a `&T` parameter is passed as a copy (decision 34), so its
   // address — or a place inside it — is the callee's copy, not the caller's
-  // place, and dangles once the call returns. A projection's result node is
-  // exempt (its `&T` parameters are pointers, and it yields a borrow).
-  if(projection_tail_mode(expr).is_none(), {
+  // place, and dangles once the call returns. Exempt: a projection's result
+  // node (its `&T` parameters are pointers, and it yields a borrow), and the
+  // `addr_of(receiver)` synthesized for a pointer-receiver method call, whose
+  // pointer lives for the call.
+  if(projection_tail_mode(expr).is_none() && !ast_expr_is_auto_ref_receiver(expr), {
     match(
       _by_value_borrow_param_root(&eval_arg, env, ctx),
       .Some(bp) => {
