@@ -420,8 +420,9 @@ test("an element borrow beside a value that cannot reach the container", {
   old2 := _put_str(&mut h.lists(usize(0)), String.from("y"));
   assert((old2 == "x") && (h.lists(usize(0)) == "y"), "through a field path");
 });
-// A sibling that CAN hold the container stays rejected: an alias of the
-// list, a value holding one, or the object the list lives in.
+// A sibling that CAN hold the container stays rejected: a list of the
+// container's type (it may be an alias), a value holding one, or the object
+// the list lives in.
 _ListBox :: struct(lists : ArrayList(String));
 test("an element borrow beside a value that can reach the container", {
   grow_beside :: (fn(dst : &mut String, other : ArrayList(String)) -> unit)({
@@ -432,8 +433,7 @@ test("an element borrow beside a value that can reach the container", {
   owner_beside :: (fn(dst : &mut String, other : &_StrLists) -> unit)(());
   xs := ArrayList(String).new();
   xs.push(String.from("a"));
-  alias := xs;
-  comptime_expect_error(grow_beside(&mut xs(usize(0)), alias), "could hold a handle");
+  comptime_expect_error(grow_beside(&mut xs(usize(0)), ArrayList(String).new()), "could hold a handle");
   b := _ListBox(lists : ArrayList(String).new());
   comptime_expect_error(hold_beside(&mut xs(usize(0)), &b), "could hold a handle");
   h := _StrLists(lists : ArrayList(String).new(), tag : String.from("t"));
