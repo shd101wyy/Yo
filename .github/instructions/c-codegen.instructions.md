@@ -770,6 +770,16 @@ A plain operand that is no call (`h.tag`, a local `x`) is still emitted inline
 and can still run late; that is open
 (`issues/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md`).
 
+A declared temp needs its drop in the C scope that declares it. A temp names
+itself in the nearest begin-block frame, and its scope-end drop runs at that
+block's end. A `cond` condition and a `match` guard are each evaluated as a
+one-expression block (`evaluate_begin_expression`), so their temps get their
+own frame. Their drops ride on the condition or guard node, which the emitter
+flushes right after the bool. Before that, a guard's temp
+(`(n && (h.mk(n).peek() > i32(1)))`) was declared inside the arm's test block
+and dropped at the enclosing block's end, an undeclared C identifier
+(`issues/fixed/2026-10-24-a-match-guard-that-builds-a-temporary-object-emits-undeclared-c-temps.md`).
+
 ### Inside a state machine, a temp declared as a C local must also be stored to its slot
 
 A minted temp the async capture analysis gave a `sm->var_<id>` slot has its
