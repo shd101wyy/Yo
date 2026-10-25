@@ -415,6 +415,7 @@ Corpus :: struct(
   root : String,
   prefix : String
 );
+derive(Corpus, Clone);
 /// The merged corpora a query runs over: entries and module rows
 /// concatenated; module rows carry their owning corpus's index dir.
 LoadedWorld :: struct(
@@ -504,7 +505,7 @@ _load_world :: (
     deps := _dep_corpora(io, exn);
     (di : usize) = usize(0);
     while(di < deps.len(), {
-      corpora.push(deps(di));
+      corpora.push(deps(di).clone());
       di = (di + usize(1));
     });
   });
@@ -512,9 +513,8 @@ _load_world :: (
   lock := context_lock(cache_root.clone(), io, exn);
   (ci : usize) = usize(0);
   while(ci < corpora.len(), {
-    c := corpora(ci);
     ci = (ci + usize(1));
-    key := context_index_ensure(&c.root, cache_root.clone(), q.refresh, &c.prefix, io, exn);
+    key := context_index_ensure(&corpora(ci).root, cache_root.clone(), q.refresh, &corpora(ci).prefix, io, exn);
     idx_dir := context_index_dir(cache_root.clone(), key.clone());
     centries := context_index_load(cache_root.clone(), key.clone(), io, exn);
     (i : usize) = usize(0);
@@ -801,6 +801,7 @@ PageSection :: struct(
   anchor : String,
   text : String
 );
+derive(PageSection, Clone);
 /// The anchor of a renderer ITEM heading (`` ### `anchor` ``), or `.None`.
 _item_heading_anchor :: (fn(line : &String) -> Option(String))({
   open := String.from("### `");
@@ -883,7 +884,7 @@ _anchor_base :: (fn(anchor : &String) -> String)({
     });
     i = (i + usize(1));
   });
-  anchor
+  anchor.clone()
 });
 /// Does a section heading name `item`? A dotted `Type.name` must match
 /// exactly; a plain name matches itself or any `Type.name`.
@@ -919,7 +920,7 @@ _sections_of :: (
     .Some(s) => s,
     .None => {
       s := _page_sections(_module_page(mods, module.clone(), io, exn));
-      cache.insert(module.clone(), s);
+      cache.insert(module.clone(), s.clone());
       s
     }
   )
@@ -958,12 +959,11 @@ _defining_entry :: (fn(entries : &ArrayList(ContextIndexEntry), e : &ContextInde
 /// `--list`: the module index — one row per module, sorted, with item
 /// counts; degraded modules are footnoted, not silent (D3).
 _run_context_list :: (fn(world : &LoadedWorld, as_json : bool) -> unit)({
-  mods := world.mods;
   if(as_json, {
     arr := ArrayList(JsonValue).new();
     (i : usize) = usize(0);
-    while(i < mods.len(), {
-      m := mods(i);
+    while(i < world.mods.len(), {
+      m := world.mods(i);
       o := JsonValue.object();
       o.insert(String.from("module"), _jstr(m.module.clone()));
       o.insert(String.from("doc"), _jstr(m.doc.clone()));
@@ -979,15 +979,15 @@ _run_context_list :: (fn(world : &LoadedWorld, as_json : bool) -> unit)({
   });
   (degraded : usize) = usize(0);
   (i2 : usize) = usize(0);
-  while(i2 < mods.len(), {
-    m := mods(i2);
+  while(i2 < world.mods.len(), {
+    m := world.mods(i2);
     i2 = (i2 + usize(1));
     if(m.degraded, {
       degraded = (degraded + usize(1));
     });
     println(tr(`${m.module}  ${m.doc} (${m.items.to_string()} items)`, `${m.module}  ${m.doc}（${m.items.to_string()} 项）`));
   });
-  println(tr(`— ${mods.len().to_string()} modules; yo context <module> for its items`, `—— 共 ${mods.len().to_string()} 个模块；yo context <module> 查看其条目`));
+  println(tr(`— ${world.mods.len().to_string()} modules; yo context <module> for its items`, `—— 共 ${world.mods.len().to_string()} 个模块；yo context <module> 查看其条目`));
   if(degraded > usize(0), {
     println(tr(`Note: ${degraded.to_string()} module(s) are marked (untyped) — the evaluator could not load them.`, `注意：${degraded.to_string()} 个模块标记为 (untyped)——求值器无法加载它们。`));
   });

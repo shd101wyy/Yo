@@ -964,7 +964,7 @@ check_single_file :: (
 /// The argv entry following index `i` (the value of a `--flag value` pair), or
 /// "" if `i` is the last argument. Used by the `compile` flag parser.
 _arg_val :: (fn(argv : &ArrayList(String), i : usize) -> String)(
-  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
+  if((i + usize(1)) < argv.len(), argv(i + usize(1)).clone(), String.from(""))
 );
 /// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
 /// (`yo compile -o` with nothing after silently produced an empty output name
@@ -973,7 +973,7 @@ _arg_val_req :: (
   fn(argv : &ArrayList(String), i : usize, flag : &String, exn : Exception) -> String
 )({
   if((i + usize(1)) < argv.len(), {
-    return(argv(i + usize(1)));
+    return(argv(i + usize(1)).clone());
   });
   exn.throw(dyn(`compile: option '${flag}' requires a value`));
   String.from("")
@@ -1022,6 +1022,7 @@ _splice_runes :: (
 });
 /// One repair to apply, resolved against a file's current text.
 _PendingFix :: struct(row : usize, col : usize, len : usize, replacement : String, description : String);
+derive(_PendingFix, Clone);
 /// Apply `fixes` to `path`'s text and write it back. Applied from the LAST
 /// position backwards so an earlier edit cannot invalidate a later span.
 /// Returns the number applied.
@@ -1042,7 +1043,7 @@ _apply_fixes_to_file :: (
     (bi : usize) = (oi + usize(1));
     while(bi < n, {
       b := match(fixes.get(bi), .Some(f) => f, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
-      cur := match(fixes.get(best), .Some(f) => f, .None => b);
+      cur := match(fixes.get(best), .Some(f) => f, .None => b.clone());
       if((b.row > cur.row) || ((b.row == cur.row) && (b.col > cur.col)), {
         best = bi;
       });
@@ -1050,7 +1051,7 @@ _apply_fixes_to_file :: (
     });
     if(best != oi, {
       tmp_a := match(fixes.get(oi), .Some(f) => f, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
-      tmp_b := match(fixes.get(best), .Some(f) => f, .None => tmp_a);
+      tmp_b := match(fixes.get(best), .Some(f) => f, .None => tmp_a.clone());
       fixes(oi) = tmp_b;
       fixes(best) = tmp_a;
     });
@@ -1790,7 +1791,7 @@ _bsm_arg :: (fn(e : &AstExpr, i : usize) -> AstExpr)(
   match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
 );
 _bsm_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
-  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+  match(e, .FnCall(_, _, a, _, _) => a.clone(), .Atom(_, _) => ArrayList(AstExpr).new())
 );
 _bsm_callee :: (fn(e : &AstExpr) -> AstExpr)(
   match(e, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => e)
@@ -2453,11 +2454,11 @@ _run_migrate_addr_of :: (
     checked := ArrayList(_PendingFix).new();
     (pi : usize) = usize(0);
     while(pi < spans.len(), pi = (pi + usize(1)), {
-      p := spans(pi);
+      p := spans(pi).clone();
       (contains_other : bool) = false;
       (qi : usize) = usize(0);
       while(qi < spans.len(), qi = (qi + usize(1)), {
-        q := spans(qi);
+        q := spans(qi).clone();
         if((qi != pi) && (q.row == p.row) && (q.col > p.col) && (q.col < (p.col + p.len)), {
           contains_other = true;
         });
@@ -3647,11 +3648,11 @@ _run_migrate_dyn_spelling :: (
     checked := ArrayList(_PendingFix).new();
     (pi : usize) = usize(0);
     while(pi < spans.len(), pi = (pi + usize(1)), {
-      p := spans(pi);
+      p := spans(pi).clone();
       (contains_other : bool) = false;
       (qi : usize) = usize(0);
       while(qi < spans.len(), qi = (qi + usize(1)), {
-        q := spans(qi);
+        q := spans(qi).clone();
         if((qi != pi) && (q.row == p.row) && (q.col >= p.col) && (q.col < (p.col + p.len)) && ((q.col != p.col) || (q.len < p.len)), {
           contains_other = true;
         });
@@ -5163,7 +5164,7 @@ _opt_step :: (fn(attached : &Option(String)) -> usize)(
 _opt_value :: (
   fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : Exception) -> String
 )(
-  match(attached, .Some(v) => v, .None => _arg_val_req(argv, i, flag, exn))
+  match(attached, .Some(v) => v.clone(), .None => _arg_val_req(argv, i, flag, exn))
 );
 /// `--heap-size <n>[K|M|G]` (suffix case-insensitive) -> bytes, validated:
 /// 64 KiB minimum (the TLSF control block alone needs ~8 KiB), 4 GiB maximum
@@ -5281,11 +5282,11 @@ windows_path_with_dir_first :: (fn(path : &String, dir : &String) -> String)({
   while(i < entries.len(), {
     present := match(entries.get(i), .Some(e) => e.trim_end_matches("\\").eq_ignore_ascii_case(want.clone()), .None => false);
     if(present, {
-      return(path);
+      return(path.clone());
     });
     i = (i + usize(1));
   });
-  if(path.len() == usize(0), dir, `${dir};${path}`)
+  if(path.len() == usize(0), dir.clone(), `${dir};${path}`)
 });
 export(windows_path_with_dir_first);
 /// Put the ASan runtime DLL directory on this process's PATH (see
@@ -8160,7 +8161,7 @@ run_compile :: (
     cmd.arg(String.from("-o"));
     cmd.arg(obj_path.clone());
     lib_plan := _new_cc_plan(_CC_PLAN_STATIC_LIB, cc.clone(), c_path.clone(), output.clone());
-    lib_plan.argv = cmd.recorded;
+    lib_plan.argv = cmd.recorded.clone();
     lib_plan.obj_path = obj_path;
     lib_plan.ar_out = if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
     lib_plan.verbose = verbose;

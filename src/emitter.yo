@@ -13,6 +13,7 @@ pragma(Pragma.AllowUnsafe);
 { RefCell } :: import("std/sync/refcell");
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
+{ replace } :: import("std/mem");
 { open_sync, close_sync, write_sync } :: import("std/sys/file");
 { panic } :: import("std/assert");
 { O_WRONLY, O_CREAT, O_TRUNC, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("std/sys/constants");
@@ -437,9 +438,8 @@ impl(
       if((self.code_spill_fd < i32(0)) && !self._open_code_spill(), {
         return(());
       });
-      bytes := self.code;
-      n := bytes.len();
-      base_ptr := bytes.ptr().unwrap();
+      n := self.code.len();
+      base_ptr := self.code.ptr().unwrap();
       (done : usize) = usize(0);
       while(done < n, {
         w := write_sync(self.code_spill_fd, base_ptr.add(done), u32(n - done), u64(self.code_spilled_bytes + done));
@@ -648,9 +648,7 @@ impl(
     // Patch the buffer in place: take it out of `self.code` (with the field
     // emptied the buffer is unique, so `into_bytes` moves it out with no
     // copy), write the line numbers, and put it back below.
-    taken := self.code;
-    self.code = String.new();
-    bytes := taken.into_bytes();
+    bytes := replace(&mut self.code, String.new()).into_bytes();
     n := bytes.len();
     marker := line_restore_marker();
     mb := marker;

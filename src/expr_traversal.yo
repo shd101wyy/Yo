@@ -550,7 +550,7 @@ all_paths_unwind :: (fn(e : &AstExpr) -> bool)(
 /// The statements of a block (`begin(...)`), or the expression itself.
 _fusion_statements :: (fn(e : &AstExpr) -> ArrayList(AstExpr))({
   if(ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None), {
-    return(match(e, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new()));
+    return(match(e, .FnCall(_, _, args, _, _) => args.clone(), _ => ArrayList(AstExpr).new()));
   });
   one := ArrayList(AstExpr).new();
   one.push(e);
@@ -735,6 +735,7 @@ async_wrapper_fusion_verdict :: (fn(body : &AstExpr) -> Option(String))({
 /// reports: a func_id hashes the module path), and its verdict (empty:
 /// fusable).
 FusionCandidate :: struct(func_id : String, callee_at : String, verdict : String);
+derive(FusionCandidate, Clone);
 // Call expression id -> callee func_id, and func_id -> candidate (`.None`:
 // the callee is no `io.async` wrapper), computed once per function.
 (g_fusion_callee_of_call : RefCell(HashMap(String, String))) = RefCell(HashMap(String, String)).new(HashMap(String, String).new());
@@ -754,7 +755,7 @@ record_await_fusion_candidate :: (fn(call : &AstExpr, func_id : &String, body : 
       ),
       .None => Option(FusionCandidate).None
     );
-    g_fusion_candidate_of_fn.with_mut(m => m.insert(func_id.clone(), candidate));
+    g_fusion_candidate_of_fn.with_mut(m => m.insert(func_id.clone(), candidate.clone()));
   });
   // Only a wrapper's calls are recorded: every other call would grow the
   // table for nothing.

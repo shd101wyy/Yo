@@ -585,9 +585,8 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
       param_hits := _find_pointer_types(&param_bytes);
       (hi : usize) = usize(0);
       while(hi < param_hits.len(), {
-        hit := param_hits(hi);
-        if(!_ptr_hit_is_privilege_token(&param_bytes, hit.offset), {
-          lc := _offset_to_line_col(&src, decl.params_start + hit.offset);
+        if(!_ptr_hit_is_privilege_token(&param_bytes, param_hits(hi).offset), {
+          lc := _offset_to_line_col(&src, decl.params_start + param_hits(hi).offset);
           findings.push(
             PublicSafeFinding(
               file : file.clone(),
@@ -595,8 +594,8 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
               column : lc.column,
               decl_name : decl.name.clone(),
               slot : String.from("parameter"),
-              pointer_type : hit.pointer_type.clone(),
-              snippet : _short_snippet(&param_bytes, hit.offset)
+              pointer_type : param_hits(hi).pointer_type.clone(),
+              snippet : _short_snippet(&param_bytes, param_hits(hi).offset)
             )
           );
         });
@@ -620,8 +619,7 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
           ret_start := if(found_arrow, arrow + usize(2), decl.params_start);
           (ri : usize) = usize(0);
           while(ri < ret_hits.len(), {
-            hit := ret_hits(ri);
-            lc := _offset_to_line_col(&src, ret_start + hit.offset);
+            lc := _offset_to_line_col(&src, ret_start + ret_hits(ri).offset);
             findings.push(
               PublicSafeFinding(
                 file : file.clone(),
@@ -629,8 +627,8 @@ _scan_file :: (fn(file : &String, src_str : &String, findings : &mut ArrayList(P
                 column : lc.column,
                 decl_name : decl.name.clone(),
                 slot : String.from("return"),
-                pointer_type : hit.pointer_type.clone(),
-                snippet : _short_snippet(&ret_bytes, hit.offset)
+                pointer_type : ret_hits(ri).pointer_type.clone(),
+                snippet : _short_snippet(&ret_bytes, ret_hits(ri).offset)
               )
             );
             ri = (ri + usize(1));

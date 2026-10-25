@@ -21,7 +21,7 @@ set_cli_lang_override :: (fn(lang : &String) -> unit)({
 cli_lang :: (fn() -> String)({
   named := match(
     g_lang_override,
-    .Some(l) => l,
+    .Some(l) => l.clone(),
     .None => match(
       env.get(String.from("YO_LANG")),
       .Some(l) => l,
@@ -40,8 +40,8 @@ cli_lang :: (fn() -> String)({
 /// Pick the English or Simplified-Chinese variant of a user-facing string.
 tr :: (fn(en : &String, zh : &String) -> String)(
   cond(
-    (cli_lang() == "zh-CN") => zh,
-    true => en
+    (cli_lang() == "zh-CN") => zh.clone(),
+    true => en.clone()
   )
 );
 export(set_cli_lang_override, cli_lang, tr);

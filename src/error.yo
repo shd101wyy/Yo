@@ -355,7 +355,7 @@ format_error_message_with_repair :: (
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
-    d.help = Option(String).Some(match(help, .Some(hh) => hh, .None => String.new()));
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
     Repair(span : _span_of_token(token), replacement : replacement.clone(), description : repair_description.clone())
@@ -378,7 +378,7 @@ format_error_message_with_repair_at :: (
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
-    d.help = Option(String).Some(match(help, .Some(hh) => hh, .None => String.new()));
+    d.help = Option(String).Some(match(help, .Some(hh) => hh.clone(), .None => String.new()));
   });
   d.repair = Option(Repair).Some(
     Repair(span : span.clone(), replacement : replacement.clone(), description : repair_description.clone())
@@ -392,7 +392,7 @@ format_error_message_with_help :: (
   if(help.is_some(), {
     h := match(
       help,
-      .Some(hh) => hh,
+      .Some(hh) => hh.clone(),
       .None => String.new()
     );
     d.help = Option(String).Some(h);
@@ -862,7 +862,7 @@ export(format_error_message_with_repair, format_error_message_with_repair_at);
 /// load stash is empty (measured 2026-09-17: a parse error reaches it with 1
 /// diagnostic, `Variable "countr" not found.` with 0).
 peek_swallowed_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))(
-  g_swallowed_diagnostics
+  g_swallowed_diagnostics.clone()
 );
 clear_swallowed_diagnostics :: (fn() -> unit)({
   g_swallowed_diagnostics = Option(ArrayList(Diagnostic)).None;
