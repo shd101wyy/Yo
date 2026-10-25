@@ -118,11 +118,11 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, TypeValueNode, t_refine_inner, SharedList, no_flags } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type, is_function_type_and_returns_comptime_value, is_box_type, is_unique_box_type, is_dyn_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type, is_struct_type, is_tuple_type, is_some_type, cell_handle_view, is_atomic_counted_handle_type, is_arc_type, is_counted_handle_value_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_holds_counted_handle, type_holds_counted_handle_ignoring_migration, set_counted_handle_rule, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn, type_contains_some_type_deep, type_representation_contains_raw_ptr } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site, register_mut_binding, is_mut_binding, migrate_mut_bindings_on, record_mut_binding_site, record_mut_binding_site_pending, record_mut_param_site, record_mut_param_site_pending } :: import("../expr_info.yo");
 { is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
@@ -595,6 +595,7 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
         `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
       ),
+      type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_help(name, ty)),
       type_requires_explicit_copy(ty) => Option(String).Some(
         `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
       ),
@@ -622,6 +623,28 @@ _clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
     true => ` It implements \`Clone\`: \`${_copy_derive_target(ty)}.clone(${name})\` copies it.`
   )
 );
+/// The constructor a counted handle's own copy is spelled through, `Rc` or
+/// `Arc` (decision 17: `Rc.clone(h)`, which no payload method can shadow,
+/// decision 32).
+_counted_handle_ctor :: (fn(ty : &TypeValue) -> String)(cond(is_arc_type(&t_refine_inner(ty)) => String.from("Arc"), true => String.from("Rc")));
+/// The E0901 note for a named value of a type decision 17 copies only
+/// explicitly (`type_holds_counted_handle`): a handle's `Rc.clone(h)` /
+/// `Arc.clone(h)`, or the `.clone()` of a value holding one.
+_counted_handle_help :: (fn(name : &String, ty : &TypeValue) -> String)(
+  cond(
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${name}\` is a counted handle (\`${type_to_string(ty)}\`), and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): write \`${_counted_handle_ctor(ty)}.clone(${name})\` for a second handle, move it (its last use moves it), or lend it with \`&${name}\` to a \`&T\` parameter. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    type_lacks_clone(ty) => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, whose clone copies each handle, or move it (\`sink(${name})\`).`,
+    true => `\`${name}\` has type \`${type_to_string(ty)}\`, which holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): write \`${name}.clone()\` for a copy (it copies each handle), move it (\`sink(${name})\`), or lend it with \`&${name}\` to a \`&T\` parameter.`
+  )
+);
+/// `_counted_handle_help` for a value with no name of its own.
+_counted_handle_type_help :: (fn(ty : &TypeValue) -> String)(
+  cond(
+    is_counted_handle_value_type(&t_refine_inner(ty)) => `\`${type_to_string(ty)}\` is a counted handle, and a copy of a handle is a new owner, so it is spelled where it is made (plans/VALUES_BY_DEFAULT.md decision 17): wrap the place in \`${_counted_handle_ctor(ty)}.clone(...)\` for a second handle, lend it to a \`&T\` parameter, or move its whole owner. \`yo fix <path> --migrate rc-clone\` spells the clones.`,
+    type_lacks_clone(ty) => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17), and it is not \`Clone\`: give it \`derive(${_copy_derive_target(ty)}, Clone)\`, lend it to a \`&T\` parameter, or move its whole owner.`,
+    true => `\`${type_to_string(ty)}\` holds a counted handle (\`Rc\`/\`Arc\`), so it is copied only explicitly (plans/VALUES_BY_DEFAULT.md decision 17): call \`.clone()\` on it for a copy (it copies each handle), lend it to a \`&T\` parameter, or move its whole owner.`
+  )
+);
 /// The E0901 note for a value that has no name of its own (a field, an
 /// element, a dereference) and is not implicitly copyable: why its type is
 /// move-only, or the `.clone()` that copies an explicit-copy value.
@@ -641,6 +664,7 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty)) => Option(String).Some(
         `\`${type_to_string(ty)}\` is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, call \`.clone()\` on it for a copy, or move its whole owner.`
       ),
+      type_holds_counted_handle(ty) => Option(String).Some(_counted_handle_type_help(ty)),
       type_requires_explicit_copy(ty) => Option(String).Some(
         `\`${type_to_string(ty)}\` is copied explicitly: call \`.clone()\` on it for a copy, lend it to a by-value parameter, or move its whole owner.`
       ),
@@ -953,6 +977,8 @@ _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
     // Decision 36: a plain-data type with neither `Copy` nor `Clone` is
     // move-only, with no `.clone()` to offer.
     type_lacks_clone(ty) => String.from("is move-only (it is neither `Copy` nor `Clone`)"),
+    // Decision 17: a handle's own copy is spelled through its constructor.
+    (type_holds_counted_handle(ty) && is_counted_handle_value_type(&t_refine_inner(ty))) => `is a counted handle, copied only explicitly (\`${_counted_handle_ctor(ty)}.clone(h)\`)`,
     true => String.from("is copied only explicitly (`.clone()`)")
   )
 );
@@ -2684,6 +2710,15 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// which names the capture and its source together: the `.clone()` belongs on
 /// the source, so the rewrite expands the entry to `x : x.clone()` (a bare
 /// `{ x.clone() }` does not parse). Empty for every other copy.
+///
+/// Under `yo fix --migrate rc-clone` (decision 17) `spelling` names the copy
+/// to spell: `Rc` or `Arc` for a counted handle (`Rc.clone(e)`), `clone` for
+/// a value holding one (`e.clone()`), `derive` for such a value whose type is
+/// not `Clone` (listed); empty under `--migrate explicit-copy`. An implicit
+/// closure capture (`copy_path` `capture`) is recorded at the closure's `=>`
+/// with `expect` the captured name and `capture_names` every name the closure
+/// captures implicitly (`,`-joined), which the rewrite lists, since a capture
+/// list is exhaustive.
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2698,7 +2733,9 @@ ExplicitCopySite :: struct(
   src_borrow : String,
   in_generic : bool,
   src_dying : String,
-  capture_label : String
+  capture_label : String,
+  spelling : String,
+  capture_names : String
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -2714,11 +2751,23 @@ CopyWrite :: struct(decl : String, at_module : String, at_offset : u32);
 set_migrate_explicit_copy :: (fn(on : bool) -> unit)({
   g_migrate_explicit_copy = on;
 });
+/// `yo fix --migrate rc-clone` (decision 17, V2c): the explicit-copy
+/// recorder, kept to the copies the counted-handle rule rejects
+/// (`type_holds_counted_handle_ignoring_migration`), with the rule itself
+/// suspended while the tree that still copies its handles implicitly is
+/// evaluated.
+(mut(g_migrate_rc_clone) : bool) = false;
+set_migrate_rc_clone :: (fn(on : bool) -> unit)({
+  g_migrate_rc_clone = on;
+  g_migrate_explicit_copy = on;
+  set_counted_handle_rule(!on);
+});
+migrate_rc_clone_on :: (fn() -> bool)(g_migrate_rc_clone);
 /// Whether `yo fix --migrate explicit-copy` is recording.
 migrate_explicit_copy_on :: (fn() -> bool)(g_migrate_explicit_copy);
 /// Record one site, once per position and type.
 record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
-  key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty}`;
+  key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty}:${site.copy_path}:${site.expect}`;
   if(!g_explicit_copy_site_keys.with_mut(s => s.insert(key)), {
     return(());
   });
@@ -2998,7 +3047,7 @@ take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
   g_clone_impl_body_keys.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, set_migrate_rc_clone, migrate_rc_clone_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -3198,15 +3247,27 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// token is the `.`), where the rewrite finds it in the source, and the
 /// declaration keys of its source and destination variables (`_ic_decl_key`,
 /// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool, src_dying : String, capture_label : String);
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String, in_generic : bool, src_dying : String, capture_label : String, (capture_names : String) ?= String.new());
+/// How `yo fix --migrate rc-clone` spells the copy of a value of `ty`
+/// (`ExplicitCopySite.spelling`): `Rc`/`Arc` for a handle, `clone` for a
+/// `Clone` value holding one, `derive` for one that is not `Clone`.
+_rc_clone_spelling :: (fn(ty : &TypeValue) -> String)(
+  cond(
+    is_counted_handle_value_type(&t_refine_inner(ty)) => if(is_arc_type(&t_refine_inner(ty)), String.from("Arc"), String.from("Rc")),
+    type_lacks_clone(ty) => String.from("derive"),
+    true => String.from("clone")
+  )
+);
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
   cond(
     !migrate_explicit_copy_on() => Option(ExplicitCopySite).None,
-    !_ic_category_is_unique_buffer(category) => Option(ExplicitCopySite).None,
-    ((copy_path == "capture") || (copy_path == "binding(macro)")) => Option(ExplicitCopySite).None,
-    type_lacks_clone(ty) => Option(ExplicitCopySite).None,
+    (g_migrate_rc_clone && !type_holds_counted_handle_ignoring_migration(ty)) => Option(ExplicitCopySite).None,
+    (!g_migrate_rc_clone && !_ic_category_is_unique_buffer(category)) => Option(ExplicitCopySite).None,
+    (copy_path == "binding(macro)") => Option(ExplicitCopySite).None,
+    ((copy_path == "capture") && !g_migrate_rc_clone) => Option(ExplicitCopySite).None,
+    (!g_migrate_rc_clone && type_lacks_clone(ty)) => Option(ExplicitCopySite).None,
     true => Option(ExplicitCopySite).Some(
       ExplicitCopySite(
         path : m.leftmost.module_path.*.clone(),
@@ -3222,7 +3283,9 @@ _ic_migrate_site :: (
         src_borrow : m.src_borrow.clone(),
         in_generic : m.in_generic,
         src_dying : m.src_dying.clone(),
-        capture_label : m.capture_label.clone()
+        capture_label : m.capture_label.clone(),
+        spelling : if(g_migrate_rc_clone, _rc_clone_spelling(ty), String.new()),
+        capture_names : m.capture_names.clone()
       )
     )
   )

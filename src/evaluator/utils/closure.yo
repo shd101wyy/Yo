@@ -91,7 +91,7 @@
 { move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
+{ audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait, migrate_rc_clone_on, ICMigrateCtx, _ic_decl_key } :: import("../utils.yo");
 { Exception } :: import("std/error");
 { auto_derive_traits_for_struct_type } :: import("../types/utils.yo");
 // ---------------------------------------------------------------------------
@@ -1332,6 +1332,42 @@ _captures_require_explicit_copy :: (fn(cvwv_opt : &Option(HashMap(String, FuncCa
     .None => false
   )
 );
+/// The names a closure captures implicitly that hold a run-time value (a
+/// compile-time-only binding is read in place, not captured), sorted and
+/// `,`-joined: the entries `yo fix --migrate rc-clone` lists when it gives the
+/// closure a capture list.
+_runtime_capture_names :: (fn(cvwv_opt : &Option(HashMap(String, FuncCapturedVarInfo)), env : &Environment) -> String)({
+  names := ArrayList(String).new();
+  match(
+    cvwv_opt,
+    .Some(cvwv) => {
+      it := cvwv.keys();
+      (more : bool) = true;
+      while(more, {
+        match(
+          it.next(),
+          .Some(n) => if(match(get_variables_from_env(env, n.clone()).last(), .Some(cv) => !cv.is_compile_time_only, .None => false), {
+            names.push(n.clone());
+          }),
+          .None => {
+            more = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  names.sort();
+  out := String.new();
+  (i : usize) = usize(0);
+  while(i < names.len(), i = (i + usize(1)), {
+    if(i > usize(0), {
+      out.push_str(",");
+    });
+    out.push_string(&names(i));
+  });
+  out
+});
 /// Result type for `generate_captured_variable_dup_expressions`.
 CapturedVarDupResult :: struct(
   dup_exprs : Option(ArrayList(AstExpr)),
@@ -1374,6 +1410,10 @@ generate_captured_variable_dup_expressions :: (
   if(borrow_captures && _captures_require_explicit_copy(captured_vars_with_values), {
     return(CapturedVarDupResult(dup_exprs : Option(ArrayList(AstExpr)).None, env : env, borrowed : true));
   });
+  // `yo fix --migrate rc-clone`: a handle copied into this closure while its
+  // source is read again becomes a capture-list entry, and a capture list is
+  // exhaustive, so the rewrite lists every capture that holds a value.
+  rc_capture_names := if(migrate_rc_clone_on(), _runtime_capture_names(captured_vars_with_values, env), String.new());
   match(
     captured_vars_with_values,
     .Some(cvwv) => if(cvwv.len() > usize(0), {
@@ -1404,7 +1444,32 @@ generate_captured_variable_dup_expressions :: (
               },
               type_contains_rc_type(&ci.ty) => {
                 if(audit_implicit_copy_enabled(), {
-                  audit_record_implicit_copy(closure_tok, &ci.ty, "capture", env, var_name.clone(), var_name.clone(), ctx, false);
+                  audit_record_implicit_copy(
+                    closure_tok,
+                    &ci.ty,
+                    "capture",
+                    env,
+                    var_name.clone(),
+                    var_name.clone(),
+                    ctx,
+                    false,
+                    migrate_ctx : if(
+                      migrate_rc_clone_on(),
+                      Option(ICMigrateCtx).Some(
+                        ICMigrateCtx(
+                          leftmost : closure_tok.clone(),
+                          src_decl : match(get_variables_from_env(env, var_name.clone()).last(), .Some(cv) => _ic_decl_key(&cv.token), .None => String.new()),
+                          dst_decl : String.new(),
+                          src_borrow : String.new(),
+                          in_generic : false,
+                          src_dying : String.new(),
+                          capture_label : String.new(),
+                          capture_names : rc_capture_names.clone()
+                        )
+                      ),
+                      Option(ICMigrateCtx).None
+                    )
+                  );
                 });
                 dup_code := `___dup(${var_name})`;
                 dup_expr := generate_expr_from_code(&dup_code, exn);

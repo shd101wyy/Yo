@@ -2516,8 +2516,11 @@ _note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &Array
 /// §3.13 A6: `io.spawn` and a cold `io.await` copy the effect bundle into the
 /// future bitwise, since one bundle starts many futures. A field that is not
 /// implicitly copyable (move-only, or plain data without `Copy`) would be
-/// copied by that, so it is an error at the site; shared state goes in an
-/// `Rc` field.
+/// copied by that, so it is an error at the site. A counted handle is one
+/// since decision 17 (V2c): a bundle holds no owned value, and shared state
+/// reaches a task through its capture list (`{ st : Rc.clone(st) }`) or a
+/// handler as an argument of the effect call (plans/VALUES_BY_DEFAULT.md,
+/// "A6, the bundle").
 _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
   if(!(is_io_await_call(expr) || is_io_spawn_call(expr)), {
     return(());
@@ -2537,7 +2540,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
               format_error_message_with_help(
                 ast_expr_token(&bundle),
                 `The effect bundle's field \`${label}\` (\`${type_to_string(&fty)}\`) is not implicitly copyable, and \`${if(is_io_spawn_call(expr), "io.spawn", "io.await")}\` copies the bundle into the future it starts (one bundle starts many futures, plans/VALUES_BY_DEFAULT.md §3.13 A6).`,
-                Option(String).Some(`keep shared state in an \`Rc\` field of the bundle, or pass the value to the task through its capture list instead`)
+                Option(String).Some(`a bundle holds no owned value: pass shared state to the task through its capture list (\`io.async({ st : Rc.clone(st) }(e : Io) => ...)\`), or to a handler as an argument of the effect call`)
               ),
               E_USE_OF_MOVED_VALUE
             ),
