@@ -113,8 +113,8 @@ random_bytes :: (fn(buf : &RawSlice(u8), exn : Exception) -> unit)({
     },
     ((platform == Platform.Emscripten) || (platform == Platform.Wasi)) => {
       // WASM/Emscripten/WASI: getentropy() via WASI random_get (max 256 bytes per call)
-      remaining := size;
-      offset := usize(0);
+      mut(remaining) := size;
+      mut(offset) := usize(0);
       while(remaining > usize(0), {
         chunk := cond(
           (remaining > usize(256)) => usize(256),
