@@ -14,8 +14,8 @@ concurrent heavy jobs).
 yo verify ./tests/spec/fixtures/valid/spec_insertion_sort.yo --no-cache
 ```
 
-Measured four runs of the identical query (the SMT goal text compared equal
-across all four):
+Measured runs of the identical query (the SMT goal text compared equal
+across the first four):
 
 | Run | Tree | `loop-invariant-iterate~2` |
 | --- | ---- | -------------------------- |
@@ -23,6 +23,7 @@ across all four):
 | directory run, same window, in parallel | `style/while-true` (fixture unchanged) | unproven (`unknown`) |
 | directory run, 2026-10-25 ~00:40 | develop `82671f612` | unproven (`unknown`) |
 | file alone, 2026-10-25 ~01:00 | develop `82671f612` | unproven (`unknown`), 16 queries in 129 s |
+| directory run and file alone, 2026-10-25 ~07:00 | develop `cff2cfa60` and the branch | proved; alone 16 queries in 93 s |
 
 ## Analysis
 
