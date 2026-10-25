@@ -88,6 +88,12 @@ The design is written out in `plans/VALUES_BY_DEFAULT.md`, decision 39,
      - the read walk for `for(&xs, …)`: **landed as B7a (2026-10-23)**, a
        `BorrowedWalk.walk_ref` cursor over `c := &xs` in every std
        collection (`tests/for_read_walk.test.yo`);
+     - the `HashMapEntry` with-shape (decision 22): **landed as B7c
+       (2026-10-25)** — `entry(key, body)` lends the entry to a body, holds
+       the map as `*HashMap` (not a handle copy), `or_insert`/
+       `or_insert_with`/`get_or_insert*` return `&mut V`, `and_modify`
+       returns `unit`; the `FnOnce` body spelling waits on
+       `issues/2026-10-25-a-generic-fnonce-parameter-cannot-be-called.md`;
      - a consuming `into_iter(self : Self)`;
      - `iter()` and the `*Ptr` iterators under
        `pragma(Pragma.AllowUnsafe)`.

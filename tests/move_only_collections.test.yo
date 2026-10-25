@@ -133,7 +133,7 @@ test("HashMap entry: and_modify replaces a move-only value without copying it", 
   {
     m := HashMap(i32, _McFd).new();
     m.insert(i32(4), _McFd(n : i32(40)));
-    m.entry(&i32(4)).and_modify(&((v : &_McFd) => _McFd(n : (v.n + i32(1)))));
+    m.entry(i32(4), e => e.and_modify(&((v : &_McFd) => _McFd(n : (v.n + i32(1))))));
     assert(m(i32(4)).n == i32(41), "the value was replaced in place");
     assert(g_mc_dropped == (before + i32(1)), "the old value dropped once");
   };
