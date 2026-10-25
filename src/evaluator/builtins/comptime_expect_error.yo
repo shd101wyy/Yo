@@ -38,7 +38,7 @@
   mut_param_pending_mark,
   settle_mut_binding_pending
 } :: import("../../expr_info.yo");
-{ local_borrows_mark, local_borrows_truncate } :: import("../utils.yo");
+{ local_borrows_mark, local_borrows_truncate, dyn_copy_mark, dyn_copy_rollback } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
 { set_propagate_def_time_errors, propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -273,7 +273,10 @@ evaluate_comptime_expect_error :: (
   saved_depths := forcing_depths();
   mb_mark := mut_binding_pending_mark();
   mp_mark := mut_param_pending_mark();
+  dyn_mark := dyn_copy_mark();
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
+  // The unique `Dyn`'s pending copies the argument made never happen.
+  dyn_copy_rollback(dyn_mark);
   // `yo fix --migrate mut-bindings` accepts every write to an unmarked
   // binding and holds the ones made here: a case that still raised an error
   // expects another one, so its written bindings are marked; a case that no

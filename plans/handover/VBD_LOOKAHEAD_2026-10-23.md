@@ -702,6 +702,20 @@ The owner prefix (PR 2) and the cell header (PR 4) are separate layout diffs, re
 - Emit-diff: only the new slot line per vtable plus the clone functions.
 - cli-diff: `check-dyn-unresolved-payload`, `check-test-bodies-auto-boxed-dyn`, `dyn-vtables-registering-futures-are-each-defined-once`.
 
+**As built (2026-10-24, branch `feat/b12-dyn-gen-a`).** Where the build departs from the list above:
+
+- **The kind stays off the type predicates.** `type_requires_explicit_copy`/`type_is_move_only` still say a `Dyn` copies, so std and src keep sharing with no change to the ownership machinery or the C. The rule is a check on the copies themselves: `check_dyn_copy`/`check_dyn_capture` (`src/evaluator/utils.yo`) run at every dup site and implicit capture whose token is outside `is_global_mut_rule_exempt`, for any type `type_holds_dyn_by_value` (a `Dyn`, or a value aggregate holding one).
+  - A copy out of a field, element, dereference, module-level binding, `&mut` borrow, `&T` parameter or closure capture is E0901 at once. That is `transfer_explicit_copy_value`'s classification.
+  - A copy of any other source is held pending and judged at its frame's epilogue (`judge_dyn_copies`, `src/evaluator/exprs/begin.yo`, reusing the explicit-copy audit's `_ic_scan`): a read after the copy is E0901 at that read. A `comptime_expect_error` argument rolls its pending copies back.
+  - The scan follows the paths through the copy. A reassignment, `return`, `break` or `continue` ends only the path it is on: a branch ends every path when each arm does and it is exhaustive, and the code after a loop stays on the path when a `break` reaches it. A loop runs the copy again when a path reaches the next iteration (no end, or a `continue`) and that iteration, scanned from its start, reads the source before writing it.
+  - A by-value `match` of a local holding a `Dyn` is held pending the same way (`_decide_match_mode`, `src/evaluator/exprs/match.yo`): Generation B's consuming match moves it, so a later read is E0901 with the `match(&o, …)` note. Over a module-level binding or a closure capture it is E0901 at once.
+  - Known gap for B13: a by-value `match` over a projection holding a `Dyn` (`match(h.d, …)`, `match(xs(i), …)`) is not rejected, though Generation B's `_throw_unmovable_scrutinee` rejects it.
+  - B13 moves the kind into the predicates and deletes these checks.
+- **Clone placement.** The clone slot sets the source's owner scope (`__yo_scope_of_object`) around the payload's `clone` and the box constructor (decision 12).
+- **Closure payloads.** A payload whose `Clone` has no function of its own (a closure's structural clone) gets the generic `(fn(generic(T : Type), v : &T, where(T <: Clone)) -> T)(v.clone())` specialized for it through a synthetic receiver call (`_synthesize_dyn_clone_fn`, `src/evaluator/values/dyn.yo`), as a blanket impl's method is.
+- **Canaries.** No program outside std and src can share one `Dyn` box between threads any more, and std and src hold no `Dyn(..., Send)`, so the box's atomic retain (`__yo_incr_rc_atomic` in the vtable) lost its TSan canary until B13 removes the shared box. The by-value-slot canary in `tests/parameter_modes.test.yo` now calls clones, so only an AddressSanitizer run reports a slot that consumes the payload.
+- **Sweep.** The tests' live-source copies became `Rc(Dyn(...))` (`tests/closure.test.yo`, `tests/codegen-bootstrap/dyn_box_closure_binding.yo`), `Arc(Dyn(..., Send, Sync))` (`tests/parallelism_soundness.test.yo`; `Arc` requires `Sync`, which surfaced the duplicate `__yo_v_id` vtable member, `issues/fixed/2026-10-24-a-dyn-listing-two-marker-traits-emits-a-duplicate-vtable-member.md`), `.clone()` (`tests/parameter_modes.test.yo`), or a payload built per call (`tests/error_source_chain.test.yo`).
+
 ### PR 2: allocator interface v2, Generation A
 
 **The runtime**, in `src/codegen/types/generation.yo:1062–1158`:

@@ -62,13 +62,15 @@ _AnyNode :: Dyn(_Node);
 _Root :: struct(tag : String);
 impl(_Root, ToString(to_string : (fn(self : &Self) -> String)(`root(${self.tag})`)));
 impl(_Root, _Node());
-_Child :: ref(struct(tag : String, up : _AnyNode));
+// The parent is built on each call: a `Dyn` owns its payload
+// (plans/VALUES_BY_DEFAULT.md decision 7), so a method cannot hand out a copy
+// of a `Dyn` field it only borrows.
+_Child :: ref(struct(tag : String, up_tag : String));
 impl(_Child, ToString(to_string : (fn(self : &Self) -> String)(`child(${self.tag})`)));
-impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(self.up))));
+impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(dyn(_Root(tag : self.up_tag.clone()))))));
 _handle :: (fn(n : &_AnyNode) -> String)(n.to_string());
 test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {
-  (r : _AnyNode) = dyn(_Root(tag : `R`));
-  (c : _AnyNode) = dyn(_Child(tag : `C`, up : r));
+  (c : _AnyNode) = dyn(_Child(tag : `C`, up_tag : `R`));
   // Binding the payload into a named local is one half of the defect...
   (bound : String) = match(
     c.parent(),
