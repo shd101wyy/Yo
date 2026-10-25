@@ -69,6 +69,7 @@ json :: import("std/encoding/json");
   E_COMPTIME_BINDING_RUNTIME_WRITE,
   E_RC_PAYLOAD_WRITE,
   E_DEREF_OF_BORROW,
+  E_ADDR_OF_BORROW_PARAM,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -729,6 +730,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "probe :: (fn(v : &i32) -> bool)(v < i32(20));\nmain :: (fn() -> unit)({\n  x := i32(5);\n  _r := probe(&x);\n});\nexport(main);\n",
       "`v : &i32` is a borrow, and a borrow reads as its value: `v` alone is the `i32`; `v.*` names no place until decision 43.",
       "`v : &i32` 是借用，借用按其值读取：单独的 `v` 就是那个 `i32`；在决策 43 之前 `v.*` 不指代任何位置。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ADDR_OF_BORROW_PARAM,
+      "`addr_of` of a `&T` parameter",
+      "对 `&T` 参数取 `addr_of`",
+      "`addr_of(x)` where `x` is a `&T` parameter, or a place inside one (a field of a value struct or tuple, an element of an array it holds): the parameter is the callee's copy, so the pointer is not the caller's address and dangles when the call returns.",
+      "`addr_of(x)` 中的 `x` 是 `&T` 参数，或是其中的位置（值结构体或元组的字段、它持有的数组的元素）：该参数是被调用方的副本，因此指针不是调用方的地址，并在调用返回时悬空。",
+      "A `&T` parameter is a read-only borrow, and the borrow is a mode on the binding, not an address: codegen passes it as a copy of the caller's value (decision 34), whatever the size of `T`, and in generic code the choice depends only on the instantiated type. So `addr_of(x)` inside the callee names the callee's copy. The pointer reads the same bytes while the call runs, but it is not the caller's place: a write through it is lost, a comparison with the caller's `addr_of` fails, and once the function returns the pointer dangles. Unsafe code that needs the caller's address says so in the signature: a `x : *T` parameter that the caller fills with `addr_of(place)`, or a `x : &mut T` parameter, which is passed as a pointer. To read the value, use `x` itself. A projection's `&T` parameter (a function returning `&T` or `&mut T`, decision 24) is passed as a pointer and is not this error.",
+      "`&T` 参数是只读借用，而借用是绑定上的模式，不是地址：代码生成把它作为调用方值的副本传入（决策 34），与 `T` 的大小无关；在泛型代码中，这一选择只取决于实例化后的类型。因此被调用方中的 `addr_of(x)` 指向被调用方的副本。在调用期间该指针读到相同的字节，但它不是调用方的位置：经由它的写入会丢失，与调用方的 `addr_of` 比较不相等，函数返回后指针悬空。需要调用方地址的 unsafe 代码应在签名中写明：调用方以 `addr_of(place)` 填入的 `x : *T` 参数，或按指针传递的 `x : &mut T` 参数。只是读取值时直接使用 `x`。投影（返回 `&T` 或 `&mut T` 的函数，决策 24）的 `&T` 参数按指针传递，不属于此错误。",
+      "pragma(Pragma.AllowUnsafe);\nS :: struct(n : usize);\nwhere_is :: (fn(s : &S) -> *(S))(addr_of(s));\nmain :: (fn() -> unit)({\n  s := S(n : usize(1));\n  _p := where_is(&s);\n});\nexport(main);\n",
+      "pragma(Pragma.AllowUnsafe);\nS :: struct(n : usize);\nwhere_is :: (fn(s : *(S)) -> *(S))(s);\nmain :: (fn() -> unit)({\n  s := S(n : usize(1));\n  _p := where_is(addr_of(s));\n});\nexport(main);\n",
+      "`s : &S` is the callee's copy, so `addr_of(s)` is not the address of `main`'s `s`; a `*(S)` parameter receives the caller's `addr_of(s)` itself.",
+      "`s : &S` 是被调用方的副本，因此 `addr_of(s)` 不是 `main` 中 `s` 的地址；`*(S)` 参数接收的就是调用方的 `addr_of(s)` 本身。"
     )
   );
   out.push(

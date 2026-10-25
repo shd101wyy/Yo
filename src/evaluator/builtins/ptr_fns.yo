@@ -5,8 +5,11 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, projection_tail_mode } :: import("../../expr.yo");
-{ is_array_type, is_struct_type, is_tuple_type } :: import("../../types/guards.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, ast_place_text, BF_DOT, projection_tail_mode } :: import("../../expr.yo");
+{ is_array_type, is_struct_type, is_tuple_type, is_union_type, is_reference_struct_type } :: import("../../types/guards.yo");
+{ fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ E_ADDR_OF_BORROW_PARAM } :: import("../../diagnostics.yo");
 {
   ExprInfo,
   ComptimeRef,
@@ -22,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
   migrate_addr_of_on
 } :: import("../../expr_info.yo");
 { Variable, Environment, snapshot_env, get_variables_from_env } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, FuncOrAsyncBlockKind } :: import("../context.yo");
 {
   EvalValue,
   is_unknown_val,
@@ -31,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
 { attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args, record_copy_pointer_place } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -136,6 +139,85 @@ _projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Enviro
     true => Option(String).None
   )
 });
+/// Whether `v` is a `&T` parameter passed BY VALUE: decision 34 passes a
+/// `&T` parameter as a copy, except a projection's (`-> &T`, decision 24),
+/// which `fn_param_is_ptr_borrow` passes as a pointer and binds `is_ref`. When
+/// `v` is a parameter of the innermost function being evaluated, the
+/// function's declared modes decide: a specialization's runtime-placeholder
+/// re-bind marks every non-`&mut` parameter `is_imm_borrow`
+/// (`create_specialized_function_inline`), a by-value one included.
+_is_by_value_borrow_param :: (fn(v : &Variable, ctx : &EvalContext) -> bool)({
+  if(!v.is_parameter || !v.is_imm_borrow || v.is_ref || v.is_compile_time_only, {
+    return(false);
+  });
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .Some(fb) => match(
+      fb.kind,
+      .FunctionBody => match(
+        fb.func_type,
+        .Some(ft) => match(
+          ft,
+          Rc(.Func({ meta : bp_m })) => {
+            (i : usize) = usize(0);
+            n := bp_m.*.param_labels.len();
+            while(i < n, {
+              if(match(bp_m.*.param_labels.get(i), .Some(l) => (l == v.name), .None => false), {
+                return(
+                  !match(bp_m.*.param_is_ref.get(i), .Some(b) => b, .None => false) && !match(bp_m.*.param_is_owning.get(i), .Some(b) => b, .None => false) && !fn_param_is_ptr_borrow(&ft, i)
+                );
+              });
+              i = (i + usize(1));
+            });
+            true
+          },
+          _ => true
+        ),
+        .None => true
+      ),
+      _ => true
+    ),
+    .None => true
+  )
+});
+/// A value aggregate holds its fields and elements inline, so a place inside
+/// it is inside its storage; a `ref(struct(...))` handle's fields live in the
+/// shared cell, a pointer's target elsewhere.
+_holds_its_places_inline :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(hi) => ((is_struct_type(&hi.ty) && !is_reference_struct_type(&hi.ty)) || is_tuple_type(&hi.ty) || is_union_type(&hi.ty) || is_array_type(&hi.ty)),
+    .None => false
+  )
+);
+/// The by-value `&T` parameter (`_is_by_value_borrow_param`) whose own
+/// storage `place` names: the parameter itself, or a place reached from it
+/// through field steps of value aggregates and element accesses of fixed-size
+/// arrays. A raw-pointer dereference (`p.*`), a `ref` handle's field and an
+/// `Index` element of a collection reach storage the parameter does not hold.
+_by_value_borrow_param_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
+  match(
+    place,
+    .Atom(_, br_tok) => match(
+      get_variables_from_env(env, br_tok.value.clone()).last(),
+      .Some(v) => if(_is_by_value_borrow_param(&v, ctx), Option(Variable).Some(v), Option(Variable).None),
+      .None => Option(Variable).None
+    ),
+    .FnCall(_, br_callee, br_args, _, _) => cond(
+      ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
+        br_args.get(usize(1)),
+        .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(Variable).None, {
+          base := match(br_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          if(_holds_its_places_inline(&base, ctx), _by_value_borrow_param_root(&base, env, ctx), Option(Variable).None)
+        }),
+        .None => Option(Variable).None
+      ),
+      ((br_args.len() == usize(1)) && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&br_callee)), .Some(ci) => is_array_type(&ci.ty), .None => false)) =>
+        _by_value_borrow_param_root(&br_callee, env, ctx),
+      true => Option(Variable).None
+    )
+  )
+);
 evaluate_address_call :: (
   fn(
     expr : &AstExpr,
@@ -262,6 +344,35 @@ evaluate_address_call :: (
     ),
     .None => ()
   );
+  // E0921: a `&T` parameter is passed as a copy (decision 34), so its
+  // address — or a place inside it — is the callee's copy, not the caller's
+  // place, and dangles once the call returns. A projection's result node is
+  // exempt (its `&T` parameters are pointers, and it yields a borrow).
+  if(projection_tail_mode(expr).is_none(), {
+    match(
+      _by_value_borrow_param_root(&eval_arg, env, ctx),
+      .Some(bp) => {
+        bp_place := ast_place_text(&arg_expr);
+        bp_ty := type_to_string(&bp.ty);
+        bp_what := if(match(eval_arg, .Atom(_, _) => true, _ => false), `\`${bp.name}\`, a \`&${bp_ty}\` parameter`, `a place inside \`${bp.name}\`, a \`&${bp_ty}\` parameter`);
+        exn.throw(
+          dyn(
+            with_code(
+              format_error_message_with_help(
+                &ptok,
+                `\`addr_of(${bp_place})\` takes the address of ${bp_what}, and a \`&T\` parameter has no stable address: it is passed as a copy (decision 34), so the pointer would point at the callee's copy, not at the caller's place, and dangle once the call returns.`,
+                Option(String).Some(
+                  `for the caller's address, declare the parameter \`${bp.name} : *(${bp_ty})\` and pass \`addr_of(place)\` at the call, or \`${bp.name} : &mut ${bp_ty}\` (passed as a pointer); to read the value, use \`${bp.name}\` itself`
+                )
+              ),
+              E_ADDR_OF_BORROW_PARAM
+            )
+          )
+        );
+      },
+      .None => ()
+    );
+  });
   arg_type := arg_info.ty;
   pointer_type := t_ptr(&arg_type);
   // Determine compile-time pointer value from comptimeRef.
