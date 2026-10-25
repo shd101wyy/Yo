@@ -80,3 +80,43 @@ test("guards on a compile-time scrutinee fold", {
   );
   assert(r == i32(2));
 });
+// A temporary a guard builds belongs to the guard: it is declared inside the
+// arm's test and released right after the guard's bool, whether the guard
+// holds or fails
+// (issues/fixed/2026-10-24-a-match-guard-that-builds-a-temporary-object-emits-undeclared-c-temps.md).
+(mut(g_guard_tok_drops) : i32) = i32(0);
+_GuardTok :: struct(n : i32);
+impl(
+  _GuardTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_guard_tok_drops = (g_guard_tok_drops + i32(1));
+    })
+  )
+);
+impl(_GuardTok, peek : (fn(self : &Self) -> i32)(self.n));
+_guard_tok :: (fn(x : i32) -> _GuardTok)(_GuardTok(n : x));
+_GuardHolder :: struct(mk : Dyn(Fn(x : i32) -> _GuardTok), ms : Dyn(Fn(x : i32) -> String));
+test("a guard over an object it builds", {
+  k := i32(3);
+  r := match(k, (n && (rc(n).* > i32(1))) => i32(2), _ => i32(3));
+  assert(r == i32(2), "rc object");
+  r2 := match(k, (n && (rc(n).* > i32(5))) => i32(2), _ => i32(3));
+  assert(r2 == i32(3), "rc object, guard fails");
+});
+test("a guard's temporary receiver is released once on either path", {
+  h := _GuardHolder(mk : dyn((x : i32) => _GuardTok(n : x)), ms : dyn((x : i32) => `s${x}`));
+  before := g_guard_tok_drops;
+  (mut(i) : i32) = i32(0);
+  (mut(hits) : i32) = i32(0);
+  while(i < i32(4), i = (i + i32(1)), {
+    // A direct call's and a closure-field call's result as the receiver.
+    a := match(i, (n && (_guard_tok(n).peek() > i32(1))) => i32(1), _ => i32(0));
+    b := match(i, (n && (h.mk(n).peek() > i32(1))) => i32(1), _ => i32(0));
+    // An owned String from a closure-field call.
+    c := match(i, (n && (h.ms(n).len() == usize(2))) => i32(1), _ => i32(0));
+    hits = (hits + a + b + c);
+  });
+  assert(hits == i32(8), "a and b hold for i = 2 and 3, c for every i");
+  assert(g_guard_tok_drops == (before + i32(8)), "each receiver temp released once per evaluation");
+});
