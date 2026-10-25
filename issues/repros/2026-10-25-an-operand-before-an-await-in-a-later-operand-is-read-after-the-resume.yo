@@ -1,0 +1,28 @@
+{ assert } :: import("std/assert");
+{ yield } :: import("std/async");
+sub :: (fn(a : i32, b : i32) -> i32)(a - b);
+// Suspends once, then writes 10 through its borrow.
+slow :: (fn(p : &mut i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &mut p }(io : Io) => {
+    io.await(yield(io), io);
+    p = i32(10);
+    i32(1)
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  // A local of the io.async body: it lives in a state-machine slot.
+  r := io.await(
+    io.async((io : Io) => {
+      (mut(x) : i32) = i32(3);
+      sub(x, io.await(slow(&mut x, io), io))
+    }),
+    io
+  );
+  assert(r == i32(2), "x is read before the await that writes it");
+  // A `&mut` capture read by value: copied into a C local before the await.
+  (mut(y) : i32) = i32(3);
+  s := io.await(io.async({ &mut y }(io : Io) => sub(y, io.await(slow(&mut y, io), io))), io);
+  assert(s == i32(2), "y is read before the await that writes it");
+  ()
+});
+export(main);

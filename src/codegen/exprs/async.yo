@@ -33,7 +33,8 @@
   is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_cell_or_move_only, capture_struct_borrows, type_requires_explicit_copy } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, capture_struct_borrows, type_requires_explicit_copy, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
+{ sequence_operand } :: import("./other_fn_call.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -2345,13 +2346,19 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   // (issues/fixed/2026-10-21-an-aliased-argument-in-an-async-body-gets-no-caller-owned-share.md).
   rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
+  // Each argument is sequenced against the later ones (`sequence_operand`,
+  // other_fn_call.yo), as at an ordinary call: the parameters below are
+  // initialized only after every argument has been generated.
+  fused_ft := get_func_type(site.wrapper_fid.clone());
+  fused_abi_ptr := fn_abi_param_is_ptr(&fused_ft);
   (ai : usize) = usize(0);
   while(ai < rargs.len(), ai = (ai + usize(1)), {
     match(
       rargs.get(ai),
       .Some(a) => {
         code := _call_generate_expr(&a, indent.clone(), context);
-        arg_codes.push(if(_fused_arg_carries_call_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code));
+        owned := if(_fused_arg_carries_call_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code);
+        arg_codes.push(sequence_operand(&a, owned, &rargs, ai, match(fused_abi_ptr.get(ai), .Some(r) => r, .None => false), indent, context));
       },
       .None => ()
     );

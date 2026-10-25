@@ -910,3 +910,97 @@ test("Hash, Debug, Format, ToJson and Error impls may not take self : &mut Self"
   comptime_expect_error(impl(_PmReadOnly, Error(source : (fn(self : &mut Self) -> Option(AnyError))(.None))), "lends its receiver read-only");
   comptime_expect_error(impl(_PmReadOnly, Hash(hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self.n)))), "lends its receiver read-only");
 });
+// Operand sequencing: a by-value operand is read where it is written, before
+// a later `&mut` argument (or a later block) writes it. The read stayed an
+// inline C expression and ran after the later operand's statement, so
+// `sub(x, bump(&mut x))` passed the value `bump` wrote
+// (issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md).
+_pm_seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
+_pm_seq_first :: (fn(generic(T : Type), a : T, b : T) -> T)(a);
+_pm_seq_bump :: (fn(p : &mut i32) -> i32)({
+  p = i32(10);
+  i32(1)
+});
+_PmSeqAcc :: struct(base : i32);
+derive(_PmSeqAcc, Copy, Clone);
+impl(_PmSeqAcc, minus : (fn(self : Self, b : i32) -> i32)(self.base - b));
+impl(_PmSeqAcc, sub2 : (fn(self : &Self, a : i32, b : i32) -> i32)((self.base + a) - b));
+_pm_seq_bump_acc :: (fn(p : &mut _PmSeqAcc) -> i32)({
+  p.base = i32(10);
+  i32(1)
+});
+_PmSeqPair :: struct(a : i32, b : i32);
+_PmSeqObj :: ref(struct(a : i32, b : i32));
+_PmSeqE :: enum(P(a : i32, b : i32), Q);
+_pm_seq_first_len :: (fn(a : String, b : usize) -> usize)(a.len());
+test("a by-value operand is read before a later &mut argument writes it", {
+  acc := _PmSeqAcc(base : i32(0));
+  (mut(x) : i32) = i32(3);
+  assert((x - _pm_seq_bump(&mut x)) == i32(2), "operator");
+  x = i32(3);
+  assert(_pm_seq_sub(x, _pm_seq_bump(&mut x)) == i32(2), "call argument");
+  x = i32(3);
+  assert(acc.sub2(x, _pm_seq_bump(&mut x)) == i32(2), "method argument");
+  x = i32(3);
+  assert(_pm_seq_first(x, _pm_seq_bump(&mut x)) == i32(3), "generic call argument");
+  x = i32(3);
+  (f : Impl(Fn(a : i32, b : i32) -> i32)) = ((a : i32, b : i32) => (a - b));
+  assert(f(x, _pm_seq_bump(&mut x)) == i32(2), "closure call argument");
+  x = i32(3);
+  p := _PmSeqPair(a : x, b : _pm_seq_bump(&mut x));
+  assert((p.a - p.b) == i32(2), "value-struct constructor");
+  x = i32(3);
+  o := _PmSeqObj(a : x, b : _pm_seq_bump(&mut x));
+  assert((o.a - o.b) == i32(2), "ref-struct constructor");
+  x = i32(3);
+  e := _PmSeqE.P(a : x, b : _pm_seq_bump(&mut x));
+  assert(match(e, .P(a, b) => (a - b), .Q => i32(-1)) == i32(2), "enum constructor");
+  x = i32(3);
+  t := (x, _pm_seq_bump(&mut x));
+  assert((t.0 - t.1) == i32(2), "tuple");
+  x = i32(3);
+  arr := Array(i32, 2)(x, _pm_seq_bump(&mut x));
+  assert((arr(0) - arr(1)) == i32(2), "array");
+  x = i32(3);
+  assert(((x + i32(1)) - _pm_seq_bump(&mut x)) == i32(3), "an arithmetic operand");
+  x = i32(3);
+  q := _PmSeqPair(a : (x + i32(1)), b : _pm_seq_bump(&mut x));
+  assert((q.a - q.b) == i32(3), "an arithmetic constructor argument");
+});
+test("a by-value receiver or field operand is read before a later &mut argument writes its root", {
+  (mut(a) : _PmSeqAcc) = _PmSeqAcc(base : i32(3));
+  assert(a.minus(_pm_seq_bump_acc(&mut a)) == i32(2), "by-value receiver");
+  a = _PmSeqAcc(base : i32(3));
+  assert((a.base - _pm_seq_bump_acc(&mut a)) == i32(2), "field operand");
+  a = _PmSeqAcc(base : i32(3));
+  assert(_pm_seq_sub(a.base, _pm_seq_bump_acc(&mut a)) == i32(2), "field argument");
+});
+test("a by-value operand is read before a later block assigns it", {
+  (mut(x) : i32) = i32(3);
+  assert(
+    (
+      x - {
+        x = i32(10);
+        i32(1)
+      }
+    ) == i32(2),
+    "operator"
+  );
+  x = i32(3);
+  assert(
+    _pm_seq_sub(x, {
+      x = i32(10);
+      i32(1)
+    }) == i32(2),
+    "call argument"
+  );
+  // A shared String: the callee receives the value `s` had, with the share
+  // the call took, and the replacement is released once by the scope.
+  (mut(s) : String) = String.from("hello");
+  n := _pm_seq_first_len(s, {
+    s = String.from("a much longer replacement string");
+    usize(0)
+  });
+  assert(n == usize(5), "the old String reaches the callee");
+  assert(s.len() == usize(32), "the replacement is kept");
+});

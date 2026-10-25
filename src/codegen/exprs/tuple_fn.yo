@@ -16,7 +16,7 @@
 { is_unit_type } :: import("../../types/guards.yo");
 { TypeValue, no_types } :: import("../../types/definitions.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
-{ _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
+{ _store_temp_var_to_state_machine_if_needed, sequence_operand } :: import("./other_fn_call.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 { expr_info_deferred_dup_expressions } :: import("../../expr_info.yo");
 /// Args of a FnCall (empty for an Atom).
@@ -56,12 +56,12 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
         args_list.push_string(i.to_string());
         args_list.push_str(" = ");
         arg_code := _call_generate_expr(&arg, indent.clone(), context);
+        (elem_code : String) = arg_code;
         // Deferred dup for a moved RC field:
         // emit the field's deferred `___dup` expressions and reference the
         // DUP RESULT temp — the literal owns its own +1 per field. An
         // element-wise dup's temp is one element (`element_wise_dup_target`):
         // the field reads the source, which the dup retained in place.
-        (used_dup_temp : bool) = false;
         match(
           context.base.get_expr_info(&arg),
           .Some(arg_ei) => match(
@@ -76,8 +76,7 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
                     .Some(dup_ei) => match(
                       dup_ei.variable_name,
                       .Some(dup_vn) => {
-                        args_list.push_string(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
-                        used_dup_temp = true;
+                        elem_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env));
                       },
                       .None => ()
                     ),
@@ -91,9 +90,10 @@ _build_tuple :: (fn(arg_exprs : &ArrayList(AstExpr), c_name : &String, expr : &A
           ),
           .None => ()
         );
-        if(!used_dup_temp, {
-          args_list.push_string(&arg_code);
-        });
+        // Sequenced against the later elements (`sequence_operand`,
+        // other_fn_call.yo): C leaves initializers unordered, and a later
+        // element's statements run before this literal.
+        args_list.push_string(sequence_operand(&arg, elem_code, arg_exprs, i, false, indent, context));
       }),
       .None => ()
     );

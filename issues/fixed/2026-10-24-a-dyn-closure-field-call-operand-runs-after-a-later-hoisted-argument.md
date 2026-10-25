@@ -115,5 +115,5 @@ inline expression whose temp was never declared, so its drop was skipped
 
 A plain earlier operand that is no call stays inline after a later argument's statement:
 
-- `issues/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md` (S1);
-- `issues/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md` (S2).
+- `issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md` (S1);
+- `issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md` (S2).

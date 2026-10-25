@@ -766,9 +766,22 @@ closure tail (a `fn`-pointer field, a `Dyn(Fn …)` vtable call, a static
 `Impl(Fn …)` capture-struct call) did so only when the call may unwind, so
 `h.cb(i32(1)) == eat(h)` called the closure after `eat(h)` had freed it
 (`issues/fixed/2026-10-24-a-dyn-closure-field-call-operand-runs-after-a-later-hoisted-argument.md`).
-A plain operand that is no call (`h.tag`, a local `x`) is still emitted inline
-and can still run late; that is open
-(`issues/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md`).
+
+A plain operand that is no call (`h.tag`, a local `x`) is settled by
+`sequence_operand` (`src/codegen/exprs/other_fn_call.yo`): every operand loop —
+the plain-call, method-dispatch, dyn, constructor, primitive-operator
+(`generation.yo`), tuple (`tuple_fn.yo`), array (`array_fns.yo`) and fused-await
+(`async.yo`) paths — passes each earlier by-value operand's final code (after
+its deferred dup) to it, and a later operand that names the operand's local
+root or may write spills the value into a fresh `__yo_seq_<n>` local declared
+at that point. The copy is bitwise and owns nothing, so no dup/drop moves.
+Address operands, settled codes (literals, comptime values, own temps), the
+last operand and unit/never/unresolved-`SomeType` values are left inline
+(`issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md`,
+`issues/fixed/2026-10-25-a-by-value-operand-is-read-after-a-later-mut-argument-writes-it.md`).
+Inside a state machine the spill is skipped when a later operand contains an
+`await` — a C local does not survive the suspension — and that case stays open
+(`issues/2026-10-25-an-operand-before-an-await-in-a-later-operand-is-read-after-the-resume.md`).
 
 A declared temp needs its drop in the C scope that declares it. A temp names
 itself in the nearest begin-block frame, and its scope-end drop runs at that

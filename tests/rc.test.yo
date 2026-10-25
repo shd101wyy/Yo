@@ -3678,3 +3678,104 @@ test("a named tuple copied as a block's last expression in a cond arm keeps ever
   };
   assert(g_tup_copy_drops == (before + i32(3)), `each cell dropped once, got ${(g_tup_copy_drops - before).to_string()}`);
 });
+// Operand sequencing: an operand is read where it is written, before a later
+// operand of the same call, operator, constructor or literal runs. A field
+// read through an `Rc` stayed an inline C expression and ran after a later
+// argument released the handle; `_SeqRcH`'s destructor overwrites the field,
+// so the late read sees -100 (and ASan reports the heap-use-after-free). A
+// field read through a `ref` handle ran after a later argument wrote it
+// through an alias
+// (issues/fixed/2026-10-25-an-rc-field-operand-is-read-after-a-later-argument-releases-the-handle.md).
+_SeqAcc :: struct(base : i32);
+derive(_SeqAcc, Copy, Clone);
+impl(_SeqAcc, minus : (fn(self : Self, b : i32) -> i32)(self.base - b));
+impl(_SeqAcc, sub2 : (fn(self : &Self, a : i32, b : i32) -> i32)((self.base + a) - b));
+_SeqRcH :: struct(tag : i32, acc : _SeqAcc);
+impl(
+  _SeqRcH,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      self.tag = i32(-100);
+      self.acc = _SeqAcc(base : i32(-100));
+    })
+  )
+);
+_seq_rc :: (fn() -> Rc(_SeqRcH))(rc(_SeqRcH(tag : i32(2), acc : _SeqAcc(base : i32(2)))));
+_seq_eat :: (fn(sink(h) : Rc(_SeqRcH)) -> i32)(h.tag);
+_seq_sub :: (fn(a : i32, b : i32) -> i32)(a - b);
+_SeqPair :: struct(a : i32, b : i32);
+_SeqObj :: ref(struct(a : i32, b : i32));
+_SeqE :: enum(P(a : i32, b : i32), Q);
+_SeqCell :: ref(struct(n : i32));
+_seq_set :: (fn(c : _SeqCell) -> i32)({
+  c.n = i32(10);
+  i32(1)
+});
+test("an Rc field operand is read before a later operand releases the handle", {
+  acc := _SeqAcc(base : i32(0));
+  {
+    h := _seq_rc();
+    assert((h.tag - _seq_eat(h)) == i32(0), "operator");
+  };
+  {
+    h := _seq_rc();
+    assert(_seq_sub(h.tag, _seq_eat(h)) == i32(0), "call argument");
+  };
+  {
+    h := _seq_rc();
+    assert(acc.sub2(h.tag, _seq_eat(h)) == i32(0), "method argument");
+  };
+  {
+    h := _seq_rc();
+    assert(h.acc.minus(_seq_eat(h)) == i32(0), "by-value receiver");
+  };
+  {
+    h := _seq_rc();
+    p := _SeqPair(a : h.tag, b : _seq_eat(h));
+    assert((p.a - p.b) == i32(0), "value-struct constructor");
+  };
+  {
+    h := _seq_rc();
+    o := _SeqObj(a : h.tag, b : _seq_eat(h));
+    assert((o.a - o.b) == i32(0), "ref-struct constructor");
+  };
+  {
+    h := _seq_rc();
+    e := _SeqE.P(a : h.tag, b : _seq_eat(h));
+    assert(match(e, .P(a, b) => (a - b), .Q => i32(-1)) == i32(0), "enum constructor");
+  };
+  {
+    h := _seq_rc();
+    t := (h.tag, _seq_eat(h));
+    assert((t.0 - t.1) == i32(0), "tuple");
+  };
+  {
+    h := _seq_rc();
+    t := Array(i32, 2)(h.tag, _seq_eat(h));
+    assert((t(0) - t(1)) == i32(0), "array");
+  };
+  {
+    h := _seq_rc();
+    (f : Impl(Fn(a : i32, b : i32) -> i32)) = ((a : i32, b : i32) => (a - b));
+    assert(f(h.tag, _seq_eat(h)) == i32(0), "closure call argument");
+  };
+});
+test("a ref-handle field operand is read before a later operand writes it through an alias", {
+  {
+    c := _SeqCell(n : i32(3));
+    c2 := c;
+    assert((c.n - _seq_set(c2)) == i32(2), "operator");
+  };
+  {
+    c := _SeqCell(n : i32(3));
+    c2 := c;
+    t := (c.n, _seq_set(c2));
+    assert((t.0 - t.1) == i32(2), "tuple");
+  };
+  {
+    c := _SeqCell(n : i32(3));
+    c2 := c;
+    p := _SeqPair(a : c.n, b : _seq_set(c2));
+    assert((p.a - p.b) == i32(2), "constructor");
+  };
+});
