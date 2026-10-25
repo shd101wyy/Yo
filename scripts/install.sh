@@ -674,8 +674,11 @@ install_dist() {
 # The compiled binary still needs std/ at runtime — it is a compiler, not a
 # self-contained program — so the release SOURCE tarball is fetched for it and
 # laid out in exactly the bundle's shape (bin/ and std/ as siblings), which is
-# what the executable-relative std lookup expects. vendor/mimalloc is NOT
-# needed: the published C is the libc-allocator flavor.
+# what the executable-relative std lookup expects. The tarball carries no
+# submodule contents, so no vendor/mimalloc is installed: the published C is the
+# libc-allocator flavor and needs none, but `--allocator mimalloc` (and a
+# build.yo artifact asking for Mimalloc) is a hard error under such an install
+# (docs/en-US/BUILD_SYSTEM.md, "Allocators").
 #---------------------------------------------------------
 
 pick_c_compiler() {

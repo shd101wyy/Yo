@@ -113,7 +113,7 @@ install.depend_on(wasm_api);
 
 Available targets: `Wasm32_Unknown_Emscripten`, `Wasm32_Wasip1`, `X86_64_Unknown_Linux_Gnu`, `Aarch64_Apple_Darwin`, etc.
 Available optimizations: `Debug`, `ReleaseSafe`, `ReleaseFast`, `ReleaseSmall`.
-Available allocators: `System` (default), `Mimalloc`, `Fixed` (TLSF over one static region sized by `heap_size`, default 16 MiB).
+Available allocators: `System` (default), `Mimalloc`, `Fixed` (TLSF over one static region sized by `heap_size`, default 16 MiB). On a wasm target use `System` or `Fixed`: `Mimalloc` there is a compile error, not a silent switch to `System`.
 
 ## npm package structure
 

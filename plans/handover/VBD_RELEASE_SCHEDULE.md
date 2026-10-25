@@ -334,5 +334,5 @@ The maintainer deferred these until after VBD. They follow v0.2.75 and are not c
 - sizing `YO_TEST_FORK`;
 - allocator placement step C (`plans/backlog/ALLOCATOR_PLACEMENT.md` §6 C): the root module's `global_allocator`
   declaration, the `std/heap` catalog's first four modules with a link-source declaration for mimalloc (a missing
-  `vendor/` becomes a hard error, if the maintainer confirms the plan's §10 item 3), and the deletion of `--allocator` on compile and build, `--heap-size`,
+  `vendor/` stays the hard error `--allocator mimalloc` already gives, decided 2026-10-24), and the deletion of `--allocator` on compile and build, `--heap-size`,
   `--debug-heap`, `build.allocator` and `AllocatorKind`. `yo test --allocator debug` survives (decided 2026-10-24).

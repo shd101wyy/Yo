@@ -14,7 +14,8 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { assert } :: import("std/assert");
-{ ordered_c_includes } :: import("../../src/codegen/c/collection.yo");
+{ ordered_c_includes, emit_mimalloc_allocator_defines } :: import("../../src/codegen/c/collection.yo");
+{ Emitter } :: import("../../src/emitter.yo");
 
 /// Index of `needle` in `list`, or `-1` as a usize sentinel is not available
 /// here — returns `list.len()` when absent, which every assertion below
@@ -100,4 +101,22 @@ test("mach-o/dyld.h reaches macOS only", {
   off_mac := ordered_c_includes(_registered(), false, false);
   assert(_index_of(&on_mac, String.from("<mach-o/dyld.h>")) < on_mac.len(), "<mach-o/dyld.h> must survive on macOS");
   assert(_index_of(&off_mac, String.from("<mach-o/dyld.h>")) == off_mac.len(), "<mach-o/dyld.h> must be dropped off macOS");
+});
+
+// The `--allocator mimalloc` header block: `<mimalloc.h>` is included
+// unconditionally and its absence is a compile error, never a silent
+// `#define __yo_malloc malloc` (maintainer decision 2026-10-24,
+// issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md).
+// The CLI refuses a missing vendor/mimalloc before codegen runs, so only this
+// pin sees the emitted C.
+test("mimalloc: a missing <mimalloc.h> is an #error, not a malloc fallback", {
+  em := Emitter.new();
+  emit_mimalloc_allocator_defines(&em);
+  c := em.print();
+  assert(c.contains(String.from("#if !__has_include(<mimalloc.h>)")), "the missing-header guard is gone");
+  assert(c.contains(String.from("#error \"--allocator mimalloc: mimalloc.h not found.")), "a missing <mimalloc.h> no longer stops at #error");
+  assert(c.contains(String.from("\n#include <mimalloc.h>\n")), "<mimalloc.h> is no longer included unconditionally");
+  assert(c.contains(String.from("#define __yo_malloc mi_malloc")), "__yo_malloc no longer maps to mi_malloc");
+  assert(!c.contains(String.from("#define __yo_malloc malloc")), "the system-malloc fallback is back");
+  assert(!c.contains(String.from("#else")), "an #else arm (a fallback) is back");
 });

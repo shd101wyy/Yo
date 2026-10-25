@@ -159,7 +159,7 @@ Yo LSP 服务器过去会读取 `.yo-version` 来解析正确的 `std/` 标准�
     └── LICENSE.md
 ```
 
-`vendor/` 必须与 `std/` 保持同级 —— 二进制文件通过从可执行文件向上查找来定位标准库，并按 `<std>/../vendor` 定位 mimalloc。
+`vendor/` 必须与 `std/` 保持同级 —— 二进制文件通过从可执行文件向上查找来定位标准库，并按 `<std>/../vendor` 定位 mimalloc。缺少它时，`--allocator mimalloc` 会报错并给出缺失的路径。
 
 缓存位置可通过环境变量自定义：
 

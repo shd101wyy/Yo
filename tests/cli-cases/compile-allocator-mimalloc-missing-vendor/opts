@@ -1,0 +1,10 @@
+# Maintainer decision 2026-10-24
+# (issues/retired/explicit-allocator-mimalloc-falls-back-to-malloc-when-vendor-is-missing.md):
+# `--allocator mimalloc` with no bundled mimalloc at <std>/../vendor/mimalloc is
+# a hard error naming the path, never a silent link against the system malloc.
+#
+# The sandbox cannot hide the checkout's vendor/, so `--std-path` points at a
+# std root inside the project with nothing beside it. The check runs before the
+# prelude loads, so that root needs no std content; the tree golden shows that
+# no `app` was produced.
+timeout=120

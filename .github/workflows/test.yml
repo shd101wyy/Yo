@@ -1446,9 +1446,8 @@ jobs:
           # native suite exercises it on windows-x64 AND windows-11-arm —
           # whose clang 22 treats the incompatible-pointer-types class that
           # killed v3.5.0 as a hard ERROR. test-native links static.c on
-          # those legs only; a flavor/link mismatch degrades silently to
-          # the CRT heap via __has_include, which is why the allocator
-          # travels with the matrix row.
+          # those legs only, which is why the allocator travels with the
+          # matrix row.
           - target: windows-x64
             yo_target: x86_64-pc-windows-msvc
             allocator: mimalloc
@@ -1645,9 +1644,7 @@ jobs:
               windows-arm64) CT=aarch64-pc-windows-msvc ;;
             esac
             # Windows C arrives mimalloc-flavored (see the suite-cross-emit
-            # matrix): link the vendored static.c or the emitted
-            # __has_include(<mimalloc.h>) block silently falls back to the
-            # CRT heap and the leg would test nothing.
+            # matrix): it needs the vendored include path and static.c.
             clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               --target=$CT \
               "cross/yo-${{ matrix.target }}.c" \
@@ -2179,7 +2176,8 @@ jobs:
   # option: the Azure VMs boot with "PMU not available due to virtualization",
   # so `perf stat -e instructions:u` reads <not supported>. The stage-2 binary
   # links mimalloc statically, which an LD_PRELOAD counter cannot see, so the
-  # job recompiles the stage-2 C on glibc's malloc (~5 min) for this one run;
+  # job recompiles the stage-2 C on glibc's malloc (~5 min) for this one run,
+  # through the stand-in header scripts/bootstrap/libc_mimalloc/mimalloc.h;
   # the RSS run keeps the artifact. Two counted runs: the script fails if they
   # disagree, because the gate is only sound while the count is deterministic.
   # Baseline history is in memory-ratchet.tsv. 2026-10-15: 2769331795 ->
@@ -2227,7 +2225,9 @@ jobs:
 
       - name: "Work ratchet: rebuild the stage-2 C on the C library's malloc"
         run: |
-          time nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/stage2/yo-stage2.c $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-libc
+          # The stage-2 C is mimalloc-flavored, and a missing <mimalloc.h> is an
+          # #error: the stand-in header maps the mi_* calls onto malloc/free.
+          time nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 -I scripts/bootstrap/libc_mimalloc /tmp/stage2/yo-stage2.c $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-libc
           cc -O2 -shared -fPIC -o /tmp/alloc_count.so scripts/bootstrap/alloc_count.c
           nm -D --undefined-only /tmp/yo-stage2-libc | grep -E ' (malloc|calloc|realloc|free|aligned_alloc)(@|$)'
 
