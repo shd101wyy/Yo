@@ -41,8 +41,7 @@
 { Variable, Environment, get_variables_from_env, snapshot_env } :: import("../env.yo");
 { format_error_message, error_message_text, YoError } :: import("../error.yo");
 { Exception, AnyError } :: import("std/error");
-{ is_type_val, EvalValue } :: import("../value.yo");
-{ get_closure_capture_info } :: import("../function_value.yo");
+{ is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
 { TypeValue, TypeValueNode, no_types, no_flags, t_refine_inner } :: import("./definitions.yo");
 { is_function_type, is_pointer_type, is_counted_handle_type, unique_box_payload_type } :: import("./guards.yo");
@@ -786,12 +785,12 @@ require_ref_own_argument_exclusivity :: (
 /// `Dyn`, an open type variable and a `void` pointer can hold anything; a
 /// function value — inside an aggregate, an `Impl(Future)` frame, or the
 /// argument itself — may be a closure that captured one, so those answer yes
-/// too: the type alone cannot tell a closure from a plain `fn`. The caller
-/// of the top-level (argument) case carves out a function value it can
-/// PROVE non-capturing by its value (`_fn_value_may_reach_any_of`), the
-/// same registry the `Send` check trusts. A plain DFS over the type graph:
-/// `seen` holds every type already walked, which adds nothing the first
-/// visit did not.
+/// too. A FUNCTION-TYPED argument never reaches this walk: rule (b) of
+/// `_reject_if_container_reachable` judges it by the representation
+/// formulas instead (the pre-B6-a rule's pair), which accept a bare `fn`
+/// and reject a type carrying a capture struct. A plain DFS over the type
+/// graph: `seen` holds every type already walked, which adds nothing the
+/// first visit did not.
 _type_may_reach_any_of :: (
   fn(
     ty_in : &TypeValue,
@@ -874,7 +873,8 @@ _any_may_reach_any_of :: (
 /// Is `ty` itself a function type — `Func` or an `Fn`/`FnMut`/`FnOnce`
 /// trait type (through refinement, shells and a resolved `Impl` wrapper)?
 /// `Future` is excluded on purpose: an async frame's captures are judged by
-/// the walk, which answers yes for it.
+/// the walk, which answers yes for it. An UNRESOLVED `Impl` wrapper also
+/// answers yes: it may stand for a closure.
 _is_fn_typed :: (fn(ty_in : &TypeValue) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(&t_refine_inner(ty_in)));
   match(
@@ -884,63 +884,11 @@ _is_fn_typed :: (fn(ty_in : &TypeValue) -> bool)({
     Rc(.SomeT({ resolution : resolved })) => match(
       resolved,
       .Some(concrete) => _is_fn_typed(&concrete),
-      // An unresolved type variable may stand for a closure.
       .None => true
     ),
     _ => false
   )
 });
-/// The compile-time value a function-typed argument carries: a plain atom
-/// reads its binding's cell in `env` (an ExprInfo value of a runtime atom is
-/// only a `VarRef`), anything else reads the ExprInfo's own value.
-_fn_arg_value :: (fn(arg : &AstExpr, oi : &ExprInfo, env : &Environment) -> Option(EvalValue))(
-  match(
-    arg,
-    .Atom(_, tok) => {
-      vars := get_variables_from_env(env, &tok.value);
-      match(
-        vars.last(),
-        .Some(v) => match(
-          v.value.get(usize(0)),
-          .Some(fv) => Option(EvalValue).Some(fv),
-          .None => oi.value
-        ),
-        .None => oi.value
-      )
-    },
-    _ => oi.value
-  )
-);
-/// Can the function VALUE `v` reach a value of one of the types `targets`
-/// names? A plain `fn` — no registered capture struct
-/// (`get_closure_capture_info`, the registry `_capture_judgement_type`
-/// trusts for `Send`) — captures nothing, so it cannot; a closure is judged
-/// by its capture struct's fields, the captured variables' types; no value
-/// at all (a runtime variable that may hold any closure) can be one that
-/// captured the container, so it can. This is the carve-out the type walk
-/// cannot make: `cb := (v) => { xs.clear(); v };` and a top-level `fn` have
-/// the same `Func`/`Impl(Fn(...))` type, but only the closure can reach
-/// `xs` (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md,
-/// F1).
-_fn_value_may_reach_any_of :: (fn(v : &Option(EvalValue), targets : &HashSet(String)) -> bool)(
-  match(
-    v,
-    .Some(fvv) => match(
-      fvv,
-      .FuncVal(fvd, _) => match(
-        get_closure_capture_info(&fvd.*.func_id),
-        .Some(cci) => {
-          seen := HashSet(String).new();
-          _type_may_reach_any_of(&cci.capture_type, &targets, &mut seen)
-        },
-        // A plain fn: no capture struct, nothing captured.
-        .None => false
-      ),
-      _ => true
-    ),
-    .None => true
-  )
-);
 /// The types a ref argument's storage hangs from: the container holding the
 /// element (`index`) or the object the field lives in (`object-hop`), and
 /// every value on the field path down to it from the root variable, keyed by
@@ -981,13 +929,14 @@ _ref_place_holder_types :: (fn(ref_arg : &AstExpr, kind : str, root : &Variable,
 /// allocation when the callee can REACH that container and free/realloc it
 /// during the call: (a) the container is module-level or aliases a
 /// module-level variable; (b) any OTHER argument could hold a handle to it
-/// — a closure (may have captured it, a literal or a value in a variable:
-/// `_fn_value_may_reach_any_of` judges by the value, since the type of a
-/// closure and of a plain `fn` is the same), or a value whose type can hold
-/// one of the types the place hangs from (`_ref_place_holder_types`,
-/// `_type_may_reach_any_of`). A value that cannot hold one cannot reach it:
-/// `replace(&mut xs(i), v)` with `xs : ArrayList(String)` and `v : String`
-/// is fine, since no `String` holds an `ArrayList(String)`
+/// — a closure (may have captured it: a literal, or a value held in a
+/// variable, which the representation formulas catch because a closure's
+/// recorded type carries its capture struct while a plain `fn`'s does not),
+/// or a value whose type can hold one of the types the place hangs from
+/// (`_ref_place_holder_types`, `_type_may_reach_any_of`). A value that
+/// cannot hold one cannot reach it: `replace(&mut xs(i), v)` with
+/// `xs : ArrayList(String)` and `v : String` is fine, since no `String`
+/// holds an `ArrayList(String)`
 /// (issues/fixed/2026-10-24-an-element-borrow-rejects-a-sibling-argument-that-cannot-reach-the-container.md).
 /// `kind` is "index" or "object-hop".
 _reject_if_container_reachable :: (
@@ -1104,14 +1053,23 @@ _reject_if_container_reachable :: (
           is_closure || match(
             holder_types,
             .Some(targets) => {
-              // F1: a function-typed sibling is judged by its VALUE — a
-              // plain `fn` (no capture struct) cannot reach, a closure by
-              // its capture struct's fields, an unknown runtime value can —
-              // because its TYPE alone cannot tell a closure from a `fn`.
+              // F1: a function-typed sibling is NOT given to the walk — the
+              // walk answers yes for every `Func`/`Fn` trait type, which
+              // would reject a plain `fn` reference too. Its TYPE alone
+              // still cannot tell a closure from a plain `fn` by shape, but
+              // the two representation formulas CAN: a bare `Func` holds no
+              // counted handle and no raw pointer, while a closure's
+              // recorded type carries its capture struct (anonymous_function
+              // stamps an `Impl(Fn(...))` wrapper with the capture struct as
+              // its resolved concrete), so an `Rc`-holding capture — the
+              // container among them — shows up in the representation. That
+              // is exactly the pre-B6-a rule's pair, so every function-typed
+              // sibling keeps the verdict the old rule gave it; only the
+              // non-function siblings gain the target-precise walk above.
               (is_fn : bool) = _is_fn_typed(&oi.ty);
               if(is_fn, {
-                fnv := _fn_arg_value(&other, &oi, env);
-                _fn_value_may_reach_any_of(&fnv, &targets)
+                fn_may_reach := (type_contains_rc_type(&oi.ty) || type_representation_contains_raw_ptr(&oi.ty));
+                fn_may_reach
               }, {
                 seen := HashSet(String).new();
                 _type_may_reach_any_of(&oi.ty, &targets, &mut seen)
