@@ -76,7 +76,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, migrate_explicit_copy_on, record_copy_pointer, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, borrowed_place_read_only_handle, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait, reject_write_through_rc, _owning_param_binding_for_capture_move } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, TypeValueNode, FuncMeta, shared_list, no_types, no_labels, no_levels, no_flags, SharedList } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -4234,23 +4234,37 @@ create_specialized_function_inline :: (
                 }),
                 .None => ()
               );
-              // A closure parameter typed `FnOnce(...)` re-binds OWNING: its
-              // single call inside the specialized body consumes it
-              // (decision 37), and `consume_called_fnonce_closure` needs an
-              // owner — a generic `sink(f) : Impl(FnOnce(...))` (an impl
-              // method's `RefCell.with_mut`) had only the non-owning shadow
-              // and the one call was a false E0901 "it is a borrowed
-              // parameter"
+              // A closure parameter typed `FnOnce(...)` gets an OWNING twin
+              // beside the non-owning shadow (bound after it, so lookups
+              // still win as the shadow): the body's single call consumes it
+              // (decision 37), and both `consume_called_fnonce_closure` and
+              // a relay's capture move (`_owning_param_binding_for_capture_move`,
+              // `RefCell.with_mut`'s `{ body }` relay) need an owning binding
+              // in this frame — without one the call was a false E0901 "it
+              // is a borrowed parameter"
               // (issues/fixed/2026-10-25-a-generic-fnonce-sink-parameter-binds-as-a-borrow-inside-its-callee.md).
-              // The call consumes the binding, so the parameters-frame
+              // The call marks the twin consumed, so the parameters-frame
               // scope-end pass skips its release; one the body never calls
               // releases exactly as a concrete (non-generic) sink parameter
-              // already does at definition time.
+              // drops at definition time (fn_once.test.yo's `_ignore_once`).
               fnonce_closure_param := match(
                 extract_fn_trait_from_type(&bind_pt_cl),
                 .Some(Rc(.FnTraitT(base_name : rcb))) => (rcb == "FnOnce"),
                 _ => false
               );
+              if(fnonce_closure_param && _owning_param_binding_for_capture_move(callee_env, &p_label).is_none(), {
+                _twin := bind_parameter(
+                  callee_env,
+                  &p_label,
+                  bind_pt_cl.clone(),
+                  Option(EvalValue).Some(create_unknown_val(&bind_pt_cl)),
+                  false,
+                  false,
+                  true,
+                  synthetic_token(&p_label, &callee_env.module_path.*)
+                );
+                _twin;
+              });
               _rbc := bind_parameter(
                 callee_env,
                 &p_label,
@@ -4258,7 +4272,7 @@ create_specialized_function_inline :: (
                 Option(EvalValue).Some(create_unknown_val(&bind_pt_cl)),
                 false,
                 match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false),
-                fnonce_closure_param,
+                false,
                 synthetic_token(&p_label, &callee_env.module_path.*)
               );
             }, if(cur_is_folded_const, {

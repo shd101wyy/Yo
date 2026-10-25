@@ -114,14 +114,7 @@ impl(
   /// Run `body` with the value lent exclusively, and return its result —
   /// Rust's `borrow_mut()` with the guard's scope. Panics if any `with` or
   /// `with_mut` body of this cell is running.
-  ///
-  /// `sink(body) : Impl(FnOnce(...))` (plans/VALUES_BY_DEFAULT.md decision 37):
-  /// the cell lends the value exactly once per `with_mut` call, and the body
-  /// runs exactly once, so the closure is MOVED in and may move what it
-  /// captured out of its body (`{ k, v }(m) => m.insert(k, v)`) instead of
-  /// copying each capture. An `Fn` closure is accepted too. `with` stays
-  /// `&Impl(Fn(...))`: it only reads, and a read-only body may run again.
-  with_mut : (fn(generic(R : Type), self : &Self, sink(body) : Impl(FnOnce(v : &mut T) -> R)) -> R)({
+  with_mut : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R)) -> R)({
     slot := addr_of(self._slot.*);
     // SAFETY: as in `with`.
     if(unsafe(slot.*._borrow) != isize(0), {
