@@ -170,25 +170,26 @@ kept := ArrayList(i32).from(arr.clone());
 ## Explicit allocators
 
 ```yo
-{ with_allocator } :: import("std/allocator");
 { ArrayList } :: import("std/collections/array_list");
 // `a` is any `Allocator` value: `Allocator.global()`, or your own vtable.
 list := ArrayList(i32).new_in(a); // the buffer lives in `a`
-p := with_allocator(a, () => Point(x : i32(3), y : i32(4))); // RC objects created inside
+p := rc(Point(x : i32(3), y : i32(4)), alloc : .Some(a)); // one cell in `a`
+g := ArrayList(i32).new(); // no argument: always the global allocator
+// Passing placement on: legal in a safe file (`Allocator` is an opaque handle).
+make :: (fn(v : i32, (alloc : Option(Allocator)) ?= .None) -> Rc(i32))(rc(v, alloc : alloc));
 ```
 
 - RC still decides WHEN a block dies; the allocator decides WHERE. Releases
   route back automatically — never free an explicit allocator's block by hand.
-- Default container constructors follow the scope: `ArrayList(i32).new()`
-  inside `with_allocator(a, …)` keeps its buffer in `a` (also `HashMap`,
-  `Deque`, `HashSet`, `StringBuilder`, `String`); outside a scope use
-  `new_in(a)` / `with_capacity_in(a, n)`.
-- `Allocator` is `Send`. Pass it into a spawn body and call `with_allocator`
-  there — a thread does not inherit the scope.
+- Global by default, placement by argument: there is no allocation scope
+  (`with_allocator` is gone). `box`/`rc`/`arc` take `alloc : .Some(a)`; the
+  containers take `new_in(a)` / `with_capacity_in(a, n)`. `ref` constructors,
+  `dyn`'s cell, interpolated strings and tasks are always global.
+- `Allocator` is `Send`. Pass it into a spawn body and place there.
 - std ships no arena (`std/arena` was deleted 2026-10-24); write a vtable or
   wait for `plans/backlog/ZIG_STYLE_ALLOCATORS.md`.
 - Calling `Allocator.alloc`/`free` directly returns raw pointers, so it needs
-  `pragma(Pragma.AllowUnsafe)`; `_in` constructors and scopes do not.
+  `pragma(Pragma.AllowUnsafe)`; `alloc :` arguments and `_in` constructors do not.
 - Full guide (custom allocators, threads, `--debug-heap`):
   `docs/en-US/EXPLICIT_ALLOCATORS.md`.
 

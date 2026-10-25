@@ -85,7 +85,7 @@ test("Test Arc scope cleanup", {
 // --- Arc + Thread tests ---
 { Thread } :: import("std/thread");
 // --- The `alloc` parameter (plans/VALUES_BY_DEFAULT.md §3.2) ---
-{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ GlobalAllocator } :: import("std/allocator");
 // A counting allocator: forwards to the global allocator and counts the
 // blocks it holds (`live`) and the alloc/realloc requests it served.
 _Counts :: struct(live : usize, requests : usize);
@@ -122,7 +122,6 @@ _counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
 // The live count of a counting allocator, read through the allocator value: a
 // closure that captured the `_Counts` itself would read its own copy.
-_live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.live));
 test("arc alloc : .Some(a) places the cell in a, and the default does not", {
   counts := _counts();
   heap := _counting(addr_of(counts));
@@ -131,29 +130,10 @@ test("arc alloc : .Some(a) places the cell in a, and the default does not", {
     assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
     g := arc(i32(6));
-    assert(counts.live == usize(1), "the scope was restored: a default arc is on the global allocator");
+    assert(counts.live == usize(1), "a default arc is on the global allocator");
     assert((a.* + g.*) == i32(11), "the payloads");
   };
   assert(counts.live == usize(0), "the last drop released the cell into the allocator");
-});
-test("arc alloc : .Some(a) inside another scope wins, and the outer scope survives", {
-  inner_counts := _counts();
-  inner := _counting(addr_of(inner_counts));
-  outer_counts := _counts();
-  outer := _counting(addr_of(outer_counts));
-  {
-    x := with_allocator(outer, () => {
-      placed := arc(i32(7), alloc : .Some(inner));
-      scoped := arc(i32(8));
-      assert(_live_of(outer) == usize(1), `the default arc after it still follows the scope: ${_live_of(outer)}`);
-      assert(scoped.* == i32(8), "the scoped payload");
-      placed
-    });
-    assert(inner_counts.live == usize(1), "the explicit allocator placed the cell");
-    assert(outer_counts.live == usize(0), "the scoped arc died with the closure");
-    assert(x.* == i32(7), "the placed payload");
-  };
-  assert(inner_counts.live == usize(0), "released into the explicit allocator");
 });
 test("arc alloc : .Some(a) shared across a thread is released into a", {
   counts := _counts();

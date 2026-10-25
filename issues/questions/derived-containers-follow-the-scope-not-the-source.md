@@ -9,6 +9,11 @@ container placed by an explicit allocator", and `arena.scoped(...)` as
 `with_allocator(a, ...)` (itself deleted by
 `plans/backlog/ALLOCATOR_PLACEMENT.md` B1).
 
+**Note (2026-10-25, B1 landed):** there is no scope any more: `new()` and
+`with_capacity()` are global. "Follows the current scope" below now reads "is
+global", and reading 2's escape hatch (run the call inside a scope) is gone,
+which strengthens the case for reading 1.
+
 ## What happens today
 
 Decision 12 (`plans/VALUES_BY_DEFAULT.md` §3.11) settles one case: an explicit

@@ -269,9 +269,9 @@ read :: (fn(p : Path, io : Io) -> String)({
   E0405).
 - Methods take the receiver explicitly: `self : &Self` to read,
   `self : &mut Self` for mutation, `self : Self` to consume.
-- Allocation is placement, RC is lifetime: `with_allocator(a, () => ...)`
-  (`std/allocator`) places every RC object and container buffer created
-  inside in `a`; a block is always released to the allocator that made it.
+- Allocation is placement, RC is lifetime: a creation is global unless an
+  argument places it (`rc(v, alloc : .Some(a))`, `ArrayList(T).new_in(a)`);
+  a block is always released to the allocator that made it.
 
 ## Async (single-threaded) and effects
 

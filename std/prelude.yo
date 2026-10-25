@@ -364,9 +364,10 @@ export(Trace);
 // === Explicit allocators ===
 // `Allocator` and `AllocatorVTable` live here so prelude signatures can name
 // them; `std/allocator.yo` holds their methods (`Allocator.global()`,
-// `alloc`, `realloc`, `free`, `owner_of`, `same`), the owner prefix, the
-// global vtable, `with_allocator` and `current_allocator`
-// (plans/VALUES_BY_DEFAULT.md §3.11).
+// `alloc`, `realloc`, `free`, `owner_of`, `same`), the owner prefix and the
+// global vtable (plans/VALUES_BY_DEFAULT.md §3.11). A block is placed by an
+// `alloc` argument at its creation site, else it is global
+// (plans/backlog/ALLOCATOR_PLACEMENT.md).
 /// The functions behind an `Allocator`. Implementing one needs
 /// `pragma(Pragma.AllowUnsafe)`.
 ///
@@ -9747,11 +9748,11 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 /// builtin (plans/VALUES_BY_DEFAULT.md decision 11).
 ///
 /// `alloc : .Some(a)` places the cell in `a`; the default, `.None`, places it
-/// in the current `with_allocator` scope, else the global allocator. The last
-/// handle's drop frees the cell through that allocator. Panics when the
-/// allocator is out of memory. As with `arc`, and unlike `box`, `a` is the
-/// current scope for the construction, so `a`'s callbacks must not allocate
-/// through the scope (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own
+/// on the global allocator. The last handle's drop frees the cell through that
+/// allocator. Panics when the allocator is out of memory. As with `arc`, and
+/// unlike `box`, `a` is the thread's allocation scope for the construction, so
+/// `a`'s callbacks must not create a reference-counted object without an
+/// `alloc` argument (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own
 /// allocator").
 ///
 /// ```yo
@@ -9906,8 +9907,8 @@ export(
 /// `ref_count` rejects it.
 ///
 /// The cell is one allocation: a 16-byte owner prefix, then the payload. The
-/// prefix records the allocator that placed the cell (the `alloc` argument,
-/// else the current `with_allocator` scope), or the global allocator, and the
+/// prefix records the allocator that placed the cell (the `alloc` argument),
+/// or the global allocator, and the
 /// drop frees the cell through it (§3.11). A placed cell's prefix is the one
 /// `std/allocator.yo`'s `Allocator.alloc` writes, so `Allocator.owner_of`
 /// reads it.
@@ -9933,8 +9934,9 @@ extern(
     (fn() -> ?*void),
   __yo_scope_vtable :
     (fn() -> ?*void),
-  // Sets the thread's allocation scope: `std/allocator.yo`'s
-  // `with_allocator`, and the explicit `alloc` of `rc` and `arc`.
+  // Sets the thread's allocation scope, around the one cell construction of
+  // an explicit `alloc` in `rc` and `arc` (until V5 moves them onto
+  // `__yo_cell`, plans/backlog/ALLOCATOR_PLACEMENT.md §6 A1).
   __yo_scope_set :
     (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );
@@ -9954,10 +9956,9 @@ _box_owner_of :: (fn(cell : *void) -> *_BoxOwner)(
   (*_BoxOwner)(unsafe((*u8)(cell).sub(_BOX_PREFIX_SIZE)))
 );
 /// Move `value` into a new uniquely owned cell. `alloc : .Some(a)` places the
-/// cell in `a`; the default, `.None`, places it in the current
-/// `with_allocator` scope, else the global allocator. The cell is freed
-/// through that allocator when the box is dropped. Panics when the allocator
-/// is out of memory.
+/// cell in `a`; the default, `.None`, places it on the global allocator. The
+/// cell is freed through that allocator when the box is dropped. Panics when
+/// the allocator is out of memory.
 ///
 /// ```yo
 /// e := box(i32(1));
@@ -9967,10 +9968,7 @@ box :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .None) -
   owner := match(
     alloc,
     .Some(a) => _BoxOwner(ctx : a.ctx, vtable : .Some(a.vtable)),
-    .None => _BoxOwner(
-      ctx : __yo_scope_ctx(),
-      vtable : match(__yo_scope_vtable(), .Some(vt) => .Some((*AllocatorVTable)(vt)), .None => .None)
-    )
+    .None => _BoxOwner(ctx : .None, vtable : .None)
   );
   size := (size_of(V) + _BOX_PREFIX_SIZE);
   block := match(
@@ -10092,14 +10090,13 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync))) -> comptime(Type))(
 );
 /// Move `value` into a new atomically counted cell, returning an `Arc(V)`
 /// whose `ref_count` is 1. `alloc : .Some(a)` places the cell in `a`; the
-/// default, `.None`, places it in the current `with_allocator` scope, else
-/// the global allocator. The last handle's drop, on whichever thread, frees
-/// the cell through that allocator. Panics when the allocator is out of
-/// memory.
+/// default, `.None`, places it on the global allocator. The last handle's
+/// drop, on whichever thread, frees the cell through that allocator. Panics
+/// when the allocator is out of memory.
 ///
-/// Unlike `box`, which calls `a`'s `alloc` under the caller's scope, `arc`
-/// makes `a` the current scope for the construction (as `with_allocator`
-/// does), so `a`'s callbacks must not allocate through the scope
+/// Unlike `box`, which calls `a`'s `alloc` directly, `arc` makes `a` the
+/// thread's allocation scope for the construction, so `a`'s callbacks must not
+/// create a reference-counted object without an `alloc` argument
 /// (docs/en-US/EXPLICIT_ALLOCATORS.md, "Writing your own allocator").
 ///
 /// ```yo

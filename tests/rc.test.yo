@@ -6,7 +6,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { yield } :: import("std/async");
-{ GlobalAllocator, with_allocator } :: import("std/allocator");
+{ GlobalAllocator } :: import("std/allocator");
 { hash_one } :: import("std/hash");
 { RefCell } :: import("std/sync/refcell");
 // A counting allocator: forwards to the global allocator and counts the
@@ -45,7 +45,6 @@ _counts :: (fn() -> _Counts)(_Counts(live : usize(0), requests : usize(0)));
 _counting :: (fn(c : *_Counts) -> Allocator)(Allocator(ctx : .Some((*void)(c)), vtable : addr_of(_COUNT_VTABLE)));
 // The live count of a counting allocator, read through the allocator value: a
 // closure that captured the `_Counts` itself would read its own copy.
-_live_of :: (fn(a : Allocator) -> usize)(unsafe((*_Counts)(a.ctx.unwrap()).*.live));
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
@@ -2298,8 +2297,6 @@ test("unique Box: alloc places the cell, and a clone stays where its source live
     match(Box.allocator(c), .Some(o) => assert(o.same(heap), "the clone is in the allocator too"), .None => assert(false, "the clone is placed"));
     g := box(i32(1));
     assert(Box.allocator(g).is_none(), "a default box is on the global allocator");
-    s := with_allocator(heap, () => box(i32(2)));
-    assert(match(Box.allocator(s), .Some(o) => o.same(heap), .None => false), "the with_allocator scope places a default box");
   };
   assert(counts.live == usize(0), `every placed box went back to the allocator: ${counts.live}`);
 });
@@ -2808,29 +2805,10 @@ test("rc alloc : .Some(a) places the cell in a, and the default does not", {
     assert(counts.live == usize(1), `the cell is in the allocator: ${counts.live}`);
     assert(ref_count(a) == usize(1), "ref_count never reports the allocator tag");
     g := rc(i32(6));
-    assert(counts.live == usize(1), "the scope was restored: a default rc is on the global allocator");
+    assert(counts.live == usize(1), "a default rc is on the global allocator");
     assert((a.* + g.*) == i32(11), "the payloads");
   };
   assert(counts.live == usize(0), "the last drop released the cell into the allocator");
-});
-test("rc alloc : .Some(a) inside another scope wins, and the outer scope survives", {
-  inner_counts := _counts();
-  inner := _counting(addr_of(inner_counts));
-  outer_counts := _counts();
-  outer := _counting(addr_of(outer_counts));
-  {
-    x := with_allocator(outer, () => {
-      placed := rc(i32(7), alloc : .Some(inner));
-      scoped := rc(i32(8));
-      assert(_live_of(outer) == usize(1), `the default rc after it still follows the scope: ${_live_of(outer)}`);
-      assert(scoped.* == i32(8), "the scoped payload");
-      placed
-    });
-    assert(inner_counts.live == usize(1), "the explicit allocator placed the cell");
-    assert(outer_counts.live == usize(0), "the scoped rc died with the closure");
-    assert(x.* == i32(7), "the placed payload");
-  };
-  assert(inner_counts.live == usize(0), "released into the explicit allocator");
 });
 test("rc alloc : .Some(a) shared by several handles is released into a once, and try_unwrap frees it there", {
   counts := _counts();
