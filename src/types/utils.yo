@@ -3449,11 +3449,16 @@ _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)(
   bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
   _ := g_repr_memo.with_mut(m => m.insert(key, bucket));
 });
-/// Start a top-level predicate call: an empty memo, no cut.
+/// Start a top-level predicate call: an empty memo, no cut, no opaque
+/// handle. Clearing `g_repr_allocator_opaque` here (not only in the wrapper's
+/// epilogue) keeps a walk that died mid-flight from leaking the flag into the
+/// next plain-predicate call — the resident `check --watch` evaluator relies
+/// on that.
 _repr_memo_reset :: (fn() -> unit)({
   g_repr_memo.with_mut(m => m.clear());
   g_repr_path.with_mut(xs => xs.clear());
   g_repr_cut = false;
+  g_repr_allocator_opaque = false;
 });
 /// Internal: does `ty`'s representation transitively contain a raw pointer
 /// (`Ptr`)? `object`/`Dyn` short-circuit to `false` (Rc keeps their
