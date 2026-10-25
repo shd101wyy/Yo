@@ -504,7 +504,7 @@ The accessor calls are `.get(`, `.get_key_value(`, `.get_index(`, `.first()`, `.
   - **An `impl(T, Clone(…))` below the copy:** the copy is cloned. A `.clone()` lookup that misses forces the type's pending `impl`s, so the inserted call resolves. This covers std's `JsonValue` and `String` copies.
   - **A `derive(T, Clone)` below the copy:** the copy is listed. A `derive` is not forced, so `.clone()` above it is E0610 (`issues/2026-10-24-a-derive-below-its-first-method-use-is-not-forced.md`, S2, open). The evaluator records each type a `derive` gives `Clone` (`record_clone_derive`), and the listing asks `ic_clone_comes_from_derive`.
   - A first version forced the type's impls from the migration's own lookup during evaluation instead. It made `std/encoding/toml.yo` fail to evaluate under the migration, so it was replaced before review.
-- **Dry runs** on develop `cff2cfa60`'s tree, B4-0a's binary against P8's, both on the final heads:
+- **Dry runs** on develop `cff2cfa60`'s tree, B4-0a's binary against P8's, both built on `cff2cfa60` (on `b17f40fa2`, P8 gives 387 / 1,963 for src and 14 / 84 for std):
 
   | | src inserted / listed | std inserted / listed |
   | --- | ---: | ---: |
