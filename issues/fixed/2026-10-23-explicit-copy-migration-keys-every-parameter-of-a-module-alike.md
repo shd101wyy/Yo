@@ -89,3 +89,28 @@ fn-type AST carries, or have the migration's recorders map a parameter
 `synthetic_token` is interned and on the call-trial hot path (its doc
 measures ~486 M calls per self-compile), so the fix must not make it mint a
 token per binding.
+
+## Fix
+
+Fixed 2026-10-24 (B4-0a). `_build_def_time_body_env`
+(`src/evaluator/calls/function_type.yo`) binds each parameter with its own
+declaration token: `_fn_literal_param_tokens` reads the identifier each
+parameter's label is spelled with out of the fn literal's `fn(...) -> R`,
+under the `=`/`?=`, `:` and one-argument mode wrappers the parameter parser
+strips. A parameter's `Variable.token`, and so its `_ic_decl_key`, now names
+its own declaration. The tokens are the AST's own handles, so nothing is
+minted per binding, and `synthetic_token` stays the fallback for a
+parameter whose declaration is not written out (a named function type). A
+pending re-run (`PendingDefEval`) keeps the tokens with the rest of the
+signature.
+
+The call-time binders (`check_if_function_parameter_matches_argument`,
+`_evaluate_funcval_runtime_call`) still bind with `synthetic_token`. They
+bind the parameters of a generic body, every copy of which the migration
+lists before it consults a key (`in_generic`), so a shared key there changes
+no listing.
+
+Test: `tests/cli-cases/fix-migrate-explicit-copy-param-key`, the repro above
+plus the `&String` pair and a raw-pointer variant. Before the fix all three
+copies out of unwritten parameters were listed; now they are cloned, and the
+genuinely written `local := p` stays listed.

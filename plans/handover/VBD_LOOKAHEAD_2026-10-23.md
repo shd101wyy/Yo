@@ -170,7 +170,7 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
 
 #### B4-0a: the S3 "every parameter of a module has one key" tool defect
 
-- **Issue:** `issues/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md`.
+- **Issue:** `issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md` (fixed by B4-0a; see "As built" below).
 - **Files and functions:**
   - `src/evaluator/utils.yo`: `_ic_decl_key` :2698, `record_copy_write` :2745, `record_copy_pointer` :2778.
   - `src/evaluator/calls/function_type.yo`: `_build_def_time_body_env` :655. Its `synthetic_token(&pn, …)` at :981 gives every parameter offset 0.
@@ -183,6 +183,39 @@ B4 + B6 + B7 merged, v0.2.69 seed released ── B8 ── B9 ── B10
   - build; check; the 13 `tests/cli-cases/fix-migrate-explicit-copy*` cases plus the new one.
   - **Extra:** one dry run, `yo fix ./src --migrate explicit-copy --dry-run --hot-path src/evaluator --hot-path src/lexer.yo --hot-path src/env.yo --std-path ./std` (7–11 min, 1.5 GB, one normal slot). Record the new counts. The raw-pointer and written-after counts outside the hot paths should fall by an estimated 250–300.
 - **Order:** after B1 merges (D3).
+- **As built (2026-10-24, branch `b4-0a`):**
+  - **The fix.** `_build_def_time_body_env` binds each parameter with its declaration token, the identifier its label is spelled with in the fn literal's `fn(...) -> R` (`_fn_literal_param_tokens`). Nothing is minted per binding: the tokens are the AST's own. `synthetic_token` remains the fallback for a parameter with no written declaration. The call-time binders keep it, because they bind generic bodies, whose copies are listed before any key is consulted.
+  - **The emitted C does not move.** `yo compile src/main.yo --emit-c-to` on develop `f1cfa553d` is byte-identical between the tree binary (`f271ed005`) and B4-0a's.
+  - **Two more bugs had the same cause or were exposed by it.** Both are fixed here:
+    - `yo lsp` references, definition and rename of a parameter matched every same-named parameter in the module (`issues/fixed/2026-10-24-lsp-references-of-a-parameter-match-every-same-named-parameter-of-the-module.md`, S2). The review found the fix incomplete for a function with comptime or generic parameters: its body is evaluated per specialization on a copy, so the written atoms carry no `ExprInfo` and the LSP fell back to matching by name. The LSP now resolves such an atom through its syntactic scope (fn literal and closure parameters, match-arm patterns, block declarations; `syntactic_decl_at` in `src/lsp/references.yo`).
+    - A write through a `&mut` capture-list borrow was not a write of the captured variable (`issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-mut-capture-list-borrow.md`, S1). Locals were always cloned. Parameters were listed only through the shared key. src and std hold no such capture outside string literals, so the counts below do not depend on it.
+  - **The review found three more written-after misses, all S1 and all fixed here.** Each made the migration insert a `.clone()` where the program shares a buffer on purpose:
+    - a write that a loop makes above the copy, on the next iteration (`issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md`);
+    - a write through a match-arm or destructuring binding of the source (`issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-pattern-binding.md`);
+    - a write through a buffer the source already shared before the copy (`issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-buffer-its-source-already-shared.md`).
+
+    The evaluator now records each runtime loop, closure and function body as a region (`record_copy_loop`), and the guard in `src/main.yo` (`_copy_when`, `_decl_written_after`) treats a write anywhere in a region the copy's variables outlive as "after". It follows the flows that reach the source before the copy in both directions, and records pattern bindings as flows (`_ic_binding_source_decl`).
+  - **The extra dry run,** on develop `f1cfa553d` with the flags above. The base is the tree binary at `f271ed005`, which has the same src. Both runs took 14 min wall at 1.52 GB max RSS.
+
+    | Reason | base | B4-0a |
+    | --- | ---: | ---: |
+    | inserted | 0 | 385 |
+    | returned from a borrowed root | 599 | 599 |
+    | source written afterwards | 521 | 113 |
+    | hot path | 494 | 732 |
+    | raw pointer taken | 216 | 1 |
+    | field of a dying temporary | 115 | 115 |
+    | copy written afterwards | 9 | 9 |
+    | source does not print back | 5 | 5 |
+    | inside a `Clone` impl | 4 | 4 |
+    | **listed** | **1,963** | **1,578** |
+
+    Before the review fix the B4-0a column read 388 inserted, 72 source written afterwards and 770 hot path. The review fix moves 41 sites to "source written afterwards": 38 hot-path sites (the written-after check runs first) and 3 insertions, `build_runner.yo:3452`, `:3453` and `:3457`. Those three are field stores of `options.*` inside an `io.async` closure, which the closure region now reads as loop-carried. That is over-listing, not a missed write: the closure runs once.
+
+  - **Written-after and raw-pointer sites fell from 746 to 123 (−623).** That is more than double the 250–300 estimated. Before the review fix the drop was 664: 276 stayed listed under the hot-path reason (in `src/evaluator`, `lexer.yo`, `env.yo`) and 388 outside the hot paths became insertions, now 385. The 388 were spread over `main.yo` 54, `codegen/` 53, `types/` 51, `expr_info.yo` 39, `build_runner.yo` 31, `doc/` 21 and others. The raw-pointer reason the table above attributed to `main.yo`'s argv (17) and `diagnostics_registry` was the collision too. Those `argv`s are `&ArrayList(String)` parameters. Only `verifier/z3.yo:170` remains: `b := contents`, whose copy has `b.ptr()` taken.
+  - **std** (`yo fix ./std --migrate explicit-copy --dry-run`): base 0 inserted and 33 listed, B4-0a 8 inserted and 25 listed.
+  - **On develop `cff2cfa60`'s tree** the same src run gives 387 inserted and 1,585 listed (10:25 wall, 1.55 GB max RSS), and std gives 8 inserted and 24 listed. Develop moved between the two bases (P3, B7a, the LinkedList removal), so these numbers are not comparable with the table above.
+  - The B4 directory PRs re-run the dry run restricted to their directory on their own base, as planned. Their insertions now include these 385.
 
 #### B4-0b: D1 for the B5 capture copies
 

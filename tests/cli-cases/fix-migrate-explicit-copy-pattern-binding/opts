@@ -1,0 +1,10 @@
+# `yo fix <path> --migrate explicit-copy` follows a pattern binding to the
+# variable its scrutinee or right-hand side is a place of
+# (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-pattern-binding.md).
+# A push through the binding was keyed at the binding, so the copy that
+# shares the pushed buffer was cloned: a by-value `match`, a `&mut` match, a
+# record pattern and a `:=` destructuring. All four are listed;
+# `read_only`'s binding is only read, and its copy is cloned. The trailing
+# check proves main.yo still evaluates.
+stdout_keep=^fix:
+timeout=240

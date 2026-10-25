@@ -2794,6 +2794,27 @@ _ic_place_root_var :: (fn(place : &AstExpr, env : &Environment, (stop_ctx : Opti
 _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
   match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
 );
+/// The declaration key of the variable a pattern binding declared at
+/// `binding` takes a part of, while the migration runs: the variable `place`
+/// (a `match` scrutinee, a destructuring's right-hand side, evaluated in
+/// `env`) is a place of, or empty. A call's own result is rooted in no
+/// variable (`_ic_place_root_var`'s `stop_ctx`), and neither is a variable of
+/// another module than the binding's: a `for` expansion's
+/// `match(iter.next(), .Some(x) => …)` binds the user's `x` from the
+/// template's iterator, whose writes advance it and touch no element.
+_ic_binding_source_decl :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, binding : &Token) -> String)({
+  if(!g_migrate_explicit_copy, {
+    return(String.new());
+  });
+  match(
+    _ic_place_root_var(place, env, stop_ctx : Option(EvalContext).Some(ctx)),
+    .Some(v) => cond(
+      (canonical_module_path(&v.token.module_path.*) == canonical_module_path(&binding.module_path.*)) => _ic_decl_key(&v.token),
+      true => String.new()
+    ),
+    .None => String.new()
+  )
+});
 /// Record a write to the variable `place` is rooted in, at `at`, while the
 /// migration runs.
 record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
@@ -2948,6 +2969,18 @@ _ic_note_result_position :: (fn(e : &AstExpr, dest_decl : &String, nested : bool
     .None => ()
   );
 });
+/// Record, while the migration runs, a flow of the variable `src` into the
+/// variable `dst` (both `_ic_decl_key`s) at `at`: a `&mut` capture-list
+/// entry (`{ &mut entry }`, `{ e : &mut entry }`) binds a second name for the
+/// captured variable's place, so a write through the capture in the closure
+/// body is a write of the variable, and the guard follows the flow to it
+/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-through-a-mut-capture-list-borrow.md).
+record_copy_flow_decl :: (fn(src : String, dst : String, at : &Token) -> unit)({
+  if(!g_migrate_explicit_copy || src.is_empty() || dst.is_empty() || (src == dst), {
+    return(());
+  });
+  g_copy_flows.with_mut(xs => xs.push(CopyFlow(src : src, dst : dst, at_module : canonical_module_path(&at.module_path.*), at_offset : at.byte_offset)));
+});
 take_copy_flows :: (fn() -> ArrayList(CopyFlow))({
   out := g_copy_flows.with_mut(xs => xs.split_off(usize(0)));
   out
@@ -3016,7 +3049,81 @@ take_clone_impl_bodies :: (fn() -> ArrayList(CloneImplBody))({
   g_clone_impl_body_keys.with_mut(s => s.clear());
   out
 });
-export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, _ic_decl_key, _ic_place_root_decl);
+/// The source span of a region whose code runs more than once, by byte
+/// offset in its module (`start`..`end`, inclusive, over the region's
+/// tokens): a runtime `while` (a `for` is one after expansion), a closure a
+/// caller may call again, or a function (`is_function`, a `fn(...)`
+/// literal), which runs again on its next call.
+CopyLoop :: struct(at_module : String, start : u32, end : u32, is_function : bool);
+(g_copy_loops : RefCell(ArrayList(CopyLoop))) = RefCell(ArrayList(CopyLoop)).new(ArrayList(CopyLoop).new());
+(g_copy_loop_ids : RefCell(HashSet(usize))) = RefCell(HashSet(usize)).new(HashSet(usize).new());
+/// Record, while the migration runs, that `region` (a runtime `while`, a fn
+/// literal) runs more than once. A write the region makes ABOVE a copy in it
+/// runs again after the copy on the next iteration or call, so the
+/// written-after guard counts it as after the copy whenever the copy
+/// outlives one run of the region
+/// (issues/fixed/2026-10-24-explicit-copy-migration-misses-a-write-a-loop-makes-above-the-copy.md).
+/// One span per module the region's tokens come from: a `for`'s expansion
+/// mixes the prelude's template tokens with the body's own.
+record_copy_loop :: (fn(region : &AstExpr, (is_function : bool) ?= false) -> unit)({
+  if(!g_migrate_explicit_copy, {
+    return(());
+  });
+  if(!g_copy_loop_ids.with_mut(s => s.insert(ast_expr_id(region))), {
+    return(());
+  });
+  heads := ArrayList(Token).new();
+  los := ArrayList(u32).new();
+  his := ArrayList(u32).new();
+  stack := ArrayList(AstExpr).new();
+  stack.push(region.clone());
+  while(stack.len() > usize(0), {
+    e := match(stack.pop(), .Some(x) => x, .None => make_err_expr());
+    tok := ast_expr_token(&e);
+    (gi : usize) = usize(0);
+    (searching : bool) = true;
+    while(searching && (gi < heads.len()), {
+      if(heads(gi).module_path == tok.module_path, {
+        searching = false;
+      }, {
+        gi = (gi + usize(1));
+      });
+    });
+    if(searching, {
+      heads.push(tok.clone());
+      los.push(tok.byte_offset);
+      his.push(tok.byte_offset);
+    }, {
+      if(tok.byte_offset < los(gi), {
+        los(gi) = tok.byte_offset;
+      });
+      if(tok.byte_offset > his(gi), {
+        his(gi) = tok.byte_offset;
+      });
+    });
+    match(
+      e,
+      .FnCall(_, callee, args, _, _) => {
+        stack.push(callee);
+        (k : usize) = usize(0);
+        while(k < args.len(), k = (k + usize(1)), {
+          stack.push(args(k));
+        });
+      },
+      .Atom(_, _) => ()
+    );
+  });
+  (hk : usize) = usize(0);
+  while(hk < heads.len(), hk = (hk + usize(1)), {
+    g_copy_loops.with_mut(xs => xs.push(CopyLoop(at_module : canonical_module_path(&heads(hk).module_path.*), start : los(hk), end : his(hk), is_function : is_function)));
+  });
+});
+take_copy_loops :: (fn() -> ArrayList(CopyLoop))({
+  out := g_copy_loops.with_mut(xs => xs.split_off(usize(0)));
+  g_copy_loop_ids.with_mut(s => s.clear());
+  out
+});
+export(ExplicitCopySite, CopyWrite, CloneImplBody, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, record_copy_pointer, record_copy_pointer_place, take_copy_pointers, record_copy_tail_dests, take_copy_tail_dests, CopyFlow, record_copy_flow_decl, take_copy_flows, record_clone_impl_body, take_clone_impl_bodies, CopyLoop, record_copy_loop, take_copy_loops, _ic_decl_key, _ic_place_root_decl, _ic_binding_source_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.

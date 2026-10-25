@@ -1,0 +1,11 @@
+# References and rename of a local and of a `match` arm binding inside bodies
+# deferred to their calls (`comptime` parameters) follow the syntactic scope
+# that declares them
+# (issues/fixed/2026-10-24-lsp-references-of-a-parameter-match-every-same-named-parameter-of-the-module.md).
+# `h` and `k` each bind a local `y`, and `k`'s `match` arm binds another `y`.
+# The deferred bodies' atoms carry no ExprInfo, and every `y` of the module
+# used to be one symbol: references on `h`'s `y` and on `k`'s arm `y`
+# returned all six, and renaming `k`'s local renamed `h`'s too. Now each
+# answers its own declaration's occurrences.
+timeout=240
+framing=strict

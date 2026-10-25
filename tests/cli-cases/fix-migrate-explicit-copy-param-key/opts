@@ -1,0 +1,13 @@
+# `yo fix <path> --migrate explicit-copy` keys a parameter by its own
+# declaration
+# (issues/fixed/2026-10-23-explicit-copy-migration-keys-every-parameter-of-a-module-alike.md).
+# Every parameter used to bind with the interned synthetic token at byte
+# offset 0, so all parameters of a module shared one declaration key: in
+# main.yo the write to `bump`'s `other` and the flow of `grow`'s `p` into the
+# written `local` listed `x := entry.yes` and `bytes := s` as "its source is
+# written afterwards", and in ptr.yo the pointer `first_ptr` takes from `xs`
+# listed `x := entry.yes` as "a raw pointer into its source is taken". Both
+# copies are now cloned; `local := p`, which is written afterwards, stays
+# listed. The trailing checks prove both files still evaluate.
+stdout_keep=^fix:
+timeout=240
