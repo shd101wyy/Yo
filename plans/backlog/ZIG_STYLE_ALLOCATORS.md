@@ -51,6 +51,27 @@ backward-compatibility scaffolding). Tests that used `Arena` as "some
 explicit allocator" now use `Allocator.global()` or a counting allocator
 defined in the test file.
 
+**Amended 2026-10-25 (the two faces have two interfaces,
+[`ALLOCATOR_PLACEMENT.md`](ALLOCATOR_PLACEMENT.md) §11):** the "global
+face and value face" above are written against different interfaces.
+
+- **The value face** is this plan's §3: a state value whose `.allocator()`
+  packs `{ctx, vtable}`. It uses the `AllocatorVTable`, version 1 now and
+  version 2 after A0, and its blocks carry the owner prefix.
+- **The global face** is a `GlobalAlloc` impl on the declared value's type.
+  `GlobalAlloc` is the libc family: `alloc` and `realloc` with an alignment,
+  and an **unsized** `free` with the alignment, because global blocks are
+  untagged and carry no extent. Its methods take the static as
+  `state : *Self`. They are initialized lazily on first call, and they may
+  create no block.
+
+So `heap.Tlsf` (global) and §3.9's `TlsfAllocator` (value) are two
+implementations of one algorithm. The global one is thread-safe (today's C
+uses an `atomic_flag` spinlock), and the value one is single-threaded unless
+it is wrapped (§3.8). A user writes either face the same way std does; the
+examples are in `ALLOCATOR_PLACEMENT.md` §11.1 and §11.2. That plan's
+§10.1 C1–C7 are open for the maintainer.
+
 The sections below keep their 2026-10-21 text otherwise.
 
 ## 0. Verdict
