@@ -32,7 +32,8 @@
 { deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point } :: import("../../env.yo");
+{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point, variable_undone_moves } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop, is_call_scoped_share_drop } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -810,8 +811,26 @@ _is_ref_binding :: (fn(expr : &AstExpr, name : &String, context : &FunctionGener
     .None => false
   )
 );
+/// Whether a move the flow log kept for one path (`UndoneMove`) was made at
+/// `tok`.
+_is_kept_move_site :: (fn(v : &Variable, tok : &Token) -> bool)({
+  moves := variable_undone_moves(v);
+  (i : usize) = usize(0);
+  while(i < moves.len(), {
+    match(
+      moves.get(i),
+      .Some(m) => if(!m.arm_drop && !m.after && (m.moved_at.module_path == tok.module_path) && (m.moved_at.row == tok.row) && (m.moved_at.column == tok.column), {
+        return(true);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
 /// A read of a state-machine field that MOVES its value out (the evaluator
-/// records the move as the variable's `consumed_at_token`): take the value
+/// records the move as the variable's `consumed_at_token`, or keeps it for
+/// one path, `_is_kept_move_site`): take the value
 /// into a C temp and zero the slot, so the abort dispose never releases a
 /// value the slot no longer owns. Without it, a local moved into an `own`
 /// parameter before an await was released again when the task was aborted —
@@ -828,7 +847,10 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
-  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false);
+  // A move in a branch arm, or on a loop's `break` path, is not the
+  // variable's `consumed_at_token`: the join marks the value moved where the
+  // branch or the loop ends, and the flow log keeps the move itself.
+  is_move := (match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false) || _is_kept_move_site(&v, &tok));
   if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
     return(sm_code);
   });

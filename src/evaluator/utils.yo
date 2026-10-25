@@ -4497,6 +4497,72 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) 
   });
   LoopFlowSnapshot(site : site, var_ids : ids, consumed : states)
 });
+/// A value live when the loop began and moved on every way out of it is
+/// moved by the `break`s, so it is gone only where the loop ends: mark it
+/// moved just past the loop's last token, as a branch join marks a move in
+/// its arms at the branch end. Past it, not at it: a `return` that is the
+/// body's last statement ends at the loop's last token. A cleanup point
+/// inside the body (an early `return`, an `unwind`, an effect escape) then
+/// still owns the value, except after a move on its own path: inside the arm
+/// that made it (the branch joins keep those) or after a move the body's end
+/// still shows (`_keep_body_end_move`). The move a user wrote stays the
+/// "value moved here" note (`variable_note_arm_move`): `site` is itself the
+/// end of an inner loop or branch when the move sits inside one, so the note
+/// is the site that one recorded (`variable_move_note`).
+_mark_moved_at_loop_end :: (fn(v : &Variable, site : &Token, loop_expr : &AstExpr) -> unit)({
+  note := variable_move_note(v, site);
+  last := _last_token_of(loop_expr, site);
+  end := Token(
+    kind : last.kind,
+    value : last.value.clone(),
+    row : last.row,
+    column : (last.column + u32(1)),
+    character : (last.character + u32(1)),
+    byte_offset : (last.byte_offset + u32(1)),
+    module_path : last.module_path,
+    input : last.input
+  );
+  v.consumed_at_token = Option(Token).Some(end.clone());
+  variable_note_arm_move(v, &end, &Option(Token).Some(note));
+});
+/// Keep the move `ct` the loop body's end still shows (the body never
+/// completes: each path after the move leaves the loop) as moved from `ct`
+/// to the end of `body`, along the paths after it only: like
+/// `_keep_undone_move`, the window enters each `cond`/`match` that holds the
+/// move and extends past `ct`, covers the arm holding it, and the code after
+/// the branch from its end. A join stands for a move in its arms at its end
+/// token (`after`: moved only past it), so the walk locates the move by the
+/// site a user wrote (`loc`, `variable_move_note`) and stops at a branch
+/// that ends at or before `ct`: nothing of it runs after the join. A move it
+/// cannot locate stops the walk early, which covers more of the body, never
+/// less.
+_keep_body_end_move :: (fn(v : &Variable, ct : &Token, loc : &Token, after : bool, body : &AstExpr) -> unit)({
+  (region : AstExpr) = body;
+  (walking : bool) = true;
+  while(walking, {
+    match(
+      _outer_branch_holding(&region, loc),
+      .Some(nb) => {
+        nb_tok := ast_expr_token(&nb);
+        nb_end := _last_token_of(&nb, &nb_tok);
+        match(
+          if((nb_end.module_path == ct.module_path) && (nb_end.character > ct.character), _arm_body_holding(&nb, loc), Option(AstExpr).None),
+          .Some(inner) => {
+            _record_kept_move(v, UndoneMove(moved_at : nb_end, until : _last_token_of(&region, ct), inclusive : true, after : true));
+            region = inner;
+          },
+          .None => {
+            walking = false;
+          }
+        );
+      },
+      .None => {
+        walking = false;
+      }
+    );
+  });
+  _record_kept_move(v, UndoneMove(moved_at : ct.clone(), until : _last_token_of(&region, ct), inclusive : true, after : after));
+});
 /// A variable's move state at a `break`/`continue` snapshot (`pre` when the
 /// body had not touched it yet there).
 _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(Token)) -> Option(Token))({
@@ -4523,7 +4589,7 @@ _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(To
 /// Afterwards the variable is in the state the ways out agree on, and a join
 /// record gives an enclosing branch or loop the loop's net effect.
 check_loop_flow :: (
-  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, exn : Exception) -> unit
+  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, loop_expr : &AstExpr, exn : Exception) -> unit
 )({
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   (ri : usize) = usize(0);
@@ -4601,6 +4667,22 @@ check_loop_flow :: (
           final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
           if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
             v.consumed_at_token = match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None);
+          });
+          if(pre.is_none() && (exit_live.len() == usize(0)) && final.is_some(), {
+            match(
+              body_end,
+              .Some(be) => {
+                note := variable_move_note(&v, &be);
+                joined := ((note.row != be.row) || (note.column != be.column));
+                loc := cond(
+                  (joined && (note.module_path == be.module_path)) => note,
+                  true => be.clone()
+                );
+                _keep_body_end_move(&v, &be, &loc, joined, loop_expr);
+              },
+              .None => ()
+            );
+            match(final, .Some(ft) => _mark_moved_at_loop_end(&v, &ft, loop_expr), .None => ());
           });
           record_flow_event(v.id, rc(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
         }),
