@@ -62,7 +62,8 @@ pragma(Pragma.AllowUnsafe);
   is_module_type,
   is_future_trait_type,
   can_optimize_as_nullable_pointer,
-  unique_box_payload_type
+  unique_box_payload_type,
+  is_prelude_allocator_struct
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -3415,6 +3416,9 @@ _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
 (mut(g_repr_cut) : bool) = false;
+/// Set by `parameter_type_contains_raw_ptr` for one walk: the prelude's
+/// `Allocator` is an opaque handle there, not a raw view.
+(mut(g_repr_allocator_opaque) : bool) = false;
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.with(xs => xs.len()), {
@@ -3466,6 +3470,10 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
     },
     is_reference_struct_type(ty) => false,
     is_dyn_type(ty) => false,
+    // The parameter gate's opaque handle: safe code can hold and pass on an
+    // `Allocator` but not dereference its words (`a.alloc(n)` stays gated by
+    // the raw-value rule).
+    (g_repr_allocator_opaque && is_prelude_allocator_struct(ty)) => false,
     // The unique `Box`'s cell pointer is an owned cell, not a raw view: it
     // carries what its payload carries.
     unique_box_payload_type(ty).is_some() => match(unique_box_payload_type(ty), .Some(payload) => recur(&payload, depth - usize(1)), .None => false),
@@ -3594,6 +3602,18 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
 type_representation_contains_raw_ptr :: (fn(ty : &TypeValue) -> bool)({
   _repr_memo_reset();
   _type_repr_contains_raw_ptr(ty, usize(1024))
+});
+/// The safe-code parameter gate's question: `type_representation_contains_raw_ptr`
+/// with the prelude's `Allocator` as an opaque handle, so `Allocator`,
+/// `Option(Allocator)` and a struct holding one may be parameter types in a
+/// safe file (plans/backlog/ALLOCATOR_PLACEMENT.md, step A2). Every other
+/// caller keeps the plain predicate.
+parameter_type_contains_raw_ptr :: (fn(ty : &TypeValue) -> bool)({
+  _repr_memo_reset();
+  g_repr_allocator_opaque = true;
+  found := _type_repr_contains_raw_ptr(ty, usize(1024));
+  g_repr_allocator_opaque = false;
+  found
 });
 /// Internal: sibling of `_type_repr_contains_raw_ptr` that ALSO treats
 /// `object`/`Dyn` as a "yes" leaf — used by the slice-flowability arg-source
@@ -3776,7 +3796,7 @@ export(type_contains_some_type_deep);
 export(type_mentions_impl_fn_or_future, is_future_value_type);
 export(fn_type_unrepresentable_impl, fn_type_unrepresentable_impl_message, fn_type_unrepresentable_impl_help);
 export(get_size_of_type, get_alignment_of_type);
-export(type_representation_contains_raw_ptr, type_may_provide_slice_source);
+export(type_representation_contains_raw_ptr, parameter_type_contains_raw_ptr, type_may_provide_slice_source);
 /// Does `ty` mention a trait's `Self` (a SomeT named `Self`)?
 _mentions_trait_self :: (fn(ty : &TypeValue) -> bool)({
   somes := get_all_some_types(ty);
