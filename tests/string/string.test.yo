@@ -2622,10 +2622,27 @@ test("every mutator writes only its own clone", {
   assert((c1 == "h") && (c2 == ">héllo") && (c3 == "<héllo"), "truncate / insert_str / insert");
   assert((c4 == "éllo") && (c5 == "héll") && (c6 == "") && (c7 == "héllo!"), "remove / pop / clear / reserve+push_rune");
 });
-test("s.push_string(s) appends a copy of itself", {
+// Decision 28's value-root rule: the receiver is lent `&mut`, so an argument
+// lending the same string overlaps it (E0910). A copy appends it to itself.
+test("s.push_string(&s) is E0910; a copy of s appends", {
+  comptime_expect_error({
+    mut(s) := String.from("ab");
+    s.push_string(&s)
+  }, "decision 28's value-root rule");
   mut(s) := String.from("ab");
-  s.push_string(&s);
-  assert(s == "abab", "the argument is read before the write");
+  t := s.clone();
+  s.push_string(&t);
+  assert(s == "abab", "a copy of itself appends");
+});
+// A `ref` root is outside the value-root rule, so a string can still be
+// pushed onto itself through one: `push_string` grows `self` before it reads
+// `other` (issues/fixed/a-string-pushed-onto-itself-reads-its-freed-buffer.md).
+_StrCell :: ref(struct(s : String));
+test("a string pushed onto itself through a ref root appends a copy of itself", {
+  o := _StrCell(s : String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
+  o.s.push_string(&o.s);
+  t := String.from("ab-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy");
+  assert(o.s == `${t}${t}`, "the argument is read after the write grew the buffer");
 });
 test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list", {
   s := String.from("xyz");
